@@ -149,13 +149,13 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    `subfolder` - the step the user is shown `final`, every other saving step
    `intermediate` - so `list_gallery(subfolder="final")` lists only
    deliverables. Keep both in anything you compose.
-5. You cannot watch a video: no tool returns a frame from one, and this family
-   has no image steps for `get_output_image` to read. Hand the user the gallery
-   `url` (`list_gallery`, or the manifest's file name), and check what you can -
+5. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
+   `seams=true` for a chained clip's joins, `at` near the end for a scene cut
+   where the prompt contradicted the image or softness where the refine pass
+   was skipped, and `get_output_audio` for a near-silent soundtrack. Then
    `get_job` for the manifest and its warnings, `get_gallery_metadata` for
-   duration, size and whether audio is present. Ask them to look for the
-   family's failure modes: a scene cut where the prompt contradicted the image;
-   softness where the refine pass was skipped; a near-silent soundtrack.
+   duration, size and whether audio is present, and hand the user the
+   gallery `url` (`list_gallery`, or the manifest's file name).
 6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
    so the next run is by name rather than pasted JSON; `export_job` bundles the
    run for git. Fetch its zip URL and unpack it into `exports/` under the

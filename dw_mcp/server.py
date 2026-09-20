@@ -113,8 +113,9 @@ def build_server(client):
             "not accept; repeat until it is clean, since fixing one layer "
             "exposes the next) -> `run_workflow` -> `wait_for_job` rather than a "
             "polling loop -> `get_job` for the manifest -> "
-            "`get_output_image` to actually look at what was made and say "
-            "whether it answers the request. Tools that cost GPU minutes, "
+            "`get_output_image`, `get_output_frames` and `get_output_audio` to "
+            "actually look at and listen to what was made and say whether "
+            "it answers the request. Tools that cost GPU minutes, "
             "disk or unrecoverable deletion refuse until "
             "`acknowledged_cost=true`: tell the user what it will cost (a "
             "workflow you wrote or copied has no `cost`; quote the figure "
@@ -525,9 +526,9 @@ def build_server(client):
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
         only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: audio
-        is `get_output_audio`'s and video is refused, so inspect a video
-        with `get_gallery_metadata` or hand the user the file. The image is
+        succeeded can still have made the wrong picture. Images only: a soundtrack
+        is `get_output_audio`'s and a video's frames are
+        `get_output_frames`'s. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
         downscale is never silent. `crop` is `[x, y, width, height]` in the
@@ -558,30 +559,119 @@ def build_server(client):
         return [image, telemetry]
 
     def get_output_audio(
-        name: str, workspace: str | None = None
+        name: str,
+        start: float | None = None,
+        duration: float | None = None,
+        workspace: str | None = None,
     ) -> list[AudioContent | TextContent]:
-        """Listen to a generated audio output, named as `list_gallery` or a
-        job's manifest reports it - the audio analogue of `get_output_image`.
-        Audio only: an image is `get_output_image`'s and video is refused,
-        so inspect a video with `get_gallery_metadata` or hand the user the
-        file. There is no downscale for audio the way there is for an
-        image's dimensions, so a clip too large to fit inline is refused
-        rather than cut or transcoded - use `download_output` or the `url`
-        list_gallery reports for one that long.
+        """Listen to a generated soundtrack, named as `list_gallery` or a
+        job's manifest reports it - an audio output, or the track muxed
+        into a video (the audio analogue of `get_output_image`): in its
+        own encoding when an audio file is served whole, WAV when
+        extracted or excerpted. No downscale exists for audio, so a whole
+        clip too large to fit inline is refused rather than cut; hear part
+        of a long one by asking for the part - `start` and `duration` in
+        seconds, around a seam or a moment `get_gallery_metadata`'s
+        envelope located. The text part says what was cut. To *see* a
+        video, `get_output_frames`.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
-        result = media.get_output_audio(client, name, workspace=workspace)
+        takes (#99)."""
+        result = media.get_output_audio(
+            client, name, start=start, duration=duration, workspace=workspace
+        )
         audio = AudioContent(
             type="audio", data=result["data"], mime_type=result["mime_type"]
         )
-        telemetry = TextContent(
-            type="text",
-            text=f"name: {result['name']}\nbytes: {result['bytes']}",
-        )
+        lines = [f"name: {result['name']}", f"bytes: {result['bytes']}"]
+        if result["duration_seconds"] is not None:
+            lines.append(f"duration_seconds: {result['duration_seconds']}")
+        if result["excerpt"]:
+            e = result["excerpt"]
+            lines.append(f"excerpt: {e['duration']}s from {e['start']}s of {e['of']}s")
+        telemetry = TextContent(type="text", text="\n".join(lines))
         return [audio, telemetry]
+
+    def get_output_frames(
+        name: str,
+        at: list[str | float] | None = None,
+        seams: bool | list[int] | None = None,
+        count: int | None = None,
+        boundaries: list[int] | None = None,
+        names: list[str] | None = None,
+        max_dimension: int = 512,
+        hear: float | None = None,
+        workspace: str | None = None,
+    ) -> list[ImageContent | AudioContent | TextContent]:
+        """See a generated video as frames - there is no video content
+        type over MCP. One selector per call: `count` for a contact sheet,
+        `at` for moments (seconds or "frame:N"), or `seams` (true, or seam
+        numbers from 1) for the frame pair either side of each join. `seams`
+        needs `boundaries`: each later shot's first frame, the running sum of
+        the shots' `frame_count` from `get_gallery_metadata` on their own
+        files; `names` names the shots. Over budget, tiles shrink together,
+        never drop. `hear=N` adds N seconds of soundtrack around each `at` moment.
+
+        `workspace` pins this call to another workspace (#99)."""
+        result = media.get_output_frames(
+            client,
+            name,
+            at=at,
+            seams=seams,
+            count=count,
+            boundaries=boundaries,
+            names=names,
+            max_dimension=max_dimension,
+            hear=hear,
+            workspace=workspace,
+        )
+        parts = []
+        for tile in result["tiles"]:
+            parts.append(
+                ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
+            )
+            if "audio" in tile:
+                parts.append(
+                    AudioContent(
+                        type="audio",
+                        data=tile["audio"]["data"],
+                        mime_type=tile["audio"]["mime_type"],
+                    )
+                )
+        lines = [
+            f"name: {result['name']}",
+            f"frame_count: {result['frame_count']}  fps: {result['fps']}",
+        ]
+        fps = result["fps"]
+        for tile in result["tiles"]:
+            if tile.get("frames"):
+                # a contact sheet: every cell, so each one can be located
+                cells = ", ".join(
+                    f"{frame} ({frame / fps:.2f}s)" if fps else str(frame)
+                    for frame in tile["frames"]
+                )
+                where = f"frames: {cells}"
+            else:
+                where = f"frame {tile['frame']} @ {tile['seconds']:.2f}s"
+            if tile.get("difference") is not None:
+                where += f"  difference: {tile['difference']}"
+            if tile.get("audio_error"):
+                where += f"  hear: {tile['audio_error']}"
+            lines.append(f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]")
+        if result["downscaled_to"]:
+            lines.append(
+                f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
+            )
+        if result.get("hear"):
+            lines.append(f"hear: {result['hear']}s around each moment")
+        if result.get("audio_truncated"):
+            lines.append(
+                "audio_truncated: some tiles' audio was skipped to stay within "
+                "the response size budget"
+            )
+        parts.append(TextContent(type="text", text="\n".join(lines)))
+        return parts
 
     def get_output_text(
         name: str, max_characters: int = 20000, workspace: str | None = None
@@ -656,6 +746,7 @@ def build_server(client):
 
     tool(get_output_image, READ_ONLY)
     tool(get_output_audio, READ_ONLY)
+    tool(get_output_frames, READ_ONLY)
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
@@ -857,19 +948,13 @@ def build_server(client):
         warning.
 
         A valid answer carries `plan`: what will execute for these
-        arguments. Quote `plan.estimate.minutes` with its `basis` -
-        `observed` is this box's own finished runs of this shape (the cold
-        median over `runs` of them, preferred over any curated figure),
-        `per_entry` is a measured per-entry rate re-priced for your list,
-        `catalog` a measured total for a run whose lists are the ones it
-        was measured with, `derived` that total extrapolated over a list
-        you changed the length of (an estimate - say so), `other_device` a
-        figure from another accelerator (say so), `unknown` no figure at
-        all - and name each `downloads_required`
-        entry as its own line item ("and 41 GB of weights this box does not
-        have"); `gb` is null when the hub could not be asked. `steps` and
-        `list_entries` say how many members the list actually produced.
-        `plan` is null when it could not be built; the verdict stands."""
+        arguments - `estimate.minutes` and its `basis` (`observed`,
+        `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
+        what each means and how to quote it is WORKFLOW_GUIDE's "The loop",
+        step 4), each `downloads_required` entry as its own cost line, and
+        `steps`/`list_entries` for how many members the list actually
+        produced. `plan` is null when it could not be built; the verdict
+        stands."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -1105,26 +1190,15 @@ def build_server(client):
 
         Returns a slim job - status, warnings, error, and the manifest once
         finished - without the arguments; get_job has those. A running job
-        also carries `progress`: the step it is on, the phase (`loading`,
-        `generating`, `decoding`, `saving`) with the model named in
-        `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+        also carries `progress`: the step, phase, and
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
-        starts - which is how a slow run and a stuck one tell apart between
-        two otherwise identical polls. A null `denoise_step` under
-        `generating` is the pipeline's lead-in - encoding the prompt and
-        every reference - which emits nothing and can run for many minutes
-        when a video reference is among them; gaps between denoise steps
-        are uneven too where a transformer block cache is configured. Both
-        are normal, and the model family's own skill carries the measured
-        figures. The signal is whether `denoise_step` has moved since a
-        poll minutes ago, not silence past a fixed threshold.
-
-        `denoise_total_steps` is the schedule the pipeline actually runs,
-        which is not always the `num_inference_steps` that was asked for:
-        MiniMax H3's scheduler counts sigma grid points including the
-        terminal zero, so it runs N-1 model evaluations for N (9 reports 8,
-        20 reports 19). That is the vendor's convention, not a dropped step -
-        raising the number still buys the steps it looks like it does."""
+        starts. Judge a slow run against a stuck one by whether
+        `denoise_step` has moved since a poll minutes ago, not by silence
+        past a fixed threshold - a video reference's lead-in can run many
+        minutes emitting nothing, and denoise gaps are uneven under a
+        transformer block cache; both are normal. The full diagnosis, and
+        why `denoise_total_steps` sometimes reads one less than what was
+        asked for, are in WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

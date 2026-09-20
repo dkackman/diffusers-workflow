@@ -1,5 +1,6 @@
 """The assembled MCP server: what a client actually sees when it connects."""
 
+import base64
 import inspect
 import json
 import os
@@ -36,6 +37,7 @@ EXPECTED_TOOLS = {
     "get_gallery_metadata",
     "get_output_image",
     "get_output_audio",
+    "get_output_frames",
     "validate_workflow",
     "save_workflow",
     "delete_workflow",
@@ -326,6 +328,162 @@ async def test_an_image_comes_back_as_an_image_block():
     assert "bytes" in text_block.text
 
 
+@pytest.mark.asyncio
+async def test_a_seam_tile_text_part_names_its_frame_and_time():
+    """A seam tile's label ("seam 1: a | b") carries no frame or time on its
+    own - unlike an `at`/`count` tile, whose label embeds them - so the text
+    part has to add them itself or an agent reading it cannot tell which
+    frames it is looking at (#193)."""
+
+    def serving_seam(request):
+        return httpx.Response(
+            200,
+            json={
+                "name": "cut.mp4",
+                "frame_count": 48,
+                "fps": 24.0,
+                "width": 64,
+                "height": 32,
+                "tiles": [
+                    {
+                        "label": "seam 1: a | b",
+                        "frame": 24,
+                        "seconds": 1.0,
+                        "difference": 12.5,
+                        "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                        "mime_type": "image/png",
+                        "width": 64,
+                        "height": 32,
+                    }
+                ],
+            },
+        )
+
+    server = server_over(serving_seam)
+
+    result = await server.call_tool(
+        "get_output_frames", {"name": "cut.mp4", "seams": [1]}
+    )
+
+    text_block = result.content[-1]
+    assert text_block.type == "text"
+    assert "seam 1: a | b" in text_block.text
+    assert "frame 24" in text_block.text
+    assert "1.00s" in text_block.text
+    assert "difference: 12.5" in text_block.text
+
+
+@pytest.mark.asyncio
+async def test_a_contact_sheet_text_part_locates_every_cell():
+    """A contact sheet's tile carries `frames` - the index of every cell -
+    but the text part printed only the first ("frame 0 @ 0.00s"), so an
+    agent could not name the moment a cell showed. Each cell is listed
+    with its frame and its time from the clip's fps (#193 review)."""
+
+    def serving_sheet(request):
+        return httpx.Response(
+            200,
+            json={
+                "name": "shot.mp4",
+                "frame_count": 48,
+                "fps": 6.0,
+                "width": 64,
+                "height": 32,
+                "tiles": [
+                    {
+                        "label": "contact sheet, 3 frames",
+                        "frame": 0,
+                        "seconds": 0.0,
+                        "frames": [0, 23, 47],
+                        "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                        "mime_type": "image/png",
+                        "width": 64,
+                        "height": 32,
+                    }
+                ],
+            },
+        )
+
+    server = server_over(serving_sheet)
+
+    result = await server.call_tool("get_output_frames", {"name": "shot.mp4", "count": 3})
+
+    text = result.content[-1].text
+    assert "contact sheet, 3 frames" in text
+    assert "frames: 0 (0.00s), 23 (3.83s), 47 (7.83s)" in text
+
+
+@pytest.mark.asyncio
+async def test_hear_adds_audio_content_after_each_tiles_image():
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={
+                    "name": "shot.mp4",
+                    "frame_count": 48,
+                    "fps": 24.0,
+                    "tiles": [
+                        {
+                            "label": "00:01.0 (frame 24)",
+                            "frame": 24,
+                            "seconds": 1.0,
+                            "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                            "mime_type": "image/png",
+                            "width": 64,
+                            "height": 32,
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"RIFF" + b"\0" * 64,
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "2.0",
+                "x-dw-excerpt-start": "0.0",
+                "x-dw-excerpt-duration": "2.0",
+            },
+        )
+
+    server = server_over(handler)
+
+    result = await server.call_tool(
+        "get_output_frames", {"name": "shot.mp4", "at": [1.0], "hear": 2.0}
+    )
+
+    assert [part.type for part in result.content] == ["image", "audio", "text"]
+    assert "hear: 2.0s around each moment" in result.content[-1].text
+
+
+@pytest.mark.asyncio
+async def test_the_media_tool_descriptions_say_what_they_hand_back():
+    """`boundaries` is each later shot's start frame - the route refuses 0 -
+    and audio arrives in its own encoding only when an audio file is served
+    whole, WAV otherwise."""
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    frames = tools["get_output_frames"].description
+    assert "later shot" in frames
+    assert "each shot's start frame" not in frames
+    audio = tools["get_output_audio"].description
+    assert "WAV" in audio and "own encoding" in audio
+
+
+@pytest.mark.asyncio
+async def test_the_frames_tool_says_where_boundaries_come_from():
+    """Until a joined file carries its own shots (stage 2), the agent has to
+    derive seam boundaries; the tool has to say from what, or `seams` is a
+    parameter nobody can fill in."""
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+    text = tools["get_output_frames"].description
+    assert "get_gallery_metadata" in text
+    assert "frame_count" in text
+
+
 # Every tool, the arguments a client would send, and the one API call it is
 # expected to make. This is the wiring: a tool bound to the wrong handler or
 # handed its arguments in the wrong order shows up here and nowhere else.
@@ -379,7 +537,8 @@ TOOL_WIRING = [
         "/api/gallery/out.png/metadata",
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
-    ("get_output_audio", {"name": "out.wav"}, "GET", "/outputs/out.wav"),
+    ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
+    ("get_output_frames", {"name": "out.mp4", "count": 2}, "GET", "/api/gallery/out.mp4/frames"),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -512,9 +671,17 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
             return httpx.Response(
                 200, content=b"a duke", headers={"content-type": "text/plain"}
             )
-        if request.url.path.endswith(".wav"):
+        if request.url.path.endswith("/audio"):
             return httpx.Response(
                 200, content=b"riff", headers={"content-type": "audio/wav"}
+            )
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={"name": "out.mp4", "frame_count": 2, "fps": 6.0, "width": 1, "height": 1,
+                      "tiles": [{"label": "contact sheet, 2 frames", "frame": 0, "seconds": 0.0,
+                                 "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                                 "mime_type": "image/png", "width": 1, "height": 1}]},
             )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
@@ -914,6 +1081,7 @@ WRAPPER_HANDLER_MAP = {
     "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
     "get_output_audio": (media, "get_output_audio"),
+    "get_output_frames": (media, "get_output_frames"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
     "list_jobs": (catalog, "list_jobs"),
@@ -1109,10 +1277,12 @@ async def test_validate_workflow_teaches_quoting_from_the_plan():
 
 
 def test_the_stated_tool_count_is_the_registered_one():
-    """Two documents state the size of the surface: the README, where it is
-    the first claim made about it, and get_guide's docstring, where it carries
-    the argument that a whole guide costs more than connecting does. Both said
-    55 while 57 were registered, and nothing was checking either."""
+    """Three documents state the size of the surface: the README, where it is
+    the first claim made about it, get_guide's docstring, where it carries
+    the argument that a whole guide costs more than connecting does, and
+    docs/MCP.md's tool reference. README and get_guide both said 55 while 57
+    were registered, and nothing was checking either; docs/MCP.md drifted to
+    55 on its own and nothing was checking it either (#193)."""
     import re
 
     from tests.test_examples import REPO_ROOT
@@ -1124,6 +1294,8 @@ def test_the_stated_tool_count_is_the_registered_one():
         stated["dw/server/guides.py"] = re.search(
             r"(\d+)-tool MCP surface", file.read()
         )
+    with open(os.path.join(REPO_ROOT, "docs", "MCP.md")) as file:
+        stated["docs/MCP.md"] = re.search(r"(\d+) tools in six groups", file.read())
 
     for where, found in stated.items():
         assert found, f"{where} no longer states a tool count in the expected form"
@@ -1152,6 +1324,30 @@ def test_the_stated_tool_count_is_the_registered_one():
 # wait_for_job's stall-diagnosis paragraph are both restated in
 # WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
 # question to ask first is whether the second copy has to be the resident one.
+# Measured 2026-09-20 at 14_017 (9_386 / 3_618 / 1_014) after
+# get_output_frames (#193, #210) - a `seams`/`boundaries`/`names` shape whose
+# 971-char input schema alone is most of what a "tool or two" bought. Paid
+# for, per the paragraph above, by actually cutting the two restated copies
+# rather than raising the ceiling: wait_for_job's stall-diagnosis paragraph
+# and validate_workflow's `plan.basis` taxonomy moved to WORKFLOW_GUIDE's
+# "The loop" (steps 4 and 5), leaving a pointer plus the pinned words other
+# tests still check for. Landed at 13_741 (9_110 / 3_618 / 1_014) - back
+# under the original ceiling with room to spare.
+# Measured 2026-09-20 at 13_784 (9_153 / 3_618 / 1_014) after
+# get_output_frames's docstring grew a sentence saying where `boundaries`
+# comes from before stage 2 (`shots` on the artifact) exists - the running
+# sum of `get_gallery_metadata`'s `frame_count` for each shot. 16 tokens of
+# headroom left; the next docstring change here should measure again rather
+# than assume it still fits.
+# Measured 2026-09-20 at 13_799.5 (9_144.5 / 3_641 / 1_014) after
+# get_output_frames gained `hear` (soundtrack around each `at` moment, one
+# AudioContent per tile that has one). Paid for by tightening two
+# sentences: `get_output_frames`'s "(seconds, or "frame:N")" lost its
+# comma, and `get_output_audio`'s "The text part reports the track's
+# length and, for an excerpt, exactly what was cut, so a slice is never
+# mistaken for the whole." shortened to "The text part says what was cut."
+# 0.5 tokens of headroom left; the next docstring change here should
+# measure again rather than assume it still fits.
 SURFACE_BUDGET = 13_800
 
 

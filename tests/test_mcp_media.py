@@ -16,6 +16,7 @@ from dw_mcp.media import (
     MAX_RETURNED_BYTES,
     download_output,
     get_output_audio,
+    get_output_frames,
     get_output_image,
 )
 
@@ -44,6 +45,15 @@ def serving(content, content_type):
     def handler(request):
         return httpx.Response(
             200, content=content, headers={"content-type": content_type}
+        )
+
+    return DwClient(transport=httpx.MockTransport(handler))
+
+
+def serving_with_headers(content, content_type, headers):
+    def handler(request):
+        return httpx.Response(
+            200, content=content, headers={"content-type": content_type, **headers}
         )
 
     return DwClient(transport=httpx.MockTransport(handler))
@@ -228,6 +238,70 @@ class TestGetOutputAudio:
 
         with pytest.raises(DwApiError, match="Unknown file"):
             get_output_audio(client, "ghost.wav")
+
+
+def test_audio_is_fetched_from_the_gallery_audio_route():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(
+            200,
+            content=b"riff",
+            headers={"content-type": "audio/wav", "x-dw-duration": "2.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_audio(client, "run/shot.mp4")
+
+    # request.url.path decodes percent-escapes back for display (see the
+    # comment in test_the_name_is_url_quoted_in_the_request above); the
+    # encoding itself is api_path's job and is covered by
+    # tests/test_mcp_client.py.
+    assert seen == [("/api/gallery/run/shot.mp4/audio", {})]
+    assert result["mime_type"] == "audio/wav"
+    assert result["duration_seconds"] == 2.0
+    assert result["excerpt"] is None
+
+
+def test_an_excerpt_is_asked_for_and_reported():
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            content=b"riff",
+            headers={
+                "content-type": "audio/wav",
+                "x-dw-duration": "240.0",
+                "x-dw-excerpt-start": "10.0",
+                "x-dw-excerpt-duration": "2.0",
+            },
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_audio(client, "cut.mp4", start=10.0, duration=2.0)
+
+    assert seen == [{"start": "10.0", "duration": "2.0"}]
+    assert result["excerpt"] == {"start": 10.0, "duration": 2.0, "of": 240.0}
+
+
+def test_a_whole_track_over_budget_is_refused_and_told_to_excerpt():
+    big = b"\0" * (MAX_RETURNED_BYTES * 3 // 4 + 1024)
+    client = serving_with_headers(big, "audio/wav", {"x-dw-duration": "240.0"})
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    assert "start" in str(caught.value) and "duration" in str(caught.value)
+
+
+def test_a_non_audio_answer_is_refused():
+    client = serving(b"{}", "application/json")
+
+    with pytest.raises(DwApiError, match="not audio"):
+        get_output_audio(client, "thing.json")
 
 
 def test_a_non_image_output_is_refused_without_reading_the_body():
@@ -782,3 +856,236 @@ def test_a_stdio_client_still_writes_wherever_the_user_can(tmp_path):
     download_output(client, "run/probe.jpg", destination=str(destination))
 
     assert destination.read_bytes() == png_bytes(4, 4)
+
+
+def tile_json(width, height, label="00:00.0 (frame 0)", frame=0, seconds=0.0):
+    return {
+        "label": label,
+        "frame": frame,
+        "seconds": seconds,
+        "data": base64.b64encode(png_bytes(width, height)).decode("ascii"),
+        "mime_type": "image/png",
+        "width": width,
+        "height": height,
+    }
+
+
+def frames_server(tiles, seen=None):
+    def handler(request):
+        if seen is not None:
+            seen.append((request.url.path, list(request.url.params.multi_items())))
+        return httpx.Response(
+            200, json={"name": "x.mp4", "frame_count": 24, "fps": 6.0, "width": 64, "height": 32, "tiles": tiles}
+        )
+
+    return DwClient(transport=httpx.MockTransport(handler))
+
+
+def test_frames_are_asked_for_by_moment_and_come_back_labelled():
+    seen = []
+    client = frames_server([tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen)
+
+    result = get_output_frames(client, "run/x.mp4", at=[0.0, "frame:12"])
+
+    # request.url.path decodes percent-escapes back for display (see the
+    # comment on test_audio_is_fetched_from_the_gallery_audio_route above);
+    # the encoding itself is api_path's job, covered by tests/test_mcp_client.py.
+    assert seen[0][0] == "/api/gallery/run/x.mp4/frames"
+    assert dict(seen[0][1])["at"] == "0.0,frame:12"
+    assert [t["label"] for t in result["tiles"]] == ["00:00.0 (frame 0)", "00:02.0 (frame 12)"]
+    assert result["downscaled_to"] is None
+
+
+def test_seams_send_boundaries_and_names():
+    seen = []
+    client = frames_server([tile_json(128, 32, "seam 1: a | b", 8, 1.33)], seen)
+
+    get_output_frames(client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"])
+
+    params = dict(seen[0][1])
+    assert params["seams"] == "1"
+    assert params["boundaries"] == "8,16"
+    assert params["names"] == "a,b,c"
+
+
+def test_two_selectors_are_refused_before_any_request():
+    client = frames_server([])
+
+    with pytest.raises(DwApiError, match="one of"):
+        get_output_frames(client, "x.mp4", at=[0.0], count=4)
+
+
+def test_tiles_over_budget_are_shrunk_together_and_say_so():
+    # three noisy 2048x1024 tiles: well over 4MB base64 between them
+    tiles = []
+    for n in range(3):
+        tiles.append(
+            {
+                **tile_json(2048, 1024, frame=n, seconds=float(n)),
+                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode("ascii"),
+            }
+        )
+    client = frames_server(tiles)
+
+    result = get_output_frames(client, "x.mp4", at=[0, 1, 2], max_dimension=2048)
+
+    total = sum(len(t["data"]) for t in result["tiles"])
+    assert total <= MAX_RETURNED_BYTES
+    assert len(result["tiles"]) == 3  # shrunk, not dropped
+    assert result["downscaled_to"] is not None and result["downscaled_to"] < 2048
+    assert all(decoded(t).width == result["tiles"][0]["width"] for t in result["tiles"])
+
+
+def test_a_whole_track_over_budget_is_refused_from_its_content_length():
+    """The refusal above must not have downloaded the track to make it:
+    the server declares the body's length, and the tool refuses on that
+    header without reading past it (#193 review)."""
+    length = MAX_RETURNED_BYTES * 3 // 4 + 1024
+
+    class Unread(httpx.SyncByteStream):
+        iterated = False
+
+        def __iter__(self):
+            Unread.iterated = True
+            yield b"\0" * 1024
+
+        def close(self):
+            pass
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "audio/wav",
+                "content-length": str(length),
+                "x-dw-duration": "240.0",
+            },
+            stream=Unread(),
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    assert "start" in str(caught.value) and "duration" in str(caught.value)
+    assert str(length) in str(caught.value)
+    assert Unread.iterated is False
+
+
+def test_a_413_from_the_server_reads_as_the_same_excerpt_advice():
+    """The gallery route refuses a long video's whole track with a 413
+    before decoding it; the tool must surface that as the excerpt advice,
+    not as an opaque HTTP failure."""
+
+    def handler(request):
+        return httpx.Response(
+            413,
+            json={
+                "detail": "cut.mp4's whole soundtrack would be 5000000 bytes "
+                "base64-encoded as WAV - over the 4194304 byte limit for an "
+                "inline clip. Ask for an excerpt with `start` and `duration` "
+                "(seconds), or download the file."
+            },
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DwApiError) as caught:
+        get_output_audio(client, "cut.mp4")
+
+    message = str(caught.value)
+    assert "start" in message and "duration" in message
+    assert "HTTP 413" not in message
+
+
+def test_hear_fetches_an_excerpt_around_each_moment():
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, dict(request.url.params)))
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
+                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                                                       tile_json(64, 32, "00:00.2 (frame 5)", 5, 0.2)]})
+        return httpx.Response(200, content=b"RIFF" + b"\0" * 64,
+                              headers={"content-type": "audio/wav", "x-dw-duration": "2.0",
+                                       "x-dw-excerpt-start": request.url.params["start"],
+                                       "x-dw-excerpt-duration": request.url.params["duration"]})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[1.0, 0.2], hear=1.0)
+
+    audio_calls = [c for c in calls if c[0].endswith("/audio")]
+    assert [c[1]["start"] for c in audio_calls] == ["0.5", "0.0"]  # never before 0
+    assert [c[1]["duration"] for c in audio_calls] == ["1.0", "1.0"]
+    assert all(t["audio"]["mime_type"] == "audio/wav" for t in result["tiles"])
+    assert result["tiles"][0]["audio"]["excerpt"]["start"] == 0.5
+
+
+def test_hear_on_a_mute_clip_keeps_the_frames_and_says_so():
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(200, json={"frame_count": 48, "fps": 24.0,
+                                             "tiles": [tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0)]})
+        return httpx.Response(404, json={"detail": "x.mp4 carries no soundtrack"})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[1.0], hear=1.0)
+
+    assert "audio" not in result["tiles"][0]
+    assert "no soundtrack" in result["tiles"][0]["audio_error"]
+
+
+def test_hear_is_refused_without_at():
+    client = frames_server([])
+
+    with pytest.raises(DwApiError, match="hear"):
+        get_output_frames(client, "x.mp4", count=4, hear=1.0)
+
+
+def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
+    """Each excerpt is well under get_output_audio's own per-clip cap, but
+    three of them together are not under the response's overall budget:
+    fetching must stop rather than blow the aggregate, and the tiles it
+    stopped on say so rather than silently losing their audio (#193 review,
+    finding 1)."""
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 20)
+
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={
+                    "frame_count": 72,
+                    "fps": 24.0,
+                    "tiles": [
+                        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
+                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+                        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
+                    ],
+                },
+            )
+        return httpx.Response(
+            200,
+            content=b"x" * 8,  # base64-encodes to 12 bytes: under the cap alone
+            headers={"content-type": "audio/wav", "x-dw-duration": "2.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    result = get_output_frames(client, "x.mp4", at=[0.0, 1.0, 2.0], hear=1.0)
+
+    assert "audio" in result["tiles"][0]
+    assert "audio_error" not in result["tiles"][0]
+    assert result["tiles"][1]["audio_error"] == (
+        "skipped - would exceed the response size budget"
+    )
+    assert result["tiles"][2]["audio_error"] == (
+        "skipped - would exceed the response size budget"
+    )
+    assert "audio" not in result["tiles"][1]
+    assert "audio" not in result["tiles"][2]
+    assert result["audio_truncated"] is True

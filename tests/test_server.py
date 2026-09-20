@@ -1274,6 +1274,394 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
+    """get_output_audio refused video/mp4 outright, so a generated clip's
+    soundtrack could only be heard by fetching the file and demuxing it by
+    hand (#193). The route hands the track back as WAV."""
+    import io
+    import wave
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+
+        response = client.get("/api/gallery/shot-gen.0-0.0.mp4/audio")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(2.0, abs=0.1)
+        assert "x-dw-excerpt-start" not in response.headers
+        with wave.open(io.BytesIO(response.content)) as handle:
+            assert handle.getframerate() == 8000
+            assert handle.getnchannels() == 2
+
+
+def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, tmp_path):
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
+        raw = (outputs / "score-gen.0-0.0.wav").read_bytes()
+
+        response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
+
+        assert response.status_code == 200
+        assert response.content == raw
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+        # mimetypes says audio/x-wav on macOS and audio/wav elsewhere; an
+        # extract says audio/wav, and the whole file must say the same
+        assert response.headers["content-type"] == "audio/wav"
+
+
+def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path):
+    """The "nothing to extract" fast path used to call probe_media for one
+    header, which decodes the whole track to measure its level (#193 review).
+    A four-minute mp3 must not pay for that decode just to answer duration."""
+    import av
+    from tests.test_media_info import write_wav
+    from unittest import mock
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
+
+        # probe_media catches a decode failure and returns the fields already
+        # gathered (duration included), so a decode call must be *counted*
+        # here rather than made to raise - a raise inside the decode loop is
+        # swallowed by probe_media's own except-and-degrade path and would
+        # never surface as a test failure.
+        called = []
+        original_decode = av.container.InputContainer.decode
+
+        def counting_decode(self, *args, **kwargs):
+            called.append(True)
+            yield from original_decode(self, *args, **kwargs)
+
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
+
+        assert response.status_code == 200
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+        assert called == [], "serving a whole audio file decoded it"
+
+
+def test_gallery_audio_refuses_to_extract_a_whole_track_over_the_inline_cap(server, tmp_path):
+    """A whole-track request on a long video used to decode and ship the
+    entire WAV before the MCP side refused it. The route projects the WAV
+    size from the container's headers first and answers 413 - naming
+    `start`/`duration` - without decoding a frame (#193 review)."""
+    import av
+    from unittest import mock
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        # 100 s at 8 kHz stereo 16-bit is 3.2 MB of PCM, 4.27 MB as base64
+        write_mp4(outputs / "long-gen.0-0.0.mp4", frames=100, fps=1)
+
+        called = []
+        original_decode = av.container.InputContainer.decode
+
+        def counting_decode(self, *args, **kwargs):
+            called.append(True)
+            yield from original_decode(self, *args, **kwargs)
+
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            response = client.get("/api/gallery/long-gen.0-0.0.mp4/audio")
+
+        assert response.status_code == 413
+        detail = response.json()["detail"]
+        assert "start" in detail and "duration" in detail
+        assert called == [], "a refused whole-track request decoded the file"
+
+        # an excerpt of the same file is still served
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            excerpt = client.get(
+                "/api/gallery/long-gen.0-0.0.mp4/audio",
+                params={"start": 10, "duration": 1},
+            )
+        assert excerpt.status_code == 200
+
+
+def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
+    import io
+    import wave
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=4.0)
+
+        response = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 1.0, "duration": 0.5}
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.headers["x-dw-excerpt-start"] == "1.0"
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.5, abs=0.02)
+        assert float(response.headers["x-dw-duration"]) == pytest.approx(4.0, abs=0.05)
+        with wave.open(io.BytesIO(response.content)) as handle:
+            assert handle.getnframes() == pytest.approx(4000, abs=100)
+
+
+def test_gallery_audio_refuses_a_bad_excerpt_and_a_mute_file(server, tmp_path):
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "mute-gen.0-0.0.mp4", frames=6, fps=6, with_audio=False)
+
+        past = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 5.0, "duration": 1.0}
+        )
+        assert past.status_code == 400
+        assert "past the end" in past.json()["detail"]
+
+        mute = client.get("/api/gallery/mute-gen.0-0.0.mp4/audio")
+        assert mute.status_code == 404
+        assert "soundtrack" in mute.json()["detail"]
+
+        still = client.get("/api/gallery/missing.png/audio")
+        assert still.status_code == 404
+
+
+def test_gallery_audio_reads_an_asset_reference(asset_server, tmp_path):
+    from tests.test_media_info import write_wav
+
+    with asset_server(success_script) as client:
+        write_wav(tmp_path / "assets" / "bed.wav", seconds=1.0)
+
+        response = client.get(
+            "/api/gallery/asset:bed.wav/audio", params={"start": 0.0, "duration": 0.25}
+        )
+
+        assert response.status_code == 200
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.25, abs=0.02)
+
+
+def _png_of(tile):
+    import base64
+    import io
+    from PIL import Image
+
+    return Image.open(io.BytesIO(base64.b64decode(tile["data"])))
+
+
+def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
+    """No tool returned a frame of a video, so judging a clip meant handing
+    the user the file (#193, #245). The route seeks out the moments named."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": "0.0,frame:12", "max_dimension": "32"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["frame_count"] == 24 and body["fps"] == 6.0
+        assert [t["frame"] for t in body["tiles"]] == [0, 12]
+        assert body["tiles"][0]["mime_type"] == "image/png"
+        assert body["tiles"][0]["width"] == 32  # downscaled to max_dimension
+        assert _png_of(body["tiles"][0]).size == (32, 16)
+
+
+def test_gallery_frames_makes_a_contact_sheet(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 4}
+        )
+
+        assert response.status_code == 200
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["label"] == "contact sheet, 4 frames"
+        assert tiles[0]["frames"] == [0, 8, 15, 23]
+
+
+def test_gallery_frames_pairs_the_frames_at_each_seam(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "cut-gen.0-0.0.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "true", "boundaries": "8,16", "names": "a,b,c"},
+        )
+
+        assert response.status_code == 200
+        tiles = response.json()["tiles"]
+        assert [t["label"] for t in tiles] == ["seam 1: a | b", "seam 2: b | c"]
+
+        second = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "2", "boundaries": "8,16"},
+        )
+        assert [t["label"] for t in second.json()["tiles"]] == ["seam 2: shot 2 | shot 3"]
+
+
+def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=6, fps=6)
+        write_wav(outputs / "score-gen.0-0.0.wav")
+
+        none = client.get("/api/gallery/shot-gen.0-0.0.mp4/frames")
+        assert none.status_code == 400 and "one of" in none.json()["detail"]
+
+        two = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2, "at": "0"}
+        )
+        assert two.status_code == 400
+
+        no_boundaries = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"seams": "true"}
+        )
+        assert no_boundaries.status_code == 400
+        assert "boundaries" in no_boundaries.json()["detail"]
+
+        past = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"at": "9.0"}
+        )
+        assert past.status_code == 400 and "past the end" in past.json()["detail"]
+
+        audio = client.get("/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1})
+        assert audio.status_code == 404
+
+
+def test_gallery_frames_refuses_an_empty_seam_list(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(tmp_path / "outputs" / "cut.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut.mp4/frames", params={"seams": ",", "boundaries": "8"}
+        )
+
+        assert response.status_code == 400
+        assert "seams" in response.json()["detail"]
+
+
+def test_gallery_frames_caps_the_number_of_moments(server, tmp_path):
+    """`at` had no cap: a comma list of hundreds of moments decoded and
+    encoded hundreds of tiles in the server process. More than
+    MAX_FRAME_MOMENTS is a 400 that says the cap."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=6, fps=6)
+        cap = 32  # MAX_FRAME_MOMENTS, declared beside FRAME_MIN_DIMENSION in the app
+
+        too_many = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": ",".join(["0"] * (cap + 1))},
+        )
+        assert too_many.status_code == 400
+        assert str(cap) in too_many.json()["detail"]
+
+        at_cap = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": ",".join(["0"] * cap)},
+        )
+        assert at_cap.status_code == 200
+        assert len(at_cap.json()["tiles"]) == cap
+
+
+def test_gallery_frames_caps_the_contact_sheet(server, tmp_path):
+    from dw.media_frames import MAX_CONTACT_SHEET_FRAMES
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "long.mp4", frames=MAX_CONTACT_SHEET_FRAMES + 2, fps=6)
+
+        response = client.get(
+            "/api/gallery/long.mp4/frames", params={"count": MAX_CONTACT_SHEET_FRAMES + 1}
+        )
+
+        assert response.status_code == 400
+        assert str(MAX_CONTACT_SHEET_FRAMES) in response.json()["detail"]
+
+
+def test_gallery_frames_refuses_a_non_finite_moment_and_a_seam_off_the_cut(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "cut-gen.0-0.0.mp4", frames=24, fps=6)
+
+        infinite = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames", params={"at": "inf"}
+        )
+        assert infinite.status_code == 400
+
+        off = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "3", "boundaries": "8,16"},
+        )
+        assert off.status_code == 400 and "1..2" in off.json()["detail"]
+
+
+def test_gallery_frames_reads_an_asset_reference(asset_server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with asset_server(success_script) as client:
+        write_ramp_mp4(tmp_path / "assets" / "ref.mp4", frames=6, fps=6)
+
+        response = client.get("/api/gallery/asset:ref.mp4/frames", params={"count": 2})
+
+        assert response.status_code == 200
+        assert response.json()["tiles"][0]["frames"] == [0, 5]
+
+
+def test_gallery_frames_computes_video_shape_only_once(server, tmp_path, monkeypatch):
+    """The route answers frame_count/fps/width/height itself and hands the
+    same shape to the selector function - it must not call video_shape a
+    second time just to build the answer (#193 follow-up)."""
+    from tests.test_media_frames import write_ramp_mp4
+    import dw.server.app as app_module
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
+
+        calls = [0]
+        original = app_module.video_shape
+
+        def counting_shape(path):
+            calls[0] += 1
+            return original(path)
+
+        monkeypatch.setattr(app_module, "video_shape", counting_shape)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2}
+        )
+
+        assert response.status_code == 200
+        assert calls[0] == 1
+
+
 def test_workflow_variables_answer_without_the_whole_definition(server, tmp_path):
     """Confirming what a variable defaults to meant fetching the entire
     workflow - quantization blocks and all - to read one integer."""
@@ -4790,3 +5178,17 @@ def test_a_validate_miss_with_no_library_configured_says_so(server):
         [error] = [e for e in result["errors"] if e["path"] == "arguments.image"]
         assert "no asset library" in error["message"]
         assert "BaseException" not in error["message"]
+
+
+def test_gallery_frames_seam_tiles_carry_their_difference(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(tmp_path / "outputs" / "cut.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut.mp4/frames", params={"seams": "true", "boundaries": "8"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["tiles"][0]["difference"] == pytest.approx(10.0, abs=6)

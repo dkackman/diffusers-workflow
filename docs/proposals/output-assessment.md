@@ -5,7 +5,9 @@ watch generated output), folding in #210 (no `VideoContent` in the MCP SDK)
 and the per-segment `analyze_cut` proposal from #193's thread. Written from
 a design conversation with Don, every section agreed; revised the same day
 after a review pass against the code (the *Review findings* section records
-what changed and why). No code changes yet.
+what changed and why). Stage 1 (evidence) is on branch `feat/193-evidence`
+(3736b01), full suite green, pending merge to `develop`. Stages 2-4 not
+started.
 
 ## The goal
 

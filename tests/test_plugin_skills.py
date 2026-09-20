@@ -458,6 +458,21 @@ def test_a_skill_states_the_subfolder_convention(path):
     assert text.index("`subfolder`") > text.index("## Run and judge")
 
 
+@pytest.mark.parametrize("path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"])
+def test_a_video_skill_names_the_tools_that_see_and_hear_a_clip(path):
+    """Both video skills said "no tool returns a frame from one" and told the
+    agent to ask the user to look; `get_output_frames` and `get_output_audio`
+    exist now (#193), and the skill has to send the agent there while still
+    handing the user the gallery url."""
+    text = skill_text(path)
+    assert "no tool returns a frame" not in text
+    assert "`get_output_frames(count=12)`" in text
+    assert "`get_output_audio`" in text
+    assert "gallery `url`" in text
+    judge = text[text.index("## Run and judge"):]
+    assert "get_output_frames" in judge
+
+
 def test_the_h3_skill_names_each_cut_templates_final_step():
     """The skill names the one `final` step of each cut template - episode,
     music_video, voyage; if a template's roles change the skill must change
@@ -513,3 +528,14 @@ def test_a_skill_is_enumerated_where_the_plugin_describes_itself(path):
             assert f"`{name}`" in content, (
                 f"skill {name!r} is not named in {os.path.relpath(document, REPO_ROOT)}"
             )
+
+
+@pytest.mark.parametrize("path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"])
+def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
+    """Naming the tools and naming the failure modes in separate sentences
+    leaves the agent to guess which shows which; the step has to say
+    `seams=true` is for a join and `at` is for a moment."""
+    text = skill_text(path)
+    judge = text[text.index("## Run and judge"):]
+    assert "`seams=true`" in judge
+    assert "`at`" in judge

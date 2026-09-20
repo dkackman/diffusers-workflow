@@ -6,6 +6,8 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import base64
+import mimetypes
 import shutil
 import io
 import zipfile
@@ -72,6 +74,15 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
+from ..media_audio import (
+    MAX_INLINE_AUDIO_BYTES,
+    NoSoundtrack,
+    audio_shape,
+    extract_audio,
+    media_duration,
+    projected_wav_base64_size,
+)
+from ..media_frames import contact_sheet, frames_at, seam_tiles, video_shape
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -2806,6 +2817,209 @@ def create_app(
             "job": job,
             "media": media,
         }
+
+    @app.get("/api/gallery/{name:path}/audio")
+    def gallery_audio(
+        name: str,
+        start: Optional[float] = None,
+        duration: Optional[float] = None,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """The soundtrack of an output or asset, as WAV - a muxed video's
+        track, which `get_output_audio` used to refuse outright, or an
+        excerpt (`start` + `duration`, seconds) of a track too long to send
+        whole (#193). An excerpt names itself in the response headers
+        (`X-DW-Excerpt-Start`, `X-DW-Excerpt-Duration`) beside the whole
+        track's `X-DW-Duration` - omitted only when a container carries no
+        duration in its own header - so a cut is never silent (#204).
+
+        An audio-only file asked for whole is served as its own bytes in its
+        own encoding - there is nothing to extract, and a transcode would
+        change what the agent hears."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        extension = os.path.splitext(path)[1].lower()
+        kind = MEDIA_KINDS.get(extension)
+        if kind not in ("audio", "video"):
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+
+        excerpt = start is not None or duration is not None
+        if kind == "audio" and not excerpt:
+            # The container's own header has the duration - reading it does
+            # not decode a single frame, unlike probe_media (which measures
+            # level and would pay for a full decode just for one number).
+            headers = {}
+            duration_seconds = media_duration(path)
+            if duration_seconds is not None:
+                headers["X-DW-Duration"] = str(duration_seconds)
+            media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            if media_type == "audio/x-wav":
+                # macOS's mimetypes table says x-wav; an extract says
+                # audio/wav, and a whole WAV must not read as a different kind
+                media_type = "audio/wav"
+            return FileResponse(path, media_type=media_type, headers=headers)
+
+        if not excerpt:
+            # A whole track is refused at the header, not after it has been
+            # decoded and shipped: the MCP side would refuse the same bytes
+            # for the same reason, having paid for all of them.
+            projected = projected_wav_base64_size(audio_shape(path))
+            if projected is not None and projected > MAX_INLINE_AUDIO_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{name}'s whole soundtrack would be {projected} bytes "
+                        f"base64-encoded as WAV - over the {MAX_INLINE_AUDIO_BYTES} "
+                        "byte limit for an inline clip. Ask for an excerpt with "
+                        "`start` and `duration` (seconds), or download the file."
+                    ),
+                )
+
+        try:
+            data, info = extract_audio(path, start=start, duration=duration)
+        except NoSoundtrack:
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        headers = {"X-DW-Duration": str(info["of_seconds"])}
+        if info["excerpt"]:
+            headers["X-DW-Excerpt-Start"] = str(info["start"])
+            headers["X-DW-Excerpt-Duration"] = str(info["duration_seconds"])
+        return Response(content=data, media_type="audio/wav", headers=headers)
+
+    FRAME_MIN_DIMENSION = 64
+    # The most moments one `at` may name: each is a seek, a decode and a
+    # PNG encode in the server process, and a contact sheet is the shape
+    # for seeing more of a clip at once
+    MAX_FRAME_MOMENTS = 32
+
+    @app.get("/api/gallery/{name:path}/frames")
+    def gallery_frames(
+        name: str,
+        at: Optional[str] = None,
+        count: Optional[int] = None,
+        seams: Optional[str] = None,
+        boundaries: Optional[str] = None,
+        names: Optional[str] = None,
+        max_dimension: int = 512,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Frames of a video output or asset, as PNG tiles - the way an
+        agent with no video content type sees what a run made (#193).
+        Exactly one selector: `at` (a comma list of seconds or "frame:N"),
+        `count` (an evenly spaced contact sheet, `frame_grid` without a
+        workflow), or `seams` ("true", or a comma list of 1-based seam
+        numbers) for the last frame before and first frame after each
+        boundary, side by side. `boundaries` is the comma list of frame
+        indexes each shot after the first starts at, and `names` the
+        shots' names; both are required with `seams` until a joined file
+        carries its own (stage 2 of docs/proposals/output-assessment.md).
+        Tiles are downscaled to `max_dimension` on their longest side."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
+            raise HTTPException(status_code=404, detail=f"{name} is not a video")
+
+        chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+        if len(chosen) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Pass exactly one of `at`, `count` or `seams`"
+                + (f" - got {', '.join(chosen)}" if chosen else ""),
+            )
+        # A floor on each *sub-tile* of a composite (contact sheet / seam
+        # pair) - a caller asking for a small max_dimension still gets a
+        # legible grid, which is then fit to max_dimension as a whole below.
+        sub_tile_width = max(FRAME_MIN_DIMENSION, int(max_dimension))
+        limit = max(1, int(max_dimension))
+
+        try:
+            # Computed once and threaded through every selector below: each
+            # of frames_at/contact_sheet/seam_tiles would otherwise call
+            # video_shape itself, opening the container (and, lacking a
+            # header frame count, decoding it whole to count) a second time
+            # just to answer the same frame_count/fps/width/height (#193).
+            shape = video_shape(path)
+            if at:
+                moments = [
+                    m.strip() if m.strip().startswith("frame:") else float(m)
+                    for m in at.split(",")
+                    if m.strip()
+                ]
+                if len(moments) > MAX_FRAME_MOMENTS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"`at` names {len(moments)} moments; the most is "
+                        f"{MAX_FRAME_MOMENTS} - ask for a contact sheet (`count`) "
+                        "to see more of the clip at once",
+                    )
+                tiles = frames_at(path, moments, shape=shape)
+            elif count:
+                tiles = [contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)]
+            else:
+                if not boundaries:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` needs `boundaries`: the frame index each "
+                        "shot after the first starts at, comma-separated - this "
+                        "file carries none of its own",
+                    )
+                starts = [int(b) for b in boundaries.split(",") if b.strip()]
+                shot_names = [n.strip() for n in names.split(",")] if names else None
+                wanted = (
+                    None
+                    if seams.lower() == "true"
+                    else {int(s) for s in seams.split(",") if s.strip()}
+                )
+                if wanted is not None and not wanted:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` names no seam - pass `true` for every seam, "
+                        "or seam numbers from 1",
+                    )
+                tiles = seam_tiles(
+                    path,
+                    starts,
+                    names=shot_names,
+                    tile_width=sub_tile_width,
+                    shape=shape,
+                    wanted=wanted,
+                )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        return {
+            "name": name,
+            **shape,
+            "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+        }
+
+    def _encoded_tile(tile, limit):
+        image = tile["image"]
+        longest = max(image.width, image.height)
+        if longest > limit:
+            scale = limit / longest
+            image = image.resize(
+                (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+            )
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = {
+            key: value for key, value in tile.items() if key != "image"
+        }
+        encoded.update(
+            {
+                "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+                "mime_type": "image/png",
+                "width": image.width,
+                "height": image.height,
+            }
+        )
+        return encoded
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok
