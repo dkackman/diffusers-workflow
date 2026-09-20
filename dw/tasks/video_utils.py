@@ -8,6 +8,7 @@ to pull a single frame out of any of them, always as a PIL image.
 """
 
 import logging
+import math
 import re
 
 import numpy
@@ -171,6 +172,119 @@ def loop_frames(video, num_frames):
         raise ValueError("loop_frames was given no frames to repeat")
     laps = -(-num_frames // len(frames))  # ceiling, so the last lap is trimmed
     return numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+
+
+def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
+    """Task command: tile evenly sampled frames of a video into one contact
+    sheet - a preview of a clip's shape without authoring a frames-extraction
+    workflow (#245).
+
+    Args:
+        video: Frames in any shape a result carries
+        count: How many frames to sample, spaced evenly across the clip's
+            full duration (including its first and last frame). Clamped to
+            the clip's own frame count when the clip is shorter
+        columns: Tiles per row. Defaults to a grid biased wide - clips are
+            usually landscape - with the last row left-justified when
+            `count` is not a perfect multiple of it
+        tile_width: Width in pixels of each tile; height follows the source
+            frame's aspect ratio
+        label: Burn the sampled timestamp (or frame index, when the video
+            carries no frame rate) into each tile's corner
+
+    Returns:
+        One PIL image, the tiled contact sheet
+    """
+    count = _positive_int(count, "frame_grid", "count")
+    if columns is not None:
+        columns = _positive_int(columns, "frame_grid", "columns")
+    tile_width = _positive_int(tile_width, "frame_grid", "tile_width")
+    if not isinstance(label, bool):
+        raise ValueError(f"frame_grid needs 'label' as true or false, got {label!r}")
+
+    total = frame_count(video)
+    if total == 0:
+        raise ValueError("frame_grid was given a video with no frames")
+    count = min(count, total)
+    fps = getattr(video, "fps", None)
+
+    indices = _evenly_spaced_indices(total, count)
+    tiles = [
+        _grid_tile(extract_frame(video, index), index, fps, tile_width, label)
+        for index in indices
+    ]
+
+    if columns is None:
+        columns = _default_columns(len(tiles))
+    return _compose_grid(tiles, columns)
+
+
+def _positive_int(value, command, name):
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
+    if value < 1:
+        raise ValueError(f"{command} needs '{name}' of at least 1, got {value}")
+    return value
+
+
+def _evenly_spaced_indices(total, count):
+    """`count` frame indices spaced evenly across [0, total - 1], inclusive
+    of both ends. Rounding can coincide two spacings on one index in a short
+    clip; those collapse rather than repeating the same frame as a tile."""
+    if count == 1:
+        return [0]
+    raw = numpy.linspace(0, total - 1, num=count)
+    seen = []
+    for value in raw.round().astype(int).tolist():
+        if not seen or seen[-1] != value:
+            seen.append(value)
+    return seen
+
+
+def _default_columns(count):
+    """A grid biased wide: rows no more than columns, columns >= sqrt(count)."""
+    rows = math.isqrt(count) or 1
+    return math.ceil(count / rows)
+
+
+def _grid_tile(frame, index, fps, tile_width, label):
+    tile_height = max(1, round(frame.height * tile_width / frame.width))
+    tile = frame.resize((tile_width, tile_height), Image.LANCZOS).convert("RGB")
+    if not label:
+        return tile
+
+    from PIL import ImageDraw, ImageFont
+
+    text = _format_timestamp(index, fps) if fps else f"#{index}"
+    draw = ImageDraw.Draw(tile)
+    font_size = max(10, tile_width // 16)
+    try:
+        font = ImageFont.truetype("Arial", font_size)
+    except (IOError, OSError):
+        font = ImageFont.load_default(size=font_size)
+    draw.text((4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black")
+    return tile
+
+
+def _format_timestamp(index, fps):
+    seconds = index / fps
+    minutes, remainder = divmod(seconds, 60)
+    return f"{int(minutes):02d}:{remainder:04.1f}"
+
+
+def _compose_grid(tiles, columns):
+    tile_width, tile_height = tiles[0].size
+    rows = math.ceil(len(tiles) / columns)
+    grid = Image.new("RGB", (columns * tile_width, rows * tile_height), (0, 0, 0))
+    for position, tile in enumerate(tiles):
+        row, col = divmod(position, columns)
+        grid.paste(tile, (col * tile_width, row * tile_height))
+    return grid
 
 
 def is_video(value):
