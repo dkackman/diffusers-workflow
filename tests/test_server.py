@@ -1324,14 +1324,24 @@ def test_gallery_audio_serving_a_whole_file_does_not_decode_it(server, tmp_path)
         outputs = tmp_path / "outputs"
         write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
 
-        def failing_decode(self, *args, **kwargs):
-            raise AssertionError("serving a whole audio file decoded it")
+        # probe_media catches a decode failure and returns the fields already
+        # gathered (duration included), so a decode call must be *counted*
+        # here rather than made to raise - a raise inside the decode loop is
+        # swallowed by probe_media's own except-and-degrade path and would
+        # never surface as a test failure.
+        called = []
+        original_decode = av.container.InputContainer.decode
 
-        with mock.patch.object(av.container.InputContainer, "decode", failing_decode):
+        def counting_decode(self, *args, **kwargs):
+            called.append(True)
+            yield from original_decode(self, *args, **kwargs)
+
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
             response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
 
         assert response.status_code == 200
         assert float(response.headers["x-dw-duration"]) == pytest.approx(1.0, abs=0.05)
+        assert called == [], "serving a whole audio file decoded it"
 
 
 def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
