@@ -2975,6 +2975,12 @@ def create_app(
                     if seams.lower() == "true"
                     else {int(s) for s in seams.split(",") if s.strip()}
                 )
+                if wanted is not None and not wanted:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` names no seam - pass `true` for every seam, "
+                        "or seam numbers from 1",
+                    )
                 tiles = seam_tiles(
                     path,
                     starts,

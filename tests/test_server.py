@@ -1547,6 +1547,20 @@ def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
         assert audio.status_code == 404
 
 
+def test_gallery_frames_refuses_an_empty_seam_list(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(tmp_path / "outputs" / "cut.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut.mp4/frames", params={"seams": ",", "boundaries": "8"}
+        )
+
+        assert response.status_code == 400
+        assert "seams" in response.json()["detail"]
+
+
 def test_gallery_frames_caps_the_number_of_moments(server, tmp_path):
     """`at` had no cap: a comma list of hundreds of moments decoded and
     encoded hundreds of tiles in the server process. More than
