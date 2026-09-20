@@ -6,6 +6,7 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import base64
 import mimetypes
 import shutil
 import io
@@ -74,6 +75,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..media_audio import NoSoundtrack, extract_audio, media_duration
+from ..media_frames import contact_sheet, frames_at, seam_tiles, video_shape
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -2859,6 +2861,107 @@ def create_app(
             headers["X-DW-Excerpt-Start"] = str(info["start"])
             headers["X-DW-Excerpt-Duration"] = str(info["duration_seconds"])
         return Response(content=data, media_type="audio/wav", headers=headers)
+
+    FRAME_MIN_DIMENSION = 64
+
+    @app.get("/api/gallery/{name:path}/frames")
+    def gallery_frames(
+        name: str,
+        at: Optional[str] = None,
+        count: Optional[int] = None,
+        seams: Optional[str] = None,
+        boundaries: Optional[str] = None,
+        names: Optional[str] = None,
+        max_dimension: int = 512,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Frames of a video output or asset, as PNG tiles - the way an
+        agent with no video content type sees what a run made (#193).
+        Exactly one selector: `at` (a comma list of seconds or "frame:N"),
+        `count` (an evenly spaced contact sheet, `frame_grid` without a
+        workflow), or `seams` ("true", or a comma list of 1-based seam
+        numbers) for the last frame before and first frame after each
+        boundary, side by side. `boundaries` is the comma list of frame
+        indexes each shot after the first starts at, and `names` the
+        shots' names; both are required with `seams` until a joined file
+        carries its own (stage 2 of docs/proposals/output-assessment.md).
+        Tiles are downscaled to `max_dimension` on their longest side."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
+            raise HTTPException(status_code=404, detail=f"{name} is not a video")
+
+        chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+        if len(chosen) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Pass exactly one of `at`, `count` or `seams`"
+                + (f" - got {', '.join(chosen)}" if chosen else ""),
+            )
+        # A floor on each *sub-tile* of a composite (contact sheet / seam
+        # pair) - a caller asking for a small max_dimension still gets a
+        # legible grid, which is then fit to max_dimension as a whole below.
+        sub_tile_width = max(FRAME_MIN_DIMENSION, int(max_dimension))
+        limit = max(1, int(max_dimension))
+
+        try:
+            if at:
+                moments = [
+                    m.strip() if m.strip().startswith("frame:") else float(m)
+                    for m in at.split(",")
+                    if m.strip()
+                ]
+                tiles = frames_at(path, moments)
+            elif count:
+                tiles = [contact_sheet(path, count, tile_width=sub_tile_width)]
+            else:
+                if not boundaries:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` needs `boundaries`: the frame index each "
+                        "shot after the first starts at, comma-separated - this "
+                        "file carries none of its own",
+                    )
+                starts = [int(b) for b in boundaries.split(",") if b.strip()]
+                shot_names = [n.strip() for n in names.split(",")] if names else None
+                tiles = seam_tiles(path, starts, names=shot_names, tile_width=sub_tile_width)
+                if seams.lower() != "true":
+                    wanted = {int(s) for s in seams.split(",") if s.strip()}
+                    tiles = [t for i, t in enumerate(tiles, start=1) if i in wanted]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        shape = video_shape(path)
+        return {
+            "name": name,
+            **shape,
+            "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+        }
+
+    def _encoded_tile(tile, limit):
+        image = tile["image"]
+        longest = max(image.width, image.height)
+        if longest > limit:
+            scale = limit / longest
+            image = image.resize(
+                (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+            )
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = {
+            key: value for key, value in tile.items() if key != "image"
+        }
+        encoded.update(
+            {
+                "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+                "mime_type": "image/png",
+                "width": image.width,
+                "height": image.height,
+            }
+        )
+        return encoded
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok

@@ -1402,6 +1402,122 @@ def test_gallery_audio_reads_an_asset_reference(asset_server, tmp_path):
         assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.25, abs=0.02)
 
 
+def _png_of(tile):
+    import base64
+    import io
+    from PIL import Image
+
+    return Image.open(io.BytesIO(base64.b64decode(tile["data"])))
+
+
+def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
+    """No tool returned a frame of a video, so judging a clip meant handing
+    the user the file (#193, #245). The route seeks out the moments named."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": "0.0,frame:12", "max_dimension": "32"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["frame_count"] == 24 and body["fps"] == 6.0
+        assert [t["frame"] for t in body["tiles"]] == [0, 12]
+        assert body["tiles"][0]["mime_type"] == "image/png"
+        assert body["tiles"][0]["width"] == 32  # downscaled to max_dimension
+        assert _png_of(body["tiles"][0]).size == (32, 16)
+
+
+def test_gallery_frames_makes_a_contact_sheet(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 4}
+        )
+
+        assert response.status_code == 200
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["label"] == "contact sheet, 4 frames"
+        assert tiles[0]["frames"] == [0, 8, 15, 23]
+
+
+def test_gallery_frames_pairs_the_frames_at_each_seam(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "cut-gen.0-0.0.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "true", "boundaries": "8,16", "names": "a,b,c"},
+        )
+
+        assert response.status_code == 200
+        tiles = response.json()["tiles"]
+        assert [t["label"] for t in tiles] == ["seam 1: a | b", "seam 2: b | c"]
+
+        second = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "2", "boundaries": "8,16"},
+        )
+        assert [t["label"] for t in second.json()["tiles"]] == ["seam 2: shot 2 | shot 3"]
+
+
+def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=6, fps=6)
+        write_wav(outputs / "score-gen.0-0.0.wav")
+
+        none = client.get("/api/gallery/shot-gen.0-0.0.mp4/frames")
+        assert none.status_code == 400 and "one of" in none.json()["detail"]
+
+        two = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2, "at": "0"}
+        )
+        assert two.status_code == 400
+
+        no_boundaries = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"seams": "true"}
+        )
+        assert no_boundaries.status_code == 400
+        assert "boundaries" in no_boundaries.json()["detail"]
+
+        past = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"at": "9.0"}
+        )
+        assert past.status_code == 400 and "past the end" in past.json()["detail"]
+
+        audio = client.get("/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1})
+        assert audio.status_code == 404
+
+
+def test_gallery_frames_reads_an_asset_reference(asset_server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with asset_server(success_script) as client:
+        write_ramp_mp4(tmp_path / "assets" / "ref.mp4", frames=6, fps=6)
+
+        response = client.get("/api/gallery/asset:ref.mp4/frames", params={"count": 2})
+
+        assert response.status_code == 200
+        assert response.json()["tiles"][0]["frames"] == [0, 5]
+
+
 def test_workflow_variables_answer_without_the_whole_definition(server, tmp_path):
     """Confirming what a variable defaults to meant fetching the entire
     workflow - quantization blocks and all - to read one integer."""
