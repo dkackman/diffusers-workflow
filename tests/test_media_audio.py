@@ -264,3 +264,62 @@ def test_audio_shape_projects_a_whole_track_wav_without_decoding(tmp_path):
     assert projected == pytest.approx(4 * math.ceil(64000 / 3), rel=0.06)
     assert projected_wav_base64_size(None) is None
     assert projected_wav_base64_size({**shape, "duration_seconds": None}) is None
+
+
+def stripping_pts(real_open):
+    """Wrap av.open so every decoded frame loses its pts - the shape of a
+    raw stream, which the fallback clock has to handle."""
+
+    class Container:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._inner.__exit__(*exc)
+
+        def decode(self, *args, **kwargs):
+            for frame in self._inner.decode(*args, **kwargs):
+                frame.pts = None
+                yield frame
+
+    return lambda *args, **kwargs: Container(real_open(*args, **kwargs))
+
+
+def test_an_excerpt_from_the_top_is_cut_even_when_frames_carry_no_pts(tmp_path):
+    import av
+
+    write_wav(tmp_path / "score.wav", seconds=4.0)
+
+    with mock.patch("dw.media_audio.av.open", side_effect=stripping_pts(av.open)):
+        data, info = extract_audio(str(tmp_path / "score.wav"), start=0.0, duration=0.5)
+
+    rate, samples = read_wav(data)
+    assert samples.shape[0] == pytest.approx(0.5 * rate, abs=rate * 0.02)
+    assert info["duration_seconds"] == pytest.approx(0.5, abs=0.02)
+
+
+def test_an_excerpt_after_a_seek_is_cut_where_asked_when_frames_carry_no_pts(tmp_path):
+    """Without pts a seek's landing is unknowable, so the reader starts
+    over from the top and counts samples - slower, but the right audio."""
+    import av
+
+    write_wav(tmp_path / "score.wav", seconds=4.0)
+    reference, _ = extract_audio(str(tmp_path / "score.wav"), start=1.0, duration=0.5)
+
+    with mock.patch("dw.media_audio.av.open", side_effect=stripping_pts(av.open)):
+        data, info = extract_audio(str(tmp_path / "score.wav"), start=1.0, duration=0.5)
+
+    rate, samples = read_wav(data)
+    _, expected = read_wav(reference)
+    assert samples.shape[0] == pytest.approx(expected.shape[0], abs=rate * 0.02)
+    assert info["start"] == 1.0
+    # the same audio, not the first half second of the file
+    n = min(len(samples), len(expected)) - 64
+    assert numpy.abs(samples[:n].astype(int) - expected[:n].astype(int)).mean() < 200

@@ -131,12 +131,23 @@ def extract_audio(path, start=None, duration=None):
             )
 
         pieces = []
-        seen = 0  # samples of the track before the current frame
+        seen = 0  # samples decoded so far - the clock for a frame with no pts
         started = False
         done = False  # Break outer loop when stop time is reached
+        sought = start > 0
+        restarted = False
         for frame in container.decode(stream):
             if done:
                 break
+            if frame.pts is None and sought and not restarted:
+                # No pts means the seek's landing cannot be known, so the
+                # sample count is the only clock there is - and it has to
+                # count from the top. Start over once and read to `start`.
+                container.seek(0, stream=stream, backward=True)
+                resampler = AudioResampler(format="s16", layout=layout, rate=rate)
+                restarted = True
+                seen = 0
+                continue
             frame_start = (
                 float((frame.pts - anchor) * stream.time_base)
                 if frame.pts is not None
@@ -147,8 +158,9 @@ def extract_audio(path, start=None, duration=None):
                 samples = samples.reshape(-1, channels)
                 chunk_start = frame_start
                 chunk_end = chunk_start + samples.shape[0] / rate
+                seen += samples.shape[0]
+                frame_start = chunk_end  # a frame yielding two chunks: the second follows the first
                 if chunk_end <= start:
-                    seen += samples.shape[0]
                     continue
                 if not started and chunk_start < start:
                     samples = samples[int((start - chunk_start) * rate) :]
