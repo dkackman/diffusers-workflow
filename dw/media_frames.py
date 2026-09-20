@@ -17,6 +17,7 @@ from .tasks.video_utils import (
     _default_columns,
     _evenly_spaced_indices,
     _format_timestamp,
+    _grid_tile,
 )
 
 logger = logging.getLogger("dw")
@@ -77,7 +78,9 @@ def contact_sheet(path, count, tile_width=320, shape=None):
     count = min(int(count), shape["frame_count"])
     indexes = _evenly_spaced_indices(shape["frame_count"], count)
     images = _read_frames(
-        path, indexes, fit=lambda image, _index: _fit_width(image, tile_width)
+        path,
+        indexes,
+        fit=lambda image, index: _stamped_tile(image, index, shape["fps"], tile_width),
     )
     tiles = [images[index] for index in indexes]
     grid = _compose_grid(tiles, _default_columns(len(tiles)))
@@ -186,6 +189,13 @@ def _tile(index, image, shape):
         "seconds": _seconds(index, shape),
         "image": image,
     }
+
+
+def _stamped_tile(image, index, fps, tile_width):
+    """A contact-sheet cell: fitted like `_fit_width` (never upscaled) and
+    stamped with its timestamp by `frame_grid`'s own tile maker, so the
+    sheet says which cell is which without the text part."""
+    return _grid_tile(image, index, fps, min(int(tile_width), image.width), label=True)
 
 
 def _fit_width(image, tile_width):

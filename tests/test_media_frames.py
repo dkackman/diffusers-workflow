@@ -106,16 +106,17 @@ def test_a_moment_past_the_end_is_refused(tmp_path):
 
 
 def test_a_contact_sheet_tiles_evenly_spaced_frames(tmp_path):
-    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6, width=64, height=32)
 
-    tile = contact_sheet(str(tmp_path / "ramp.mp4"), count=4, tile_width=32)
+    tile = contact_sheet(str(tmp_path / "ramp.mp4"), count=4, tile_width=64)
 
     assert tile["label"] == "contact sheet, 4 frames"
-    assert tile["image"].width == 32 * 2  # 4 tiles, two columns
-    assert tile["image"].height == 16 * 2
-    # first tile is frame 0, last is frame 23
-    first = tile["image"].crop((0, 0, 32, 16))
-    last = tile["image"].crop((32, 16, 64, 32))
+    assert tile["image"].width == 64 * 2  # 4 tiles, two columns
+    assert tile["image"].height == 32 * 2
+    # first tile is frame 0, last is frame 23 - sampled away from the
+    # timestamp stamp in the top-left corner of each tile
+    first = tile["image"].crop((32, 16, 64, 32))
+    last = tile["image"].crop((96, 48, 128, 64))
     assert grey_of(first) < 20
     assert grey_of(last) > 200
 
@@ -357,3 +358,21 @@ def test_a_seek_that_lands_past_its_target_recovers_from_the_top(tmp_path):
 
     assert grey_of(tiles[0]["image"]) == pytest.approx((35 % 25) * 10, abs=6)
     assert len(proxies[-1].seeks) == 2  # the overshoot, then the recovery
+
+
+def test_contact_sheet_cells_are_stamped_with_their_timestamp(tmp_path):
+    """A flat grey cell has zero variance; a stamped one does not. The stamp
+    is what lets a reader of the image, not the text, say which cell is
+    which."""
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6, width=64, height=32)
+
+    sheet = contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=64)
+
+    columns = 2  # _default_columns(4)
+    for cell in range(4):
+        row, col = divmod(cell, columns)
+        corner = sheet["image"].crop((col * 64, row * 32, col * 64 + 32, row * 32 + 16))
+        assert numpy.asarray(corner.convert("L")).std() > 5, f"cell {cell} carries no stamp"
+    # the stamp sits in a corner: the opposite corner is still the flat grey
+    cell = sheet["image"].crop((32, 16, 64, 32))
+    assert numpy.asarray(cell.convert("L")).std() < 2
