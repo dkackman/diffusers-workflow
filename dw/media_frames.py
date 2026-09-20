@@ -2,7 +2,8 @@
 spaced contact sheet, or the frame pair either side of a seam - without
 decoding the clip whole. The server process runs this per request; a
 four-minute 1080p clip materialised as PIL frames is tens of gigabytes,
-so nothing here ever holds more than the frames it returns (#193).
+so nothing here ever holds more than the frames it returns, each already
+fitted to its tile where a caller asked for many (#193).
 """
 
 import logging
@@ -19,6 +20,13 @@ from .tasks.video_utils import (
 )
 
 logger = logging.getLogger("dw")
+
+# Each cell of a contact sheet and each side of a seam pair is a seek, a
+# decode and a resize in the server process; a sheet past 64 cells is
+# unreadable anyway, and `at` has its own cap in the route
+# (MAX_FRAME_MOMENTS). Both are ValueErrors, so the route answers 400.
+MAX_CONTACT_SHEET_FRAMES = 64
+MAX_SEAMS = 32
 
 
 def video_shape(path):
@@ -60,11 +68,18 @@ def contact_sheet(path, count, tile_width=320, shape=None):
     already-computed `video_shape(path)`; see `frames_at`."""
     if int(count) < 1:
         raise ValueError("count must be at least 1")
+    if int(count) > MAX_CONTACT_SHEET_FRAMES:
+        raise ValueError(
+            f"count {count} is more than a contact sheet holds "
+            f"({MAX_CONTACT_SHEET_FRAMES}); ask for a smaller one, or `at` for moments"
+        )
     shape = shape if shape is not None else video_shape(path)
     count = min(int(count), shape["frame_count"])
     indexes = _evenly_spaced_indices(shape["frame_count"], count)
-    images = _read_frames(path, indexes)
-    tiles = [_fit_width(images[index], tile_width) for index in indexes]
+    images = _read_frames(
+        path, indexes, fit=lambda image, _index: _fit_width(image, tile_width)
+    )
+    tiles = [images[index] for index in indexes]
     grid = _compose_grid(tiles, _default_columns(len(tiles)))
     return {
         "label": f"contact sheet, {len(tiles)} frames",
@@ -114,12 +129,19 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
         for seam, boundary in enumerate(boundaries, start=1)
         if wanted is None or seam in wanted
     ]
+    if len(chosen) > MAX_SEAMS:
+        raise ValueError(
+            f"{len(chosen)} seams is more than one call serves ({MAX_SEAMS}); "
+            "name the seams wanted (`seams=1,2,...`)"
+        )
     frame_indexes = sorted({b - 1 for _, b in chosen} | {b for _, b in chosen})
-    images = _read_frames(path, frame_indexes)
+    images = _read_frames(
+        path, frame_indexes, fit=lambda image, _index: _fit_width(image, tile_width)
+    )
     tiles = []
     for seam, boundary in chosen:
-        before = _fit_width(images[boundary - 1], tile_width)
-        after = _fit_width(images[boundary], tile_width)
+        before = images[boundary - 1]
+        after = images[boundary]
         pair = _compose_grid([before, after], 2)
         tiles.append(
             {
@@ -174,10 +196,13 @@ def _fit_width(image, tile_width):
     return image.resize((tile_width, height), Image.LANCZOS).convert("RGB")
 
 
-def _read_frames(path, indexes):
+def _read_frames(path, indexes, fit=None):
     """The frames at these indexes, as {index: PIL image}, in one forward
     pass that seeks to the keyframe before each wanted frame rather than
     decoding from the top. Decodes are dropped as soon as they are past.
+
+    `fit(image, index)`, when given, is applied to each frame as it is
+    decoded, so a caller tiling many frames never holds one at source size.
 
     This assumes a constant frame rate, which every file this engine writes
     has (`encode_video` / `export_to_video` write a fixed `fps`): a
@@ -230,7 +255,8 @@ def _read_frames(path, indexes):
                         else 0
                     )
                 if position == target:
-                    found[target] = frame.to_image()
+                    image = frame.to_image()
+                    found[target] = fit(image, target) if fit is not None else image
                     position += 1
                     break
                 position += 1

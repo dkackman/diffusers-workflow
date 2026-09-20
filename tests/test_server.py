@@ -1573,6 +1573,22 @@ def test_gallery_frames_caps_the_number_of_moments(server, tmp_path):
         assert len(at_cap.json()["tiles"]) == cap
 
 
+def test_gallery_frames_caps_the_contact_sheet(server, tmp_path):
+    from dw.media_frames import MAX_CONTACT_SHEET_FRAMES
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "long.mp4", frames=MAX_CONTACT_SHEET_FRAMES + 2, fps=6)
+
+        response = client.get(
+            "/api/gallery/long.mp4/frames", params={"count": MAX_CONTACT_SHEET_FRAMES + 1}
+        )
+
+        assert response.status_code == 400
+        assert str(MAX_CONTACT_SHEET_FRAMES) in response.json()["detail"]
+
+
 def test_gallery_frames_refuses_a_non_finite_moment_and_a_seam_off_the_cut(server, tmp_path):
     from tests.test_media_frames import write_ramp_mp4
 

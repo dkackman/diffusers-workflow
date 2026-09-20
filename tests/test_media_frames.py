@@ -10,7 +10,7 @@ from dw.media_frames import contact_sheet, frames_at, seam_tiles, video_shape
 
 def write_ramp_mp4(path, frames=24, fps=6, width=32, height=16):
     """A clip whose frame N is a flat grey of value N*10, so a returned
-    frame says which one it is."""
+    frame says which one it is. For frames > 25, wraps to stay in uint8."""
     import av
 
     container = av.open(str(path), "w")
@@ -18,7 +18,7 @@ def write_ramp_mp4(path, frames=24, fps=6, width=32, height=16):
     stream.width, stream.height, stream.pix_fmt = width, height, "yuv420p"
     stream.options = {"crf": "0", "preset": "ultrafast"}  # lossless, so grey survives
     for index in range(frames):
-        pixels = numpy.full((height, width, 3), index * 10, numpy.uint8)
+        pixels = numpy.full((height, width, 3), (index % 26) * 10, numpy.uint8)
         frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
         for packet in stream.encode(frame):
             container.mux(packet)
@@ -253,3 +253,62 @@ def test_a_non_finite_moment_is_refused(tmp_path):
     for moment in (float("inf"), float("-inf"), float("nan")):
         with pytest.raises(ValueError):
             frames_at(str(tmp_path / "ramp.mp4"), [moment])
+
+
+def test_a_contact_sheet_over_the_frame_cap_is_refused(tmp_path):
+    from dw.media_frames import MAX_CONTACT_SHEET_FRAMES
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+
+    with pytest.raises(ValueError, match=f"{MAX_CONTACT_SHEET_FRAMES}"):
+        contact_sheet(str(tmp_path / "ramp.mp4"), MAX_CONTACT_SHEET_FRAMES + 1)
+
+
+def test_more_seams_than_the_cap_are_refused(tmp_path):
+    from dw.media_frames import MAX_SEAMS
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=MAX_SEAMS + 3, fps=6)
+    boundaries = list(range(1, MAX_SEAMS + 2))  # MAX_SEAMS + 1 seams
+
+    with pytest.raises(ValueError, match=f"{MAX_SEAMS}"):
+        seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=boundaries)
+    # a `wanted` subset under the cap is still served
+    tiles = seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=boundaries, wanted={1, 2})
+    assert len(tiles) == 2
+
+
+def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
+    from dw.media_frames import _read_frames
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+    seen = []
+
+    def fit(image, index):
+        seen.append((image.size, index))
+        return image.resize((8, 4))
+
+    found = _read_frames(str(tmp_path / "ramp.mp4"), [0, 5, 23], fit=fit)
+
+    assert seen == [((32, 16), 0), ((32, 16), 5), ((32, 16), 23)]  # ran per frame, at source size
+    assert all(image.size == (8, 4) for image in found.values())
+
+
+def test_a_contact_sheet_never_holds_a_full_size_frame(tmp_path, monkeypatch):
+    """The point of the cap and the fitter together: a 1080p clip's contact
+    sheet is built from tiles, not from a list of 1080p images."""
+    import dw.media_frames as module
+
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6, width=64, height=32)
+    sizes = []
+    real_read = module._read_frames
+
+    def spying_read(path, indexes, fit=None):
+        found = real_read(path, indexes, fit=fit)
+        sizes.extend(image.size for image in found.values())
+        return found
+
+    monkeypatch.setattr(module, "_read_frames", spying_read)
+
+    contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=16)
+
+    assert sizes and all(size == (16, 8) for size in sizes)
