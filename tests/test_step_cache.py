@@ -159,16 +159,55 @@ def test_step_cache_miss_when_a_saved_file_was_deleted(tmp_path):
     assert cache.get("w", step_data, 42, set(), "/out", True) is None
 
 
-def test_deep_equal_is_false_rather_than_raising_on_array_values():
+def test_deep_equal_compares_array_values_by_content_rather_than_raising():
     """A realized step argument can hold a numpy array (or a tensor), whose
-    == yields an array, not a bool. That must degrade to a cache miss, not
-    abort the run with 'truth value of an array is ambiguous'."""
+    == yields an array, not a bool - that must not abort the run with 'truth
+    value of an array is ambiguous'. Two arrays with the same content are a
+    match (#253: a from_file() reference rebuilt from an unchanged asset on
+    every run must still compare equal to the entry it was cached under),
+    and two with different content are correctly a miss."""
     numpy = pytest.importorskip("numpy")
 
     a = {"latents": numpy.zeros(4), "steps": 9}
     b = {"latents": numpy.zeros(4), "steps": 9}
+    c = {"latents": numpy.ones(4), "steps": 9}
 
-    assert deep_equal(a, b) is False
+    assert deep_equal(a, b) is True
+    assert deep_equal(a, c) is False
+
+
+def test_deep_equal_matches_a_reconstructed_dataclass_holding_an_image():
+    """#253: a from_file() reference (MiniMaxH3ImageReference,
+    LTX2ReferenceCondition, ...) is a dataclass wrapping in-memory media,
+    rebuilt fresh by realize_args on every run of a for_each member that
+    takes an asset: reference - identical content, but never `is` the same
+    object and never `==` by the dataclass's generated equality, since
+    PIL.Image has no value equality and comparing tensor/array fields with
+    `==` cannot resolve to a bool. Without special-casing these, that made
+    every such step an unconditional cache miss."""
+    from dataclasses import dataclass
+
+    from PIL import Image
+
+    numpy = pytest.importorskip("numpy")
+    torch = pytest.importorskip("torch")
+
+    @dataclass
+    class FakeImageReference:
+        image: object
+        weight: float = 1.0
+
+    def load():
+        # A fresh object each call, like from_file() reloading the same file
+        return FakeImageReference(image=Image.new("RGB", (4, 4), color=(1, 2, 3)))
+
+    assert deep_equal(load(), load()) is True
+    assert deep_equal(load(), FakeImageReference(image=Image.new("RGB", (4, 4), color=(9, 9, 9)))) is False
+
+    # The same holds for a reference built straight over an array or tensor
+    assert deep_equal(numpy.zeros((2, 2)), numpy.zeros((2, 2))) is True
+    assert deep_equal(torch.zeros(3), torch.zeros(3)) is True
+    assert deep_equal(torch.zeros(3), torch.ones(3)) is False
 
 
 def test_deep_equal_is_false_when_comparison_raises_a_type_error():
