@@ -2,6 +2,14 @@
 
 Status: draft, 2026-09-08. No implementation.
 
+**Note (2026-09-20):** this proposal is about the older, larger, Apache-2.0
+20B `Qwen/Qwen-Image` line. A separate, newer, non-commercial 7B model,
+`Qwen/Qwen-Image-2.1`, released 2026-09-20 and was onboarded on its own —
+see `docs/proposals/audits/2026-09-20-qwen-image-2.1-audit.md` and
+`workflows/models/qwen-image-2.1.json`. The two do not supersede one another:
+they coexist under different licenses. This draft's scope (20B Qwen-Image
+and Wan2.x) is still open.
+
 ## Why these two
 
 Neither has a template under `workflows/models/`. Both rank among the most
