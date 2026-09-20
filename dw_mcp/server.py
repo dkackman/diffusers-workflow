@@ -652,14 +652,17 @@ def build_server(client):
 
     # ---------------------------------------------------------------- assets
 
-    def list_assets() -> dict:
+    def list_assets(detail: bool = False) -> dict:
         """List the input media on the server, each with the "asset:"
         reference a workflow argument carries. Look here before asking for
         a file: what a workflow needs may already be there. Entries carry
-        name, kind, size and origin only - for one asset's duration, frame
-        count, fps, sample rate or channels, pass its reference to
-        `get_gallery_metadata`, which reads inputs as well as outputs."""
-        return assets.list_assets(client)
+        name, reference, kind, size and origin only - for one asset's
+        duration, frame count, fps, sample rate or channels, pass its
+        reference to `get_gallery_metadata`, which reads inputs as well as
+        outputs. Pass detail=true for each entry's folder, mtime and url
+        too, needed before naming a shared library's writable/read-only
+        roots or opening the file's preview URL."""
+        return assets.list_assets(client, detail=detail)
 
     def upload_asset(
         file_path: str | None = None,
@@ -752,15 +755,17 @@ def build_server(client):
 
     # ------------------------------------------------------------ workspaces
 
-    def list_workspaces() -> dict:
+    def list_workspaces(detail: bool = False) -> dict:
         """List the server's workspaces and say which one this session is
         working in. Each has its own workflows, assets and outputs; the
         stored prompt library is shared by all of them, and so is the
         shared asset library that `upload_asset(shared=true)` and
         `keep_output(shared=true)` write into - which is how a recurring
         cast stays reachable from the workspace the next piece is made
-        in."""
-        return workspaces.list_workspaces(client)
+        in. Entries carry name, default and usage (files/bytes) only; pass
+        detail=true for each entry's full folder paths (workflows, assets,
+        outputs, prompts, common_assets)."""
+        return workspaces.list_workspaces(client, detail=detail)
 
     def use_workspace(name: str) -> dict:
         """Work in a different workspace for the rest of this session - every
@@ -1080,10 +1085,11 @@ def build_server(client):
         can call again. Does not queue anything, so no acknowledged_cost.
 
         One call blocks for at most {cap} seconds, no matter what
-        timeout_seconds asks for - an MCP client will not hold a tool call
-        open for a generation's real runtime, which is minutes. A larger
-        value is not honoured, it is clamped, so budget roughly one call per
-        {cap}s of the job. Every reply says which happened: waited_seconds,
+        timeout_seconds asks for - this deployment's cap, set for the tool
+        call budget the MCP client actually holds open. A larger value is
+        not honoured, it is clamped, so budget roughly one call per {cap}s
+        of the job - if {cap} covers the job's whole runtime, one call is
+        enough. Every reply says which happened: waited_seconds,
         timeout_requested_seconds, timeout_applied_seconds and
         timeout_capped.
 

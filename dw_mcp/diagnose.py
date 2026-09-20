@@ -7,6 +7,7 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
+import os
 import time
 
 from dw_mcp.client import DwApiError, api_path
@@ -19,8 +20,11 @@ WAIT_POLL_SECONDS = 1.0
 
 # A generation can run for minutes, far longer than an MCP client holds a
 # tool call open, so wait_for_job's own budget stays well under that no
-# matter what a caller asks for.
-MAX_WAIT_SECONDS = 55
+# matter what a caller asks for. Some clients hold a tool call open far
+# longer than the 55s this was tuned against (#248), so a deployment that
+# knows its own harness's tool-call budget can raise the cap with
+# DW_MCP_MAX_WAIT_SECONDS - unset, it stays 55.
+MAX_WAIT_SECONDS = float(os.environ.get("DW_MCP_MAX_WAIT_SECONDS", 55))
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "
@@ -206,9 +210,12 @@ def wait_for_job(client, job_id, timeout_seconds=20):
 
     `timeout_seconds` is clamped to [0, MAX_WAIT_SECONDS]: a generation can
     run for minutes, far longer than an MCP client holds a tool call open,
-    so this never blocks past a budget kept well under that. Every reply
-    says what was applied - `timeout_applied_seconds` is the budget the
-    call actually ran under, `timeout_requested_seconds` what was asked
+    so this never blocks past a budget kept well under that - 55s by
+    default, raised for a deployment whose harness tolerates a longer tool
+    call via the `DW_MCP_MAX_WAIT_SECONDS` env var, in which case one call
+    can cover a whole short job rather than needing several polls. Every
+    reply says what was applied - `timeout_applied_seconds` is the budget
+    the call actually ran under, `timeout_requested_seconds` what was asked
     for, and `waited_seconds` how long this call blocked - so a caller
     asking for 600 can tell a capped return from an elapsed one rather
     than inferring it from wall clock. Returns as soon as the job's status
