@@ -91,6 +91,28 @@ def _row_count(row, list_entries):
     return max(counts) if counts else None
 
 
+def _already_survived(rows, list_entries, requested, projected_mb):
+    """Whether a run at least as large as this request already finished on
+    this box at or above the projected peak.
+
+    A projection built from this workflow's own history can land above the
+    ceiling for a shape that is itself part of that history - the run being
+    projected already happened and succeeded (#254). `rows` only ever holds
+    successful runs (`JobHistory.finished_runs()`), so a matching row is a
+    completed data point, not a guess: warning about a peak already reached
+    without incident tells a caller nothing they don't already know from ten
+    minutes ago.
+    """
+    for row in rows:
+        peak = row.get("host_memory_peak_rss_mb")
+        if not isinstance(peak, (int, float)) or peak < projected_mb:
+            continue
+        count = _row_count(row, list_entries)
+        if count is not None and count >= requested:
+            return True
+    return False
+
+
 def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     """Warnings for a projected host-memory peak this machine cannot hold,
     or [] when there is nothing to project from or nothing to warn about.
@@ -129,10 +151,12 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         shape = f"{requested} entries held resident together"
     if projected_mb <= ceiling_mb:
         return []
+    if _already_survived(rows, list_entries, requested, projected_mb):
+        return []
     return [
         "Projected host memory for this run (~"
         f"{round(projected_mb)} MB, {shape}) exceeds this machine's usable RAM "
-        f"(~{round(ceiling_mb)} MB) - based on this server's own history for "
-        "this workflow, not a curated figure. The run is not blocked, but it "
-        "may be killed by the OS partway through."
+        f"(~{round(ceiling_mb)} MB) - based on {len(rows)} run(s) of this "
+        "workflow's own history on this machine, not a curated figure. The "
+        "run is not blocked, but it may be killed by the OS partway through."
     ]
