@@ -2886,6 +2886,10 @@ def create_app(
         return Response(content=data, media_type="audio/wav", headers=headers)
 
     FRAME_MIN_DIMENSION = 64
+    # The most moments one `at` may name: each is a seek, a decode and a
+    # PNG encode in the server process, and a contact sheet is the shape
+    # for seeing more of a clip at once
+    MAX_FRAME_MOMENTS = 32
 
     @app.get("/api/gallery/{name:path}/frames")
     def gallery_frames(
@@ -2942,6 +2946,13 @@ def create_app(
                     for m in at.split(",")
                     if m.strip()
                 ]
+                if len(moments) > MAX_FRAME_MOMENTS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"`at` names {len(moments)} moments; the most is "
+                        f"{MAX_FRAME_MOMENTS} - ask for a contact sheet (`count`) "
+                        "to see more of the clip at once",
+                    )
                 tiles = frames_at(path, moments, shape=shape)
             elif count:
                 tiles = [contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)]

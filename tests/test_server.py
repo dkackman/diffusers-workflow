@@ -1544,6 +1544,51 @@ def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
         assert audio.status_code == 404
 
 
+def test_gallery_frames_caps_the_number_of_moments(server, tmp_path):
+    """`at` had no cap: a comma list of hundreds of moments decoded and
+    encoded hundreds of tiles in the server process. More than
+    MAX_FRAME_MOMENTS is a 400 that says the cap."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=6, fps=6)
+        cap = 32  # MAX_FRAME_MOMENTS, declared beside FRAME_MIN_DIMENSION in the app
+
+        too_many = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": ",".join(["0"] * (cap + 1))},
+        )
+        assert too_many.status_code == 400
+        assert str(cap) in too_many.json()["detail"]
+
+        at_cap = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": ",".join(["0"] * cap)},
+        )
+        assert at_cap.status_code == 200
+        assert len(at_cap.json()["tiles"]) == cap
+
+
+def test_gallery_frames_refuses_a_non_finite_moment_and_a_seam_off_the_cut(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_ramp_mp4(outputs / "cut-gen.0-0.0.mp4", frames=24, fps=6)
+
+        infinite = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames", params={"at": "inf"}
+        )
+        assert infinite.status_code == 400
+
+        off = client.get(
+            "/api/gallery/cut-gen.0-0.0.mp4/frames",
+            params={"seams": "3", "boundaries": "8,16"},
+        )
+        assert off.status_code == 400 and "1..2" in off.json()["detail"]
+
+
 def test_gallery_frames_reads_an_asset_reference(asset_server, tmp_path):
     from tests.test_media_frames import write_ramp_mp4
 

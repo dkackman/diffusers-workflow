@@ -6,6 +6,7 @@ so nothing here ever holds more than the frames it returns (#193).
 """
 
 import logging
+import math
 
 import av
 from PIL import Image
@@ -101,6 +102,13 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
             f"{len(boundaries)} boundaries make {len(boundaries) + 1} shots, "
             f"but {len(names)} names were given"
         )
+    if wanted is not None:
+        off = sorted(int(s) for s in wanted if not 1 <= int(s) <= len(boundaries))
+        if off:
+            raise ValueError(
+                f"seam {', '.join(str(s) for s in off)} is not in this cut - "
+                f"{len(boundaries)} boundaries make seams 1..{len(boundaries)}"
+            )
     chosen = [
         (seam, boundary)
         for seam, boundary in enumerate(boundaries, start=1)
@@ -132,7 +140,10 @@ def _moment_to_index(moment, shape):
         fps = shape["fps"]
         if fps is None:
             raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
-        index = int(round(float(moment) * fps))
+        seconds = float(moment)
+        if not math.isfinite(seconds):
+            raise ValueError(f"{moment!r} is not a moment in seconds")
+        index = int(round(seconds * fps))
     if index < 0:
         index += total
     if not 0 <= index < total:
@@ -156,6 +167,9 @@ def _tile(index, image, shape):
 
 
 def _fit_width(image, tile_width):
+    # never upscaled: a tile wider than its source is a blurred enlargement
+    # that costs bytes and shows nothing the source holds
+    tile_width = min(int(tile_width), image.width)
     height = max(1, round(image.height * tile_width / image.width))
     return image.resize((tile_width, height), Image.LANCZOS).convert("RGB")
 

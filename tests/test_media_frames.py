@@ -218,3 +218,38 @@ def test_frames_at_reuses_a_given_shape(tmp_path, monkeypatch):
     media_frames.frames_at(path, [0.0, "frame:12"], shape=shape)
 
     assert calls[0] == 1
+
+
+def test_a_sub_tile_is_never_upscaled_past_the_source(tmp_path):
+    """`_fit_width` scaled a 32-wide source up to a 320-wide tile - a
+    blurred enlargement that costs bytes and shows nothing the source
+    holds. A tile is at most the source's own width."""
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=12, fps=6, width=32, height=16)
+
+    sheet = contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=320)
+    assert sheet["image"].width <= 32 * 4
+
+    seams = seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[6], tile_width=320)
+    assert seams[0]["image"].width == 64
+
+
+def test_a_wanted_seam_outside_the_cut_is_refused(tmp_path):
+    """`wanted={3}` on a two-seam cut answered `[]` - a 200 with no tiles
+    that read as "nothing to show". A seam number the cut does not have is
+    an error naming the range."""
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+
+    with pytest.raises(ValueError, match="1..2"):
+        seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[8, 16], wanted={3})
+    with pytest.raises(ValueError, match="1..2"):
+        seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[8, 16], wanted={0, 1})
+
+
+def test_a_non_finite_moment_is_refused(tmp_path):
+    """`at=inf` reached `int(round(inf * fps))` and raised OverflowError -
+    a 500 from the route rather than the 400 every other bad moment gets."""
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=12, fps=6)
+
+    for moment in (float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValueError):
+            frames_at(str(tmp_path / "ramp.mp4"), [moment])
