@@ -124,10 +124,18 @@ def extract_audio(path, start=None, duration=None):
         # about 1.5 s: the wrong audio, silently.
         anchor = stream.start_time if stream.start_time is not None else 0
         if start > 0:
-            # Seek to the keyframe at or before `start`; the frames decoded
-            # before `start` are then dropped sample-accurately below
+            # Seek to the keyframe at or before `start`, less one packet of
+            # pre-roll: the first packet a decoder sees after a seek is its
+            # warm-up, and for AAC and mp3 the samples it yields come out
+            # attenuated or silent - so an excerpt at 2.5 s opened with a
+            # gap that is not in the file. Landing a packet early hands that
+            # warm-up to samples the pts-based trim below drops anyway.
+            frame_size = int(stream.codec_context.frame_size or 0)
+            preroll = frame_size / rate if frame_size else 0.1
             container.seek(
-                int(start / stream.time_base) + anchor, stream=stream, backward=True
+                int(max(0.0, start - preroll) / stream.time_base) + anchor,
+                stream=stream,
+                backward=True,
             )
 
         pieces = []
@@ -163,11 +171,13 @@ def extract_audio(path, start=None, duration=None):
                 if chunk_end <= start:
                     continue
                 if not started and chunk_start < start:
-                    samples = samples[int((start - chunk_start) * rate) :]
+                    # round, not floor: float pts arithmetic lands a hair
+                    # under the exact sample and floor then keeps one too many
+                    samples = samples[int(round((start - chunk_start) * rate)) :]
                     chunk_start = start
                 started = True
                 if stop is not None and chunk_end > stop:
-                    samples = samples[: max(0, int((stop - chunk_start) * rate))]
+                    samples = samples[: max(0, int(round((stop - chunk_start) * rate)))]
                 pieces.append(samples)
                 if stop is not None and chunk_end >= stop:
                     done = True

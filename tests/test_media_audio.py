@@ -323,3 +323,21 @@ def test_an_excerpt_after_a_seek_is_cut_where_asked_when_frames_carry_no_pts(tmp
     # the same audio, not the first half second of the file
     n = min(len(samples), len(expected)) - 64
     assert numpy.abs(samples[:n].astype(int) - expected[:n].astype(int)).mean() < 200
+
+
+def test_an_excerpt_opens_with_the_same_signal_a_whole_decode_has_there(tmp_path):
+    """A seek lands on a packet the decoder has to warm up on: for AAC the
+    first samples after it come out attenuated or silent, so an excerpt
+    opened with a gap that is not in the file. The seek has to pre-roll a
+    packet and let the pts trim drop it (#193 review)."""
+    write_mp4(tmp_path / "shot.mp4", frames=12, fps=6)  # 2 s of tone at 8 kHz
+
+    whole, _ = extract_audio(str(tmp_path / "shot.mp4"))
+    excerpt, _ = extract_audio(str(tmp_path / "shot.mp4"), start=1.0, duration=0.5)
+
+    rate, whole_samples = read_wav(whole)
+    _, excerpt_samples = read_wav(excerpt)
+    head = 400  # the first 50 ms
+    expected = whole_samples[rate : rate + head, 0].astype(int)
+    got = excerpt_samples[:head, 0].astype(int)
+    assert numpy.abs(got - expected).mean() < 0.1 * numpy.abs(expected).mean()

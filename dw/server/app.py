@@ -2854,26 +2854,41 @@ def create_app(
             duration_seconds = media_duration(path)
             if duration_seconds is not None:
                 headers["X-DW-Duration"] = str(duration_seconds)
-            media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-            if media_type == "audio/x-wav":
-                # macOS's mimetypes table says x-wav; an extract says
-                # audio/wav, and a whole WAV must not read as a different kind
+            if extension == ".wav":
+                # mimetypes says audio/x-wav on macOS, audio/vnd.wave from
+                # Python 3.14's builtin table on a box with no system mime
+                # file; an extract says audio/wav, and a whole WAV must not
+                # read as a different kind
                 media_type = "audio/wav"
+            else:
+                media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
             return FileResponse(path, media_type=media_type, headers=headers)
 
-        if not excerpt:
-            # A whole track is refused at the header, not after it has been
-            # decoded and shipped: the MCP side would refuse the same bytes
-            # for the same reason, having paid for all of them.
-            projected = projected_wav_base64_size(audio_shape(path))
-            if projected is not None and projected > MAX_INLINE_AUDIO_BYTES:
+        # A track over the cap is refused at the header, not after it has
+        # been decoded and shipped: the MCP side would refuse the same bytes
+        # for the same reason, having paid for all of them. An excerpt is
+        # sized by its own span - `duration`, clipped to what is left of the
+        # track after `start` - so a whole-length "excerpt" is not a way
+        # around the gate.
+        shape = audio_shape(path)
+        if shape is not None and shape["duration_seconds"] is not None:
+            span = shape["duration_seconds"]
+            if excerpt and duration is not None:
+                span = max(0.0, min(float(duration), span - float(start or 0.0)))
+            projected = projected_wav_base64_size({**shape, "duration_seconds": span})
+            if projected > MAX_INLINE_AUDIO_BYTES:
+                what = f"a {span:.1f}s excerpt of {name}" if excerpt else f"{name}'s whole soundtrack"
+                advice = (
+                    "Ask for a shorter `duration`"
+                    if excerpt
+                    else "Ask for an excerpt with `start` and `duration` (seconds)"
+                )
                 raise HTTPException(
                     status_code=413,
                     detail=(
-                        f"{name}'s whole soundtrack would be {projected} bytes "
-                        f"base64-encoded as WAV - over the {MAX_INLINE_AUDIO_BYTES} "
-                        "byte limit for an inline clip. Ask for an excerpt with "
-                        "`start` and `duration` (seconds), or download the file."
+                        f"{what} would be {projected} bytes base64-encoded as WAV "
+                        f"- over the {MAX_INLINE_AUDIO_BYTES} byte limit for an "
+                        f"inline clip. {advice}, or download the file."
                     ),
                 )
 

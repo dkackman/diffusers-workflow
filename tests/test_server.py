@@ -5192,3 +5192,58 @@ def test_gallery_frames_seam_tiles_carry_their_difference(server, tmp_path):
 
         assert response.status_code == 200
         assert response.json()["tiles"][0]["difference"] == pytest.approx(10.0, abs=6)
+
+
+def test_gallery_audio_refuses_an_excerpt_over_the_inline_cap_before_decoding(server, tmp_path):
+    """The whole-track 413 gate projects the WAV size from the headers; an
+    excerpt whose own length projects over the cap has to be refused the
+    same way, not decoded and encoded server-side for the client to refuse
+    on content-length (#193 review)."""
+    import av
+    from unittest import mock
+    from tests.test_media_info import write_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        # 100 s at 8 kHz stereo 16-bit is 3.2 MB of PCM, 4.27 MB as base64
+        write_mp4(outputs / "long-gen.0-0.0.mp4", frames=100, fps=1)
+
+        called = []
+        original_decode = av.container.InputContainer.decode
+
+        def counting_decode(self, *args, **kwargs):
+            called.append(True)
+            yield from original_decode(self, *args, **kwargs)
+
+        with mock.patch.object(av.container.InputContainer, "decode", counting_decode):
+            response = client.get(
+                "/api/gallery/long-gen.0-0.0.mp4/audio",
+                params={"start": 0, "duration": 100},
+            )
+
+        assert response.status_code == 413
+        assert "duration" in response.json()["detail"]
+        assert called == [], "a refused excerpt decoded the file"
+
+
+def test_gallery_audio_serves_a_whole_wav_as_audio_wav_whatever_mimetypes_says(
+    server, tmp_path, monkeypatch
+):
+    """Python 3.14's builtin table says audio/vnd.wave for .wav, and a box
+    with no system mime table falls through to it; the route rewrote only
+    audio/x-wav, so there a whole WAV reached the MCP AudioContent under a
+    type nothing else uses (#193 review)."""
+    import mimetypes
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=1.0)
+        monkeypatch.setattr(
+            mimetypes, "guess_type", lambda path, strict=True: ("audio/vnd.wave", None)
+        )
+
+        response = client.get("/api/gallery/score-gen.0-0.0.wav/audio")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
