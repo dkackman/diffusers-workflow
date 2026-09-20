@@ -202,7 +202,12 @@ def test_deep_equal_matches_a_reconstructed_dataclass_holding_an_image():
         return FakeImageReference(image=Image.new("RGB", (4, 4), color=(1, 2, 3)))
 
     assert deep_equal(load(), load()) is True
-    assert deep_equal(load(), FakeImageReference(image=Image.new("RGB", (4, 4), color=(9, 9, 9)))) is False
+    assert (
+        deep_equal(
+            load(), FakeImageReference(image=Image.new("RGB", (4, 4), color=(9, 9, 9)))
+        )
+        is False
+    )
 
     # The same holds for a reference built straight over an array or tensor
     assert deep_equal(numpy.zeros((2, 2)), numpy.zeros((2, 2))) is True

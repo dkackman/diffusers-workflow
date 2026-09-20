@@ -197,19 +197,27 @@ class StepCache:
             logger.debug(f"No cache entry for step '{name}' - treating as a miss")
             return None
         if entry["step_seed"] != step_seed:
-            logger.debug(f"Cached result for step '{name}' used a different seed - treating as a miss")
+            logger.debug(
+                f"Cached result for step '{name}' used a different seed - treating as a miss"
+            )
             return None
         # The output *root* a run was told to write to. A run directory is
         # new every execution and would defeat the cache; the root changing
         # means the caller asked for output somewhere the cached files are not
         if entry["output_dir"] != output_dir:
-            logger.debug(f"Cached result for step '{name}' used a different output_dir - treating as a miss")
+            logger.debug(
+                f"Cached result for step '{name}' used a different output_dir - treating as a miss"
+            )
             return None
         if needs_result and not entry["retained"]:
-            logger.debug(f"Cached result for step '{name}' did not retain its Result, and this run needs one - treating as a miss")
+            logger.debug(
+                f"Cached result for step '{name}' did not retain its Result, and this run needs one - treating as a miss"
+            )
             return None
         if not deep_equal(entry["step_data"], step_data):
-            logger.debug(f"Cached result for step '{name}' has different resolved arguments - treating as a miss")
+            logger.debug(
+                f"Cached result for step '{name}' has different resolved arguments - treating as a miss"
+            )
             return None
 
         upstream = referenced_result_names([step_data])

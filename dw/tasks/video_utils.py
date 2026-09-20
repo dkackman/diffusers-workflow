@@ -224,7 +224,9 @@ def _positive_int(value, command, name):
         try:
             value = int(value)
         except ValueError:
-            raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
+            raise ValueError(
+                f"{command} needs '{name}' as a whole number, got {value!r}"
+            )
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
     if value < 1:
@@ -267,7 +269,9 @@ def _grid_tile(frame, index, fps, tile_width, label):
         font = ImageFont.truetype("Arial", font_size)
     except (IOError, OSError):
         font = ImageFont.load_default(size=font_size)
-    draw.text((4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black")
+    draw.text(
+        (4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black"
+    )
     return tile
 
 

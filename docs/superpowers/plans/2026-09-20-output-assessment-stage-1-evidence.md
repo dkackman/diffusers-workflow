@@ -55,7 +55,9 @@ from tests.test_media_info import write_mp4, write_wav
 def read_wav(data):
     with wave.open(io.BytesIO(data)) as handle:
         frames = handle.readframes(handle.getnframes())
-        samples = numpy.frombuffer(frames, dtype="<i2").reshape(-1, handle.getnchannels())
+        samples = numpy.frombuffer(frames, dtype="<i2").reshape(
+            -1, handle.getnchannels()
+        )
         return handle.getframerate(), samples
 
 
@@ -191,7 +193,11 @@ def extract_audio(path, start=None, duration=None):
 
         rate = int(stream.rate)
         channels = int(stream.channels)
-        layout = "stereo" if channels == 2 else ("mono" if channels == 1 else stream.layout.name)
+        layout = (
+            "stereo"
+            if channels == 2
+            else ("mono" if channels == 1 else stream.layout.name)
+        )
         resampler = AudioResampler(format="s16", layout=layout, rate=rate)
 
         if start > 0:
@@ -204,7 +210,9 @@ def extract_audio(path, start=None, duration=None):
         started = False
         for frame in container.decode(stream):
             frame_start = (
-                float(frame.pts * stream.time_base) if frame.pts is not None else seen / rate
+                float(frame.pts * stream.time_base)
+                if frame.pts is not None
+                else seen / rate
             )
             for chunk in resampler.resample(frame):
                 samples = chunk.to_ndarray()  # (1, samples * channels) packed s16
@@ -276,6 +284,7 @@ git commit -m "feat(server): #193 - extract_audio, a WAV excerpt of any file's s
 ```python
 # tests/test_server.py - add near test_gallery_metadata_describes_audio_and_video
 
+
 def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
     """get_output_audio refused video/mp4 outright, so a generated clip's
     soundtrack could only be heard by fetching the file and demuxing it by
@@ -299,7 +308,9 @@ def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
             assert handle.getnchannels() == 2
 
 
-def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(server, tmp_path):
+def test_gallery_audio_serves_an_audio_file_as_itself_when_asked_whole(
+    server, tmp_path
+):
     from tests.test_media_info import write_wav
 
     with server(success_script) as client:
@@ -324,13 +335,16 @@ def test_gallery_audio_cuts_an_excerpt_and_names_it(server, tmp_path):
         write_wav(outputs / "score-gen.0-0.0.wav", seconds=4.0)
 
         response = client.get(
-            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 1.0, "duration": 0.5}
+            "/api/gallery/score-gen.0-0.0.wav/audio",
+            params={"start": 1.0, "duration": 0.5},
         )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/wav"
         assert response.headers["x-dw-excerpt-start"] == "1.0"
-        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.5, abs=0.02)
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(
+            0.5, abs=0.02
+        )
         assert float(response.headers["x-dw-duration"]) == pytest.approx(4.0, abs=0.05)
         with wave.open(io.BytesIO(response.content)) as handle:
             assert handle.getnframes() == pytest.approx(4000, abs=100)
@@ -345,7 +359,8 @@ def test_gallery_audio_refuses_a_bad_excerpt_and_a_mute_file(server, tmp_path):
         write_mp4(outputs / "mute-gen.0-0.0.mp4", frames=6, fps=6, with_audio=False)
 
         past = client.get(
-            "/api/gallery/score-gen.0-0.0.wav/audio", params={"start": 5.0, "duration": 1.0}
+            "/api/gallery/score-gen.0-0.0.wav/audio",
+            params={"start": 5.0, "duration": 1.0},
         )
         assert past.status_code == 400
         assert "past the end" in past.json()["detail"]
@@ -369,7 +384,9 @@ def test_gallery_audio_reads_an_asset_reference(asset_server, tmp_path):
         )
 
         assert response.status_code == 200
-        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(0.25, abs=0.02)
+        assert float(response.headers["x-dw-excerpt-duration"]) == pytest.approx(
+            0.25, abs=0.02
+        )
 ```
 
 Check how `asset_server` lays out its assets directory before relying on `tmp_path / "assets"`: read `test_gallery_metadata_reads_an_asset_reference` (~line 4534) and copy its setup exactly.
@@ -471,6 +488,7 @@ git commit -m "feat(server): #193 - GET /api/gallery/{name}/audio serves a sound
 ```python
 # tests/test_mcp_media.py - add
 
+
 def serving_with_headers(content, content_type, headers):
     def handler(request):
         return httpx.Response(
@@ -545,7 +563,7 @@ Also update the existing `get_output_audio` tests in this file that assert the `
 In `tests/test_mcp_server.py` change the wiring row:
 
 ```python
-    ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
+(("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),)
 ```
 
 and the wiring handler in `test_each_tool_calls_its_endpoint` already answers `audio/wav` for paths ending `.wav` - it ends with `/audio` now, so change that branch to `if request.url.path.endswith("/audio"):`.
@@ -560,38 +578,39 @@ Expected: FAIL - path is `/outputs/...`, `excerpt` key missing, `TypeError` on `
 In `dw_mcp/client.py`, replace `get_bytes_if` with:
 
 ```python
-    def get_media_if(self, path, accept_content_type, workspace=None, params=None):
-        """Like `get_bytes`, but the body is only downloaded when
-        `accept_content_type(content_type)` is true, and the response
-        headers come back with it - a media route says what it cut in
-        them.
+def get_media_if(self, path, accept_content_type, workspace=None, params=None):
+    """Like `get_bytes`, but the body is only downloaded when
+    `accept_content_type(content_type)` is true, and the response
+    headers come back with it - a media route says what it cut in
+    them.
 
-        Headers arrive before the body over HTTP, so a rejection closes the
-        connection having read nothing past them - useful for `/outputs`,
-        where a rejected file (a video, say) can be arbitrarily large.
-        Returns `(None, content_type, headers)` on rejection, `(body,
-        content_type, headers)` on acceptance. An error status is still
-        raised either way, since the body has to be read to report it.
-        """
-        kwargs = {"params": params} if params else {}
-        response = self._stream_request("GET", path, workspace=workspace, **kwargs)
-        try:
-            content_type = response.headers.get("content-type", "")
-            if response.status_code < 400 and not accept_content_type(content_type):
-                return None, content_type, response.headers
-            self._call_httpx(response.read, path)
-            self._raise_for_status(response, path)
-            return response.content, content_type, response.headers
-        finally:
-            response.close()
+    Headers arrive before the body over HTTP, so a rejection closes the
+    connection having read nothing past them - useful for `/outputs`,
+    where a rejected file (a video, say) can be arbitrarily large.
+    Returns `(None, content_type, headers)` on rejection, `(body,
+    content_type, headers)` on acceptance. An error status is still
+    raised either way, since the body has to be read to report it.
+    """
+    kwargs = {"params": params} if params else {}
+    response = self._stream_request("GET", path, workspace=workspace, **kwargs)
+    try:
+        content_type = response.headers.get("content-type", "")
+        if response.status_code < 400 and not accept_content_type(content_type):
+            return None, content_type, response.headers
+        self._call_httpx(response.read, path)
+        self._raise_for_status(response, path)
+        return response.content, content_type, response.headers
+    finally:
+        response.close()
 
-    def get_bytes_if(self, path, accept_content_type, workspace=None):
-        """`get_media_if` without the headers, for the callers that only
-        want the body."""
-        body, content_type, _headers = self.get_media_if(
-            path, accept_content_type, workspace=workspace
-        )
-        return body, content_type
+
+def get_bytes_if(self, path, accept_content_type, workspace=None):
+    """`get_media_if` without the headers, for the callers that only
+    want the body."""
+    body, content_type, _headers = self.get_media_if(
+        path, accept_content_type, workspace=workspace
+    )
+    return body, content_type
 ```
 
 Check `_scoped` merges `params` rather than replacing them (read `dw_mcp/client.py:250-270`); if it does `kwargs.setdefault("params", {})` then `.setdefault("workspace", ...)`, passing `params` works as-is. If it replaces, fix `_scoped` to merge.
@@ -863,7 +882,10 @@ def test_seam_tiles_pair_the_frames_either_side_of_each_boundary(tmp_path):
         tile_width=32,
     )
 
-    assert [t["label"] for t in tiles] == ["seam 1: shot@a | shot@b", "seam 2: shot@b | shot@c"]
+    assert [t["label"] for t in tiles] == [
+        "seam 1: shot@a | shot@b",
+        "seam 2: shot@b | shot@c",
+    ]
     assert [t["frame"] for t in tiles] == [8, 16]
     image = tiles[0]["image"]
     assert image.width == 64 and image.height == 16
@@ -1111,6 +1133,7 @@ git commit -m "feat(server): #193 - media_frames seeks out moments, a contact sh
 ```python
 # tests/test_server.py - add after the gallery_audio tests
 
+
 def _png_of(tile):
     import base64
     import io
@@ -1126,7 +1149,9 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
-        write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32)
+        write_ramp_mp4(
+            outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6, width=64, height=32
+        )
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames",
@@ -1180,7 +1205,9 @@ def test_gallery_frames_pairs_the_frames_at_each_seam(server, tmp_path):
             "/api/gallery/cut-gen.0-0.0.mp4/frames",
             params={"seams": "2", "boundaries": "8,16"},
         )
-        assert [t["label"] for t in second.json()["tiles"]] == ["seam 2: shot 2 | shot 3"]
+        assert [t["label"] for t in second.json()["tiles"]] == [
+            "seam 2: shot 2 | shot 3"
+        ]
 
 
 def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
@@ -1211,7 +1238,9 @@ def test_gallery_frames_refuses_bad_selectors(server, tmp_path):
         )
         assert past.status_code == 400 and "past the end" in past.json()["detail"]
 
-        audio = client.get("/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1})
+        audio = client.get(
+            "/api/gallery/score-gen.0-0.0.wav/frames", params={"count": 1}
+        )
         assert audio.status_code == 404
 
 
@@ -1245,98 +1274,100 @@ from ..media_frames import contact_sheet, frames_at, seam_tiles, video_shape
 Add after `gallery_audio`:
 
 ```python
-    FRAME_MIN_DIMENSION = 64
+FRAME_MIN_DIMENSION = 64
 
-    @app.get("/api/gallery/{name:path}/frames")
-    def gallery_frames(
-        name: str,
-        at: Optional[List[str]] = Query(None),
-        count: Optional[int] = None,
-        seams: Optional[str] = None,
-        boundaries: Optional[str] = None,
-        names: Optional[str] = None,
-        max_dimension: int = 512,
-        ws: Workspace = Depends(selected_workspace),
-    ):
-        """Frames of a video output or asset, as PNG tiles - the way an
-        agent with no video content type sees what a run made (#193).
-        Exactly one selector: `at` (repeatable; seconds, or "frame:N"),
-        `count` (an evenly spaced contact sheet, `frame_grid` without a
-        workflow), or `seams` ("true", or a comma list of 1-based seam
-        numbers) for the last frame before and first frame after each
-        boundary, side by side. `boundaries` is the comma list of frame
-        indexes each shot after the first starts at, and `names` the
-        shots' names; both are required with `seams` until a joined file
-        carries its own (stage 2 of docs/proposals/output-assessment.md).
-        Tiles are downscaled to `max_dimension` on their longest side."""
-        if is_asset_reference(name):
-            path = _asset_file(name, ws)
-        else:
-            path = _output_file(name, ws.outputs)
-        if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
-            raise HTTPException(status_code=404, detail=f"{name} is not a video")
 
-        chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
-        if len(chosen) != 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Pass exactly one of `at`, `count` or `seams`"
-                + (f" - got {', '.join(chosen)}" if chosen else ""),
-            )
-        limit = max(FRAME_MIN_DIMENSION, int(max_dimension))
+@app.get("/api/gallery/{name:path}/frames")
+def gallery_frames(
+    name: str,
+    at: Optional[List[str]] = Query(None),
+    count: Optional[int] = None,
+    seams: Optional[str] = None,
+    boundaries: Optional[str] = None,
+    names: Optional[str] = None,
+    max_dimension: int = 512,
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Frames of a video output or asset, as PNG tiles - the way an
+    agent with no video content type sees what a run made (#193).
+    Exactly one selector: `at` (repeatable; seconds, or "frame:N"),
+    `count` (an evenly spaced contact sheet, `frame_grid` without a
+    workflow), or `seams` ("true", or a comma list of 1-based seam
+    numbers) for the last frame before and first frame after each
+    boundary, side by side. `boundaries` is the comma list of frame
+    indexes each shot after the first starts at, and `names` the
+    shots' names; both are required with `seams` until a joined file
+    carries its own (stage 2 of docs/proposals/output-assessment.md).
+    Tiles are downscaled to `max_dimension` on their longest side."""
+    if is_asset_reference(name):
+        path = _asset_file(name, ws)
+    else:
+        path = _output_file(name, ws.outputs)
+    if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
+        raise HTTPException(status_code=404, detail=f"{name} is not a video")
 
-        try:
-            if at:
-                moments = [m if m.startswith("frame:") else float(m) for m in at]
-                tiles = frames_at(path, moments)
-            elif count:
-                tiles = [contact_sheet(path, count, tile_width=limit)]
-            else:
-                if not boundaries:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="`seams` needs `boundaries`: the frame index each "
-                        "shot after the first starts at, comma-separated - this "
-                        "file carries none of its own",
-                    )
-                starts = [int(b) for b in boundaries.split(",") if b.strip()]
-                shot_names = [n.strip() for n in names.split(",")] if names else None
-                tiles = seam_tiles(path, starts, names=shot_names, tile_width=limit)
-                if seams.lower() != "true":
-                    wanted = {int(s) for s in seams.split(",") if s.strip()}
-                    tiles = [t for i, t in enumerate(tiles, start=1) if i in wanted]
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        shape = video_shape(path)
-        return {
-            "name": name,
-            **shape,
-            "tiles": [_encoded_tile(tile, limit) for tile in tiles],
-        }
-
-    def _encoded_tile(tile, limit):
-        image = tile["image"]
-        longest = max(image.width, image.height)
-        if longest > limit:
-            scale = limit / longest
-            image = image.resize(
-                (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
-            )
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        encoded = {
-            key: value for key, value in tile.items() if key != "image"
-        }
-        encoded.update(
-            {
-                "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
-                "mime_type": "image/png",
-                "width": image.width,
-                "height": image.height,
-            }
+    chosen = [
+        key for key, value in (("at", at), ("count", count), ("seams", seams)) if value
+    ]
+    if len(chosen) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Pass exactly one of `at`, `count` or `seams`"
+            + (f" - got {', '.join(chosen)}" if chosen else ""),
         )
-        return encoded
+    limit = max(FRAME_MIN_DIMENSION, int(max_dimension))
+
+    try:
+        if at:
+            moments = [m if m.startswith("frame:") else float(m) for m in at]
+            tiles = frames_at(path, moments)
+        elif count:
+            tiles = [contact_sheet(path, count, tile_width=limit)]
+        else:
+            if not boundaries:
+                raise HTTPException(
+                    status_code=400,
+                    detail="`seams` needs `boundaries`: the frame index each "
+                    "shot after the first starts at, comma-separated - this "
+                    "file carries none of its own",
+                )
+            starts = [int(b) for b in boundaries.split(",") if b.strip()]
+            shot_names = [n.strip() for n in names.split(",")] if names else None
+            tiles = seam_tiles(path, starts, names=shot_names, tile_width=limit)
+            if seams.lower() != "true":
+                wanted = {int(s) for s in seams.split(",") if s.strip()}
+                tiles = [t for i, t in enumerate(tiles, start=1) if i in wanted]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    shape = video_shape(path)
+    return {
+        "name": name,
+        **shape,
+        "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+    }
+
+
+def _encoded_tile(tile, limit):
+    image = tile["image"]
+    longest = max(image.width, image.height)
+    if longest > limit:
+        scale = limit / longest
+        image = image.resize(
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+        )
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = {key: value for key, value in tile.items() if key != "image"}
+    encoded.update(
+        {
+            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "mime_type": "image/png",
+            "width": image.width,
+            "height": image.height,
+        }
+    )
+    return encoded
 ```
 
 Add `import base64` to the stdlib imports if absent. The `contact_sheet` and `seam_tiles` tile widths are per sub-tile; the composed grid can exceed `limit` on its longest side, so `_encoded_tile` fits the *composite* to `limit` - that is the behaviour the `max_dimension` test asserts.
@@ -1392,7 +1423,15 @@ def frames_server(tiles, seen=None):
         if seen is not None:
             seen.append((request.url.path, list(request.url.params.multi_items())))
         return httpx.Response(
-            200, json={"name": "x.mp4", "frame_count": 24, "fps": 6.0, "width": 64, "height": 32, "tiles": tiles}
+            200,
+            json={
+                "name": "x.mp4",
+                "frame_count": 24,
+                "fps": 6.0,
+                "width": 64,
+                "height": 32,
+                "tiles": tiles,
+            },
         )
 
     return DwClient(transport=httpx.MockTransport(handler))
@@ -1400,13 +1439,18 @@ def frames_server(tiles, seen=None):
 
 def test_frames_are_asked_for_by_moment_and_come_back_labelled():
     seen = []
-    client = frames_server([tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen)
+    client = frames_server(
+        [tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen
+    )
 
     result = get_output_frames(client, "run/x.mp4", at=[0.0, "frame:12"])
 
     assert seen[0][0] == "/api/gallery/run%2Fx.mp4/frames"
     assert ("at", "0.0") in seen[0][1] and ("at", "frame:12") in seen[0][1]
-    assert [t["label"] for t in result["tiles"]] == ["00:00.0 (frame 0)", "00:02.0 (frame 12)"]
+    assert [t["label"] for t in result["tiles"]] == [
+        "00:00.0 (frame 0)",
+        "00:02.0 (frame 12)",
+    ]
     assert result["downscaled_to"] is None
 
 
@@ -1414,7 +1458,9 @@ def test_seams_send_boundaries_and_names():
     seen = []
     client = frames_server([tile_json(128, 32, "seam 1: a | b", 8, 1.33)], seen)
 
-    get_output_frames(client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"])
+    get_output_frames(
+        client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"]
+    )
 
     params = dict(seen[0][1])
     assert params["seams"] == "1"
@@ -1436,7 +1482,9 @@ def test_tiles_over_budget_are_shrunk_together_and_say_so():
         tiles.append(
             {
                 **tile_json(2048, 1024, frame=n, seconds=float(n)),
-                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode("ascii"),
+                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode(
+                    "ascii"
+                ),
             }
         )
     client = frames_server(tiles)
@@ -1453,20 +1501,41 @@ def test_tiles_over_budget_are_shrunk_together_and_say_so():
 In `tests/test_mcp_server.py`: add `"get_output_frames"` to `EXPECTED_TOOLS`; add the wiring row
 
 ```python
-    ("get_output_frames", {"name": "out.mp4", "count": 2}, "GET", "/api/gallery/out.mp4/frames"),
+(
+    (
+        "get_output_frames",
+        {"name": "out.mp4", "count": 2},
+        "GET",
+        "/api/gallery/out.mp4/frames",
+    ),
+)
 ```
 
 and in `test_each_tool_calls_its_endpoint`'s handler add, before the `/outputs/` branch:
 
 ```python
-        if request.url.path.endswith("/frames"):
-            return httpx.Response(
-                200,
-                json={"name": "out.mp4", "frame_count": 2, "fps": 6.0, "width": 1, "height": 1,
-                      "tiles": [{"label": "contact sheet, 2 frames", "frame": 0, "seconds": 0.0,
-                                 "data": base64.b64encode(PNG_1X1).decode("ascii"),
-                                 "mime_type": "image/png", "width": 1, "height": 1}]},
-            )
+if request.url.path.endswith("/frames"):
+    return httpx.Response(
+        200,
+        json={
+            "name": "out.mp4",
+            "frame_count": 2,
+            "fps": 6.0,
+            "width": 1,
+            "height": 1,
+            "tiles": [
+                {
+                    "label": "contact sheet, 2 frames",
+                    "frame": 0,
+                    "seconds": 0.0,
+                    "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                    "mime_type": "image/png",
+                    "width": 1,
+                    "height": 1,
+                }
+            ],
+        },
+    )
 ```
 
 and `"get_output_frames": (media, "get_output_frames")` to `WRAPPER_HANDLER_MAP`.
@@ -1507,7 +1576,9 @@ def get_output_frames(
     dropped, and `downscaled_to` says what they were shrunk to. A seam
     pair at half size is still a seam pair; a seam pair missing is a
     different answer."""
-    chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+    chosen = [
+        key for key, value in (("at", at), ("count", count), ("seams", seams)) if value
+    ]
     if len(chosen) != 1:
         raise DwApiError(
             "Pass exactly one of `at`, `count` or `seams`"
@@ -1519,7 +1590,9 @@ def get_output_frames(
     elif count:
         params.append(("count", str(int(count))))
     else:
-        params.append(("seams", "true" if seams is True else ",".join(str(s) for s in seams)))
+        params.append(
+            ("seams", "true" if seams is True else ",".join(str(s) for s in seams))
+        )
         if boundaries:
             params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
         if names:
@@ -1557,8 +1630,13 @@ def _fit_tiles_within_budget(tiles):
             buffer = io.BytesIO()
             sized.save(buffer, format="PNG")
             encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-            shrunk.append({**tile, "data": encoded, "width": sized.width, "height": sized.height})
-        if sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES or limit <= MIN_DIMENSION:
+            shrunk.append(
+                {**tile, "data": encoded, "width": sized.width, "height": sized.height}
+            )
+        if (
+            sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES
+            or limit <= MIN_DIMENSION
+        ):
             return shrunk, limit
         images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
 ```
@@ -1570,63 +1648,61 @@ Check `client.get_json` accepts `params` (read `dw_mcp/client.py`'s `get_json`);
 In `dw_mcp/server.py` after `get_output_audio`:
 
 ```python
-    def get_output_frames(
-        name: str,
-        at: list[str | float] | None = None,
-        seams: bool | list[int] | None = None,
-        count: int | None = None,
-        boundaries: list[int] | None = None,
-        names: list[str] | None = None,
-        max_dimension: int = 512,
-        workspace: str | None = None,
-    ) -> list[ImageContent | TextContent]:
-        """See a generated video, named as `list_gallery` or a job's manifest
-        reports it: there is no video content type over MCP, so a clip is
-        looked at as frames (and heard with `get_output_audio`). One
-        selector per call - `count` for an evenly spaced contact sheet of
-        the whole clip (start here: `count=12` shows a clip's shape in one
-        image), `at` for specific moments (seconds, or "frame:N"), or
-        `seams` (true, or seam numbers from 1) for the last frame before
-        and the first frame after each join, side by side - the picture to
-        check a cut or a continuity break against. `seams` needs
-        `boundaries` (the frame index each shot after the first starts at;
-        sum the shots' frame counts from `get_gallery_metadata`) and takes
-        `names` for the shots. Each tile is fitted to `max_dimension`; the
-        text part lists every tile's label, frame and time, and says if the
-        set was shrunk to fit the 4MB budget. What you see here outranks any
-        number `get_gallery_metadata` reports.
+def get_output_frames(
+    name: str,
+    at: list[str | float] | None = None,
+    seams: bool | list[int] | None = None,
+    count: int | None = None,
+    boundaries: list[int] | None = None,
+    names: list[str] | None = None,
+    max_dimension: int = 512,
+    workspace: str | None = None,
+) -> list[ImageContent | TextContent]:
+    """See a generated video, named as `list_gallery` or a job's manifest
+    reports it: there is no video content type over MCP, so a clip is
+    looked at as frames (and heard with `get_output_audio`). One
+    selector per call - `count` for an evenly spaced contact sheet of
+    the whole clip (start here: `count=12` shows a clip's shape in one
+    image), `at` for specific moments (seconds, or "frame:N"), or
+    `seams` (true, or seam numbers from 1) for the last frame before
+    and the first frame after each join, side by side - the picture to
+    check a cut or a continuity break against. `seams` needs
+    `boundaries` (the frame index each shot after the first starts at;
+    sum the shots' frame counts from `get_gallery_metadata`) and takes
+    `names` for the shots. Each tile is fitted to `max_dimension`; the
+    text part lists every tile's label, frame and time, and says if the
+    set was shrunk to fit the 4MB budget. What you see here outranks any
+    number `get_gallery_metadata` reports.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it (#99)."""
-        result = media.get_output_frames(
-            client,
-            name,
-            at=at,
-            seams=seams,
-            count=count,
-            boundaries=boundaries,
-            names=names,
-            max_dimension=max_dimension,
-            workspace=workspace,
+    `workspace` names the workspace for this one call without
+    switching the session to it (#99)."""
+    result = media.get_output_frames(
+        client,
+        name,
+        at=at,
+        seams=seams,
+        count=count,
+        boundaries=boundaries,
+        names=names,
+        max_dimension=max_dimension,
+        workspace=workspace,
+    )
+    parts = [
+        ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
+        for tile in result["tiles"]
+    ]
+    lines = [
+        f"name: {result['name']}",
+        f"frame_count: {result['frame_count']}  fps: {result['fps']}",
+    ]
+    for tile in result["tiles"]:
+        lines.append(f"- {tile['label']}  [{tile['width']}x{tile['height']}]")
+    if result["downscaled_to"]:
+        lines.append(
+            f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
         )
-        parts = [
-            ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
-            for tile in result["tiles"]
-        ]
-        lines = [
-            f"name: {result['name']}",
-            f"frame_count: {result['frame_count']}  fps: {result['fps']}",
-        ]
-        for tile in result["tiles"]:
-            lines.append(
-                f"- {tile['label']}  [{tile['width']}x{tile['height']}]"
-            )
-        if result["downscaled_to"]:
-            lines.append(
-                f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
-            )
-        parts.append(TextContent(type="text", text="\n".join(lines)))
-        return parts
+    parts.append(TextContent(type="text", text="\n".join(lines)))
+    return parts
 ```
 
 Register it wherever the file lists tools for `mcp.tool()` (find how `get_output_audio` is registered - `grep -n "get_output_audio" dw_mcp/server.py` - and mirror it exactly).

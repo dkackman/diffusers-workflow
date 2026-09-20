@@ -85,9 +85,7 @@ def _crop_box(crop, width, height):
     try:
         x, y, w, h = (int(v) for v in crop)
     except (TypeError, ValueError):
-        raise DwApiError(
-            f"crop must be [x, y, width, height] in pixels, got {crop!r}."
-        )
+        raise DwApiError(f"crop must be [x, y, width, height] in pixels, got {crop!r}.")
     if x < 0 or y < 0 or w <= 0 or h <= 0:
         raise DwApiError(
             f"crop must have a non-negative origin and a positive size, got {crop!r}."
