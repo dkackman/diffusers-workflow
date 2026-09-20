@@ -140,6 +140,13 @@ class JobHistory:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'"
                 )
+            # The worker's own high-water mark for this run (#243) - NULL for
+            # a row predating the column and for any run that never reported
+            # one (cancelled/errored before the worker's final memory_info)
+            if "host_memory_peak_rss_mb" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN host_memory_peak_rss_mb REAL"
+                )
 
     def _connect(self):
         return sqlite3.connect(self.db_path, timeout=5)
@@ -152,8 +159,8 @@ class JobHistory:
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
-                " acknowledged) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " acknowledged, host_memory_peak_rss_mb) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -172,6 +179,11 @@ class JobHistory:
                     job.run_id,
                     job.run_dir,
                     job.acknowledged,
+                    # A test double or an older in-memory Job predating this
+                    # column reports None here rather than failing record()
+                    # (#243) - the same "absent means unknown" the column
+                    # itself allows
+                    getattr(job, "host_memory_peak_rss_mb", None),
                 ),
             )
 
@@ -264,13 +276,23 @@ class JobHistory:
             rows = connection.execute(
                 "SELECT workflow_name, started_at, finished_at, arguments,"
                 " manifest, INSTR(COALESCE(events, ''), ?) > 0,"
-                " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?"
+                " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
+                " host_memory_peak_rss_mb"
                 " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
             ).fetchall()
         grouped = {}
-        for name, started, finished, arguments, manifest, had_load, at_cap in rows:
+        for (
+            name,
+            started,
+            finished,
+            arguments,
+            manifest,
+            had_load,
+            at_cap,
+            peak_rss_mb,
+        ) in rows:
             grouped.setdefault(name, []).append(
                 {
                     "started_at": started,
@@ -280,6 +302,7 @@ class JobHistory:
                     "manifest": manifest,
                     "had_load": bool(had_load),
                     "events_at_cap": bool(at_cap),
+                    "host_memory_peak_rss_mb": peak_rss_mb,
                 }
             )
         return grouped
@@ -429,6 +452,9 @@ class Job:
         self.run_dir = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
+        # The worker's own high-water mark for this run, from its final
+        # memory_info message - None for a run that never got that far (#243)
+        self.host_memory_peak_rss_mb = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -1194,6 +1220,11 @@ class JobManager:
             elif message_type == "memory_info":
                 self._record_memory(message.get("info"))
                 job.add_event({"event": "memory", "info": self.last_memory})
+                # The worker's post-run reading, so it survives as a real
+                # column rather than only inside the trimmed event tail (#243)
+                peak = (message.get("info") or {}).get("host_memory_peak_rss_mb")
+                if peak is not None:
+                    job.host_memory_peak_rss_mb = peak
             elif message_type == "success":
                 self._record_manifest(job, message)
                 return (SUCCEEDED, None, None)

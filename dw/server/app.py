@@ -73,6 +73,7 @@ from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..hub_cache import scan_models, delete_model, DownloadManager
+from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
@@ -1786,7 +1787,28 @@ def create_app(
             answer["plan"]["workspace"] = workspace.name
             answer["plan"]["output_dir"] = workspace.outputs
             answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
+            if catalog_name:
+                answer["warnings"] += _host_memory_warnings(
+                    catalog_name, definition, answer["plan"]["list_entries"]
+                )
         return answer
+
+    def _host_memory_warnings(name, definition, list_entries):
+        """Whether this box's own history says the requested list is
+        projected to exceed host RAM (#243) - best effort, since a warning
+        that 500s the free pre-flight would be worse than skipping it."""
+        costs = getattr(app.state, "observed_costs", None)
+        if costs is None:
+            return []
+        try:
+            from ..host_memory import host_memory_stats
+
+            rows = costs.rows_for(name)
+            ceiling_mb = (host_memory_stats().get("total_mb") or 0) * CEILING_FRACTION
+            return host_memory_warnings(definition, list_entries, rows, ceiling_mb)
+        except Exception:
+            logger.debug("host memory projection failed for %s", name, exc_info=True)
+            return []
 
     # ------------------------------------------------------------ workspaces
 
