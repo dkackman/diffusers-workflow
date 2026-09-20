@@ -113,8 +113,9 @@ def build_server(client):
             "not accept; repeat until it is clean, since fixing one layer "
             "exposes the next) -> `run_workflow` -> `wait_for_job` rather than a "
             "polling loop -> `get_job` for the manifest -> "
-            "`get_output_image` to actually look at what was made and say "
-            "whether it answers the request. Tools that cost GPU minutes, "
+            "`get_output_image`, `get_output_frames` and `get_output_audio` to "
+            "actually look at and listen to what was made and say whether "
+            "it answers the request. Tools that cost GPU minutes, "
             "disk or unrecoverable deletion refuse until "
             "`acknowledged_cost=true`: tell the user what it will cost (a "
             "workflow you wrote or copied has no `cost`; quote the figure "
@@ -519,9 +520,9 @@ def build_server(client):
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - it is the
         only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: audio
-        is `get_output_audio`'s and video is refused, so inspect a video
-        with `get_gallery_metadata` or hand the user the file. The image is
+        succeeded can still have made the wrong picture. Images only: a soundtrack
+        is `get_output_audio`'s and a video's frames are
+        `get_output_frames`'s. The image is
         downscaled to `max_dimension` on its longest side; the second part
         of the result reports the size it went in and came out at, so a
         downscale is never silent.
@@ -581,6 +582,54 @@ def build_server(client):
             lines.append(f"excerpt: {e['duration']}s from {e['start']}s of {e['of']}s")
         telemetry = TextContent(type="text", text="\n".join(lines))
         return [audio, telemetry]
+
+    def get_output_frames(
+        name: str,
+        at: list[str | float] | None = None,
+        seams: bool | list[int] | None = None,
+        count: int | None = None,
+        boundaries: list[int] | None = None,
+        names: list[str] | None = None,
+        max_dimension: int = 512,
+        workspace: str | None = None,
+    ) -> list[ImageContent | TextContent]:
+        """See a generated video as frames - there is no video content
+        type over MCP. One selector per call: `count` for a contact sheet,
+        `at` for moments (seconds, or "frame:N"), or `seams` (true, or seam
+        numbers from 1) for the frame pair either side of each join - needs
+        `boundaries` (each shot's start frame) and `names`. Tiles fit
+        `max_dimension`; over budget they shrink together, never drop.
+
+        `workspace` pins this call to another workspace (#99)."""
+        result = media.get_output_frames(
+            client,
+            name,
+            at=at,
+            seams=seams,
+            count=count,
+            boundaries=boundaries,
+            names=names,
+            max_dimension=max_dimension,
+            workspace=workspace,
+        )
+        parts = [
+            ImageContent(type="image", data=tile["data"], mime_type=tile["mime_type"])
+            for tile in result["tiles"]
+        ]
+        lines = [
+            f"name: {result['name']}",
+            f"frame_count: {result['frame_count']}  fps: {result['fps']}",
+        ]
+        for tile in result["tiles"]:
+            lines.append(
+                f"- {tile['label']}  [{tile['width']}x{tile['height']}]"
+            )
+        if result["downscaled_to"]:
+            lines.append(
+                f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
+            )
+        parts.append(TextContent(type="text", text="\n".join(lines)))
+        return parts
 
     def get_output_text(
         name: str, max_characters: int = 20000, workspace: str | None = None
@@ -655,6 +704,7 @@ def build_server(client):
 
     tool(get_output_image, READ_ONLY)
     tool(get_output_audio, READ_ONLY)
+    tool(get_output_frames, READ_ONLY)
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)

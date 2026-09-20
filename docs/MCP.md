@@ -187,7 +187,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-55 tools in six groups. Names and arguments below are transcribed from
+56 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -235,6 +235,7 @@ when no single workflow covers it.
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768, workspace=None)` | `name`, `max_dimension`, `workspace` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `get_output_audio(name, start=None, duration=None, workspace=None)` | `name`, `start`, `duration`, `workspace` | Listen to a generated soundtrack as base64 WAV - an audio output, or the track muxed into a video (#193). No downscale exists for audio, so a whole clip over the 4MB budget is refused rather than cut (#204); ask for the part instead with `start` and `duration` in seconds, and the text part names what was cut (`excerpt: 2.0s from 10.0s of 240.0s`) so a slice is never mistaken for the whole. `get_gallery_metadata`'s envelope says where in a track to look. `workspace` names the workspace for this one call without switching the session to it |
+| `get_output_frames(name, at=None, seams=None, count=None, boundaries=None, names=None, max_dimension=512, workspace=None)` | `name`, `at`, `seams`, `count`, `boundaries`, `names`, `max_dimension`, `workspace` | See a generated video as frames, since there is no video content type over MCP (#193). One selector per call: `count` for an evenly spaced contact sheet, `at` for moments (seconds or `"frame:N"`), `seams` (true, or seam numbers from 1) for the last frame before and first frame after each join side by side - with `boundaries`, the frame index each shot after the first starts at, and `names`. Tiles are fitted to `max_dimension` and, when the set would exceed the 4MB budget, shrunk together rather than dropped; the text part lists each tile and says so |
 | `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over a `dw.serve --mcp` endpoint the file lands on the server, so the destination is confined to that workspace and a relative one is joined onto it. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `delete_output(name, workspace=None)` | `name`, `workspace` | Permanently remove one generated file from the output directory. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
@@ -374,6 +375,8 @@ The intended loop:
 4. `get_job(job_id)` for the finished manifest (or the error and traceback,
    if it failed)
 5. `get_output_image(name)` to look at a result image
+6. `get_output_frames(name, count=12)` to look at a result video, and
+   `get_output_audio(name, start, duration)` to hear it
 
 While a job runs, `get_job` and `wait_for_job` carry a `progress` block -
 the step being run, the phase (`loading`, `generating`, `decoding`,

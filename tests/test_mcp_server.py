@@ -1,5 +1,6 @@
 """The assembled MCP server: what a client actually sees when it connects."""
 
+import base64
 import inspect
 import json
 import os
@@ -36,6 +37,7 @@ EXPECTED_TOOLS = {
     "get_gallery_metadata",
     "get_output_image",
     "get_output_audio",
+    "get_output_frames",
     "validate_workflow",
     "save_workflow",
     "delete_workflow",
@@ -357,6 +359,7 @@ TOOL_WIRING = [
     ),
     ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
     ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
+    ("get_output_frames", {"name": "out.mp4", "count": 2}, "GET", "/api/gallery/out.mp4/frames"),
     ("validate_workflow", {"workflow": {"id": "w"}}, "POST", "/api/validate"),
     (
         "save_workflow",
@@ -492,6 +495,14 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
         if request.url.path.endswith("/audio"):
             return httpx.Response(
                 200, content=b"riff", headers={"content-type": "audio/wav"}
+            )
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200,
+                json={"name": "out.mp4", "frame_count": 2, "fps": 6.0, "width": 1, "height": 1,
+                      "tiles": [{"label": "contact sheet, 2 frames", "frame": 0, "seconds": 0.0,
+                                 "data": base64.b64encode(PNG_1X1).decode("ascii"),
+                                 "mime_type": "image/png", "width": 1, "height": 1}]},
             )
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
@@ -891,6 +902,7 @@ WRAPPER_HANDLER_MAP = {
     "wait_for_job": (diagnose, "wait_for_job"),
     "get_output_image": (media, "get_output_image"),
     "get_output_audio": (media, "get_output_audio"),
+    "get_output_frames": (media, "get_output_frames"),
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
     "list_jobs": (catalog, "list_jobs"),
@@ -1129,7 +1141,12 @@ def test_the_stated_tool_count_is_the_registered_one():
 # wait_for_job's stall-diagnosis paragraph are both restated in
 # WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
 # question to ask first is whether the second copy has to be the resident one.
-SURFACE_BUDGET = 13_800
+# Measured 2026-09-20 at 14_017 (9_386 / 3_618 / 1_014) after
+# get_output_frames (#193, #210) - a `seams`/`boundaries`/`names` shape with
+# no smaller honest schema, so its 971-char input schema alone is most of
+# the room a "tool or two" bought. Raised to 14_200, the same amount of
+# slack as before rather than none.
+SURFACE_BUDGET = 14_200
 
 
 @pytest.mark.asyncio

@@ -173,6 +173,89 @@ def _float_header(headers, key):
         return None
 
 
+def get_output_frames(
+    client,
+    name,
+    at=None,
+    seams=None,
+    count=None,
+    boundaries=None,
+    names=None,
+    max_dimension=512,
+    workspace=None,
+):
+    """Frames of a generated video as images - the way to *see* a clip when
+    there is no video content type to return it as (#193, #210). One
+    selector per call: `at` (moments: seconds, or "frame:N"), `count` (an
+    evenly spaced contact sheet) or `seams` (True, or seam numbers from 1:
+    the last frame before and the first frame after each boundary, side by
+    side). `boundaries` is the list of frame indexes each shot after the
+    first starts at, `names` the shots' names - both needed with `seams`
+    until a joined file carries its own.
+
+    Every tile is fitted to `max_dimension`; when the whole answer would
+    still exceed MAX_RETURNED_BYTES the tiles are shrunk *together* - the
+    same dimension for all, halved until they fit - rather than any being
+    dropped, and `downscaled_to` says what they were shrunk to. A seam
+    pair at half size is still a seam pair; a seam pair missing is a
+    different answer."""
+    chosen = [key for key, value in (("at", at), ("count", count), ("seams", seams)) if value]
+    if len(chosen) != 1:
+        raise DwApiError(
+            "Pass exactly one of `at`, `count` or `seams`"
+            + (f" - got {', '.join(chosen)}" if chosen else "")
+        )
+    params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
+    # a list of pairs, turned into a dict by the client - so no key repeats
+    if at:
+        params.append(("at", ",".join(str(moment) for moment in at)))
+    elif count:
+        params.append(("count", str(int(count))))
+    else:
+        params.append(("seams", "true" if seams is True else ",".join(str(s) for s in seams)))
+        if boundaries:
+            params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
+        if names:
+            params.append(("names", ",".join(names)))
+
+    body = client.get_json(
+        api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
+    )
+    tiles, downscaled_to = _fit_tiles_within_budget(body.get("tiles", []))
+    return {
+        "name": name,
+        "frame_count": body.get("frame_count"),
+        "fps": body.get("fps"),
+        "tiles": tiles,
+        "downscaled_to": downscaled_to,
+    }
+
+
+def _fit_tiles_within_budget(tiles):
+    """Shrink every tile by the same factor until their base64 sizes sum
+    to MAX_RETURNED_BYTES or less. Returns (tiles, downscaled_to) with
+    downscaled_to None when nothing had to shrink."""
+    total = sum(len(tile["data"]) for tile in tiles)
+    if total <= MAX_RETURNED_BYTES or not tiles:
+        return tiles, None
+    images = [Image.open(io.BytesIO(base64.b64decode(tile["data"]))) for tile in tiles]
+    for image in images:
+        image.load()
+    limit = max(max(image.width, image.height) for image in images)
+    while True:
+        limit = max(MIN_DIMENSION, limit // 2)
+        shrunk = []
+        for tile, image in zip(tiles, images):
+            sized = _fit(image, limit)
+            buffer = io.BytesIO()
+            sized.save(buffer, format="PNG")
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            shrunk.append({**tile, "data": encoded, "width": sized.width, "height": sized.height})
+        if sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES or limit <= MIN_DIMENSION:
+            return shrunk, limit
+        images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
+
+
 def get_output_text(
     client, name, max_characters=MAX_RETURNED_CHARACTERS, workspace=None
 ):

@@ -83,7 +83,7 @@ once; without it the run fails partway through with a 401/403 from the Hub.
 
 ## Drive it from an agent
 
-Then just ask. The agent has 57 tools covering the whole surface — the
+Then just ask. The agent has 58 tools covering the whole surface — the
 workflow catalog, the real diffusers pipeline signatures, the job queue, the
 gallery, the model cache:
 

@@ -16,6 +16,7 @@ from dw_mcp.media import (
     MAX_RETURNED_BYTES,
     download_output,
     get_output_audio,
+    get_output_frames,
     get_output_image,
 )
 
@@ -807,3 +808,81 @@ def test_a_stdio_client_still_writes_wherever_the_user_can(tmp_path):
     download_output(client, "run/probe.jpg", destination=str(destination))
 
     assert destination.read_bytes() == png_bytes(4, 4)
+
+
+def tile_json(width, height, label="00:00.0 (frame 0)", frame=0, seconds=0.0):
+    return {
+        "label": label,
+        "frame": frame,
+        "seconds": seconds,
+        "data": base64.b64encode(png_bytes(width, height)).decode("ascii"),
+        "mime_type": "image/png",
+        "width": width,
+        "height": height,
+    }
+
+
+def frames_server(tiles, seen=None):
+    def handler(request):
+        if seen is not None:
+            seen.append((request.url.path, list(request.url.params.multi_items())))
+        return httpx.Response(
+            200, json={"name": "x.mp4", "frame_count": 24, "fps": 6.0, "width": 64, "height": 32, "tiles": tiles}
+        )
+
+    return DwClient(transport=httpx.MockTransport(handler))
+
+
+def test_frames_are_asked_for_by_moment_and_come_back_labelled():
+    seen = []
+    client = frames_server([tile_json(64, 32), tile_json(64, 32, "00:02.0 (frame 12)", 12, 2.0)], seen)
+
+    result = get_output_frames(client, "run/x.mp4", at=[0.0, "frame:12"])
+
+    # request.url.path decodes percent-escapes back for display (see the
+    # comment on test_audio_is_fetched_from_the_gallery_audio_route above);
+    # the encoding itself is api_path's job, covered by tests/test_mcp_client.py.
+    assert seen[0][0] == "/api/gallery/run/x.mp4/frames"
+    assert dict(seen[0][1])["at"] == "0.0,frame:12"
+    assert [t["label"] for t in result["tiles"]] == ["00:00.0 (frame 0)", "00:02.0 (frame 12)"]
+    assert result["downscaled_to"] is None
+
+
+def test_seams_send_boundaries_and_names():
+    seen = []
+    client = frames_server([tile_json(128, 32, "seam 1: a | b", 8, 1.33)], seen)
+
+    get_output_frames(client, "cut.mp4", seams=[1], boundaries=[8, 16], names=["a", "b", "c"])
+
+    params = dict(seen[0][1])
+    assert params["seams"] == "1"
+    assert params["boundaries"] == "8,16"
+    assert params["names"] == "a,b,c"
+
+
+def test_two_selectors_are_refused_before_any_request():
+    client = frames_server([])
+
+    with pytest.raises(DwApiError, match="one of"):
+        get_output_frames(client, "x.mp4", at=[0.0], count=4)
+
+
+def test_tiles_over_budget_are_shrunk_together_and_say_so():
+    # three noisy 2048x1024 tiles: well over 4MB base64 between them
+    tiles = []
+    for n in range(3):
+        tiles.append(
+            {
+                **tile_json(2048, 1024, frame=n, seconds=float(n)),
+                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode("ascii"),
+            }
+        )
+    client = frames_server(tiles)
+
+    result = get_output_frames(client, "x.mp4", at=[0, 1, 2], max_dimension=2048)
+
+    total = sum(len(t["data"]) for t in result["tiles"])
+    assert total <= MAX_RETURNED_BYTES
+    assert len(result["tiles"]) == 3  # shrunk, not dropped
+    assert result["downscaled_to"] is not None and result["downscaled_to"] < 2048
+    assert all(decoded(t).width == result["tiles"][0]["width"] for t in result["tiles"])
