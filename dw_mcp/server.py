@@ -634,6 +634,8 @@ def build_server(client):
                 where = f"frames: {cells}"
             else:
                 where = f"frame {tile['frame']} @ {tile['seconds']:.2f}s"
+            if tile.get("difference") is not None:
+                where += f"  difference: {tile['difference']}"
             lines.append(f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]")
         if result["downscaled_to"]:
             lines.append(

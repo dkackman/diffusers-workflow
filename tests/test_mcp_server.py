@@ -326,6 +326,7 @@ async def test_a_seam_tile_text_part_names_its_frame_and_time():
                         "label": "seam 1: a | b",
                         "frame": 24,
                         "seconds": 1.0,
+                        "difference": 12.5,
                         "data": base64.b64encode(PNG_1X1).decode("ascii"),
                         "mime_type": "image/png",
                         "width": 64,
@@ -346,6 +347,7 @@ async def test_a_seam_tile_text_part_names_its_frame_and_time():
     assert "seam 1: a | b" in text_block.text
     assert "frame 24" in text_block.text
     assert "1.00s" in text_block.text
+    assert "difference: 12.5" in text_block.text
 
 
 @pytest.mark.asyncio

@@ -5178,3 +5178,17 @@ def test_a_validate_miss_with_no_library_configured_says_so(server):
         [error] = [e for e in result["errors"] if e["path"] == "arguments.image"]
         assert "no asset library" in error["message"]
         assert "BaseException" not in error["message"]
+
+
+def test_gallery_frames_seam_tiles_carry_their_difference(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(tmp_path / "outputs" / "cut.mp4", frames=24, fps=6)
+
+        response = client.get(
+            "/api/gallery/cut.mp4/frames", params={"seams": "true", "boundaries": "8"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["tiles"][0]["difference"] == pytest.approx(10.0, abs=6)

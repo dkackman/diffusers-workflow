@@ -10,6 +10,7 @@ import logging
 import math
 
 import av
+import numpy
 from PIL import Image
 
 from .tasks.video_utils import (
@@ -146,11 +147,17 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
         before = images[boundary - 1]
         after = images[boundary]
         pair = _compose_grid([before, after], 2)
+        difference = float(
+            numpy.abs(
+                numpy.asarray(before, dtype=numpy.int16) - numpy.asarray(after, dtype=numpy.int16)
+            ).mean()
+        )
         tiles.append(
             {
                 "label": f"seam {seam}: {names[seam - 1]} | {names[seam]}",
                 "frame": boundary,
                 "seconds": _seconds(boundary, shape),
+                "difference": round(difference, 2),
                 "image": pair,
             }
         )

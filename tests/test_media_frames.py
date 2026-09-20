@@ -376,3 +376,12 @@ def test_contact_sheet_cells_are_stamped_with_their_timestamp(tmp_path):
     # the stamp sits in a corner: the opposite corner is still the flat grey
     cell = sheet["image"].crop((32, 16, 64, 32))
     assert numpy.asarray(cell.convert("L")).std() < 2
+
+
+def test_a_seam_tile_reports_the_mean_difference_across_the_join(tmp_path):
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
+
+    tiles = seam_tiles(str(tmp_path / "ramp.mp4"), boundaries=[8], tile_width=32)
+
+    # frame 7 is grey 70, frame 8 grey 80: a flat difference of 10
+    assert tiles[0]["difference"] == pytest.approx(10.0, abs=6)
