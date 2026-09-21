@@ -165,6 +165,24 @@ def failing_script(command):
     }
 
 
+def failing_mid_phase_script(command):
+    # Dies inside a known phase, the way an OOM during denoising does -
+    # progress() should keep that phase rather than going null (#269)
+    yield {
+        "type": "progress",
+        "event": "step_start",
+        "step": "gen",
+        "index": 0,
+        "total_steps": 1,
+    }
+    yield {"type": "progress", "event": "phase", "phase": "generating"}
+    yield {
+        "type": "error",
+        "message": "Workflow execution error: CUDA out of memory",
+        "traceback": "Traceback (most recent call last):\n  ...\nOutOfMemoryError",
+    }
+
+
 def crashing_script(command):
     # The worker process itself died - the message the watcher synthesizes
     yield {"type": "worker_crashed", "message": "exit code -11", "traceback": None}
@@ -266,6 +284,19 @@ def test_failed_job_surfaces_the_error_and_traceback(server):
         assert "CUDA out of memory" in remembered["error"]
         # the manager is idle again - a failure must not wedge the queue
         assert not manager.is_busy()
+
+
+def test_a_failed_job_keeps_the_phase_it_died_in(server):
+    """A failed job's `progress` used to go null the moment the job left
+    RUNNING, hiding which phase it died in behind the traceback (#269).
+    It should keep the last-known phase, frozen at the failure."""
+    with server(failing_mid_phase_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["status"] == "failed"
+        assert detail["progress"] is not None
+        assert detail["progress"]["phase"] == "generating"
+        assert detail["progress"]["step"] == "gen"
 
 
 def test_a_worker_crash_fails_the_job_and_the_next_one_still_runs(server):

@@ -134,7 +134,9 @@ def get_job(client, job_id):
     A running job also carries `progress` - the step, the phase and how long
     it has been in it, with a denoise counter that is null until that loop
     starts. Null under `generating` is the pipeline's silent lead-in, not a
-    hang; see wait_for_job."""
+    hang; see wait_for_job. A FAILED job keeps `progress` too, frozen at the
+    moment it died - the phase it was in is the fastest way to tell what
+    killed it, faster than reading `traceback`."""
     return client.get_json(api_path("api", "jobs", job_id))
 
 
