@@ -703,6 +703,36 @@ def _inert_seam_fade_warnings(step, command, arguments, values):
     ]
 
 
+def _inert_bleed_gain_warnings(step, command, arguments, values):
+    """concat_videos applies audio_bleed_gain_db to the bled tail
+    audio_bleed_ms carries across the seam - with no bleed there is nothing
+    for the gain to shape, so an audio_bleed_gain_db the author wrote does
+    nothing while audio_bleed_ms is 0, whether that 0 is an explicit
+    argument or the task's own default left untouched (#290, the same no-op
+    class #288 closed for seam_fade_ms). `audio_bleed_ms` is read with the
+    task's default of 0 rather than requiring the key, since "forgot the
+    bleed" is exactly the case this warning is for; resolved against
+    `values` for the same reason _inert_seam_fade_warnings is - a templated
+    case pairs both as `variable:` references."""
+    if command != "concat_videos":
+        return []
+    if "audio_bleed_gain_db" not in arguments:
+        return []
+    gain = _resolved_value(arguments, "audio_bleed_gain_db", values)
+    bleed = (
+        _resolved_value(arguments, "audio_bleed_ms", values)
+        if "audio_bleed_ms" in arguments
+        else 0
+    )
+    if gain is None or gain == 0 or bleed is None or bleed != 0:
+        return []
+    return [
+        f"Step '{step.get('name')}': 'audio_bleed_gain_db' has no effect "
+        f"when 'audio_bleed_ms' is 0 - pass a non-zero 'audio_bleed_ms' for "
+        f"the gain to apply."
+    ]
+
+
 def workflow_argument_warnings(workflow_definition, arguments=None):
     """Best-effort pre-load check of a workflow's arguments.
 
@@ -743,6 +773,9 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
             )
             warnings.extend(
                 _inert_seam_fade_warnings(step, command, task["arguments"], values)
+            )
+            warnings.extend(
+                _inert_bleed_gain_warnings(step, command, task["arguments"], values)
             )
         pipeline = step.get("pipeline")
         if not pipeline:

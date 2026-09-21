@@ -246,3 +246,30 @@ def test_a_seam_fade_while_bleed_is_non_zero_is_warned_about():
         )
         == []
     )
+
+
+def test_a_bleed_gain_without_bleed_is_warned_about():
+    """concat_videos applies audio_bleed_gain_db to the bled tail, so an
+    audio_bleed_gain_db the caller passed with audio_bleed_ms at 0 - whether
+    zeroed explicitly or just never set - does nothing (#290)."""
+    definition = _concat_step(audio_bleed_ms=0, audio_bleed_gain_db=-6)
+    warnings = workflow_argument_warnings(definition)
+    assert len(warnings) == 1
+    assert "audio_bleed_gain_db" in warnings[0] and "audio_bleed_ms" in warnings[0]
+
+    # audio_bleed_ms simply omitted - the task's own default of 0 applies
+    definition = _concat_step(audio_bleed_gain_db=-6)
+    warnings = workflow_argument_warnings(definition)
+    assert len(warnings) == 1
+    assert "audio_bleed_gain_db" in warnings[0]
+
+    # A non-zero bleed: the gain is live
+    assert (
+        workflow_argument_warnings(
+            _concat_step(audio_bleed_ms=800, audio_bleed_gain_db=-6)
+        )
+        == []
+    )
+
+    # No gain passed at all: silent
+    assert workflow_argument_warnings(_concat_step(audio_bleed_ms=0)) == []
