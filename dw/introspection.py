@@ -733,6 +733,31 @@ def _inert_bleed_gain_warnings(step, command, arguments, values):
     ]
 
 
+def _inert_match_levels_dbfs_warnings(step, command, arguments):
+    """concat_videos and dissolve_videos only call match_levels() - the
+    function that reads match_levels_dbfs as its target - when match_levels
+    itself is truthy (`if match_levels:`), so a caller who passes only the
+    target dBFS and leaves match_levels unset (off by default) has stated an
+    intent the engine silently drops: the shots join unmatched with no trace,
+    warning or otherwise (#291, the same "modifier without its enabler" class
+    #288 and #290 closed for seam_fade_ms and audio_bleed_gain_db). Literal
+    check only, like _inert_crossfade_warnings' trim_frames - match_levels is
+    "rms"/"peak"/falsy, not a number a variable: reference would need
+    resolving to compare against a domain."""
+    if command not in ("concat_videos", "dissolve_videos"):
+        return []
+    if "match_levels_dbfs" not in arguments or arguments.get("match_levels"):
+        return []
+    dbfs = arguments.get("match_levels_dbfs")
+    if not isinstance(dbfs, (int, float)):
+        return []
+    return [
+        f"Step '{step.get('name')}': 'match_levels_dbfs' has no effect when "
+        f"'match_levels' is unset - pass \"rms\" or \"peak\" for the target "
+        f"to apply."
+    ]
+
+
 def workflow_argument_warnings(workflow_definition, arguments=None):
     """Best-effort pre-load check of a workflow's arguments.
 
@@ -776,6 +801,9 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
             )
             warnings.extend(
                 _inert_bleed_gain_warnings(step, command, task["arguments"], values)
+            )
+            warnings.extend(
+                _inert_match_levels_dbfs_warnings(step, command, task["arguments"])
             )
         pipeline = step.get("pipeline")
         if not pipeline:
