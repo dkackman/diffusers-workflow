@@ -18,6 +18,7 @@ Install once, from Claude Code:
 | `minimax-h3` | MiniMax H3 video with audio: one take, a longer take by chain, a piece with cuts, identity and voice references, music; the frame and canvas rules; what a run costs. Prompts come from MiniMax's own `h3-prompt-writing` skill or the guides on the model card. |
 | `minimax-music3` | MiniMax Music 3: a song, an instrumental, a score under a film, the soundtrack a music video is cut to; the ceiling semantics, the tag vocabulary, the caps and the 44.1 kHz output. Captions come from MiniMax's own `music-caption-rewriter` skill. |
 | `ltx-2.5` | LTX-2.5 video with a soundtrack: a single clip, first-frame and keyframe conditioning, the three-move two-stage flow, the IC-LoRA upscale, extend and chain; the distilled schedule and the frame and size rules. Prompts follow the trained-caption spec that ships inside diffusers. |
+| `script-to-video` | From a prose script to finished video: decompose into shots, cast recurring characters once, pick each shot's template and family, validate cost before spending, run and diagnose, hand off to cut-and-score. The decision tree that turns a script into the shots the other skills know what to do with. |
 | `series-episodes` | A series rather than one generation: several episodes over one cast, each cut and scored from its own template runs. The five-beat recut-bed-match_levels-normalize-pair procedure, and the one step that must not be skipped or the cast drifts between episodes. |
 
 The two MiniMax skills defer the prompt format to MiniMax's own skills and
