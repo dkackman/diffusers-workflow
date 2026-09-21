@@ -39,7 +39,8 @@
                     "dissolve_frames": "variable:dissolve_frames",
                     "fps": "variable:fps",
                     "match_levels": "variable:match_levels",
-                    "match_levels_dbfs": "variable:match_levels_dbfs"
+                    "match_levels_dbfs": "variable:match_levels_dbfs",
+                    "sample_rate": "variable:sample_rate"
                 }
             }
         },
