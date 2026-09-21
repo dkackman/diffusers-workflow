@@ -273,3 +273,44 @@ def test_a_bleed_gain_without_bleed_is_warned_about():
 
     # No gain passed at all: silent
     assert workflow_argument_warnings(_concat_step(audio_bleed_ms=0)) == []
+
+
+def _dissolve_step(**arguments):
+    return {
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "dissolve_videos",
+                    "arguments": {
+                        "videos": ["a.mp4", "b.mp4"],
+                        "dissolve_frames": 0,
+                        **arguments,
+                    },
+                },
+            }
+        ],
+    }
+
+
+def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
+    """concat_videos and dissolve_videos only read match_levels_dbfs as the
+    target inside match_levels() - called only when match_levels itself is
+    truthy - so a caller who passes only the target dBFS and leaves
+    match_levels unset (off by default) has the value silently dropped
+    (#291)."""
+    for step in (_concat_step, _dissolve_step):
+        warnings = workflow_argument_warnings(step(match_levels_dbfs=-24))
+        assert len(warnings) == 1
+        assert "match_levels_dbfs" in warnings[0] and "match_levels" in warnings[0]
+
+        # match_levels set: the target is live
+        assert (
+            workflow_argument_warnings(
+                step(match_levels_dbfs=-24, match_levels="rms")
+            )
+            == []
+        )
+
+        # No target passed at all: silent
+        assert workflow_argument_warnings(step(match_levels="rms")) == []
