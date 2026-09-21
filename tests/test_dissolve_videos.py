@@ -95,12 +95,53 @@ class TestDissolveVideos:
 
         assert result.audio is None
 
-    def test_mismatched_sample_rates_are_refused(self):
+    def test_mismatched_sample_rates_are_resampled_to_the_highest(self, caplog):
+        """#287: parity with concat_videos (#108) - a rate mismatch between
+        shots has no editorial meaning, so it is converted rather than
+        failing the run mid-way with no remedy named."""
         first = audio_video(8, 0, 1.0, sample_rate=100)
         second = audio_video(8, 0, 1.0, sample_rate=200)
 
-        with pytest.raises(ValueError, match="sample rate"):
+        result = dissolve_videos([first, second], 2, fps=4)
+
+        assert result.sample_rate == 200
+
+    def test_an_explicit_sample_rate_pins_the_target(self):
+        first = audio_video(8, 0, 1.0, sample_rate=100)
+        second = audio_video(8, 0, 1.0, sample_rate=200)
+
+        result = dissolve_videos([first, second], 2, fps=4, sample_rate=100)
+
+        assert result.sample_rate == 100
+
+    def test_the_resample_warning_is_emitted_as_an_event(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        first = audio_video(8, 0, 1.0, sample_rate=100)
+        second = audio_video(8, 0, 1.0, sample_rate=200)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
             dissolve_videos([first, second], 2, fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "sample_rate_mismatch"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "dissolve_videos"
+        assert warnings[0]["sample_rate"] == 200
+        assert warnings[0]["sample_rates"] == {"video 1": 100, "video 2": 200}
+
+    def test_matching_rates_are_left_alone(self, caplog):
+        first = audio_video(8, 0, 1.0, sample_rate=100)
+        second = audio_video(8, 0, 1.0, sample_rate=100)
+
+        with caplog.at_level("WARNING"):
+            result = dissolve_videos([first, second], 2, fps=4)
+
+        assert result.sample_rate == 100
+        assert "resampling" not in caplog.text
 
 
 class TestLevelMatching:
