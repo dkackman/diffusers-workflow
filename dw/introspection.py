@@ -607,7 +607,7 @@ def task_signature_errors(workflow_definition, source_indices=None):
                     "message": (
                         f"'{command}' is not a registered task command{where}. "
                         f"This step would fail at run time with the engine's "
-                        f"own \"Unknown task command\" error"
+                        f'own "Unknown task command" error'
                     ),
                 }
             )
@@ -647,7 +647,7 @@ def _resolved_value(arguments, key, values):
         return None
     value = arguments[key]
     if isinstance(value, str) and value.startswith("variable:"):
-        value = values.get(value[len("variable:"):])
+        value = values.get(value[len("variable:") :])
     return value if isinstance(value, (int, float)) else None
 
 
@@ -687,13 +687,7 @@ def _inert_seam_fade_warnings(step, command, arguments, values):
     seam_fade = _resolved_value(arguments, "seam_fade_ms", values)
     bleed = _resolved_value(arguments, "audio_bleed_ms", values)
     trim = arguments.get("trim_frames", 0)
-    if (
-        seam_fade is None
-        or seam_fade <= 0
-        or bleed is None
-        or bleed <= 0
-        or trim != 0
-    ):
+    if seam_fade is None or seam_fade <= 0 or bleed is None or bleed <= 0 or trim != 0:
         return []
     return [
         f"Step '{step.get('name')}': 'seam_fade_ms' has no effect while "
@@ -753,7 +747,7 @@ def _inert_match_levels_dbfs_warnings(step, command, arguments):
         return []
     return [
         f"Step '{step.get('name')}': 'match_levels_dbfs' has no effect when "
-        f"'match_levels' is unset - pass \"rms\" or \"peak\" for the target "
+        f'\'match_levels\' is unset - pass "rms" or "peak" for the target '
         f"to apply."
     ]
 
@@ -793,9 +787,7 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
             # An unknown or missing task argument is an error rather than a
             # warning now (task_signature_errors, #141) - reported once, by
             # the pass whose verdict it changes
-            warnings.extend(
-                _inert_crossfade_warnings(step, command, task["arguments"])
-            )
+            warnings.extend(_inert_crossfade_warnings(step, command, task["arguments"]))
             warnings.extend(
                 _inert_seam_fade_warnings(step, command, task["arguments"], values)
             )

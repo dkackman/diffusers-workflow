@@ -1783,9 +1783,7 @@ class TestTheWrittenLevel:
         measured.assert_called_once()
         assert measured.call_args.args[0].endswith(".wav")
 
-    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(
-        self, tmp_path
-    ):
+    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(self, tmp_path):
         """A wav's write is itself the clip (#295): unlike a lossy re-encode,
         there is no later encode step for the pre-write warning to describe
         as a future risk, so the pre-write prediction and the post-write
@@ -1840,9 +1838,7 @@ class TestConsumedByNormalizer:
         result.add_result(waveform)
         result.save(temp_dir, "song")
 
-    def test_a_full_scale_track_is_quiet_when_a_normalizer_consumes_it(
-        self, tmp_path
-    ):
+    def test_a_full_scale_track_is_quiet_when_a_normalizer_consumes_it(self, tmp_path):
         waveform = numpy.zeros((2, 100), dtype=numpy.float32)
         waveform[0][0] = 1.0
 
@@ -1852,9 +1848,7 @@ class TestConsumedByNormalizer:
 
         assert [w["kind"] for w in warnings] == []
 
-    def test_a_full_scale_track_still_warns_when_nothing_normalizes_it(
-        self, tmp_path
-    ):
+    def test_a_full_scale_track_still_warns_when_nothing_normalizes_it(self, tmp_path):
         waveform = numpy.zeros((2, 100), dtype=numpy.float32)
         waveform[0][0] = 1.0
 

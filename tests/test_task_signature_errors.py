@@ -73,9 +73,13 @@ class TestARequiredArgumentLeftUnset:
         assert missing_task_arguments("canny", []) == ["image"]
         assert missing_task_arguments("canny", ["image"]) == []
 
-    def test_an_unknown_command_reports_nothing(self):
+    def test_an_unknown_command_is_reported_at_the_command(self):
+        """The per-argument helpers have nothing to say about a command that
+        does not exist; the pass reports the command itself (#285)."""
         assert missing_task_arguments("not_a_command", []) == []
-        assert errors_for("not_a_command", {}) == []
+        problems = errors_for("not_a_command", {})
+        assert [p["path"] for p in problems] == ["steps[0].task.command"]
+        assert "not a registered task command" in problems[0]["message"]
 
 
 class TestAnArgumentTheCommandDoesNotTake:

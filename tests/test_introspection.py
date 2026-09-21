@@ -207,7 +207,11 @@ def test_a_crossfade_over_a_trim_is_not_warned_about():
 
 def _bleed_step(variables=None, **arguments):
     return {
-        "variables": {"audio_bleed_ms": 1800, "seam_fade_ms": None, **(variables or {})},
+        "variables": {
+            "audio_bleed_ms": 1800,
+            "seam_fade_ms": None,
+            **(variables or {}),
+        },
         "steps": [
             {
                 "name": "episode",
@@ -306,9 +310,7 @@ def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
 
         # match_levels set: the target is live
         assert (
-            workflow_argument_warnings(
-                step(match_levels_dbfs=-24, match_levels="rms")
-            )
+            workflow_argument_warnings(step(match_levels_dbfs=-24, match_levels="rms"))
             == []
         )
 

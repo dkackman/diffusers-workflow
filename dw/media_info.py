@@ -196,7 +196,9 @@ def _fill_envelope(bins, samples, elapsed, rate, channels, max_samples=None):
     frame = _as_frame_samples(samples, channels)
     full_length = frame.shape[0]
     length = (
-        full_length if max_samples is None else max(0, min(full_length, max_samples - elapsed))
+        full_length
+        if max_samples is None
+        else max(0, min(full_length, max_samples - elapsed))
     )
     start = 0
     while start < length:

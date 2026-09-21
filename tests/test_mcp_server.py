@@ -1383,6 +1383,12 @@ def test_the_stated_tool_count_is_the_registered_one():
 # post-merge. 3.8 tokens of headroom left; a merge that touches tool
 # docstrings on both sides needs to measure again, not just each side's
 # own pre-merge figure.
+# #279/#280/#282 grew get_gallery_metadata's docstring (the peak_dbfs
+# thresholds and a resolvable guide pointer) by ~92 tokens without
+# measuring, to 13_888. Paid for inside the same docstring: the workspace
+# sentence to the terse "pins this call" form, and the envelope and asset
+# paragraphs said in fewer words with every fact kept. Measured 2026-09-21
+# at 13_760.5 (9_075.0 / 3_671.5 / 1_014.0). 39.5 tokens of headroom left.
 SURFACE_BUDGET = 13_800
 
 

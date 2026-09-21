@@ -801,9 +801,7 @@ def _load_tracks_matching_rate(audios, sample_rate, command):
     target_rate = max(resolved)
     if len(set(resolved)) > 1:
         per_track = {
-            name: rate
-            for name, rate in zip(names, native_rates)
-            if rate is not None
+            name: rate for name, rate in zip(names, native_rates) if rate is not None
         }
         emit_warning(
             f"{command}: tracks carry audio at different sample rates ("
@@ -914,7 +912,9 @@ def mix_audio(audios, gains=None, sample_rate=None):
                 gains=gains,
             )
 
-    waveforms, sample_rate = _load_tracks_matching_rate(audios, sample_rate, "mix_audio")
+    waveforms, sample_rate = _load_tracks_matching_rate(
+        audios, sample_rate, "mix_audio"
+    )
 
     waveforms = _matched_channels(*waveforms)
     channels = waveforms[0].shape[0]

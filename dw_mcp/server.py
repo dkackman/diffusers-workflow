@@ -439,40 +439,32 @@ def build_server(client):
         name: str, envelope: bool = False, workspace: str | None = None
     ) -> dict:
         """Get the metadata embedded in a generated file: the exact
-        workflow, arguments and seed that produced it. Use this to
-        reproduce a result, or to see what a run that went wrong actually
-        ran - it is the definition, not a summary, so it can be edited and
-        re-run. For audio and video the `media` block carries duration,
-        sample rate, channels, fps, size and level - the checks an agent
-        that cannot listen makes on a deliverable. `envelope=true` adds
-        that level second by second (`media.envelope.rms_dbfs` /
-        `peak_dbfs`, one entry per second), which is what says *where* in a
-        track something is: whether a shot is still sounding at its last
-        frame, how deep the hole at a seam goes, where a score goes quiet.
-        Leave it off unless you are asking a question about a position in
-        the track - a long track is a long list.
+        workflow, arguments and seed that produced it - the definition,
+        not a summary, so a result can be reproduced or a failed run's
+        definition edited and re-run. For audio and video the `media`
+        block carries duration, sample rate, channels, fps, size and level
+        - the checks an agent that cannot listen makes on a deliverable.
+        `envelope=true` adds that level second by second
+        (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
+        track something is: whether a shot still sounds at its last frame,
+        how deep the hole at a seam goes, where a score goes quiet. Leave
+        it off unless the question is about a position - a long track is
+        a long list.
 
-        `media.peak_dbfs` is the same measurement the job's `audio_no_headroom`
-        (-0.5 dBFS, pre-encode) and `audio_clipped` (0.0 dBFS, post-encode)
-        warnings check against - see `normalize_audio` in the "Video
-        Processing" section of the tasks guide. A video mux only ever emits
-        the second one, so a peak between the two thresholds is genuinely
-        clean, not an unwarned defect.
+        `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
+        pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
+        read - see `normalize_audio` under "Video Processing" in the tasks
+        guide. A mux emits only the second, so a peak between the two is
+        clean.
 
         `name` may be an "asset:" reference instead of a gallery name, and
-        then it describes that input asset. This is how you learn what an
-        asset you are about to pass to a workflow actually holds - how many
-        frames a shot is, whether two shots share an fps, whether a score
-        reaches the length of the cut you are about to lay it under. Do
-        that before running rather than after: a workflow's frame counts
-        and rates are arguments the caller supplies, and getting one wrong
-        is discovered as a failed job or, worse, as silence padded onto the
-        end of a track.
+        then it describes that input asset - how many frames a shot is,
+        whether two shots share an fps, whether a score reaches the length
+        of the cut it will lie under. Check before running: frame counts
+        and rates are arguments the caller supplies, and a wrong one is a
+        failed job or, worse, silence padded onto the end of a track.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        `workspace` pins this call to another workspace (#99)."""
         return catalog.get_gallery_metadata(
             client, name, envelope=envelope, workspace=workspace
         )

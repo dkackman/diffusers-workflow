@@ -550,7 +550,9 @@ def _only_composes_children(definition):
         return False
     for step in steps:
         reference = step.get("workflow") if isinstance(step, dict) else None
-        if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+        if not isinstance(reference, dict) or not isinstance(
+            reference.get("path"), str
+        ):
             return False
     return True
 

@@ -229,7 +229,9 @@ def warn_if_written_above_full_scale(
         return peak
     name = os.path.basename(output_path)
     if lossless:
-        cause = "The write itself clipped it - there was no headroom left below full scale"
+        cause = (
+            "The write itself clipped it - there was no headroom left below full scale"
+        )
     else:
         cause = "The encode adds its own overshoot on top of the level it was handed"
     emit_warning(
@@ -384,7 +386,13 @@ AUDIO_FORMATS = {
 # soundfile's default integer PCM subtype for those clips an out-of-range sample
 # at write time, so there is no separate "encode" step for the pre-write warning
 # to describe as a future risk (#295) - only these three still fit that framing
-LOSSY_AUDIO_CONTENT_TYPES = {"audio/mpeg", "audio/mp3", "audio/ogg", "audio/vorbis", "audio/opus"}
+LOSSY_AUDIO_CONTENT_TYPES = {
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/ogg",
+    "audio/vorbis",
+    "audio/opus",
+}
 
 # Result definition keys passed through to soundfile - encoding quality controls
 AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode"]

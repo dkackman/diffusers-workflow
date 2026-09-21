@@ -566,7 +566,11 @@ class Job:
         running rather than growing forever after the job is long over."""
         if self.last_event_at is None or self.status not in (RUNNING, FAILED):
             return None
-        now = self.finished_at if self.status == FAILED and self.finished_at else time.time()
+        now = (
+            self.finished_at
+            if self.status == FAILED and self.finished_at
+            else time.time()
+        )
         summary = {
             "step": self.step_name,
             # The step of the queued workflow the one above is running

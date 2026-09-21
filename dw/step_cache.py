@@ -124,11 +124,13 @@ def normalized_downstream(steps, name):
         if not isinstance(step, dict):
             continue
         task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") not in NORMALIZING_COMMANDS:
+        if (
+            not isinstance(task, dict)
+            or task.get("command") not in NORMALIZING_COMMANDS
+        ):
             continue
         if any(
-            reference_resolves_to(ref, name)
-            for ref in referenced_result_names([step])
+            reference_resolves_to(ref, name) for ref in referenced_result_names([step])
         ):
             return True
     return False

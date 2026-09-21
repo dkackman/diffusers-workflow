@@ -4,7 +4,7 @@ from dw.content_types import content_type_errors, content_type_fault
 
 
 def _step(name, result=None, **extra):
-    step = {"name": name, "task": {"command": "noop", "arguments": {}}}
+    step = {"name": name, "task": {"command": "gather_images", "arguments": {}}}
     if result is not None:
         step["result"] = result
     step.update(extra)
@@ -106,7 +106,7 @@ class TestValidationErrorsIntegration:
             "steps": [
                 {
                     "name": "a",
-                    "task": {"command": "noop", "arguments": {}},
+                    "task": {"command": "gather_images", "arguments": {}},
                     "result": {"content_type": "video"},
                 }
             ],
@@ -121,7 +121,7 @@ class TestValidationErrorsIntegration:
             "steps": [
                 {
                     "name": "a",
-                    "task": {"command": "noop", "arguments": {}},
+                    "task": {"command": "gather_images", "arguments": {}},
                     "result": {"content_type": "variable:kind"},
                 }
             ],

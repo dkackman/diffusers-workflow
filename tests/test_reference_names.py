@@ -16,7 +16,7 @@ def workflow_referencing(value):
         "steps": [
             {
                 "name": "a",
-                "task": {"command": "no_op", "arguments": {"video": value}},
+                "task": {"command": "get_first_frame", "arguments": {"video": value}},
             }
         ],
     }
@@ -81,7 +81,7 @@ class TestTheValidationPass:
                     "name": "shot",
                     "for_each": "variable:shots",
                     "task": {
-                        "command": "no_op",
+                        "command": "get_first_frame",
                         "arguments": {"video": "output:t/ru n/x.mp4"},
                     },
                 }

@@ -1054,9 +1054,9 @@ class TestCachedMinutesEstimate:
         assert answer["cached_minutes"] == 6.7
 
     def test_a_full_hit_is_zero(self, plan):
-        answer = plan(
-            cache_probe=lambda arguments: ["still", "shot@a", "shot@b"]
-        )["estimate"]
+        answer = plan(cache_probe=lambda arguments: ["still", "shot@a", "shot@b"])[
+            "estimate"
+        ]
         assert answer["minutes"] == 10.0
         assert answer["cached_minutes"] == 0.0
 
