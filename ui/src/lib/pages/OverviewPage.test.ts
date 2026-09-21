@@ -15,11 +15,15 @@ const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
   workflows: [] as string[],
   assets: [] as unknown[],
+  galleryError: null as Error | null,
 }))
 const deleteWorkspace = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   api: {
-    gallery: () => Promise.resolve({ files: data.files }),
+    gallery: () =>
+      data.galleryError
+        ? Promise.reject(data.galleryError)
+        : Promise.resolve({ files: data.files }),
     listJobs: () => Promise.resolve({ jobs: data.jobs }),
     listWorkflows: () =>
       Promise.resolve({
@@ -59,6 +63,7 @@ beforeEach(async () => {
   data.jobs = []
   data.workflows = []
   data.assets = []
+  data.galleryError = null
   deleteWorkspace.mockReset()
   localStorage.clear()
   location.hash = '#/ws/studio/overview'
@@ -78,6 +83,32 @@ it('an empty workspace shows empty states, not empty frames', async () => {
   expect(document.querySelectorAll('.frame')).toHaveLength(0)
   expect(screen.getByText(/no jobs yet/i)).toBeTruthy()
   expect(screen.getByText(/no workflows yet/i)).toBeTruthy()
+})
+
+it('a failed panel shows its own error, and the rest still load', async () => {
+  data.galleryError = new Error('boom')
+  data.jobs = [
+    {
+      id: 'j1',
+      workflow: 'shot',
+      status: 'succeeded',
+      created_at: 1,
+      started_at: 1,
+      finished_at: 2,
+      workspace: 'studio',
+    },
+  ]
+  data.workflows = ['shot']
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(
+      screen.getByText(/could not load recent outputs: boom/i),
+    ).toBeTruthy(),
+  )
+  expect(screen.getByRole('link', { name: 'j1' }).getAttribute('href')).toBe(
+    '#/ws/studio/jobs/j1',
+  )
+  expect(screen.getByRole('link', { name: 'shot' })).toBeTruthy()
 })
 
 it('shows recent outputs, jobs and workflows, each linking to its page', async () => {

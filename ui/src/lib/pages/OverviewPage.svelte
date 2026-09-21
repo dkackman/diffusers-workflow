@@ -20,11 +20,21 @@
   let workflows = $state<string[] | null>(null)
   let proofs = $state<Record<string, GalleryFile>>({})
   let assetCount = $state<number | null>(null)
+  // A failed fetch is not the same thing as a workspace that genuinely has
+  // nothing - each panel gets its own error, shown in place of its content,
+  // so a 500 reads as a 500 rather than as an empty workspace
+  let recentError = $state<string | null>(null)
+  let jobsError = $state<string | null>(null)
+  let workflowsError = $state<string | null>(null)
+  let assetsError = $state<string | null>(null)
 
   const name = $derived(workspace.current)
   const RECENT = 8
   const WORKFLOWS = 6
   const JOBS = 5
+
+  const errorMessage = (e: unknown) =>
+    e instanceof Error ? e.message : String(e)
 
   $effect(() => {
     void workspace.current
@@ -32,6 +42,10 @@
     jobs = null
     workflows = null
     assetCount = null
+    recentError = null
+    jobsError = null
+    workflowsError = null
+    assetsError = null
     loadWorkspaces()
     api
       .gallery()
@@ -39,15 +53,24 @@
         recent = r.files.slice(0, RECENT)
         proofs = latestProofs(r.files)
       })
-      .catch(() => (recent = []))
+      .catch((e) => {
+        recent = []
+        recentError = errorMessage(e)
+      })
     api
       .listJobs(workspace.current, JOBS + 1)
       .then((r) => (jobs = r.jobs.reverse()))
-      .catch(() => (jobs = []))
+      .catch((e) => {
+        jobs = []
+        jobsError = errorMessage(e)
+      })
     api
       .listWorkflows()
       .then((r) => (workflows = r.workflows))
-      .catch(() => (workflows = []))
+      .catch((e) => {
+        workflows = []
+        workflowsError = errorMessage(e)
+      })
     api
       .listAssets()
       .then(
@@ -56,7 +79,10 @@
             (a) => a.origin === 'workspace',
           ).length),
       )
-      .catch(() => (assetCount = 0))
+      .catch((e) => {
+        assetCount = 0
+        assetsError = errorMessage(e)
+      })
   })
 
   // The ones that have produced something first - the same order the catalog
@@ -70,7 +96,7 @@
       .slice(0, WORKFLOWS),
   )
   const running = $derived(jobs?.find((j) => j.status === 'running') ?? null)
-  const finished = $derived(
+  const recentJobs = $derived(
     (jobs ?? []).filter((j) => j.status !== 'running').slice(0, JOBS),
   )
   const directory = $derived(
@@ -95,7 +121,9 @@
       ><Images size={15} /> Recent outputs</a
     >
   </h2>
-  {#if recent === null}
+  {#if recentError}
+    <p class="muted">Could not load recent outputs: {recentError}</p>
+  {:else if recent === null}
     <p class="muted">loading…</p>
   {:else if recent.length === 0}
     <Empty
@@ -131,7 +159,9 @@
 <div class="two">
   <section class="panel">
     <h2><a class="plain" href={wsHref(name, 'jobs')}>Jobs</a></h2>
-    {#if jobs === null}
+    {#if jobsError}
+      <p class="muted">Could not load jobs: {jobsError}</p>
+    {:else if jobs === null}
       <p class="muted">loading…</p>
     {:else if jobs.length === 0}
       <Empty
@@ -149,7 +179,7 @@
             >
           </li>
         {/if}
-        {#each finished as job (job.id)}
+        {#each recentJobs as job (job.id)}
           <li>
             <span class="chip {job.status}">{job.status}</span>
             <span class="wf">{job.workflow}</span>
@@ -173,7 +203,9 @@
         title="new workflow"><Plus size={15} /> New workflow</a
       >
     </h2>
-    {#if workflows === null}
+    {#if workflowsError}
+      <p class="muted">Could not load workflows: {workflowsError}</p>
+    {:else if workflows === null}
       <p class="muted">loading…</p>
     {:else if workflows.length === 0}
       <Empty
@@ -213,18 +245,22 @@
 <div class="two">
   <section class="panel">
     <h2><a class="plain" href={wsHref(name, 'assets')}>Assets and disk</a></h2>
-    <dl>
-      <dt>assets</dt>
-      <dd>
-        {#if assetCount === null}…{:else}{`${assetCount} ${assetCount === 1 ? 'asset' : 'assets'}`}{/if}
-      </dd>
-      {#if usage}
-        <dt>on disk</dt>
-        <dd class="num" title="{usage.files} files">
-          {formatBytes(usage.bytes)}
+    {#if assetsError}
+      <p class="muted">Could not load assets: {assetsError}</p>
+    {:else}
+      <dl>
+        <dt>assets</dt>
+        <dd>
+          {#if assetCount === null}…{:else}{`${assetCount} ${assetCount === 1 ? 'asset' : 'assets'}`}{/if}
         </dd>
-      {/if}
-    </dl>
+        {#if usage}
+          <dt>on disk</dt>
+          <dd class="num" title="{usage.files} files">
+            {formatBytes(usage.bytes)}
+          </dd>
+        {/if}
+      </dl>
+    {/if}
   </section>
   <section class="panel">
     <h2>Manage</h2>
