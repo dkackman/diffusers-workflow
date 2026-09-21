@@ -5,7 +5,8 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
+  import { latestProofs } from '../proofs'
+  import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -36,6 +37,8 @@
     /** False for a read-only source - an examples directory. */
     writable?: boolean
   }
+
+  let { examples = false }: { examples?: boolean } = $props()
 
   let workflows = $state<string[]>([])
   let details = $state<Record<string, Detail>>({})
@@ -73,35 +76,33 @@
     api
       .gallery()
       .then((result) => {
-        // Entries arrive newest first, so the first one seen for a folder
-        // is that workflow's latest. Images win over video because only
-        // images have a thumbnail endpoint; a video-only workflow falls
-        // back to its video, which renders its first frame.
-        const latest: Record<string, GalleryFile> = {}
-        for (const file of result.files) {
-          if (!file.folder) continue
-          const held = latest[file.folder]
-          if (!held) latest[file.folder] = file
-          else if (held.kind !== 'image' && file.kind === 'image')
-            latest[file.folder] = file
-        }
-        proofs = latest
+        proofs = latestProofs(result.files)
       })
       .catch(() => {
         /* the catalog reads fine without proofs */
       })
   })
 
+  // The population this page is over: every workflow, or - under `examples`
+  // - only the read-only ones. Everything below reads this rather than
+  // `workflows` directly, so the count, the shape/trait vocabulary and the
+  // empty states all agree with what the cards show.
+  const listed = $derived(
+    examples
+      ? workflows.filter((name) => details[name]?.writable === false)
+      : workflows,
+  )
+
   // Only the shapes and traits the listing actually has: the vocabulary is
   // fixed, but a workspace holding no video has no use for a `shot` option
   const shapesPresent = $derived(
     WORKFLOW_SHAPES.filter((value) =>
-      workflows.some((name) => details[name]?.shape === value),
+      listed.some((name) => details[name]?.shape === value),
     ),
   )
   const traitsPresent = $derived(
     WORKFLOW_TRAITS.filter((value) =>
-      workflows.some((name) => details[name]?.traits?.includes(value)),
+      listed.some((name) => details[name]?.traits?.includes(value)),
     ),
   )
 
@@ -114,7 +115,7 @@
   // Client-side over the listing the page already holds - shape, then every
   // selected trait (AND, not OR: the chips narrow), then the text filter
   const visible = $derived(
-    workflows.filter((name) => {
+    listed.filter((name) => {
       const detail = details[name]
       if (shape && detail?.shape !== shape) return false
       const has = detail?.traits ?? []
@@ -177,18 +178,23 @@
   }
 
   const href = (name: string) =>
-    '#/workflows/' + name.split('/').map(encodeURIComponent).join('/')
+    examples
+      ? sharedHref('examples', ...name.split('/'))
+      : wsHref(workspace.current, 'workflows', ...name.split('/'))
 </script>
 
 <div class="head">
-  <h1>Workflows</h1>
-  <span class="count num muted">{workflows.length}</span>
-  <WorkspacePicker />
+  <h1>{examples ? 'Examples' : 'Workflows'}</h1>
+  <span class="count num muted">{listed.length}</span>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a class="newlink plain" href="#/edit" title="new workflow"
-    ><Plus size={15} /></a
-  >
+  {#if !examples}
+    <a
+      class="newlink plain"
+      href={wsHref(workspace.current, 'edit')}
+      title="new workflow"><Plus size={15} /></a
+    >
+  {/if}
 </div>
 
 {#if error}
@@ -242,7 +248,7 @@
   names={ordered}
   collapseKey="collapsed-folders"
   {filterActive}
-  newHref="#/edit"
+  newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
   minColumn="200px"
   onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
 >
@@ -310,10 +316,14 @@
   {/snippet}
 </FolderGroups>
 
-{#if loaded && workflows.length === 0}
+{#if loaded && listed.length === 0}
   <Empty>
     {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
-    No workflows yet — the + above creates the first one.
+    {#if examples}
+      No example workflows — start the server with --examples-dir to list some.
+    {:else}
+      No workflows yet — the + above creates the first one.
+    {/if}
   </Empty>
 {:else if loaded && visible.length === 0}
   <p class="muted">Nothing matches those filters.</p>

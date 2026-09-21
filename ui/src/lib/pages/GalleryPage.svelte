@@ -4,13 +4,12 @@
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
-  import { go } from '../router.svelte'
+  import { goWs } from '../router.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, dialogOpen } from '../picks.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
@@ -228,7 +227,7 @@
     const definition = { ...embeddedWorkflow }
     if (typeof metadata?.seed === 'number') definition.seed = metadata.seed
     sessionStorage.setItem('dw-editor-import', JSON.stringify(definition))
-    go('edit')
+    goWs('edit')
   }
 </script>
 
@@ -245,7 +244,6 @@
 
 <div class="head">
   <h1>Gallery</h1>
-  <WorkspacePicker />
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
   {#if subfolderOffered}

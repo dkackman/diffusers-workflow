@@ -5,6 +5,7 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
+  import { sharedHref } from '../routes'
   import type { PromptDetail } from '../types'
 
   let prompts = $state<string[]>([])
@@ -41,15 +42,14 @@
     }),
   )
 
-  const href = (name: string) =>
-    '#/prompt-edit/' + name.split('/').map(encodeURIComponent).join('/')
+  const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
 <div class="head">
   <h1>Prompts</h1>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a class="newlink plain" href="#/prompt-edit" title="new prompt"
+  <a class="newlink plain" href={sharedHref('prompt-edit')} title="new prompt"
     ><Plus size={15} /></a
   >
 </div>

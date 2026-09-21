@@ -10,16 +10,17 @@ and `npx playwright test` (e2e — it starts its own server, so do not have
 `dw.serve` running on the same port).
 
 Every request is scoped to the selected workspace in one place: `scoped()` in
-`lib/api.ts` reads `workspace.current` and appends `?workspace=` to request
-paths, download URLs and the `/outputs` URLs `outputUrl` builds; a `url` the
-server returns (an upload's preview, an asset entry) is used verbatim and the
-server is responsible for scoping it, so no page threads a workspace through
-its calls. The exception is a file that belongs to a *job*: `outputUrl` and
-`fetchOutputText` take an explicit workspace, which wins over the picker, so a
-job's files load from where they were written.
-`lib/workspace.svelte.ts` holds the selection (restored from localStorage in
-`main.ts` before the first request); a page refetches on a switch by reading
-`workspace.current` inside its load effect.
+`lib/api.ts` reads `workspace.current` and appends `?workspace=`. The route is
+what sets it: `lib/routes.ts` parses `#/ws/<name>/<section>/...`, and
+`router.svelte.ts` calls `applyRouteWorkspace` on every change, so a `ws`
+route names the workspace and a `shared`/`server` route keeps the last one
+named (localStorage `dw-workspace`, which is only ever a fallback). There is
+no picker; the sidebar (`lib/Sidebar.svelte`) is links. A page refetches on a
+switch by reading `workspace.current` inside its load effect, as before.
+Legacy hashes (`#/gallery`) are rewritten in place by `legacyRedirect`;
+`#/jobs/<id>` lands under the last-used workspace and `JobPage` corrects the
+URL to the job's own once it loads. A job's files still load from its own
+workspace (`outputUrl(path, version, workspace)`).
 
 ## Design system
 
@@ -74,6 +75,9 @@ and current step, the flow view's active step, a model download in flight,
 and the focus ring. Resting meters (free disk, VRAM under pressure's
 threshold) stay `--muted`; selection is the user's state, not the machine's,
 so it reads as a heavier ink edge instead.
+
+The sidebar's selected entry is a heavier ink left edge (`aria-current="page"`),
+never a colour; workspace and section names are mono.
 
 ## Assets
 

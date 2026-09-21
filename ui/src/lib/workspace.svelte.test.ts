@@ -14,32 +14,35 @@ const listWorkspaces = vi.hoisted(() =>
           outputs: '/ws/outputs',
           prompts: null,
         },
+        {
+          name: 'studio',
+          default: false,
+          workflows: '/ws/studio/workflows',
+          assets: null,
+          outputs: '/ws/studio/outputs',
+          prompts: null,
+        },
       ],
     }),
   ),
 )
+const errorToast = vi.hoisted(() => vi.fn())
 vi.mock('./api', () => ({ api: { listWorkspaces: () => listWorkspaces() } }))
+vi.mock('./toast', () => ({ notify: { error: errorToast, success: vi.fn() } }))
 
 beforeEach(() => {
   listWorkspaces.mockClear()
-  try {
-    localStorage.clear()
-  } catch {
-    /* not needed here, but harmless if it throws */
-  }
+  errorToast.mockClear()
+  localStorage.clear()
+  location.hash = ''
 })
-
-afterEach(() => {
-  vi.resetModules()
-})
+afterEach(() => vi.resetModules())
 
 it('shares one fetch across concurrent and repeated calls', async () => {
-  // Fresh module per test: the cached promise is module-level state, and a
-  // prior test's fetch must not satisfy this one
   const { loadWorkspaces, workspace } = await import('./workspace.svelte')
   await Promise.all([loadWorkspaces(), loadWorkspaces()])
   expect(listWorkspaces).toHaveBeenCalledTimes(1)
-  expect(workspace.names).toEqual(['default'])
+  expect(workspace.names).toEqual(['default', 'studio'])
 })
 
 it('refetches only after invalidateWorkspaces()', async () => {
@@ -48,8 +51,104 @@ it('refetches only after invalidateWorkspaces()', async () => {
   await loadWorkspaces()
   await loadWorkspaces()
   expect(listWorkspaces).toHaveBeenCalledTimes(1)
-
   invalidateWorkspaces()
   await loadWorkspaces()
   expect(listWorkspaces).toHaveBeenCalledTimes(2)
+})
+
+it('a ws route sets current and is remembered as last used', async () => {
+  const { applyRouteWorkspace, lastUsedWorkspace, workspace } =
+    await import('./workspace.svelte')
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'studio',
+    section: 'gallery',
+    rest: [],
+  })
+  expect(workspace.current).toBe('studio')
+  expect(lastUsedWorkspace()).toBe('studio')
+  expect(localStorage.getItem('dw-workspace')).toBe('studio')
+})
+
+it('the default workspace clears the stored last-used name', async () => {
+  localStorage.setItem('dw-workspace', 'studio')
+  const { applyRouteWorkspace, lastUsedWorkspace } =
+    await import('./workspace.svelte')
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'default',
+    section: 'overview',
+    rest: [],
+  })
+  expect(localStorage.getItem('dw-workspace')).toBeNull()
+  expect(lastUsedWorkspace()).toBe('default')
+})
+
+it('a shared or server route keeps scoping to the last-used workspace', async () => {
+  localStorage.setItem('dw-workspace', 'studio')
+  const { applyRouteWorkspace, workspace } = await import('./workspace.svelte')
+  applyRouteWorkspace({ kind: 'shared', section: 'prompts', rest: [] })
+  expect(workspace.current).toBe('studio')
+  applyRouteWorkspace({ kind: 'server', section: 'models' })
+  expect(workspace.current).toBe('studio')
+})
+
+it('an unknown workspace in the route redirects to default and says so', async () => {
+  location.hash = '#/ws/gone/gallery'
+  // The router is what applies the hash to `workspace.current`
+  await import('./router.svelte')
+  const { loadWorkspaces } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(location.hash).toBe('#/ws/default/overview')
+  expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('gone'))
+})
+
+it('a known workspace in the route is left alone', async () => {
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(location.hash).toBe('#/ws/studio/gallery')
+  expect(errorToast).not.toHaveBeenCalled()
+})
+
+it('a shared route with a stale last-used name resets to default silently', async () => {
+  localStorage.setItem('dw-workspace', 'gone')
+  location.hash = '#/shared/prompts'
+  await import('./router.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  expect(workspace.current).toBe('gone')
+  await loadWorkspaces()
+  // The URL never named the workspace, so nothing to say and nowhere to go:
+  // the fallback is quietly replaced
+  expect(workspace.current).toBe('default')
+  expect(localStorage.getItem('dw-workspace')).toBeNull()
+  expect(location.hash).toBe('#/shared/prompts')
+  expect(errorToast).not.toHaveBeenCalled()
+})
+
+it('a missing workspace entered after the listing landed still redirects', async () => {
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(errorToast).not.toHaveBeenCalled()
+  location.hash = '#/ws/typo/gallery'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expect(location.hash).toBe('#/ws/default/overview')
+  expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
+})
+
+it('a failed listing does not read as every other workspace being gone', async () => {
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default'])
+  location.hash = '#/ws/studio/jobs'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expect(location.hash).toBe('#/ws/studio/jobs')
+  expect(workspace.current).toBe('studio')
+  expect(errorToast).not.toHaveBeenCalled()
 })

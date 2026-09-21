@@ -212,6 +212,17 @@ button {
   font-weight: 600;
   cursor: pointer;
 }
+/* A link that reads as the filled button - a "new" affordance that
+   navigates rather than acting in place. */
+a.button {
+  display: inline-flex;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-1);
+  padding: 0.4rem 0.9rem;
+  text-decoration: none;
+}
 button:hover {
   filter: brightness(1.35);
 }

@@ -281,10 +281,10 @@ pre-workspace call still means what it meant.
 
 | Client | How |
 | --- | --- |
-| Web UI | The workspace picker on the Workflows and Gallery pages. The choice is remembered in `localStorage`, and the Jobs page adds a filter — job history spans every workspace and says which one each job ran in |
+| Web UI | The sidebar lists every workspace; the selected one is named in the hash (`#/ws/<name>/...`), so a link and a reload both land where they say. The choice is remembered in `localStorage` as a fallback for a route that names none (Shared, Server), and Server → Status adds a filter over the all-workspaces queue — job history spans every workspace there and says which one each job ran in |
 | MCP | `list_workspaces`, then `use_workspace(name)`. It is a session default rather than an argument on each call, so switching is one visible step in the transcript instead of a flag that can be forgotten on the call where it mattered |
 | HTTP | `?workspace=` on the route, or `"workspace"` in a `POST /api/jobs` body |
-| Server page | The Workspaces section lists them, creates and deletes them |
+| Web UI (create/delete) | The sidebar's `+ new` creates one; a workspace's own Overview page deletes it (disabled for `default`) |
 
 A job carries its own workflow, asset and output directories, so it stays in
 the workspace it was submitted from however many others the server serves

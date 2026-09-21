@@ -4,7 +4,9 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import { api } from '../api'
-  import { go } from '../router.svelte'
+  import { goWs, route } from '../router.svelte'
+  import { sharedHref, wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { PROMPT_LIST_ID } from '../prompts'
   import { notify } from '../toast'
@@ -74,7 +76,7 @@
   function newFrom() {
     if (!workflow) return
     sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
-    go('edit')
+    goWs('edit')
   }
 
   async function remove() {
@@ -89,7 +91,7 @@
       return
     try {
       await api.deleteWorkflow(name)
-      go('workflows')
+      goWs('workflows')
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
@@ -110,7 +112,7 @@
         workflow_path: name,
         arguments: args,
       })
-      go('jobs', job.id)
+      goWs('jobs', job.id)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
@@ -120,7 +122,12 @@
   }
 </script>
 
-<a href="#/workflows" class="back muted">← workflows</a>
+<a
+  href={route.view.kind === 'shared'
+    ? sharedHref('examples')
+    : wsHref(workspace.current, 'workflows')}
+  class="back muted">← workflows</a
+>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
@@ -138,7 +145,7 @@
   <span class="flex"></span>
   <a
     class="plain editlink"
-    href={'#/edit/' + name.split('/').map(encodeURIComponent).join('/')}
+    href={wsHref(workspace.current, 'edit', ...name.split('/'))}
     title="open this workflow in the editor"
   >
     <SquarePen size={14} />Edit
@@ -180,7 +187,7 @@
       {#each proofs as proof (proof.name)}
         <a
           class="plain frame proof"
-          href="#/gallery"
+          href={wsHref(workspace.current, 'gallery')}
           title="{proof.label} — open the gallery"
         >
           {#if proof.kind === 'image'}

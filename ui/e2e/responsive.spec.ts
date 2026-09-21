@@ -52,3 +52,23 @@ for (const width of WIDTHS) {
     expect(await overflowOf(page)).toBeLessThanOrEqual(1)
   })
 }
+
+test('below the breakpoint the sidebar becomes a drawer opened from the header', async ({
+  page,
+}) => {
+  // The top nav used to wrap onto a second header row at narrow widths;
+  // it now lives in the sidebar, which is off-screen and inert below
+  // 900px until the header's menu button opens it as a drawer.
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.goto('/')
+  const nav = page.getByRole('complementary', { name: 'navigation' })
+  const menu = page.getByRole('button', { name: 'open navigation' })
+  await expect(menu).toBeVisible()
+  await expect(nav).not.toBeInViewport()
+  await menu.click()
+  await expect(nav).toBeInViewport()
+  await expect(nav.getByRole('link', { name: 'Overview' })).toBeVisible()
+  // any navigation closes the drawer again
+  await nav.getByRole('link', { name: 'Workflows' }).click()
+  await expect(nav).not.toBeInViewport()
+})

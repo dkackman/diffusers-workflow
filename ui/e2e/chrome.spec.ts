@@ -15,13 +15,19 @@ test('worker state and docs sit on the nav row, in one header row', async ({
   await expect(
     state.getByRole('link', { name: 'documentation on GitHub' }),
   ).toBeVisible()
-  await expect(row.getByRole('link', { name: 'Workflows' })).toBeVisible()
+  // the nav row's own link is now the breadcrumb (the top nav moved to the
+  // sidebar) - it still names where you are
+  await expect(
+    row.getByRole('link', { name: 'default', exact: true }),
+  ).toBeVisible()
 })
 
 test('? opens the shortcuts overlay; Escape closes it; typing ? in a field does not', async ({
   page,
 }) => {
-  await page.goto('/')
+  // the root is the overview now, which has no filter field - the workflows
+  // list does
+  await page.goto('/#/ws/default/workflows')
   await page.keyboard.press('?')
   const dialog = page.getByRole('dialog', { name: 'keyboard shortcuts' })
   await expect(dialog).toBeVisible()
@@ -42,7 +48,9 @@ test('the shortcuts overlay traps focus and returns it to the trigger', async ({
   await page.goto('/')
   // give a known element focus before opening, so "focus returns to the
   // trigger" has something concrete to check against
-  const trigger = page.getByRole('link', { name: 'Workflows' }).first()
+  const trigger = page
+    .getByRole('complementary', { name: 'navigation' })
+    .getByRole('link', { name: 'Workflows' })
   await trigger.focus()
   await page.keyboard.press('?')
   const dialog = page.getByRole('dialog', { name: 'keyboard shortcuts' })
@@ -84,21 +92,23 @@ test('the status popover traps focus and returns it to its trigger button', asyn
   await expect(trigger).toBeFocused()
 })
 
-test('tab order walks the nav row in reading order', async ({ page }) => {
+test('tab order walks the sidebar nav in reading order', async ({ page }) => {
   await page.goto('/')
-  // From the top of the document, Tab lands on the header's links in their
-  // visual order - the baseline "rational tab order" check on the chrome.
-  // The wordmark is the first stop: it is a link home.
+  // The top nav moved into the sidebar (an <aside> that sits before the
+  // header in the document), so the baseline "rational tab order" check
+  // now walks the sidebar rather than the header row. The wordmark is
+  // still the first stop: it is a link home.
   await page.keyboard.press('Tab')
-  await expect(page.locator('header .brand')).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(
-    page.getByRole('link', { name: 'Workflows' }).first(),
-  ).toBeFocused()
+  await expect(page.locator('aside .brand')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(
-    page.getByRole('link', { name: 'Prompts', exact: true }),
+    page.getByRole('button', { name: 'collapse sidebar' }),
   ).toBeFocused()
+  await page.keyboard.press('Tab')
+  const nav = page.getByRole('complementary', { name: 'navigation' })
+  await expect(nav.getByRole('link', { name: 'Overview' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(nav.getByRole('link', { name: 'Workflows' })).toBeFocused()
 })
 
 test('saving surfaces a toast, not a pinned banner', async ({ page }) => {
