@@ -23,7 +23,7 @@ next family gets it in an afternoon rather than a rediscovery.
   independent sources repeat it *and* nothing primary contradicts it.
 - **Model knowledge is data, never engine code.** Template JSON, stored
   prompts, a builtin's system prompt, README prose, a skill. No per-model
-  Python (proposal `docs/proposals/agent-catalog-legibility-complete.md`, "Principle").
+  Python.
 - **Do not transcribe a prompt format the vendor publishes.** Point at it. If
   the vendor ships an agent skill (MiniMax does) or a system-prompt constant
   inside diffusers (Lightricks does), the dw skill says "use that" and a test
@@ -124,7 +124,8 @@ the intended way to start.
 
 The acceptance test is what a fresh agent does unprompted; no unit test
 measures it. The drill, from the memory note `cold-session-mcp-tests` and
-the proposal's "Cold-session probe" section:
+the worked example in
+[references/cold-drill-example.md](references/cold-drill-example.md):
 
 1. The GPU box on the merged branch, `dw.serve --mcp` restarted (a session
    started before the restart tests the old instructions).

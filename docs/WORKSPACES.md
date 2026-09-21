@@ -294,12 +294,13 @@ it. Use them to keep work apart, not to keep it private.
 
 ## Where this is going
 
-Workspaces were the first stage of the design in
-[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md). The resolver, the workflow
-search path with writes confined to the writable root, run directories with an
-on-disk manifest, `asset:` and `output:` references, and server-side named
-workspaces are all implemented. What remains from the proposal is an MCP
-client that keeps its workspace on its own machine and mirrors it to the
-server — see
-[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md) for why
-mirroring is not currently planned.
+The resolver, the workflow search path with writes confined to the writable
+root, run directories with an on-disk manifest, `asset:` and `output:`
+references, and server-side named workspaces are all implemented. A further
+stage was designed but deliberately not built: a client-side workspace (a
+laptop directory, under version control) that mirrors into a read-only
+server workspace, so an agent could author offline and only push at submit
+time. It stayed on the drawing board because source control of creative work
+is not this project's job — that is already handled on the client, by the
+user, with the tools they already use — which is what makes a mirroring
+layer unnecessary rather than merely speculative.

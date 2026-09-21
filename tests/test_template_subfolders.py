@@ -8,7 +8,7 @@ deliverable"). Agents compose by copying a template, so the convention
 propagates only if every shipped template follows it; this test is what
 keeps it from drifting.
 
-The rule, from docs/proposals/output-folders.md: a *saving step* is one
+The rule: a *saving step* is one
 whose `result` sets `content_type` and does not set `save: false`; a
 template is in scope when it has two or more saving steps; every saving
 step of an in-scope template carries `final` or `intermediate`, and at

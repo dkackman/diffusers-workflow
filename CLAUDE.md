@@ -127,9 +127,9 @@ root *and* how it was chosen into the environment, so a spawned worker does not
 read an inferred workspace back as one the user named - `get_prompt_dir` yields
 to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
-`--output-dir` and `--prompt-dir` each still override one folder. See
-docs/WORKSPACES.md, and docs/proposals/server-workspaces-complete.md for the later stages
-(workflow search path, run directories, `asset:`/`output:` references).
+`--output-dir` and `--prompt-dir` each still override one folder. See docs/WORKSPACES.md;
+the later stages (workflow search path, run directories, `asset:`/`output:`
+references) are documented above in *Workflow sources* and *Type System*.
 
 ### Type System
 

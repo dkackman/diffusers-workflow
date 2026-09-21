@@ -1,8 +1,7 @@
-"""The best-of-n-to-video template wires select/judge the way
-docs/proposals/score-and-select-complete.md designed: a for_each fan-out,
-a scalar judge with no result block, and select's argmax over the paired
-gather: lists. This is a structural check - the reducer engine itself is
-tested in tests/test_select.py / tests/test_judge.py, and schema/reference
+"""The best-of-n-to-video template wires select/judge together: a for_each
+fan-out, a scalar judge with no result block, and select's argmax over the
+paired gather: lists. This is a structural check - the reducer engine itself
+is tested in tests/test_select.py / tests/test_judge.py, and schema/reference
 validity is already swept by the parametrized tests in test_examples.py."""
 
 import json
@@ -49,10 +48,9 @@ def test_still_and_judge_share_the_same_for_each_list():
 
 
 def test_the_template_declares_no_cost_yet():
-    """A curated cost figure has to be measured on real GPU hardware - see
-    the Global Constraints note in docs/superpowers/plans/
-    2026-09-20-tier1-proposals.md. Once someone measures a real run, this
-    test should be updated (or removed) alongside adding the real number."""
+    """A curated cost figure has to be measured on real GPU hardware. Once
+    someone measures a real run, this test should be updated (or removed)
+    alongside adding the real number."""
     definition = load()
 
     assert "cost" not in definition

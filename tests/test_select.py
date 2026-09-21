@@ -1,6 +1,6 @@
 """select reduces a list of candidates to one by a deterministic rule, so a
 fan-out (for_each) can feed a single expensive stage without an agent in the
-loop - see docs/proposals/score-and-select.md."""
+loop."""
 
 import pytest
 
