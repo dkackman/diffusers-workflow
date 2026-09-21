@@ -229,10 +229,11 @@ class TestEnvelope:
 
         assert info["kind"] == "video"
         assert info["frame_count"] == 12
-        # 2 s of soundtrack - and a third, near-silent bin is allowed: a
-        # lossy codec decodes its own priming and padding past the nominal
-        # duration, and the envelope reports what actually decoded
-        assert len(info["envelope"]["rms_dbfs"]) in (2, 3)
+        # 2 s of soundtrack - a lossy codec's own priming/padding can decode
+        # a fraction of a second past the nominal duration, but that trailing
+        # fragment is folded into the last full bin rather than reported on
+        # its own (#277)
+        assert len(info["envelope"]["rms_dbfs"]) == 2
         assert info["envelope"]["rms_dbfs"][0] > -30.0
         assert info["peak_dbfs"] < 0.0
 
