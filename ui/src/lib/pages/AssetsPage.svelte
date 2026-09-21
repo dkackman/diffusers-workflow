@@ -24,7 +24,6 @@
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
@@ -264,7 +263,6 @@
 
 <div class="head">
   <h1>Assets</h1>
-  <WorkspacePicker />
   <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
   <!-- One input for every section: which library the file lands in is
@@ -284,8 +282,8 @@
   An asset is input a workflow names by reference: an argument set to asset:name
   loads this file at run time, whatever run produced it. The shared library and
   any examples library sit on every workspace's search path, so they follow you
-  between workspaces; only this workspace's own section changes with the picker,
-  and a name here hides the same name further down.
+  between workspaces; only this workspace's own section changes between
+  workspaces, and a name here hides the same name further down.
 </HintBar>
 
 {#if loaded && !error && assets.length === 0}

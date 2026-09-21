@@ -38,9 +38,6 @@ const listWorkflows = vi.hoisted(() =>
 vi.mock('../api', () => ({
   api: {
     listWorkflows: () => listWorkflows(),
-    // WorkspacePicker mounts with the page; a listing that never lands
-    // leaves it hidden, which is what a single-workspace server shows
-    listWorkspaces: vi.fn(() => new Promise(() => {})),
     // The proof thumbnails load beside the listing. These tests are about
     // the catalog's text, so the gallery answers empty and every card
     // renders in its no-output form.

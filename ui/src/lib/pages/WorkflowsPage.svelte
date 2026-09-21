@@ -6,7 +6,6 @@
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { latestProofs } from '../proofs'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -172,7 +171,6 @@
 <div class="head">
   <h1>Workflows</h1>
   <span class="count num muted">{workflows.length}</span>
-  <WorkspacePicker />
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
   <a class="newlink plain" href="#/edit" title="new workflow"

@@ -10,7 +10,6 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
@@ -245,7 +244,6 @@
 
 <div class="head">
   <h1>Gallery</h1>
-  <WorkspacePicker />
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
   {#if subfolderOffered}
