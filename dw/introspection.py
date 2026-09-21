@@ -540,7 +540,8 @@ def missing_task_argument_message(command, missing):
 def task_signature_errors(workflow_definition, source_indices=None):
     """Every task step whose arguments its command's signature refuses, as
     [{path, message}] - a required argument left unset, and an argument the
-    command does not take.
+    command does not take - plus a step naming a command that is not
+    registered at all.
 
     The one class of mistake a free pre-flight is most obviously for, and the
     one it used to let through: `validate_workflow` answered `valid: true`
@@ -551,11 +552,22 @@ def task_signature_errors(workflow_definition, source_indices=None):
     validated - both are a guaranteed TypeError at the same call, so both are
     errors now.
 
+    A misspelled or removed `task.command` (e.g. the shipped
+    `templates/image-processors`'s `face_detector`, #285) used to validate
+    clean too: `missing_task_arguments`/`unknown_task_arguments` both catch
+    `describe_task`'s ValueError for an unregistered name and answer "no
+    complaint" rather than "this command does not exist", so the step ran 9
+    steps into a 26-step template before failing on the engine's own
+    "Unknown task command" error. Checked here, at `task.command` itself,
+    before the per-argument checks (which stay silent for a command they
+    cannot describe).
+
     The definition handed here has already been substituted and expanded, so
     a for_each member is checked as it will run; `source_indices` maps each
     expanded step back to the step the author wrote.
     """
     from .for_each import MEMBER_SEPARATOR, render_path
+    from .tasks.task import task_command_info
 
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -572,11 +584,7 @@ def task_signature_errors(workflow_definition, source_indices=None):
         # 'inputs' is a list template rather than a named-argument dict -
         # the command consumes it whole, so there is no name to miss
         arguments = task.get("arguments")
-        if not isinstance(command, str) or not isinstance(arguments, dict):
-            continue
-        missing = missing_task_arguments(command, arguments.keys())
-        unknown = unknown_task_arguments(command, arguments.keys())
-        if not missing and not unknown:
+        if not isinstance(command, str):
             continue
         source = (
             source_indices[index]
@@ -589,6 +597,28 @@ def task_signature_errors(workflow_definition, source_indices=None):
             if isinstance(name, str) and MEMBER_SEPARATOR in name
             else ""
         )
+
+        try:
+            task_command_info(command)
+        except ValueError:
+            errors.append(
+                {
+                    "path": render_path(("steps", source, "task", "command")),
+                    "message": (
+                        f"'{command}' is not a registered task command{where}. "
+                        f"This step would fail at run time with the engine's "
+                        f"own \"Unknown task command\" error"
+                    ),
+                }
+            )
+            continue
+
+        if not isinstance(arguments, dict):
+            continue
+        missing = missing_task_arguments(command, arguments.keys())
+        unknown = unknown_task_arguments(command, arguments.keys())
+        if not missing and not unknown:
+            continue
 
         def report(key, message):
             errors.append(
