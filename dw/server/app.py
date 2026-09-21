@@ -118,10 +118,12 @@ from ..workflow_sources import (
     find_workflow,
     listing,
     resolve_in_source,
+    resolve_sub_workflow,
     source_for_path,
     workflow_names,
     workflow_sources,
     writable_source,
+    SubWorkflowNotFound,
 )
 from .jobs import (
     ACK_BOOLEAN,
@@ -240,6 +242,21 @@ def collect_prompt_references(value):
     return references
 
 
+def _catalog_name_from_root(path, root):
+    """The listing name a resolved workflow path has under a root.
+
+    None when the path is not under the root after all - a name that does
+    not name an entry is worse than no name for anything that later joins
+    on it.
+    """
+    if root is None:
+        return None
+    relative = os.path.relpath(path, root)
+    if relative.startswith(".."):
+        return None
+    return os.path.splitext(relative)[0].replace(os.sep, "/")
+
+
 def catalog_name_for(path, source):
     """The listing name a resolved workflow path has within its source.
 
@@ -249,10 +266,7 @@ def catalog_name_for(path, source):
     """
     if source is None:
         return None
-    relative = os.path.relpath(path, source.root)
-    if relative.startswith(".."):
-        return None
-    return os.path.splitext(relative)[0].replace(os.sep, "/")
+    return _catalog_name_from_root(path, source.root)
 
 
 def attach_observed(details, observed_costs):
@@ -1764,6 +1778,28 @@ def create_app(
             from .. import get_device, get_device_type
 
             command = _probe_command_for(candidate, request, workspace, source_root)
+
+            def observed_for_child(path, child_definition):
+                """A composed child's own observed figure, keyed by the
+                catalog name it resolves to - so a parent with no figure of
+                its own can quote what this box's runs of the *child* took
+                rather than falling back to unknown (#268)."""
+                base_dir = (
+                    os.path.dirname(os.path.abspath(candidate.file_spec))
+                    if candidate.file_spec
+                    else None
+                )
+                try:
+                    child_path, child_root = resolve_sub_workflow(
+                        path, base_dir or ".", candidate.workflow_dir
+                    )
+                except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
+                    return None
+                child_name = _catalog_name_from_root(child_path, child_root)
+                if not child_name:
+                    return None
+                return _observed_for_name(child_name, child_definition)
+
             answer["plan"] = build_plan(
                 candidate,
                 request.arguments,
@@ -1786,6 +1822,7 @@ def create_app(
                     if catalog_name
                     else None
                 ),
+                observed_for_child=observed_for_child,
             )
         except Exception:
             logger.exception("Plan could not be built")

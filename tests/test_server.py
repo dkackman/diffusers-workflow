@@ -4385,6 +4385,7 @@ class TestValidatePlan:
             "partial": False,
             "unpriced": [],
             "runs": 11,
+            "cached_minutes": 8.0,
         }
         assert asked == [("Basic", {"prompt": "x"})]
 
