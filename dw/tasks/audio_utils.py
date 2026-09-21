@@ -264,8 +264,9 @@ def bleed_join(
             f"speech-like (spectral flatness {flatness:.2f}, harmonicity "
             f"{harmonicity:.2f}) rather than the room tone or crowd noise a "
             f"bleed is meant for - the reversal is likely to be audible as a "
-            f"stutter or a note running backwards. Consider seam_fade_ms for "
-            f"a hard cut on this material instead.",
+            f"stutter or a note running backwards. Pass 'audio_bleed_ms': 0 "
+            f"for a hard cut on this material instead - seam_fade_ms has no "
+            f"effect while audio_bleed_ms is non-zero.",
             kind="bleed_tonal_material",
             command="bleed_join",
             flatness=round(flatness, 3),
