@@ -1,10 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import {
-    loadWorkspaces,
-    selectWorkspace,
-    workspace,
-  } from './workspace.svelte'
+  import { loadWorkspaces, workspace } from './workspace.svelte'
+  import { go, route } from './router.svelte'
 
   onMount(loadWorkspaces)
 
@@ -19,7 +16,11 @@
     <select
       value={workspace.current}
       onchange={(event) =>
-        selectWorkspace((event.currentTarget as HTMLSelectElement).value)}
+        go(
+          'ws',
+          (event.currentTarget as HTMLSelectElement).value,
+          route.view.kind === 'ws' ? route.view.section : 'overview',
+        )}
       title="which workspace's workflows and outputs to show"
     >
       {#each choices as name (name)}

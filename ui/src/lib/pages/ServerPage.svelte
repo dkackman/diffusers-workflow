@@ -23,10 +23,10 @@
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
     loadWorkspaces,
-    selectWorkspace,
     workspace,
   } from '../workspace.svelte'
   import { formatBytes } from '../format'
+  import { go } from '../router.svelte'
 
   let info = $state<ServerInfo | null>(null)
   let error = $state('')
@@ -106,7 +106,7 @@
         return
       try {
         await api.deleteWorkspace(name, true)
-        if (workspace.current === name) selectWorkspace(DEFAULT_WORKSPACE)
+        if (workspace.current === name) go('ws', DEFAULT_WORKSPACE, 'overview')
         invalidateWorkspaces()
         await loadWorkspaces()
         notify.success(`Deleted workspace ${name}`)
