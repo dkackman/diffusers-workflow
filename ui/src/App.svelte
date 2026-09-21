@@ -336,6 +336,12 @@
     position: sticky;
     top: 0;
     z-index: 10;
+    /* header and main are flex items of .column: without this, a flex
+       item's automatic minimum width is its content's min-content size
+       (a wide table, a crowded icon row), which grows the item - and the
+       document - past the viewport instead of letting the item's own
+       overflow handling (a scroller, wrapping) take over */
+    min-width: 0;
   }
   .navrow {
     display: flex;
@@ -416,9 +422,18 @@
     background: var(--panel-2);
   }
   main {
+    /* main is a flex item of .column (flex-direction: column); auto
+       cross-axis margins (the `margin: 0 auto` that centers it) opt it
+       out of the default stretch sizing, so without an explicit width it
+       falls back to fit-content and grows to whatever its widest
+       descendant (a wide table, a crowded header row) wants - taking the
+       document past the viewport instead of leaving that descendant's own
+       overflow handling (a scroller, wrapping) to cope */
+    width: 100%;
     max-width: 1180px;
     margin: 0 auto;
     padding: 1.6rem 1.2rem 4rem;
+    min-width: 0;
   }
   main.wide {
     max-width: 1560px;
@@ -458,6 +473,14 @@
   @media (max-width: 640px) {
     .navrow {
       padding: 0.5rem 0.8rem;
+      /* the menu button, breadcrumb and state icons no longer fit one row
+         on a phone - wrap rather than overflow the document. Harmless
+         above that width since flex-wrap only engages when the row
+         genuinely does not fit */
+      flex-wrap: wrap;
+    }
+    .state {
+      margin-left: auto;
     }
     main {
       padding: 1rem 0.8rem 3rem;

@@ -349,6 +349,12 @@
   }
   dd {
     margin: 0;
+    /* a grid item's automatic minimum width is its content's min-content
+       size (an unbroken path or address) unless overridden - min-width:0
+       lets it shrink to the 1fr track and overflow-wrap lets a long value
+       break instead of pushing the document wider */
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .note {
     margin: 0.6rem 0 0;

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test('workflow browser lists, describes and filters', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/#/ws/default/workflows')
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
   // cards carry descriptions from the sweep
   await expect(
@@ -161,11 +161,11 @@ test('the editor breadcrumb walks back to the workflow it opened', async ({
 }) => {
   await page.goto('/#/workflows/models/z-image')
   await page.getByRole('link', { name: 'Edit', exact: true }).click()
-  await expect(page).toHaveURL(/#\/edit\/models\/z-image$/)
+  await expect(page).toHaveURL(/#\/ws\/default\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
   await page.getByRole('link', { name: 'z-image', exact: true }).click()
-  await expect(page).toHaveURL(/#\/workflows\/models\/z-image$/)
+  await expect(page).toHaveURL(/#\/ws\/default\/workflows\/models\/z-image$/)
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),
   ).toBeVisible()
