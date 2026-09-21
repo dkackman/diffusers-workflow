@@ -195,6 +195,22 @@ it('the examples view lists only read-only workflows and links under shared', as
   expect(screen.queryByTitle('new workflow')).toBeNull()
 })
 
+it('the examples view counts and offers chips for only the read-only population', async () => {
+  // One read-only (image), two writable (image, shot) - the count and the
+  // shape vocabulary must reflect only the one the examples view lists
+  listing.details['models/flux-dev'] = {
+    ...listing.details['models/flux-dev'],
+    origin: 'examples',
+    writable: false,
+  }
+  render(WorkflowsPage, { examples: true })
+  await waitFor(() => expect(card('flux-dev')).toBeTruthy())
+  expect(screen.getByText('1', { selector: '.count' })).toBeTruthy()
+  const shapes = screen.getByRole('group', { name: 'filter by shape' })
+  expect(within(shapes).queryByRole('button', { name: 'shot' })).toBeNull()
+  expect(within(shapes).getByRole('button', { name: 'image' })).toBeTruthy()
+})
+
 it('the workspace view links a card under the current workspace', async () => {
   location.hash = '#/ws/studio/workflows'
   window.dispatchEvent(new HashChangeEvent('hashchange'))

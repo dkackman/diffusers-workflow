@@ -83,16 +83,26 @@
       })
   })
 
+  // The population this page is over: every workflow, or - under `examples`
+  // - only the read-only ones. Everything below reads this rather than
+  // `workflows` directly, so the count, the shape/trait vocabulary and the
+  // empty states all agree with what the cards show.
+  const listed = $derived(
+    examples
+      ? workflows.filter((name) => details[name]?.writable === false)
+      : workflows,
+  )
+
   // Only the shapes and traits the listing actually has: the vocabulary is
   // fixed, but a workspace holding no video has no use for a `shot` option
   const shapesPresent = $derived(
     WORKFLOW_SHAPES.filter((value) =>
-      workflows.some((name) => details[name]?.shape === value),
+      listed.some((name) => details[name]?.shape === value),
     ),
   )
   const traitsPresent = $derived(
     WORKFLOW_TRAITS.filter((value) =>
-      workflows.some((name) => details[name]?.traits?.includes(value)),
+      listed.some((name) => details[name]?.traits?.includes(value)),
     ),
   )
 
@@ -105,9 +115,8 @@
   // Client-side over the listing the page already holds - shape, then every
   // selected trait (AND, not OR: the chips narrow), then the text filter
   const visible = $derived(
-    workflows.filter((name) => {
+    listed.filter((name) => {
       const detail = details[name]
-      if (examples && detail?.writable !== false) return false
       if (shape && detail?.shape !== shape) return false
       const has = detail?.traits ?? []
       if (!traits.every((trait) => has.includes(trait))) return false
@@ -176,7 +185,7 @@
 
 <div class="head">
   <h1>{examples ? 'Examples' : 'Workflows'}</h1>
-  <span class="count num muted">{workflows.length}</span>
+  <span class="count num muted">{listed.length}</span>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
   {#if !examples}
@@ -307,10 +316,14 @@
   {/snippet}
 </FolderGroups>
 
-{#if loaded && workflows.length === 0}
+{#if loaded && listed.length === 0}
   <Empty>
     {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
-    No workflows yet — the + above creates the first one.
+    {#if examples}
+      No example workflows — start the server with --examples-dir to list some.
+    {:else}
+      No workflows yet — the + above creates the first one.
+    {/if}
   </Empty>
 {:else if loaded && visible.length === 0}
   <p class="muted">Nothing matches those filters.</p>

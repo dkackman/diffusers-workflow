@@ -15,8 +15,10 @@
   let statusFilter = $state('')
   let nameFilter = $state('')
   // Server-side, unlike the two filters above: it changes which jobs are
-  // fetched at all, not just which of the fetched ones are shown. Empty
-  // means every workspace - this list spans them on purpose.
+  // fetched at all, not just which of the fetched ones are shown. Only read
+  // under scope 'all' - empty there means every workspace, which is the
+  // point of that view; a workspace's own Jobs page filters by
+  // `workspace.current` instead.
   let workspaceFilter = $state('')
 
   // Only worth a picker once there is a choice - a single-workspace server

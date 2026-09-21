@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { api } from '../api'
@@ -79,6 +79,14 @@ const job = (manifest: JobDetail['manifest']): JobDetail => ({
   error: null,
   traceback: null,
   event_count: 0,
+})
+
+beforeEach(() => {
+  // The one router instance the module imported parsed the hash at load;
+  // reset it here so a case that names a workspace (the URL-correction
+  // test) does not leak its hash into whatever renders next
+  location.hash = '#/ws/default/jobs/j1'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
 })
 
 afterEach(() => {
