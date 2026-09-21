@@ -3604,6 +3604,38 @@ def test_history_keeps_only_the_last_events(tmp_path):
     assert stored[-1]["seq"] == 499, "the tail, not the head, is what is kept"
 
 
+def test_get_reports_event_count_matching_events_for(tmp_path):
+    """A historical job's event_count used to be hardcoded to 0 even though
+    get_job_events (events_for) still serves the persisted tail in full -
+    the mismatch read as 'events lost with the process' when they were not
+    (#289). event_count must equal what events_for actually returns."""
+    from dw.server.jobs import JobHistory
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    events = [{"seq": i, "event": "log"} for i in range(5)]
+    history.record(_finished_job_with_events("job-1", events))
+
+    detail = history.get("job-1")
+
+    assert detail["event_count"] == len(history.events_for("job-1")) == 5
+
+
+def test_get_reports_event_count_for_a_truncated_tail(tmp_path):
+    """When a run's events were capped at MAX_PERSISTED_EVENTS, event_count
+    must match the capped tail events_for serves - not the run's true,
+    larger total (#289)."""
+    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    events = [{"seq": i, "event": "log"} for i in range(500)]
+    history.record(_finished_job_with_events("job-1", events))
+
+    detail = history.get("job-1")
+
+    assert detail["event_count"] == MAX_PERSISTED_EVENTS
+    assert detail["event_count"] == len(history.events_for("job-1"))
+
+
 def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
     """An existing install's sqlite file has rows with no events column
     value. They must read as 'nothing stored', not crash."""
