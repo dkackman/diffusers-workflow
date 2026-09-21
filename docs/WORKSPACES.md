@@ -204,7 +204,11 @@ workspace's own `outputs/` - so it is per workspace, not per workflow alone.
 A run in one workspace does not make `validate_workflow`'s
 `plan.cached_steps` come back nonzero for a matching run sitting in another
 workspace, and deleting a workspace drops its cache entries along with its
-`outputs/` directory.
+`outputs/` directory. The cache itself is also per *process*: entries are
+held in memory by the running server, not read back from `outputs/`, so a
+`dw.serve` restart empties it even though every run directory is still on
+disk - a `plan.cached_steps` of 0 right after a restart is expected, not a
+lost run.
 
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
