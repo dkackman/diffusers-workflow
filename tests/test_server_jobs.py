@@ -237,6 +237,57 @@ def failing_script(command):
     }
 
 
+def workflow_end_script(command):
+    """A run that emits a workflow_end progress event carrying its own
+    nested manifest, the way Workflow.run's real emit does (#284)."""
+    output_dir = command["output_dir"]
+    files = [f"{output_dir}/QaWorkflowEnd/run/film.mp4"]
+    yield {
+        "type": "progress",
+        "event": "step_end",
+        "step": "film",
+        "files": files,
+    }
+    yield {
+        "type": "progress",
+        "event": "workflow_end",
+        "workflow": "QaWorkflowEnd",
+        "manifest": [{"step": "film", "files": files}],
+    }
+    yield {
+        "type": "success",
+        "message": "ok",
+        "run_count": 1,
+        "manifest": [{"step": "film", "files": files}],
+    }
+
+
+def test_workflow_end_event_manifest_matches_get_job_manifest(tmp_path):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(workflow_end_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        deadline = time.time() + 5
+        while job.status not in TERMINAL_STATES and time.time() < deadline:
+            time.sleep(0.01)
+        assert job.status == "succeeded", job.error
+
+        workflow_end_events = [
+            e for e in job.events if e.get("event") == "workflow_end"
+        ]
+        assert len(workflow_end_events) == 1
+        assert workflow_end_events[0]["manifest"] == job.manifest
+        assert workflow_end_events[0]["manifest"] == [
+            {"step": "film", "files": ["QaWorkflowEnd/run/film.mp4"]}
+        ]
+    finally:
+        manager.shutdown()
+
+
 def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
     manager = JobManager(
         str(tmp_path / "outputs"),
