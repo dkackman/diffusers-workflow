@@ -11,12 +11,11 @@ and the arguments; the prompt format is MiniMax's, from their text not here.
 
 ## Before anything
 
-1. `get_server_info`: the device (H3 templates are CUDA; the quantized
+1. `get_server_info`: the device (H3 templates are CUDA; quantized
    configurations do not run on mps) and which workspace this session is in.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
-   `list_workflows(shape="audio")`: the family's templates by their current
-   names, with `summary`, `traits` and `cost`. Trust the listing over the
-   names quoted below.
+   `list_workflows(shape="audio")`: the family's templates, with `summary`,
+   `traits` and `cost`. Trust the listing over the names quoted below.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
 
 ## Which shape is the request
@@ -91,9 +90,9 @@ read the `workflows` guide's authoring section first.
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
   seconds in one clip. Most default to 124 for fast iteration (storyboard 192);
-  `num_frames=345` fits the same 24 GB configuration at 544p. At 768p it OOMs
-  in the transformer FF/LoRA path - resolution-qualify this before quoting it.
-  The 5-second floor is diffusers'; the model card says 4.
+  `num_frames=345` fits the same 24 GB configuration at 544p, not 768p (OOMs
+  in the transformer FF/LoRA path). The 5-second floor is diffusers'; the
+  model card says 4.
 - Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
   1:4 to 4:1. Output audio is 32 kHz stereo.
 - A checkpoint comes with a canvas, a sigma shift and an alpha, and they move
@@ -132,7 +131,7 @@ read the `workflows` guide's authoring section first.
 ## Prompts
 
 H3 wants Context-IR, MiniMax's own format. `get_prompt` shows the shape;
-the rules come from MiniMax, not from paraphrasing one:
+the rules come from MiniMax, not paraphrasing:
 
 1. If the `h3-prompt-writing` skill is installed (MiniMax ships it in
    https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
