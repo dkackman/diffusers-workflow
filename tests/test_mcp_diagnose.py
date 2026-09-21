@@ -427,6 +427,132 @@ def test_wait_for_job_reports_queue_position_for_a_still_queued_job(monkeypatch)
     assert result["job"]["queue_position"] == 2
 
 
+def running_then_done(submit_body=SUBMITTED, bodies=None):
+    """POST /api/jobs queues; GET /api/jobs/job-1 walks `bodies`, repeating
+    the last one - a run that is then polled."""
+    seen = []
+    bodies = bodies or [{"id": "job-1", "status": "succeeded", "manifest": ["x"]}]
+
+    def handler(request):
+        key = (request.method, request.url.path)
+        seen.append({"key": key, "params": dict(request.url.params)})
+        if key == ("POST", "/api/jobs"):
+            return httpx.Response(201, json=submit_body)
+        if key == ("GET", "/api/jobs/job-1"):
+            polls = sum(1 for entry in seen if entry["key"] == key)
+            return httpx.Response(200, json=bodies[min(polls - 1, len(bodies) - 1)])
+        return httpx.Response(404, json={"detail": f"unrouted {key}"})
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_run_with_wait_seconds_zero_is_the_plain_queue():
+    """The default: one POST, the queued-job shape, nothing polled - what
+    every caller before `wait_seconds` existed gets unchanged."""
+    client, seen = running_then_done()
+
+    result = diagnose.run_workflow(
+        client, workflow_path="w.json", acknowledged_cost=True, wait_seconds=0
+    )
+
+    assert [entry["key"] for entry in seen] == [("POST", "/api/jobs")]
+    assert result["job_id"] == "job-1"
+    assert result["status"] == "queued"
+    assert "still_running" not in result
+    assert "waited_seconds" not in result
+
+
+def test_run_with_wait_seconds_folds_the_first_wait_in(monkeypatch):
+    """Queue, then wait on the same call: the answer is the queued-job
+    fields plus everything wait_for_job would have returned - status,
+    budget fields, the slim job with its manifest."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    client, seen = running_then_done(
+        bodies=[
+            {"id": "job-1", "status": "running", "progress": {"step": "s"}},
+            {"id": "job-1", "status": "succeeded", "manifest": ["out.png"]},
+        ]
+    )
+
+    result = diagnose.run_workflow(
+        client, workflow_path="w.json", acknowledged_cost=True, wait_seconds=5
+    )
+
+    assert [entry["key"] for entry in seen] == [
+        ("POST", "/api/jobs"),
+        ("GET", "/api/jobs/job-1"),
+        ("GET", "/api/jobs/job-1"),
+    ]
+    assert result["job_id"] == "job-1"
+    assert result["queue_position"] == 2, "the queued-job fields survive"
+    assert result["status"] == "succeeded", "the wait's status wins"
+    assert result["still_running"] is False
+    assert result["job"]["manifest"] == ["out.png"]
+    assert result["timeout_requested_seconds"] == 5.0
+    assert result["timeout_applied_seconds"] == 5.0
+    assert result["timeout_capped"] is False
+    assert "waited_seconds" in result
+    assert "get_job" in result["next"]
+
+
+def test_run_with_wait_seconds_reports_still_running_at_the_budget(monkeypatch):
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    client, _seen = running_then_done(
+        bodies=[{**FAT_JOB, "status": "running"}],
+    )
+
+    result = diagnose.run_workflow(
+        client, workflow_path="w.json", acknowledged_cost=True, wait_seconds=0.03
+    )
+
+    assert result["status"] == "running"
+    assert result["still_running"] is True
+    assert "arguments" not in result["job"], "the slim job, as wait_for_job's"
+    assert "wait_for_job" in result["next"]
+
+
+def test_run_with_wait_seconds_is_clamped_like_wait_for_job(monkeypatch):
+    """The cap is the deployment's, not the caller's: asking for 600 here
+    gets the same clamp and the same honest budget fields as wait_for_job."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0.03)
+    client, _seen = running_then_done(bodies=[{"id": "job-1", "status": "running"}])
+
+    result = diagnose.run_workflow(
+        client, workflow_path="w.json", acknowledged_cost=True, wait_seconds=600
+    )
+
+    assert result["still_running"] is True
+    assert result["timeout_capped"] is True
+    assert result["timeout_requested_seconds"] == 600
+    assert result["timeout_applied_seconds"] == 0.0
+    assert "600" in result["next"]
+
+
+def test_run_with_wait_seconds_still_refuses_without_an_acknowledged_cost():
+    """Folding the wait in changes nothing about the gate."""
+    client, seen = running_then_done()
+
+    with pytest.raises(DwApiError, match="acknowledged_cost"):
+        diagnose.run_workflow(client, workflow_path="w.json", wait_seconds=30)
+
+    assert seen == []
+
+
+def test_run_with_wait_seconds_waits_on_nothing_when_the_queue_is_refused():
+    """A 409 (stale plan) surfaces as before and no poll follows it."""
+    client, seen = scripted(
+        {("POST", "/api/jobs"): (409, {"detail": {"message": "plan changed"}})}
+    )
+
+    with pytest.raises(DwApiError, match="plan changed"):
+        diagnose.run_workflow(
+            client, workflow_path="w.json", acknowledged_cost=True, wait_seconds=30
+        )
+
+    assert [entry["key"] for entry in seen] == [("POST", "/api/jobs")]
+
+
 class TestGetJobWorkflow:
     def test_a_realized_workflow_comes_back_with_the_flag_set(self):
         client, seen = scripted(

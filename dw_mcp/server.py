@@ -680,23 +680,27 @@ def build_server(client):
             client, name, max_characters=max_characters, workspace=workspace
         )
 
-    def delete_output(name: str, workspace: str | None = None) -> dict:
+    def delete_output(
+        name: str | None = None,
+        workspace: str | None = None,
+        job_id: str | None = None,
+    ) -> dict:
         """Permanently remove one generated file from the output directory.
-        Not recoverable: rerunning the job that made it is the only way
-        back, and any "output:" reference pointing at it stops resolving.
-        Prefer `keep_output` first if it is worth keeping. When it was the
-        last media file of its run, the run directory goes with it -
-        `manifest.json` and `workflow.json` included - so deleting what you
-        made leaves the workspace as you found it. `name` may also be a run
+        Not recoverable (rerun the job to get it back), and any "output:"
+        reference to it stops resolving; prefer `keep_output` if it is
+        worth keeping. When it was the last media file of its run, the run
+        directory goes with it, sidecars included. `name` may also be a run
         directory ("<workflow>/<run id>", the first two parts of a gallery
-        name), which removes the whole run: the only way to clear a run that
-        failed before it wrote any media.
+        name), which removes the whole run - the only handle on a run that
+        failed before writing any media - or give `job_id` instead: the run
+        that job wrote is removed whole, and the reply adds `job_id` and
+        the resolved `run_dir`. Exactly one of the two; a job with no run
+        directory, or unknown, is an error.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
-        return media.delete_output(client, name, workspace=workspace)
+        `workspace` pins this call to another workspace without switching
+        the session (#99); a `job_id` delete with no `workspace` goes to
+        the workspace the job ran in."""
+        return media.delete_output(client, name, workspace=workspace, job_id=job_id)
 
     def download_output(
         name: str,
@@ -1092,30 +1096,33 @@ def build_server(client):
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
+        wait_seconds: int = 0,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
-        acknowledged_cost=true. Returns as soon as the job is queued - a
-        generation outlasts any tool-call timeout - so follow it with
-        `wait_for_job`, then `get_job` for the manifest. Give exactly one of
-        `workflow_path` - a catalog name from `list_workflows`, with or
-        without .json, or a path on the server - or `inline_workflow`, a
-        full definition for a request nothing stored covers. `validate_workflow`
-        calls these same two concepts `name` and `workflow`; both tools
-        accept both spellings, so a document just validated can be run
-        without renaming a key. `arguments` overrides the workflow's
-        variables by name, which is how one stored workflow serves many
-        requests without being edited or copied. `workspace` names the
-        workspace for this one call without switching the session to it -
-        use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's.
+        acknowledged_cost=true. Returns as soon as the job is queued;
+        follow it with `wait_for_job`, then `get_job` for the manifest - or
+        fold that first wait in with `wait_seconds` above 0, which waits on
+        the job exactly as `wait_for_job(job_id,
+        timeout_seconds=wait_seconds)` would ({cap}s cap per call) and adds
+        its fields to the result (`still_running`, `waited_seconds`,
+        `timeout_*`, the slim `job`). If the cap covers the job's
+        runtime one call is enough; on `still_running: true` call
+        `wait_for_job` as before. Give exactly one of `workflow_path` - a
+        catalog name from `list_workflows`, with or without .json, or a
+        path on the server - or `inline_workflow`, a full definition
+        nothing stored covers; `validate_workflow` calls these `name` and
+        `workflow`, and both tools accept both spellings. `arguments`
+        overrides the workflow's variables by name. `workspace` pins this
+        call to another workspace without switching the session (where its
+        `output:`/`asset:` references live).
 
         Bind the acknowledgement to what you quoted: pass
         {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
-        "downloads": [...the non-null repos in plan.downloads_required]} from the
-        validate answer, and the server refuses with 409 - naming the new
-        plan - if the run's shape changed since; bare true is for a plan
+        "downloads": [...the non-null repos in plan.downloads_required]} from
+        the validate plan; the server refuses with 409, naming the new
+        plan, if the run's shape changed since. Bare true is for a plan
         that was null."""
         return diagnose.run_workflow(
             client,
@@ -1126,6 +1133,15 @@ def build_server(client):
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,
+            wait_seconds=wait_seconds,
+        )
+
+    # The cap is a number a caller paces against, so the description
+    # states it (as wait_for_job's does, below). replace rather than
+    # format: the docstring spells out a literal {fingerprint, ...} dict.
+    if run_workflow.__doc__:  # absent under python -OO
+        run_workflow.__doc__ = run_workflow.__doc__.replace(
+            "{cap}", str(diagnose.MAX_WAIT_SECONDS)
         )
 
     def get_job(job_id: str) -> dict:
@@ -1166,31 +1182,29 @@ def build_server(client):
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
         """Block until a job finishes, instead of polling get_job or
-        get_job_events by hand. Returns as soon as the job's status is
-        succeeded, failed or cancelled, or - if timeout_seconds elapses
-        first - returns its current status with still_running: true so you
-        can call again. Does not queue anything, so no acknowledged_cost.
+        get_job_events by hand: returns as soon as its status is succeeded,
+        failed or cancelled, or with still_running: true when
+        timeout_seconds elapses first, so you can call again. Queues
+        nothing, so no acknowledged_cost.
 
-        One call blocks for at most {cap} seconds, no matter what
-        timeout_seconds asks for - this deployment's cap, set for the tool
-        call budget the MCP client actually holds open. A larger value is
-        not honoured, it is clamped, so budget roughly one call per {cap}s
-        of the job - if {cap} covers the job's whole runtime, one call is
-        enough. Every reply says which happened: waited_seconds,
-        timeout_requested_seconds, timeout_applied_seconds and
-        timeout_capped.
+        One call blocks for at most {cap} seconds, whatever timeout_seconds
+        asks for - this deployment's cap, set for the tool-call budget the
+        client holds open; a larger value is clamped, not honoured, so
+        budget one call per {cap}s of the job, and one call is enough when
+        {cap} covers its runtime. Every reply says which happened:
+        waited_seconds, timeout_requested_seconds, timeout_applied_seconds
+        and timeout_capped.
 
-        Returns a slim job - status, warnings, error, and the manifest once
-        finished - without the arguments; get_job has those. A running job
-        also carries `progress`: the step, phase, and
+        Returns a slim job - status, warnings, error, the manifest once
+        finished - without the arguments (get_job has those). A running job
+        also carries `progress`: step, phase, and
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
-        starts. Judge a slow run against a stuck one by whether
-        `denoise_step` has moved since a poll minutes ago, not by silence
-        past a fixed threshold - a video reference's lead-in can run many
-        minutes emitting nothing, and denoise gaps are uneven under a
-        transformer block cache; both are normal. The full diagnosis, and
-        why `denoise_total_steps` sometimes reads one less than what was
-        asked for, are in WORKFLOW_GUIDE's "The loop", step 5."""
+        starts. Tell a slow run from a stuck one by whether
+        `denoise_step` has moved since a poll minutes ago, not by silence:
+        a video reference's lead-in can run many minutes emitting nothing,
+        and denoise gaps are uneven under a transformer block cache - both
+        normal. Full diagnosis, and why `denoise_total_steps` can read one
+        less than asked, in WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states
