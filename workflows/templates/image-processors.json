@@ -127,20 +127,6 @@
             }
         },
         {
-            "name": "face_detector",
-            "task": {
-                "command": "face_detector",
-                "arguments": {
-                    "image": "previous_result:input_image"
-                }
-            },
-            "result": {
-                "content_type": "image/jpeg",
-                "embed_metadata": true,
-                "subfolder": "final"
-            }
-        },
-        {
             "name": "lineart_standard",
             "task": {
                 "command": "lineart_standard",
