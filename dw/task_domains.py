@@ -85,7 +85,7 @@ TASK_ARGUMENT_DOMAINS = {
         "crossfade_ms": NON_NEGATIVE,
         "sample_rate": POSITIVE,
     },
-    "mix_audio": {"sample_rate": POSITIVE},
+    "mix_audio": {"gains": NON_NEGATIVE, "sample_rate": POSITIVE},
     "pair_audio": {"sample_rate": POSITIVE},
     "concat_videos": {
         "trim_frames": NON_NEGATIVE,
@@ -149,20 +149,41 @@ def as_number(value):
     return None
 
 
-def domain_error(command, name, value, domain):
-    """The message for one out-of-domain argument, or None if it is fine.
+def _domain_candidates(value):
+    """(index, item) pairs to check - one per element of a list argument
+    (mix_audio's 'gains', one multiplier per track), else the value itself
+    paired with no index."""
+    if isinstance(value, list):
+        return list(enumerate(value))
+    return [(None, value)]
+
+
+def domain_violation(command, name, value, domain):
+    """(index, message) for the first out-of-domain element, or None if all
+    are fine. index is None when the argument itself is the scalar checked
+    rather than one entry of a list.
 
     Shared by the static pass and the commands' own run-time guards so the
     two cannot word the same refusal differently.
     """
-    if in_domain(value, domain):
-        return None
-    return (
-        f"{command} needs '{name}' {_DOMAIN_TEXT[domain]}, got {value!r}. "
-        f"A value outside that range is refused rather than interpreted - "
-        f"a negative count or a zero rate would otherwise produce a "
-        f"plausible-looking track of the wrong length or speed"
-    )
+    for index, item in _domain_candidates(value):
+        if in_domain(item, domain):
+            continue
+        label = f"{name}[{index}]" if index is not None else name
+        message = (
+            f"{command} needs '{label}' {_DOMAIN_TEXT[domain]}, got {item!r}. "
+            f"A value outside that range is refused rather than interpreted - "
+            f"a negative count or a zero rate would otherwise produce a "
+            f"plausible-looking track of the wrong length or speed"
+        )
+        return index, message
+    return None
+
+
+def domain_error(command, name, value, domain):
+    """The message for one out-of-domain argument, or None if it is fine."""
+    violation = domain_violation(command, name, value, domain)
+    return None if violation is None else violation[1]
 
 
 def check_argument(command, name, value):
@@ -227,12 +248,16 @@ def task_argument_errors(workflow_definition, source_indices=None):
         for key, domain in domains.items():
             if key not in arguments:
                 continue
-            message = domain_error(command, key, arguments[key], domain)
-            if message is None:
+            violation = domain_violation(command, key, arguments[key], domain)
+            if violation is None:
                 continue
+            element_index, message = violation
+            path = ("steps", source, "task", "arguments", key)
+            if element_index is not None:
+                path = path + (element_index,)
             errors.append(
                 {
-                    "path": render_path(("steps", source, "task", "arguments", key)),
+                    "path": render_path(path),
                     "message": f"{message}{where}.",
                 }
             )
