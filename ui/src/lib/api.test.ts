@@ -118,6 +118,22 @@ describe('name encoding', () => {
   })
 })
 
+describe('job listing', () => {
+  it('passes workspace, status set and limit as query parameters', async () => {
+    const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })
+    await api.listJobs('studio', 5, 'succeeded,failed,cancelled')
+    expect(calls[0][0]).toBe(
+      '/api/jobs?workspace=studio&status=succeeded%2Cfailed%2Ccancelled&limit=5',
+    )
+  })
+
+  it('asks for every job when nothing narrows it', async () => {
+    const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })
+    await api.listJobs()
+    expect(calls[0][0]).toBe('/api/jobs')
+  })
+})
+
 describe('workflow definition fetch', () => {
   it('keeps the definition exactly as served, with origin and writable beside it', async () => {
     const body = { id: 'z-image', steps: [] }

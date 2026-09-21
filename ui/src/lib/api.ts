@@ -300,10 +300,13 @@ export const api = {
       }),
     ),
   // Unscoped on purpose: `workspace` is explicit so Status can span every
-  // workspace and a workspace's Jobs page can name its own.
-  listJobs: (workspace?: string, limit?: number) => {
+  // workspace and a workspace's Jobs page can name its own. `status` is one
+  // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
+  // keeps the newest N of what matched.
+  listJobs: (workspace?: string, limit?: number, status?: string) => {
     const query = new URLSearchParams()
     if (workspace) query.set('workspace', workspace)
+    if (status) query.set('status', status)
     if (limit) query.set('limit', String(limit))
     const qs = query.toString()
     return request<{ jobs: JobSummary[]; total?: number }>(

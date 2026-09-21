@@ -16,7 +16,12 @@
   // Each panel loads on its own: the page is a glance at the workspace, and
   // a slow gallery must not hold the jobs list back
   let recent = $state<GalleryFile[] | null>(null)
-  let jobs = $state<JobSummary[] | null>(null)
+  // The running job and the last finished ones are two requests, not one
+  // cut of the queue: queued jobs are newer than the running one, so a deep
+  // queue would push it out of a single newest-N answer and fill the panel
+  // with jobs that have done nothing yet
+  let running = $state<JobSummary | null>(null)
+  let recentJobs = $state<JobSummary[] | null>(null)
   let workflows = $state<string[] | null>(null)
   let proofs = $state<Record<string, GalleryFile>>({})
   let assetCount = $state<number | null>(null)
@@ -39,7 +44,8 @@
   $effect(() => {
     void workspace.current
     recent = null
-    jobs = null
+    running = null
+    recentJobs = null
     workflows = null
     assetCount = null
     recentError = null
@@ -57,11 +63,17 @@
         recent = []
         recentError = errorMessage(e)
       })
-    api
-      .listJobs(workspace.current, JOBS + 1)
-      .then((r) => (jobs = r.jobs.reverse()))
+    Promise.all([
+      api.listJobs(workspace.current, 1, 'running'),
+      api.listJobs(workspace.current, JOBS, 'succeeded,failed,cancelled'),
+    ])
+      .then(([live, finished]) => {
+        running = live.jobs[0] ?? null
+        recentJobs = finished.jobs.reverse()
+      })
       .catch((e) => {
-        jobs = []
+        running = null
+        recentJobs = []
         jobsError = errorMessage(e)
       })
     api
@@ -94,10 +106,6 @@
           (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
       )
       .slice(0, WORKFLOWS),
-  )
-  const running = $derived(jobs?.find((j) => j.status === 'running') ?? null)
-  const recentJobs = $derived(
-    (jobs ?? []).filter((j) => j.status !== 'running').slice(0, JOBS),
   )
   const directory = $derived(
     workspace.root
@@ -161,9 +169,9 @@
     <h2><a class="plain" href={wsHref(name, 'jobs')}>Jobs</a></h2>
     {#if jobsError}
       <p class="muted">Could not load jobs: {jobsError}</p>
-    {:else if jobs === null}
+    {:else if recentJobs === null}
       <p class="muted">loading…</p>
-    {:else if jobs.length === 0}
+    {:else if recentJobs.length === 0 && !running}
       <Empty
         >{#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
         yet.</Empty

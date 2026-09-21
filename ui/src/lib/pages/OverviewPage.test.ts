@@ -24,7 +24,15 @@ vi.mock('../api', () => ({
       data.galleryError
         ? Promise.reject(data.galleryError)
         : Promise.resolve({ files: data.files }),
-    listJobs: () => Promise.resolve({ jobs: data.jobs }),
+    // Filters the fixture the way the server does: `status` is one state
+    // or a comma-separated set, `limit` keeps the newest (last) N
+    listJobs: (_ws?: string, limit?: number, status?: string) => {
+      const states = status?.split(',')
+      let jobs = data.jobs as Array<{ status: string }>
+      if (states) jobs = jobs.filter((j) => states.includes(j.status))
+      if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
+      return Promise.resolve({ jobs, total: jobs.length })
+    },
     listWorkflows: () =>
       Promise.resolve({
         workflow_dir: '/ws/workflows',
@@ -167,6 +175,31 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
   expect(cards[0].textContent).toContain('shot')
   expect(screen.getByText('1 asset')).toBeTruthy() // the workspace's own only
   await waitFor(() => expect(screen.getByText('4 KB')).toBeTruthy())
+})
+
+it('a deep queue does not hide the running job, and queued jobs are not "recent"', async () => {
+  const job = (id: string, status: string, created_at: number) => ({
+    id,
+    workflow: 'shot',
+    status,
+    created_at,
+    started_at: null,
+    finished_at: null,
+    workspace: 'studio',
+  })
+  data.jobs = [
+    job('done1', 'succeeded', 1),
+    job('running1', 'running', 2),
+    ...[3, 4, 5, 6, 7, 8].map((n) => job(`queued${n}`, 'queued', n)),
+  ]
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByRole('link', { name: 'running1' })).toBeTruthy(),
+  )
+  expect(document.querySelector('.runningnow')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'done1' })).toBeTruthy()
+  expect(document.querySelectorAll('.chip.queued')).toHaveLength(0)
+  expect(screen.queryByRole('link', { name: /^queued/ })).toBeNull()
 })
 
 it('delete is offered off the default and goes through the shared action', async () => {
