@@ -109,3 +109,26 @@ class TestMixAudio:
             "log",
         )
         assert any(e["gains"] == [1.0, 0.5] for e in logs)
+
+    def test_mismatched_rates_are_resampled_not_refused(self):
+        # #293: same reasoning as concat_videos (#108) and dissolve_videos
+        # (#287) - a rate disagreement among tracks carries no editorial
+        # meaning, so it is converted (to the highest rate found) rather
+        # than raised, with a warning naming which
+        from dw.result import AudioVideo
+
+        low = AudioVideo([], _tone(100, 0.2), 32000)
+        high = AudioVideo([], _tone(100, 0.3), 44100)
+
+        warnings = [
+            e
+            for e in self.events_of(lambda: mix_audio([low, high]), "warning")
+            if e.get("kind") == "sample_rate_mismatch"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "mix_audio"
+        assert warnings[0]["sample_rate"] == 44100
+        assert warnings[0]["sample_rates"] == {"track 1": 32000, "track 2": 44100}
+
+        mixed = mix_audio([low, high])
+        assert mixed.sample_rate == 44100

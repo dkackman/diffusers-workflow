@@ -608,6 +608,21 @@ def gain_audio(
             gained[:, region_start:region_end] * gain
         ).astype(waveform.dtype)
 
+    region_start_seconds = region_start / float(sample_rate)
+    region_end_seconds = region_end / float(sample_rate)
+    emit_log(
+        f"gain_audio: {gain_db:.1f} dB over "
+        f"{region_start_seconds:.3f}-{region_end_seconds:.3f} s "
+        f"(samples {region_start}-{region_end} @ {sample_rate} Hz)",
+        command="gain_audio",
+        gain_db=gain_db,
+        start_seconds=region_start_seconds,
+        duration_seconds=region_end_seconds - region_start_seconds,
+        start_sample=region_start,
+        end_sample=region_end,
+        sample_rate=sample_rate,
+    )
+
     return _as_track(gained, sample_rate, "gain_audio")
 
 
@@ -733,6 +748,76 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     )
 
 
+def _track_names(audios):
+    """A name per audio track, for a warning that has to say which one.
+
+    Mirrors concat_videos' video_names: a caller passes a path, or a
+    previous step's result; only the path says anything by itself, so the
+    rest are named by position.
+    """
+    return [
+        original if isinstance(original, str) else f"track {index + 1}"
+        for index, original in enumerate(audios)
+    ]
+
+
+def _load_tracks_matching_rate(audios, sample_rate, command):
+    """Load a list of audio tracks, resampling any that disagree on rate.
+
+    A mismatch among tracks that bring their own rate has no editorial
+    meaning - the same reasoning concat_videos (#108) and dissolve_videos
+    (#287) apply to shots - so when the caller has not pinned a rate the
+    highest one found is chosen as the target and the rest are converted,
+    with a warning naming each track's rate. When the caller *does* pin
+    `sample_rate`, _waveform_and_rate's own per-track relabel warning
+    (#180) still applies and this function changes nothing about it.
+    """
+    names = _track_names(audios)
+    waveforms, native_rates, bare = [], [], False
+    for audio in audios:
+        if isinstance(audio, str) or hasattr(audio, "audio"):
+            waveform, rate = _waveform_and_rate(audio, sample_rate, command)
+            native_rates.append(rate)
+        else:
+            waveform, bare = as_channels_samples(audio), True
+            native_rates.append(None)
+        waveforms.append(waveform)
+
+    if sample_rate is not None:
+        return waveforms, sample_rate
+
+    resolved = [rate for rate in native_rates if rate is not None]
+    if bare or not resolved:
+        raise ValueError(f"{command} needs 'sample_rate' with a raw waveform")
+    target_rate = max(resolved)
+    if len(set(resolved)) > 1:
+        per_track = {
+            name: rate
+            for name, rate in zip(names, native_rates)
+            if rate is not None
+        }
+        emit_warning(
+            f"{command}: tracks carry audio at different sample rates ("
+            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_track.items())
+            + f") - resampling them all to {target_rate} Hz. Pass "
+            "'sample_rate' to pin a different target, or resample ahead of "
+            "this step with the 'resample_audio' task.",
+            kind="sample_rate_mismatch",
+            command=command,
+            sample_rate=target_rate,
+            sample_rates=per_track,
+        )
+        waveforms = [
+            (
+                waveform
+                if rate is None or rate == target_rate
+                else resample_waveform(waveform, rate, target_rate)
+            )
+            for waveform, rate in zip(waveforms, native_rates)
+        ]
+    return waveforms, target_rate
+
+
 def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     """Task command: join audio tracks with an equal-power crossfade.
 
@@ -743,30 +828,24 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
         audios: The tracks to join, in order - waveforms, audio or video file
             paths, or videos generated with a soundtrack
         crossfade_ms: Length of each crossfade
-        sample_rate: Sample rate of the waveforms. Required unless every track
-            brings its own; given here it wins
+        sample_rate: Sample rate of the joined track. Required unless every
+            track brings its own. Left unset, tracks at different rates are
+            not a constraint - the highest rate found is used and the rest
+            are resampled up to it, with a warning naming which (#108, #287,
+            #293). Given here instead, it *relabels* rather than resamples
+            any track whose real rate disagrees - changing its speed and
+            pitch, not just its rate - which warns separately (#180); use
+            resample_audio ahead of this step if conversion is what is
+            wanted at a pinned rate
 
     Returns:
         An AudioTrack holding the joined waveform and its rate
     """
     if not isinstance(audios, list) or not audios:
         raise ValueError("crossfade_audio needs a non-empty list of audio tracks")
-    waveforms, rates, bare = [], set(), False
-    for audio in audios:
-        if isinstance(audio, str) or hasattr(audio, "audio"):
-            waveform, rate = _waveform_and_rate(audio, sample_rate, "crossfade_audio")
-            rates.add(rate)
-        else:
-            waveform, bare = as_channels_samples(audio), True
-        waveforms.append(waveform)
-    if sample_rate is None:
-        if bare or not rates:
-            raise ValueError("crossfade_audio needs 'sample_rate' with a raw waveform")
-        if len(rates) > 1:
-            raise ValueError(
-                f"crossfade_audio needs one sample rate, got {sorted(rates)}"
-            )
-        sample_rate = rates.pop()
+    waveforms, sample_rate = _load_tracks_matching_rate(
+        audios, sample_rate, "crossfade_audio"
+    )
     return _as_track(
         crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate
     )
@@ -792,8 +871,15 @@ def mix_audio(audios, gains=None, sample_rate=None):
             generated with a soundtrack
         gains: One plain multiplier per track, in the same order - not decibels.
             Defaults to unity on every track
-        sample_rate: Sample rate of the waveforms. Required unless every track
-            brings its own; given here it wins
+        sample_rate: Sample rate of the joined mix. Required unless every
+            track brings its own. Left unset, tracks at different rates are
+            not a constraint - the highest rate found is used and the rest
+            are resampled up to it, with a warning naming which (#108, #287,
+            #293). Given here instead, it *relabels* rather than resamples
+            any track whose real rate disagrees - changing its speed and
+            pitch, not just its rate - which warns separately (#180); use
+            resample_audio ahead of this step if conversion is what is
+            wanted at a pinned rate
 
     Returns:
         An AudioTrack holding the mixed waveform and its rate
@@ -819,20 +905,7 @@ def mix_audio(audios, gains=None, sample_rate=None):
                 gains=gains,
             )
 
-    waveforms, rates, bare = [], set(), False
-    for audio in audios:
-        if isinstance(audio, str) or hasattr(audio, "audio"):
-            waveform, rate = _waveform_and_rate(audio, sample_rate, "mix_audio")
-            rates.add(rate)
-        else:
-            waveform, bare = as_channels_samples(audio), True
-        waveforms.append(waveform)
-    if sample_rate is None:
-        if bare or not rates:
-            raise ValueError("mix_audio needs 'sample_rate' with a raw waveform")
-        if len(rates) > 1:
-            raise ValueError(f"mix_audio needs one sample rate, got {sorted(rates)}")
-        sample_rate = rates.pop()
+    waveforms, sample_rate = _load_tracks_matching_rate(audios, sample_rate, "mix_audio")
 
     waveforms = _matched_channels(*waveforms)
     channels = waveforms[0].shape[0]
