@@ -283,10 +283,16 @@
 
 <HintBar storageKey="assets-hint-dismissed">
   An asset is input a workflow names by reference: an argument set to asset:name
-  loads this file at run time, whatever run produced it. The shared library and
-  any examples library sit on every workspace's search path, so they follow you
-  between workspaces; only this workspace's own section changes between
-  workspaces, and a name here hides the same name further down.
+  loads this file at run time, whatever run produced it.
+  {#if shared}
+    The shared library follows you between workspaces; an examples library is
+    read-only.
+  {:else}
+    The shared library and any examples library sit on every workspace's search
+    path, so they follow you between workspaces; only this workspace's own
+    section changes between workspaces, and a name here hides the same name
+    further down.
+  {/if}
 </HintBar>
 
 {#if loaded && !error && assets.length === 0}

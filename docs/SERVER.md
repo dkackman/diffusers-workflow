@@ -158,7 +158,7 @@ workspace's own Overview page is where it is deleted. Server → Status shows
 the resolved directories and the `claude mcp add` line for connecting an
 agent from another machine, plus the queue across every workspace:
 
-![The Server → Status page: address picker, generated claude mcp add line, resolved directories, and the all-workspaces queue](img/ui-server-dark.png)
+![The Server page before the sidebar: address picker, generated claude mcp add line, resolved directories — the workspace list it shows now lives in the sidebar](img/ui-server-dark.png)
 
 ## Jobs API
 

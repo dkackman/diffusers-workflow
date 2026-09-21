@@ -548,4 +548,7 @@ it('the shared view hides the workspace section and makes shared upload the fill
   })
   expect(screen.queryByText('This workspace')).toBeNull()
   expect(upload.classList.contains('quiet')).toBe(false)
+  // The hint must not describe a workspace section the view does not show
+  expect(screen.queryByText(/only this workspace's own section/)).toBeNull()
+  expect(screen.getByText(/an examples library is read-only/)).toBeTruthy()
 })

@@ -182,7 +182,10 @@
         <div class="state">
           {#if currentJob}
             <!-- The one thing worth pinning to every page: what the GPU is
-             doing, and a way straight to it -->
+             doing, and a way straight to it. The legacy '#/jobs/<id>' form is
+             deliberate: health.current_job carries no workspace, so the legacy
+             redirect plus JobPage's correction is how it lands under the job's
+             own workspace -->
             <a
               class="plain live"
               href="#/jobs/{currentJob}"
