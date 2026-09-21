@@ -82,13 +82,19 @@ def _speaker_embedding_tensor(location, device, dtype):
     return embedding.squeeze().unsqueeze(0).to(device=device, dtype=dtype)
 
 
-def generate_speech(text=None, device="cpu", **kwargs):
+def generate_speech(text=None, device="cpu", seed=None, **kwargs):
     """Speak a line of text with a local text-to-speech model.
 
     Args:
         text: The line to speak. Mutually exclusive with messages - exactly
             one of the two is required.
         device: Target device ("cuda", "mps", "cpu").
+        seed: The workflow/step-resolved seed, when one was set. A pipeline
+            step gets an explicit torch.Generator; transformers' generate()
+            takes no such argument, so reproducing Bark (and any other
+            sampling model here) means seeding the global RNG immediately
+            before the call - unseeded when None, matching every other
+            unseeded task (#261).
         **kwargs:
             messages: Chat-templated input for a model such as VibeVoice that
                 takes a conversation rather than a bare string - a list of
@@ -202,6 +208,8 @@ def generate_speech(text=None, device="cpu", **kwargs):
         logger.info(f"Speaking {len(messages)} chat-templated message(s)")
     else:
         logger.info(f"Speaking: {text[:100]}{'...' if len(text) > 100 else ''}")
+    if seed is not None:
+        torch.manual_seed(seed)
     output = pipe(
         text_inputs,
         preprocess_params={"voice_preset": voice_preset} if voice_preset else {},

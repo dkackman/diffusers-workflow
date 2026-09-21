@@ -1746,5 +1746,5 @@ class Workflow:
         logger.debug(f"Creating task for step: {step_definition['name']}")
         # Handle task creation
         task_definition = step_definition["task"]
-        task = Task(task_definition, device)
+        task = Task(task_definition, device, seed=default_seed)
         return task

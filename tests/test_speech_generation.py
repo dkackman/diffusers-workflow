@@ -319,6 +319,26 @@ class TestGenerateSpeech(unittest.TestCase):
             )
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_a_seed_seeds_the_global_rng_before_generating(self, mock_pipeline):
+        # transformers' generate() takes no generator= kwarg, unlike a diffusers
+        # pipeline - reproducing Bark means seeding torch's global RNG (#261)
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with patch("dw.tasks.speech_generation.torch.manual_seed") as mock_seed:
+            generate_speech("hello", device="cpu", seed=7)
+
+        mock_seed.assert_called_once_with(7)
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_no_seed_does_not_touch_the_global_rng(self, mock_pipeline):
+        mock_pipeline.return_value = MagicMock(return_value=spoken())
+
+        with patch("dw.tasks.speech_generation.torch.manual_seed") as mock_seed:
+            generate_speech("hello", device="cpu")
+
+        mock_seed.assert_not_called()
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
     def test_vits_speaker_id_passes_through_forward_params_unchanged(
         self, mock_pipeline
     ):
@@ -393,6 +413,9 @@ class TestHandleSpeechGeneration(unittest.TestCase):
             def device_for(self, arguments):
                 return "cpu"
 
+            def seed_for(self, arguments):
+                return arguments.pop("seed", None)
+
         handler = _COMMAND_REGISTRY["generate_speech"]
         with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
             handler(FakeTask(), {"voice_preset": "v2/en_speaker_6"}, {})
@@ -403,6 +426,9 @@ class TestHandleSpeechGeneration(unittest.TestCase):
         class FakeTask:
             def device_for(self, arguments):
                 return "cpu"
+
+            def seed_for(self, arguments):
+                return arguments.pop("seed", None)
 
         handler = _COMMAND_REGISTRY["generate_speech"]
         with self.assertRaisesRegex(ValueError, "generate_speech needs exactly one of"):
@@ -422,6 +448,9 @@ class TestHandleSpeechGeneration(unittest.TestCase):
             def device_for(self, arguments):
                 return "cpu"
 
+            def seed_for(self, arguments):
+                return arguments.pop("seed", None)
+
         pipe = MagicMock(return_value=spoken())
         mock_pipeline.return_value = pipe
 
@@ -430,3 +459,23 @@ class TestHandleSpeechGeneration(unittest.TestCase):
         handler(FakeTask(), {"messages": messages}, {})
 
         self.assertEqual(pipe.call_args[0][0], messages)
+
+    @patch("dw.tasks.speech_generation.hf_pipeline")
+    def test_seed_reaches_generate_speech_from_the_task(self, mock_pipeline):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        class FakeTask:
+            def device_for(self, arguments):
+                return "cpu"
+
+            def seed_for(self, arguments):
+                return arguments.pop("seed", 7)
+
+        pipe = MagicMock(return_value=spoken())
+        mock_pipeline.return_value = pipe
+
+        with patch("dw.tasks.speech_generation.torch.manual_seed") as mock_seed:
+            handler = _COMMAND_REGISTRY["generate_speech"]
+            handler(FakeTask(), {"text": "hi"}, {})
+
+        mock_seed.assert_called_once_with(7)

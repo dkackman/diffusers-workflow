@@ -183,6 +183,31 @@ class TestTaskDevice:
         assert image_to_text.call_args.kwargs["device"] == "cpu"
 
 
+class TestTaskSeed:
+    """Test the seed a task run consumes - mirrors TestTaskDevice (#261)"""
+
+    def test_defaults_to_the_workflow_seed(self):
+        task = Task({"command": "generate_speech", "arguments": {}}, "cpu", seed=7)
+        assert task.seed_for({}) == 7
+
+    def test_no_seed_anywhere_is_none(self):
+        task = Task({"command": "generate_speech", "arguments": {}}, "cpu")
+        assert task.seed_for({}) is None
+
+    def test_arguments_can_override_the_seed(self):
+        task = Task({"command": "generate_speech", "arguments": {}}, "cpu", seed=7)
+        assert task.seed_for({"seed": 42}) == 42
+
+    def test_the_override_is_consumed(self):
+        # Left in place it would reach the command as a duplicate argument
+        task = Task({"command": "generate_speech", "arguments": {}}, "cpu", seed=7)
+        arguments = {"seed": 42, "model_name": "test"}
+
+        task.seed_for(arguments)
+
+        assert arguments == {"model_name": "test"}
+
+
 class TestImageTasksTakeAVideo:
     """An image command bound to a video runs over its frames and hands the
     soundtrack through, so a generated clip can be upscaled or processed
