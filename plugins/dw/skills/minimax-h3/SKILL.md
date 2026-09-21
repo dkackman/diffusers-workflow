@@ -91,7 +91,8 @@ read the `workflows` guide's authoring section first.
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
   seconds in one clip. Most default to 124 for fast iteration (storyboard 192);
-  `num_frames=345` is the full length and fits the same 24 GB configuration.
+  `num_frames=345` fits the same 24 GB configuration at 544p. At 768p it OOMs
+  in the transformer FF/LoRA path - resolution-qualify this before quoting it.
   The 5-second floor is diffusers'; the model card says 4.
 - Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
   1:4 to 4:1. Output audio is 32 kHz stereo.

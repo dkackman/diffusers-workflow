@@ -86,6 +86,15 @@ read the `workflows` guide's authoring section first.
 - Audio is generated in the first pass and nothing refines it, so carry the
   audio latents (two-stage) or pair the track back (`pair_audio`) on a step
   that works on frames alone.
+- `negative_prompt` is real here - unlike H3, which is guidance-distilled and
+  takes none. Use it.
+- Observed, not a declared ceiling: on a 24 GB card, `text-to-video` at
+  `num_frames: 345` ran all eight denoise steps and then OOM'd in the VAE
+  decoder, with the transformer still resident at that point (#265, #266).
+  Neither the width/height/frame ceiling nor the decode-time release is fixed
+  yet (both parked pending sign-off) - so treat a full-length render near the
+  card's limit as untested rather than assuming 345 frames fits every size
+  the way 121 does.
 
 ## Prompts
 
@@ -95,7 +104,12 @@ type, a camera motion (say static when there is none) and a viewpoint, the
 soundscape interleaved with the action rather than appended, in plain
 observable words. For an image-conditioned clip describe only what changes
 from the image; restating it invites a scene cut. The `ltx2/`
-stored prompts (`list_prompts`) follow it. The spec, from
+stored prompts (`list_prompts`) follow it - in practice that word count
+lands them at roughly 1,000-1,130 characters; write to that budget rather
+than finding it by trial. Unlike H3's Context-IR, which is timestamped and
+so has to be rewritten whenever the frame count changes, this caption form
+is length-agnostic: nothing in it names a duration or a timestamp, so a
+caption written for 345 frames needs no edit at 249. The spec, from
 `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT` (the
 image-to-video variant, `LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT`, adds the
 describe-only-changes rule):
