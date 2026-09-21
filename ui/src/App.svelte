@@ -31,7 +31,7 @@
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
-  import ServerPage from './lib/pages/ServerPage.svelte'
+  import StatusPage from './lib/pages/StatusPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let health = $state<HealthInfo | null>(null)
@@ -287,7 +287,7 @@
       {#if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
         {:else if view.section === 'models'}<ModelsPage />
-        {:else}<ServerPage />{/if}
+        {:else}<StatusPage />{/if}
       {:else if view.kind === 'shared'}
         {#if view.section === 'prompts'}<PromptsPage />
         {:else if view.section === 'prompt-edit'}<PromptEditorPage
