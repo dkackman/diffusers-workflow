@@ -154,8 +154,29 @@ def warn_without_headroom(waveform, file_name, emit=True):
 # warned, because the number the check read was -1.0 (#158, #159, #161)
 CLIPPED_WARN_DBFS = 0.0
 
+# Distinguishes "no info supplied, probe it yourself" from "already probed,
+# and it came back empty/unmeasurable" - a caller that decoded the file once
+# (save_artifact, sharing one pass between this and warn_if_written_near_silent)
+# passes the dict (or None on failure) through instead of paying for a second
+# full decode of the same file (#262 - two independent probes, each a full
+# audio+video decode, doubled the 'saving' phase's wall clock)
+_UNPROBED = object()
 
-def warn_if_written_above_full_scale(output_path, already_warned=False):
+
+def _probe_written_media(output_path):
+    """Decode the just-written file once. `None` on any failure to probe."""
+    try:
+        from .media_info import probe_media
+
+        return probe_media(output_path) or {}
+    except Exception:
+        logger.debug(
+            f"Could not measure the written level of {output_path}", exc_info=True
+        )
+        return None
+
+
+def warn_if_written_above_full_scale(output_path, already_warned=False, info=_UNPROBED):
     """Say when the file just written decodes above full scale.
 
     The overshoot a lossy encode adds is material-dependent - about 0.1 dB
@@ -173,20 +194,17 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
     check that would have said so. The caller decides which case applies
     (`content_type`), not this function.
 
-    Best effort. A file that will not probe is not a level problem, and a
+    `info` lets a caller that already decoded the file (`_probe_written_media`)
+    hand the result in rather than have this probe it again. Best effort
+    either way: a file that will not probe is not a level problem, and a
     deliverable that is already written is not worth failing a finished run
     over.
     """
     if already_warned:
         return None
-    try:
-        from .media_info import probe_media
-
-        info = probe_media(output_path) or {}
-    except Exception:
-        logger.debug(
-            f"Could not measure the written level of {output_path}", exc_info=True
-        )
+    if info is _UNPROBED:
+        info = _probe_written_media(output_path)
+    if info is None:
         return None
     peak = info.get("peak_dbfs")
     if peak is None or peak < CLIPPED_WARN_DBFS:
@@ -213,7 +231,7 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
 NEAR_SILENT_WARN_DBFS = -40.0
 
 
-def warn_if_written_near_silent(output_path, already_warned=False):
+def warn_if_written_near_silent(output_path, already_warned=False, info=_UNPROBED):
     """Say when the file just written decodes as near-silent.
 
     The other end of the range `warn_if_written_above_full_scale` guards:
@@ -222,20 +240,16 @@ def warn_if_written_near_silent(output_path, already_warned=False):
     warning for it at save time, so a job could succeed and hand back a
     clip nobody could hear with `warnings: []` (#261).
 
-    Best effort, like its sibling: a file that will not probe is not a
+    `info` is the same shared-probe handoff `warn_if_written_above_full_scale`
+    takes. Best effort either way: a file that will not probe is not a
     level problem, and a deliverable that is already written is not worth
     failing a finished run over.
     """
     if already_warned:
         return None
-    try:
-        from .media_info import probe_media
-
-        info = probe_media(output_path) or {}
-    except Exception:
-        logger.debug(
-            f"Could not measure the written level of {output_path}", exc_info=True
-        )
+    if info is _UNPROBED:
+        info = _probe_written_media(output_path)
+    if info is None:
         return None
     mean = info.get("mean_dbfs")
     if mean is None or mean >= NEAR_SILENT_WARN_DBFS:
@@ -844,6 +858,11 @@ class Result:
         # save - a video mux's overshoot is not reliably positive (#174),
         # so a video always gets the ground-truth post-encode check
         if content_type.startswith("audio") or content_type.startswith("video"):
+            # One decode pass shared between the two checks below (#262) -
+            # each used to probe the file independently, which for a video
+            # is a full audio+video decode and doubled the 'saving' phase's
+            # wall clock for no second answer
+            probed_info = _probe_written_media(output_path)
             written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
@@ -851,6 +870,7 @@ class Result:
                     if content_type.startswith("audio")
                     else False
                 ),
+                info=probed_info,
             )
             # A video's pre-encode prediction was held rather than emitted
             # (#174 amendment): the post-encode probe is the ground truth,
@@ -884,7 +904,7 @@ class Result:
                     file=os.path.basename(output_path),
                     peak_dbfs=round(self._predicted_peak_dbfs, 2),
                 )
-            warn_if_written_near_silent(output_path)
+            warn_if_written_near_silent(output_path, info=probed_info)
 
         emit_log(
             f"wrote {os.path.basename(output_path)} in "
