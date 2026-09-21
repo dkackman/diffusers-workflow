@@ -6,6 +6,7 @@
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { latestProofs } from '../proofs'
+  import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -36,6 +37,8 @@
     /** False for a read-only source - an examples directory. */
     writable?: boolean
   }
+
+  let { examples = false }: { examples?: boolean } = $props()
 
   let workflows = $state<string[]>([])
   let details = $state<Record<string, Detail>>({})
@@ -104,6 +107,7 @@
   const visible = $derived(
     workflows.filter((name) => {
       const detail = details[name]
+      if (examples && detail?.writable !== false) return false
       if (shape && detail?.shape !== shape) return false
       const has = detail?.traits ?? []
       if (!traits.every((trait) => has.includes(trait))) return false
@@ -165,17 +169,23 @@
   }
 
   const href = (name: string) =>
-    '#/workflows/' + name.split('/').map(encodeURIComponent).join('/')
+    examples
+      ? sharedHref('examples', ...name.split('/'))
+      : wsHref(workspace.current, 'workflows', ...name.split('/'))
 </script>
 
 <div class="head">
-  <h1>Workflows</h1>
+  <h1>{examples ? 'Examples' : 'Workflows'}</h1>
   <span class="count num muted">{workflows.length}</span>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a class="newlink plain" href="#/edit" title="new workflow"
-    ><Plus size={15} /></a
-  >
+  {#if !examples}
+    <a
+      class="newlink plain"
+      href={wsHref(workspace.current, 'edit')}
+      title="new workflow"><Plus size={15} /></a
+    >
+  {/if}
 </div>
 
 {#if error}
@@ -229,7 +239,7 @@
   names={ordered}
   collapseKey="collapsed-folders"
   {filterActive}
-  newHref="#/edit"
+  newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
   minColumn="200px"
   onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
 >

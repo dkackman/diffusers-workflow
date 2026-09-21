@@ -9,7 +9,9 @@
   import { untrack } from 'svelte'
   import { ApiError, api, outputUrl, streamJobEvents } from '../api'
   import { confirmDialog } from '../confirm.svelte'
-  import { go } from '../router.svelte'
+  import { go, route } from '../router.svelte'
+  import { wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
   import {
     groupResultFiles,
     sectionBySubfolder,
@@ -84,6 +86,10 @@
       .then((detail) => {
         if (stopped) return
         job = detail
+        // A legacy '#/jobs/<id>' lands under the last-used workspace as a first
+        // guess; the job knows its own, so the URL is corrected once it answers
+        if (route.view.kind === 'ws' && route.view.workspace !== job.workspace)
+          location.replace(wsHref(job.workspace, 'jobs', jobId))
         if (detail.historical) return // no event log to stream
         stop = streamJobEvents(
           jobId,
@@ -124,7 +130,7 @@
 
   async function rerun(newSeed: boolean) {
     try {
-      go('jobs', (await api.rerunJob(jobId, newSeed)).id)
+      go('ws', job!.workspace, 'jobs', (await api.rerunJob(jobId, newSeed)).id)
     } catch (e) {
       // Without this the button silently does nothing - the failure mode
       // that made a cache-served rerun so hard to read in the first place
@@ -312,7 +318,9 @@
 </script>
 
 <div class="head">
-  <a href="#/jobs" class="muted">← jobs</a>
+  <a href={wsHref(job?.workspace ?? workspace.current, 'jobs')} class="muted"
+    >← jobs</a
+  >
   {#if job}
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>

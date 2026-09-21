@@ -292,9 +292,9 @@
         {:else if view.section === 'prompt-edit'}<PromptEditorPage
             name={view.rest.join('/')}
           />
-        {:else if view.section === 'assets'}<AssetsPage />
+        {:else if view.section === 'assets'}<AssetsPage shared />
         {:else if view.rest.length}<WorkflowPage name={view.rest.join('/')} />
-        {:else}<WorkflowsPage />{/if}
+        {:else}<WorkflowsPage examples />{/if}
       {:else if view.section === 'gallery'}<GalleryPage />
       {:else if view.section === 'assets'}<AssetsPage />
       {:else if view.section === 'edit'}<EditorPage

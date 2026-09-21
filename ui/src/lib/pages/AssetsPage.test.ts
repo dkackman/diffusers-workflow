@@ -534,3 +534,18 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   )
   await answerConfirm(false)
 })
+
+it('the shared view hides the workspace section and makes shared upload the filled button', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY, EXAMPLES_LIBRARY]
+  listing.assets = [
+    asset('iris.png'),
+    asset('shared/logo.png', 'common'),
+    asset('demo/x.png', 'examples'),
+  ]
+  render(AssetsPage, { shared: true })
+  const upload = await screen.findByRole('button', {
+    name: /upload to shared/i,
+  })
+  expect(screen.queryByText('This workspace')).toBeNull()
+  expect(upload.classList.contains('quiet')).toBe(false)
+})

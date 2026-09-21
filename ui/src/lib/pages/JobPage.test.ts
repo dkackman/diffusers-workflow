@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
+import '../router.svelte'
 import { api } from '../api'
 import type { JobDetail, JobEvent } from '../types'
 
@@ -389,4 +390,12 @@ it('labels a definition with no realized copy on file as submitted', async () =>
   ran.realized = false
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+})
+
+it("corrects the URL to the job's own workspace", async () => {
+  location.hash = '#/ws/default/jobs/j1'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  detail.job = { ...job([]), workspace: 'studio' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(location.hash).toBe('#/ws/studio/jobs/j1'))
 })

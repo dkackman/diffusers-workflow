@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock
 import WorkflowsPage from './WorkflowsPage.svelte'
+import '../router.svelte'
 
 type Detail = Record<string, unknown>
 
@@ -57,6 +58,8 @@ async function renderPage(first: string) {
 }
 
 beforeEach(() => {
+  location.hash = '#/ws/default/workflows'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
   listing.workflows = ['templates/tti', 'templates/shot', 'models/flux-dev']
   listing.details = {
     'templates/tti': {
@@ -170,4 +173,33 @@ it('shows the summary rather than the whole description', async () => {
   await renderPage('tti')
   expect(card('tti')?.textContent).toContain('A still.')
   expect(card('tti')?.textContent).not.toContain('Second sentence')
+})
+
+it('the examples view lists only read-only workflows and links under shared', async () => {
+  listing.details['models/flux-dev'] = {
+    ...listing.details['models/flux-dev'],
+    origin: 'examples',
+    writable: false,
+  }
+  listing.details['templates/tti'] = {
+    ...listing.details['templates/tti'],
+    origin: 'workspace',
+    writable: true,
+  }
+  render(WorkflowsPage, { examples: true })
+  await waitFor(() => expect(card('flux-dev')).toBeTruthy())
+  expect(card('tti')).toBeNull()
+  expect(card('flux-dev')!.getAttribute('href')).toBe(
+    '#/shared/examples/models/flux-dev',
+  )
+  expect(screen.queryByTitle('new workflow')).toBeNull()
+})
+
+it('the workspace view links a card under the current workspace', async () => {
+  location.hash = '#/ws/studio/workflows'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await renderPage('tti')
+  expect(card('tti')!.getAttribute('href')).toBe(
+    '#/ws/studio/workflows/templates/tti',
+  )
 })

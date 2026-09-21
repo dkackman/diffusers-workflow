@@ -29,6 +29,8 @@
 
   type Origin = AssetFile['origin']
 
+  let { shared = false }: { shared?: boolean } = $props()
+
   const COLLAPSE_KEY = 'collapsed-asset-libraries'
   // What each library is called in the page's own voice. `common` is the
   // shared library and `examples` a read-only tree an --examples-dir
@@ -124,6 +126,7 @@
           (s) => s.origin === library.origin && matches(s.name),
         ),
       }))
+      .filter((section) => !shared || section.origin !== 'workspace')
       .filter(
         (section) =>
           !filterActive ||
@@ -262,7 +265,7 @@
 />
 
 <div class="head">
-  <h1>Assets</h1>
+  <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
   <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
   <!-- One input for every section: which library the file lands in is
@@ -326,7 +329,8 @@
       >
     {:else if section.origin === 'common'}
       <button
-        class="quiet withicon"
+        class="withicon"
+        class:quiet={!shared}
         onclick={() => startUpload('shared')}
         disabled={busy}
         title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"

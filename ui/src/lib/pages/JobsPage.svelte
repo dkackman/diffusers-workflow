@@ -5,7 +5,10 @@
   import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
+  import { wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+
+  let { scope = 'workspace' }: { scope?: 'workspace' | 'all' } = $props()
 
   let jobs = $state<JobSummary[]>([])
   let error = $state('')
@@ -30,8 +33,9 @@
 
   $effect(() => {
     // Read synchronously so the effect reruns (and restarts the poll) when
-    // the filter changes, rather than the interval quietly polling stale
-    const filter = workspaceFilter
+    // the filter (or the scope's own workspace) changes, rather than the
+    // interval quietly polling stale
+    const filter = scope === 'all' ? workspaceFilter : workspace.current
     const poll = async () => {
       try {
         jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
@@ -59,7 +63,8 @@
       await api.moveJob(id, direction)
       // Same filter the poll uses - refreshing without it would flash every
       // workspace's jobs into a view the user had narrowed to one
-      jobs = (await api.listJobs(workspaceFilter || undefined)).jobs.reverse()
+      const filter = scope === 'all' ? workspaceFilter : workspace.current
+      jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
@@ -76,7 +81,7 @@
 </script>
 
 <div class="head">
-  <h1>Jobs</h1>
+  <h1>{scope === 'all' ? 'All jobs' : 'Jobs'}</h1>
   <select bind:value={statusFilter} title="filter by status">
     <option value="">all statuses</option>
     <option value="running">running</option>
@@ -85,7 +90,7 @@
     <option value="failed">failed</option>
     <option value="cancelled">cancelled</option>
   </select>
-  {#if (workspace.names?.length ?? 0) > 1}
+  {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
     <select bind:value={workspaceFilter} title="filter by workspace">
       <option value="">all workspaces</option>
       {#each workspace.names ?? [] as name (name)}
@@ -116,7 +121,7 @@
         class="row plain"
         class:historical={job.historical}
         class:runningnow={job.status === 'running'}
-        href={'#/jobs/' + job.id}
+        href={wsHref(job.workspace, 'jobs', job.id)}
         title={job.historical
           ? 'finished before this server started - loaded from history'
           : ''}
@@ -124,7 +129,7 @@
         <span class="chip {job.status}">{job.status}</span>
         <span class="name">
           {job.workflow}
-          {#if (workspace.names?.length ?? 0) > 1}
+          {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}
           {#if job.acknowledged === 'bound'}
