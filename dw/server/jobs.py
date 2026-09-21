@@ -1160,18 +1160,24 @@ class JobManager:
         and a manifest that omits them is the difference between "this run
         produced nothing" and "this run produced four of five shots"
         (T015)."""
-        job.manifest = [
+        job.manifest = self._relative_manifest(
+            message.get("manifest", []), job.spec.get("output_dir")
+        )
+
+    def _relative_manifest(self, manifest, output_dir=None):
+        """A manifest list with every entry's 'files' relativised - the
+        rendering `get_job` and `step_end`/`workflow_end` events must all
+        agree on (#284)."""
+        return [
             (
                 {
                     **entry,
-                    "files": self._relative_output_names(
-                        entry["files"], job.spec.get("output_dir")
-                    ),
+                    "files": self._relative_output_names(entry["files"], output_dir),
                 }
                 if "files" in entry
                 else entry
             )
-            for entry in message.get("manifest", [])
+            for entry in manifest
         ]
 
     def _relative_output_names(self, paths, output_dir=None):
@@ -1224,6 +1230,13 @@ class JobManager:
                 if "files" in event:
                     event["files"] = self._relative_output_names(
                         event["files"], job.spec.get("output_dir")
+                    )
+                if "manifest" in event:
+                    # workflow_end carries the run's full manifest nested
+                    # under this key - it must match get_job's rendering of
+                    # the same list rather than leaking absolute paths (#284)
+                    event["manifest"] = self._relative_manifest(
+                        event["manifest"], job.spec.get("output_dir")
                     )
                 if event.get("event") == "run_start":
                     job.run_id = event.get("run_id")
