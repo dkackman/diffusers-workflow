@@ -1627,8 +1627,8 @@ class TestNoHeadroom:
         check already fired assumed the encoder only ever adds overshoot -
         true for the mp3s #159/#161 measured, backwards for an H3 video mux,
         whose AAC mux can land under full scale after starting over it. A
-        video always gets the ground-truth post-encode read, regardless of
-        what the pre-encode waveform check already said."""
+        video always gets the ground-truth post-encode read, and once that
+        read is in, it - not the pre-encode guess - is what the caller sees."""
         with patch(
             "dw.media_info.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},
@@ -1636,7 +1636,40 @@ class TestNoHeadroom:
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
         kinds = {w["kind"] for w in warnings}
-        assert kinds == {"audio_no_headroom", "audio_clipped"}
+        assert kinds == {"audio_clipped"}
+
+    def test_a_clean_video_mux_drops_the_stale_prediction(self):
+        """#174 amendment: the pre-encode prediction fires on H3's own
+        soundtrack every run, and the post-encode probe already proved the
+        written file is fine - the caller should see nothing, not a stale
+        warning about a file that turned out clean."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": -1.12, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert warnings == []
+
+    def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
+        """The post-encode probe found a real clip - report that, not the
+        pre-encode guess, so the caller gets one answer with a real number."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": 0.94, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert [w["kind"] for w in warnings] == ["audio_clipped"]
+        assert warnings[0]["peak_dbfs"] == pytest.approx(0.94, abs=0.01)
+
+    def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
+        """No ground truth available (a broken/short file) - the pre-encode
+        guess is the only signal there is, so it still reaches the caller."""
+        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
 
 
 class TestTheWrittenLevel:

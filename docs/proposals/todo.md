@@ -12,19 +12,25 @@ complexity/risk, highest ROI first.
    fires wrongly on stock template defaults and breaks a regression assertion
    (M-F008). Fix is scoped to holding one warning until a probe that already
    runs reports back. Small, contained, fixes something broken today.
+   (shipped on branch tier1-proposals, 2026-09-20 — item 5 in that doc,
+   updating the M-F008 regression case wording against the external suite,
+   is still owed)
 2. **maintenance-screen.md — Phase 0 only (WAL mode)** — literally a one-line
    `PRAGMA journal_mode=WAL` on the jobs DB connection. Real concurrency
    benefit, near-zero risk. Split this from the rest of the proposal — the
    full UI page is a separate, much bigger ask (see Tier 3).
+   (shipped on branch tier1-proposals, 2026-09-20)
 3. **score-and-select-partial.md** — all the engine work (the hard part) is
    already shipped. What's left is authoring one catalog template and
    pinning it in tests. Low effort, unlocks the "generate 4, keep the
    sharpest" pattern end-to-end.
+   (shipped on branch tier1-proposals, 2026-09-20 — `templates/best-of-n-to-video`)
 4. **script-to-video-agent-skill.md** — pure composition of mechanisms that
    already exist (family templates, prompt-writing skills, cost gate,
    cast-consistency). Zero engine changes, just a skill file. Potentially
    high leverage (prose script → finished video) for the lowest cost on this
    list.
+   (shipped on branch tier1-proposals, 2026-09-20 — `plugins/dw/skills/script-to-video/`)
 
 (**step-callback-lead-in-instrumentation.md**, originally item 2 here, turned
 out to already be implemented — `dw/events.py`'s generic phase-stall watchdog,
