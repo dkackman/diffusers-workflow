@@ -446,7 +446,7 @@ class Result:
     for multiple content types including images, video, audio, and JSON.
     """
 
-    def __init__(self, result_definition):
+    def __init__(self, result_definition, consumed_by_normalizer=False):
         """Initialize Result with configuration for how to handle/save results.
 
         Args:
@@ -454,8 +454,13 @@ class Result:
                 - content_type: MIME type of the result
                 - save: Boolean indicating if result should be saved
                 - file_base_name: Base name for saved files
+            consumed_by_normalizer: Whether a later step resets this result's
+                level (normalize_audio/match_levels) before anything ships
+                it - when true, this save's own headroom is not a deliverable
+                concern (#286)
         """
         self.result_definition = result_definition
+        self._consumed_by_normalizer = consumed_by_normalizer
         self.result_list = []
         self.metadata = None
         self.saved_files = []
@@ -812,7 +817,11 @@ class Result:
                         )
                     return saved_files
                 self._no_headroom_warned = (
-                    warn_without_headroom(waveforms[0], os.path.basename(output_path))
+                    False
+                    if self._consumed_by_normalizer
+                    else warn_without_headroom(
+                        waveforms[0], os.path.basename(output_path)
+                    )
                     is not None
                 )
                 write_audio(
@@ -866,7 +875,7 @@ class Result:
             written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
-                    self._no_headroom_warned
+                    (self._no_headroom_warned or self._consumed_by_normalizer)
                     if content_type.startswith("audio")
                     else False
                 ),

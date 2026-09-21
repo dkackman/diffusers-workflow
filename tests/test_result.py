@@ -1805,6 +1805,76 @@ class TestTheWrittenLevel:
         measured.assert_not_called()
 
 
+class TestConsumedByNormalizer:
+    """#286: write_song's raw Music 3 mp3 always lands at/over full scale by
+    design and is always normalized (peak_dbfs -3.0) before the only
+    deliverable mux - a headroom warning on that intermediate save was
+    firing every run of `music-video` regardless. `consumed_by_normalizer`
+    is Workflow.run's answer to "does a later normalize_audio/match_levels
+    step read this result", threaded into Result so both the pre-write and
+    post-write headroom checks stay quiet for that save specifically."""
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def save_audio(self, waveform, consumed_by_normalizer, temp_dir):
+        from dw.result import Result
+
+        result = Result(
+            {"content_type": "audio/wav", "sample_rate": 44100},
+            consumed_by_normalizer=consumed_by_normalizer,
+        )
+        result.add_result(waveform)
+        result.save(temp_dir, "song")
+
+    def test_a_full_scale_track_is_quiet_when_a_normalizer_consumes_it(
+        self, tmp_path
+    ):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        warnings = self.warnings_from(
+            lambda: self.save_audio(waveform, True, str(tmp_path))
+        )
+
+        assert [w["kind"] for w in warnings] == []
+
+    def test_a_full_scale_track_still_warns_when_nothing_normalizes_it(
+        self, tmp_path
+    ):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        warnings = self.warnings_from(
+            lambda: self.save_audio(waveform, False, str(tmp_path))
+        )
+
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
+
+    def test_the_post_write_probe_is_also_quiet_when_normalized_downstream(
+        self, tmp_path
+    ):
+        """The written-level check (#161) is a second, independent path to
+        the same warning kind - a clean fix has to silence both."""
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": 0.5}):
+            warnings = self.warnings_from(
+                lambda: self.save_audio(waveform, True, str(tmp_path))
+            )
+
+        assert [w["kind"] for w in warnings] == []
+
+
 class TestNearSilentWrite:
     """A succeeded job could hand back a deliverable so quiet nothing could
     hear it, with `warnings: []` - `get_gallery_metadata`'s hint text already

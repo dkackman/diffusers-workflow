@@ -51,6 +51,7 @@ from .step_cache import (
     step_cache,
     referenced_result_names,
     reference_resolves_to,
+    normalized_downstream,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -1201,7 +1202,14 @@ class Workflow:
                 # Seeds resolve most-specific-first: pipeline > step > workflow
                 step_seed = step_data.get("seed", default_seed)
 
-                step = Step(step_data, step_seed, self.workflow_definition)
+                step = Step(
+                    step_data,
+                    step_seed,
+                    self.workflow_definition,
+                    consumed_by_normalizer=normalized_downstream(
+                        steps[i + 1 :], step_data["name"]
+                    ),
+                )
 
                 cached_result, step_data_snapshot, result_needed, remaining_refs = (
                     self._cache_lookup(

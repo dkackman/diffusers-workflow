@@ -1,7 +1,12 @@
 import pytest
 
 from dw.for_each import MAX_FOR_EACH_ENTRIES
-from dw.step_cache import StepCache, deep_equal, reference_resolves_to
+from dw.step_cache import (
+    StepCache,
+    deep_equal,
+    reference_resolves_to,
+    normalized_downstream,
+)
 
 
 class FakeResult:
@@ -418,3 +423,47 @@ def test_reference_resolves_to_matches_a_name_or_a_property_of_it():
     assert reference_resolves_to("gen.mask", "gen")
     assert not reference_resolves_to("generate", "gen")
     assert not reference_resolves_to("gen", "gen.mask")
+
+
+def test_normalized_downstream_true_when_a_later_step_normalizes_it():
+    steps = [
+        {"name": "write_song", "pipeline": {"arguments": {}}},
+        {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {"audio": "previous_result:write_song", "peak_dbfs": -3.0},
+            },
+        },
+    ]
+    assert normalized_downstream(steps, "write_song")
+
+
+def test_normalized_downstream_false_when_only_a_non_normalizing_step_reads_it():
+    """slice_audio reading the raw track for conditioning does not change
+    what write_song's own written file sounds like (#286)."""
+    steps = [
+        {"name": "write_song", "pipeline": {"arguments": {}}},
+        {
+            "name": "slice",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {"audio": "previous_result:write_song"},
+            },
+        },
+    ]
+    assert not normalized_downstream(steps, "write_song")
+
+
+def test_normalized_downstream_false_when_nothing_references_it():
+    steps = [
+        {"name": "write_song", "pipeline": {"arguments": {}}},
+        {
+            "name": "balanced",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {"audio": "previous_result:other_step", "peak_dbfs": -3.0},
+            },
+        },
+    ]
+    assert not normalized_downstream(steps, "write_song")
