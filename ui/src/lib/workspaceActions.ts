@@ -1,10 +1,13 @@
 import { api } from './api'
 import { confirmDialog } from './confirm.svelte'
+import { wsHref } from './routes'
 import { notify } from './toast'
 import {
   DEFAULT_WORKSPACE,
   invalidateWorkspaces,
   loadWorkspaces,
+  rememberWorkspace,
+  workspace,
 } from './workspace.svelte'
 
 /** The names a workspace cannot take: the folders the root itself holds
@@ -44,7 +47,7 @@ export async function createWorkspaceAndGo(
   invalidateWorkspaces()
   await loadWorkspaces()
   notify.success(`Created workspace ${name}`)
-  location.hash = `#/ws/${encodeURIComponent(name)}/overview`
+  location.hash = wsHref(name, 'overview')
   return null
 }
 
@@ -74,9 +77,15 @@ export async function deleteWorkspaceWithConfirm(
     notify.error(e instanceof Error ? e.message : String(e))
     return false
   }
+  // Leave the deleted workspace before the listing reloads: while `current`
+  // still names it, the reload would read the route as naming a workspace
+  // that does not exist and answer the success with an error toast and a
+  // redirect of its own
+  workspace.current = DEFAULT_WORKSPACE
+  rememberWorkspace(DEFAULT_WORKSPACE)
   invalidateWorkspaces()
   await loadWorkspaces()
   notify.success(`Deleted workspace ${name}`)
-  location.hash = `#/ws/${DEFAULT_WORKSPACE}/overview`
+  location.hash = wsHref(DEFAULT_WORKSPACE, 'overview')
   return true
 }

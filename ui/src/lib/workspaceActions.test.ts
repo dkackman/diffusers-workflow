@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const createWorkspace = vi.hoisted(() => vi.fn())
 const deleteWorkspace = vi.hoisted(() => vi.fn())
 const confirm = vi.hoisted(() => vi.fn())
+const errorToast = vi.hoisted(() => vi.fn())
 vi.mock('./api', () => ({
   api: {
     createWorkspace: (n: string) => createWorkspace(n),
@@ -19,12 +20,15 @@ vi.mock('./api', () => ({
 vi.mock('./confirm.svelte', () => ({
   confirmDialog: (...a: unknown[]) => confirm(...a),
 }))
-vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('./toast', () => ({
+  notify: { error: errorToast, success: vi.fn() },
+}))
 
 beforeEach(() => {
   createWorkspace.mockReset()
   deleteWorkspace.mockReset()
   confirm.mockReset()
+  errorToast.mockReset()
   localStorage.clear()
   location.hash = '#/ws/default/overview'
 })
@@ -60,6 +64,9 @@ it('asks with the server detail, then deletes acknowledged and goes to default',
     .mockResolvedValueOnce({ name: 'studio', deleted: true })
   confirm.mockResolvedValue(true)
   location.hash = '#/ws/studio/overview'
+  // The router is what applies the hash to `workspace.current`, which is
+  // the state the delete runs from in the app
+  await import('./router.svelte')
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(true)
   expect(confirm).toHaveBeenCalledWith(
@@ -68,6 +75,9 @@ it('asks with the server detail, then deletes acknowledged and goes to default',
   )
   expect(deleteWorkspace).toHaveBeenLastCalledWith('studio', true)
   expect(location.hash).toBe('#/ws/default/overview')
+  // The listing is reloaded after the delete, while the route still named
+  // the deleted workspace: that must not read as an unknown-workspace error
+  expect(errorToast).not.toHaveBeenCalled()
 })
 
 it('a declined confirm deletes nothing', async () => {
