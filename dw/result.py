@@ -405,6 +405,11 @@ class Result:
         # warning from the waveform it was handed, so the written-level
         # check does not say the same thing twice (#161)
         self._no_headroom_warned = False
+        # The predicted peak (dBFS) from the pre-encode headroom check, paired
+        # with _no_headroom_warned above; only ever set inside save_artifact,
+        # initialized here so a caller reading it before that runs gets None
+        # rather than an AttributeError.
+        self._predicted_peak_dbfs = None
         # get_artifact_list(result) memoized by id(result) - see
         # _artifacts_for. Keeps result_list itself untouched, so
         # Result.retainable's attribute walk over result_list is unaffected.
@@ -807,6 +812,14 @@ class Result:
             # when the probe could not measure the file at all, in which
             # case it is the one signal available and is surfaced late
             # rather than dropped silently
+            #
+            # Note the gap this leaves: a written peak between
+            # HEADROOM_WARN_DBFS (around -0.5) and CLIPPED_WARN_DBFS (0.0)
+            # produces no warning here - the post-encode probe only speaks
+            # when the file is genuinely at or over full scale, so a mux
+            # that predicted risk but measured merely close-but-clean says
+            # nothing. That is the file's own ground truth, not a threshold
+            # bug.
             if (
                 content_type.startswith("video")
                 and self._no_headroom_warned

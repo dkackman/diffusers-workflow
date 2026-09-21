@@ -9,7 +9,7 @@
         "rubric": "How sharp and well-composed is this photograph? Penalize blur, extra or malformed limbs, and flat or blown-out lighting.",
         "scale": [0, 10],
         "num_inference_steps": 25,
-        "video_prompt": "prompt:best-of-n-to-video/video-motion"
+        "video_prompt": "prompt:ltx2/best-of-n-video-motion"
     },
     "steps": [
         {
@@ -74,6 +74,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
+                "fps": 24,
                 "subfolder": "final"
             }
         }

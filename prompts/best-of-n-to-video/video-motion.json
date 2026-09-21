@@ -1,9 +1,0 @@
-{
-    "text": "A red fox sits in a snowy forest clearing at dawn. Its ears twitch, breath visible in the cold air, as soft snowfall drifts past in the low golden light. The camera holds a slow, steady push in.",
-    "description": "Motion caption for the best-of-n-to-video template's video step - the LTX-2.5 trained caption form for the winning still",
-    "intended_model": "ltx-2.5",
-    "tags": [
-        "i2v",
-        "best-of-n"
-    ]
-}

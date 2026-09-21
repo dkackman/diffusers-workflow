@@ -49,10 +49,14 @@ scored montage goes through `dw:minimax-h3`'s `templates/minimax/dialogue-short`
 or `templates/minimax/music-video`, prompted with `h3-prompt-writing`'s
 structure (`subject_definitions`, `retention_analysis`,
 `detailed_description`, `overall_soundscape`, `non_diegetic_music`) rather
-than the raw script line. Read the chosen family's own skill before writing
+than the raw script line, checking `list_prompts` first for a working
+example from the library that already uses these structures rather than
+drafting one from nothing. A shot that calls for generating several
+candidates and keeping the sharpest one deterministically, with no agent
+judgment call at run time, goes through `templates/best-of-n-to-video`
+instead of a single draw. Read the chosen family's own skill before writing
 a single prompt - the hard rules (frame count, canvas, reference limits)
-live there, not here. `list_prompts` can show working examples from the
-library that use these structures.
+live there, not here.
 
 ## 5. Validate and quote cost before queuing
 
@@ -83,12 +87,24 @@ already owns this step - do not re-derive it here.
 ## Not in scope
 
 - **Automatic model speed optimization.** If a model is slow, that is a
-  human-in-the-loop task informed by `observed_cost`, not something this
-  skill attempts unsupervised - the search space is large and a wrong
-  choice can silently change output quality.
+  human-in-the-loop task informed by `observed_minutes`/`observed_runs` in a
+  workflow listing (or `plan.estimate` with `basis: "observed"`), not
+  something this skill attempts unsupervised - the search space is large and
+  a wrong choice can silently change output quality.
 - **Workflow authoring from scratch.** This skill picks among existing
   catalog templates; a script whose shape no template covers is a
   "propose a new template" conversation, not something to improvise at
   run time.
 - **Full unattended autonomy.** Step 5's cost acknowledgment is a real gate
   every time, not a one-time setup step.
+
+## Sources
+
+This skill adds no new mechanism of its own - it is the decision tree over
+what already exists: `dw:minimax-h3` and `dw:ltx-2.5` (the family template
+pickers), `h3-prompt-writing` and the family prompt-writing conventions
+(the structured-prompt skills), `dw:series-episodes` (cast consistency and
+the recut/bed/match_levels/normalize/pair pass), `plan.estimate` and
+`acknowledged_cost` (the cost gate), and the warning kinds `dw/result.py`
+and `dw/elision.py` already emit (`audio_no_headroom`, `audio_clipped`, an
+elision diagnostic).

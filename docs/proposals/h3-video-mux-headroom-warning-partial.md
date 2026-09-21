@@ -36,7 +36,9 @@ suppression logic in `dw/result.py` is generic.
 5. Update the M-F008 regression case wording once this ships (it should then
    pass `warnings: []` on `video-with-audio-768p` stock defaults for real,
    not just as originally predicted by fix (1) alone).
-   - Implemented 2026-09-20, committed as bbe4adb
+   - Fixes (1)-(4) implemented 2026-09-20 (commit bbe4adb); item 5 (updating
+     the M-F008 regression case wording) is still owed against the external
+     suite.
 
 ## Fix (2) — remains explicitly deferred, no decision needed yet
 

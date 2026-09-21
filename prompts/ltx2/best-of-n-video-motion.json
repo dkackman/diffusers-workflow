@@ -1,0 +1,9 @@
+{
+  "text": "A red fox is sitting upright in a snowy forest clearing at dawn, a medium shot from eye level as the camera holds a slow, steady push in toward its face. Its coat is rust-orange across the back and pale at the throat and chest, its black-stockinged legs are tucked beneath it in the deep snow, and its ears are swivelling forward, tracking some sound beyond the frame. Initially the light is flat and grey-blue between the trunks, thin snow is sifting down in loose flakes, and the clearing is quiet except for a faint wind moving through the high branches. A moment later the sun is breaking over the ridgeline behind the trees, long amber bars are spreading low across the snow, and the fox's shadow is stretching out to the left of frame as its fur catches the warm rim light along one side. Simultaneously its breath is clouding in short bursts in the cold air, a distant crow is calling twice from somewhere in the canopy, and the fox is blinking slowly and lowering its head half an inch, settling deeper into the stillness as the camera's push comes to rest on a close-up of its eyes and frost-tipped whiskers.",
+  "description": "Motion caption for the best-of-n-to-video template's video step - the LTX-2.5 trained caption form for the winning still",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "i2v",
+    "best-of-n"
+  ]
+}
