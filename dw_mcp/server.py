@@ -452,6 +452,12 @@ def build_server(client):
         Leave it off unless you are asking a question about a position in
         the track - a long track is a long list.
 
+        `media.peak_dbfs` is the same measurement the job's `audio_no_headroom`
+        (-0.5 dBFS, pre-encode) and `audio_clipped` (0.0 dBFS, post-encode)
+        warnings check against - see "Headroom and clipping warnings" in the
+        tasks guide. A video mux only ever emits the second one, so a peak
+        between the two thresholds is genuinely clean, not an unwarned defect.
+
         `name` may be an "asset:" reference instead of a gallery name, and
         then it describes that input asset. This is how you learn what an
         asset you are about to pass to a workflow actually holds - how many

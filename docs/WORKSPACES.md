@@ -198,7 +198,13 @@ sub-workflow is part of its parent's run: it writes into the same directory and
 rolls up into the same manifest.
 
 An unchanged rerun still reuses the step cache: it writes no new files and its
-manifest reports the earlier run's, marked `"reused": true`.
+manifest reports the earlier run's, marked `"reused": true`. The cache is
+validated against the output *root* a run writes into, which is the pinned
+workspace's own `outputs/` - so it is per workspace, not per workflow alone.
+A run in one workspace does not make `validate_workflow`'s
+`plan.cached_steps` come back nonzero for a matching run sitting in another
+workspace, and deleting a workspace drops its cache entries along with its
+`outputs/` directory.
 
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no

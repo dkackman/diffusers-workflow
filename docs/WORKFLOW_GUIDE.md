@@ -1499,6 +1499,16 @@ the parent's seed unless the child names its own. Without that a child draws its
 random seed, and a workflow whose real generation happens inside a sub-workflow would
 not reproduce from the seed it was given.
 
+The step cache that lets a reproduced step skip re-running (see *Runs* in
+[Workspaces](WORKSPACES.md#runs)) is scoped to the output directory a run
+writes into, which on `dw.serve` is the pinned workspace's own `outputs/`.
+Two workspaces holding what looks like the same prior run - same workflow,
+same seed, same arguments - do not share a cache entry, so
+`validate_workflow`'s `plan.cached_steps` answers for the workspace the call
+is pinned to, not for every workspace that happens to hold a matching run.
+Deleting a workspace takes its cache entries with it, the same as deleting
+its `outputs/` directory would.
+
 ## Type System
 
 Dynamic type conversion applies to certain values:
