@@ -389,7 +389,11 @@ def test_no_stale_entry_in_the_allowlist():
 # reads to find a shape, and before these the LTX-2.5 family had no
 # reference or identity route at all and no restoration route that was not
 # a re-render.
-COMPACT_BUDGET = 8_100
+# Then to 8_250 for best-of-n-to-video, measured at 8_227: the select/judge
+# reducer's first template, whose for_each `lists` entry and six variables
+# (candidates, num_inference_steps, prompt, rubric, scale, video_prompt)
+# cost about 128 tokens on their own.
+COMPACT_BUDGET = 8_250
 FILTERED_BUDGET = 1_500
 
 

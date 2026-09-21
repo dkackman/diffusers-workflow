@@ -1,6 +1,5 @@
 {
     "id": "best-of-n-to-video",
-    "shape": "shot",
     "summary": "Generate several stills from one prompt, keep the sharpest by a VLM judge, and render video on that one alone.",
     "description": "The README's headline shape, made deterministic: fan out N Stable Diffusion 1.5 stills from one prompt ('still', a for_each group so each candidate is named and individually cached), score each against a rubric with a vision-language model ('judge', paired to 'still' by for_each position), keep the highest score with no agent in the loop ('pick', the 'select' task's argmax rule), and run the LTX-2.5 image-to-video template on the winner alone ('video', a sub-workflow step). No seed is set: the point is N independently-drawn candidates from one prompt, so step-cache reuse is correctly disabled here rather than pinned to a fixed draw. See docs/proposals/score-and-select-complete.md for the engine design this exercises.",
     "cost_drivers": ["candidates", "num_inference_steps"],
@@ -9,6 +8,7 @@
         "candidates": ["a", "b", "c", "d"],
         "rubric": "How sharp and well-composed is this photograph? Penalize blur, extra or malformed limbs, and flat or blown-out lighting.",
         "scale": [0, 10],
+        "num_inference_steps": 25,
         "video_prompt": "prompt:best-of-n-to-video/video-motion"
     },
     "steps": [
@@ -26,7 +26,7 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "num_inference_steps": 25
+                    "num_inference_steps": "variable:num_inference_steps"
                 }
             },
             "result": {
