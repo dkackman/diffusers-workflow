@@ -5,6 +5,7 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
+  import { latestProofs } from '../proofs'
   import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import {
@@ -73,19 +74,7 @@
     api
       .gallery()
       .then((result) => {
-        // Entries arrive newest first, so the first one seen for a folder
-        // is that workflow's latest. Images win over video because only
-        // images have a thumbnail endpoint; a video-only workflow falls
-        // back to its video, which renders its first frame.
-        const latest: Record<string, GalleryFile> = {}
-        for (const file of result.files) {
-          if (!file.folder) continue
-          const held = latest[file.folder]
-          if (!held) latest[file.folder] = file
-          else if (held.kind !== 'image' && file.kind === 'image')
-            latest[file.folder] = file
-        }
-        proofs = latest
+        proofs = latestProofs(result.files)
       })
       .catch(() => {
         /* the catalog reads fine without proofs */
