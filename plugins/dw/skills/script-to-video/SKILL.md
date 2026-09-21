@@ -73,7 +73,7 @@ surfaced. Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the
 manifest to determine what was written where.
 
-## 7. Cut, score, deliver
+## 6. Cut, score, deliver
 
 Once every shot exists, hand off to `templates/assemble-and-score` (or the
 `dw:series-episodes` five-beat procedure, if this script is one episode of
