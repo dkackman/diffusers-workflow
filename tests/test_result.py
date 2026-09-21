@@ -1651,6 +1651,20 @@ class TestNoHeadroom:
 
         assert warnings == []
 
+    def test_a_video_mux_is_decoded_only_once_for_both_level_checks(self):
+        """#262: `warn_if_written_above_full_scale` and
+        `warn_if_written_near_silent` used to each probe the file
+        independently - two full audio+video decodes of the same file for
+        one save, which is what made the 'saving' phase ~5x slower once
+        #261 added the second check. They now share one decode."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": -1.12, "mean_dbfs": -20.0, "kind": "video"},
+        ) as probe:
+            self.save_muxed(torch.ones((2, 100)))
+
+        assert probe.call_count == 1
+
     def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
         """The post-encode probe found a real clip - report that, not the
         pre-encode guess, so the caller gets one answer with a real number."""
