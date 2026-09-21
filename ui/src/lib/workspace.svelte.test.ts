@@ -111,3 +111,44 @@ it('a known workspace in the route is left alone', async () => {
   expect(location.hash).toBe('#/ws/studio/gallery')
   expect(errorToast).not.toHaveBeenCalled()
 })
+
+it('a shared route with a stale last-used name resets to default silently', async () => {
+  localStorage.setItem('dw-workspace', 'gone')
+  location.hash = '#/shared/prompts'
+  await import('./router.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  expect(workspace.current).toBe('gone')
+  await loadWorkspaces()
+  // The URL never named the workspace, so nothing to say and nowhere to go:
+  // the fallback is quietly replaced
+  expect(workspace.current).toBe('default')
+  expect(localStorage.getItem('dw-workspace')).toBeNull()
+  expect(location.hash).toBe('#/shared/prompts')
+  expect(errorToast).not.toHaveBeenCalled()
+})
+
+it('a missing workspace entered after the listing landed still redirects', async () => {
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(errorToast).not.toHaveBeenCalled()
+  location.hash = '#/ws/typo/gallery'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expect(location.hash).toBe('#/ws/default/overview')
+  expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
+})
+
+it('a failed listing does not read as every other workspace being gone', async () => {
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default'])
+  location.hash = '#/ws/studio/jobs'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expect(location.hash).toBe('#/ws/studio/jobs')
+  expect(workspace.current).toBe('studio')
+  expect(errorToast).not.toHaveBeenCalled()
+})

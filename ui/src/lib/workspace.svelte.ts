@@ -1,6 +1,6 @@
 import { api } from './api'
 import { notify } from './toast'
-import type { RouteView } from './routes'
+import { wsHref, type RouteView } from './routes'
 
 const STORAGE_KEY = 'dw-workspace'
 export const DEFAULT_WORKSPACE = 'default'
@@ -44,12 +44,43 @@ export function rememberWorkspace(name: string): void {
   }
 }
 
+// The view the router last applied, so a listing that lands later can tell
+// a workspace the URL named from one the localStorage fallback supplied.
+// Recorded here rather than read off the router, which imports this module.
+let lastView: RouteView | null = null
+// Whether `names` is the server's answer. A failed listing falls back to
+// the default alone so the sidebar has something to show, and that fallback
+// must not be read as proof that every other workspace is gone.
+let listed = false
+
 export function applyRouteWorkspace(view: RouteView | null): void {
+  lastView = view
   if (view?.kind === 'ws') {
     workspace.current = view.workspace
     rememberWorkspace(view.workspace)
   } else {
     workspace.current = lastUsedWorkspace()
+  }
+  checkWorkspaceExists(view)
+}
+
+/** A `current` the listing does not hold would scope every request to a
+ * 404. Run on every route change and again when the listing lands, so a
+ * name typed after the listing is caught as well as one it arrived to. On
+ * a `ws` route the URL named the workspace, so it is said out loud and the
+ * route replaced; off one (a shared or server page) `current` is only the
+ * remembered fallback, which the URL never mentioned - quietly reset, no
+ * toast, no navigation. Nothing until a listing has landed, and nothing on
+ * the fallback a failed listing leaves. */
+export function checkWorkspaceExists(view: RouteView | null): void {
+  if (!listed || !workspace.names) return
+  if (workspace.names.includes(workspace.current)) return
+  const missing = workspace.current
+  workspace.current = DEFAULT_WORKSPACE
+  rememberWorkspace(DEFAULT_WORKSPACE)
+  if (view?.kind === 'ws') {
+    notify.error(`No workspace named ${missing} - showing default`)
+    location.replace(wsHref(DEFAULT_WORKSPACE, 'overview'))
   }
 }
 
@@ -64,6 +95,7 @@ export function loadWorkspaces(): Promise<void> {
       try {
         const result = await api.listWorkspaces()
         workspace.names = result.workspaces.map((entry) => entry.name)
+        listed = true
         workspace.root = result.workspace_root
         workspace.usage = Object.fromEntries(
           result.workspaces
@@ -71,16 +103,11 @@ export function loadWorkspaces(): Promise<void> {
             .map((entry) => [entry.name, entry.usage!]),
         )
         // A route naming a workspace that has gone away (deleted elsewhere,
-        // or a stale bookmark) would scope every request to a 404. Said out
-        // loud rather than silently swapped, since the URL was explicit.
-        if (!workspace.names.includes(workspace.current)) {
-          const missing = workspace.current
-          rememberWorkspace(DEFAULT_WORKSPACE)
-          workspace.current = DEFAULT_WORKSPACE
-          notify.error(`No workspace named ${missing} - showing default`)
-          location.replace('#/ws/default/overview')
-        }
+        // or a stale bookmark) is caught here for the route the app opened
+        // on; `applyRouteWorkspace` catches every one after
+        checkWorkspaceExists(lastView)
       } catch {
+        listed = false
         workspace.names = [DEFAULT_WORKSPACE]
       }
     })()
