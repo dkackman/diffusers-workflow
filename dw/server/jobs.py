@@ -791,7 +791,9 @@ class JobManager:
         # Signature-level check of pipeline arguments - the typo that would
         # otherwise be a TypeError after the model loads becomes a warning
         # the client sees at submission
-        spec["warnings"] = workflow_argument_warnings(loaded.workflow_definition)
+        spec["warnings"] = workflow_argument_warnings(
+            loaded.workflow_definition, arguments
+        )
 
         job = Job(spec)
         with self._lock:

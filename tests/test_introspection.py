@@ -203,3 +203,46 @@ def test_a_crossfade_over_a_trim_is_not_warned_about():
         )
         == []
     )
+
+
+def _bleed_step(variables=None, **arguments):
+    return {
+        "variables": {"audio_bleed_ms": 1800, "seam_fade_ms": None, **(variables or {})},
+        "steps": [
+            {
+                "name": "episode",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {
+                        "videos": ["a.mp4", "b.mp4"],
+                        "trim_frames": 0,
+                        "audio_bleed_ms": "variable:audio_bleed_ms",
+                        "seam_fade_ms": "variable:seam_fade_ms",
+                        **arguments,
+                    },
+                },
+            }
+        ],
+    }
+
+
+def test_a_seam_fade_while_bleed_is_non_zero_is_warned_about():
+    """concat_videos takes the bleed path, not the fade path, at a hard cut
+    while audio_bleed_ms is non-zero, so a seam_fade_ms the caller passed
+    alongside the template's own default bleed does nothing (#288)."""
+    definition = _bleed_step()
+    warnings = workflow_argument_warnings(definition, {"seam_fade_ms": 80})
+    assert len(warnings) == 1
+    assert "seam_fade_ms" in warnings[0] and "audio_bleed_ms" in warnings[0]
+
+    # No caller arguments at all: seam_fade_ms resolves to its own null
+    # default and is not "set", so this is silent
+    assert workflow_argument_warnings(definition, None) == []
+
+    # Caller zeroes the bleed alongside the fade: seam_fade_ms is live
+    assert (
+        workflow_argument_warnings(
+            definition, {"seam_fade_ms": 80, "audio_bleed_ms": 0}
+        )
+        == []
+    )

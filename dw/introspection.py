@@ -635,6 +635,22 @@ def task_signature_errors(workflow_definition, source_indices=None):
     return errors
 
 
+def _resolved_value(arguments, key, values):
+    """`arguments[key]` as a number, resolving a `variable:name` reference
+    against `values` (declared defaults merged with the caller's own
+    arguments, the way `constraint_warnings` resolves a constrained
+    variable). `None` when the key is absent, not a `variable:` reference or
+    a literal, or the reference does not resolve to a number - callers tell
+    that apart from an actual 0 by checking `key in arguments` themselves
+    where it matters."""
+    if key not in arguments:
+        return None
+    value = arguments[key]
+    if isinstance(value, str) and value.startswith("variable:"):
+        value = values.get(value[len("variable:"):])
+    return value if isinstance(value, (int, float)) else None
+
+
 def _inert_crossfade_warnings(step, command, arguments):
     """concat_videos draws its crossfade from the trimmed-off material, so
     with nothing trimmed a `crossfade_ms` the author wrote does nothing. A
@@ -653,7 +669,41 @@ def _inert_crossfade_warnings(step, command, arguments):
     ]
 
 
-def workflow_argument_warnings(workflow_definition):
+def _inert_seam_fade_warnings(step, command, arguments, values):
+    """concat_videos takes the bleed path, not the fade path, at a hard cut
+    with nothing trimmed while audio_bleed_ms is non-zero - so a seam_fade_ms
+    the author wrote alongside it does nothing (#288). Both variables are
+    ordinary `variable:` references in the templates that pair them, so
+    `seam_fade_ms` and `audio_bleed_ms` are resolved against `values`
+    (declared defaults merged with the caller's own arguments) rather than
+    left alone the way an unresolved `trim_frames` is - it is exactly the
+    templated case, with `audio_bleed_ms` left at its non-zero default and
+    only `seam_fade_ms` passed as an argument, that this warning exists for.
+    `trim_frames` stays a literal-only check, as in `_inert_crossfade_warnings`."""
+    if command != "concat_videos":
+        return []
+    if "seam_fade_ms" not in arguments or "audio_bleed_ms" not in arguments:
+        return []
+    seam_fade = _resolved_value(arguments, "seam_fade_ms", values)
+    bleed = _resolved_value(arguments, "audio_bleed_ms", values)
+    trim = arguments.get("trim_frames", 0)
+    if (
+        seam_fade is None
+        or seam_fade <= 0
+        or bleed is None
+        or bleed <= 0
+        or trim != 0
+    ):
+        return []
+    return [
+        f"Step '{step.get('name')}': 'seam_fade_ms' has no effect while "
+        f"'audio_bleed_ms' is {bleed} - a hard cut takes the bleed path "
+        f"instead of the fade path. Pass 'audio_bleed_ms': 0 for "
+        f"'seam_fade_ms' to apply."
+    ]
+
+
+def workflow_argument_warnings(workflow_definition, arguments=None):
     """Best-effort pre-load check of a workflow's arguments.
 
     For each pipeline step whose component_type is a bare diffusers class
@@ -661,8 +711,15 @@ def workflow_argument_warnings(workflow_definition):
     typo that today surfaces as a TypeError after the model has loaded.
     Escaped ({...}) and dotted component types are left alone. Task steps
     get the same check against their registered implementation's signature.
+
+    `arguments`, when given, is a caller's own values for this run -
+    checks that need a task argument's actual value (an inert `crossfade_ms`
+    or `seam_fade_ms`) resolve a `variable:name` reference against the
+    caller's arguments merged over the workflow's declared defaults, the
+    same values `constraint_warnings` checks a constraint against.
     """
     warnings = []
+    values = {**(workflow_definition.get("variables") or {}), **(arguments or {})}
     declared = sorted(workflow_definition.get("variables") or {})
     for path, name in undeclared_variable_references(workflow_definition):
         hint = (
@@ -681,7 +738,12 @@ def workflow_argument_warnings(workflow_definition):
             # An unknown or missing task argument is an error rather than a
             # warning now (task_signature_errors, #141) - reported once, by
             # the pass whose verdict it changes
-            warnings.extend(_inert_crossfade_warnings(step, command, task["arguments"]))
+            warnings.extend(
+                _inert_crossfade_warnings(step, command, task["arguments"])
+            )
+            warnings.extend(
+                _inert_seam_fade_warnings(step, command, task["arguments"], values)
+            )
         pipeline = step.get("pipeline")
         if not pipeline:
             continue
