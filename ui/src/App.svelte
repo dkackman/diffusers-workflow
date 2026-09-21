@@ -27,6 +27,7 @@
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
@@ -295,6 +296,7 @@
         {:else if view.section === 'assets'}<AssetsPage shared />
         {:else if view.rest.length}<WorkflowPage name={view.rest.join('/')} />
         {:else}<WorkflowsPage examples />{/if}
+      {:else if view.section === 'overview'}<OverviewPage />
       {:else if view.section === 'gallery'}<GalleryPage />
       {:else if view.section === 'assets'}<AssetsPage />
       {:else if view.section === 'edit'}<EditorPage
