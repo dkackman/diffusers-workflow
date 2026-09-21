@@ -66,11 +66,21 @@ def _requested_count(list_entries):
     return max(counts) if counts else None
 
 
-def _row_count(row, list_entries):
+def _row_count(row, list_entries, variables):
     """The list length a historical row ran with, read from its own stored
     arguments rather than the current request's - a row that ran a shorter
     or longer list is still comparable, once divided out, for the resident
     projection's per-entry figure.
+
+    A row's stored `arguments` are only the caller's *overrides*
+    (`job.spec["arguments"]`), never merged with the workflow's declared
+    defaults - a run of the catalog default (the common case for this
+    module's own regression case) is recorded as `{}`. Falling back to
+    `variables[name]` the same way `observed_cost._bucket_key` does is what
+    lets such a row resolve to its actual list length rather than to no
+    length at all, which used to drop every default-arguments row out of the
+    per-entry figure and left the resident shape silent regardless of
+    history (#264).
 
     Only the variable names the *current* request's `list_entries` names are
     read back, on the assumption that a workflow's list-driving variables
@@ -80,18 +90,18 @@ def _row_count(row, list_entries):
     try:
         arguments = json.loads(row.get("arguments") or "{}")
     except (TypeError, ValueError):
-        return None
+        arguments = {}
     if not isinstance(arguments, dict):
-        return None
-    counts = [
-        len(arguments[name])
-        for name in list_entries
-        if isinstance(arguments.get(name), list)
-    ]
+        arguments = {}
+    counts = []
+    for name in list_entries:
+        value = arguments.get(name, variables.get(name))
+        if isinstance(value, list):
+            counts.append(len(value))
     return max(counts) if counts else None
 
 
-def _already_survived(rows, list_entries, requested, projected_mb):
+def _already_survived(rows, list_entries, requested, projected_mb, variables):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
 
@@ -107,7 +117,7 @@ def _already_survived(rows, list_entries, requested, projected_mb):
         peak = row.get("host_memory_peak_rss_mb")
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
-        count = _row_count(row, list_entries)
+        count = _row_count(row, list_entries, variables)
         if count is not None and count >= requested:
             return True
     return False
@@ -127,6 +137,7 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     requested = _requested_count(list_entries)
     if requested is None or not rows or not ceiling_mb:
         return []
+    variables = definition.get("variables") or {}
     peaks = [row["host_memory_peak_rss_mb"] for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]
     if not peaks:
@@ -140,7 +151,7 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         per_entry = []
         for row in rows:
             peak = row["host_memory_peak_rss_mb"]
-            count = _row_count(row, list_entries)
+            count = _row_count(row, list_entries, variables)
             if isinstance(peak, (int, float)) and count:
                 per_entry.append(peak / count)
         if not per_entry:
@@ -151,7 +162,7 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         shape = f"{requested} entries held resident together"
     if projected_mb <= ceiling_mb:
         return []
-    if _already_survived(rows, list_entries, requested, projected_mb):
+    if _already_survived(rows, list_entries, requested, projected_mb, variables):
         return []
     return [
         "Projected host memory for this run (~"
