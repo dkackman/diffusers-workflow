@@ -419,6 +419,8 @@ def estimate(
     unpriced = [definition.get("id", "workflow")] if partial else []
     had_child = False
     children_all_observed = True
+    child_runs = []
+    child_measured_on = set()
     for path in _sub_workflow_paths(expanded):
         had_child = True
         # A builtin is the parent's to price; a local child prices itself
@@ -442,6 +444,9 @@ def estimate(
         if child is None:
             children_all_observed = False
             child = _price(child_cost, device, {}, {})
+        else:
+            child_runs.append(child["runs"])
+            child_measured_on.add(child["measured_on"])
         if child["minutes"] is None:
             partial = True
             unpriced.append(path)
@@ -453,22 +458,34 @@ def estimate(
         partial = False
         unpriced = []
     top_basis = own["basis"]
+    top_measured_on = own["measured_on"]
+    top_runs = None
     if own["minutes"] is None and had_child and children_all_observed and not partial:
         # Every composing child's share of the total was this box's own
         # history rather than a static figure, and the parent contributed
         # nothing of its own to disagree with that - so the whole total is
         # as good as observed rather than "unknown" (#268), mirroring the
         # existing rule that a child's catalog cost is skipped once the
-        # *parent* has an observed figure, to avoid double-counting
+        # *parent* has an observed figure, to avoid double-counting.
+        # The children's own `runs`/`measured_on` come along with the
+        # inherited basis (#275) - an "observed" estimate with `runs: null`
+        # says it was measured but not how many times, which is the number
+        # a caller uses to decide how much to trust the figure. `runs` is
+        # the weakest history across children (the min), and `measured_on`
+        # is named only when every child agrees on the device.
         top_basis = OBSERVED
+        top_runs = min(child_runs) if child_runs else None
+        top_measured_on = (
+            next(iter(child_measured_on)) if len(child_measured_on) == 1 else None
+        )
     return {
         "minutes": round(minutes, 1) if minutes is not None else None,
         "basis": top_basis,
         "device": device,
-        "measured_on": own["measured_on"],
+        "measured_on": top_measured_on,
         "partial": partial,
         "unpriced": unpriced,
-        "runs": None,
+        "runs": top_runs,
         "cached_minutes": _cached_minutes(
             round(minutes, 1) if minutes is not None else None,
             cached_steps,
