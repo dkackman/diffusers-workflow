@@ -84,7 +84,9 @@ own library (so a workspace name shadows a shared one), is tagged `origin:
 common` by `GET /api/assets`, and is written to only when a call says so
 (`?shared=true` on uploads, `"shared": true` on keep, `shared=True` over MCP).
 Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
-`common`.
+`common`. The web UI is organised by workspace, with a sidebar listing every
+workspace on the server (`ui/src/lib/Sidebar.svelte`) and the selected one
+named in the hash (`#/ws/<name>/...`).
 
 The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte` (#165)
 reads `GET /api/assets` and shows the library the way the gallery shows
