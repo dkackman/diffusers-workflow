@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import {
     BookCopy,
     Database,
@@ -16,6 +16,8 @@
     Server,
     SquarePen,
   } from '@lucide/svelte'
+  import { slide } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
   import {
     serverHref,
@@ -43,6 +45,22 @@
   const expanded = $derived(
     route.view.kind === 'ws' ? route.view.workspace : workspace.current,
   )
+  // A switch is shown, not just repainted: the new workspace's sections
+  // slide open where the old ones slid shut, and its name row settles from
+  // a surface tint to nothing - selection is the user's state, so it reads
+  // as ink and motion, never as a colour. The first render is not a switch,
+  // so the flash waits for `expanded` to change. Both honour the reduced-
+  // motion preference the way `.pulse-dot` does.
+  let switched = $state(false)
+  // the initial value on purpose: it is what a later change is compared to
+  let seen = untrack(() => expanded)
+  $effect(() => {
+    if (expanded !== seen) {
+      seen = expanded
+      switched = true
+    }
+  })
+  const motion = $derived({ duration: prefersReducedMotion.current ? 0 : 150 })
   const wsSection = $derived(
     route.view.kind === 'ws' ? route.view.section : null,
   )
@@ -122,7 +140,7 @@
     <div class="group" role="group" aria-label="workspaces">
       {#each workspace.names ?? [workspace.current] as name (name)}
         {#if name === expanded}
-          <div class="ws open">
+          <div class="ws open" class:flash={switched}>
             {#if !collapsed}
               <span class="wsname" title={name}>
                 {name}
@@ -135,18 +153,20 @@
                 {/if}
               </span>
             {/if}
-            {#each WS_ITEMS as item (item.section)}
-              <a
-                class="plain item"
-                href={wsHref(name, item.section)}
-                aria-current={wsSection === item.section ? 'page' : undefined}
-                title={item.label}
-              >
-                <item.icon size={15} />{#if !collapsed}<span class="label"
-                    >{item.label}</span
-                  >{/if}
-              </a>
-            {/each}
+            <div class="sections" transition:slide={motion}>
+              {#each WS_ITEMS as item (item.section)}
+                <a
+                  class="plain item"
+                  href={wsHref(name, item.section)}
+                  aria-current={wsSection === item.section ? 'page' : undefined}
+                  title={item.label}
+                >
+                  <item.icon size={15} />{#if !collapsed}<span class="label"
+                      >{item.label}</span
+                    >{/if}
+                </a>
+              {/each}
+            </div>
           </div>
         {:else if !collapsed}
           <a class="plain ws shut" href={wsHref(name, 'overview')} title={name}>
@@ -304,6 +324,22 @@
   .ws.open .wsname {
     font-weight: 600;
     color: var(--ink);
+  }
+  .ws.open.flash .wsname {
+    animation: dw-settle 400ms ease-out;
+  }
+  @keyframes dw-settle {
+    from {
+      background: var(--panel-2);
+    }
+    to {
+      background: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ws.open.flash .wsname {
+      animation: none;
+    }
   }
   .size {
     font-size: var(--t-xs);

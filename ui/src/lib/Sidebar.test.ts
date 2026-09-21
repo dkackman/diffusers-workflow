@@ -121,3 +121,26 @@ it('collapsed shows icons only and the toggle reports', async () => {
   expect(onToggle).toHaveBeenCalled()
   expect(screen.queryByText('studio')).toBeNull()
 })
+
+it('the first render is not a switch; changing workspace marks the new one', async () => {
+  const { container } = render(Sidebar, {
+    collapsed: false,
+    onToggle: () => {},
+  })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  expect(container.querySelector('.ws.open.flash')).toBeNull()
+  location.hash = '#/ws/default/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() =>
+    expect(
+      container.querySelector('.ws.open.flash .wsname')?.textContent,
+    ).toContain('default'),
+  )
+  // the sections of the newly expanded workspace are the ones left once
+  // the old block's outro has run
+  await waitFor(() =>
+    expect(
+      screen.getByRole('link', { name: /gallery/i }).getAttribute('href'),
+    ).toBe('#/ws/default/gallery'),
+  )
+})

@@ -30,6 +30,8 @@ test('create a workspace, work in it, delete it', async ({ page }) => {
     (r) =>
       r.url().includes('/api/gallery') && r.url().includes('workspace=e2e-ws'),
   )
+  // the previous workspace's sections slide shut; click once they are gone
+  await expect(nav.getByRole('link', { name: 'Gallery' })).toHaveCount(1)
   await nav.getByRole('link', { name: 'Gallery' }).click()
   await galleryRequest
   // back to default through the sidebar, and the scope follows
@@ -37,6 +39,7 @@ test('create a workspace, work in it, delete it', async ({ page }) => {
     (r) => r.url().includes('/api/gallery') && !r.url().includes('workspace='),
   )
   await nav.getByRole('link', { name: /^default/ }).click()
+  await expect(nav.getByRole('link', { name: 'Gallery' })).toHaveCount(1)
   await nav.getByRole('link', { name: 'Gallery' }).click()
   await defaultRequest
   // delete from its overview

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
   import { serverHref, sharedHref, wsHref } from './routes'
 
@@ -27,7 +29,17 @@
   <!-- keyed by position: on an overview route both crumbs share an href -->
   {#each crumbs as crumb, i (i)}
     {#if i > 0}<span class="sep muted">/</span>{/if}
-    <a class="plain" href={crumb.href}>{crumb.label}</a>
+    <!-- the group crumb fades in when it changes, so a workspace switch
+         shows up here as well as in the sidebar; in only, so the row never
+         holds two labels at once -->
+    {#key crumb.label}
+      <a
+        class="plain"
+        href={crumb.href}
+        in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+        >{crumb.label}</a
+      >
+    {/key}
   {/each}
 </nav>
 
