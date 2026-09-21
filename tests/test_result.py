@@ -1604,12 +1604,12 @@ class TestNoHeadroom:
         assert self.events_from(lambda: self.save_audio(self.track(0.89))) == []
 
     def test_silence_is_not_a_peak(self):
-        assert (
-            self.events_from(
-                lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
-            )
-            == []
+        """Silence is not a clipping/headroom problem - it is now its own
+        warning (audio_near_silent, #261), which this test is not about."""
+        warnings = self.events_from(
+            lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
         )
+        assert [w["kind"] for w in warnings] == ["audio_near_silent"]
 
     def test_the_muxed_deliverable_is_measured_too(self):
         """The file the caller actually reads: the soundtrack of the cut."""
@@ -1789,6 +1789,61 @@ class TestTheWrittenLevel:
             result.save(str(tmp_path), "frame")
 
         measured.assert_not_called()
+
+
+class TestNearSilentWrite:
+    """A succeeded job could hand back a deliverable so quiet nothing could
+    hear it, with `warnings: []` - `get_gallery_metadata`'s hint text already
+    taught mean_dbfs below -40 on a track that should be full as near-silent
+    (#158), but nothing emitted the warning at save time (#261). Mirrors
+    TestFullScaleWrite above."""
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def measured_at(self, mean_dbfs, **kwargs):
+        from dw.result import warn_if_written_near_silent
+
+        with patch("dw.media_info.probe_media", return_value={"mean_dbfs": mean_dbfs}):
+            return self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/line.wav", **kwargs)
+            )
+
+    def test_a_file_that_decodes_near_silent_warns(self):
+        """-74.8 dBFS is what the reported Bark run measured (#261)."""
+        (warning,) = self.measured_at(-74.8)
+
+        assert warning["kind"] == "audio_near_silent"
+        assert warning["mean_dbfs"] == pytest.approx(-74.8, abs=0.01)
+        assert warning["file"] == "line.wav"
+
+    def test_a_file_at_the_threshold_is_quiet(self):
+        assert self.measured_at(-40.0) == []
+
+    def test_a_full_track_is_quiet(self):
+        assert self.measured_at(-2.48) == []
+
+    def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
+        from dw.result import warn_if_written_near_silent
+
+        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+            assert (
+                self.warnings_from(
+                    lambda: warn_if_written_near_silent("/runs/final/broken.wav")
+                )
+                == []
+            )
+
+    def test_already_warned_suppresses_the_check(self):
+        assert self.measured_at(-74.8, already_warned=True) == []
 
 
 class TestTheMusicTemplatesLeaveHeadroom:

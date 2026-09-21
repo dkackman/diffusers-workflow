@@ -206,6 +206,54 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
     return peak
 
 
+# The mean level get_gallery_metadata's own hint text already teaches as
+# near-silent (#158) - mirrored here as the check nothing was actually
+# running: a succeeded job could hand back a track this quiet with
+# warnings: [] (#261)
+NEAR_SILENT_WARN_DBFS = -40.0
+
+
+def warn_if_written_near_silent(output_path, already_warned=False):
+    """Say when the file just written decodes as near-silent.
+
+    The other end of the range `warn_if_written_above_full_scale` guards:
+    `get_gallery_metadata` already taught mean_dbfs below -40 on a track
+    that should be full as a near-silent render, but nothing emitted a
+    warning for it at save time, so a job could succeed and hand back a
+    clip nobody could hear with `warnings: []` (#261).
+
+    Best effort, like its sibling: a file that will not probe is not a
+    level problem, and a deliverable that is already written is not worth
+    failing a finished run over.
+    """
+    if already_warned:
+        return None
+    try:
+        from .media_info import probe_media
+
+        info = probe_media(output_path) or {}
+    except Exception:
+        logger.debug(
+            f"Could not measure the written level of {output_path}", exc_info=True
+        )
+        return None
+    mean = info.get("mean_dbfs")
+    if mean is None or mean >= NEAR_SILENT_WARN_DBFS:
+        return mean
+    name = os.path.basename(output_path)
+    emit_warning(
+        f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
+        f"for a deliverable meant to be heard. Check the step that "
+        f"generated it: an empty or malformed prompt, a source model that "
+        f"produced no meaningful audio for this input, or an unintended "
+        f"near-zero gain upstream ('normalize_audio' or 'match_levels').",
+        kind="audio_near_silent",
+        file=name,
+        mean_dbfs=round(mean, 2),
+    )
+    return mean
+
+
 def _file_size_mb(path):
     try:
         return os.path.getsize(path) / (1024 * 1024)
@@ -836,6 +884,7 @@ class Result:
                     file=os.path.basename(output_path),
                     peak_dbfs=round(self._predicted_peak_dbfs, 2),
                 )
+            warn_if_written_near_silent(output_path)
 
         emit_log(
             f"wrote {os.path.basename(output_path)} in "
