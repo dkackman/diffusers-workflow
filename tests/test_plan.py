@@ -589,6 +589,75 @@ class TestSubWorkflowEstimate:
         assert answer["partial"] is False
         assert answer["unpriced"] == []
 
+    def test_the_rolled_up_estimate_carries_the_childs_runs_and_measured_on(
+        self, plan, tmp_path
+    ):
+        """The #268 rollup quotes the child's minutes under `basis:
+        observed` - `runs`/`measured_on` have to come along with it, since
+        an "observed" estimate with `runs: null` says it was measured but
+        not how many times (#275)."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            return observed(minutes=6, runs=3, name="RTX 3090")
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] == "RTX 3090"
+
+    def test_the_rolled_up_runs_is_the_weakest_childs(self, plan, tmp_path):
+        """Multiple observed children on the same device: `runs` is the min
+        across them, the weakest history."""
+        (tmp_path / "a.json").write_text(json.dumps({"id": "a", "steps": []}))
+        (tmp_path / "b.json").write_text(json.dumps({"id": "b", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "a", "workflow": {"path": "a.json", "arguments": {}}},
+                {"name": "b", "workflow": {"path": "b.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            runs = 3 if path == "a.json" else 9
+            return observed(minutes=6, runs=runs, name="RTX 3090")
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] == "RTX 3090"
+
+    def test_the_rolled_up_measured_on_is_null_when_children_disagree(
+        self, plan, tmp_path
+    ):
+        """Children observed on different cards: nothing honest to name as
+        `measured_on`, so it is withheld rather than picking one."""
+        (tmp_path / "a.json").write_text(json.dumps({"id": "a", "steps": []}))
+        (tmp_path / "b.json").write_text(json.dumps({"id": "b", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "a", "workflow": {"path": "a.json", "arguments": {}}},
+                {"name": "b", "workflow": {"path": "b.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            name = "RTX 3090" if path == "a.json" else "RTX 4090"
+            return observed(minutes=6, runs=3, name=name)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] is None
+
     def test_an_unpriced_childs_history_leaves_the_estimate_partial(
         self, plan, tmp_path
     ):
