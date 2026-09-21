@@ -805,6 +805,19 @@ def mix_audio(audios, gains=None, sample_rate=None):
             f"mix_audio needs one gain per track - got {len(gains)} for "
             f"{len(audios)} tracks"
         )
+    check_arguments("mix_audio", gains=gains, sample_rate=sample_rate)
+    if gains is not None:
+        loud = [g for g in gains if as_number(g) is not None and as_number(g) > 1.0]
+        if loud:
+            emit_warning(
+                f"mix_audio: gain(s) {loud} are a multiplier, not decibels - "
+                f"a value like 12, 6 or -3 is almost always a dB figure typed "
+                f"into the wrong unit. A multiplier above 1 boosts the track; "
+                f"convert a dB figure with 10 ** (db / 20) if that was intended.",
+                kind="mix_audio_gain_not_db",
+                command="mix_audio",
+                gains=gains,
+            )
 
     waveforms, rates, bare = [], set(), False
     for audio in audios:
@@ -826,9 +839,16 @@ def mix_audio(audios, gains=None, sample_rate=None):
     length = max(waveform.shape[1] for waveform in waveforms)
 
     mixed = numpy.zeros((channels, length), dtype=numpy.float32)
+    applied = []
     for index, waveform in enumerate(waveforms):
         gain = 1.0 if gains is None else float(gains[index])
+        applied.append(gain)
         mixed[:, : waveform.shape[1]] += waveform * gain
+    emit_log(
+        f"mix_audio: {len(waveforms)} tracks, gains {applied}",
+        command="mix_audio",
+        gains=applied,
+    )
     return _as_track(mixed, sample_rate, "mix_audio")
 
 

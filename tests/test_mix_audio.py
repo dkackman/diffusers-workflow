@@ -3,6 +3,7 @@
 import numpy
 import pytest
 
+from dw.events import RunContext, activate_context, deactivate_context
 from dw.tasks.audio_utils import mix_audio
 
 
@@ -65,3 +66,46 @@ class TestMixAudio:
     def test_a_raw_waveform_needs_a_sample_rate(self):
         with pytest.raises(ValueError, match="sample_rate"):
             mix_audio([_tone(10, 0.1)])
+
+    def test_a_negative_gain_is_refused(self):
+        # #292: a negative gain is a phase inversion times a boost, not a
+        # dB figure - it used to reach the mix silently
+        with pytest.raises(ValueError, match=r"gains\[1\]"):
+            mix_audio(
+                [_tone(10, 0.1), _tone(10, 0.1)], gains=[1.0, -12], sample_rate=44100
+            )
+
+    def events_of(self, call, event_type):
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            call()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("event") == event_type]
+
+    def test_a_gain_above_one_warns_it_is_not_db(self):
+        warnings = [
+            e
+            for e in self.events_of(
+                lambda: mix_audio(
+                    [_tone(10, 0.1), _tone(10, 0.1)],
+                    gains=[1.0, 12],
+                    sample_rate=44100,
+                ),
+                "warning",
+            )
+            if e.get("kind") == "mix_audio_gain_not_db"
+        ]
+        assert len(warnings) == 1
+        assert "decibels" in warnings[0]["message"]
+        assert warnings[0]["gains"] == [1.0, 12]
+
+    def test_the_applied_gains_are_logged(self):
+        logs = self.events_of(
+            lambda: mix_audio(
+                [_tone(10, 0.1), _tone(10, 0.2)], gains=[1.0, 0.5], sample_rate=44100
+            ),
+            "log",
+        )
+        assert any(e["gains"] == [1.0, 0.5] for e in logs)
