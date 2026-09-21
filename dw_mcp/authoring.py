@@ -32,7 +32,12 @@ def validate_workflow(
     variables the workflow declares and against this workspace's libraries.
     Without it the answer is about the stored definition and its stock
     defaults - which is everything except the part the caller wrote
-    (2026-09-11)."""
+    (2026-09-11).
+
+    `plan.cached_steps` is evaluated against the pinned workspace's own
+    `outputs/` - a run sitting in a different workspace, however identical
+    its arguments and seed, does not count as a hit. Pin `workspace` to the
+    one an earlier run actually used if you want to see it credited."""
     if workflow is not None and inline_workflow is not None:
         raise DwApiError(
             "`workflow` and `inline_workflow` are the same thing - provide only one."

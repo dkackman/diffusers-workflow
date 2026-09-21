@@ -611,6 +611,28 @@ A silent track is returned unchanged.
 
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
+**Headroom and clipping warnings.** Saving audio or a video with a muxed
+soundtrack checks the written level against two thresholds, reported in
+`get_job`'s warnings and readable back afterward as `media.peak_dbfs` from
+`get_gallery_metadata`:
+
+- `audio_no_headroom` fires when a plain audio file's waveform, before
+  encoding, peaks at or above -0.5 dBFS - encoding can push a level that
+  already has no headroom over full scale.
+- `audio_clipped` fires when the file is decoded back *after* writing and
+  measures at or above 0.0 dBFS - the ground truth of what a consumer's
+  decoder will actually see, since an encoder's own overshoot varies by
+  codec and is not reliably predictable from the pre-encode level.
+
+A video mux only ever reports the second one: its pre-encode prediction is
+held rather than emitted, because a mux's overshoot is not reliably positive
+the way a plain audio encode's is. That leaves a real gap between the two
+thresholds - a video whose soundtrack decodes back between -0.5 and 0.0 dBFS
+produces no warning at all, because it predicted risk but measured clean.
+That is the file's own measured level, not a threshold bug: read
+`media.peak_dbfs` against -0.5 and 0.0 to judge a specific file rather than
+relying on the warning alone.
+
 ### mix_audio
 
 Layer tracks on top of one another. `crossfade_audio` puts tracks one after
