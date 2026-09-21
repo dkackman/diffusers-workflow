@@ -48,10 +48,11 @@ def probe_media(path, envelope=False):
 
     Args:
         path: The file to probe
-        envelope: Also report the per-second level of the soundtrack. The
-            list covers what decodes, which for a lossy codec can run a
-            fraction of a second past the reported duration - its own
-            priming and padding
+        envelope: Also report the per-second level of the soundtrack. A lossy
+            codec's decode can run a fraction of a second past the reported
+            duration - its own priming and padding - so a trailing fragment
+            shorter than a full second is folded into the bin before it
+            rather than reported as a bin of its own (#277)
     """
     try:
         container = av.open(path)
@@ -122,6 +123,8 @@ def probe_media(path, envelope=False):
                             elapsed = _fill_envelope(
                                 bins, samples, elapsed, audio.rate, int(audio.channels)
                             )
+                if bins is not None:
+                    _merge_trailing_fragment(bins, audio.rate)
             except Exception as e:
                 # A track that opens fine can still fail mid-decode (damage
                 # past the header); the fields already gathered - duration,
@@ -184,6 +187,28 @@ def _fill_envelope(bins, samples, elapsed, rate, channels):
         entry[2] = max(entry[2], float(numpy.abs(piece).max(initial=0.0)))
         start = stop
     return elapsed + length
+
+
+def _merge_trailing_fragment(bins, rate):
+    """Fold a short trailing bin into the one before it, in place.
+
+    A lossy codec's decode can run a fraction of a second past the file's
+    reported duration (its own priming and padding), which leaves the last
+    bin holding only a handful of samples - not a real last second. Read at
+    face value that fragment looks like a hole (near -inf, since so little
+    energy lands in so few samples), when the actual last second is whatever
+    the bin before it says. Merging need only ever touch the last bin: every
+    earlier one was closed out by a full second's worth of samples arriving
+    after it.
+    """
+    if len(bins) < 2:
+        return
+    total, count, peak = bins[-1]
+    if count >= rate:
+        return
+    prev_total, prev_count, prev_peak = bins[-2]
+    bins[-2] = [prev_total + total, prev_count + count, max(prev_peak, peak)]
+    bins.pop()
 
 
 def _as_envelope(bins):
