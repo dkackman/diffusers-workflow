@@ -1586,17 +1586,19 @@ class TestNoHeadroom:
             result.save(temp_dir, "cut")
 
     def test_a_track_at_full_scale_warns_with_its_figure(self):
+        """A wav's write is the clip (#295): the pre-write prediction and the
+        post-write ground truth are two different facts about this file, not
+        a duplicate of one, so a full-scale wav gets both."""
         warnings = self.events_from(lambda: self.save_audio(self.track(1.0)))
 
-        assert len(warnings) == 1
-        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
         assert warnings[0]["peak_dbfs"] == 0.0
         assert "normalize_audio" in warnings[0]["message"]
 
     def test_a_track_over_full_scale_warns(self):
         warnings = self.events_from(lambda: self.save_audio(self.track(1.2)))
 
-        assert len(warnings) == 1
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
         assert warnings[0]["peak_dbfs"] == pytest.approx(1.58, abs=0.01)
 
     def test_a_mix_with_headroom_is_quiet(self):
@@ -1781,16 +1783,19 @@ class TestTheWrittenLevel:
         measured.assert_called_once()
         assert measured.call_args.args[0].endswith(".wav")
 
-    def test_it_does_not_say_what_the_waveform_check_already_said(self, tmp_path):
-        """Two warnings would be two answers to one mistake: a waveform over
-        the line before the encoder touched it is `audio_no_headroom`'s, and
-        that message carries the fix."""
+    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(
+        self, tmp_path
+    ):
+        """A wav's write is itself the clip (#295): unlike a lossy re-encode,
+        there is no later encode step for the pre-write warning to describe
+        as a future risk, so the pre-write prediction and the post-write
+        ground truth are two different facts about this file and both fire."""
         kinds = [
             warning["kind"]
             for warning in self.warnings_from(lambda: self.save_wav(1.5, str(tmp_path)))
         ]
 
-        assert kinds == ["audio_no_headroom"]
+        assert kinds == ["audio_no_headroom", "audio_clipped"]
 
     def test_an_image_is_never_probed(self, tmp_path):
         """Only a file that can carry a soundtrack pays for the read-back."""
@@ -1857,7 +1862,7 @@ class TestConsumedByNormalizer:
             lambda: self.save_audio(waveform, False, str(tmp_path))
         )
 
-        assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
 
     def test_the_post_write_probe_is_also_quiet_when_normalized_downstream(
         self, tmp_path

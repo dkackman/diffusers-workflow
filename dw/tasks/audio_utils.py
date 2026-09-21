@@ -741,8 +741,17 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
         sample_rate=sample_rate,
     )
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
+    resampled = resample_waveform(waveform, sample_rate, target_sample_rate)
+    emit_log(
+        f"resample_audio: {sample_rate} → {target_sample_rate} Hz, "
+        f"{resampled.shape[-1] / target_sample_rate:.2f} s",
+        command="resample_audio",
+        source_sample_rate=sample_rate,
+        target_sample_rate=target_sample_rate,
+        seconds=round(resampled.shape[-1] / target_sample_rate, 2),
+    )
     return _as_track(
-        resample_waveform(waveform, sample_rate, target_sample_rate),
+        resampled,
         target_sample_rate,
         "resample_audio",
     )
