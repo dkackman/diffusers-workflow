@@ -41,38 +41,40 @@ The bug: `dw/result.py` already runs `warn_if_written_above_full_scale` (the pos
 Replace the existing test that asserts today's (buggy) both-warnings behavior, and add a case for the probe-fails fallback. In `tests/test_result.py`, inside `class TestTheHeadroomWarning` (the class containing `test_a_video_is_probed_even_though_the_waveform_already_warned`, currently around line 1625):
 
 ```python
-    def test_a_clean_video_mux_drops_the_stale_prediction(self):
-        """#174 amendment: the pre-encode prediction fires on H3's own
-        soundtrack every run, and the post-encode probe already proved the
-        written file is fine - the caller should see nothing, not a stale
-        warning about a file that turned out clean."""
-        with patch(
-            "dw.media_info.probe_media",
-            return_value={"peak_dbfs": -1.12, "kind": "video"},
-        ):
-            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+def test_a_clean_video_mux_drops_the_stale_prediction(self):
+    """#174 amendment: the pre-encode prediction fires on H3's own
+    soundtrack every run, and the post-encode probe already proved the
+    written file is fine - the caller should see nothing, not a stale
+    warning about a file that turned out clean."""
+    with patch(
+        "dw.media_info.probe_media",
+        return_value={"peak_dbfs": -1.12, "kind": "video"},
+    ):
+        warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
-        assert warnings == []
+    assert warnings == []
 
-    def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
-        """The post-encode probe found a real clip - report that, not the
-        pre-encode guess, so the caller gets one answer with a real number."""
-        with patch(
-            "dw.media_info.probe_media",
-            return_value={"peak_dbfs": 0.94, "kind": "video"},
-        ):
-            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
-        assert [w["kind"] for w in warnings] == ["audio_clipped"]
-        assert warnings[0]["peak_dbfs"] == pytest.approx(0.94, abs=0.01)
+def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
+    """The post-encode probe found a real clip - report that, not the
+    pre-encode guess, so the caller gets one answer with a real number."""
+    with patch(
+        "dw.media_info.probe_media",
+        return_value={"peak_dbfs": 0.94, "kind": "video"},
+    ):
+        warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
-    def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
-        """No ground truth available (a broken/short file) - the pre-encode
-        guess is the only signal there is, so it still reaches the caller."""
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
-            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+    assert [w["kind"] for w in warnings] == ["audio_clipped"]
+    assert warnings[0]["peak_dbfs"] == pytest.approx(0.94, abs=0.01)
 
-        assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
+
+def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
+    """No ground truth available (a broken/short file) - the pre-encode
+    guess is the only signal there is, so it still reaches the caller."""
+    with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+    assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
 ```
 
 And change the existing `test_a_video_is_probed_even_though_the_waveform_already_warned` (it currently asserts `kinds == {"audio_no_headroom", "audio_clipped"}`, which is exactly the bug this task fixes) to:
@@ -144,13 +146,12 @@ def warn_without_headroom(waveform, file_name, emit=True):
 In `dw/result.py`, in `save_audio_video`, replace (currently lines 893-899, the segment-backed branch):
 
 ```python
-            audio = None
-            if artifact.audio is not None and sample_rate is not None:
-                audio = as_audio_track(artifact.audio)
-                self._no_headroom_warned = (
-                    warn_without_headroom(artifact.audio, os.path.basename(output_path))
-                    is not None
-                )
+audio = None
+if artifact.audio is not None and sample_rate is not None:
+    audio = as_audio_track(artifact.audio)
+    self._no_headroom_warned = (
+        warn_without_headroom(artifact.audio, os.path.basename(output_path)) is not None
+    )
 ```
 
 with:
@@ -202,67 +203,63 @@ with:
 Then replace the post-encode block (currently lines 778-793):
 
 ```python
-        # The level of what was actually written, which is the only one the
-        # consumer will hear: the encode's own overshoot sits between the
-        # waveform `warn_without_headroom` measured and this (#161). Only a
-        # file that can carry a soundtrack, so an image never pays a probe.
-        # The pre-encode warning only suppresses this for a plain audio
-        # save - a video mux's overshoot is not reliably positive (#174),
-        # so a video always gets the ground-truth post-encode check
-        if content_type.startswith("audio") or content_type.startswith("video"):
-            warn_if_written_above_full_scale(
-                output_path,
-                already_warned=(
-                    self._no_headroom_warned
-                    if content_type.startswith("audio")
-                    else False
-                ),
-            )
+# The level of what was actually written, which is the only one the
+# consumer will hear: the encode's own overshoot sits between the
+# waveform `warn_without_headroom` measured and this (#161). Only a
+# file that can carry a soundtrack, so an image never pays a probe.
+# The pre-encode warning only suppresses this for a plain audio
+# save - a video mux's overshoot is not reliably positive (#174),
+# so a video always gets the ground-truth post-encode check
+if content_type.startswith("audio") or content_type.startswith("video"):
+    warn_if_written_above_full_scale(
+        output_path,
+        already_warned=(
+            self._no_headroom_warned if content_type.startswith("audio") else False
+        ),
+    )
 ```
 
 with:
 
 ```python
-        # The level of what was actually written, which is the only one the
-        # consumer will hear: the encode's own overshoot sits between the
-        # waveform `warn_without_headroom` measured and this (#161). Only a
-        # file that can carry a soundtrack, so an image never pays a probe.
-        # The pre-encode warning only suppresses this for a plain audio
-        # save - a video mux's overshoot is not reliably positive (#174),
-        # so a video always gets the ground-truth post-encode check
-        if content_type.startswith("audio") or content_type.startswith("video"):
-            written_peak = warn_if_written_above_full_scale(
-                output_path,
-                already_warned=(
-                    self._no_headroom_warned
-                    if content_type.startswith("audio")
-                    else False
-                ),
-            )
-            # A video's pre-encode prediction was held rather than emitted
-            # (#174 amendment): the post-encode probe is the ground truth,
-            # so a clean or genuinely-clipped result each get exactly one
-            # answer - nothing here, or `audio_clipped` from the probe
-            # itself. The only time the held prediction is worth anything is
-            # when the probe could not measure the file at all, in which
-            # case it is the one signal available and is surfaced late
-            # rather than dropped silently
-            if (
-                content_type.startswith("video")
-                and self._no_headroom_warned
-                and written_peak is None
-            ):
-                emit_warning(
-                    f"The soundtrack written to {os.path.basename(output_path)} "
-                    f"was predicted to peak at {self._predicted_peak_dbfs:+.1f} "
-                    f"dBFS before encoding, and the written file could not be "
-                    f"re-measured to confirm whether the mux corrected it - add "
-                    f"a 'normalize_audio' step (peak_dbfs: -1) before the step "
-                    f"that saves it, or 'match_levels' on the join that made it.",
-                    kind="audio_no_headroom",
-                    file=os.path.basename(output_path),
-                    peak_dbfs=round(self._predicted_peak_dbfs, 2),
-                )
+# The level of what was actually written, which is the only one the
+# consumer will hear: the encode's own overshoot sits between the
+# waveform `warn_without_headroom` measured and this (#161). Only a
+# file that can carry a soundtrack, so an image never pays a probe.
+# The pre-encode warning only suppresses this for a plain audio
+# save - a video mux's overshoot is not reliably positive (#174),
+# so a video always gets the ground-truth post-encode check
+if content_type.startswith("audio") or content_type.startswith("video"):
+    written_peak = warn_if_written_above_full_scale(
+        output_path,
+        already_warned=(
+            self._no_headroom_warned if content_type.startswith("audio") else False
+        ),
+    )
+    # A video's pre-encode prediction was held rather than emitted
+    # (#174 amendment): the post-encode probe is the ground truth,
+    # so a clean or genuinely-clipped result each get exactly one
+    # answer - nothing here, or `audio_clipped` from the probe
+    # itself. The only time the held prediction is worth anything is
+    # when the probe could not measure the file at all, in which
+    # case it is the one signal available and is surfaced late
+    # rather than dropped silently
+    if (
+        content_type.startswith("video")
+        and self._no_headroom_warned
+        and written_peak is None
+    ):
+        emit_warning(
+            f"The soundtrack written to {os.path.basename(output_path)} "
+            f"was predicted to peak at {self._predicted_peak_dbfs:+.1f} "
+            f"dBFS before encoding, and the written file could not be "
+            f"re-measured to confirm whether the mux corrected it - add "
+            f"a 'normalize_audio' step (peak_dbfs: -1) before the step "
+            f"that saves it, or 'match_levels' on the join that made it.",
+            kind="audio_no_headroom",
+            file=os.path.basename(output_path),
+            peak_dbfs=round(self._predicted_peak_dbfs, 2),
+        )
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
