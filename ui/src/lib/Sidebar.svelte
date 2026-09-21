@@ -29,8 +29,11 @@
   import { createWorkspaceAndGo } from './workspaceActions'
   import { formatBytes } from './format'
 
-  let { collapsed, onToggle }: { collapsed: boolean; onToggle: () => void } =
-    $props()
+  let {
+    collapsed,
+    onToggle,
+    inert = false,
+  }: { collapsed: boolean; onToggle: () => void; inert?: boolean } = $props()
 
   onMount(loadWorkspaces)
 
@@ -100,7 +103,7 @@
   }
 </script>
 
-<aside class:collapsed aria-label="navigation">
+<aside class:collapsed {inert} aria-label="navigation">
   <div class="top">
     <a class="brand plain" href={wsHref(workspace.current, 'overview')}>dw</a>
     <button
@@ -116,20 +119,22 @@
   </div>
 
   <nav>
-    <div class="group" aria-label="workspaces">
+    <div class="group" role="group" aria-label="workspaces">
       {#each workspace.names ?? [workspace.current] as name (name)}
         {#if name === expanded}
           <div class="ws open">
-            <span class="wsname" title={name}>
-              {#if !collapsed}{name}{/if}
-              {#if !collapsed && workspace.usage[name]}
-                <span
-                  class="num muted size"
-                  title="{workspace.usage[name].files} files"
-                  >{formatBytes(workspace.usage[name].bytes)}</span
-                >
-              {/if}
-            </span>
+            {#if !collapsed}
+              <span class="wsname" title={name}>
+                {name}
+                {#if workspace.usage[name]}
+                  <span
+                    class="num muted size"
+                    title="{workspace.usage[name].files} files"
+                    >{formatBytes(workspace.usage[name].bytes)}</span
+                  >
+                {/if}
+              </span>
+            {/if}
             {#each WS_ITEMS as item (item.section)}
               <a
                 class="plain item"
@@ -192,7 +197,7 @@
     </div>
 
     <div class="rule" aria-hidden="true"></div>
-    <div class="group" aria-label="shared">
+    <div class="group" role="group" aria-label="shared">
       {#if !collapsed}<span class="grouplabel muted">Shared</span>{/if}
       {#each SHARED_ITEMS as item (item.section)}
         <a
@@ -209,7 +214,7 @@
     </div>
 
     <div class="rule" aria-hidden="true"></div>
-    <div class="group" aria-label="server">
+    <div class="group" role="group" aria-label="server">
       {#if !collapsed}<span class="grouplabel muted">Server</span>{/if}
       {#each SERVER_ITEMS as item (item.section)}
         <a

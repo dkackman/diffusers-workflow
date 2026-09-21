@@ -62,6 +62,9 @@
     } else if (event.key === 'Escape' && tokenOpen) {
       event.preventDefault()
       tokenOpen = false
+    } else if (event.key === 'Escape' && drawerOpen) {
+      event.preventDefault()
+      drawerOpen = false
     }
   }
 
@@ -121,8 +124,18 @@
     sidebarCollapsed = !sidebarCollapsed
     storageSet('sidebar', sidebarCollapsed)
   }
-  // Narrow viewports: the sidebar is an overlay opened from the header
+  // Narrow viewports: the sidebar is an overlay opened from the header.
+  // While it is off screen it is inert, so a keyboard or screen reader
+  // does not walk its links before reaching the menu button
   let drawerOpen = $state(false)
+  let narrow = $state(false)
+  $effect(() => {
+    const query = window.matchMedia('(max-width: 900px)')
+    const apply = () => (narrow = query.matches)
+    apply()
+    query.addEventListener('change', apply)
+    return () => query.removeEventListener('change', apply)
+  })
   $effect(() => {
     // any navigation closes the drawer
     void route.parts
@@ -141,6 +154,7 @@
 <div class="shell" class:drawer={drawerOpen}>
   <Sidebar
     collapsed={sidebarCollapsed && !drawerOpen}
+    inert={narrow && !drawerOpen}
     onToggle={toggleSidebar}
   />
   {#if drawerOpen}
@@ -157,6 +171,7 @@
           class="bare icon menu"
           onclick={() => (drawerOpen = !drawerOpen)}
           aria-label="open navigation"
+          aria-expanded={drawerOpen}
           title="navigation"
         >
           <Menu size={15} />

@@ -24,7 +24,8 @@
 </script>
 
 <nav class="crumbs" aria-label="breadcrumb">
-  {#each crumbs as crumb, i (crumb.href)}
+  <!-- keyed by position: on an overview route both crumbs share an href -->
+  {#each crumbs as crumb, i (i)}
     {#if i > 0}<span class="sep muted">/</span>{/if}
     <a class="plain" href={crumb.href}>{crumb.label}</a>
   {/each}

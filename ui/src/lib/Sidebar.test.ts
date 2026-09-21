@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
-import { invalidateWorkspaces } from './workspace.svelte'
+import { invalidateWorkspaces, workspace } from './workspace.svelte'
 
 const listWorkspaces = vi.hoisted(() =>
   vi.fn(() =>
@@ -39,8 +39,13 @@ beforeEach(() => {
   // hashchange later, which reparses the same hash
   location.hash = '#/ws/studio/gallery'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
-  // and the cached listing does not leak between cases
+  // The listing is module state: drop the cached promise and the fields it
+  // filled, so every case really waits on the mocked listing rather than
+  // reading what the last one left
   invalidateWorkspaces()
+  workspace.names = undefined
+  workspace.root = null
+  workspace.usage = {}
 })
 afterEach(cleanup)
 
