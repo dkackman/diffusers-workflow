@@ -49,10 +49,12 @@ def probe_media(path, envelope=False):
     Args:
         path: The file to probe
         envelope: Also report the per-second level of the soundtrack. A lossy
-            codec's decode can run a fraction of a second past the reported
-            duration - its own priming and padding - so a trailing fragment
-            shorter than a full second is folded into the bin before it
-            rather than reported as a bin of its own (#277)
+            codec's decode can run a fraction of a second past the file's
+            reported duration - its own priming and padding - so samples past
+            that duration are dropped rather than filling a bin of their own
+            (#277). A track whose *real* length isn't a whole number of
+            seconds still gets a genuine final bin shorter than the rest -
+            `len(rms_dbfs)` is `ceil(duration_seconds)`, not `floor` (#278)
     """
     try:
         container = av.open(path)
@@ -95,6 +97,16 @@ def probe_media(path, envelope=False):
             # whole-track level is made of, kept per second instead of once
             bins = [] if envelope and audio is not None else None
             elapsed = 0  # samples of the soundtrack seen so far
+            # Samples past the file's reported duration are a lossy codec's
+            # own priming/padding, not real track content - drop them rather
+            # than let them fill (or half-fill) a bin of their own (#277).
+            # When the duration itself is unknown there is nothing to clip
+            # against, so the trailing-fragment merge below is the fallback.
+            max_envelope_samples = (
+                int(round(info["duration_seconds"] * audio.rate))
+                if bins is not None and info.get("duration_seconds") is not None
+                else None
+            )
             streams = [
                 s
                 for s in ((video if need_frame_count else None), audio)
@@ -121,9 +133,14 @@ def probe_media(path, envelope=False):
                         count += samples.size
                         if bins is not None:
                             elapsed = _fill_envelope(
-                                bins, samples, elapsed, audio.rate, int(audio.channels)
+                                bins,
+                                samples,
+                                elapsed,
+                                audio.rate,
+                                int(audio.channels),
+                                max_envelope_samples,
                             )
-                if bins is not None:
+                if bins is not None and max_envelope_samples is None:
                     _merge_trailing_fragment(bins, audio.rate)
             except Exception as e:
                 # A track that opens fine can still fail mid-decode (damage
@@ -161,17 +178,26 @@ def _as_frame_samples(samples, channels):
     return samples.T if samples.shape[0] < samples.shape[1] else samples
 
 
-def _fill_envelope(bins, samples, elapsed, rate, channels):
+def _fill_envelope(bins, samples, elapsed, rate, channels, max_samples=None):
     """Add a decoded audio frame's samples to the per-second bins.
 
     A bin covers one second of the track regardless of how the decoder
     happened to chop it, so a frame straddling a second boundary is split
     across the two bins rather than counted in whichever one it started in.
     `elapsed` is how many samples of the track came before this frame; the
-    new total is returned.
+    new total is returned - the frame's *full* length, even when `max_samples`
+    clipped how much of it was actually binned, so a later frame's position
+    is still measured against the real track rather than the clipped one.
+
+    `max_samples` is the file's reported duration in samples: a frame (or
+    the tail of one) landing past it is a lossy codec's own priming/padding
+    rather than real content, and is dropped instead of filling a bin (#277).
     """
     frame = _as_frame_samples(samples, channels)
-    length = frame.shape[0]
+    full_length = frame.shape[0]
+    length = (
+        full_length if max_samples is None else max(0, min(full_length, max_samples - elapsed))
+    )
     start = 0
     while start < length:
         second = (elapsed + start) // rate
@@ -186,20 +212,25 @@ def _fill_envelope(bins, samples, elapsed, rate, channels):
         entry[1] += int(piece.size)
         entry[2] = max(entry[2], float(numpy.abs(piece).max(initial=0.0)))
         start = stop
-    return elapsed + length
+    return elapsed + full_length
 
 
 def _merge_trailing_fragment(bins, rate):
     """Fold a short trailing bin into the one before it, in place.
 
-    A lossy codec's decode can run a fraction of a second past the file's
-    reported duration (its own priming and padding), which leaves the last
-    bin holding only a handful of samples - not a real last second. Read at
-    face value that fragment looks like a hole (near -inf, since so little
-    energy lands in so few samples), when the actual last second is whatever
-    the bin before it says. Merging need only ever touch the last bin: every
-    earlier one was closed out by a full second's worth of samples arriving
-    after it.
+    Fallback for when the file's duration is unknown, so `_fill_envelope`
+    had nothing to clip decoding against: a lossy codec's decode can still
+    run a fraction of a second past the real track (its own priming and
+    padding), which leaves the last bin holding only a handful of samples -
+    not a real last second. Read at face value that fragment looks like a
+    hole (near -inf, since so little energy lands in so few samples), when
+    the actual last second is whatever the bin before it says. Merging need
+    only ever touch the last bin: every earlier one was closed out by a full
+    second's worth of samples arriving after it. When the duration *is*
+    known, `_fill_envelope`'s `max_samples` drops the same padding before it
+    ever reaches a bin, which also lets a genuinely partial final second
+    (a real duration that isn't a whole number of seconds) stand on its own
+    instead of being folded away (#278).
     """
     if len(bins) < 2:
         return
