@@ -550,11 +550,17 @@ class Job:
 
     def progress(self):
         """Where a running job has got to, or None for one that has not
-        started or has finished - a terminal job has a manifest, which is a
-        better answer than a stale phase."""
-        if self.status != RUNNING or self.last_event_at is None:
+        started - a terminal job has a manifest, which is a better answer
+        than a stale phase, except for FAILED: the manifest is only the
+        steps that finished, not the one that was running when the job died,
+        and that phase (`loading` / `generating` / `decoding` / `saving`) is
+        the fastest way to tell what killed it without reading a traceback
+        (#269). Frozen at `finished_at` rather than read against the current
+        clock, so `seconds_in_phase` reports how long the dead step had been
+        running rather than growing forever after the job is long over."""
+        if self.last_event_at is None or self.status not in (RUNNING, FAILED):
             return None
-        now = time.time()
+        now = self.finished_at if self.status == FAILED and self.finished_at else time.time()
         summary = {
             "step": self.step_name,
             # The step of the queued workflow the one above is running
