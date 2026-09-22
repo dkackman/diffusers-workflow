@@ -142,7 +142,12 @@ def loop_frames(video, num_frames):
     not a defect and blending two frames of a reference sheet would be.
 
     Args:
-        video: A still image, or frames in any shape a result carries
+        video: Frames in any shape a result carries, or a still image - but
+            the `video` argument loads *video files* by convention (#347), so
+            a still on disk has to be passed as
+            `{"media_type": "image", "location": "asset:x.png"}` rather than
+            a bare path or `asset:`/`output:` reference; a still made earlier
+            in the same workflow is `previous_result:<image step>`
         num_frames: How many frames to hand back, one or more
 
     Returns:
