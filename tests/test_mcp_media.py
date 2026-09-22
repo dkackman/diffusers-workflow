@@ -1061,6 +1061,48 @@ def test_tiles_over_budget_are_shrunk_together_and_say_so():
     assert all(decoded(t).width == result["tiles"][0]["width"] for t in result["tiles"])
 
 
+def two_tone_tile(width, height, **kwargs):
+    image = Image.new("RGB", (width, height), (255, 0, 0))
+    image.paste((0, 0, 255), (width // 2, 0, width, height))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return {**tile_json(width, height, **kwargs), "data": base64.b64encode(buffer.getvalue()).decode("ascii")}
+
+
+def test_a_crop_cuts_each_tile_before_the_aggregate_shrink():
+    client = frames_server(
+        [
+            two_tone_tile(200, 100),
+            two_tone_tile(200, 100, label="00:01.0 (frame 6)", frame=6, seconds=1.0),
+        ]
+    )
+
+    result = get_output_frames(client, "x.mp4", at=[0.0, 1.0], crop=[100, 0, 80, 60])
+
+    assert result["crop"] == [100, 0, 80, 60]
+    for tile in result["tiles"]:
+        image = decoded(tile)
+        assert image.size == (80, 60)
+        assert image.getpixel((0, 0)) == (0, 0, 255)
+        assert tile["width"] == 80 and tile["height"] == 60
+
+
+def test_a_frame_crop_is_clamped_per_tile():
+    client = frames_server([two_tone_tile(200, 100)])
+
+    result = get_output_frames(client, "x.mp4", at=[0.0], crop=[150, 0, 100, 100])
+
+    assert result["crop"] == [150, 0, 100, 100]
+    assert decoded(result["tiles"][0]).size == (50, 100)
+
+
+def test_a_malformed_frame_crop_is_refused():
+    client = frames_server([two_tone_tile(200, 100)])
+
+    with pytest.raises(DwApiError, match="crop"):
+        get_output_frames(client, "x.mp4", at=[0.0], crop=[0, 0, 0, 10])
+
+
 def test_a_whole_track_over_budget_is_refused_from_its_content_length():
     """The refusal above must not have downloaded the track to make it:
     the server declares the body's length, and the tool refuses on that

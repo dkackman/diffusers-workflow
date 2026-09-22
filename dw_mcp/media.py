@@ -222,6 +222,7 @@ def get_output_frames(
     max_dimension=512,
     hear=None,
     workspace=None,
+    crop=None,
 ):
     """Frames of a generated video as images - the way to *see* a clip when
     there is no video content type to return it as (#193, #210). One
@@ -232,6 +233,12 @@ def get_output_frames(
     first starts at - the running sum of the shots' `frame_count` from
     `get_gallery_metadata` on their own files - `names` the shots' names -
     both needed with `seams` until a joined file carries its own.
+
+    `crop` is `[x, y, width, height]` in each tile's own pixels - the same
+    convention `get_output_image` uses - cut from every sampled tile before
+    the aggregate shrink below, so asking for a small region at a larger
+    `max_dimension` reads it at full detail rather than at whatever a
+    contact-sheet-sized frame would blur it to.
 
     Every tile is fitted to `max_dimension`; when the whole answer would
     still exceed MAX_RETURNED_BYTES the tiles are shrunk *together* - the
@@ -279,7 +286,10 @@ def get_output_frames(
     body = client.get_json(
         api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
     )
-    tiles, downscaled_to = _fit_tiles_within_budget(body.get("tiles", []))
+    tiles = body.get("tiles", [])
+    if crop is not None:
+        tiles = [_crop_tile(tile, crop) for tile in tiles]
+    tiles, downscaled_to = _fit_tiles_within_budget(tiles)
     audio_truncated = False
     if hear is not None:
         span = float(hear)
@@ -322,6 +332,24 @@ def get_output_frames(
         "downscaled_to": downscaled_to,
         "hear": hear,
         "audio_truncated": audio_truncated,
+        "crop": crop,
+    }
+
+
+def _crop_tile(tile, crop):
+    """`tile` with its image cut to `crop` (`_crop_box`'s convention) before
+    any downscale - the per-tile counterpart of `get_output_image`'s crop."""
+    image = Image.open(io.BytesIO(base64.b64decode(tile["data"])))
+    image.load()
+    box = _crop_box(crop, image.width, image.height)
+    cropped = image.crop(box)
+    buffer = io.BytesIO()
+    cropped.save(buffer, format="PNG")
+    return {
+        **tile,
+        "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+        "width": cropped.width,
+        "height": cropped.height,
     }
 
 

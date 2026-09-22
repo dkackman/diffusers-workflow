@@ -1419,6 +1419,15 @@ def test_the_stated_tool_count_is_the_registered_one():
 # found it" clause dropped. Measured 2026-09-21 at 13_796.75 (9_061.5 /
 # 3_721.25 / 1_014.0). 3.25 tokens of headroom left; measure again before
 # the next docstring change.
+# #303 gave get_output_frames a `crop` parameter (parity with
+# get_output_image, applied per sampled tile before the aggregate
+# shrink) - the schema growth alone first measured at 13_884. Paid for
+# across all three media docstrings: get_output_frames' selector and
+# boundaries sentences said in fewer words, get_output_image's crop/
+# downscale sentence tightened, and get_output_audio's intro and
+# envelope sentences shortened (still passing "WAV"/"own encoding").
+# Measured 2026-09-21 at 13_798.25 (9_032.5 / 3_751.75 / 1_014.0). 1.75
+# tokens of headroom left; measure again before the next docstring change.
 SURFACE_BUDGET = 13_800
 
 

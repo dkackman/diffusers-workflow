@@ -524,12 +524,12 @@ def build_server(client):
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
         manifest reports it. Use this to judge output quality - a run that
-        succeeded can still have made the wrong picture. The image is
-        downscaled to `max_dimension` on its longest side; the second part
-        reports the before/after size, so a downscale is never silent.
+        succeeded can still have made the wrong picture. Downscaled to
+        `max_dimension` on its longest side; the second part reports the
+        before/after size, so a downscale is never silent.
         `crop` is `[x, y, width, height]` in the
-        original's pixels, cut before the downscale - the way to see a
-        region of a 2K still at 100%, past what a downscale would blur.
+        original's pixels, cut before the downscale - to see a region
+        at full resolution rather than a blurred-down whole.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_image(
@@ -557,13 +557,12 @@ def build_server(client):
         workspace: str | None = None,
     ) -> list[AudioContent | TextContent]:
         """Listen to a generated soundtrack, named as `list_gallery` or a
-        job's manifest reports it - an audio output, or the track muxed
-        into a video (the audio analogue of `get_output_image`): in its
-        own encoding when an audio file is served whole, WAV when
-        extracted or excerpted. No downscale exists for audio - a whole
-        clip too large is refused; ask for a part with `start`/`duration`
-        in seconds, around what `get_gallery_metadata`'s envelope locates.
-        The text part says what was cut. To *see* a video, `get_output_frames`.
+        job's manifest reports it - an audio output, or a video's muxed
+        track: own encoding when served whole, WAV when extracted or
+        excerpted. No downscale exists for audio - a whole clip too
+        large is refused; ask for a part with `start`/`duration` in
+        seconds, per `get_gallery_metadata`'s envelope. The text part
+        says what was cut. To *see* a video, `get_output_frames`.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_audio(
@@ -591,15 +590,17 @@ def build_server(client):
         max_dimension: int = 512,
         hear: float | None = None,
         workspace: str | None = None,
+        crop: list[int] | None = None,
     ) -> list[ImageContent | AudioContent | TextContent]:
-        """See a generated video as frames - there is no video content
-        type over MCP. One selector per call: `count` for a contact sheet,
-        `at` for moments (seconds or "frame:N"), or `seams` (true, or seam
-        numbers from 1) for the frame pair either side of each join. `seams`
-        needs `boundaries`: each later shot's first frame, the running sum of
-        the shots' `frame_count` from `get_gallery_metadata` on their own
-        files; `names` names the shots. Over budget, tiles shrink together,
-        never drop. `hear=N` adds N seconds of soundtrack around each `at` moment.
+        """See a generated video as frames - no video content type exists
+        over MCP. One selector: `count` (contact sheet), `at` (seconds or
+        "frame:N"), or `seams` (true, or seam numbers from 1) for each
+        join's frame pair. `seams` needs `boundaries` - each later shot's
+        first frame, running sum of `get_gallery_metadata`'s `frame_count`;
+        `names` names the shots. Over budget, tiles shrink together.
+        `hear=N` adds N seconds of soundtrack around each `at`.
+        `crop` is `[x, y, width, height]` per tile, cut before the
+        downscale - `get_output_image`'s crop.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_frames(
@@ -613,6 +614,7 @@ def build_server(client):
             max_dimension=max_dimension,
             hear=hear,
             workspace=workspace,
+            crop=crop,
         )
         parts = []
         for tile in result["tiles"]:
@@ -633,6 +635,8 @@ def build_server(client):
             f"name: {result['name']}",
             f"frame_count: {result['frame_count']}  fps: {result['fps']}",
         ]
+        if result.get("crop"):
+            lines.append(f"crop: {result['crop']}")
         fps = result["fps"]
         for tile in result["tiles"]:
             if tile.get("frames"):
