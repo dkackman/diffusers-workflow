@@ -28,6 +28,7 @@ def tracked_script(command):
         "run_id": RUN_ID,
         "identity": "server_test",
         "run_dir": RUN_DIR,
+        "version": 4,
     }
     yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
 
@@ -59,6 +60,9 @@ def test_run_start_populates_the_job(manager):
     assert job.run_dir == RUN_DIR
     assert job.summary()["run_id"] == RUN_ID
     assert job.detail()["run_dir"] == RUN_DIR
+    # the ordinal the gallery shows for this run's files
+    assert job.run_version == 4
+    assert job.summary()["run_version"] == 4
 
 
 def test_both_persist_and_read_back(manager):
@@ -66,6 +70,10 @@ def test_both_persist_and_read_back(manager):
     historical = manager.history.get(job.id)
     assert historical["run_id"] == RUN_ID
     assert historical["run_dir"] == RUN_DIR
+    assert historical["run_version"] == 4
+    # and in the polled list, not only the detail
+    (summary,) = manager.history.recent_summaries()
+    assert summary["run_version"] == 4
 
 
 def test_realized_reads_the_file_the_run_wrote(manager, tmp_path):

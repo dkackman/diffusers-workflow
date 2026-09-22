@@ -14,6 +14,7 @@ import zipfile
 import tempfile
 import copy
 import json
+import re
 import uuid
 import asyncio
 import logging
@@ -98,7 +99,9 @@ from ..runs import (
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
+    record_run_versions,
     resolve_output_reference,
+    run_versions,
     split_run_path,
 )
 from ..workspace import (
@@ -2701,13 +2704,14 @@ def create_app(
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
                 if group_runs:
-                    folder, _run_id, subfolder = split_run_path(relative_name)
+                    folder, run_id, subfolder = split_run_path(relative_name)
                 else:
-                    folder, subfolder = directory, ""
+                    folder, subfolder, run_id = directory, "", ""
                 yield (
                     relative_name,
                     folder,
                     subfolder,
+                    run_id,
                     kind,
                     os.path.join(current, name),
                 )
@@ -2718,7 +2722,19 @@ def create_app(
             files = list(_iter_gallery_files(root))
         except OSError:
             files = []
-        for relative_name, folder, subfolder, kind, path in files:
+        # One read of each workflow's run ordinals per listing, not per file:
+        # a run of fifty files would otherwise re-read the same manifests
+        # fifty times
+        versions_by_folder = {}
+
+        def _version(folder, run_id):
+            if not run_id:
+                return None
+            if folder not in versions_by_folder:
+                versions_by_folder[folder] = run_versions(os.path.join(root, folder))
+            return versions_by_folder[folder].get(run_id)
+
+        for relative_name, folder, subfolder, run_id, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
@@ -2736,6 +2752,14 @@ def create_app(
                     "name": relative_name,
                     "folder": folder,
                     "subfolder": subfolder,
+                    # Which run wrote it, and that run's ordinal among this
+                    # workflow's runs - the 'v4' a person sees in the grid
+                    # and an agent says out loud. Two runs write the same
+                    # basename, so `label` cannot tell them apart and
+                    # `name` is too long to quote. None under the flat
+                    # layout, which has no runs to number
+                    "run_id": run_id,
+                    "version": _version(folder, run_id),
                     # Quoted (slashes kept literal): a name carrying '#', '?'
                     # or '%' would otherwise break the src the gallery
                     # renders it into. The mtime still rides along for cache
@@ -2801,6 +2825,7 @@ def create_app(
         folder: Optional[str] = None,
         subfolder: Optional[str] = None,
         only_orphans: bool = False,
+        version: Optional[int] = None,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2815,6 +2840,8 @@ def create_app(
         way: the in-run subfolders steps wrote into ('final',
         'intermediate'), '' for files at a run's root. `folder` and
         `subfolder` filter independently and intersect when both are given.
+        `version` narrows to the runs holding that ordinal - with `folder`,
+        the one run "v4" names; without it, that run of every workflow.
 
         `only_orphans=true` inverts the whole call: instead of media files,
         it returns run directories holding nothing but their own
@@ -2845,6 +2872,8 @@ def create_app(
             entries = [e for e in entries if e["folder"] == folder]
         if subfolder is not None:
             entries = [e for e in entries if e["subfolder"] == subfolder]
+        if version is not None:
+            entries = [e for e in entries if e["version"] == version]
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
@@ -2884,6 +2913,7 @@ def create_app(
         the only way to read a wav's length was to run a job that copied it
         into the output directory. `job` is null for an asset (nothing here
         produced it) and `source` says which of the two roots answered."""
+        run_id, version = "", None
         if is_asset_reference(name):
             path = _asset_file(name, ws)
             source, job = "asset", None
@@ -2897,6 +2927,13 @@ def create_app(
                 job = manager.history.job_for_file(name, workspace=ws.name)
             except Exception:
                 job = None
+            # Which run wrote it, and that run's ordinal - the same 'v4' the
+            # listing reports. After "look at version 3" this is the next
+            # call, so it confirms the right file was reached rather than
+            # sending the caller back to the listing
+            folder, run_id, _subfolder = split_run_path(name)
+            if run_id:
+                version = run_versions(os.path.join(ws.outputs, folder)).get(run_id)
         metadata = read_embedded_metadata(path)
         extension = os.path.splitext(path)[1].lower()
         media = (
@@ -2909,6 +2946,8 @@ def create_app(
             "source": source,
             "metadata": metadata,
             "job": job,
+            "run_id": run_id,
+            "version": version,
             "media": media,
         }
 
@@ -3355,6 +3394,9 @@ def create_app(
                     continue
                 return None
 
+        # Pin the siblings' numbers first: a run that predates versions is
+        # ranked, and removing one ahead of it would renumber it
+        record_run_versions(os.path.dirname(run_dir))
         shutil.rmtree(run_dir, ignore_errors=True)
         # And the identity folders above it, while they are empty - a swept
         # workspace should not keep one directory per workflow it once ran
@@ -3397,6 +3439,9 @@ def create_app(
         """
         run_dir = _run_directory(name, ws.outputs)
         if run_dir is not None:
+            # As in _prune_empty_run_directory: pin the siblings' numbers
+            # before one of them goes
+            record_run_versions(os.path.dirname(run_dir))
             shutil.rmtree(run_dir, ignore_errors=True)
             parent = os.path.dirname(run_dir)
             while os.path.normpath(parent) != os.path.normpath(ws.outputs):
@@ -3597,7 +3642,7 @@ def create_app(
             except OSError:
                 files = []
             origin = _asset_origin(ws, root)
-            for relative, folder, _subfolder, kind, path in files:
+            for relative, folder, _subfolder, _run_id, kind, path in files:
                 try:
                     stat = os.stat(path)
                 except OSError:
@@ -4126,6 +4171,27 @@ def create_app(
         files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
 
+    def _export_download_name(directory, job_id):
+        """'<workflow>-v4-<job id>.zip' when the exported manifest says which
+        run it was, else '<job id>.zip'. Only the saved file's name: the
+        URL and the entries inside keep the job id, so nothing that already
+        names an export changes."""
+        try:
+            with open(os.path.join(directory, MANIFEST_FILE_NAME)) as file:
+                manifest = json.load(file)
+        except (OSError, ValueError):
+            return f"{job_id}.zip"
+        if not isinstance(manifest, dict):
+            return f"{job_id}.zip"
+        version = manifest.get("version")
+        identity = (manifest.get("workflow") or {}).get("identity")
+        if not isinstance(version, int) or isinstance(version, bool):
+            return f"{job_id}.zip"
+        if not isinstance(identity, str) or not identity:
+            return f"v{version}-{job_id}.zip"
+        slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", identity).strip("-.")
+        return f"{slug}-v{version}-{job_id}.zip" if slug else f"v{version}-{job_id}.zip"
+
     # Ungated for the same reason the two above are: a download link cannot
     # attach an Authorization header either
     @app.get("/exports/{job_id}.zip")
@@ -4147,7 +4213,7 @@ def create_app(
                 path = os.path.join(current, name)
                 entry = os.path.relpath(path, directory).replace(os.sep, "/")
                 entries.append((f"{job_id}/{entry}", path))
-        return _zip_download(entries, f"{job_id}.zip")
+        return _zip_download(entries, _export_download_name(directory, job_id))
 
     # ---------------------------------------------------------------- the UI
 

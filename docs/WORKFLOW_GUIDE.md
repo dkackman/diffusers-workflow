@@ -289,7 +289,8 @@ for existence.
   to the same file.
 - `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
   run wrote, under the output root and confined to it. `latest` in the run-id position
-  picks the newest run that holds that file. A run id is not stable against
+  picks the newest run that holds that file; `v<N>` picks the run the gallery labels
+  `v<N>` (`list_gallery`'s `version`), and only that run. A run id is not stable against
   pruning: to depend on a generated file, promote it with `keep_output` and
   reference the `asset:` name instead.
 - `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
@@ -1459,7 +1460,7 @@ Beside that manifest the run also writes `workflow.json` — the *realized*
 workflow, meaning the one that actually ran. Every mutable input is pinned into
 it: the caller's `arguments` folded into the `variables` defaults, the seed the
 run used, each `prompt:` reference replaced by the stored text, and each
-`output:<identity>/latest/<file>` rewritten to the run id it resolved to.
+`output:<identity>/latest/<file>` (or `/v<N>/`) rewritten to the run id it resolved to.
 `asset:`, `constant:`, `previous_result:` and `builtin:` are kept as written —
 each already names something pinned by the asset library or by the manifest's
 `dw_version` — and a sub-workflow named by local path is kept with its file's
@@ -1657,8 +1658,12 @@ second-stage workflow name the first stage's product without being edited after 
 run - and keeps working when the newest run failed part way, or reused every step from
 the cache and so wrote nothing of its own but a manifest. Runs sort by their id, which
 starts with a UTC timestamp, so "newest" needs no file timestamps and survives a
-directory being copied. `latest` only selects a run where run directories are; a
-workflow or file that happens to be called `latest` is still named as itself.
+directory being copied. `v<N>` in the same position names the run whose version is N -
+the `v4` the gallery labels its files with - so the number a person was told is a name
+a workflow can take. Unlike `latest` it picks exactly one run: `v4` not holding the file
+is an error, not a reason to try `v3`. `latest` and `v<N>` only select a run where run
+directories are; a workflow or file that happens to be called either is still named as
+itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
 it works under `image`, `video`, a `from_file`, or a list of them. The audio tasks take

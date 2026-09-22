@@ -213,10 +213,20 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     return answer
 
 
-def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace=None):
+def list_gallery(
+    client,
+    limit=50,
+    subfolder=None,
+    only_orphans=False,
+    workspace=None,
+    folder=None,
+    version=None,
+):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
-    at a run's root); None means every file.
+    at a run's root); None means every file. `folder` narrows to one
+    workflow and `version` to one run's ordinal, so the two together list
+    the run a person calls "v4".
 
     `only_orphans=True` inverts the call: instead of files, it returns run
     directories holding nothing but their own bookkeeping (manifest.json,
@@ -230,10 +240,22 @@ def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace
     Each file entry also carries `label`, a bare display basename for a UI
     grid - it is not a valid reference on its own (two runs can write the
     same basename) and is not accepted by `get_gallery_metadata` or
-    `delete_output`. Pass `name` to those, not `label`."""
+    `delete_output`. Pass `name` to those, not `label`.
+
+    `version` is that run's ordinal among the workflow's runs, and `run_id`
+    the run it came from. The version is what to quote to a person - the web
+    UI labels the same file `v5` - and is stable: it is assigned when the
+    run opens and a deleted sibling leaves a gap rather than renumbering
+    what is left - as does a run that failed, or reused every step from
+    the cache, and so wrote nothing to list. Null under the flat output
+    layout, which has no runs."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
+    if folder is not None:
+        params["folder"] = folder
+    if version is not None:
+        params["version"] = version
     if only_orphans:
         params["only_orphans"] = "true"
     return client.get_json("/api/gallery", params=params, workspace=workspace)

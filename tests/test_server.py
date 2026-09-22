@@ -1993,6 +1993,129 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         assert finals["subfolders"] == full["subfolders"]
 
 
+def test_gallery_reports_each_run_version(server, tmp_path):
+    """Four runs of one workflow write the same basename, so the gallery
+    label alone cannot tell them apart. Every entry carries the run it came
+    from and that run's ordinal - 'v4' - which is the handle an agent quotes
+    and a person finds in the grid."""
+    import json as _json
+
+    from PIL import Image
+
+    def _run(identity, run_id, version=None):
+        run = tmp_path / "outputs" / identity / run_id
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "film.7-0.0.png")
+        manifest = {"run_id": run_id}
+        if version is not None:
+            manifest["version"] = version
+        (run / "manifest.json").write_text(_json.dumps(manifest))
+        return run
+
+    with server(success_script) as client:
+        _run("acorn/cut", "20260901-120000-aaaaaaaa", version=1)
+        # v2 was deleted; v3 keeps its number rather than sliding down
+        _run("acorn/cut", "20260903-120000-cccccccc", version=3)
+        # a run from before the field existed is ranked, not dropped
+        _run("acorn/score", "20260902-120000-bbbbbbbb")
+        # the flat layout has no runs at all
+        (tmp_path / "outputs" / "ltx").mkdir()
+        Image.new("RGB", (2, 2)).save(tmp_path / "outputs" / "ltx" / "flat.png")
+
+        by_name = {f["name"]: f for f in client.get("/api/gallery").json()["files"]}
+
+        first = by_name["acorn/cut/20260901-120000-aaaaaaaa/final/film.7-0.0.png"]
+        assert first["version"] == 1
+        assert first["run_id"] == "20260901-120000-aaaaaaaa"
+        third = by_name["acorn/cut/20260903-120000-cccccccc/final/film.7-0.0.png"]
+        assert third["version"] == 3
+        # the two runs are indistinguishable by label alone - which is the
+        # whole reason the version is here
+        assert first["label"] == third["label"] == "film.7-0.0.png"
+        # numbering is per workflow identity, so another workflow's first
+        # run is its own v1
+        assert (
+            by_name["acorn/score/20260902-120000-bbbbbbbb/final/film.7-0.0.png"][
+                "version"
+            ]
+            == 1
+        )
+        assert by_name["ltx/flat.png"]["version"] is None
+        assert by_name["ltx/flat.png"]["run_id"] == ""
+
+        # "show me v3": folder and version together list exactly that run
+        names = [
+            f["name"]
+            for f in client.get(
+                "/api/gallery", params={"folder": "acorn/cut", "version": 3}
+            ).json()["files"]
+        ]
+        assert names == ["acorn/cut/20260903-120000-cccccccc/final/film.7-0.0.png"]
+        # version alone spans workflows: each one's v1
+        v1 = client.get("/api/gallery", params={"version": 1}).json()["files"]
+        assert {f["folder"] for f in v1} == {"acorn/cut", "acorn/score"}
+
+
+def test_gallery_metadata_names_the_run_and_its_version(server, tmp_path):
+    """After "look at version 3", the next call is usually this one - so it
+    answers with the run and the ordinal rather than making the caller go
+    back to the listing to confirm it read the right file."""
+    import json as _json
+
+    from PIL import Image
+
+    with server(success_script) as client:
+        run = tmp_path / "outputs" / "acorn/cut" / "20260903-120000-cccccccc"
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "film.7-0.0.png")
+        (run / "manifest.json").write_text(_json.dumps({"version": 3}))
+
+        body = client.get(
+            "/api/gallery/acorn/cut/20260903-120000-cccccccc"
+            "/final/film.7-0.0.png/metadata"
+        ).json()
+        assert body["run_id"] == "20260903-120000-cccccccc"
+        assert body["version"] == 3
+
+
+def test_deleting_an_older_run_renumbers_none_of_its_siblings(server, tmp_path):
+    """Runs from before versions existed are ranked, so removing the oldest
+    would slide every later one down a number. The delete pins the
+    siblings' numbers into their manifests first - both for a whole run
+    directory and for the last file of a run, which sweeps the directory."""
+    import json as _json
+
+    from PIL import Image
+
+    identity = tmp_path / "outputs" / "acorn" / "cut"
+    run_ids = [f"2026090{day}-120000-aaaaaaaa" for day in (1, 2, 3, 4)]
+    with server(success_script) as client:
+        for run_id in run_ids:
+            (identity / run_id).mkdir(parents=True)
+            Image.new("RGB", (2, 2)).save(identity / run_id / "film.png")
+            (identity / run_id / "manifest.json").write_text(
+                _json.dumps({"run_id": run_id})
+            )
+
+        def versions():
+            return {
+                f["run_id"]: f["version"]
+                for f in client.get("/api/gallery").json()["files"]
+            }
+
+        assert versions() == dict(zip(run_ids, (1, 2, 3, 4)))
+        # the whole run directory
+        assert client.delete(f"/api/gallery/acorn/cut/{run_ids[0]}").status_code == 200
+        assert versions() == dict(zip(run_ids[1:], (2, 3, 4)))
+        # the last file of a run, which takes its directory with it
+        assert (
+            client.delete(f"/api/gallery/acorn/cut/{run_ids[1]}/film.png").status_code
+            == 200
+        )
+        assert not (identity / run_ids[1]).exists()
+        assert versions() == dict(zip(run_ids[2:], (3, 4)))
+
+
 def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path):
     """#170: a run whose output was deleted before `delete_output` could
     remove it by name, or one that failed before writing anything, has no

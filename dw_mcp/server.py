@@ -395,6 +395,8 @@ def build_server(client):
         subfolder: str | None = None,
         only_orphans: bool = False,
         workspace: str | None = None,
+        folder: str | None = None,
+        version: int | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -406,9 +408,13 @@ def build_server(client):
         by convention `final` is the deliverable and `intermediate` the
         scratch work, '' when the step chose none); `subfolder=` filters on
         the latter, so `subfolder="final"` is "what did these runs
-        deliver". Each entry also carries a ready-made `url` for viewing the
-        file over HTTP, already scoped to the right workspace; use it as
-        given rather than composing one from the name.
+        deliver". Each entry's `url` is already scoped to its workspace;
+        use it as given rather than composing one from the name.
+
+        Entries also carry `run_id` and `version`, the run's stable ordinal
+        (the web UI shows `v5`) - quote the version to a person. `folder=`
+        plus `version=` lists that run; "output:<folder>/v5/<file>" names
+        it. Other tools take `name`.
 
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping
@@ -433,6 +439,8 @@ def build_server(client):
             subfolder=subfolder,
             only_orphans=only_orphans,
             workspace=workspace,
+            folder=folder,
+            version=version,
         )
 
     def get_gallery_metadata(

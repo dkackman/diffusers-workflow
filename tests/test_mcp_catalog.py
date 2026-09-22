@@ -117,6 +117,19 @@ def test_list_gallery_sends_a_subfolder_only_when_given():
     assert seen["params"]["subfolder"] == ""
 
 
+def test_list_gallery_sends_folder_and_version_only_when_given():
+    client, seen = recording_client()
+    catalog.list_gallery(client, limit=7)
+    assert "folder" not in seen["params"]
+    assert "version" not in seen["params"]
+
+    # together they name one run - what a person calls "v4"
+    client, seen = recording_client()
+    catalog.list_gallery(client, folder="acorn/cut", version=4)
+    assert seen["params"]["folder"] == "acorn/cut"
+    assert seen["params"]["version"] == "4"
+
+
 def test_list_gallery_sends_only_orphans_only_when_true():
     client, seen = recording_client()
     catalog.list_gallery(client, limit=7)

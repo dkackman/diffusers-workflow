@@ -198,6 +198,9 @@ _SLIM_KEYS = (
     "finished_at",
     "workspace",
     "run_id",
+    # The run's ordinal - the 'v5' the gallery labels its files with - so
+    # the caller can name the run it just waited on without another call
+    "run_version",
     "queue_position",
     "warnings",
     "error",

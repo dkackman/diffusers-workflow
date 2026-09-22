@@ -58,6 +58,7 @@ from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
     activate_output_root,
+    assign_run_version,
     deactivate_output_root,
     workflow_identity,
     manifest_relative_files,
@@ -315,6 +316,11 @@ class Workflow:
     # leaves no manifest of its own, since its steps are already rolled up
     # into the parent's
     _run_dir_inherited = False
+    # That directory's ordinal among this workflow's runs - what the gallery
+    # shows as 'v4'. None in the flat layout, for a sub-workflow (which is
+    # part of the parent's run, not a run of its own), and before a run
+    # starts
+    _run_version = None
     # Where the parent step that delegated to this workflow sits in the
     # run the caller queued: {"step", "index", "total_steps"}. A child
     # counts its own steps from zero, so without this a composed run
@@ -1113,7 +1119,18 @@ class Workflow:
                     self._run_dir = run_directory(
                         self.output_dir, self.file_spec, workflow_id, run_id
                     )
-                    logger.debug(f"Run directory: {self._run_dir}")
+                    # The run's ordinal among this workflow's runs, taken
+                    # once here and carried into the manifest. Assigning it
+                    # at run time rather than deriving it when the gallery
+                    # asks is what lets a sibling be deleted without
+                    # renumbering the runs that outlive it
+                    self._run_version = assign_run_version(
+                        self.output_dir,
+                        workflow_identity(self.file_spec, workflow_id),
+                    )
+                    logger.debug(
+                        f"Run directory: {self._run_dir} (v{self._run_version})"
+                    )
 
             # The record of what actually ran, written before the first step
             # so a crash or a cancel still leaves it. A sub-workflow inherits
@@ -1135,12 +1152,27 @@ class Workflow:
                     # Never fatal: the record is worth less than the run
                     logger.warning(f"Could not realize workflow {workflow_id}: {e}")
 
+                # A manifest now, rewritten in full when the run ends: the
+                # version held only in memory until then was lost to a hard
+                # kill, and a second process opening a run of this workflow
+                # meanwhile could not see it and took the same number
+                self._write_run_manifest(
+                    run_id,
+                    "running",
+                    started_at,
+                    arguments,
+                    resolved_seed,
+                    realized_name,
+                    annotations,
+                )
+
                 # Which run this is, so a server job can find the directory
                 # it wrote. Emitted even when the realized file did not land:
                 # the manifest is still there, and so are the files
                 run_context.emit(
                     "run_start",
                     run_id=run_id,
+                    version=self._run_version,
                     identity=workflow_identity(self.file_spec, workflow_id),
                     run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(
                         os.sep, "/"
@@ -1483,9 +1515,17 @@ class Workflow:
             self._run_dir,
             {
                 "run_id": run_id,
+                # This run's ordinal among the workflow's runs - 'v4' in the
+                # gallery. Recorded, never recomputed
+                "version": self._run_version,
                 "status": status,
                 "started_at": started_at,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                # None on the manifest written as the run opens
+                "finished_at": (
+                    None
+                    if status == "running"
+                    else datetime.now(timezone.utc).isoformat()
+                ),
                 "dw_version": __version__,
                 "device": str(get_device()),
                 "workflow": {

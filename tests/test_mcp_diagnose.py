@@ -417,6 +417,24 @@ def test_wait_for_job_keeps_the_manifest_and_error_once_terminal(monkeypatch):
     assert "get_job" in result["next"]
 
 
+def test_wait_for_job_names_the_run_the_way_the_gallery_will(monkeypatch):
+    """The job that just finished is the one a person asks about next, and
+    the gallery labels its files 'v5' - so the slim job carries the number
+    beside the run id rather than sending the caller to get_job for it."""
+    done = {
+        **FAT_JOB,
+        "status": "succeeded",
+        "run_id": "20260922-212005-cd189c68",
+        "run_version": 5,
+    }
+    client, _ = scripted({("GET", "/api/jobs/job-1"): (200, done)})
+
+    result = diagnose.wait_for_job(client, "job-1")
+
+    assert result["job"]["run_id"] == "20260922-212005-cd189c68"
+    assert result["job"]["run_version"] == 5
+
+
 def test_wait_for_job_reports_queue_position_for_a_still_queued_job(monkeypatch):
     monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0)
     queued = {**FAT_JOB, "status": "queued", "queue_position": 2}

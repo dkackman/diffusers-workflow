@@ -407,3 +407,21 @@ it("corrects the URL to the job's own workspace", async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(location.hash).toBe('#/ws/studio/jobs/j1'))
 })
+
+it('names the run by the version the gallery labels its files with', async () => {
+  detail.job = {
+    ...job([]),
+    run_id: '20260922-120000-aaaaaaaa',
+    run_version: 4,
+  }
+  render(JobPage, { jobId: 'j1' })
+  const chip = await waitFor(() => screen.getByText('v4'))
+  expect(chip.getAttribute('title')).toContain('20260922-120000-aaaaaaaa')
+})
+
+it('shows no version for a job that never opened a run', async () => {
+  detail.job = { ...job([]), run_version: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
+  expect(screen.queryByText(/^v\d+$/)).toBeNull()
+})
