@@ -40,6 +40,7 @@ from ..security import (
     ALLOWED_VIDEO_EXTENSIONS,
     validate_commit_hash,
     InvalidInputError,
+    PathTraversalError,
     SecurityError,
     workflows_are_trusted,
 )
@@ -2499,10 +2500,23 @@ def create_app(
                 root,
                 allow_create=False,
             )
+        except PathTraversalError:
+            # PathTraversalError's own message can embed the resolved
+            # *absolute* server path (dw/security.py validate_path, the
+            # containment branch) - useful in a log, not in a response a
+            # remote caller reads. Still say *why* it was refused, since a
+            # caller needs to tell "this name would have escaped the
+            # workspace" from "this name is simply wrong" (#310) - the
+            # distinction #134 pinned and a later leak fix (#247) collapsed.
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown file: {name} - path contains a disallowed pattern",
+            )
+        except InvalidInputError:
+            raise HTTPException(
+                status_code=404, detail=f"Unknown file: {name} - path does not exist"
+            )
         except SecurityError:
-            # SecurityError's own message embeds the resolved *absolute*
-            # server path (dw/security.py validate_path) - useful in a log,
-            # not in a response a remote caller reads
             raise HTTPException(status_code=404, detail=f"Unknown file: {name}")
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Unknown file")
