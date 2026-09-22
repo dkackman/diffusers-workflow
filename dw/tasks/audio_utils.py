@@ -368,7 +368,7 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
-def _as_track(waveform, sample_rate, command="an audio task"):
+def _as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=None):
     """An audio task's return value: the waveform with the rate it is at.
 
     Every one of these commands already knows the rate - it was given, or it
@@ -396,7 +396,9 @@ def _as_track(waveform, sample_rate, command="an audio task"):
             f"changes its speed and pitch, so it is refused rather than "
             f"written"
         )
-    return AudioTrack(numpy.ascontiguousarray(waveform), rate)
+    return AudioTrack(
+        numpy.ascontiguousarray(waveform), rate, source_mean_dbfs=source_mean_dbfs
+    )
 
 
 def _as_number(value, kind, name, command="slice_audio"):
@@ -498,7 +500,17 @@ def slice_audio(
         )
 
     _warn_on_slice_past_end(total, start, length, sample_rate)
-    return _as_track(slice_samples(waveform, start, length), sample_rate, "slice_audio")
+    # #309: a cut out of a source that was already near-silent (room tone,
+    # a deliberate quiet bed) is not a defect the slice introduced - measure
+    # the source before cutting it down, so save can tell the two apart from
+    # a track that arrived at a normal level and something upstream lost
+    source_mean_dbfs = level_dbfs(waveform, "rms")
+    return _as_track(
+        slice_samples(waveform, start, length),
+        sample_rate,
+        "slice_audio",
+        source_mean_dbfs=source_mean_dbfs,
+    )
 
 
 def gain_audio(
@@ -858,6 +870,13 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     )
 
 
+# #306: templates/assemble-and-score and templates/dissolve-between-shots
+# both ship a stock world_gain of 1.8 - a deliberate multiplier, not a dB
+# figure typed into the wrong unit - so the not-dB heuristic below has to sit
+# above it
+GAIN_LOOKS_LIKE_DB_ABOVE = 3.0
+
+
 def mix_audio(audios, gains=None, sample_rate=None):
     """Task command: layer audio tracks on top of one another.
 
@@ -900,7 +919,17 @@ def mix_audio(audios, gains=None, sample_rate=None):
         )
     check_arguments("mix_audio", gains=gains, sample_rate=sample_rate)
     if gains is not None:
-        loud = [g for g in gains if as_number(g) is not None and as_number(g) > 1.0]
+        # #306: a modest boost (a stock template's world_gain: 1.8 among them)
+        # is a legitimate multiplier a caller chose on purpose, not a typo -
+        # only a gain loud enough that a caller almost certainly meant it as
+        # dB (12, 6, 20, ...) is worth flagging. GAIN_LOOKS_LIKE_DB_ABOVE sits
+        # above any observed catalog default and below the smallest figure a
+        # dB-as-multiplier typo would produce (a "6 dB" or "12 dB" boost)
+        loud = [
+            g
+            for g in gains
+            if as_number(g) is not None and as_number(g) > GAIN_LOOKS_LIKE_DB_ABOVE
+        ]
         if loud:
             emit_warning(
                 f"mix_audio: gain(s) {loud} are a multiplier, not decibels - "

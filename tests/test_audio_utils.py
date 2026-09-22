@@ -948,6 +948,34 @@ class TestSlicingPastTheEndOfATrack:
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
 
 
+class TestSliceAudioCarriesSourceLevel:
+    """#309: a slice out of already-quiet source material (room tone) is not
+    a defect the slice introduced - slice_audio measures the source's own
+    level before cutting it down and carries it on the returned AudioTrack,
+    so save_artifact can tell that case apart from a track that arrived at a
+    normal level and something upstream lost."""
+
+    def test_a_quiet_source_is_measured_on_the_slice(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        quiet = numpy.full((1, 500), 0.001, dtype=numpy.float32)  # ~ -60 dBFS
+        sliced = slice_audio(
+            quiet, start_seconds=0, duration_seconds=2.0, sample_rate=100
+        )
+
+        assert sliced.source_mean_dbfs < -40.0
+
+    def test_a_normal_level_source_is_measured_too(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        loud = numpy.full((1, 500), 0.5, dtype=numpy.float32)
+        sliced = slice_audio(
+            loud, start_seconds=0, duration_seconds=2.0, sample_rate=100
+        )
+
+        assert sliced.source_mean_dbfs > -40.0
+
+
 class TestRateOverrideMismatch:
     """#180: `sample_rate` always overrides a named source's carried rate -
     correct for a raw waveform, which has none of its own, but for a file or

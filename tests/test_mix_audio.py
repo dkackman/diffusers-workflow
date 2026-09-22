@@ -84,7 +84,7 @@ class TestMixAudio:
             deactivate_context(token)
         return [e for e in events if e.get("event") == event_type]
 
-    def test_a_gain_above_one_warns_it_is_not_db(self):
+    def test_a_gain_that_looks_like_db_warns_it_is_not(self):
         warnings = [
             e
             for e in self.events_of(
@@ -100,6 +100,24 @@ class TestMixAudio:
         assert len(warnings) == 1
         assert "decibels" in warnings[0]["message"]
         assert warnings[0]["gains"] == [1.0, 12]
+
+    def test_a_modest_boost_does_not_warn(self):
+        # #306: templates/assemble-and-score and templates/dissolve-between-shots
+        # both ship a stock world_gain of 1.8 - a deliberate multiplier, not a
+        # dB figure typed into the wrong unit
+        warnings = [
+            e
+            for e in self.events_of(
+                lambda: mix_audio(
+                    [_tone(10, 0.1), _tone(10, 0.1)],
+                    gains=[1.0, 1.8],
+                    sample_rate=44100,
+                ),
+                "warning",
+            )
+            if e.get("kind") == "mix_audio_gain_not_db"
+        ]
+        assert warnings == []
 
     def test_the_applied_gains_are_logged(self):
         logs = self.events_of(
