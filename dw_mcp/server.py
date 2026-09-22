@@ -408,15 +408,13 @@ def build_server(client):
         by convention `final` is the deliverable and `intermediate` the
         scratch work, '' when the step chose none); `subfolder=` filters on
         the latter, so `subfolder="final"` is "what did these runs
-        deliver". Each entry also carries a ready-made `url` for viewing the
-        file over HTTP, already scoped to the right workspace; use it as
-        given rather than composing one from the name.
+        deliver". Each entry's `url` is already scoped to its workspace;
+        use it as given rather than composing one from the name.
 
-        Entries also carry `run_id` and `version`, that run's ordinal among
-        the workflow's runs - stable, never renumbered. Quote the version
-        to a person: the web UI labels the same file `v5`. `folder=` with
-        `version=` lists that one run; "output:<folder>/v5/<file>" names it
-        in a workflow. Other tools still take `name`.
+        Entries also carry `run_id` and `version`, the run's stable ordinal
+        (the web UI shows `v5`) - quote the version to a person. `folder=`
+        plus `version=` lists that run; "output:<folder>/v5/<file>" names
+        it. Other tools take `name`.
 
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping

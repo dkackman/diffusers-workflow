@@ -1441,7 +1441,13 @@ def test_the_stated_tool_count_is_the_registered_one():
 # as tightly as it can be said and still 44 tokens over, so the budget takes
 # them deliberately rather than the sentence being cut to nothing. Measured
 # 2026-09-22 at 13_844.0 (9_078.0 / 3_752.0 / 1_014.0). 6 tokens of headroom.
-SURFACE_BUDGET = 13_850
+# Then list_gallery took `folder` and `version`, so "show me v5" is one call
+# rather than a scan of the listing. The docstring paid for its own new
+# sentence and then some (descriptions 9_078 -> 9_068, the `url` sentence
+# said in fewer words); the two schema entries (+49) are what the budget
+# takes, since no docstring can pay for a parameter's schema. Measured
+# 2026-09-22 at 13_883.0 (9_068.0 / 3_801.0 / 1_014.0). 7 tokens of headroom.
+SURFACE_BUDGET = 13_890
 
 
 @pytest.mark.asyncio
