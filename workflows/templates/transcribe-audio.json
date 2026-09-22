@@ -16,7 +16,8 @@
         }
       },
       "result": {
-        "content_type": "text/plain"
+        "content_type": "text/plain",
+        "subfolder": "final"
       }
     }
   ]

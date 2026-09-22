@@ -29,7 +29,8 @@
         }
       },
       "result": {
-        "content_type": "image/png"
+        "content_type": "image/png",
+        "subfolder": "final"
       }
     }
   ]
