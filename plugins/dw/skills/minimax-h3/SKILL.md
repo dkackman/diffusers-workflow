@@ -117,9 +117,10 @@ read the `workflows` guide's authoring section first.
   cuts is laid under the concat.
 - H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what
   is there, not what is not.
-- When deriving a variant, keep `release_pipeline` where the template puts it:
-  it frees the Z-Image boards before H3 loads. A run SIGKILLed near the end in
-  a warm worker but fine in a fresh one is host memory, not the prompt.
+- Keep `release_pipeline` where the template puts it: it frees Z-Image before
+  H3 loads, and frees H3 itself on `shot` before a concat runs. A run
+  SIGKILLed near the end in a warm worker but fine in a fresh one is host
+  memory, not the prompt.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files;
   audio can never be the only reference. References are labelled in order.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
