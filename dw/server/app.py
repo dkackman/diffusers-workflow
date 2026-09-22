@@ -83,7 +83,13 @@ from ..media_audio import (
     media_duration,
     projected_wav_base64_size,
 )
-from ..media_frames import contact_sheet, frames_at, seam_tiles, video_shape
+from ..media_frames import (
+    contact_sheet,
+    frames_at,
+    resolve_crop_box,
+    seam_tiles,
+    video_shape,
+)
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -3009,6 +3015,7 @@ def create_app(
         boundaries: Optional[str] = None,
         names: Optional[str] = None,
         max_dimension: int = 512,
+        crop: Optional[str] = None,
         ws: Workspace = Depends(selected_workspace),
     ):
         """Frames of a video output or asset, as PNG tiles - the way an
@@ -3021,7 +3028,12 @@ def create_app(
         indexes each shot after the first starts at, and `names` the
         shots' names; both are required with `seams` until a joined file
         carries its own (stage 2 of docs/proposals/output-assessment.md).
-        Tiles are downscaled to `max_dimension` on their longest side."""
+        Tiles are downscaled to `max_dimension` on their longest side.
+        `crop` is `x,y,width,height` in the video's own source pixels
+        (`video_shape`'s `width`/`height`) - resolved once and cut from
+        every sampled frame before any stamping, fitting or composing, so
+        it names the same region whatever `max_dimension` downscales the
+        result to."""
         if is_asset_reference(name):
             path = _asset_file(name, ws)
         else:
@@ -3053,6 +3065,13 @@ def create_app(
             # header frame count, decoding it whole to count) a second time
             # just to answer the same frame_count/fps/width/height (#193).
             shape = video_shape(path)
+            crop_box = (
+                resolve_crop_box(
+                    [c.strip() for c in crop.split(",")], shape["width"], shape["height"]
+                )
+                if crop
+                else None
+            )
             if at:
                 moments = [
                     m.strip() if m.strip().startswith("frame:") else float(m)
@@ -3066,10 +3085,16 @@ def create_app(
                         f"{MAX_FRAME_MOMENTS} - ask for a contact sheet (`count`) "
                         "to see more of the clip at once",
                     )
-                tiles = frames_at(path, moments, shape=shape)
+                tiles = frames_at(path, moments, shape=shape, crop_box=crop_box)
             elif count:
                 tiles = [
-                    contact_sheet(path, count, tile_width=sub_tile_width, shape=shape)
+                    contact_sheet(
+                        path,
+                        count,
+                        tile_width=sub_tile_width,
+                        shape=shape,
+                        crop_box=crop_box,
+                    )
                 ]
             else:
                 if not boundaries:
@@ -3099,6 +3124,7 @@ def create_app(
                     tile_width=sub_tile_width,
                     shape=shape,
                     wanted=wanted,
+                    crop_box=crop_box,
                 )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -3107,6 +3133,11 @@ def create_app(
             "name": name,
             **shape,
             "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+            "crop": (
+                [crop_box[0], crop_box[1], crop_box[2] - crop_box[0], crop_box[3] - crop_box[1]]
+                if crop_box
+                else None
+            ),
         }
 
     def _encoded_tile(tile, limit):

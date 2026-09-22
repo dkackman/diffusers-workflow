@@ -1517,6 +1517,68 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
         assert _png_of(body["tiles"][0]).size == (32, 16)
 
 
+def test_gallery_frames_crop_names_the_same_source_region_at_any_max_dimension(
+    server, tmp_path
+):
+    """#303: a crop box used to be resolved (and applied) against the
+    already-downscaled tiles, so the same crop query named a different
+    region at different max_dimension - and, for a contact sheet, could be
+    refused as outside the image even when it was inside the source frame.
+    Crop is now resolved once against the clip's real width/height and cut
+    from each source frame before any downscale, so the same box names the
+    same region regardless of max_dimension."""
+    from tests.test_media_frames import write_split_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_split_mp4(
+            outputs / "shot-gen.0-0.0.mp4", width=64, height=32, left=50, right=200
+        )
+
+        small = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": "0.0", "crop": "32,0,32,32", "max_dimension": "16"},
+        )
+        large = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"at": "0.0", "crop": "32,0,32,32", "max_dimension": "512"},
+        )
+
+        assert small.status_code == 200 and large.status_code == 200
+        assert small.json()["crop"] == [32, 0, 32, 32]
+        assert large.json()["crop"] == [32, 0, 32, 32]
+        # both name the right half - grey 200 - at whatever max_dimension
+        import numpy
+
+        for response in (small, large):
+            image = _png_of(response.json()["tiles"][0]).convert("L")
+            assert int(numpy.asarray(image).mean().round()) == pytest.approx(200, abs=6)
+
+
+def test_gallery_frames_crop_is_cut_from_the_source_frame_in_count_mode(
+    server, tmp_path
+):
+    """The tester's exact repro: an in-bounds source-pixel crop box was
+    wrongly refused as outside the image in `count` mode, because it was
+    checked against the tiny assembled contact sheet rather than the source
+    frame. A source-pixel crop box must be accepted and applied per frame."""
+    from tests.test_media_frames import write_split_mp4
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_split_mp4(
+            outputs / "shot-gen.0-0.0.mp4", width=64, height=32, left=50, right=200
+        )
+
+        response = client.get(
+            "/api/gallery/shot-gen.0-0.0.mp4/frames",
+            params={"count": 4, "crop": "32,0,32,32", "max_dimension": "16"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["crop"] == [32, 0, 32, 32]
+
+
 def test_gallery_frames_makes_a_contact_sheet(server, tmp_path):
     from tests.test_media_frames import write_ramp_mp4
 

@@ -527,9 +527,8 @@ def build_server(client):
         succeeded can still have made the wrong picture. Downscaled to
         `max_dimension` on its longest side; the second part reports the
         before/after size, so a downscale is never silent.
-        `crop` is `[x, y, width, height]` in the
-        original's pixels, cut before the downscale - to see a region
-        at full resolution rather than a blurred-down whole.
+        `crop` is `[x, y, width, height]` in the original's pixels,
+        cut before the downscale.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_image(
@@ -599,8 +598,9 @@ def build_server(client):
         first frame, running sum of `get_gallery_metadata`'s `frame_count`;
         `names` names the shots. Over budget, tiles shrink together.
         `hear=N` adds N seconds of soundtrack around each `at`.
-        `crop` is `[x, y, width, height]` per tile, cut before the
-        downscale - `get_output_image`'s crop.
+        `crop` is `[x, y, width, height]` in the video's own source
+        pixels, cut from every frame before any downscale, like
+        `get_output_image`'s.
 
         `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_frames(
