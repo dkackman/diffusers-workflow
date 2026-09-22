@@ -465,7 +465,16 @@ def estimate(
                 child_definition = None
                 child_cost = None
         child_observed = None
-        if observed_for_child is not None and child_definition is not None:
+        # A child's observed figure only ever feeds a total that can
+        # honestly end up basis: observed (own["minutes"] is None, below) -
+        # a priced parent's own basis is 'catalog', and summing an observed
+        # child into it produced a total that did not match either figure
+        # while still claiming 'catalog' (#315)
+        if (
+            own["minutes"] is None
+            and observed_for_child is not None
+            and child_definition is not None
+        ):
             try:
                 child_observed = observed_for_child(path, child_definition)
             except Exception:
