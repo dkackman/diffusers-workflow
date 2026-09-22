@@ -2,12 +2,30 @@
     "id": "MiniMaxH3",
     "description": "The baseline for the MiniMax H3 family: a joint video-and-audio modular pipeline fitted onto a single consumer GPU. Shows the pieces every other H3 example builds on - a ModularPipeline whose components are loaded and quantized individually (SDNQ per component, with the numerically sensitive projections excluded), a mixed offload strategy that group offloads the transformer by blocks and the text encoder by leaves while small components stay resident, a step-distillation LoRA to cut inference steps, and a result that muxes the pipeline's video and audio outputs into one file.",
     "summary": "The MiniMax H3 baseline: text to video with audio, fitted onto a single consumer GPU.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 6.6
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
         "width",
         "height"
     ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; base_gb and bytes_per_voxel are calibrated from two real runs: image-to-video's family baseline at 960x544x124 (on-demand VAE) succeeded at 18.03 GiB peak reserved (docs/WORKFLOW_GUIDE.md), and video-with-audio-768p at 1344x768x345 (the family's own num_frames ceiling) OOM'd mid-denoise needing >=25.82 GiB - 20.25 GiB already allocated plus a refused 5.57 GiB allocation, on a 23.56 GiB card (job 282172105da1, 2026-09-22) - closing the gap #265/#266 left the H3 family with nothing declared to check the engine's vram_estimate machinery against (#324)"
+    },
     "variables": {
         "prompt": "prompt:minimax/fox_dawn_context_ir",
         "num_frames": 124,
