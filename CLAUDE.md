@@ -368,6 +368,31 @@ same reason - default setup cannot load a pack.
   `JobManager.realized` finds the file. `exports` is a reserved workspace name:
   `POST /api/jobs/{id}/export` gathers one finished job into
   `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
+- **A run has a number, and it is not derived from the listing** - a file's name
+  is per *step*, so four runs of one workflow write four files called
+  `AcornWarsCutAndScore-film.7-0.0.mp4` and the gallery drew four identical
+  captions: the run id told them apart but is not something anyone says out
+  loud, so an agent had no way to name one of them to a person. Every run now
+  takes an ordinal, `assign_run_version` (`dw/runs.py`) at the moment
+  `Workflow.run` opens the run directory, recorded as `version` in
+  `manifest.json` and read back by `run_versions`. Assigned once and never
+  recomputed, which is the point: deleting a middle run leaves a gap rather
+  than sliding every later number down, so "version 5" still means the same
+  run tomorrow. Assignment is `max(recorded) + 1` over *every* sibling
+  manifest, not one past the newest - run ids are chronological only to the
+  second, and within one second the spec digest decides the sort, which is
+  exactly what three quick reruns hit. A run with no recorded number (made
+  before the field, or killed before its manifest landed) is backfilled by
+  rank: the unrecorded runs older than every recorded one take the numbers
+  beneath the lowest, later ones continue from the run before. `GET
+  /api/gallery` and the metadata route carry `version` and `run_id`
+  (`run_versions` read once per identity per listing, not per file), MCP
+  `list_gallery` teaches the vocabulary, and the web UI reads the field only -
+  a `v4` chip on the card, the run id in the detail pane. Nothing on disk is
+  renamed, so `output:` references, the step cache and `keep_output` are
+  untouched. Two limits taken deliberately: deleting the *newest* run frees
+  its number for reuse (the high-water mark lived in the manifest that went
+  with it), and the flat layout has no runs, so `version` is null there.
 - **Result subfolders**: a step's `result.subfolder` (`dw/subfolders.py`) puts its files
   in a subfolder of the run directory - `<run>/final/x.mp4` - by convention `final` or
   `intermediate`; the engine treats no name specially and there is no default.

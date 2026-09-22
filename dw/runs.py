@@ -345,6 +345,110 @@ def strip_run_id(relative_path):
     return split_run_path(relative_path)[0]
 
 
+# The key a run's ordinal is recorded under in its manifest. It is assigned
+# once, when the run directory is opened, and never recomputed - which is the
+# whole point: a number quoted in conversation has to still mean the same run
+# after a sibling is deleted. Deleting a middle run leaves a gap
+RUN_VERSION_KEY = "version"
+
+
+def _recorded_version(run_dir):
+    """The ordinal a run recorded for itself, or None.
+
+    None covers every way the number can be missing: a run made before this
+    field existed, one killed before its manifest landed, and one whose
+    manifest cannot be parsed. All three are ranked rather than trusted.
+    """
+    try:
+        with open(os.path.join(run_dir, MANIFEST_FILE_NAME)) as file:
+            manifest = json.load(file)
+    except (OSError, ValueError):
+        return None
+    version = manifest.get(RUN_VERSION_KEY) if isinstance(manifest, dict) else None
+    return version if isinstance(version, int) and version > 0 else None
+
+
+def _run_ids(identity_dir):
+    """Every run directory under one workflow identity, oldest first.
+
+    Run ids sort by their UTC timestamp, so lexical order is chronological
+    to the second - the same property `latest` relies on. Within one second
+    the spec digest decides, which is arbitrary but stable; nothing here
+    needs finer ordering than that.
+    """
+    try:
+        entries = os.listdir(identity_dir)
+    except OSError:
+        return []
+    return sorted(
+        name
+        for name in entries
+        if is_run_id(name) and os.path.isdir(os.path.join(identity_dir, name))
+    )
+
+
+def run_versions(identity_dir):
+    """Every run of one workflow mapped to its ordinal: {run id: version}.
+
+    A run that recorded a version keeps it verbatim - that is what makes the
+    number survive a sibling being deleted. A run that recorded none (made
+    before the field existed, or killed before its manifest landed) is
+    ranked into the sequence around it: the unrecorded runs *older* than
+    every recorded one take the numbers just beneath the lowest recorded
+    one, so history that predates the field lands where it belongs, and an
+    unrecorded run anywhere later simply continues from the run before it.
+    Ordering is by run id, which is chronological.
+    """
+    run_ids = _run_ids(identity_dir)
+    recorded = {
+        run_id: _recorded_version(os.path.join(identity_dir, run_id))
+        for run_id in run_ids
+    }
+    # Room beneath the lowest recorded number for the unrecorded runs that
+    # come before it. Where there is not enough room the sequence starts at
+    # 1 and the recorded numbers stand: a duplicate is better than
+    # renumbering a run someone has already been told the number of
+    leading = 0
+    for run_id in run_ids:
+        if recorded[run_id] is not None:
+            break
+        leading += 1
+    next_number = 1
+    if leading < len(run_ids):
+        next_number = max(1, recorded[run_ids[leading]] - leading)
+    versions = {}
+    for run_id in run_ids:
+        if recorded[run_id] is not None:
+            versions[run_id] = recorded[run_id]
+            next_number = recorded[run_id] + 1
+        else:
+            versions[run_id] = next_number
+            next_number += 1
+    return versions
+
+
+def assign_run_version(output_dir, identity):
+    """The ordinal the run about to open under `identity` takes.
+
+    One past the highest ordinal any sibling holds - not one past the newest
+    run's, because run ids are chronological only across seconds: two runs
+    started in the same second are ordered by their spec digest, so the last
+    id is not reliably the highest number. Three quick reruns are exactly
+    that case.
+
+    It reads every sibling manifest, which is a small JSON file per run of
+    one workflow, once, against a run measured in minutes. Sharing
+    `run_versions` rather than deriving the maximum separately is what keeps
+    the number assigned here and the number the gallery reports from
+    drifting apart.
+
+    Best effort, like everything else that writes a run's bookkeeping: a
+    directory that cannot be read yields 1 rather than failing the run.
+    """
+    versions = run_versions(os.path.join(output_dir, identity))
+    return max(versions.values(), default=0) + 1
+
+
 def run_directory(output_dir, file_spec, workflow_id, run_id):
     """Where one execution writes: <output_dir>/<identity>/<run id>.
 

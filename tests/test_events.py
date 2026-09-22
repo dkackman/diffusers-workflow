@@ -461,3 +461,28 @@ def test_watchdog_event_carries_the_required_fields():
     assert stall["phase"] == "saving"
     assert isinstance(stall["seconds_since_phase_start"], (int, float))
     assert "message" in stall
+
+
+def test_each_run_records_its_own_version(tmp_path):
+    """Consecutive runs of one workflow number themselves 1, 2, 3 - the
+    ordinal the gallery shows as 'v2' and an agent quotes."""
+
+    def mock_load(self, shared_components):
+        self.pipeline = FakePipeline()
+
+    versions = []
+    for _ in range(3):
+        workflow_def = _workflow_def()
+        workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
+        workflow = Workflow(workflow_def, str(tmp_path), "test.json")
+        with patch.object(Pipeline, "load", mock_load):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run({}, previous_pipelines={})
+        # The run's own directory, not the one its files came from: a
+        # cached step reports the earlier run's files while still being a
+        # run of its own with its own number
+        run_dir = pathlib.Path(workflow._run_dir)
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        versions.append(manifest["version"])
+
+    assert versions == [1, 2, 3]

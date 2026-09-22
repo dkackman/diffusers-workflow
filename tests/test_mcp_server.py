@@ -1435,7 +1435,13 @@ def test_the_stated_tool_count_is_the_registered_one():
 # downscale" without the old space-filling clause, which pushed descriptions
 # over budget first (13_820). Measured 2026-09-21 at 13_790.8 (9_025.0 /
 # 3_751.8 / 1_014.0). 9.2 tokens of headroom left.
-SURFACE_BUDGET = 13_800
+# Run versions added four sentences to list_gallery teaching `version` and
+# `run_id` - the handle for naming one of several runs that wrote the same
+# basename, which is the one thing the surface could not say before. Written
+# as tightly as it can be said and still 44 tokens over, so the budget takes
+# them deliberately rather than the sentence being cut to nothing. Measured
+# 2026-09-22 at 13_844.0 (9_078.0 / 3_752.0 / 1_014.0). 6 tokens of headroom.
+SURFACE_BUDGET = 13_850
 
 
 @pytest.mark.asyncio

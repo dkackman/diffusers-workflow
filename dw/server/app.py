@@ -99,6 +99,7 @@ from ..runs import (
     is_output_reference,
     is_run_id,
     resolve_output_reference,
+    run_versions,
     split_run_path,
 )
 from ..workspace import (
@@ -2701,13 +2702,14 @@ def create_app(
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
                 if group_runs:
-                    folder, _run_id, subfolder = split_run_path(relative_name)
+                    folder, run_id, subfolder = split_run_path(relative_name)
                 else:
-                    folder, subfolder = directory, ""
+                    folder, subfolder, run_id = directory, "", ""
                 yield (
                     relative_name,
                     folder,
                     subfolder,
+                    run_id,
                     kind,
                     os.path.join(current, name),
                 )
@@ -2718,7 +2720,19 @@ def create_app(
             files = list(_iter_gallery_files(root))
         except OSError:
             files = []
-        for relative_name, folder, subfolder, kind, path in files:
+        # One read of each workflow's run ordinals per listing, not per file:
+        # a run of fifty files would otherwise re-read the same manifests
+        # fifty times
+        versions_by_folder = {}
+
+        def _version(folder, run_id):
+            if not run_id:
+                return None
+            if folder not in versions_by_folder:
+                versions_by_folder[folder] = run_versions(os.path.join(root, folder))
+            return versions_by_folder[folder].get(run_id)
+
+        for relative_name, folder, subfolder, run_id, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
@@ -2736,6 +2750,14 @@ def create_app(
                     "name": relative_name,
                     "folder": folder,
                     "subfolder": subfolder,
+                    # Which run wrote it, and that run's ordinal among this
+                    # workflow's runs - the 'v4' a person sees in the grid
+                    # and an agent says out loud. Two runs write the same
+                    # basename, so `label` cannot tell them apart and
+                    # `name` is too long to quote. None under the flat
+                    # layout, which has no runs to number
+                    "run_id": run_id,
+                    "version": _version(folder, run_id),
                     # Quoted (slashes kept literal): a name carrying '#', '?'
                     # or '%' would otherwise break the src the gallery
                     # renders it into. The mtime still rides along for cache
@@ -2884,6 +2906,7 @@ def create_app(
         the only way to read a wav's length was to run a job that copied it
         into the output directory. `job` is null for an asset (nothing here
         produced it) and `source` says which of the two roots answered."""
+        run_id, version = "", None
         if is_asset_reference(name):
             path = _asset_file(name, ws)
             source, job = "asset", None
@@ -2897,6 +2920,13 @@ def create_app(
                 job = manager.history.job_for_file(name, workspace=ws.name)
             except Exception:
                 job = None
+            # Which run wrote it, and that run's ordinal - the same 'v4' the
+            # listing reports. After "look at version 3" this is the next
+            # call, so it confirms the right file was reached rather than
+            # sending the caller back to the listing
+            folder, run_id, _subfolder = split_run_path(name)
+            if run_id:
+                version = run_versions(os.path.join(ws.outputs, folder)).get(run_id)
         metadata = read_embedded_metadata(path)
         extension = os.path.splitext(path)[1].lower()
         media = (
@@ -2909,6 +2939,8 @@ def create_app(
             "source": source,
             "metadata": metadata,
             "job": job,
+            "run_id": run_id,
+            "version": version,
             "media": media,
         }
 
@@ -3597,7 +3629,7 @@ def create_app(
             except OSError:
                 files = []
             origin = _asset_origin(ws, root)
-            for relative, folder, _subfolder, kind, path in files:
+            for relative, folder, _subfolder, _run_id, kind, path in files:
                 try:
                     stat = os.stat(path)
                 except OSError:

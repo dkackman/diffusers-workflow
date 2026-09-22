@@ -10,6 +10,7 @@ import pytest
 
 from dw.runs import (
     FLAT_LAYOUT,
+    assign_run_version,
     OUTPUT_LAYOUT_ENV_VAR,
     RUN_LAYOUT,
     is_run_id,
@@ -17,6 +18,7 @@ from dw.runs import (
     new_run_id,
     output_layout,
     resolve_output_reference,
+    run_versions,
     split_run_path,
     strip_run_id,
     workflow_identity,
@@ -733,3 +735,105 @@ class TestSubfolders:
         )
         segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
         assert len(segments) == 2
+
+
+class TestRunVersions:
+    """A run's ordinal among the runs of its workflow - the number a person
+    sees as 'v4' in the gallery and an agent says out loud. Assigned once,
+    recorded in the manifest, and never renumbered when a sibling is
+    deleted."""
+
+    @staticmethod
+    def _run(identity_dir, run_id, version=None):
+        """A run directory holding a manifest, with or without a version."""
+        run_dir = os.path.join(identity_dir, run_id)
+        os.makedirs(run_dir, exist_ok=True)
+        manifest = {"run_id": run_id, "status": "completed"}
+        if version is not None:
+            manifest["version"] = version
+        with open(os.path.join(run_dir, "manifest.json"), "w") as file:
+            json.dump(manifest, file)
+        return run_dir
+
+    def test_the_first_run_of_a_workflow_is_version_one(self, tmp_path):
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 1
+
+    def test_the_next_run_takes_the_number_after_the_newest(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        self._run(str(identity), "20260902-120000-bbbbbbbb", version=2)
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+
+    def test_a_deleted_middle_run_leaves_a_gap_rather_than_renumbering(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        self._run(str(identity), "20260903-120000-cccccccc", version=3)
+        versions = run_versions(str(identity))
+        # v2 is gone; v3 is still v3, and the next run is v4
+        assert versions == {
+            "20260901-120000-aaaaaaaa": 1,
+            "20260903-120000-cccccccc": 3,
+        }
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+
+    def test_runs_started_in_the_same_second_still_number_upward(self, tmp_path):
+        # Run ids are chronological only across seconds - within one second
+        # the spec digest decides the sort, so the highest number is not
+        # necessarily the last id. Three quick reruns are exactly this case
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-dddddddd", version=1)
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=2)
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+
+    def test_runs_predating_the_field_are_ranked_by_run_id(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260903-120000-cccccccc")
+        self._run(str(identity), "20260901-120000-aaaaaaaa")
+        self._run(str(identity), "20260902-120000-bbbbbbbb")
+        assert run_versions(str(identity)) == {
+            "20260901-120000-aaaaaaaa": 1,
+            "20260902-120000-bbbbbbbb": 2,
+            "20260903-120000-cccccccc": 3,
+        }
+
+    def test_backfilled_runs_sit_below_the_lowest_recorded_number(self, tmp_path):
+        # Two runs made before the field existed, then one that records it.
+        # The recorded number is authoritative; the older two are ranked
+        # beneath it so nothing collides
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa")
+        self._run(str(identity), "20260902-120000-bbbbbbbb")
+        self._run(str(identity), "20260903-120000-cccccccc", version=3)
+        assert run_versions(str(identity)) == {
+            "20260901-120000-aaaaaaaa": 1,
+            "20260902-120000-bbbbbbbb": 2,
+            "20260903-120000-cccccccc": 3,
+        }
+
+    def test_a_run_whose_manifest_never_landed_is_still_numbered(self, tmp_path):
+        # Killed hard enough to write nothing: the directory is there, the
+        # manifest is not, and it is ranked like any pre-field run
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        os.makedirs(str(identity / "20260902-120000-bbbbbbbb"))
+        assert run_versions(str(identity)) == {
+            "20260901-120000-aaaaaaaa": 1,
+            "20260902-120000-bbbbbbbb": 2,
+        }
+
+    def test_a_directory_that_is_not_a_run_is_ignored(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        os.makedirs(str(identity / "not-a-run-id"))
+        assert run_versions(str(identity)) == {"20260901-120000-aaaaaaaa": 1}
+
+    def test_an_unreadable_manifest_does_not_lose_the_run(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        run_dir = identity / "20260901-120000-aaaaaaaa"
+        os.makedirs(str(run_dir))
+        with open(os.path.join(str(run_dir), "manifest.json"), "w") as file:
+            file.write("{ not json")
+        assert run_versions(str(identity)) == {"20260901-120000-aaaaaaaa": 1}
+
+    def test_a_workflow_with_no_runs_yet_has_none(self, tmp_path):
+        assert run_versions(str(tmp_path / "never" / "ran")) == {}

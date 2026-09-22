@@ -319,7 +319,15 @@
         {:else}
           <span class="audio">♪ {file.label}</span>
         {/if}
-        <span class="caption" title={file.name}>{file.label}</span>
+        <span class="caption" title={file.name}>
+          {#if file.version}
+            <span
+              class="version"
+              title="version {file.version} of this workflow"
+              >v{file.version}</span
+            >
+          {/if}{file.label}</span
+        >
       </button>
     </div>
   {/snippet}
@@ -352,6 +360,15 @@
         class="muted"
         title="open the file itself in a new tab">open file</a
       >
+      {#if selected.version}
+        <!-- The run this file came from, said in both the form a person is
+             quoted ("version 4") and the form every tool takes (the run
+             id), so the two can be checked against each other here rather
+             than back in the listing -->
+        <span class="num muted"
+          >version {selected.version} · <code>{selected.run_id}</code></span
+        >
+      {/if}
       <span class="num muted"
         >{formatBytes(selected.size)} · {formatMtime(selected.mtime)}</span
       >
@@ -523,6 +540,20 @@
     -webkit-box-orient: vertical;
     white-space: normal;
     word-break: break-all;
+  }
+  /* The one part of the caption that must not be broken or clamped away:
+     with four runs writing the same name it is the only thing on the card
+     that differs. Inline-block so word-break: break-all cannot split 'v10'
+     across lines */
+  .version {
+    display: inline-block;
+    margin-right: 0.35rem;
+    padding: 0 0.3rem;
+    border-radius: 0.2rem;
+    background: var(--chip, rgb(255 255 255 / 0.08));
+    color: var(--fg);
+    font-weight: 600;
+    word-break: keep-all;
   }
   .detail {
     position: sticky;

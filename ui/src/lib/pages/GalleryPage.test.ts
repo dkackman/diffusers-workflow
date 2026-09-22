@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { fireEvent } from '@testing-library/dom'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock. Importing the component inside
 // the test instead would charge its (multi-second) compile to the test timeout
@@ -18,6 +19,8 @@ const file = (name: string, subfolder = ''): GalleryFile => ({
   name,
   folder: name.includes('/') ? name.split('/')[0] : '',
   subfolder,
+  run_id: '',
+  version: null,
   url: `/outputs/${name}`,
   kind: 'image',
   size: 1024,
@@ -382,4 +385,46 @@ it('leaves the detail open when Escape answers a confirm dialog', async () => {
   expect(
     screen.getByLabelText('delete this file from the output directory'),
   ).toBeTruthy()
+})
+
+it('marks each file with the version of the run that wrote it', async () => {
+  // Two runs of one workflow write the same basename - the case where the
+  // label alone tells a person nothing about which is which
+  listing.files = [
+    { ...file('acorn/r1/film.mp4'), label: 'film.mp4', version: 1 },
+    { ...file('acorn/r2/film.mp4'), label: 'film.mp4', version: 4 },
+  ]
+  render(GalleryPage)
+  await waitFor(() => expect(screen.getAllByText('film.mp4')).toHaveLength(2))
+  expect(screen.getByText('v1')).toBeTruthy()
+  expect(screen.getByText('v4')).toBeTruthy()
+})
+
+it('shows no version for a flat-layout file, which belongs to no run', async () => {
+  // The flat layout has no runs to number, and a card must not read
+  // 'vnull' or 'vundefined' because of it
+  listing.files = [{ ...file('ltx/flat.png'), label: 'flat.png' }]
+  render(GalleryPage)
+  await waitFor(() => expect(screen.getByText('flat.png')).toBeTruthy())
+  expect(screen.queryByText(/^v\S+$/)).toBeNull()
+})
+
+it('names the run and its version in the details of the selected file', async () => {
+  // "Look at version 4" ends here: the pane says which run it reached, so
+  // the number in the grid can be checked against the one quoted
+  listing.files = [
+    {
+      ...file('acorn/r2/film.mp4'),
+      label: 'film.mp4',
+      run_id: 'r2',
+      version: 4,
+    },
+  ]
+  render(GalleryPage)
+  await waitFor(() => expect(screen.getByText('film.mp4')).toBeTruthy())
+  await fireEvent.click(screen.getByText('film.mp4'))
+  const detail = document.querySelector('.detail') as HTMLElement
+  // One span holding both forms, so the query is over its whole text
+  expect(detail.textContent).toContain('version 4')
+  expect(detail.querySelector('code')?.textContent).toBe('r2')
 })

@@ -10,6 +10,8 @@ const file = (
   name,
   folder,
   subfolder: '',
+  run_id: '',
+  version: null,
   url: '/' + name,
   kind,
   size: 1,

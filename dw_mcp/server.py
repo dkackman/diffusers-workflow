@@ -410,6 +410,11 @@ def build_server(client):
         file over HTTP, already scoped to the right workspace; use it as
         given rather than composing one from the name.
 
+        Entries also carry `run_id` and `version`, that run's ordinal among
+        the workflow's runs - stable, never renumbered. Quote the version
+        to a person: the web UI labels the same file `v5`. Tools still take
+        `name`.
+
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping
         (manifest.json, workflow.json, job.json) as `runs`, each
