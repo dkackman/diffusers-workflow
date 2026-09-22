@@ -10,7 +10,11 @@
 #   1. fetch; check out <branch> (default: the current branch); fast-forward
 #      pull. A dirty checkout or a non-fast-forward is an error, never a
 #      reset - a deploy must not lose anything.
-#   2. `pip install -e .` only when pyproject.toml changed in the pull.
+#   2. `pip install -e .` only when pyproject.toml changed in the pull;
+#      `npm run build` in ui/ (after `npm ci` if package-lock.json changed)
+#      only when the pull touched ui/. A checkout serves the SPA from
+#      ui/dist, which is gitignored, so without this a UI change is pulled
+#      but never shown.
 #   3. refuse to restart while a job is running (health says current_job),
 #      unless --force. Agent cycles are serialized, so in practice the only
 #      running job is the caller's own.
@@ -68,10 +72,20 @@ git pull -q --ff-only origin "$branch"
 after="$(git rev-parse HEAD)"
 say "on $branch at $(git rev-parse --short "$after") (was $(git rev-parse --short "$before"))"
 
-# 2. deps, only when they changed
-if [ "$before" != "$after" ] && git diff --name-only "$before" "$after" | grep -qx 'pyproject.toml'; then
+# 2. deps and the UI bundle, only when they changed
+changed=""
+[ "$before" = "$after" ] || changed="$(git diff --name-only "$before" "$after")"
+if echo "$changed" | grep -qx 'pyproject.toml'; then
   say "pyproject.toml changed; reinstalling"
   venv/bin/pip install -q -e .
+fi
+if echo "$changed" | grep -q '^ui/' || [ ! -d ui/dist ]; then
+  if echo "$changed" | grep -qx 'ui/package-lock.json' || [ ! -d ui/node_modules ]; then
+    say "ui/package-lock.json changed; npm ci"
+    (cd ui && npm ci --silent --no-audit --no-fund)
+  fi
+  say "ui/ changed; building the SPA"
+  (cd ui && npm run build --silent)
 fi
 
 # 3. don't yank a running job
