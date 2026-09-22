@@ -17,6 +17,7 @@ import uuid
 import logging
 import threading
 
+from ..download_watch import format_progress
 from ..repl_worker import WorkerManager
 from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
@@ -581,6 +582,16 @@ class Job:
         elif kind == "pipeline_step":
             self.denoise_step = event.get("step")
             self.denoise_total_steps = event.get("total_steps")
+        elif kind == "download_progress":
+            # Folded into phase_detail rather than a field of its own - a
+            # poller already reads phase_detail for what the loading phase
+            # is waiting on, and the next "phase" event (loading ending)
+            # overwrites it same as any other detail (#343)
+            self.phase_detail = format_progress(
+                event.get("repo_id"),
+                event.get("downloaded_bytes"),
+                event.get("bytes_per_second"),
+            )
         elif kind == "warning":
             # Both channels, on purpose: the event log keeps the moment it
             # happened, `warnings` keeps it where a caller who polled the

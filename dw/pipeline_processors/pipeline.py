@@ -27,6 +27,7 @@ from diffusers import attention_backend
 # imported where they are used - at module scope they add seconds to every startup
 
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
+from .. import download_watch
 from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
@@ -1820,9 +1821,12 @@ def load_component(
                 model_name = from_pretrained_arguments.pop("model_name")
                 logger.info(f"Loading {component_name} from model: {model_name}")
                 emit_phase("loading", detail=f"{component_name}: {model_name}")
-                component = component_type.from_pretrained(
-                    model_name, **from_pretrained_arguments
-                )
+                with download_watch.watch(
+                    model_name, cache_dir=from_pretrained_arguments.get("cache_dir")
+                ):
+                    component = component_type.from_pretrained(
+                        model_name, **from_pretrained_arguments
+                    )
 
             # Load from single file
             elif "from_single_file" in from_pretrained_arguments:
