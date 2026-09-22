@@ -307,7 +307,11 @@ def _tempered(block, curated_minutes):
     needs) - just these two, approved shapes.
     """
     runs = block.get("runs")
-    if not isinstance(runs, int) or runs >= SMALL_N_THRESHOLD or block["minutes"] is None:
+    if (
+        not isinstance(runs, int)
+        or runs >= SMALL_N_THRESHOLD
+        or block["minutes"] is None
+    ):
         return block
     if curated_minutes is None:
         return {**block, "low_confidence": True}

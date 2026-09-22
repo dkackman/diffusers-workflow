@@ -73,7 +73,11 @@ def vram_estimate_errors(definition, arguments=None, supplied=()):
         return []
     reason = estimate.get("reason")
     because = f" - {reason}" if reason else ""
-    where = "arguments" if any(v in (supplied or ()) for v in voxel_variables) else "variables"
+    where = (
+        "arguments"
+        if any(v in (supplied or ()) for v in voxel_variables)
+        else "variables"
+    )
     errors = []
     for entry in cost:
         if not isinstance(entry, dict):

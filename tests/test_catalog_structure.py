@@ -393,7 +393,13 @@ def test_no_stale_entry_in_the_allowlist():
 # reducer's first template, whose for_each `lists` entry and six variables
 # (candidates, num_inference_steps, prompt, rubric, scale, video_prompt)
 # cost about 128 tokens on their own.
-COMPACT_BUDGET = 8_250
+# Then to 8_350 for the H3 shot templates' declared `cost` (#324), measured at
+# 8_295: `cost` is a compact field, so the five newly-priced templates
+# (enhance-prompt, reference-to-video, video-with-audio, video-with-audio-768p,
+# storyboard) each add a `[{device, name, vram_gb, minutes}]` entry to the
+# listing; `vram_estimate` beside it is not a compact field and costs nothing
+# here.
+COMPACT_BUDGET = 8_350
 FILTERED_BUDGET = 1_500
 
 

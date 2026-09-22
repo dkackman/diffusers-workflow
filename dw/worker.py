@@ -279,9 +279,7 @@ class WorkflowWorker:
                             memory_info, job_baseline["peak_rss_mb"]
                         )
                     )
-                    self.result_queue.put(
-                        {"type": "memory_info", "info": memory_info}
-                    )
+                    self.result_queue.put({"type": "memory_info", "info": memory_info})
 
             context = RunContext(on_event=_on_event)
             watcher = self._watch_commands(context)

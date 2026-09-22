@@ -331,9 +331,7 @@ class TestOffTheJobRow:
             True,
             False,
         ]
-        assert not any(
-            row["events_at_cap"] for row in rows[("default", "templates/x")]
-        )
+        assert not any(row["events_at_cap"] for row in rows[("default", "templates/x")])
 
     def test_a_failed_or_unnamed_run_is_not_history(self, tmp_path):
         history = JobHistory(tmp_path / "jobs.sqlite")
@@ -511,12 +509,12 @@ class TestWorkspaceScoping:
         history = self._seeded_history(tmp_path)
         costs = ObservedCosts(history)
 
-        assert [row["duration"] for row in costs.rows_for("shots", workspace="ws-one")] == [
-            600.0
-        ]
-        assert [row["duration"] for row in costs.rows_for("shots", workspace="ws-two")] == [
-            300.0
-        ]
+        assert [
+            row["duration"] for row in costs.rows_for("shots", workspace="ws-one")
+        ] == [600.0]
+        assert [
+            row["duration"] for row in costs.rows_for("shots", workspace="ws-two")
+        ] == [300.0]
 
     def test_a_shared_catalog_name_pools_across_every_workspace(self, tmp_path):
         history = self._seeded_history(tmp_path)

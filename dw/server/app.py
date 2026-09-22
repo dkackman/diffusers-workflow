@@ -306,7 +306,9 @@ def attach_observed(details, observed_costs, workspace_name=None):
             },
         }
         workspace = workspace_name if detail.get("writable") else None
-        observed = observed_costs.observed(name, surrogate, fresh=False, workspace=workspace)
+        observed = observed_costs.observed(
+            name, surrogate, fresh=False, workspace=workspace
+        )
         if observed:
             detail["observed"] = observed
     return details
@@ -3067,7 +3069,9 @@ def create_app(
             shape = video_shape(path)
             crop_box = (
                 resolve_crop_box(
-                    [c.strip() for c in crop.split(",")], shape["width"], shape["height"]
+                    [c.strip() for c in crop.split(",")],
+                    shape["width"],
+                    shape["height"],
                 )
                 if crop
                 else None
@@ -3134,7 +3138,12 @@ def create_app(
             **shape,
             "tiles": [_encoded_tile(tile, limit) for tile in tiles],
             "crop": (
-                [crop_box[0], crop_box[1], crop_box[2] - crop_box[0], crop_box[3] - crop_box[1]]
+                [
+                    crop_box[0],
+                    crop_box[1],
+                    crop_box[2] - crop_box[0],
+                    crop_box[3] - crop_box[1],
+                ]
                 if crop_box
                 else None
             ),

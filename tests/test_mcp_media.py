@@ -1069,7 +1069,10 @@ def two_tone_tile(width, height, **kwargs):
     image.paste((0, 0, 255), (width // 2, 0, width, height))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    return {**tile_json(width, height, **kwargs), "data": base64.b64encode(buffer.getvalue()).decode("ascii")}
+    return {
+        **tile_json(width, height, **kwargs),
+        "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+    }
 
 
 def test_a_crop_is_forwarded_to_the_server_and_its_resolved_box_echoed_back():
@@ -1079,9 +1082,7 @@ def test_a_crop_is_forwarded_to_the_server_and_its_resolved_box_echoed_back():
     # MCP layer's job: send `crop` as a query param, and read back the
     # server's resolved box rather than echoing the caller's own.
     seen = []
-    client = frames_server(
-        [two_tone_tile(80, 60)], seen, crop=[100, 0, 80, 60]
-    )
+    client = frames_server([two_tone_tile(80, 60)], seen, crop=[100, 0, 80, 60])
 
     result = get_output_frames(client, "x.mp4", at=[0.0], crop=[100, 0, 80, 60])
 
