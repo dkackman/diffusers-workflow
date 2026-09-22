@@ -4423,7 +4423,7 @@ class TestValidatePlan:
         asked = []
 
         class History:
-            def observed(self, name, definition, arguments=None):
+            def observed(self, name, definition, arguments=None, *, workspace=None):
                 asked.append((name, arguments))
                 return {
                     "device": serving,
@@ -4461,7 +4461,7 @@ class TestValidatePlan:
         )
 
         class History:
-            def observed(self, name, definition, arguments=None):
+            def observed(self, name, definition, arguments=None, *, workspace=None):
                 raise AssertionError("an inline definition has no history")
 
         with server(success_script) as client:

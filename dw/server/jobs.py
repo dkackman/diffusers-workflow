@@ -269,19 +269,25 @@ class JobHistory:
         """How far the table has got - what a derived figure caches against.
 
         A job landing changes every observed cost and changes no file, so an
-        mtime cache cannot see it (dw/server/observed_cost.py). Count plus the
-        newest finish is enough: rows are only ever added, and a prune lowers
-        the count.
+        mtime cache cannot see it (dw/server/observed_cost.py). Counted over
+        `workflow_name IS NOT NULL` rather than every row, because
+        `orphan_workflow_history` (#274) detaches a deleted workflow's rows by
+        clearing that column rather than deleting the row - an ordinary
+        `COUNT(*)` would not move, and `ObservedCosts` would keep serving the
+        purged figure until an unrelated job happened to land. Counting only
+        the joinable rows falls by exactly the amount a purge detaches, the
+        same as a prune lowering it.
         """
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT COUNT(*), MAX(finished_at) FROM jobs"
+                " WHERE workflow_name IS NOT NULL"
             ).fetchone()
         return (row[0], row[1]) if row else (0, None)
 
     def finished_runs(self):
-        """Every successful, named run grouped by workflow name, as the rows
-        an observed cost is derived from.
+        """Every successful, named run grouped by (workspace, workflow name),
+        as the rows an observed cost is derived from.
 
         One query for the whole catalog rather than one per workflow. The
         cold/warm split is decided in SQL on the persisted event tail - a
@@ -291,12 +297,17 @@ class JobHistory:
         trimmed away has to count as neither rather than as warm.
 
         Rows with no `workflow_name` (recorded before the column existed, or
-        run from an inline definition) are unjoinable and left out.
+        run from an inline definition, or orphaned by `orphan_workflow_history`)
+        are unjoinable and left out. The workspace dimension is always in the
+        key here; whether a caller treats two workspaces as one history (a
+        shared catalog source, #154) or as separate (a workspace's own
+        writable copy, #274) is decided in `ObservedCosts.rows_for`, which is
+        the layer that knows which kind of source it was asked about.
         """
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT workflow_name, started_at, finished_at, arguments,"
-                " manifest, INSTR(COALESCE(events, ''), ?) > 0,"
+                "SELECT workflow_name, workspace, started_at, finished_at,"
+                " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
                 " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb"
                 " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
@@ -306,6 +317,7 @@ class JobHistory:
         grouped = {}
         for (
             name,
+            workspace,
             started,
             finished,
             arguments,
@@ -315,7 +327,8 @@ class JobHistory:
             peak_rss_mb,
             job_peak_rss_mb,
         ) in rows:
-            grouped.setdefault(name, []).append(
+            key = (workspace or DEFAULT_WORKSPACE_NAME, name)
+            grouped.setdefault(key, []).append(
                 {
                     "started_at": started,
                     "finished_at": finished,
@@ -329,6 +342,25 @@ class JobHistory:
                 }
             )
         return grouped
+
+    def orphan_workflow_history(self, workspace, workflow_name):
+        """Detach this (workspace, workflow_name)'s finished runs from cost
+        history (#274).
+
+        Deleting a workflow does not delete the job rows that ran it - those
+        stay for `list_jobs`/`get_job` and any other audit trail - but a name
+        reused afterwards, in this workspace or a fresh one copied from it,
+        must not inherit the old identity's figures. Setting `workflow_name`
+        to NULL is enough: `finished_runs()` already excludes rows where it
+        is NULL, the same rule that already excludes a run from an inline
+        definition.
+        """
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE jobs SET workflow_name = NULL"
+                " WHERE workspace = ? AND workflow_name = ?",
+                (workspace, workflow_name),
+            )
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded
