@@ -113,8 +113,9 @@ def build_server(client):
             "not accept; repeat until it is clean, since fixing one layer "
             "exposes the next) -> `run_workflow` -> `wait_for_job` rather than a "
             "polling loop -> `get_job` for the manifest -> "
-            "`get_output_image` to actually look at what was made and say "
-            "whether it answers the request. Tools that cost GPU minutes, "
+            "`get_output_image`, `get_output_frames` and `get_output_audio` to "
+            "actually look at and listen to what was made and say whether "
+            "it answers the request. Tools that cost GPU minutes, "
             "disk or unrecoverable deletion refuse until "
             "`acknowledged_cost=true`: tell the user what it will cost (a "
             "workflow you wrote or copied has no `cost`; quote the figure "
@@ -438,33 +439,32 @@ def build_server(client):
         name: str, envelope: bool = False, workspace: str | None = None
     ) -> dict:
         """Get the metadata embedded in a generated file: the exact
-        workflow, arguments and seed that produced it. Use this to
-        reproduce a result, or to see what a run that went wrong actually
-        ran - it is the definition, not a summary, so it can be edited and
-        re-run. For audio and video the `media` block carries duration,
-        sample rate, channels, fps, size and level - the checks an agent
-        that cannot listen makes on a deliverable. `envelope=true` adds
-        that level second by second (`media.envelope.rms_dbfs` /
-        `peak_dbfs`, one entry per second), which is what says *where* in a
-        track something is: whether a shot is still sounding at its last
-        frame, how deep the hole at a seam goes, where a score goes quiet.
-        Leave it off unless you are asking a question about a position in
-        the track - a long track is a long list.
+        workflow, arguments and seed that produced it - the definition,
+        not a summary, so a result can be reproduced or a failed run's
+        definition edited and re-run. For audio and video the `media`
+        block carries duration, sample rate, channels, fps, size and level
+        - the checks an agent that cannot listen makes on a deliverable.
+        `envelope=true` adds that level second by second
+        (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
+        track something is: whether a shot still sounds at its last frame,
+        how deep the hole at a seam goes, where a score goes quiet. Leave
+        it off unless the question is about a position - a long track is
+        a long list.
+
+        `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
+        pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
+        read - see `normalize_audio` under "Video Processing" in the tasks
+        guide. A mux emits only the second, so a peak between the two is
+        clean.
 
         `name` may be an "asset:" reference instead of a gallery name, and
-        then it describes that input asset. This is how you learn what an
-        asset you are about to pass to a workflow actually holds - how many
-        frames a shot is, whether two shots share an fps, whether a score
-        reaches the length of the cut you are about to lay it under. Do
-        that before running rather than after: a workflow's frame counts
-        and rates are arguments the caller supplies, and getting one wrong
-        is discovered as a failed job or, worse, as silence padded onto the
-        end of a track.
+        then it describes that input asset - how many frames a shot is,
+        whether two shots share an fps, whether a score reaches the length
+        of the cut it will lie under. Check before running: frame counts
+        and rates are arguments the caller supplies, and a wrong one is a
+        failed job or, worse, silence padded onto the end of a track.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        `workspace` pins this call to another workspace (#99)."""
         return catalog.get_gallery_metadata(
             client, name, envelope=envelope, workspace=workspace
         )
@@ -523,22 +523,14 @@ def build_server(client):
         crop: list[int] | None = None,
     ) -> list[ImageContent | TextContent]:
         """Look at a generated image, named as `list_gallery` or a job's
-        manifest reports it. Use this to judge output quality - it is the
-        only way to see what a workflow actually produced, and a run that
-        succeeded can still have made the wrong picture. Images only: audio
-        is `get_output_audio`'s and video is refused, so inspect a video
-        with `get_gallery_metadata` or hand the user the file. The image is
-        downscaled to `max_dimension` on its longest side; the second part
-        of the result reports the size it went in and came out at, so a
-        downscale is never silent. `crop` is `[x, y, width, height]` in the
-        original's pixels, cut before the downscale - the way to see a
-        region of a 2K still at 100%, where the whole would be shrunk past
-        what a small element or a tiling seam can be judged at.
+        manifest reports it. Use this to judge output quality - a run that
+        succeeded can still have made the wrong picture. Downscaled to
+        `max_dimension` on its longest side; the second part reports the
+        before/after size, so a downscale is never silent.
+        `crop` is `[x, y, width, height]` in the original's pixels,
+        cut before the downscale.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        `workspace` pins this call to another workspace (#99)."""
         result = media.get_output_image(
             client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
@@ -558,30 +550,124 @@ def build_server(client):
         return [image, telemetry]
 
     def get_output_audio(
-        name: str, workspace: str | None = None
+        name: str,
+        start: float | None = None,
+        duration: float | None = None,
+        workspace: str | None = None,
     ) -> list[AudioContent | TextContent]:
-        """Listen to a generated audio output, named as `list_gallery` or a
-        job's manifest reports it - the audio analogue of `get_output_image`.
-        Audio only: an image is `get_output_image`'s and video is refused,
-        so inspect a video with `get_gallery_metadata` or hand the user the
-        file. There is no downscale for audio the way there is for an
-        image's dimensions, so a clip too large to fit inline is refused
-        rather than cut or transcoded - use `download_output` or the `url`
-        list_gallery reports for one that long.
+        """Listen to a generated soundtrack, named as `list_gallery` or a
+        job's manifest reports it - an audio output, or a video's muxed
+        track: own encoding when served whole, WAV when extracted or
+        excerpted. No downscale exists for audio - a whole clip too
+        large is refused; ask for a part with `start`/`duration` in
+        seconds, per `get_gallery_metadata`'s envelope. The text part
+        says what was cut. To *see* a video, `get_output_frames`.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
-        result = media.get_output_audio(client, name, workspace=workspace)
+        `workspace` pins this call to another workspace (#99)."""
+        result = media.get_output_audio(
+            client, name, start=start, duration=duration, workspace=workspace
+        )
         audio = AudioContent(
             type="audio", data=result["data"], mime_type=result["mime_type"]
         )
-        telemetry = TextContent(
-            type="text",
-            text=f"name: {result['name']}\nbytes: {result['bytes']}",
-        )
+        lines = [f"name: {result['name']}", f"bytes: {result['bytes']}"]
+        if result["duration_seconds"] is not None:
+            lines.append(f"duration_seconds: {result['duration_seconds']}")
+        if result["excerpt"]:
+            e = result["excerpt"]
+            lines.append(f"excerpt: {e['duration']}s from {e['start']}s of {e['of']}s")
+        telemetry = TextContent(type="text", text="\n".join(lines))
         return [audio, telemetry]
+
+    def get_output_frames(
+        name: str,
+        at: list[str | float] | None = None,
+        seams: bool | list[int] | None = None,
+        count: int | None = None,
+        boundaries: list[int] | None = None,
+        names: list[str] | None = None,
+        max_dimension: int = 512,
+        hear: float | None = None,
+        workspace: str | None = None,
+        crop: list[int] | None = None,
+    ) -> list[ImageContent | AudioContent | TextContent]:
+        """See a generated video as frames - no video content type exists
+        over MCP. One selector: `count` (contact sheet), `at` (seconds or
+        "frame:N"), or `seams` (true, or seam numbers from 1) for each
+        join's frame pair. `seams` needs `boundaries` - each later shot's
+        first frame, running sum of `get_gallery_metadata`'s `frame_count`;
+        `names` names the shots. Over budget, tiles shrink together.
+        `hear=N` adds N seconds of soundtrack around each `at`.
+        `crop` is `[x, y, width, height]` in the video's own source
+        pixels, cut from every frame before any downscale, like
+        `get_output_image`'s.
+
+        `workspace` pins this call to another workspace (#99)."""
+        result = media.get_output_frames(
+            client,
+            name,
+            at=at,
+            seams=seams,
+            count=count,
+            boundaries=boundaries,
+            names=names,
+            max_dimension=max_dimension,
+            hear=hear,
+            workspace=workspace,
+            crop=crop,
+        )
+        parts = []
+        for tile in result["tiles"]:
+            parts.append(
+                ImageContent(
+                    type="image", data=tile["data"], mime_type=tile["mime_type"]
+                )
+            )
+            if "audio" in tile:
+                parts.append(
+                    AudioContent(
+                        type="audio",
+                        data=tile["audio"]["data"],
+                        mime_type=tile["audio"]["mime_type"],
+                    )
+                )
+        lines = [
+            f"name: {result['name']}",
+            f"frame_count: {result['frame_count']}  fps: {result['fps']}",
+        ]
+        if result.get("crop"):
+            lines.append(f"crop: {result['crop']}")
+        fps = result["fps"]
+        for tile in result["tiles"]:
+            if tile.get("frames"):
+                # a contact sheet: every cell, so each one can be located
+                cells = ", ".join(
+                    f"{frame} ({frame / fps:.2f}s)" if fps else str(frame)
+                    for frame in tile["frames"]
+                )
+                where = f"frames: {cells}"
+            else:
+                where = f"frame {tile['frame']} @ {tile['seconds']:.2f}s"
+            if tile.get("difference") is not None:
+                where += f"  difference: {tile['difference']}"
+            if tile.get("audio_error"):
+                where += f"  hear: {tile['audio_error']}"
+            lines.append(
+                f"- {tile['label']}  {where}  [{tile['width']}x{tile['height']}]"
+            )
+        if result["downscaled_to"]:
+            lines.append(
+                f"downscaled_to: {result['downscaled_to']} (every tile, to fit the inline budget)"
+            )
+        if result.get("hear"):
+            lines.append(f"hear: {result['hear']}s around each moment")
+        if result.get("audio_truncated"):
+            lines.append(
+                "audio_truncated: some tiles' audio was skipped to stay within "
+                "the response size budget"
+            )
+        parts.append(TextContent(type="text", text="\n".join(lines)))
+        return parts
 
     def get_output_text(
         name: str, max_characters: int = 20000, workspace: str | None = None
@@ -598,23 +684,27 @@ def build_server(client):
             client, name, max_characters=max_characters, workspace=workspace
         )
 
-    def delete_output(name: str, workspace: str | None = None) -> dict:
+    def delete_output(
+        name: str | None = None,
+        workspace: str | None = None,
+        job_id: str | None = None,
+    ) -> dict:
         """Permanently remove one generated file from the output directory.
-        Not recoverable: rerunning the job that made it is the only way
-        back, and any "output:" reference pointing at it stops resolving.
-        Prefer `keep_output` first if it is worth keeping. When it was the
-        last media file of its run, the run directory goes with it -
-        `manifest.json` and `workflow.json` included - so deleting what you
-        made leaves the workspace as you found it. `name` may also be a run
+        Not recoverable (rerun the job to get it back), and any "output:"
+        reference to it stops resolving; prefer `keep_output` if it is
+        worth keeping. When it was the last media file of its run, the run
+        directory goes with it, sidecars included. `name` may also be a run
         directory ("<workflow>/<run id>", the first two parts of a gallery
-        name), which removes the whole run: the only way to clear a run that
-        failed before it wrote any media.
+        name), which removes the whole run - the only handle on a run that
+        failed before writing any media - or give `job_id` instead: the run
+        that job wrote is removed whole, and the reply adds `job_id` and
+        the resolved `run_dir`. Exactly one of the two; a job with no run
+        directory, or unknown, is an error.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
-        return media.delete_output(client, name, workspace=workspace)
+        `workspace` pins this call to another workspace without switching
+        the session (#99); a `job_id` delete with no `workspace` goes to
+        the workspace the job ran in."""
+        return media.delete_output(client, name, workspace=workspace, job_id=job_id)
 
     def download_output(
         name: str,
@@ -656,6 +746,7 @@ def build_server(client):
 
     tool(get_output_image, READ_ONLY)
     tool(get_output_audio, READ_ONLY)
+    tool(get_output_frames, READ_ONLY)
     tool(get_output_text, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
@@ -857,19 +948,13 @@ def build_server(client):
         warning.
 
         A valid answer carries `plan`: what will execute for these
-        arguments. Quote `plan.estimate.minutes` with its `basis` -
-        `observed` is this box's own finished runs of this shape (the cold
-        median over `runs` of them, preferred over any curated figure),
-        `per_entry` is a measured per-entry rate re-priced for your list,
-        `catalog` a measured total for a run whose lists are the ones it
-        was measured with, `derived` that total extrapolated over a list
-        you changed the length of (an estimate - say so), `other_device` a
-        figure from another accelerator (say so), `unknown` no figure at
-        all - and name each `downloads_required`
-        entry as its own line item ("and 41 GB of weights this box does not
-        have"); `gb` is null when the hub could not be asked. `steps` and
-        `list_entries` say how many members the list actually produced.
-        `plan` is null when it could not be built; the verdict stands."""
+        arguments - `estimate.minutes` and its `basis` (`observed`,
+        `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
+        what each means and how to quote it is WORKFLOW_GUIDE's "The loop",
+        step 4), each `downloads_required` entry as its own cost line, and
+        `steps`/`list_entries` for how many members the list actually
+        produced. `plan` is null when it could not be built; the verdict
+        stands."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -1015,30 +1100,33 @@ def build_server(client):
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
+        wait_seconds: int = 0,
     ) -> dict:
         """Queue a workflow for generation. THIS COSTS GPU TIME: a run
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
-        acknowledged_cost=true. Returns as soon as the job is queued - a
-        generation outlasts any tool-call timeout - so follow it with
-        `wait_for_job`, then `get_job` for the manifest. Give exactly one of
-        `workflow_path` - a catalog name from `list_workflows`, with or
-        without .json, or a path on the server - or `inline_workflow`, a
-        full definition for a request nothing stored covers. `validate_workflow`
-        calls these same two concepts `name` and `workflow`; both tools
-        accept both spellings, so a document just validated can be run
-        without renaming a key. `arguments` overrides the workflow's
-        variables by name, which is how one stored workflow serves many
-        requests without being edited or copied. `workspace` names the
-        workspace for this one call without switching the session to it -
-        use it to pin a job whose `output:` or `asset:` references live in a
-        workspace other than the session's.
+        acknowledged_cost=true. Returns as soon as the job is queued;
+        follow it with `wait_for_job`, then `get_job` for the manifest - or
+        fold that first wait in with `wait_seconds` above 0, which waits on
+        the job exactly as `wait_for_job(job_id,
+        timeout_seconds=wait_seconds)` would ({cap}s cap per call) and adds
+        its fields to the result (`still_running`, `waited_seconds`,
+        `timeout_*`, the slim `job`). If the cap covers the job's
+        runtime one call is enough; on `still_running: true` call
+        `wait_for_job` as before. Give exactly one of `workflow_path` - a
+        catalog name from `list_workflows`, with or without .json, or a
+        path on the server - or `inline_workflow`, a full definition
+        nothing stored covers; `validate_workflow` calls these `name` and
+        `workflow`, and both tools accept both spellings. `arguments`
+        overrides the workflow's variables by name. `workspace` pins this
+        call to another workspace without switching the session (where its
+        `output:`/`asset:` references live).
 
         Bind the acknowledgement to what you quoted: pass
         {"fingerprint": plan.fingerprint, "minutes": plan.estimate.minutes,
-        "downloads": [...the non-null repos in plan.downloads_required]} from the
-        validate answer, and the server refuses with 409 - naming the new
-        plan - if the run's shape changed since; bare true is for a plan
+        "downloads": [...the non-null repos in plan.downloads_required]} from
+        the validate plan; the server refuses with 409, naming the new
+        plan, if the run's shape changed since. Bare true is for a plan
         that was null."""
         return diagnose.run_workflow(
             client,
@@ -1049,6 +1137,15 @@ def build_server(client):
             arguments=arguments,
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,
+            wait_seconds=wait_seconds,
+        )
+
+    # The cap is a number a caller paces against, so the description
+    # states it (as wait_for_job's does, below). replace rather than
+    # format: the docstring spells out a literal {fingerprint, ...} dict.
+    if run_workflow.__doc__:  # absent under python -OO
+        run_workflow.__doc__ = run_workflow.__doc__.replace(
+            "{cap}", str(diagnose.MAX_WAIT_SECONDS)
         )
 
     def get_job(job_id: str) -> dict:
@@ -1089,42 +1186,29 @@ def build_server(client):
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
         """Block until a job finishes, instead of polling get_job or
-        get_job_events by hand. Returns as soon as the job's status is
-        succeeded, failed or cancelled, or - if timeout_seconds elapses
-        first - returns its current status with still_running: true so you
-        can call again. Does not queue anything, so no acknowledged_cost.
+        get_job_events by hand: returns as soon as its status is succeeded,
+        failed or cancelled, or with still_running: true when
+        timeout_seconds elapses first, so you can call again. Queues
+        nothing, so no acknowledged_cost.
 
-        One call blocks for at most {cap} seconds, no matter what
-        timeout_seconds asks for - this deployment's cap, set for the tool
-        call budget the MCP client actually holds open. A larger value is
-        not honoured, it is clamped, so budget roughly one call per {cap}s
-        of the job - if {cap} covers the job's whole runtime, one call is
-        enough. Every reply says which happened: waited_seconds,
-        timeout_requested_seconds, timeout_applied_seconds and
-        timeout_capped.
+        One call blocks for at most {cap} seconds, whatever timeout_seconds
+        asks for - this deployment's cap, set for the tool-call budget the
+        client holds open; a larger value is clamped, not honoured, so
+        budget one call per {cap}s of the job, and one call is enough when
+        {cap} covers its runtime. Every reply says which happened:
+        waited_seconds, timeout_requested_seconds, timeout_applied_seconds
+        and timeout_capped.
 
-        Returns a slim job - status, warnings, error, and the manifest once
-        finished - without the arguments; get_job has those. A running job
-        also carries `progress`: the step it is on, the phase (`loading`,
-        `generating`, `decoding`, `saving`) with the model named in
-        `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+        Returns a slim job - status, warnings, error, the manifest once
+        finished - without the arguments (get_job has those). A running job
+        also carries `progress`: step, phase, and
         `denoise_step`/`denoise_total_steps`, null until the denoise loop
-        starts - which is how a slow run and a stuck one tell apart between
-        two otherwise identical polls. A null `denoise_step` under
-        `generating` is the pipeline's lead-in - encoding the prompt and
-        every reference - which emits nothing and can run for many minutes
-        when a video reference is among them; gaps between denoise steps
-        are uneven too where a transformer block cache is configured. Both
-        are normal, and the model family's own skill carries the measured
-        figures. The signal is whether `denoise_step` has moved since a
-        poll minutes ago, not silence past a fixed threshold.
-
-        `denoise_total_steps` is the schedule the pipeline actually runs,
-        which is not always the `num_inference_steps` that was asked for:
-        MiniMax H3's scheduler counts sigma grid points including the
-        terminal zero, so it runs N-1 model evaluations for N (9 reports 8,
-        20 reports 19). That is the vendor's convention, not a dropped step -
-        raising the number still buys the steps it looks like it does."""
+        starts. Tell a slow run from a stuck one by whether
+        `denoise_step` has moved since a poll minutes ago, not by silence:
+        a video reference's lead-in can run many minutes emitting nothing,
+        and denoise gaps are uneven under a transformer block cache - both
+        normal. Full diagnosis, and why `denoise_total_steps` can read one
+        less than asked, in WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

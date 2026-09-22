@@ -529,7 +529,12 @@ def _handle_speech_generation(task, arguments, previous_pipelines):
     text = arguments.pop("text", None)
     from .speech_generation import generate_speech
 
-    return generate_speech(text, device=task.device_for(arguments), **arguments)
+    return generate_speech(
+        text,
+        device=task.device_for(arguments),
+        seed=task.seed_for(arguments),
+        **arguments,
+    )
 
 
 @register_command(
@@ -613,16 +618,20 @@ class Task:
     Tasks are atomic operations like image processing, data gathering, or message formatting.
     """
 
-    def __init__(self, task_definition, device):
+    def __init__(self, task_definition, device, seed=None):
         """
         Initialize task with its configuration and device settings.
 
         Args:
             task_definition: Dictionary containing task configuration and parameters
             device: Device to run task on (e.g., 'cuda', 'mps', 'cpu')
+            seed: The workflow/step-resolved seed, when one was set - None for
+                an unseeded run. Only a handler that calls seed_for(arguments)
+                consumes it; most tasks run no generator and ignore it
         """
         self.task_definition = task_definition
         self.device = device
+        self.seed = seed
         logger.debug(f"Initialized task: {self.name} for device: {device}")
 
     @property
@@ -644,6 +653,22 @@ class Task:
             Device identifier the task should run on
         """
         return resolve_device(arguments.pop("device", self.device))
+
+    def seed_for(self, arguments):
+        """Get the seed this task run should use, consuming any override in
+        its arguments.
+
+        A task step reproducible the way a pipeline step is: the
+        workflow/step-resolved seed by default, an explicit `seed` in the
+        step's own arguments taking precedence - and the argument is removed
+        either way so it does not reach the command as a duplicate. None
+        means no seed was ever set anywhere, so the task should run exactly
+        as it always did - unseeded and non-reproducible.
+
+        Args:
+            arguments: Arguments for this run of the task
+        """
+        return arguments.pop("seed", self.seed)
 
     @property
     def argument_template(self):

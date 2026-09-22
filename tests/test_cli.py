@@ -22,7 +22,7 @@ def workflow_file(tmp_path):
         "steps": [
             {
                 "name": "gen",
-                "task": {"command": "list_images", "arguments": {}},
+                "task": {"command": "gather_images", "arguments": {}},
                 "result": {"content_type": "image/png", "save": False},
             }
         ],

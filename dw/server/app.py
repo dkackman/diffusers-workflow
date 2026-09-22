@@ -6,6 +6,8 @@ Interactive API docs are served at /docs (OpenAPI at /openapi.json).
 """
 
 import os
+import base64
+import mimetypes
 import shutil
 import io
 import zipfile
@@ -38,6 +40,7 @@ from ..security import (
     ALLOWED_VIDEO_EXTENSIONS,
     validate_commit_hash,
     InvalidInputError,
+    PathTraversalError,
     SecurityError,
     workflows_are_trusted,
 )
@@ -72,6 +75,21 @@ from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
+from ..media_audio import (
+    MAX_INLINE_AUDIO_BYTES,
+    NoSoundtrack,
+    audio_shape,
+    extract_audio,
+    media_duration,
+    projected_wav_base64_size,
+)
+from ..media_frames import (
+    contact_sheet,
+    frames_at,
+    resolve_crop_box,
+    seam_tiles,
+    video_shape,
+)
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
@@ -107,10 +125,12 @@ from ..workflow_sources import (
     find_workflow,
     listing,
     resolve_in_source,
+    resolve_sub_workflow,
     source_for_path,
     workflow_names,
     workflow_sources,
     writable_source,
+    SubWorkflowNotFound,
 )
 from .jobs import (
     ACK_BOOLEAN,
@@ -229,6 +249,21 @@ def collect_prompt_references(value):
     return references
 
 
+def _catalog_name_from_root(path, root):
+    """The listing name a resolved workflow path has under a root.
+
+    None when the path is not under the root after all - a name that does
+    not name an entry is worse than no name for anything that later joins
+    on it.
+    """
+    if root is None:
+        return None
+    relative = os.path.relpath(path, root)
+    if relative.startswith(".."):
+        return None
+    return os.path.splitext(relative)[0].replace(os.sep, "/")
+
+
 def catalog_name_for(path, source):
     """The listing name a resolved workflow path has within its source.
 
@@ -238,13 +273,10 @@ def catalog_name_for(path, source):
     """
     if source is None:
         return None
-    relative = os.path.relpath(path, source.root)
-    if relative.startswith(".."):
-        return None
-    return os.path.splitext(relative)[0].replace(os.sep, "/")
+    return _catalog_name_from_root(path, source.root)
 
 
-def attach_observed(details, observed_costs):
+def attach_observed(details, observed_costs, workspace_name=None):
     """Fold this box's own history into each detail, as `observed`.
 
     Separate from `workflow_details` because that cache is keyed on a file's
@@ -252,6 +284,12 @@ def attach_observed(details, observed_costs):
     every number here. A detail carries `cost_drivers` and the defaults they
     take, which is everything the aggregate needs - the file is not read a
     second time.
+
+    A detail's own `writable` says whether its entry is this workspace's own
+    copy or a shared catalog one (#274): only the former is scoped to
+    `workspace_name`, so two workspaces' saves of the same name do not leak
+    into each other's figure, while a template or example still pools every
+    workspace's runs of it, matching #154.
     """
     if observed_costs is None or not observed_costs.refresh():
         return details
@@ -267,7 +305,10 @@ def attach_observed(details, observed_costs):
                 **drivers,
             },
         }
-        observed = observed_costs.observed(name, surrogate, fresh=False)
+        workspace = workspace_name if detail.get("writable") else None
+        observed = observed_costs.observed(
+            name, surrogate, fresh=False, workspace=workspace
+        )
         if observed:
             detail["observed"] = observed
     return details
@@ -1724,7 +1765,7 @@ def create_app(
             "valid": True,
             "error": None,
             "errors": [],
-            "warnings": workflow_argument_warnings(definition)
+            "warnings": workflow_argument_warnings(definition, request.arguments)
             # A value a declared constraint will round up - the silent half
             # of #96: the run changed the caller's frame count and only the
             # server's log said so
@@ -1753,6 +1794,37 @@ def create_app(
             from .. import get_device, get_device_type
 
             command = _probe_command_for(candidate, request, workspace, source_root)
+
+            def observed_for_child(path, child_definition):
+                """A composed child's own observed figure, keyed by the
+                catalog name it resolves to - so a parent with no figure of
+                its own can quote what this box's runs of the *child* took
+                rather than falling back to unknown (#268)."""
+                base_dir = (
+                    os.path.dirname(os.path.abspath(candidate.file_spec))
+                    if candidate.file_spec
+                    else None
+                )
+                try:
+                    child_path, child_root = resolve_sub_workflow(
+                        path, base_dir or ".", candidate.workflow_dir
+                    )
+                except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
+                    return None
+                child_name = _catalog_name_from_root(child_path, child_root)
+                if not child_name:
+                    return None
+                # resolve_sub_workflow hands back a bare root string, not a
+                # Source, so writability is inferred the way that root was
+                # built: the workspace's own workflows/ is the writable one
+                # (#274)
+                child_workspace = (
+                    workspace.name if child_root == workspace.workflows else None
+                )
+                return _observed_for_name(
+                    child_name, child_definition, workspace=child_workspace
+                )
+
             answer["plan"] = build_plan(
                 candidate,
                 request.arguments,
@@ -1769,12 +1841,16 @@ def create_app(
                 observed=(
                     (
                         lambda arguments: _observed_for_name(
-                            catalog_name, definition, arguments
+                            catalog_name,
+                            definition,
+                            arguments,
+                            workspace=workspace.name if source.writable else None,
                         )
                     )
                     if catalog_name
                     else None
                 ),
+                observed_for_child=observed_for_child,
             )
         except Exception:
             logger.exception("Plan could not be built")
@@ -1789,11 +1865,14 @@ def create_app(
             answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
             if catalog_name:
                 answer["warnings"] += _host_memory_warnings(
-                    catalog_name, definition, answer["plan"]["list_entries"]
+                    catalog_name,
+                    definition,
+                    answer["plan"]["list_entries"],
+                    workspace=workspace.name if source.writable else None,
                 )
         return answer
 
-    def _host_memory_warnings(name, definition, list_entries):
+    def _host_memory_warnings(name, definition, list_entries, *, workspace=None):
         """Whether this box's own history says the requested list is
         projected to exceed host RAM (#243) - best effort, since a warning
         that 500s the free pre-flight would be worse than skipping it."""
@@ -1803,7 +1882,7 @@ def create_app(
         try:
             from ..host_memory import host_memory_stats
 
-            rows = costs.rows_for(name)
+            rows = costs.rows_for(name, workspace=workspace)
             ceiling_mb = (host_memory_stats().get("total_mb") or 0) * CEILING_FRACTION
             return host_memory_warnings(definition, list_entries, rows, ceiling_mb)
         except Exception:
@@ -1947,6 +2026,7 @@ def create_app(
                 attach_observed(
                     workflow_details(found),
                     getattr(app.state, "observed_costs", None),
+                    ws.name,
                 ),
                 shape=shape,
                 traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
@@ -2046,6 +2126,11 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
         forget_workspace_usage()
+        # This identity's job history goes with it (#274) - otherwise a name
+        # reused in this workspace, including by a regression cycle that
+        # deletes and recreates the same workflow, would inherit the deleted
+        # copy's observed figures and host-memory history
+        manager.history.orphan_workflow_history(ws.name, name)
         return {"name": name, "deleted": True}
 
     @app.get("/api/workflows/{name:path}/download")
@@ -2123,21 +2208,28 @@ def create_app(
             answer["lists"] = lists
         # What this box's own runs of it actually took, beside the defaults
         # they were run with - derived, never the curated `cost` (#93)
-        observed = _observed_for_name(name, definition)
+        observed = _observed_for_name(
+            name, definition, workspace=ws.name if source.writable else None
+        )
         if observed:
             answer["observed"] = observed
         return answer
 
-    def _observed_for_name(name, definition, arguments=None):
+    def _observed_for_name(name, definition, arguments=None, *, workspace=None):
         """One workflow's `observed` block, from the same aggregate the
         listing uses - so the figure a caller reads in the listing and the
         one they read here are the same figure.
 
         `arguments` narrow it to the bucket the run being planned falls in;
         without them it is the figure the stored defaults give, which is the
-        listing's."""
+        listing's. `workspace` scopes it to one workspace's own writable copy
+        (#274); omitted, it is a shared catalog entry's pooled figure (#154)."""
         costs = getattr(app.state, "observed_costs", None)
-        return costs.observed(name, definition, arguments) if costs else None
+        return (
+            costs.observed(name, definition, arguments, workspace=workspace)
+            if costs
+            else None
+        )
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
@@ -2416,10 +2508,23 @@ def create_app(
                 root,
                 allow_create=False,
             )
+        except PathTraversalError:
+            # PathTraversalError's own message can embed the resolved
+            # *absolute* server path (dw/security.py validate_path, the
+            # containment branch) - useful in a log, not in a response a
+            # remote caller reads. Still say *why* it was refused, since a
+            # caller needs to tell "this name would have escaped the
+            # workspace" from "this name is simply wrong" (#310) - the
+            # distinction #134 pinned and a later leak fix (#247) collapsed.
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown file: {name} - path contains a disallowed pattern",
+            )
+        except InvalidInputError:
+            raise HTTPException(
+                status_code=404, detail=f"Unknown file: {name} - path does not exist"
+            )
         except SecurityError:
-            # SecurityError's own message embeds the resolved *absolute*
-            # server path (dw/security.py validate_path) - useful in a log,
-            # not in a response a remote caller reads
             raise HTTPException(status_code=404, detail=f"Unknown file: {name}")
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Unknown file")
@@ -2806,6 +2911,267 @@ def create_app(
             "job": job,
             "media": media,
         }
+
+    @app.get("/api/gallery/{name:path}/audio")
+    def gallery_audio(
+        name: str,
+        start: Optional[float] = None,
+        duration: Optional[float] = None,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """The soundtrack of an output or asset, as WAV - a muxed video's
+        track, which `get_output_audio` used to refuse outright, or an
+        excerpt (`start` + `duration`, seconds) of a track too long to send
+        whole (#193). An excerpt names itself in the response headers
+        (`X-DW-Excerpt-Start`, `X-DW-Excerpt-Duration`) beside the whole
+        track's `X-DW-Duration` - omitted only when a container carries no
+        duration in its own header - so a cut is never silent (#204).
+
+        An audio-only file asked for whole is served as its own bytes in its
+        own encoding - there is nothing to extract, and a transcode would
+        change what the agent hears."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        extension = os.path.splitext(path)[1].lower()
+        kind = MEDIA_KINDS.get(extension)
+        if kind not in ("audio", "video"):
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+
+        excerpt = start is not None or duration is not None
+        if kind == "audio" and not excerpt:
+            # The container's own header has the duration - reading it does
+            # not decode a single frame, unlike probe_media (which measures
+            # level and would pay for a full decode just for one number).
+            headers = {}
+            duration_seconds = media_duration(path)
+            if duration_seconds is not None:
+                headers["X-DW-Duration"] = str(duration_seconds)
+            if extension == ".wav":
+                # mimetypes says audio/x-wav on macOS, audio/vnd.wave from
+                # Python 3.14's builtin table on a box with no system mime
+                # file; an extract says audio/wav, and a whole WAV must not
+                # read as a different kind
+                media_type = "audio/wav"
+            else:
+                media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            return FileResponse(path, media_type=media_type, headers=headers)
+
+        # A track over the cap is refused at the header, not after it has
+        # been decoded and shipped: the MCP side would refuse the same bytes
+        # for the same reason, having paid for all of them. An excerpt is
+        # sized by its own span - `duration`, clipped to what is left of the
+        # track after `start` - so a whole-length "excerpt" is not a way
+        # around the gate.
+        shape = audio_shape(path)
+        if shape is not None and shape["duration_seconds"] is not None:
+            span = shape["duration_seconds"]
+            if excerpt and duration is not None:
+                span = max(0.0, min(float(duration), span - float(start or 0.0)))
+            projected = projected_wav_base64_size({**shape, "duration_seconds": span})
+            if projected > MAX_INLINE_AUDIO_BYTES:
+                what = (
+                    f"a {span:.1f}s excerpt of {name}"
+                    if excerpt
+                    else f"{name}'s whole soundtrack"
+                )
+                advice = (
+                    "Ask for a shorter `duration`"
+                    if excerpt
+                    else "Ask for an excerpt with `start` and `duration` (seconds)"
+                )
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{what} would be {projected} bytes base64-encoded as WAV "
+                        f"- over the {MAX_INLINE_AUDIO_BYTES} byte limit for an "
+                        f"inline clip. {advice}, or download the file."
+                    ),
+                )
+
+        try:
+            data, info = extract_audio(path, start=start, duration=duration)
+        except NoSoundtrack:
+            raise HTTPException(status_code=404, detail=f"{name} carries no soundtrack")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        headers = {"X-DW-Duration": str(info["of_seconds"])}
+        if info["excerpt"]:
+            headers["X-DW-Excerpt-Start"] = str(info["start"])
+            headers["X-DW-Excerpt-Duration"] = str(info["duration_seconds"])
+        return Response(content=data, media_type="audio/wav", headers=headers)
+
+    FRAME_MIN_DIMENSION = 64
+    # The most moments one `at` may name: each is a seek, a decode and a
+    # PNG encode in the server process, and a contact sheet is the shape
+    # for seeing more of a clip at once
+    MAX_FRAME_MOMENTS = 32
+
+    @app.get("/api/gallery/{name:path}/frames")
+    def gallery_frames(
+        name: str,
+        at: Optional[str] = None,
+        count: Optional[int] = None,
+        seams: Optional[str] = None,
+        boundaries: Optional[str] = None,
+        names: Optional[str] = None,
+        max_dimension: int = 512,
+        crop: Optional[str] = None,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Frames of a video output or asset, as PNG tiles - the way an
+        agent with no video content type sees what a run made (#193).
+        Exactly one selector: `at` (a comma list of seconds or "frame:N"),
+        `count` (an evenly spaced contact sheet, `frame_grid` without a
+        workflow), or `seams` ("true", or a comma list of 1-based seam
+        numbers) for the last frame before and first frame after each
+        boundary, side by side. `boundaries` is the comma list of frame
+        indexes each shot after the first starts at, and `names` the
+        shots' names; both are required with `seams` until a joined file
+        carries its own (stage 2 of docs/proposals/output-assessment.md).
+        Tiles are downscaled to `max_dimension` on their longest side.
+        `crop` is `x,y,width,height` in the video's own source pixels
+        (`video_shape`'s `width`/`height`) - resolved once and cut from
+        every sampled frame before any stamping, fitting or composing, so
+        it names the same region whatever `max_dimension` downscales the
+        result to."""
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+        else:
+            path = _output_file(name, ws.outputs)
+        if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "video":
+            raise HTTPException(status_code=404, detail=f"{name} is not a video")
+
+        chosen = [
+            key
+            for key, value in (("at", at), ("count", count), ("seams", seams))
+            if value
+        ]
+        if len(chosen) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Pass exactly one of `at`, `count` or `seams`"
+                + (f" - got {', '.join(chosen)}" if chosen else ""),
+            )
+        # A floor on each *sub-tile* of a composite (contact sheet / seam
+        # pair) - a caller asking for a small max_dimension still gets a
+        # legible grid, which is then fit to max_dimension as a whole below.
+        sub_tile_width = max(FRAME_MIN_DIMENSION, int(max_dimension))
+        limit = max(1, int(max_dimension))
+
+        try:
+            # Computed once and threaded through every selector below: each
+            # of frames_at/contact_sheet/seam_tiles would otherwise call
+            # video_shape itself, opening the container (and, lacking a
+            # header frame count, decoding it whole to count) a second time
+            # just to answer the same frame_count/fps/width/height (#193).
+            shape = video_shape(path)
+            crop_box = (
+                resolve_crop_box(
+                    [c.strip() for c in crop.split(",")],
+                    shape["width"],
+                    shape["height"],
+                )
+                if crop
+                else None
+            )
+            if at:
+                moments = [
+                    m.strip() if m.strip().startswith("frame:") else float(m)
+                    for m in at.split(",")
+                    if m.strip()
+                ]
+                if len(moments) > MAX_FRAME_MOMENTS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"`at` names {len(moments)} moments; the most is "
+                        f"{MAX_FRAME_MOMENTS} - ask for a contact sheet (`count`) "
+                        "to see more of the clip at once",
+                    )
+                tiles = frames_at(path, moments, shape=shape, crop_box=crop_box)
+            elif count:
+                tiles = [
+                    contact_sheet(
+                        path,
+                        count,
+                        tile_width=sub_tile_width,
+                        shape=shape,
+                        crop_box=crop_box,
+                    )
+                ]
+            else:
+                if not boundaries:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` needs `boundaries`: the frame index each "
+                        "shot after the first starts at, comma-separated - this "
+                        "file carries none of its own",
+                    )
+                starts = [int(b) for b in boundaries.split(",") if b.strip()]
+                shot_names = [n.strip() for n in names.split(",")] if names else None
+                wanted = (
+                    None
+                    if seams.lower() == "true"
+                    else {int(s) for s in seams.split(",") if s.strip()}
+                )
+                if wanted is not None and not wanted:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="`seams` names no seam - pass `true` for every seam, "
+                        "or seam numbers from 1",
+                    )
+                tiles = seam_tiles(
+                    path,
+                    starts,
+                    names=shot_names,
+                    tile_width=sub_tile_width,
+                    shape=shape,
+                    wanted=wanted,
+                    crop_box=crop_box,
+                )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        return {
+            "name": name,
+            **shape,
+            "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+            "crop": (
+                [
+                    crop_box[0],
+                    crop_box[1],
+                    crop_box[2] - crop_box[0],
+                    crop_box[3] - crop_box[1],
+                ]
+                if crop_box
+                else None
+            ),
+        }
+
+    def _encoded_tile(tile, limit):
+        image = tile["image"]
+        longest = max(image.width, image.height)
+        if longest > limit:
+            scale = limit / longest
+            image = image.resize(
+                (
+                    max(1, round(image.width * scale)),
+                    max(1, round(image.height * scale)),
+                )
+            )
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = {key: value for key, value in tile.items() if key != "image"}
+        encoded.update(
+            {
+                "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+                "mime_type": "image/png",
+                "width": image.width,
+                "height": image.height,
+            }
+        )
+        return encoded
 
     @app.get("/api/gallery/{name:path}/thumbnail")
     @query_token_ok

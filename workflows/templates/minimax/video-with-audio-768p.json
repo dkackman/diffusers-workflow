@@ -2,12 +2,30 @@
     "id": "MiniMaxH3768p",
     "description": "The 768p counterpart to 'video-with-audio'. Same pipeline, same offload and quantization; what differs is the checkpoint and the four numbers that go with it. 'lightx2v/Minimax-h3-Turbo' carries an 8-step FL2VA/T2VA turbo LoRA trained at exactly 1344x768 with a training shift of 6 for video and 3 for audio, and LightX2V's own hosted Studio runs it. Those move together: the base scheduler ships shift 12.0, which is the 544p figure, so the same weights on the default schedule spend a short sigma grid near sigma 1 and then drop to zero in one step. The alpha moves with them too - the file records 'alpha: 8' in its '__metadata__' at rank 128 and diffusers honors that, while upstream's own 768p invocation passes '--lora-alpha 128', sixteen times the strength the file asks for. 'num_inference_steps' is 9 for an 8-step checkpoint because the scheduler counts sigma grid points and the terminal zero is one of them. Keep 'video-with-audio' for fast iteration at 544p; this is the render. It does not lift the memory ceiling: peak attention memory is per step, so 1344x768 buys quality and, at 9 steps rather than 20, time - but a 24 GB card still runs out of room long before 345 frames at this canvas, and the frame count is where to give ground.",
     "summary": "The MiniMax H3 quality path: text to video with audio at 1344x768, on the 768p turbo LoRA's own schedule.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 9.87
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
         "width",
         "height"
     ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; base_gb and bytes_per_voxel are calibrated from two real runs: image-to-video's family baseline at 960x544x124 (on-demand VAE) succeeded at 18.03 GiB peak reserved (docs/WORKFLOW_GUIDE.md), and video-with-audio-768p at 1344x768x345 (the family's own num_frames ceiling) OOM'd mid-denoise needing >=25.82 GiB - 20.25 GiB already allocated plus a refused 5.57 GiB allocation, on a 23.56 GiB card (job 282172105da1, 2026-09-22) - closing the gap #265/#266 left the H3 family with nothing declared to check the engine's vram_estimate machinery against (#324)"
+    },
     "variables": {
         "prompt": "prompt:minimax/fox_dawn_context_ir",
         "num_frames": 124,
@@ -166,7 +184,8 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24
+                "fps": 24,
+                "subfolder": "final"
             }
         }
     ]

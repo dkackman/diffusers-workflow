@@ -12,15 +12,26 @@ class Step:
     Manages execution of pipelines, tasks, or sub-workflows with their configurations.
     """
 
-    def __init__(self, step_definition, default_seed, workflow_definition=None):
+    def __init__(
+        self,
+        step_definition,
+        default_seed,
+        workflow_definition=None,
+        consumed_by_normalizer=False,
+    ):
         """Initialize step with its configuration and seed value.
 
         workflow_definition, when given, is the original (unsubstituted)
         definition of the workflow this step belongs to - embedded metadata
         carries it so a saved image can be reopened as the workflow that
-        made it."""
+        made it.
+
+        consumed_by_normalizer is whether a later step resets this result's
+        level (normalize_audio/match_levels) before anything ships it - see
+        step_cache.normalized_downstream and result.py's headroom checks."""
         self.step_definition = step_definition
         self.workflow_definition = workflow_definition
+        self.consumed_by_normalizer = consumed_by_normalizer
         self.iteration = None
 
         # Get step-specific seed or use default if not specified
@@ -46,7 +57,10 @@ class Step:
 
             # Create result container with any special configuration from step definition
             # This handles how results should be saved/processed
-            result = Result(self.step_definition.get("result", {}))
+            result = Result(
+                self.step_definition.get("result", {}),
+                consumed_by_normalizer=self.consumed_by_normalizer,
+            )
 
             # Collect metadata for embedding if enabled
             result_def = self.step_definition.get("result", {})

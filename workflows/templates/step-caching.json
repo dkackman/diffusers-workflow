@@ -12,6 +12,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
+                    "offload": "model",
                     "cache": {
                         "type": "first_block",
                         "threshold": 0.05
@@ -29,7 +30,8 @@
             },
             "result": {
                 "content_type": "image/jpeg",
-                "embed_metadata": true
+                "embed_metadata": true,
+                "subfolder": "final"
             }
         }
     ]

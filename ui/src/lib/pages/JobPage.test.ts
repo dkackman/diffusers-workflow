@@ -5,8 +5,9 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
+import '../router.svelte'
 import { api } from '../api'
 import type { JobDetail, JobEvent } from '../types'
 
@@ -78,6 +79,14 @@ const job = (manifest: JobDetail['manifest']): JobDetail => ({
   error: null,
   traceback: null,
   event_count: 0,
+})
+
+beforeEach(() => {
+  // The one router instance the module imported parsed the hash at load;
+  // reset it here so a case that names a workspace (the URL-correction
+  // test) does not leak its hash into whatever renders next
+  location.hash = '#/ws/default/jobs/j1'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
 })
 
 afterEach(() => {
@@ -389,4 +398,12 @@ it('labels a definition with no realized copy on file as submitted', async () =>
   ran.realized = false
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+})
+
+it("corrects the URL to the job's own workspace", async () => {
+  location.hash = '#/ws/default/jobs/j1'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  detail.job = { ...job([]), workspace: 'studio' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(location.hash).toBe('#/ws/studio/jobs/j1'))
 })

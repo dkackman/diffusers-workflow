@@ -299,17 +299,22 @@ export const api = {
         writable: response.headers.get('X-Workflow-Writable') !== 'false',
       }),
     ),
-  // Unscoped: the jobs list spans every workspace on purpose, with its own
-  // filter dropdown rather than following wherever the picker points.
-  // Omitting `workspace` returns jobs from all of them.
-  listJobs: (workspace?: string) =>
-    request<{ jobs: JobSummary[] }>(
-      workspace
-        ? `/api/jobs?workspace=${encodeURIComponent(workspace)}`
-        : '/api/jobs',
+  // Unscoped on purpose: `workspace` is explicit so Status can span every
+  // workspace and a workspace's Jobs page can name its own. `status` is one
+  // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
+  // keeps the newest N of what matched.
+  listJobs: (workspace?: string, limit?: number, status?: string) => {
+    const query = new URLSearchParams()
+    if (workspace) query.set('workspace', workspace)
+    if (status) query.set('status', status)
+    if (limit) query.set('limit', String(limit))
+    const qs = query.toString()
+    return request<{ jobs: JobSummary[]; total?: number }>(
+      qs ? `/api/jobs?${qs}` : '/api/jobs',
       undefined,
       { scope: false },
-    ),
+    )
+  },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
    * `realized` true means `definition` is the realized copy the run itself

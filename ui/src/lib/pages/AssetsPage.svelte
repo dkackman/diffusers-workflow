@@ -24,11 +24,12 @@
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
-  import WorkspacePicker from '../WorkspacePicker.svelte'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
   type Origin = AssetFile['origin']
+
+  let { shared = false }: { shared?: boolean } = $props()
 
   const COLLAPSE_KEY = 'collapsed-asset-libraries'
   // What each library is called in the page's own voice. `common` is the
@@ -125,6 +126,7 @@
           (s) => s.origin === library.origin && matches(s.name),
         ),
       }))
+      .filter((section) => !shared || section.origin !== 'workspace')
       .filter(
         (section) =>
           !filterActive ||
@@ -263,8 +265,7 @@
 />
 
 <div class="head">
-  <h1>Assets</h1>
-  <WorkspacePicker />
+  <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
   <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
   <!-- One input for every section: which library the file lands in is
@@ -282,10 +283,16 @@
 
 <HintBar storageKey="assets-hint-dismissed">
   An asset is input a workflow names by reference: an argument set to asset:name
-  loads this file at run time, whatever run produced it. The shared library and
-  any examples library sit on every workspace's search path, so they follow you
-  between workspaces; only this workspace's own section changes with the picker,
-  and a name here hides the same name further down.
+  loads this file at run time, whatever run produced it.
+  {#if shared}
+    The shared library follows you between workspaces; an examples library is
+    read-only.
+  {:else}
+    The shared library and any examples library sit on every workspace's search
+    path, so they follow you between workspaces; only this workspace's own
+    section changes between workspaces, and a name here hides the same name
+    further down.
+  {/if}
 </HintBar>
 
 {#if loaded && !error && assets.length === 0}
@@ -328,7 +335,8 @@
       >
     {:else if section.origin === 'common'}
       <button
-        class="quiet withicon"
+        class="withicon"
+        class:quiet={!shared}
         onclick={() => startUpload('shared')}
         disabled={busy}
         title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"

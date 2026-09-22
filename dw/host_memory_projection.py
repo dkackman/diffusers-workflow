@@ -7,8 +7,8 @@ never covered - a `for_each` that keeps its pipeline resident across a
 SIGKILL on host RAM with the accelerator nowhere near full (#243).
 
 Scope is v1, by the repo owner's own sign-off on the issue: observed, not
-curated (no author-declared memory figure - `host_memory_peak_rss_mb` is a
-worker-reported field, not a schema key); warn, not refuse (host RAM headroom
+curated (no author-declared memory figure - `host_memory_job_peak_rss_mb` is
+a worker-reported field, not a schema key); warn, not refuse (host RAM headroom
 is a property of *this machine*, not something a caller chose, so it never
 blocks a run); no cross-machine normalization; and a cold start - no history
 for this workflow at all - means no check, the same rule `observed_cost.py`
@@ -66,11 +66,21 @@ def _requested_count(list_entries):
     return max(counts) if counts else None
 
 
-def _row_count(row, list_entries):
+def _row_count(row, list_entries, variables):
     """The list length a historical row ran with, read from its own stored
     arguments rather than the current request's - a row that ran a shorter
     or longer list is still comparable, once divided out, for the resident
     projection's per-entry figure.
+
+    A row's stored `arguments` are only the caller's *overrides*
+    (`job.spec["arguments"]`), never merged with the workflow's declared
+    defaults - a run of the catalog default (the common case for this
+    module's own regression case) is recorded as `{}`. Falling back to
+    `variables[name]` the same way `observed_cost._bucket_key` does is what
+    lets such a row resolve to its actual list length rather than to no
+    length at all, which used to drop every default-arguments row out of the
+    per-entry figure and left the resident shape silent regardless of
+    history (#264).
 
     Only the variable names the *current* request's `list_entries` names are
     read back, on the assumption that a workflow's list-driving variables
@@ -80,18 +90,18 @@ def _row_count(row, list_entries):
     try:
         arguments = json.loads(row.get("arguments") or "{}")
     except (TypeError, ValueError):
-        return None
+        arguments = {}
     if not isinstance(arguments, dict):
-        return None
-    counts = [
-        len(arguments[name])
-        for name in list_entries
-        if isinstance(arguments.get(name), list)
-    ]
+        arguments = {}
+    counts = []
+    for name in list_entries:
+        value = arguments.get(name, variables.get(name))
+        if isinstance(value, list):
+            counts.append(len(value))
     return max(counts) if counts else None
 
 
-def _already_survived(rows, list_entries, requested, projected_mb):
+def _already_survived(rows, list_entries, requested, projected_mb, variables):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
 
@@ -104,10 +114,10 @@ def _already_survived(rows, list_entries, requested, projected_mb):
     minutes ago.
     """
     for row in rows:
-        peak = row.get("host_memory_peak_rss_mb")
+        peak = row.get("host_memory_job_peak_rss_mb")
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
-        count = _row_count(row, list_entries)
+        count = _row_count(row, list_entries, variables)
         if count is not None and count >= requested:
             return True
     return False
@@ -119,15 +129,18 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
 
     `rows` are this workflow's finished runs as `JobHistory.finished_runs()`
     groups them - the same history `observed_cost.py` reads, extended with
-    `host_memory_peak_rss_mb` per row (#243). `ceiling_mb` is this box's own
-    RAM, scaled by `CEILING_FRACTION`; the caller reads that once per request
-    rather than this module importing `host_memory` for a per-validate
-    syscall.
+    `host_memory_job_peak_rss_mb` per row (#243, repointed from the
+    process-lifetime `host_memory_peak_rss_mb` by #272 - a small job run
+    right after a heavy one no longer inherits the heavy job's peak).
+    `ceiling_mb` is this box's own RAM, scaled by `CEILING_FRACTION`; the
+    caller reads that once per request rather than this module importing
+    `host_memory` for a per-validate syscall.
     """
     requested = _requested_count(list_entries)
     if requested is None or not rows or not ceiling_mb:
         return []
-    peaks = [row["host_memory_peak_rss_mb"] for row in rows]
+    variables = definition.get("variables") or {}
+    peaks = [row["host_memory_job_peak_rss_mb"] for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]
     if not peaks:
         # Cold start: history exists for this workflow, but no run of it
@@ -139,8 +152,8 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     else:
         per_entry = []
         for row in rows:
-            peak = row["host_memory_peak_rss_mb"]
-            count = _row_count(row, list_entries)
+            peak = row["host_memory_job_peak_rss_mb"]
+            count = _row_count(row, list_entries, variables)
             if isinstance(peak, (int, float)) and count:
                 per_entry.append(peak / count)
         if not per_entry:
@@ -151,7 +164,7 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         shape = f"{requested} entries held resident together"
     if projected_mb <= ceiling_mb:
         return []
-    if _already_survived(rows, list_entries, requested, projected_mb):
+    if _already_survived(rows, list_entries, requested, projected_mb, variables):
         return []
     return [
         "Projected host memory for this run (~"

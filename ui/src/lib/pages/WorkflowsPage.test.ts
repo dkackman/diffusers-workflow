@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock
 import WorkflowsPage from './WorkflowsPage.svelte'
+import '../router.svelte'
 
 type Detail = Record<string, unknown>
 
@@ -38,9 +39,6 @@ const listWorkflows = vi.hoisted(() =>
 vi.mock('../api', () => ({
   api: {
     listWorkflows: () => listWorkflows(),
-    // WorkspacePicker mounts with the page; a listing that never lands
-    // leaves it hidden, which is what a single-workspace server shows
-    listWorkspaces: vi.fn(() => new Promise(() => {})),
     // The proof thumbnails load beside the listing. These tests are about
     // the catalog's text, so the gallery answers empty and every card
     // renders in its no-output form.
@@ -60,6 +58,8 @@ async function renderPage(first: string) {
 }
 
 beforeEach(() => {
+  location.hash = '#/ws/default/workflows'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
   listing.workflows = ['templates/tti', 'templates/shot', 'models/flux-dev']
   listing.details = {
     'templates/tti': {
@@ -173,4 +173,49 @@ it('shows the summary rather than the whole description', async () => {
   await renderPage('tti')
   expect(card('tti')?.textContent).toContain('A still.')
   expect(card('tti')?.textContent).not.toContain('Second sentence')
+})
+
+it('the examples view lists only read-only workflows and links under shared', async () => {
+  listing.details['models/flux-dev'] = {
+    ...listing.details['models/flux-dev'],
+    origin: 'examples',
+    writable: false,
+  }
+  listing.details['templates/tti'] = {
+    ...listing.details['templates/tti'],
+    origin: 'workspace',
+    writable: true,
+  }
+  render(WorkflowsPage, { examples: true })
+  await waitFor(() => expect(card('flux-dev')).toBeTruthy())
+  expect(card('tti')).toBeNull()
+  expect(card('flux-dev')!.getAttribute('href')).toBe(
+    '#/shared/examples/models/flux-dev',
+  )
+  expect(screen.queryByTitle('new workflow')).toBeNull()
+})
+
+it('the examples view counts and offers chips for only the read-only population', async () => {
+  // One read-only (image), two writable (image, shot) - the count and the
+  // shape vocabulary must reflect only the one the examples view lists
+  listing.details['models/flux-dev'] = {
+    ...listing.details['models/flux-dev'],
+    origin: 'examples',
+    writable: false,
+  }
+  render(WorkflowsPage, { examples: true })
+  await waitFor(() => expect(card('flux-dev')).toBeTruthy())
+  expect(screen.getByText('1', { selector: '.count' })).toBeTruthy()
+  const shapes = screen.getByRole('group', { name: 'filter by shape' })
+  expect(within(shapes).queryByRole('button', { name: 'shot' })).toBeNull()
+  expect(within(shapes).getByRole('button', { name: 'image' })).toBeTruthy()
+})
+
+it('the workspace view links a card under the current workspace', async () => {
+  location.hash = '#/ws/studio/workflows'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await renderPage('tti')
+  expect(card('tti')!.getAttribute('href')).toBe(
+    '#/ws/studio/workflows/templates/tti',
+  )
 })

@@ -5,7 +5,7 @@ from dw.subfolders import step_subfolder, subfolder_errors
 
 
 def _step(name, result=None, **extra):
-    step = {"name": name, "task": {"command": "noop", "arguments": {}}}
+    step = {"name": name, "task": {"command": "gather_images", "arguments": {}}}
     if result is not None:
         step["result"] = result
     step.update(extra)
@@ -92,7 +92,7 @@ class TestValidationErrorsIntegration:
             "steps": [
                 {
                     "name": "a",
-                    "task": {"command": "noop", "arguments": {}},
+                    "task": {"command": "gather_images", "arguments": {}},
                     "result": {"content_type": "image/png", "subfolder": "../x"},
                 }
             ],
@@ -107,7 +107,7 @@ class TestValidationErrorsIntegration:
             "steps": [
                 {
                     "name": "a",
-                    "task": {"command": "noop", "arguments": {}},
+                    "task": {"command": "gather_images", "arguments": {}},
                     "result": {
                         "content_type": "image/png",
                         "subfolder": "variable:dest",
@@ -130,7 +130,7 @@ class TestValidationErrorsIntegration:
                         {"name": "a", "dest": "shots/a"},
                         {"name": "b", "dest": "../x"},
                     ],
-                    "task": {"command": "noop", "arguments": {}},
+                    "task": {"command": "gather_images", "arguments": {}},
                     "result": {"content_type": "image/png", "subfolder": "item:dest"},
                 }
             ],

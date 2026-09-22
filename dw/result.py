@@ -112,7 +112,7 @@ def flatten_alpha_for(image, content_type, file_name):
     return flattened
 
 
-def warn_without_headroom(waveform, file_name):
+def warn_without_headroom(waveform, file_name, emit=True, lossless=False):
     """Say when the soundtrack about to be written is at or over full scale.
 
     A clipped deliverable is invisible to the consumer this server is built
@@ -122,20 +122,38 @@ def warn_without_headroom(waveform, file_name):
     A warning rather than a change to the mix: what level a deliverable
     should sit at is the workflow's to decide, and `normalize_audio` is the
     step that decides it.
+
+    `emit=False` measures and returns the predicted peak without emitting
+    the warning - used for a video mux, where the caller holds the emission
+    until the post-encode probe (`warn_if_written_above_full_scale`) has a
+    ground-truth answer, and only falls back to this prediction if that
+    probe could not measure the written file at all (#174 amendment).
+
+    `lossless=True` is a plain wav/aiff/flac save: soundfile writes those as
+    integer PCM by default, which clips a sample outside [-1, 1] immediately
+    rather than merely risking it on some later lossy encode (#295) - the
+    message says so, and the caller does not suppress the post-write
+    ground-truth check for this file the way it does for an mp3/ogg/opus save.
     """
     peak = _peak_dbfs(waveform)
     if peak is None or peak < HEADROOM_WARN_DBFS:
         return None
-    emit_warning(
-        f"The soundtrack written to {file_name} peaks at {peak:+.1f} dBFS, "
-        f"which leaves no headroom below full scale - an mp3 or AAC encode "
-        f"of it decodes above 0 dBFS and clips. Add a 'normalize_audio' "
-        f"step (peak_dbfs: -1) before the step that saves it, or "
-        f"'match_levels' on the join that made it.",
-        kind="audio_no_headroom",
-        file=file_name,
-        peak_dbfs=round(peak, 2),
-    )
+    if emit:
+        risk = (
+            "the write itself clips samples above full scale to 0 dBFS - the "
+            "file just written is already clipped"
+            if lossless
+            else "an mp3 or AAC encode of it decodes above 0 dBFS and clips"
+        )
+        emit_warning(
+            f"The soundtrack written to {file_name} peaks at {peak:+.1f} dBFS, "
+            f"which leaves no headroom below full scale - {risk}. Add a "
+            f"'normalize_audio' step (peak_dbfs: -1) before the step that "
+            f"saves it, or 'match_levels' on the join that made it.",
+            kind="audio_no_headroom",
+            file=file_name,
+            peak_dbfs=round(peak, 2),
+        )
     return peak
 
 
@@ -147,8 +165,31 @@ def warn_without_headroom(waveform, file_name):
 # warned, because the number the check read was -1.0 (#158, #159, #161)
 CLIPPED_WARN_DBFS = 0.0
 
+# Distinguishes "no info supplied, probe it yourself" from "already probed,
+# and it came back empty/unmeasurable" - a caller that decoded the file once
+# (save_artifact, sharing one pass between this and warn_if_written_near_silent)
+# passes the dict (or None on failure) through instead of paying for a second
+# full decode of the same file (#262 - two independent probes, each a full
+# audio+video decode, doubled the 'saving' phase's wall clock)
+_UNPROBED = object()
 
-def warn_if_written_above_full_scale(output_path, already_warned=False):
+
+def _probe_written_media(output_path):
+    """Decode the just-written file once. `None` on any failure to probe."""
+    try:
+        from .media_info import probe_media
+
+        return probe_media(output_path) or {}
+    except Exception:
+        logger.debug(
+            f"Could not measure the written level of {output_path}", exc_info=True
+        )
+        return None
+
+
+def warn_if_written_above_full_scale(
+    output_path, already_warned=False, info=_UNPROBED, lossless=False
+):
     """Say when the file just written decodes above full scale.
 
     The overshoot a lossy encode adds is material-dependent - about 0.1 dB
@@ -158,38 +199,45 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
     did, this is the number a consumer's decoder will see.
 
     Silent when `warn_without_headroom` has already spoken for this file -
-    but only for a plain audio save. That suppression assumed the encoder
-    only ever adds overshoot, which held for the mp3s #159/#161 measured but
-    is backwards for an H3 video mux: #174 measured that family's AAC mux
-    landing *under* full scale after starting over it, so the pre-encode
-    warning was right and the caller's suppression hid the post-encode
-    check that would have said so. The caller decides which case applies
-    (`content_type`), not this function.
+    but only for a plain audio save into a lossy container (mp3/ogg/opus).
+    That suppression assumed the encoder only ever adds overshoot, which held
+    for the mp3s #159/#161 measured but is backwards for an H3 video mux:
+    #174 measured that family's AAC mux landing *under* full scale after
+    starting over it, so the pre-encode warning was right and the caller's
+    suppression hid the post-encode check that would have said so. It is
+    also wrong for a wav/aiff/flac save: soundfile's default integer PCM
+    subtype clips a sample outside [-1, 1] at write time, so the pre-write
+    prediction and the post-write ground truth are two different facts about
+    the same file rather than a duplicate of one, and both are worth reading
+    (#295). The caller decides which case applies (`content_type`), not this
+    function.
 
-    Best effort. A file that will not probe is not a level problem, and a
+    `info` lets a caller that already decoded the file (`_probe_written_media`)
+    hand the result in rather than have this probe it again. Best effort
+    either way: a file that will not probe is not a level problem, and a
     deliverable that is already written is not worth failing a finished run
     over.
     """
     if already_warned:
         return None
-    try:
-        from .media_info import probe_media
-
-        info = probe_media(output_path) or {}
-    except Exception:
-        logger.debug(
-            f"Could not measure the written level of {output_path}", exc_info=True
-        )
+    if info is _UNPROBED:
+        info = _probe_written_media(output_path)
+    if info is None:
         return None
     peak = info.get("peak_dbfs")
     if peak is None or peak < CLIPPED_WARN_DBFS:
         return peak
     name = os.path.basename(output_path)
+    if lossless:
+        cause = (
+            "The write itself clipped it - there was no headroom left below full scale"
+        )
+    else:
+        cause = "The encode adds its own overshoot on top of the level it was handed"
     emit_warning(
         f"{name} decodes at {peak:+.2f} dBFS - above full scale, so it "
-        f"clips on playback. The encode adds its own overshoot on top of "
-        f"the level it was handed, so the fix is more headroom before the "
-        f"file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
+        f"clips on playback. {cause}, so the fix is more headroom before "
+        f"the file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
         f"ahead of the step that saves it. A mux into a video needs more "
         f"of it than an audio file does.",
         kind="audio_clipped",
@@ -197,6 +245,59 @@ def warn_if_written_above_full_scale(output_path, already_warned=False):
         peak_dbfs=round(peak, 2),
     )
     return peak
+
+
+# The mean level get_gallery_metadata's own hint text already teaches as
+# near-silent (#158) - mirrored here as the check nothing was actually
+# running: a succeeded job could hand back a track this quiet with
+# warnings: [] (#261)
+NEAR_SILENT_WARN_DBFS = -40.0
+
+
+def warn_if_written_near_silent(
+    output_path, already_warned=False, info=_UNPROBED, source_already_quiet=False
+):
+    """Say when the file just written decodes as near-silent.
+
+    The other end of the range `warn_if_written_above_full_scale` guards:
+    `get_gallery_metadata` already taught mean_dbfs below -40 on a track
+    that should be full as a near-silent render, but nothing emitted a
+    warning for it at save time, so a job could succeed and hand back a
+    clip nobody could hear with `warnings: []` (#261).
+
+    `info` is the same shared-probe handoff `warn_if_written_above_full_scale`
+    takes. Best effort either way: a file that will not probe is not a
+    level problem, and a deliverable that is already written is not worth
+    failing a finished run over.
+
+    `source_already_quiet` is set by a pass-through task (slice_audio) whose
+    *source* material was already this quiet going in - a slice of room
+    tone is not a defect the slice introduced, and the warning's own wording
+    ("check the step that generated it... an unintended near-zero gain
+    upstream") is aimed at a step that could plausibly have caused the
+    level, which a plain cut out of an already-quiet recording did not (#309).
+    """
+    if already_warned or source_already_quiet:
+        return None
+    if info is _UNPROBED:
+        info = _probe_written_media(output_path)
+    if info is None:
+        return None
+    mean = info.get("mean_dbfs")
+    if mean is None or mean >= NEAR_SILENT_WARN_DBFS:
+        return mean
+    name = os.path.basename(output_path)
+    emit_warning(
+        f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
+        f"for a deliverable meant to be heard. Check the step that "
+        f"generated it: an empty or malformed prompt, a source model that "
+        f"produced no meaningful audio for this input, or an unintended "
+        f"near-zero gain upstream ('normalize_audio' or 'match_levels').",
+        kind="audio_near_silent",
+        file=name,
+        mean_dbfs=round(mean, 2),
+    )
+    return mean
 
 
 def _file_size_mb(path):
@@ -290,6 +391,18 @@ AUDIO_FORMATS = {
     "audio/opus": (".ogg", {"format": "OGG", "subtype": "OPUS"}),
 }
 
+# Formats whose write is a lossy re-encode, distinct from a wav/aiff/flac save:
+# soundfile's default integer PCM subtype for those clips an out-of-range sample
+# at write time, so there is no separate "encode" step for the pre-write warning
+# to describe as a future risk (#295) - only these three still fit that framing
+LOSSY_AUDIO_CONTENT_TYPES = {
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/ogg",
+    "audio/vorbis",
+    "audio/opus",
+}
+
 # Result definition keys passed through to soundfile - encoding quality controls
 AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode"]
 
@@ -360,14 +473,19 @@ class AudioTrack:
     still wins over the one carried here.
     """
 
-    def __init__(self, audio, sample_rate):
+    def __init__(self, audio, sample_rate, source_mean_dbfs=None):
         """
         Args:
             audio: The waveform, shaped (channels, samples)
             sample_rate: Sample rate the waveform was generated at
+            source_mean_dbfs: The mean level of the material this track was
+                taken from, when a task (slice_audio) measured one before
+                cutting it down - lets a save skip the near-silent warning
+                for a slice whose source was already this quiet (#309)
         """
         self.audio = audio
         self.sample_rate = sample_rate
+        self.source_mean_dbfs = source_mean_dbfs
 
 
 class Result:
@@ -377,7 +495,7 @@ class Result:
     for multiple content types including images, video, audio, and JSON.
     """
 
-    def __init__(self, result_definition):
+    def __init__(self, result_definition, consumed_by_normalizer=False):
         """Initialize Result with configuration for how to handle/save results.
 
         Args:
@@ -385,8 +503,13 @@ class Result:
                 - content_type: MIME type of the result
                 - save: Boolean indicating if result should be saved
                 - file_base_name: Base name for saved files
+            consumed_by_normalizer: Whether a later step resets this result's
+                level (normalize_audio/match_levels) before anything ships
+                it - when true, this save's own headroom is not a deliverable
+                concern (#286)
         """
         self.result_definition = result_definition
+        self._consumed_by_normalizer = consumed_by_normalizer
         self.result_list = []
         self.metadata = None
         self.saved_files = []
@@ -398,6 +521,11 @@ class Result:
         # warning from the waveform it was handed, so the written-level
         # check does not say the same thing twice (#161)
         self._no_headroom_warned = False
+        # The predicted peak (dBFS) from the pre-encode headroom check, paired
+        # with _no_headroom_warned above; only ever set inside save_artifact,
+        # initialized here so a caller reading it before that runs gets None
+        # rather than an AttributeError.
+        self._predicted_peak_dbfs = None
         # get_artifact_list(result) memoized by id(result) - see
         # _artifacts_for. Keeps result_list itself untouched, so
         # Result.retainable's attribute walk over result_list is unaffected.
@@ -684,6 +812,7 @@ class Result:
         )
         started = time.monotonic()
         self._no_headroom_warned = False
+        self._predicted_peak_dbfs = None
 
         try:
             if content_type.startswith("video"):
@@ -737,7 +866,13 @@ class Result:
                         )
                     return saved_files
                 self._no_headroom_warned = (
-                    warn_without_headroom(waveforms[0], os.path.basename(output_path))
+                    False
+                    if self._consumed_by_normalizer
+                    else warn_without_headroom(
+                        waveforms[0],
+                        os.path.basename(output_path),
+                        lossless=content_type not in LOSSY_AUDIO_CONTENT_TYPES,
+                    )
                     is not None
                 )
                 write_audio(
@@ -783,12 +918,63 @@ class Result:
         # save - a video mux's overshoot is not reliably positive (#174),
         # so a video always gets the ground-truth post-encode check
         if content_type.startswith("audio") or content_type.startswith("video"):
-            warn_if_written_above_full_scale(
+            # One decode pass shared between the two checks below (#262) -
+            # each used to probe the file independently, which for a video
+            # is a full audio+video decode and doubled the 'saving' phase's
+            # wall clock for no second answer
+            probed_info = _probe_written_media(output_path)
+            written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
-                    self._no_headroom_warned
-                    if content_type.startswith("audio")
-                    else False
+                    self._consumed_by_normalizer
+                    if content_type not in LOSSY_AUDIO_CONTENT_TYPES
+                    else (self._no_headroom_warned or self._consumed_by_normalizer)
+                )
+                if content_type.startswith("audio")
+                else False,
+                info=probed_info,
+                lossless=content_type.startswith("audio")
+                and content_type not in LOSSY_AUDIO_CONTENT_TYPES,
+            )
+            # A video's pre-encode prediction was held rather than emitted
+            # (#174 amendment): the post-encode probe is the ground truth,
+            # so a clean or genuinely-clipped result each get exactly one
+            # answer - nothing here, or `audio_clipped` from the probe
+            # itself. The only time the held prediction is worth anything is
+            # when the probe could not measure the file at all, in which
+            # case it is the one signal available and is surfaced late
+            # rather than dropped silently
+            #
+            # Note the gap this leaves: a written peak between
+            # HEADROOM_WARN_DBFS (around -0.5) and CLIPPED_WARN_DBFS (0.0)
+            # produces no warning here - the post-encode probe only speaks
+            # when the file is genuinely at or over full scale, so a mux
+            # that predicted risk but measured merely close-but-clean says
+            # nothing. That is the file's own ground truth, not a threshold
+            # bug.
+            if (
+                content_type.startswith("video")
+                and self._no_headroom_warned
+                and written_peak is None
+            ):
+                emit_warning(
+                    f"The soundtrack written to {os.path.basename(output_path)} "
+                    f"was predicted to peak at {self._predicted_peak_dbfs:+.1f} "
+                    f"dBFS before encoding, and the written file could not be "
+                    f"re-measured to confirm whether the mux corrected it - add "
+                    f"a 'normalize_audio' step (peak_dbfs: -1) before the step "
+                    f"that saves it, or 'match_levels' on the join that made it.",
+                    kind="audio_no_headroom",
+                    file=os.path.basename(output_path),
+                    peak_dbfs=round(self._predicted_peak_dbfs, 2),
+                )
+            source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
+            warn_if_written_near_silent(
+                output_path,
+                info=probed_info,
+                source_already_quiet=(
+                    source_mean_dbfs is not None
+                    and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
                 ),
             )
 
@@ -893,10 +1079,10 @@ class Result:
             audio = None
             if artifact.audio is not None and sample_rate is not None:
                 audio = as_audio_track(artifact.audio)
-                self._no_headroom_warned = (
-                    warn_without_headroom(artifact.audio, os.path.basename(output_path))
-                    is not None
+                self._predicted_peak_dbfs = warn_without_headroom(
+                    artifact.audio, os.path.basename(output_path), emit=False
                 )
+                self._no_headroom_warned = self._predicted_peak_dbfs is not None
             logger.debug(
                 f"Streaming {len(artifact.frames)} segments into {output_path}"
             )
@@ -930,9 +1116,10 @@ class Result:
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")
-        self._no_headroom_warned = (
-            warn_without_headroom(audio, os.path.basename(output_path)) is not None
+        self._predicted_peak_dbfs = warn_without_headroom(
+            audio, os.path.basename(output_path), emit=False
         )
+        self._no_headroom_warned = self._predicted_peak_dbfs is not None
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,

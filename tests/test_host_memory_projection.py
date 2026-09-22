@@ -16,7 +16,7 @@ MB = 1.0
 def row(peak_mb, arguments=None):
     return {
         "arguments": json.dumps(arguments or {}),
-        "host_memory_peak_rss_mb": peak_mb,
+        "host_memory_job_peak_rss_mb": peak_mb,
     }
 
 
@@ -54,7 +54,7 @@ class TestProjection:
         rows = [
             {
                 "arguments": json.dumps({"shots": [1, 2, 3]}),
-                "host_memory_peak_rss_mb": None,
+                "host_memory_job_peak_rss_mb": None,
             }
         ]
         warnings = host_memory_warnings(definition, {"shots": 12}, rows, 10_000 * MB)
@@ -108,4 +108,15 @@ class TestProjection:
         definition = for_each_workflow(release=False)
         rows = [row(62197 * MB, {"shots": [1, 2]})]
         warnings = host_memory_warnings(definition, {"shots": 4}, rows, 57788 * MB)
+        assert len(warnings) == 1
+
+    def test_default_arguments_row_still_counts_toward_the_projection(self):
+        # #264: a row run at the workflow's declared default (no override,
+        # so its stored arguments are {}) used to resolve to no count at all
+        # and be dropped from the per-entry figure - leaving the resident
+        # shape silent regardless of how much history existed.
+        definition = for_each_workflow(release=False)
+        definition["variables"]["shots"] = [1, 2]
+        rows = [row(2000 * MB, arguments={}) for _ in range(3)]
+        warnings = host_memory_warnings(definition, {"shots": 32}, rows, 8_000 * MB)
         assert len(warnings) == 1

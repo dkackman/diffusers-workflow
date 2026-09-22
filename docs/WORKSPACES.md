@@ -198,7 +198,17 @@ sub-workflow is part of its parent's run: it writes into the same directory and
 rolls up into the same manifest.
 
 An unchanged rerun still reuses the step cache: it writes no new files and its
-manifest reports the earlier run's, marked `"reused": true`.
+manifest reports the earlier run's, marked `"reused": true`. The cache is
+validated against the output *root* a run writes into, which is the pinned
+workspace's own `outputs/` - so it is per workspace, not per workflow alone.
+A run in one workspace does not make `validate_workflow`'s
+`plan.cached_steps` come back nonzero for a matching run sitting in another
+workspace, and deleting a workspace drops its cache entries along with its
+`outputs/` directory. The cache itself is also per *process*: entries are
+held in memory by the running server, not read back from `outputs/`, so a
+`dw.serve` restart empties it even though every run directory is still on
+disk - a `plan.cached_steps` of 0 right after a restart is expected, not a
+lost run.
 
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
@@ -271,10 +281,10 @@ pre-workspace call still means what it meant.
 
 | Client | How |
 | --- | --- |
-| Web UI | The workspace picker on the Workflows and Gallery pages. The choice is remembered in `localStorage`, and the Jobs page adds a filter — job history spans every workspace and says which one each job ran in |
+| Web UI | The sidebar lists every workspace; the selected one is named in the hash (`#/ws/<name>/...`), so a link and a reload both land where they say. The choice is remembered in `localStorage` as a fallback for a route that names none (Shared, Server), and Server → Status adds a filter over the all-workspaces queue — job history spans every workspace there and says which one each job ran in |
 | MCP | `list_workspaces`, then `use_workspace(name)`. It is a session default rather than an argument on each call, so switching is one visible step in the transcript instead of a flag that can be forgotten on the call where it mattered |
 | HTTP | `?workspace=` on the route, or `"workspace"` in a `POST /api/jobs` body |
-| Server page | The Workspaces section lists them, creates and deletes them |
+| Web UI (create/delete) | The sidebar's `+ new` creates one; a workspace's own Overview page deletes it (disabled for `default`) |
 
 A job carries its own workflow, asset and output directories, so it stays in
 the workspace it was submitted from however many others the server serves
@@ -294,12 +304,13 @@ it. Use them to keep work apart, not to keep it private.
 
 ## Where this is going
 
-Workspaces were the first stage of the design in
-[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md). The resolver, the workflow
-search path with writes confined to the writable root, run directories with an
-on-disk manifest, `asset:` and `output:` references, and server-side named
-workspaces are all implemented. What remains from the proposal is an MCP
-client that keeps its workspace on its own machine and mirrors it to the
-server — see
-[proposals/server-workspaces-complete.md](proposals/server-workspaces-complete.md) for why
-mirroring is not currently planned.
+The resolver, the workflow search path with writes confined to the writable
+root, run directories with an on-disk manifest, `asset:` and `output:`
+references, and server-side named workspaces are all implemented. A further
+stage was designed but deliberately not built: a client-side workspace (a
+laptop directory, under version control) that mirrors into a read-only
+server workspace, so an agent could author offline and only push at submit
+time. It stayed on the drawing board because source control of creative work
+is not this project's job — that is already handled on the client, by the
+user, with the tools they already use — which is what makes a mirroring
+layer unnecessary rather than merely speculative.

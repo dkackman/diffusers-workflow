@@ -46,11 +46,13 @@ from .reference_names import reference_name_errors
 from .content_types import content_type_errors
 from .scalar_result_validation import scalar_result_errors
 from .kernel_availability import kernel_availability_errors
+from .vram_estimate import apply_vram_estimate, vram_estimate_errors
 from .step import Step
 from .step_cache import (
     step_cache,
     referenced_result_names,
     reference_resolves_to,
+    normalized_downstream,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -688,6 +690,14 @@ class Workflow:
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
             + constraint_reference_errors(self.workflow_definition)
+            # A (width, height, num_frames)-shaped combination a declared
+            # vram_estimate projects past the card 'cost' was measured on -
+            # refused here rather than found 90+ seconds into denoising on
+            # an OOM the caller had no way to see coming (dw/vram_estimate.py,
+            # #265)
+            + vram_estimate_errors(
+                self.workflow_definition, arguments, supplied=set(arguments or {})
+            )
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
             # loading, naming a torch/natten mismatch the construction alone
@@ -811,6 +821,13 @@ class Workflow:
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
+            # A (width, height, num_frames)-shaped combination a declared
+            # vram_estimate projects past the card 'cost' was measured on -
+            # the run-time backstop for a caller that skips
+            # validate_workflow, so this raises the same refusal rather
+            # than starting a job the decode step was always going to OOM
+            # on (dw/vram_estimate.py, #265)
+            apply_vram_estimate(workflow_def, variables)
             # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
@@ -1201,7 +1218,14 @@ class Workflow:
                 # Seeds resolve most-specific-first: pipeline > step > workflow
                 step_seed = step_data.get("seed", default_seed)
 
-                step = Step(step_data, step_seed, self.workflow_definition)
+                step = Step(
+                    step_data,
+                    step_seed,
+                    self.workflow_definition,
+                    consumed_by_normalizer=normalized_downstream(
+                        steps[i + 1 :], step_data["name"]
+                    ),
+                )
 
                 cached_result, step_data_snapshot, result_needed, remaining_refs = (
                     self._cache_lookup(
@@ -1746,5 +1770,5 @@ class Workflow:
         logger.debug(f"Creating task for step: {step_definition['name']}")
         # Handle task creation
         task_definition = step_definition["task"]
-        task = Task(task_definition, device)
+        task = Task(task_definition, device, seed=default_seed)
         return task

@@ -50,13 +50,13 @@ The stdio MCP server lives in `dw_mcp/` — see `dw_mcp/CLAUDE.md` and docs/MCP.
 `.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
 composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`) that
 chooses a template for a request's shape and states the family's hard rules, plus
-`series-episodes`, which is a shape above them - several episodes over one cast,
-each cut and scored from those templates' runs. Every skill the directory holds is
-named in `plugins/dw/README.md` and here, pinned by the same test. Model
-knowledge lives there and in the catalog, never in engine code; every number a skill
-states is pinned to a diffusers symbol by `tests/test_plugin_skills.py`. `plugin.json`'s
-version is the engine's, bumped by `scripts/release.sh`. Adding or re-auditing a family
-is `.claude/skills/model-family-onboarding/`.
+cross-cutting composition skills (`script-to-video`, `series-episodes`) - shapes above
+the families that orchestrate the decision trees and cast consistency across multiple
+generations. Every skill the directory holds is named in `plugins/dw/README.md` and here,
+pinned by the same test. Model knowledge lives there and in the catalog, never in engine
+code; every number a skill states is pinned to a diffusers symbol by
+`tests/test_plugin_skills.py`. `plugin.json`'s version is the engine's, bumped by
+`scripts/release.sh`. Adding or re-auditing a family is `.claude/skills/model-family-onboarding/`.
 
 ### REPL Architecture
 
@@ -84,7 +84,9 @@ own library (so a workspace name shadows a shared one), is tagged `origin:
 common` by `GET /api/assets`, and is written to only when a call says so
 (`?shared=true` on uploads, `"shared": true` on keep, `shared=True` over MCP).
 Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
-`common`.
+`common`. The web UI is organised by workspace, with a sidebar listing every
+workspace on the server (`ui/src/lib/Sidebar.svelte`) and the selected one
+named in the hash (`#/ws/<name>/...`).
 
 The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte` (#165)
 reads `GET /api/assets` and shows the library the way the gallery shows
@@ -127,9 +129,9 @@ root *and* how it was chosen into the environment, so a spawned worker does not
 read an inferred workspace back as one the user named - `get_prompt_dir` yields
 to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
-`--output-dir` and `--prompt-dir` each still override one folder. See
-docs/WORKSPACES.md, and docs/proposals/server-workspaces-complete.md for the later stages
-(workflow search path, run directories, `asset:`/`output:` references).
+`--output-dir` and `--prompt-dir` each still override one folder. See docs/WORKSPACES.md;
+the later stages (workflow search path, run directories, `asset:`/`output:`
+references) are documented above in *Workflow sources* and *Type System*.
 
 ### Type System
 
@@ -445,6 +447,28 @@ same reason - default setup cannot load a pack.
   arguments)`); a resized list finds no bucket and falls back to the curated
   figure. Nothing is added for a composed child, since an observed run
   already ran it. An inline definition has no catalog name, so no history
+- **An observed figure below three runs is not the same statistical basis as
+  a dozen, and says so** — a single-run `observed_minutes` was quoted at the
+  same authority as a twelve-run one, and ran ~3x pessimistic doing it
+  (#301). Below `SMALL_N_THRESHOLD` (3) runs, `estimate()`'s `_tempered`
+  (`dw/plan.py`) blends the observed minutes toward the workflow's curated
+  `cost` when one exists — proportional to how thin the history is, one run
+  counting for a third of the blend — rather than quoting the raw point
+  figure; where no curated figure exists to blend toward (including the
+  #268 child-rollup case, which has none by construction), the minutes are
+  left alone and `low_confidence: true` is added to the estimate instead, so
+  a caller has something machine-checkable beyond having to know to inspect
+  `runs` itself. No new range/uncertainty-band math — that was considered
+  and rejected as more surface than the problem needs. A blend still
+  answered `basis: "observed"`, the same label a raw, full-authority figure
+  carries, with nothing in the estimate saying the number had been moved off
+  what `list_workflows`' own `observed_minutes` reports for the same
+  workflow (#319) — a caller reconciling the two saw them disagree with no
+  explanation. `_tempered` now marks a blend with `tempered: true` plus
+  `observed_minutes` (the raw point figure) and `curated_minutes` (what it
+  blended toward) beside `runs`, additive fields only; `basis` stays
+  `"observed"` so an existing consumer that only reads `basis`/`minutes`
+  is unaffected
 - **An H3 adapter is checked against the partition its step denoises on** —
   `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
   `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a

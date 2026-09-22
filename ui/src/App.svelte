@@ -2,24 +2,19 @@
   import {
     BookOpen,
     Braces,
-    Database,
-    FolderOpen,
-    Images,
     KeyRound,
-    Layers,
-    ListTodo,
-    ListTree,
-    MessageSquareText,
+    Menu,
     Moon,
-    Server,
     MonitorCog,
-    SquarePen,
     Sun,
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
   import { route } from './lib/router.svelte'
   import { api } from './lib/api'
+  import { storageGet, storageSet } from './lib/storage'
   import type { HealthInfo, MemoryInfo } from './lib/types'
+  import Sidebar from './lib/Sidebar.svelte'
+  import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
@@ -32,10 +27,11 @@
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
-  import ServerPage from './lib/pages/ServerPage.svelte'
+  import StatusPage from './lib/pages/StatusPage.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let health = $state<HealthInfo | null>(null)
@@ -67,6 +63,9 @@
     } else if (event.key === 'Escape' && tokenOpen) {
       event.preventDefault()
       tokenOpen = false
+    } else if (event.key === 'Escape' && drawerOpen) {
+      event.preventDefault()
+      drawerOpen = false
     }
   }
 
@@ -119,292 +118,245 @@
       (100 * (info.gpu_memory_allocated_mb ?? 0)) / info.gpu_memory_total_mb,
     )
   })
+
+  // storage.ts namespaces the key: this is localStorage 'dw-sidebar'
+  let sidebarCollapsed = $state(storageGet<boolean>('sidebar', false))
+  function toggleSidebar() {
+    sidebarCollapsed = !sidebarCollapsed
+    storageSet('sidebar', sidebarCollapsed)
+  }
+  // Narrow viewports: the sidebar is an overlay opened from the header.
+  // While it is off screen it is inert, so a keyboard or screen reader
+  // does not walk its links before reaching the menu button
+  let drawerOpen = $state(false)
+  let narrow = $state(false)
+  $effect(() => {
+    const query = window.matchMedia('(max-width: 900px)')
+    const apply = () => (narrow = query.matches)
+    apply()
+    query.addEventListener('change', apply)
+    return () => query.removeEventListener('change', apply)
+  })
+  $effect(() => {
+    // any navigation closes the drawer
+    void route.parts
+    drawerOpen = false
+  })
+  const view = $derived(route.view)
+  const wide = $derived(
+    (view.kind === 'ws' && view.section === 'edit') ||
+      (view.kind === 'shared' && view.section === 'prompt-edit'),
+  )
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-<!-- One row. The old second row spent ~30px of every page saying "idle";
-     the state it carries now sits at the right of the nav, where the
-     running job is a link to that job rather than a word. Primary
-     destinations (the daily work) are separated by a rule from the
-     reference pages, which are demoted but not hidden in a menu. -->
-<header>
-  <div class="navrow">
-    <a class="brand plain" href="#/workflows"
-      >diffusers<span class="dim">-workflow</span></a
-    >
-    <nav>
-      <a
-        class="plain"
-        href="#/workflows"
-        class:active={route.parts[0] === 'workflows'}
-        title="Workflows"
-      >
-        <Layers size={15} /><span class="navlabel">Workflows</span>
-      </a>
-      <a
-        class="plain"
-        href="#/prompts"
-        class:active={route.parts[0] === 'prompts' ||
-          route.parts[0] === 'prompt-edit'}
-        title="Prompts"
-      >
-        <MessageSquareText size={15} /><span class="navlabel">Prompts</span>
-      </a>
-      <a
-        class="plain"
-        href="#/jobs"
-        class:active={route.parts[0] === 'jobs'}
-        title="Jobs"
-      >
-        <ListTodo size={15} /><span class="navlabel">Jobs</span>
-      </a>
-      <a
-        class="plain"
-        href="#/gallery"
-        class:active={route.parts[0] === 'gallery'}
-        title="Gallery"
-      >
-        <Images size={15} /><span class="navlabel">Gallery</span>
-      </a>
-      <a
-        class="plain"
-        href="#/assets"
-        class:active={route.parts[0] === 'assets'}
-        title="Assets"
-      >
-        <FolderOpen size={15} /><span class="navlabel">Assets</span>
-      </a>
-      <a
-        class="plain"
-        href="#/edit"
-        class:active={route.parts[0] === 'edit'}
-        title="Editor"
-      >
-        <SquarePen size={15} /><span class="navlabel">Editor</span>
-      </a>
-      <span class="navrule" aria-hidden="true"></span>
-      <a
-        class="plain second"
-        href="#/models"
-        class:active={route.parts[0] === 'models'}
-        title="Models"
-      >
-        <Database size={15} /><span class="navlabel">Models</span>
-      </a>
-      <a
-        class="plain second"
-        href="#/schema"
-        class:active={route.parts[0] === 'schema'}
-        title="Schema"
-      >
-        <ListTree size={15} /><span class="navlabel">Schema</span>
-      </a>
-      <a
-        class="plain second"
-        href="#/server"
-        class:active={route.parts[0] === 'server'}
-        title="Server"
-      >
-        <Server size={15} /><span class="navlabel">Server</span>
-      </a>
-    </nav>
-
-    <div class="state">
-      {#if currentJob}
-        <!-- The one thing worth pinning to every page: what the GPU is
-             doing, and a way straight to it -->
-        <a class="plain live" href="#/jobs/{currentJob}" title="go to the job">
-          <span class="pulse-dot"></span>running
-        </a>
-      {/if}
-      {#if vramPct !== null}
+<!-- The sidebar carries navigation; the header carries where you are and what the GPU is doing -->
+<div class="shell" class:drawer={drawerOpen}>
+  <Sidebar
+    collapsed={sidebarCollapsed && !drawerOpen}
+    inert={narrow && !drawerOpen}
+    onToggle={toggleSidebar}
+  />
+  {#if drawerOpen}
+    <button
+      class="scrim"
+      aria-label="close navigation"
+      onclick={() => (drawerOpen = false)}
+    ></button>
+  {/if}
+  <div class="column">
+    <header>
+      <div class="navrow">
         <button
-          class="bare vram"
-          onclick={(e) => {
-            e.stopPropagation()
-            statusOpen = !statusOpen
-          }}
-          title={memory?.info?.gpu_device_name
-            ? `${memory.info.gpu_device_name} - ${gb(memory.info.gpu_memory_allocated_mb ?? 0)} of ${gb(memory.info.gpu_memory_total_mb ?? 0)} GB allocated`
-            : 'VRAM allocated'}
-          aria-label="server & worker status"
-          aria-expanded={statusOpen}
+          class="bare icon menu"
+          onclick={() => (drawerOpen = !drawerOpen)}
+          aria-label="open navigation"
+          aria-expanded={drawerOpen}
+          title="navigation"
         >
-          <span class="meter">
-            <span
-              class="fill"
-              class:hot={vramPct > 75}
-              class:critical={vramPct > 92}
-              style:width={vramPct + '%'}
-            ></span>
-          </span>
-          <span class="num vramtext"
-            >{gb(memory?.info?.gpu_memory_allocated_mb ?? 0)}/{gb(
-              memory?.info?.gpu_memory_total_mb ?? 0,
-            )} GB</span
+          <Menu size={15} />
+        </button>
+        <Breadcrumb />
+        <span class="flex"></span>
+        <div class="state">
+          {#if currentJob}
+            <!-- The one thing worth pinning to every page: what the GPU is
+             doing, and a way straight to it. The legacy '#/jobs/<id>' form is
+             deliberate: health.current_job carries no workspace, so the legacy
+             redirect plus JobPage's correction is how it lands under the job's
+             own workspace -->
+            <a
+              class="plain live"
+              href="#/jobs/{currentJob}"
+              title="go to the job"
+            >
+              <span class="pulse-dot"></span>running
+            </a>
+          {/if}
+          {#if vramPct !== null}
+            <button
+              class="bare vram"
+              onclick={(e) => {
+                e.stopPropagation()
+                statusOpen = !statusOpen
+              }}
+              title={memory?.info?.gpu_device_name
+                ? `${memory.info.gpu_device_name} - ${gb(memory.info.gpu_memory_allocated_mb ?? 0)} of ${gb(memory.info.gpu_memory_total_mb ?? 0)} GB allocated`
+                : 'VRAM allocated'}
+              aria-label="server & worker status"
+              aria-expanded={statusOpen}
+            >
+              <span class="meter">
+                <span
+                  class="fill"
+                  class:hot={vramPct > 75}
+                  class:critical={vramPct > 92}
+                  style:width={vramPct + '%'}
+                ></span>
+              </span>
+              <span class="num vramtext"
+                >{gb(memory?.info?.gpu_memory_allocated_mb ?? 0)}/{gb(
+                  memory?.info?.gpu_memory_total_mb ?? 0,
+                )} GB</span
+              >
+            </button>
+          {:else}
+            <button
+              class="bare"
+              class:muted={currentJob === null}
+              onclick={(e) => {
+                e.stopPropagation()
+                statusOpen = !statusOpen
+              }}
+              title="server & worker status"
+              aria-label="server & worker status"
+              aria-expanded={statusOpen}
+            >
+              {currentJob ? 'status' : 'idle'}
+            </button>
+          {/if}
+          <StatusPopover bind:open={statusOpen} {health} {memory} />
+          <button
+            class="bare icon"
+            onclick={(e) => {
+              e.stopPropagation()
+              tokenOpen = !tokenOpen
+            }}
+            title="API token"
+            aria-label="API token"
+            aria-expanded={tokenOpen}
           >
-        </button>
-      {:else}
-        <button
-          class="bare"
-          class:muted={currentJob === null}
-          onclick={(e) => {
-            e.stopPropagation()
-            statusOpen = !statusOpen
-          }}
-          title="server & worker status"
-          aria-label="server & worker status"
-          aria-expanded={statusOpen}
-        >
-          {currentJob ? 'status' : 'idle'}
-        </button>
-      {/if}
-      <StatusPopover bind:open={statusOpen} {health} {memory} />
-      <button
-        class="bare icon"
-        onclick={(e) => {
-          e.stopPropagation()
-          tokenOpen = !tokenOpen
-        }}
-        title="API token"
-        aria-label="API token"
-        aria-expanded={tokenOpen}
-      >
-        <KeyRound size={15} />
-      </button>
-      <TokenPopover bind:open={tokenOpen} />
-      <button
-        class="bare icon"
-        onclick={cycleTheme}
-        title="theme: {theme} - click to change"
-        aria-label="theme: {theme} - click to change"
-      >
-        {#if theme === 'light'}<Sun size={15} />{:else if theme === 'dark'}<Moon
-            size={15}
-          />{:else}<MonitorCog size={15} />{/if}
-      </button>
-      <a
-        class="plain helplink"
-        href="https://github.com/dkackman/diffusers-workflow#documentation"
-        target="_blank"
-        rel="noopener"
-        title="documentation on GitHub"
-        aria-label="documentation on GitHub"
-      >
-        <BookOpen size={15} />
-      </a>
-      <a
-        class="plain helplink"
-        href="/docs"
-        target="_blank"
-        rel="noopener"
-        title="interactive API reference (OpenAPI)"
-        aria-label="interactive API reference (OpenAPI)"
-      >
-        <Braces size={15} />
-      </a>
-    </div>
+            <KeyRound size={15} />
+          </button>
+          <TokenPopover bind:open={tokenOpen} />
+          <button
+            class="bare icon"
+            onclick={cycleTheme}
+            title="theme: {theme} - click to change"
+            aria-label="theme: {theme} - click to change"
+          >
+            {#if theme === 'light'}<Sun
+                size={15}
+              />{:else if theme === 'dark'}<Moon size={15} />{:else}<MonitorCog
+                size={15}
+              />{/if}
+          </button>
+          <a
+            class="plain helplink"
+            href="https://github.com/dkackman/diffusers-workflow#documentation"
+            target="_blank"
+            rel="noopener"
+            title="documentation on GitHub"
+            aria-label="documentation on GitHub"
+          >
+            <BookOpen size={15} />
+          </a>
+          <a
+            class="plain helplink"
+            href="/docs"
+            target="_blank"
+            rel="noopener"
+            title="interactive API reference (OpenAPI)"
+            aria-label="interactive API reference (OpenAPI)"
+          >
+            <Braces size={15} />
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class:wide>
+      {#if view.kind === 'server'}
+        {#if view.section === 'schema'}<SchemaPage />
+        {:else if view.section === 'models'}<ModelsPage />
+        {:else}<StatusPage />{/if}
+      {:else if view.kind === 'shared'}
+        {#if view.section === 'prompts'}<PromptsPage />
+        {:else if view.section === 'prompt-edit'}<PromptEditorPage
+            name={view.rest.join('/')}
+          />
+        {:else if view.section === 'assets'}<AssetsPage shared />
+        {:else if view.rest.length}<WorkflowPage name={view.rest.join('/')} />
+        {:else}<WorkflowsPage examples />{/if}
+      {:else if view.section === 'overview'}<OverviewPage />
+      {:else if view.section === 'gallery'}<GalleryPage />
+      {:else if view.section === 'assets'}<AssetsPage />
+      {:else if view.section === 'edit'}<EditorPage
+          name={view.rest.join('/')}
+        />
+      {:else if view.section === 'jobs' && view.rest[0]}<JobPage
+          jobId={view.rest[0]}
+        />
+      {:else if view.section === 'jobs'}<JobsPage />
+      {:else if view.section === 'workflows' && view.rest.length}<WorkflowPage
+          name={view.rest.join('/')}
+        />
+      {:else}<WorkflowsPage />{/if}
+    </main>
   </div>
-</header>
+</div>
 
 <Toaster position="bottom-right" closeButton {theme} duration={4000} />
 <ConfirmDialog />
 
 <KeyboardHelp bind:open={helpOpen} />
 
-<main
-  class:wide={route.parts[0] === 'edit' || route.parts[0] === 'prompt-edit'}
->
-  {#if route.parts[0] === 'schema'}
-    <SchemaPage />
-  {:else if route.parts[0] === 'server'}
-    <ServerPage />
-  {:else if route.parts[0] === 'models'}
-    <ModelsPage />
-  {:else if route.parts[0] === 'gallery'}
-    <GalleryPage />
-  {:else if route.parts[0] === 'assets'}
-    <AssetsPage />
-  {:else if route.parts[0] === 'edit'}
-    <EditorPage name={route.parts.slice(1).join('/')} />
-  {:else if route.parts[0] === 'prompt-edit'}
-    <PromptEditorPage name={route.parts.slice(1).join('/')} />
-  {:else if route.parts[0] === 'prompts'}
-    <PromptsPage />
-  {:else if route.parts[0] === 'jobs' && route.parts[1]}
-    <JobPage jobId={route.parts[1]} />
-  {:else if route.parts[0] === 'jobs'}
-    <JobsPage />
-  {:else if route.parts[0] === 'workflows' && route.parts[1]}
-    <WorkflowPage name={route.parts.slice(1).join('/')} />
-  {:else}
-    <WorkflowsPage />
-  {/if}
-</main>
-
 <style>
+  .shell {
+    display: flex;
+    min-height: 100vh;
+  }
+  .column {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
   header {
     border-bottom: 1px solid var(--line);
     background: var(--panel);
     position: sticky;
     top: 0;
     z-index: 10;
+    /* header and main are flex items of .column: without this, a flex
+       item's automatic minimum width is its content's min-content size
+       (a wide table, a crowded icon row), which grows the item - and the
+       document - past the viewport instead of letting the item's own
+       overflow handling (a scroller, wrapping) take over */
+    min-width: 0;
   }
   .navrow {
-    position: relative;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.4rem;
+    gap: 0.5rem 1rem;
     padding: 0.55rem 1.2rem;
   }
-  .brand {
-    font-family: var(--font-mono);
-    font-weight: 700;
-    font-size: 0.95rem;
-    letter-spacing: -0.02em;
-    color: var(--ink);
+  .menu {
+    display: none;
   }
-  .brand .dim {
-    color: var(--muted);
-    font-weight: 500;
-  }
-  nav {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 1.05rem;
-    flex: 1;
-  }
-  /* Separates the daily work from the reference pages without hiding the
-     reference pages behind a menu */
-  .navrule {
-    width: 1px;
-    align-self: stretch;
-    margin: 0.1rem 0;
-    background: var(--line);
-  }
-  nav a {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--muted);
-    font-size: var(--t-sm);
-    font-weight: 600;
-    padding: 0.15rem 0;
-    border-bottom: 2px solid transparent;
-    white-space: nowrap;
-  }
-  nav a.second {
-    font-weight: 500;
-  }
-  nav a:hover {
-    color: var(--ink);
-  }
-  nav a.active {
-    color: var(--ink);
-    border-bottom-color: var(--ink);
+  .scrim {
+    display: none;
   }
   .state {
     position: relative;
@@ -473,46 +425,68 @@
     background: var(--panel-2);
   }
   main {
+    /* main is a flex item of .column (flex-direction: column); auto
+       cross-axis margins (the `margin: 0 auto` that centers it) opt it
+       out of the default stretch sizing, so without an explicit width it
+       falls back to fit-content and grows to whatever its widest
+       descendant (a wide table, a crowded header row) wants - taking the
+       document past the viewport instead of leaving that descendant's own
+       overflow handling (a scroller, wrapping) to cope */
+    width: 100%;
     max-width: 1180px;
     margin: 0 auto;
     padding: 1.6rem 1.2rem 4rem;
+    min-width: 0;
   }
   main.wide {
     max-width: 1560px;
   }
 
-  /* Below the nav's natural width the header wraps to a second row rather
-     than overflowing - a sticky header does not pin horizontally, so any
-     document-level scroll would slide it off screen */
-  @media (max-width: 1080px) {
-    .navrow {
-      gap: 0.5rem 1rem;
+  /* Below the breakpoint the sidebar is a drawer opened from the header
+     button and closed by the scrim or any navigation */
+  @media (max-width: 900px) {
+    .menu {
+      display: inline-flex;
+      padding: 0.25rem 0.45rem;
     }
-    nav {
-      order: 3;
-      flex-basis: 100%;
+    .shell :global(aside) {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 20;
+      transform: translateX(-100%);
+      transition: transform 0.15s ease;
     }
-    .state {
-      margin-left: auto;
+    .shell.drawer :global(aside) {
+      transform: none;
+    }
+    .shell.drawer .scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 15;
+      background: rgb(0 0 0 / 0.35);
+      border: 0;
+      border-radius: 0;
+      padding: 0;
     }
     .vramtext {
       display: none;
     }
   }
-  /* Icons alone below the small breakpoint: eight labelled links do not fit
-     a phone, and each keeps its title for the tooltip */
   @media (max-width: 640px) {
     .navrow {
       padding: 0.5rem 0.8rem;
+      /* the menu button, breadcrumb and state icons no longer fit one row
+         on a phone - wrap rather than overflow the document. Harmless
+         above that width since flex-wrap only engages when the row
+         genuinely does not fit */
+      flex-wrap: wrap;
+    }
+    .state {
+      margin-left: auto;
     }
     main {
       padding: 1rem 0.8rem 3rem;
-    }
-    .navlabel {
-      display: none;
-    }
-    nav {
-      gap: 0.4rem 1.25rem;
     }
     .meter {
       display: none;

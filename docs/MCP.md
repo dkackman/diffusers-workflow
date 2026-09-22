@@ -187,7 +187,7 @@ Nothing in this sequence costs GPU time.
 
 ## Tool reference
 
-55 tools in six groups. Names and arguments below are transcribed from
+58 tools in six groups. Names and arguments below are transcribed from
 `dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
@@ -234,10 +234,11 @@ when no single workflow covers it.
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `get_output_image(name, max_dimension=768, workspace=None, crop=None)` | `name`, `max_dimension`, `workspace`, `crop` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `crop` is `[x, y, width, height]` in the original's pixels, cut before the downscale and reported back clamped - the way to see a region of a 2K still at 100%, where the whole would be shrunk past what a small element or a decode-tiling seam can be judged at. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `get_output_audio(name, workspace=None)` | `name`, `workspace` | Listen to a generated audio output, as base64. Unlike `get_output_image` there is no downscale - a clip whose base64 size would exceed the same 4MB budget is refused outright rather than cut or transcoded, since a truncated clip is a different, misleading answer rather than a smaller correct one (#204). Use `download_output` or the gallery `url` for a longer file, and `get_gallery_metadata` for its duration and sample rate without fetching the bytes at all. `workspace` names the workspace for this one call without switching the session to it |
+| `get_output_audio(name, start=None, duration=None, workspace=None)` | `name`, `start`, `duration`, `workspace` | Listen to a generated soundtrack as base64 - an audio output, or the track muxed into a video (#193) - in its own encoding when served whole, WAV when extracted or excerpted. No downscale exists for audio, so a whole clip over the 4MB budget is refused rather than cut (#204); ask for the part instead with `start` and `duration` in seconds, and the text part names what was cut (`excerpt: 2.0s from 10.0s of 240.0s`) so a slice is never mistaken for the whole. `get_gallery_metadata`'s envelope says where in a track to look. `workspace` names the workspace for this one call without switching the session to it |
+| `get_output_frames(name, at=None, seams=None, count=None, boundaries=None, names=None, max_dimension=512, hear=None, workspace=None)` | `name`, `at`, `seams`, `count`, `boundaries`, `names`, `max_dimension`, `hear`, `workspace` | See a generated video as frames, since there is no video content type over MCP (#193). One selector per call: `count` for an evenly spaced contact sheet, `at` for moments (seconds or `"frame:N"`), `seams` (true, or seam numbers from 1) for the last frame before and first frame after each join side by side (each pair carries `difference`, the mean pixel change across the join, 0-255 - rank seams by it and look at the worst) - `boundaries` is each later shot's first frame - the running sum of the shots' `frame_count` from `get_gallery_metadata` on their own `intermediate/` files - and `names` names them. Tiles are fitted to `max_dimension` and, when the set would exceed the 4MB budget, shrunk together rather than dropped; the text part lists each tile and says so. `hear=N` also returns N seconds of soundtrack centred on each `at` moment, after its image - the way to check a hit point or lip-sync without reconciling two clocks; a mute clip keeps its frames and says `no soundtrack` |
 | `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
 | `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path, a directory, or omitted to save under the output's own name in the current working directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over a `dw.serve --mcp` endpoint the file lands on the server, so the destination is confined to that workspace and a relative one is joined onto it. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `delete_output(name, workspace=None)` | `name`, `workspace` | Permanently remove one generated file from the output directory. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
+| `delete_output(name=None, workspace=None, job_id=None)` | exactly one of `name` / `job_id`, `workspace` | Permanently remove one generated file from the output directory, or - with `name` a `<workflow>/<run id>` run directory, or with `job_id` - a whole run. By `job_id` the run directory is read from the job record (`run_dir`) and the reply adds `job_id` and the resolved `run_dir` to the usual `name` / `deleted` / `run_swept`; a job that never wrote a run directory, or an unknown one, is an error. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it; a `job_id` delete with no `workspace` goes to the workspace the job ran in |
 
 ### Authoring, assets and workspaces
 
@@ -248,12 +249,29 @@ of its life. That is how two agents work against one GPU without saving over
 each other; see [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
 The session starts in `default` and stays there unless it is told otherwise.
 
+The pin above is per-*process* state on `client.py`'s `DwClient`, which is
+one session for the local stdio `dw-mcp`, but `dw.serve --mcp` (see
+[REMOTE.md](REMOTE.md#claude-code-no-local-install)) builds a single client
+for every agent it serves - so on that mounted surface the pin is shared by
+every concurrently connected caller, not scoped to any one of them (#298).
+A second client's `use_workspace`/`create_workspace(use=true)` can switch
+what your session reads and writes without your session calling either. This
+server is single-user by design, so nothing tracks distinct MCP sessions to
+fix that; `use_workspace`/`create_workspace` add a `warning` field to their
+result when the pin they are about to overwrite was already pointed
+somewhere other than `default` (a sign another client may depend on it), but
+they cannot warn the *other* session whose pin just moved out from under it.
+A caller that needs real isolation on a mounted server - the tester and
+regression harnesses among them - must pass `workspace=` on every call that
+accepts it (`validate_workflow`, `run_workflow`, and most of the read/media
+tools) rather than relying on the session pin.
+
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `validate_workflow(workflow=None, name=None, workspace=None, arguments=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it), optional `workspace`, optional `arguments` | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would. Returns every schema violation in `errors`, each with the JSON path it sits at, so a draft is fixed in one pass, and a `previous_result:` that names no earlier step is one of them. `warnings` covers what still runs but is probably wrong - a signature mismatch, and, for a list-driven variable, an entry key no step reads, at the entry's path. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's. Pass the same `arguments` you will pass to `run_workflow` and they are checked too - an undeclared or renamed variable name, a value that will not coerce to the declared type, and an `asset:`, `prompt:` or `output:` reference that names nothing this workspace can reach, each reported at `arguments.<name>`. `checked_arguments` lists what was covered, so a `valid: true` about the stored defaults cannot be mistaken for one about your values. A reference set the model would refuse - too many images, videos or audio clips, or, for MiniMax-H3, audio as the only reference - is an error here too, rather than a failure minutes into a run you acknowledged. `run_workflow` makes the same check and refuses a bad argument rather than queuing a job that fails on its first step. A valid answer carries `plan` - the fingerprint, step count, list lengths, `downloads_required`, `estimate` (with `basis`) and `elided_steps` for the arguments given; quote from it. `steps` counts what will run: a step nothing reads and which saves no file does not run, and is named in `elided_steps` instead |
 | `list_workspaces()` | — | The server's workspaces and which one this session is using. Each has its own workflows, assets and outputs; the prompt library is shared by all of them |
-| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing |
-| `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so |
+| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing. On a `dw.serve --mcp` endpoint the pin is shared by every connected client (#298, see the note above the table) - a `warning` field appears when this call overwrote a pin already pointed away from `default` |
+| `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so. `use=true` carries the same mounted-server caveat and `warning` field as `use_workspace` |
 | `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
 | `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there. `libraries` names the roots searched and which are writable; `shadowed` lists names a nearer library hides |
 | `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None)` | `name`, optional `asset_name`, `overwrite`, `shared`, `workspace` | Keep a generated file as an input asset under a stable `asset:` name, so a later workflow can rely on it. The copy happens on the server: nothing is downloaded or re-uploaded. `asset_name` may name a folder and takes the kept file's extension when it has none; `shared=true` keeps it in the library every workspace shares, which is where a recurring cast belongs. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
@@ -283,7 +301,7 @@ references written in the same session.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace` | Queue a workflow for generation. Returns as soon as the job is queued. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate |
+| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None, wait_seconds=0)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace`, `wait_seconds` | Queue a workflow for generation. Returns as soon as the job is queued - unless `wait_seconds` is above 0, in which case the call then waits on the queued job exactly as `wait_for_job(job_id, timeout_seconds=wait_seconds)` would (same 55 s cap per call, clamped not honoured) and the result carries the queued-job fields plus that wait's (`status`, `still_running`, `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds`, `timeout_capped`, the slim `job`); when the cap covers the job's runtime one call is the run and the wait, and a `still_running: true` result is followed with `wait_for_job` as before. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate, and nothing is waited on |
 | `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback; each manifest entry's `subfolder` is the in-run subfolder the step declared - by convention `final` for the deliverable, `intermediate` for scratch, `''` for none. A running job also carries `progress` (below) |
 | `get_job_workflow(job_id)` | `job_id` | The REST equivalent is `GET /api/jobs/{id}/workflow` (see [SERVER.md](SERVER.md#jobs-api)). The workflow the job actually ran. `realized: true` means every mutable input is pinned (arguments, seed, prompts, `output:latest`); `false` means the job predates run tracking and this is the definition as submitted. Pass it to `save_workflow` to keep it under a name |
 | `export_job(job_id, overwrite=False)` | `job_id`, `overwrite` | Gather one finished job into `<workspace>/exports/<job id>/` on the server: the realized workflow, the run's manifest, the job row, a README, and copies of the assets, earlier-run inputs and outputs. Returns the directory, a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not repeated here - get_job_workflow and get_job serve them individually. **The directory is on the machine running the server**, like `download_output`'s destination - fetch the zip URL and unpack it into `exports/` under the session's working directory (a deliverable, not a temp file); the archive already unpacks into one folder named after the job id |
@@ -374,6 +392,8 @@ The intended loop:
 4. `get_job(job_id)` for the finished manifest (or the error and traceback,
    if it failed)
 5. `get_output_image(name)` to look at a result image
+6. `get_output_frames(name, count=12)` to look at a result video, and
+   `get_output_audio(name, start, duration)` to hear it
 
 While a job runs, `get_job` and `wait_for_job` carry a `progress` block -
 the step being run, the phase (`loading`, `generating`, `decoding`,
@@ -453,13 +473,13 @@ default) for any server an MCP client can reach.
   events of a finished job (`MAX_PERSISTED_EVENTS` in the job history store).
   A job that ran before this feature existed returns an empty event list
   with a `note` explaining why.
-- **Images and audio only.** `get_output_image` decodes and returns images,
-  `get_output_audio` audio; both refuse video. Use `get_gallery_metadata` to
-  inspect other media kinds. `get_output_audio` also refuses a clip whose
-  base64 size would exceed its 4MB budget rather than truncating or
-  transcoding it (#204) - there is no `VideoContent` type in the MCP SDK to
-  extend this pattern to video, so a `get_output_video` is a harder,
-  unresolved design question rather than a mechanical port.
+- **Images, sound and frames.** `get_output_image` returns an image,
+  `get_output_audio` a soundtrack (an audio file's, or the one muxed into a
+  video) whole or as a named excerpt, and `get_output_frames` frames of a
+  video as images - there is no video content type over MCP, so a video is
+  seen as frames and heard as its track. `get_output_audio` refuses a whole
+  clip whose base64 size would exceed the same 4MB budget; ask for an
+  excerpt instead.
 - **Uploads read the MCP server's disk, unless sent inline.**
   `upload_asset(file_path)` pushes a local file into the asset library, but
   "local" means the machine `dw-mcp` runs on. Over `dw.serve --mcp` that is

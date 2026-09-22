@@ -54,7 +54,7 @@ def _prompt(path):
 
 
 def test_there_are_ltx_prompts():
-    assert len(PROMPTS) == 9
+    assert len(PROMPTS) == 10
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)

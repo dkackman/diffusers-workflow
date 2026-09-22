@@ -389,7 +389,17 @@ def test_no_stale_entry_in_the_allowlist():
 # reads to find a shape, and before these the LTX-2.5 family had no
 # reference or identity route at all and no restoration route that was not
 # a re-render.
-COMPACT_BUDGET = 8_100
+# Then to 8_250 for best-of-n-to-video, measured at 8_227: the select/judge
+# reducer's first template, whose for_each `lists` entry and six variables
+# (candidates, num_inference_steps, prompt, rubric, scale, video_prompt)
+# cost about 128 tokens on their own.
+# Then to 8_350 for the H3 shot templates' declared `cost` (#324), measured at
+# 8_295: `cost` is a compact field, so the five newly-priced templates
+# (enhance-prompt, reference-to-video, video-with-audio, video-with-audio-768p,
+# storyboard) each add a `[{device, name, vram_gb, minutes}]` entry to the
+# listing; `vram_estimate` beside it is not a compact field and costs nothing
+# here.
+COMPACT_BUDGET = 8_350
 FILTERED_BUDGET = 1_500
 
 
@@ -408,7 +418,7 @@ class _every_workflow_observed:
     def refresh(self):
         return True
 
-    def observed(self, name, definition, arguments=None, *, fresh=True):
+    def observed(self, name, definition, arguments=None, *, fresh=True, workspace=None):
         if name not in self._names:
             return None
         return {

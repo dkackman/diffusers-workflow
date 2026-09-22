@@ -16,7 +16,9 @@
   import { api } from '../api'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import { go } from '../router.svelte'
+  import { goWs } from '../router.svelte'
+  import { wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
   import {
     emptyWorkflow,
     emptyStep,
@@ -131,7 +133,7 @@
   )
   const crumbName = $derived(name ? leafOf(name) : '')
   const workflowHref = $derived(
-    '#/workflows/' + name.split('/').map(encodeURIComponent).join('/'),
+    wsHref(workspace.current, 'workflows', ...name.split('/')),
   )
 
   // Leaving with unsaved edits used to drop them without a word. The
@@ -373,7 +375,7 @@
         workflow: $state.snapshot(workflow) as WorkflowDefinition,
         base_dir: `${workflowDir}${directory}`,
       })
-      go('jobs', job.id)
+      goWs('jobs', job.id)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -445,7 +447,9 @@
 
 <div class="head">
   <nav class="crumbs muted" aria-label="breadcrumb">
-    <a href="#/workflows" onclick={confirmLeave}>← workflows</a>
+    <a href={wsHref(workspace.current, 'workflows')} onclick={confirmLeave}
+      >← workflows</a
+    >
     {#each crumbFolders as part (part)}
       <span class="sep">/</span><span>{part}</span>
     {/each}

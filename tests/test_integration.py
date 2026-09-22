@@ -189,12 +189,13 @@ class TestWorkflowErrorHandling:
         }
 
         workflow = Workflow(workflow_data, temp_workflow_dir, "")
-        workflow.validate()
 
-        with pytest.raises(ValueError) as exc_info:
-            workflow.run({})
+        # Refused at validation rather than nine steps into a run (#285)
+        with pytest.raises(Exception) as exc_info:
+            workflow.validate()
 
-        assert "Unknown task" in str(exc_info.value)
+        assert "steps[0].task.command" in str(exc_info.value)
+        assert "not a registered task command" in str(exc_info.value)
 
 
 class TestWorkflowStepDependencies:

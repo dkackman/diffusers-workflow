@@ -322,10 +322,16 @@ class TestOffTheJobRow:
 
         rows = history.finished_runs()
 
-        assert set(rows) == {"templates/x"}
-        assert [row["duration"] for row in rows["templates/x"]] == [600.0, 120.0]
-        assert [row["had_load"] for row in rows["templates/x"]] == [True, False]
-        assert not any(row["events_at_cap"] for row in rows["templates/x"])
+        assert set(rows) == {("default", "templates/x")}
+        assert [row["duration"] for row in rows[("default", "templates/x")]] == [
+            600.0,
+            120.0,
+        ]
+        assert [row["had_load"] for row in rows[("default", "templates/x")]] == [
+            True,
+            False,
+        ]
+        assert not any(row["events_at_cap"] for row in rows[("default", "templates/x")])
 
     def test_a_failed_or_unnamed_run_is_not_history(self, tmp_path):
         history = JobHistory(tmp_path / "jobs.sqlite")
@@ -351,11 +357,32 @@ class TestOffTheJobRow:
 
         with history._connect() as connection:
             connection.execute(
-                "INSERT INTO jobs (id, status, finished_at) VALUES (?,?,?)",
-                ("a", "succeeded", 5.0),
+                "INSERT INTO jobs (id, status, finished_at, workflow_name)"
+                " VALUES (?,?,?,?)",
+                ("a", "succeeded", 5.0, "templates/x"),
             )
 
         assert history.watermark() != before
+
+    def test_the_watermark_moves_when_a_row_is_orphaned(self, tmp_path):
+        """`orphan_workflow_history` (#274) detaches a row by clearing
+        `workflow_name` rather than deleting it - an ordinary `COUNT(*)`
+        would not see that, and `ObservedCosts` would keep serving the
+        purged figure until an unrelated job happened to land."""
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            connection.execute(
+                "INSERT INTO jobs (id, status, started_at, finished_at,"
+                " workspace, workflow_name) VALUES (?,?,?,?,?,?)",
+                ("a", "succeeded", 1.0, 5.0, "default", "templates/x"),
+            )
+        before = history.watermark()
+        assert ("default", "templates/x") in history.finished_runs()
+
+        history.orphan_workflow_history("default", "templates/x")
+
+        assert history.watermark() != before
+        assert history.finished_runs() == {}
 
     def test_the_aggregate_recomputes_only_when_the_table_moves(self, tmp_path):
         history = JobHistory(tmp_path / "jobs.sqlite")
@@ -431,6 +458,104 @@ class TestOffTheJobRow:
 
         assert costs.rows_for("templates/x") == []
         assert costs.observed("templates/x", workflow(None)) is None
+
+
+class TestWorkspaceScoping:
+    """#274: two workspaces that each save a workflow called the same name
+    are different workflows, so a workspace-writable save's history must not
+    leak into the other's. A shared, read-only catalog source keeps pooling
+    across every workspace that ran it (#154) - that is what omitting
+    `workspace` still means."""
+
+    def _seeded_history(self, tmp_path):
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            connection.executemany(
+                "INSERT INTO jobs (id, status, started_at, finished_at,"
+                " arguments, manifest, events, workspace, workflow_name)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                [
+                    ("a", "succeeded", 0.0, 600.0, "{}", "[]", "[]", "ws-one", "shots"),
+                    ("b", "succeeded", 0.0, 300.0, "{}", "[]", "[]", "ws-two", "shots"),
+                    (
+                        "c",
+                        "succeeded",
+                        0.0,
+                        60.0,
+                        "{}",
+                        "[]",
+                        "[]",
+                        "ws-one",
+                        "templates/catalog",
+                    ),
+                    (
+                        "d",
+                        "succeeded",
+                        0.0,
+                        90.0,
+                        "{}",
+                        "[]",
+                        "[]",
+                        "ws-two",
+                        "templates/catalog",
+                    ),
+                ],
+            )
+        return history
+
+    def test_a_workspace_writable_names_history_is_scoped_to_its_own_workspace(
+        self, tmp_path
+    ):
+        history = self._seeded_history(tmp_path)
+        costs = ObservedCosts(history)
+
+        assert [
+            row["duration"] for row in costs.rows_for("shots", workspace="ws-one")
+        ] == [600.0]
+        assert [
+            row["duration"] for row in costs.rows_for("shots", workspace="ws-two")
+        ] == [300.0]
+
+    def test_a_shared_catalog_name_pools_across_every_workspace(self, tmp_path):
+        history = self._seeded_history(tmp_path)
+        costs = ObservedCosts(history)
+
+        durations = sorted(
+            row["duration"] for row in costs.rows_for("templates/catalog")
+        )
+
+        assert durations == [60.0, 90.0]
+
+    def test_a_workspace_with_no_rows_of_its_own_sees_none(self, tmp_path):
+        history = self._seeded_history(tmp_path)
+        costs = ObservedCosts(history)
+
+        assert costs.rows_for("shots", workspace="ws-three") == []
+
+
+class TestDeleteWorkflowPurgesHistory:
+    """#274: deleting a workflow must purge its (workspace, name) history so
+    a name reused afterwards - in this workspace or a fresh copy of it - does
+    not inherit the deleted copy's figures."""
+
+    def test_orphaning_removes_only_that_workspace_and_name(self, tmp_path):
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            connection.executemany(
+                "INSERT INTO jobs (id, status, started_at, finished_at,"
+                " arguments, manifest, events, workspace, workflow_name)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                [
+                    ("a", "succeeded", 0.0, 60.0, "{}", "[]", "[]", "ws-one", "shots"),
+                    ("b", "succeeded", 0.0, 90.0, "{}", "[]", "[]", "ws-two", "shots"),
+                ],
+            )
+
+        history.orphan_workflow_history("ws-one", "shots")
+        rows = history.finished_runs()
+
+        assert ("ws-one", "shots") not in rows
+        assert [row["duration"] for row in rows[("ws-two", "shots")]] == [90.0]
 
 
 # Workflows that carry a curated `cost` and deliberately declare no drivers,

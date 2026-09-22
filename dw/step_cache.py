@@ -102,6 +102,40 @@ def referenced_result_names(steps):
     return names
 
 
+# Tasks that reset a result's level before anything downstream ships it -
+# a result only these read is not itself a headroom concern (dw/result.py,
+# warn_without_headroom)
+NORMALIZING_COMMANDS = {"normalize_audio", "match_levels"}
+
+
+def normalized_downstream(steps, name):
+    """Whether a later normalize_audio/match_levels step consumes result `name`.
+
+    write_song's raw Music 3 mp3 (templates/minimax/music-video) always lands
+    at or over full scale and is always normalized before the deliverable
+    mux - the pre-ship level is the template's documented, designed-in input
+    condition, not a mistake, so a headroom warning on that intermediate
+    save trains the reader to ignore job.warnings (#286). Scoped to the two
+    tasks that actually reset level, not to any downstream consumer: a step
+    that only reads the raw result (a conditioning slice, say) does not
+    change what its own written file will sound like.
+    """
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        task = step.get("task")
+        if (
+            not isinstance(task, dict)
+            or task.get("command") not in NORMALIZING_COMMANDS
+        ):
+            continue
+        if any(
+            reference_resolves_to(ref, name) for ref in referenced_result_names([step])
+        ):
+            return True
+    return False
+
+
 def deep_equal(a, b):
     """Value equality across the JSON-ish types a resolved step definition holds.
 

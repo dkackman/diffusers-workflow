@@ -229,10 +229,11 @@ class TestEnvelope:
 
         assert info["kind"] == "video"
         assert info["frame_count"] == 12
-        # 2 s of soundtrack - and a third, near-silent bin is allowed: a
-        # lossy codec decodes its own priming and padding past the nominal
-        # duration, and the envelope reports what actually decoded
-        assert len(info["envelope"]["rms_dbfs"]) in (2, 3)
+        # 2 s of soundtrack - a lossy codec's own priming/padding can decode
+        # a fraction of a second past the nominal duration, but that trailing
+        # fragment is folded into the last full bin rather than reported on
+        # its own (#277)
+        assert len(info["envelope"]["rms_dbfs"]) == 2
         assert info["envelope"]["rms_dbfs"][0] > -30.0
         assert info["peak_dbfs"] < 0.0
 
@@ -240,6 +241,21 @@ class TestEnvelope:
         write_mp4(tmp_path / "mute.mp4", frames=12, fps=6, with_audio=False)
 
         assert "envelope" not in probe_media(str(tmp_path / "mute.mp4"), envelope=True)
+
+    def test_a_genuine_partial_last_second_stands_on_its_own(self, tmp_path):
+        """A real duration that isn't a whole number of seconds gets a
+        shorter final bin, not merged away into the second before it - the
+        fold in #277 is for a codec's own decode-past-duration fragment, not
+        for real trailing content (#278)."""
+        write_wav(tmp_path / "tail.wav", seconds=2.5, sample_rate=8000, amplitude=0.5)
+
+        info = probe_media(str(tmp_path / "tail.wav"), envelope=True)
+
+        assert info["duration_seconds"] == pytest.approx(2.5, abs=0.01)
+        envelope = info["envelope"]
+        assert len(envelope["rms_dbfs"]) == 3
+        # the half-second tail still carries the same tone, not silence
+        assert envelope["rms_dbfs"][2] > -20.0
 
     def test_the_seconds_sum_back_to_the_whole_track(self, tmp_path):
         """A bin holds the same sums the whole-track level is made of, so

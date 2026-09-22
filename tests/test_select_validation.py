@@ -1,4 +1,4 @@
-"""Tests for static validation of select's arguments (docs/proposals/score-and-select.md #4).
+"""Tests for static validation of select's arguments (#4 of the score-and-select design).
 
 select's own run-time errors are covered by tests/test_select.py; these are
 the free pre-flight versions - a literal bad enough to refuse before the

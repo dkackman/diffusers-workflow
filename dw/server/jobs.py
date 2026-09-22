@@ -147,9 +147,27 @@ class JobHistory:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN host_memory_peak_rss_mb REAL"
                 )
+            # This job's own contribution to that process-lifetime figure -
+            # growth since the job's first phase-boundary reading, or its
+            # current rss when it caused no growth (#272). NULL for a row
+            # predating the column and for any run that never got a
+            # memory_info message at all
+            if "host_memory_job_peak_rss_mb" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN host_memory_job_peak_rss_mb REAL"
+                )
 
     def _connect(self):
-        return sqlite3.connect(self.db_path, timeout=5)
+        # WAL mode lets a reader (the web UI polling job status, an MCP
+        # get_job call) proceed without blocking behind whatever write the
+        # worker is mid-transaction on, and vice versa - the default
+        # rollback-journal mode takes a database-wide lock for the
+        # duration of a write. journal_mode is a property of the database
+        # file, not the connection, but PRAGMA is cheap and idempotent, so
+        # it is set on every connect rather than assumed to have stuck.
+        connection = sqlite3.connect(self.db_path, timeout=5)
+        connection.execute("PRAGMA journal_mode=WAL")
+        return connection
 
     def record(self, job):
         # The spec's workflow_name/warnings are derived; keep what rerun needs
@@ -159,8 +177,9 @@ class JobHistory:
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
-                " acknowledged, host_memory_peak_rss_mb) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " acknowledged, host_memory_peak_rss_mb,"
+                " host_memory_job_peak_rss_mb) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -184,6 +203,7 @@ class JobHistory:
                     # (#243) - the same "absent means unknown" the column
                     # itself allows
                     getattr(job, "host_memory_peak_rss_mb", None),
+                    getattr(job, "host_memory_job_peak_rss_mb", None),
                 ),
             )
 
@@ -239,7 +259,8 @@ class JobHistory:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir, acknowledged FROM jobs WHERE id = ?",
+                " workflow_name, run_id, run_dir, acknowledged, events FROM jobs"
+                " WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -248,19 +269,25 @@ class JobHistory:
         """How far the table has got - what a derived figure caches against.
 
         A job landing changes every observed cost and changes no file, so an
-        mtime cache cannot see it (dw/server/observed_cost.py). Count plus the
-        newest finish is enough: rows are only ever added, and a prune lowers
-        the count.
+        mtime cache cannot see it (dw/server/observed_cost.py). Counted over
+        `workflow_name IS NOT NULL` rather than every row, because
+        `orphan_workflow_history` (#274) detaches a deleted workflow's rows by
+        clearing that column rather than deleting the row - an ordinary
+        `COUNT(*)` would not move, and `ObservedCosts` would keep serving the
+        purged figure until an unrelated job happened to land. Counting only
+        the joinable rows falls by exactly the amount a purge detaches, the
+        same as a prune lowering it.
         """
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT COUNT(*), MAX(finished_at) FROM jobs"
+                " WHERE workflow_name IS NOT NULL"
             ).fetchone()
         return (row[0], row[1]) if row else (0, None)
 
     def finished_runs(self):
-        """Every successful, named run grouped by workflow name, as the rows
-        an observed cost is derived from.
+        """Every successful, named run grouped by (workspace, workflow name),
+        as the rows an observed cost is derived from.
 
         One query for the whole catalog rather than one per workflow. The
         cold/warm split is decided in SQL on the persisted event tail - a
@@ -270,14 +297,19 @@ class JobHistory:
         trimmed away has to count as neither rather than as warm.
 
         Rows with no `workflow_name` (recorded before the column existed, or
-        run from an inline definition) are unjoinable and left out.
+        run from an inline definition, or orphaned by `orphan_workflow_history`)
+        are unjoinable and left out. The workspace dimension is always in the
+        key here; whether a caller treats two workspaces as one history (a
+        shared catalog source, #154) or as separate (a workspace's own
+        writable copy, #274) is decided in `ObservedCosts.rows_for`, which is
+        the layer that knows which kind of source it was asked about.
         """
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT workflow_name, started_at, finished_at, arguments,"
-                " manifest, INSTR(COALESCE(events, ''), ?) > 0,"
+                "SELECT workflow_name, workspace, started_at, finished_at,"
+                " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb"
+                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb"
                 " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
@@ -285,6 +317,7 @@ class JobHistory:
         grouped = {}
         for (
             name,
+            workspace,
             started,
             finished,
             arguments,
@@ -292,8 +325,10 @@ class JobHistory:
             had_load,
             at_cap,
             peak_rss_mb,
+            job_peak_rss_mb,
         ) in rows:
-            grouped.setdefault(name, []).append(
+            key = (workspace or DEFAULT_WORKSPACE_NAME, name)
+            grouped.setdefault(key, []).append(
                 {
                     "started_at": started,
                     "finished_at": finished,
@@ -303,9 +338,29 @@ class JobHistory:
                     "had_load": bool(had_load),
                     "events_at_cap": bool(at_cap),
                     "host_memory_peak_rss_mb": peak_rss_mb,
+                    "host_memory_job_peak_rss_mb": job_peak_rss_mb,
                 }
             )
         return grouped
+
+    def orphan_workflow_history(self, workspace, workflow_name):
+        """Detach this (workspace, workflow_name)'s finished runs from cost
+        history (#274).
+
+        Deleting a workflow does not delete the job rows that ran it - those
+        stay for `list_jobs`/`get_job` and any other audit trail - but a name
+        reused afterwards, in this workspace or a fresh one copied from it,
+        must not inherit the old identity's figures. Setting `workflow_name`
+        to NULL is enough: `finished_runs()` already excludes rows where it
+        is NULL, the same rule that already excludes a run from an inline
+        definition.
+        """
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE jobs SET workflow_name = NULL"
+                " WHERE workspace = ? AND workflow_name = ?",
+                (workspace, workflow_name),
+            )
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded
@@ -403,6 +458,11 @@ class JobHistory:
                 return fallback
 
         spec = parse(row[7], {})
+        # The persisted tail is capped at MAX_PERSISTED_EVENTS, and
+        # get_job_events serves that same tail - so counting it, rather than
+        # hardcoding 0, keeps event_count truthful about what a caller who
+        # pages through get_job_events will actually see (#289)
+        events = parse(row[16], [])
         return {
             "id": row[0],
             "workflow": row[1],
@@ -422,7 +482,7 @@ class JobHistory:
             "acknowledged": row[15] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
-            "event_count": 0,
+            "event_count": len(events) if isinstance(events, list) else 0,
             "historical": True,
         }
 
@@ -455,6 +515,11 @@ class Job:
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
+        # This job's own contribution to that process-lifetime figure -
+        # growth since the job's first phase boundary, or the job's current
+        # rss when it caused no growth (#272). None for a run that never got
+        # a memory_info message at all
+        self.host_memory_job_peak_rss_mb = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -541,11 +606,21 @@ class Job:
 
     def progress(self):
         """Where a running job has got to, or None for one that has not
-        started or has finished - a terminal job has a manifest, which is a
-        better answer than a stale phase."""
-        if self.status != RUNNING or self.last_event_at is None:
+        started - a terminal job has a manifest, which is a better answer
+        than a stale phase, except for FAILED: the manifest is only the
+        steps that finished, not the one that was running when the job died,
+        and that phase (`loading` / `generating` / `decoding` / `saving`) is
+        the fastest way to tell what killed it without reading a traceback
+        (#269). Frozen at `finished_at` rather than read against the current
+        clock, so `seconds_in_phase` reports how long the dead step had been
+        running rather than growing forever after the job is long over."""
+        if self.last_event_at is None or self.status not in (RUNNING, FAILED):
             return None
-        now = time.time()
+        now = (
+            self.finished_at
+            if self.status == FAILED and self.finished_at
+            else time.time()
+        )
         summary = {
             "step": self.step_name,
             # The step of the queued workflow the one above is running
@@ -776,7 +851,9 @@ class JobManager:
         # Signature-level check of pipeline arguments - the typo that would
         # otherwise be a TypeError after the model loads becomes a warning
         # the client sees at submission
-        spec["warnings"] = workflow_argument_warnings(loaded.workflow_definition)
+        spec["warnings"] = workflow_argument_warnings(
+            loaded.workflow_definition, arguments
+        )
 
         job = Job(spec)
         with self._lock:
@@ -1145,18 +1222,24 @@ class JobManager:
         and a manifest that omits them is the difference between "this run
         produced nothing" and "this run produced four of five shots"
         (T015)."""
-        job.manifest = [
+        job.manifest = self._relative_manifest(
+            message.get("manifest", []), job.spec.get("output_dir")
+        )
+
+    def _relative_manifest(self, manifest, output_dir=None):
+        """A manifest list with every entry's 'files' relativised - the
+        rendering `get_job` and `step_end`/`workflow_end` events must all
+        agree on (#284)."""
+        return [
             (
                 {
                     **entry,
-                    "files": self._relative_output_names(
-                        entry["files"], job.spec.get("output_dir")
-                    ),
+                    "files": self._relative_output_names(entry["files"], output_dir),
                 }
                 if "files" in entry
                 else entry
             )
-            for entry in message.get("manifest", [])
+            for entry in manifest
         ]
 
     def _relative_output_names(self, paths, output_dir=None):
@@ -1210,6 +1293,13 @@ class JobManager:
                     event["files"] = self._relative_output_names(
                         event["files"], job.spec.get("output_dir")
                     )
+                if "manifest" in event:
+                    # workflow_end carries the run's full manifest nested
+                    # under this key - it must match get_job's rendering of
+                    # the same list rather than leaking absolute paths (#284)
+                    event["manifest"] = self._relative_manifest(
+                        event["manifest"], job.spec.get("output_dir")
+                    )
                 if event.get("event") == "run_start":
                     job.run_id = event.get("run_id")
                     job.run_dir = event.get("run_dir")
@@ -1218,13 +1308,27 @@ class JobManager:
                 text = message.get("message") or message.get("workflow_name", "")
                 job.add_event({"event": "log", "message": text})
             elif message_type == "memory_info":
+                # One per phase boundary now, not just once post-run (#273) -
+                # each folds into the cached reading memory_status() answers
+                # from while the job is busy, which is what makes that call
+                # fresh instead of a refusal for the run's whole duration
                 self._record_memory(message.get("info"))
                 job.add_event({"event": "memory", "info": self.last_memory})
-                # The worker's post-run reading, so it survives as a real
+                # The worker's own high-water mark, latest reading wins (it
+                # is monotonic for the process' life) - persisted as a real
                 # column rather than only inside the trimmed event tail (#243)
-                peak = (message.get("info") or {}).get("host_memory_peak_rss_mb")
+                info = message.get("info") or {}
+                peak = info.get("host_memory_peak_rss_mb")
                 if peak is not None:
                     job.host_memory_peak_rss_mb = peak
+                # This job's own contribution to that process-lifetime peak,
+                # computed against its own baseline (#272) - max() is
+                # defensive; by construction each reading only grows
+                job_peak = info.get("host_memory_job_peak_rss_mb")
+                if job_peak is not None:
+                    job.host_memory_job_peak_rss_mb = max(
+                        job_peak, job.host_memory_job_peak_rss_mb or 0
+                    )
             elif message_type == "success":
                 self._record_manifest(job, message)
                 return (SUCCEEDED, None, None)

@@ -289,3 +289,58 @@ class TestPerCallPin:
         client.workspace = "shots"
         catalog.list_gallery(client, workspace=DEFAULT_WORKSPACE)
         assert seen[-1].url.params.get("workspace") is None
+
+
+class TestMountedPinWarning:
+    """dw.serve --mcp shares one DwClient across every connected agent
+    (#298) - there is no per-session pin there. use_workspace and
+    create_workspace(use=True) cannot stop another client's call from
+    landing between this session's calls, but they can say so when a pin
+    that was not the default is about to move."""
+
+    def test_switching_away_from_a_named_pin_warns_when_mounted(self):
+        client, _seen = recording(listing("default", "shots", "qa"))
+        client.mounted = True
+        use_workspace(client, "shots")
+        result = use_workspace(client, "qa")
+        assert "warning" in result
+        assert "shots" in result["warning"]
+        assert "qa" in result["warning"]
+
+    def test_switching_from_the_default_does_not_warn(self):
+        client, _seen = recording(listing("default", "shots"))
+        client.mounted = True
+        result = use_workspace(client, "shots")
+        assert "warning" not in result
+
+    def test_unmounted_clients_never_warn(self):
+        """The local stdio server is one process per session - the pin is
+        already session-scoped there, so the warning would be noise."""
+        client, _seen = recording(listing("default", "shots", "qa"))
+        use_workspace(client, "shots")
+        result = use_workspace(client, "qa")
+        assert "warning" not in result
+
+    def test_switching_to_the_same_workspace_does_not_warn(self):
+        client, _seen = recording(listing("default", "shots"))
+        client.mounted = True
+        use_workspace(client, "shots")
+        result = use_workspace(client, "shots")
+        assert "warning" not in result
+
+    def test_create_with_use_warns_the_same_way(self):
+        client, _seen = recording({"name": "qa"})
+        client.mounted = True
+        client.workspace = "shots"
+        result = create_workspace(client, "qa", use=True)
+        assert client.workspace == "qa"
+        assert result["current"] == "qa"
+        assert "warning" in result
+        assert "shots" in result["warning"]
+
+    def test_create_without_use_never_warns(self):
+        client, _seen = recording({"name": "qa"})
+        client.mounted = True
+        client.workspace = "shots"
+        result = create_workspace(client, "qa")
+        assert "warning" not in result

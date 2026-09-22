@@ -44,7 +44,8 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 60
+                "fps": 60,
+                "subfolder": "final"
             }
         }
     ]

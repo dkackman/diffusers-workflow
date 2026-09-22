@@ -1,8 +1,10 @@
 """The output directory: hand a generated file back to the agent, or remove
 one.
 
-Output media is served from the /outputs static mount rather than an /api
-route, so these are the tools that reach outside /api. Everything returned
+Most output media is served from the /outputs static mount rather than an
+/api route, so these are the tools that reach outside /api - audio is the
+exception, served from the gallery's own `/audio` route so it can answer an
+excerpt (#193). Everything returned
 is downscaled or truncated first, and says so: a full-resolution render or
 an unbounded text file would cost more context than the answer it is meant
 to support.
@@ -132,46 +134,237 @@ def _fit(image, limit):
     )
 
 
-def get_output_audio(client, name, workspace=None):
-    """One audio output from the output directory, as base64, for a clip
-    short enough to fit MAX_RETURNED_BYTES whole.
+def get_output_audio(client, name, start=None, duration=None, workspace=None):
+    """One soundtrack from the gallery as base64 - an audio output, or the
+    track muxed into a video (#193) - for a clip short enough to fit
+    MAX_RETURNED_BYTES whole, or an excerpt of one that is not. In its own
+    encoding when an audio file is served whole, WAV when extracted from a
+    video or excerpted; `mime_type` says which.
 
-    Unlike an image, audio is not resized here - there is no equivalent of
-    downscaling a waveform that keeps it meaningful to listen to. A clip
-    over budget is refused rather than truncated or transcoded, since a cut
-    clip is a different, misleading answer rather than a smaller correct
-    one (#204). Use `download_output` or the gallery `url` for a longer
-    file, and `get_gallery_metadata` for its duration and sample rate
-    without fetching the bytes at all."""
+    Audio is not resized the way an image is - there is no downscale of a
+    waveform that keeps it meaningful to listen to - so a whole clip over
+    budget is refused rather than truncated (#204). The way to hear part of
+    a long track is to *ask* for the part: `start` and `duration` in
+    seconds, and the answer names what it cut in `excerpt`, so a slice is
+    never mistaken for the whole."""
 
     def is_audio(content_type):
         return bool(content_type) and content_type.startswith("audio/")
 
-    body, content_type = client.get_bytes_if(
-        api_path("outputs", name), is_audio, workspace=workspace
+    params = {}
+    if start is not None:
+        params["start"] = start
+    if duration is not None:
+        params["duration"] = duration
+    body, content_type, headers = client.get_media_if(
+        api_path("api", "gallery", name, "audio"),
+        is_audio,
+        workspace=workspace,
+        params=params,
+        max_bytes=MAX_RETURNED_BYTES,
     )
-    if body is None:
+    if body is None and not is_audio(content_type):
         raise DwApiError(
-            f"{name} is {content_type or 'of no declared type'}, not audio - "
-            "this tool returns audio only. Use get_output_image for an "
-            "image, or get_gallery_metadata for other media."
+            f"{name} answered {content_type or 'no declared type'}, not audio - "
+            "this tool returns a soundtrack only. Use get_output_image for "
+            "an image, or get_gallery_metadata for other media."
         )
 
-    base64_size = 4 * math.ceil(len(body) / 3)
+    # Sized from the declared content-length when the client refused to
+    # read the body on it, else from the body it read (an answer that
+    # declared no length). The server refuses a whole track it can size
+    # from the file's headers with a 413 before either, and the client
+    # surfaces that detail as is; this is the same advice for the rest.
+    raw_size = len(body) if body is not None else int(headers["content-length"])
+    base64_size = 4 * math.ceil(raw_size / 3)
     if base64_size > MAX_RETURNED_BYTES:
         raise DwApiError(
-            f"{name} is {len(body)} bytes, which would be {base64_size} "
+            f"{name} is {raw_size} bytes, which would be {base64_size} "
             f"bytes base64-encoded - over the {MAX_RETURNED_BYTES} byte "
-            "limit for an inline clip. Use download_output, or the `url` "
-            "list_gallery reports, for a file this size."
+            "limit for an inline clip. Ask for an excerpt with `start` and "
+            "`duration` (seconds) - get_gallery_metadata's envelope says "
+            "where to look - or use download_output for the whole file."
         )
 
+    excerpt = None
+    if "x-dw-excerpt-start" in headers:
+        excerpt = {
+            "start": float(headers["x-dw-excerpt-start"]),
+            "duration": float(headers["x-dw-excerpt-duration"]),
+            "of": _float_header(headers, "x-dw-duration"),
+        }
     return {
         "name": name,
         "data": base64.b64encode(body).decode("ascii"),
         "mime_type": content_type,
         "bytes": len(body),
+        "duration_seconds": _float_header(headers, "x-dw-duration"),
+        "excerpt": excerpt,
     }
+
+
+def _float_header(headers, key):
+    value = headers.get(key)
+    try:
+        return float(value) if value not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def get_output_frames(
+    client,
+    name,
+    at=None,
+    seams=None,
+    count=None,
+    boundaries=None,
+    names=None,
+    max_dimension=512,
+    hear=None,
+    workspace=None,
+    crop=None,
+):
+    """Frames of a generated video as images - the way to *see* a clip when
+    there is no video content type to return it as (#193, #210). One
+    selector per call: `at` (moments: seconds, or "frame:N"), `count` (an
+    evenly spaced contact sheet) or `seams` (True, or seam numbers from 1:
+    the last frame before and the first frame after each boundary, side by
+    side). `boundaries` is the list of frame indexes each shot after the
+    first starts at - the running sum of the shots' `frame_count` from
+    `get_gallery_metadata` on their own files - `names` the shots' names -
+    both needed with `seams` until a joined file carries its own.
+
+    `crop` is `[x, y, width, height]` in the video's own source pixels -
+    the same convention `get_output_image` uses - resolved once against
+    the clip's actual dimensions and cut from every sampled frame before
+    any stamping, fitting or composing, so it names the same region
+    whatever `max_dimension` (or a contact sheet's own tiling) does to the
+    result.
+
+    Every tile is fitted to `max_dimension`; when the whole answer would
+    still exceed MAX_RETURNED_BYTES the tiles are shrunk *together* - the
+    same dimension for all, halved until they fit - rather than any being
+    dropped, and `downscaled_to` says what they were shrunk to. A seam
+    pair at half size is still a seam pair; a seam pair missing is a
+    different answer.
+
+    `hear`'s excerpts are capped the same way in aggregate: each one is
+    already under `get_output_audio`'s own per-clip budget, but with up to
+    MAX_FRAME_MOMENTS tiles the excerpts summed could still dwarf
+    MAX_RETURNED_BYTES, so fetching stops once the running total would push
+    past it - the remaining tiles keep their frame but carry an
+    `audio_error` saying so, and `audio_truncated` is true."""
+    chosen = [
+        key for key, value in (("at", at), ("count", count), ("seams", seams)) if value
+    ]
+    if len(chosen) != 1:
+        raise DwApiError(
+            "Pass exactly one of `at`, `count` or `seams`"
+            + (f" - got {', '.join(chosen)}" if chosen else "")
+        )
+    if hear is not None:
+        if not at:
+            raise DwApiError(
+                "`hear` takes seconds of soundtrack around each `at` moment - pass `at`"
+            )
+        if float(hear) <= 0:
+            raise DwApiError("`hear` is a positive number of seconds")
+    params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
+    # a list of pairs, turned into a dict by the client - so no key repeats
+    if at:
+        params.append(("at", ",".join(str(moment) for moment in at)))
+    elif count:
+        params.append(("count", str(int(count))))
+    else:
+        params.append(
+            ("seams", "true" if seams is True else ",".join(str(s) for s in seams))
+        )
+        if boundaries:
+            params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
+        if names:
+            params.append(("names", ",".join(names)))
+    if crop is not None:
+        params.append(("crop", ",".join(str(v) for v in crop)))
+
+    body = client.get_json(
+        api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
+    )
+    tiles = body.get("tiles", [])
+    tiles, downscaled_to = _fit_tiles_within_budget(tiles)
+    audio_truncated = False
+    if hear is not None:
+        span = float(hear)
+        audio_bytes_so_far = 0
+        budget_exceeded = False
+        for tile in tiles:
+            if budget_exceeded:
+                tile["audio_error"] = "skipped - would exceed the response size budget"
+                audio_truncated = True
+                continue
+            start = max(0.0, float(tile["seconds"]) - span / 2)
+            try:
+                audio = get_output_audio(
+                    client, name, start=start, duration=span, workspace=workspace
+                )
+            except DwApiError as e:
+                tile["audio_error"] = str(e)
+                continue
+            # A per-tile cap (get_output_audio's own MAX_RETURNED_BYTES check)
+            # bounds one excerpt; nothing summed the excerpts against the
+            # overall response budget, so up to MAX_FRAME_MOMENTS tiles times
+            # `hear` seconds each could dwarf it. This is that aggregate cap,
+            # on top of - not instead of - the per-tile one.
+            if audio_bytes_so_far + len(audio["data"]) > MAX_RETURNED_BYTES:
+                tile["audio_error"] = "skipped - would exceed the response size budget"
+                audio_truncated = True
+                budget_exceeded = True
+                continue
+            audio_bytes_so_far += len(audio["data"])
+            tile["audio"] = {
+                "data": audio["data"],
+                "mime_type": audio["mime_type"],
+                "excerpt": audio["excerpt"],
+            }
+    return {
+        "name": name,
+        "frame_count": body.get("frame_count"),
+        "fps": body.get("fps"),
+        "tiles": tiles,
+        "downscaled_to": downscaled_to,
+        "hear": hear,
+        "audio_truncated": audio_truncated,
+        "crop": body.get("crop"),
+    }
+
+
+def _fit_tiles_within_budget(tiles):
+    """Shrink every tile by the same factor until their base64 sizes sum
+    to MAX_RETURNED_BYTES or less. Returns (tiles, downscaled_to) with
+    downscaled_to None when nothing had to shrink."""
+    total = sum(len(tile["data"]) for tile in tiles)
+    if total <= MAX_RETURNED_BYTES or not tiles:
+        return tiles, None
+    images = [Image.open(io.BytesIO(base64.b64decode(tile["data"]))) for tile in tiles]
+    for image in images:
+        image.load()
+    limit = max(max(image.width, image.height) for image in images)
+    while True:
+        limit = max(MIN_DIMENSION, limit // 2)
+        shrunk = []
+        for tile, image in zip(tiles, images):
+            sized = _fit(image, limit)
+            buffer = io.BytesIO()
+            sized.save(buffer, format="PNG")
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            shrunk.append(
+                {**tile, "data": encoded, "width": sized.width, "height": sized.height}
+            )
+        if (
+            sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES
+            or limit <= MIN_DIMENSION
+        ):
+            return shrunk, limit
+        images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
 
 
 def get_output_text(
@@ -206,14 +399,47 @@ def get_output_text(
     }
 
 
-def delete_output(client, name, workspace=None):
+def delete_output(client, name=None, workspace=None, job_id=None):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs.
 
     The run directory goes too once its last media file is gone, sidecars
     included, and a `<workflow>/<run id>` name removes a whole run - what a
-    failed run, which has a manifest and nothing else, needs (#134)."""
-    return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
+    failed run, which has a manifest and nothing else, needs (#134).
+
+    `job_id` is the other handle on a whole run: the job record carries
+    the `<workflow>/<run id>` its run wrote (`run_dir`, relative to the
+    output root), so the run is deleted without the caller listing the
+    gallery to find the name. Exactly one of `name` / `job_id`. A job that
+    never wrote a run directory - refused before it started, or from
+    before run tracking - has nothing to delete and says so. `workspace`
+    pins the call as it always has; without one, a job's delete goes to
+    the workspace the job itself ran in, since that is where its run
+    directory is."""
+    if (name is None) == (job_id is None):
+        raise DwApiError(
+            "Provide exactly one of `name` (a gallery name or a "
+            "`<workflow>/<run id>` run directory) or `job_id` (the run that "
+            "job wrote, deleted whole)."
+        )
+    if job_id is None:
+        return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
+
+    job = client.get_json(api_path("api", "jobs", job_id))
+    run_dir = job.get("run_dir")
+    if not run_dir:
+        raise DwApiError(
+            f"Job {job_id} ({job.get('status') or 'unknown status'}) has no "
+            "run directory to delete - it never started a run, or predates "
+            "run tracking. If it left files, list_gallery(only_orphans=True) "
+            "finds the run directory by name."
+        )
+    # The record's path is slash-separated relative to the output root -
+    # exactly the run-directory form the gallery route accepts
+    run_dir = "/".join(part for part in str(run_dir).split("/") if part)
+    target = workspace or job.get("workspace") or None
+    deleted = client.delete_json(api_path("api", "gallery", run_dir), workspace=target)
+    return {**deleted, "job_id": job_id, "run_dir": run_dir}
 
 
 def _remote_root(client):

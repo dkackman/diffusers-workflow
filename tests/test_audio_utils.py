@@ -561,6 +561,36 @@ class TestFadeAudio:
             fade_audio(numpy.ones((1, 10)), fade_in_ms=-1, sample_rate=100)
 
 
+class TestGainAudio:
+    def test_the_applied_gain_is_logged(self):
+        # #294: mirrors mix_audio's #292 log, so a caller reading the job's
+        # events can see what region and gain actually landed rather than
+        # inferring it from the arguments it sent
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import gain_audio
+
+        track = numpy.ones((1, 100), dtype=numpy.float32)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            gain_audio(
+                track,
+                gain_db=-6.0,
+                start_seconds=0.1,
+                duration_seconds=0.5,
+                sample_rate=100,
+            )
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["gain_db"] == pytest.approx(-6.0)
+        assert logs[0]["start_seconds"] == pytest.approx(0.1)
+        assert logs[0]["duration_seconds"] == pytest.approx(0.5)
+        assert logs[0]["sample_rate"] == 100
+
+
 class TestNormalizeAudio:
     def test_the_peak_lands_on_the_target(self):
         from dw.tasks.audio_utils import normalize_audio
@@ -683,11 +713,33 @@ class TestAudioTasksTakeAnAudioVideo:
         assert samples(joined).shape == (700, 2)
         assert joined.sample_rate == 100
 
-    def test_crossfade_audio_refuses_mixed_rates(self):
+    def test_crossfade_audio_resamples_mixed_rates(self):
+        # #293: a rate mismatch among inputs has no editorial meaning - the
+        # same reasoning concat_videos (#108) and dissolve_videos (#287)
+        # apply - so the higher rate wins and the other track is converted
+        # rather than the call being refused
+        from dw.events import RunContext, activate_context, deactivate_context
         from dw.tasks.audio_utils import crossfade_audio
 
-        with pytest.raises(ValueError, match="one sample rate"):
-            crossfade_audio([self.video(rate=100), self.video(rate=200)])
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            joined = crossfade_audio(
+                [self.video(rate=100), self.video(rate=200)], crossfade_ms=1000
+            )
+        finally:
+            deactivate_context(token)
+
+        assert joined.sample_rate == 200
+        warnings = [
+            e
+            for e in events
+            if e.get("event") == "warning" and e.get("kind") == "sample_rate_mismatch"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "crossfade_audio"
+        assert warnings[0]["sample_rate"] == 200
+        assert warnings[0]["sample_rates"] == {"track 1": 100, "track 2": 200}
 
     def test_crossfade_audio_still_needs_a_rate_for_a_bare_waveform(self):
         from dw.tasks.audio_utils import crossfade_audio
@@ -894,6 +946,34 @@ class TestSlicingPastTheEndOfATrack:
 
         assert len(warnings) == 1
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
+
+
+class TestSliceAudioCarriesSourceLevel:
+    """#309: a slice out of already-quiet source material (room tone) is not
+    a defect the slice introduced - slice_audio measures the source's own
+    level before cutting it down and carries it on the returned AudioTrack,
+    so save_artifact can tell that case apart from a track that arrived at a
+    normal level and something upstream lost."""
+
+    def test_a_quiet_source_is_measured_on_the_slice(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        quiet = numpy.full((1, 500), 0.001, dtype=numpy.float32)  # ~ -60 dBFS
+        sliced = slice_audio(
+            quiet, start_seconds=0, duration_seconds=2.0, sample_rate=100
+        )
+
+        assert sliced.source_mean_dbfs < -40.0
+
+    def test_a_normal_level_source_is_measured_too(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        loud = numpy.full((1, 500), 0.5, dtype=numpy.float32)
+        sliced = slice_audio(
+            loud, start_seconds=0, duration_seconds=2.0, sample_rate=100
+        )
+
+        assert sliced.source_mean_dbfs > -40.0
 
 
 class TestRateOverrideMismatch:

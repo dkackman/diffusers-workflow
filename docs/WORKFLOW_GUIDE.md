@@ -591,7 +591,18 @@ the entry an item needs.
    them is the `plan` on the validate answer - `estimate.minutes` with its
    `basis`, and every `downloads_required` entry named as its own line item,
    since weights not on this box are minutes and gigabytes the cost block
-   never counted. Then pass that plan back:
+   never counted. `basis` says where the figure came from, and that is what
+   decides how to quote it: `observed` is this box's own finished runs of
+   this shape (the cold median over `runs` of them, preferred over any
+   curated figure) - "about N minutes, measured over M runs"; `per_entry` is
+   a measured per-entry rate re-priced for your list; `catalog` is a
+   measured total for a run whose lists are the ones it was measured with;
+   `derived` is that total extrapolated over a list you changed the length
+   of - say it is an estimate; `other_device` is a figure from another
+   accelerator - say so too; `unknown` is no figure at all. `gb` on a
+   `downloads_required` entry is null when the hub could not be asked, and
+   `steps`/`list_entries` say how many members the list actually produced.
+   Then pass that plan back:
    `acknowledged_cost={"fingerprint": plan.fingerprint, "minutes":
    plan.estimate.minutes, "downloads": [...]}` - the server refuses with 409
    if the run's shape changed since the quote, and the refusal carries the
@@ -605,7 +616,27 @@ the entry an item needs.
 5. `wait_for_job` rather than a polling loop; call it again if it returns
    `still_running: true`. One call blocks for at most 55 seconds whatever
    `timeout_seconds` says, so a minutes-long render takes several - the
-   reply's `timeout_capped` and `waited_seconds` say which happened.
+   reply's `timeout_capped` and `waited_seconds` say which happened. A
+   running job's `progress` carries the step being run; the phase
+   (`loading`, `generating`, `decoding`, `saving`) with the model it names in
+   `phase_detail`; `seconds_in_phase`, time spent in that phase; and
+   `seconds_since_event`, time since the last progress event - a number that
+   climbs while `denoise_step` stays put is the "nothing is happening" read.
+   It also carries `denoise_step`/`denoise_total_steps`,
+   null until the denoise loop starts; judge a slow run against a stuck one
+   by whether `denoise_step` has moved since a poll minutes ago, not by
+   silence past a fixed threshold. A null `denoise_step` under `generating`
+   is the pipeline's lead-in - encoding the prompt and every reference -
+   which emits nothing and can run for many minutes when a video reference
+   is among them; gaps between denoise steps are uneven too where a
+   transformer block cache is configured. Both are normal, and the model
+   family's own skill carries the measured figures. `denoise_total_steps` is
+   the schedule the pipeline actually runs, which is not always the
+   `num_inference_steps` that was asked for: MiniMax H3's scheduler counts
+   sigma grid points including the terminal zero, so it runs N-1 model
+   evaluations for N (9 reports 8, 20 reports 19) - the vendor's convention,
+   not a dropped step; raising the number still buys the steps it looks
+   like it does.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
 7. Getting the files to the user's machine. `download_output` and `export_job`
@@ -1467,6 +1498,16 @@ The seed also reaches sub-workflows: a delegated `workflow` step runs the child 
 the parent's seed unless the child names its own. Without that a child draws its own
 random seed, and a workflow whose real generation happens inside a sub-workflow would
 not reproduce from the seed it was given.
+
+The step cache that lets a reproduced step skip re-running (see *Runs* in
+[Workspaces](WORKSPACES.md#runs)) is scoped to the output directory a run
+writes into, which on `dw.serve` is the pinned workspace's own `outputs/`.
+Two workspaces holding what looks like the same prior run - same workflow,
+same seed, same arguments - do not share a cache entry, so
+`validate_workflow`'s `plan.cached_steps` answers for the workspace the call
+is pinned to, not for every workspace that happens to hold a matching run.
+Deleting a workspace takes its cache entries with it, the same as deleting
+its `outputs/` directory would.
 
 ## Type System
 

@@ -203,3 +203,116 @@ def test_a_crossfade_over_a_trim_is_not_warned_about():
         )
         == []
     )
+
+
+def _bleed_step(variables=None, **arguments):
+    return {
+        "variables": {
+            "audio_bleed_ms": 1800,
+            "seam_fade_ms": None,
+            **(variables or {}),
+        },
+        "steps": [
+            {
+                "name": "episode",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {
+                        "videos": ["a.mp4", "b.mp4"],
+                        "trim_frames": 0,
+                        "audio_bleed_ms": "variable:audio_bleed_ms",
+                        "seam_fade_ms": "variable:seam_fade_ms",
+                        **arguments,
+                    },
+                },
+            }
+        ],
+    }
+
+
+def test_a_seam_fade_while_bleed_is_non_zero_is_warned_about():
+    """concat_videos takes the bleed path, not the fade path, at a hard cut
+    while audio_bleed_ms is non-zero, so a seam_fade_ms the caller passed
+    alongside the template's own default bleed does nothing (#288)."""
+    definition = _bleed_step()
+    warnings = workflow_argument_warnings(definition, {"seam_fade_ms": 80})
+    assert len(warnings) == 1
+    assert "seam_fade_ms" in warnings[0] and "audio_bleed_ms" in warnings[0]
+
+    # No caller arguments at all: seam_fade_ms resolves to its own null
+    # default and is not "set", so this is silent
+    assert workflow_argument_warnings(definition, None) == []
+
+    # Caller zeroes the bleed alongside the fade: seam_fade_ms is live
+    assert (
+        workflow_argument_warnings(
+            definition, {"seam_fade_ms": 80, "audio_bleed_ms": 0}
+        )
+        == []
+    )
+
+
+def test_a_bleed_gain_without_bleed_is_warned_about():
+    """concat_videos applies audio_bleed_gain_db to the bled tail, so an
+    audio_bleed_gain_db the caller passed with audio_bleed_ms at 0 - whether
+    zeroed explicitly or just never set - does nothing (#290)."""
+    definition = _concat_step(audio_bleed_ms=0, audio_bleed_gain_db=-6)
+    warnings = workflow_argument_warnings(definition)
+    assert len(warnings) == 1
+    assert "audio_bleed_gain_db" in warnings[0] and "audio_bleed_ms" in warnings[0]
+
+    # audio_bleed_ms simply omitted - the task's own default of 0 applies
+    definition = _concat_step(audio_bleed_gain_db=-6)
+    warnings = workflow_argument_warnings(definition)
+    assert len(warnings) == 1
+    assert "audio_bleed_gain_db" in warnings[0]
+
+    # A non-zero bleed: the gain is live
+    assert (
+        workflow_argument_warnings(
+            _concat_step(audio_bleed_ms=800, audio_bleed_gain_db=-6)
+        )
+        == []
+    )
+
+    # No gain passed at all: silent
+    assert workflow_argument_warnings(_concat_step(audio_bleed_ms=0)) == []
+
+
+def _dissolve_step(**arguments):
+    return {
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "dissolve_videos",
+                    "arguments": {
+                        "videos": ["a.mp4", "b.mp4"],
+                        "dissolve_frames": 0,
+                        **arguments,
+                    },
+                },
+            }
+        ],
+    }
+
+
+def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
+    """concat_videos and dissolve_videos only read match_levels_dbfs as the
+    target inside match_levels() - called only when match_levels itself is
+    truthy - so a caller who passes only the target dBFS and leaves
+    match_levels unset (off by default) has the value silently dropped
+    (#291)."""
+    for step in (_concat_step, _dissolve_step):
+        warnings = workflow_argument_warnings(step(match_levels_dbfs=-24))
+        assert len(warnings) == 1
+        assert "match_levels_dbfs" in warnings[0] and "match_levels" in warnings[0]
+
+        # match_levels set: the target is live
+        assert (
+            workflow_argument_warnings(step(match_levels_dbfs=-24, match_levels="rms"))
+            == []
+        )
+
+        # No target passed at all: silent
+        assert workflow_argument_warnings(step(match_levels="rms")) == []

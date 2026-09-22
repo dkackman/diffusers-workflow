@@ -17,13 +17,16 @@ import logging
 import numpy
 from PIL import Image
 
+from ..events import emit_warning
 from ..result import AudioVideo
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
     match_levels as match_track_levels,
+    resample_waveform,
     warn_on_level_spread,
 )
+from .concat_videos import video_names
 from .video_utils import check_same_frame_size, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -38,13 +41,15 @@ def dissolve_videos(
     fps=None,
     match_levels=None,
     match_levels_dbfs=None,
+    sample_rate=None,
 ):
     """Task command: join videos with cross-dissolves at every seam.
 
     Args:
         videos: The videos to join, in order - frame lists, frame arrays,
             AudioVideos, or the path or URL of a video file. Give each video
-            its own entry, as with concat_videos
+            its own entry, as with concat_videos. Soundtracks at different
+            sample rates are not a constraint - see `sample_rate` below
         dissolve_frames: Frames of overlap at each seam. 0 is a hard cut
         fade_in_frames: Frames over which the first video rises out of
             `fade_color`
@@ -61,6 +66,13 @@ def dissolve_videos(
             that would clip at the target is held at -0.5 dBFS peak instead,
             reported as a match_levels_held warning, with a per-shot log
             event naming the hold
+        sample_rate: The rate the joined soundtrack is at. Shots that come
+            from different sources routinely carry different rates, and
+            unlike a level jump that difference has no editorial meaning, so
+            by default the highest rate among the inputs is chosen and the
+            rest are resampled up to it, with a warning naming which - the
+            same conversion concat_videos does (#108, #287). Give this to
+            pin the target instead
 
     Returns:
         One AudioVideo; its audio is None unless every input carries a track
@@ -105,7 +117,7 @@ def dissolve_videos(
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
     audio, sample_rate = _dissolve_audio(
-        loaded, dissolve_frames, fps, match_levels, match_levels_dbfs
+        loaded, dissolve_frames, fps, match_levels, match_levels_dbfs, sample_rate
     )
     logger.info(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
@@ -141,7 +153,12 @@ def _blend(from_frames, to_frames, weights):
 
 
 def _dissolve_audio(
-    videos, dissolve_frames, fps, match_levels=None, match_levels_dbfs=None
+    videos,
+    dissolve_frames,
+    fps,
+    match_levels=None,
+    match_levels_dbfs=None,
+    sample_rate=None,
 ):
     """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
@@ -154,12 +171,41 @@ def _dissolve_audio(
     if fps is None and dissolve_frames:
         raise ValueError("dissolve_videos needs 'fps' to crossfade audio at a dissolve")
 
+    # Shots assembled from different sources disagree on rate routinely, and
+    # the disagreement carries no editorial meaning - so it is converted
+    # rather than refused, which is what made an agent invent a
+    # resample_audio step by hand for concat_videos before #108 (#287)
+    names = video_names(videos)
+    track_names = [
+        name
+        for name, video in zip(names, videos)
+        if isinstance(video, AudioVideo) and video.audio is not None
+    ]
     rates = {v.sample_rate for v in tracks}
-    if len(rates) != 1:
-        raise ValueError(f"dissolve_videos needs one sample rate, got {sorted(rates)}")
-    sample_rate = rates.pop()
-    crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
+    sample_rate = sample_rate or max(rates)
     waveforms = [as_channels_samples(v.audio) for v in tracks]
+    if len(rates) != 1 or any(v.sample_rate != sample_rate for v in tracks):
+        per_track = {name: v.sample_rate for name, v in zip(track_names, tracks)}
+        emit_warning(
+            "dissolve_videos: videos carry audio at different sample rates ("
+            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_track.items())
+            + f") - resampling them all to {sample_rate} Hz. Pass "
+            "'sample_rate' to pin a different target, or resample ahead of "
+            "this step with the 'resample_audio' task.",
+            kind="sample_rate_mismatch",
+            command="dissolve_videos",
+            sample_rate=sample_rate,
+            sample_rates=per_track,
+        )
+        waveforms = [
+            (
+                waveform
+                if video.sample_rate == sample_rate
+                else resample_waveform(waveform, video.sample_rate, sample_rate)
+            )
+            for video, waveform in zip(tracks, waveforms)
+        ]
+    crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     if match_levels:
         waveforms = match_track_levels(
             waveforms, match_levels, match_levels_dbfs, "dissolve_videos"

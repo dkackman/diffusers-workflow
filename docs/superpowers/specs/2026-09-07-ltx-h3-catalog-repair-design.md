@@ -1,8 +1,7 @@
 # LTX-2.5 and MiniMax H3 catalog repair — design
 
-Package A of the Part 4 work in
-[agent-catalog-legibility-complete.md](../../proposals/agent-catalog-legibility-complete.md).
-It repairs what two vendor-source audits found wrong in the catalog's
+Package A of the Part 4 packaging work from the agent-catalog-legibility
+design (Channel B: model families, resolved 2026-09-07). It repairs what two vendor-source audits found wrong in the catalog's
 model-specific content, so that the skills in Package B
 ([2026-09-07-dw-plugin-skills-design.md](2026-09-07-dw-plugin-skills-design.md))
 describe something true. The audits, with per-claim citations, are

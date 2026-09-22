@@ -1,4 +1,4 @@
-"""Every multi-step template says which of its outputs is the deliverable.
+"""Every template says which of its outputs is the deliverable.
 
 A run writes everything into one directory, so a finished episode sits
 beside the scratch that went into it. A step's `result.subfolder` places
@@ -8,14 +8,17 @@ deliverable"). Agents compose by copying a template, so the convention
 propagates only if every shipped template follows it; this test is what
 keeps it from drifting.
 
-The rule, from docs/proposals/output-folders.md: a *saving step* is one
-whose `result` sets `content_type` and does not set `save: false`; a
-template is in scope when it has two or more saving steps; every saving
-step of an in-scope template carries `final` or `intermediate`, and at
-least one is `final`. The packaged builtins in dw/workflows/ stay unmarked:
-a builtin is a step list a parent composes, and a role is the parent's to
-assign - the parent's own `result` block, not the child's, is where it
-says so.
+The rule: a *saving step* is one
+whose `result` sets `content_type` and does not set `save: false`; every
+template with one or more saving steps marks each `final` or
+`intermediate`, and at least one `final` - a template with exactly one
+saving step marks that step `final` (#302: a single-step template's lone
+deliverable was routinely left unmarked, so `list_gallery(subfolder="final")`
+found nothing for it even though the two/more-step convention from #235 was
+followed everywhere it applied). The packaged builtins in dw/workflows/ stay
+unmarked: a builtin is a step list a parent composes, and a role is the
+parent's to assign - the parent's own `result` block, not the child's, is
+where it says so.
 """
 
 import json
@@ -42,16 +45,17 @@ def saving_steps(definition):
 
 
 TEMPLATES = [f for f in get_example_files() if f.startswith("workflows/templates/")]
-IN_SCOPE = [f for f in TEMPLATES if len(list(saving_steps(load(f)))) >= 2]
+IN_SCOPE = [f for f in TEMPLATES if len(list(saving_steps(load(f)))) >= 1]
 
 
 def test_the_scope_is_what_the_design_counted():
-    """Eighteen templates had two or more saving steps when the convention
-    landed. A template added later with several saving steps joins the
-    parametrized test below on its own; this pins that none has quietly
-    left it (a step that stopped saving would drop a template from scope
-    without failing anything else)."""
-    assert len(IN_SCOPE) >= 18, IN_SCOPE
+    """Every shipped template had at least one saving step when this was
+    last swept (#302 extended the rule to single-saving-step templates,
+    which the original two-or-more scope missed entirely). A template
+    added later joins the parametrized test below on its own; this pins
+    that none has quietly left scope (a step that stopped saving would
+    drop a template from scope without failing anything else)."""
+    assert len(IN_SCOPE) >= 67, IN_SCOPE
 
 
 @pytest.mark.parametrize("template", IN_SCOPE)

@@ -242,6 +242,7 @@ class TestEstimate:
             "partial": False,
             "unpriced": [],
             "runs": None,
+            "cached_minutes": None,
         }
 
     def test_an_empty_cost_list_is_unknown(self, plan):
@@ -260,6 +261,7 @@ class TestEstimate:
             "partial": False,
             "unpriced": [],
             "runs": None,
+            "cached_minutes": None,
         }
 
     def test_another_devices_entry_is_reported_as_such(self, plan):
@@ -273,6 +275,7 @@ class TestEstimate:
             "partial": False,
             "unpriced": [],
             "runs": None,
+            "cached_minutes": None,
         }
 
     def test_per_entry_scales_by_the_callers_list(self, plan):
@@ -375,6 +378,43 @@ class TestEstimate:
         spec["cost"] = [cost("cuda", 10.04)]
         assert plan(spec)["estimate"]["minutes"] == 10.0
 
+    def test_a_shifted_scalar_cost_driver_falls_back_to_unknown(self, plan):
+        """The catalog figure was measured at frames=25; a caller who
+        overrides a declared cost_driver away from that value is not
+        describing the run the figure was measured for, and `_repriced`
+        only re-prices a for_each list's length, not a bare variable (#267)."""
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(spec, arguments={"frames": 9})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+
+    def test_an_unshifted_scalar_cost_driver_still_quotes_the_catalog_figure(
+        self, plan
+    ):
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(spec, arguments={"frames": 25})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_list_driver_still_reprices_instead_of_going_unknown(self, plan):
+        """A list cost_driver's length change is `_repriced`'s job already -
+        declaring it a driver must not route it through the new scalar
+        fallback and withhold the figure instead."""
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
+
+    def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
+        """Only a declared cost_driver triggers the fallback - any other
+        variable overridden away from its default is none of this rule's
+        business."""
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        answer = plan(spec, arguments={"frames": 9})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
 
 def observed(minutes=8.04, runs=11, device="cuda", name="RTX 3090", warm=False):
     """This box's history for the workflow, as `observed_for` reports it."""
@@ -402,6 +442,7 @@ class TestObservedEstimate:
             "partial": False,
             "unpriced": [],
             "runs": 11,
+            "cached_minutes": None,
         }
 
     def test_history_beats_a_curated_figure(self, plan):
@@ -451,6 +492,72 @@ class TestObservedEstimate:
         assert answer["minutes"] == 6.0
         assert answer["partial"] is False
         assert answer["unpriced"] == []
+
+
+class TestLowConfidenceObservedEstimate:
+    """#301: a single run is not the same statistical basis as a dozen - an
+    observed figure below SMALL_N_THRESHOLD runs is blended toward the
+    curated cost when one exists, and flagged `low_confidence` when there
+    is nothing curated to blend toward, rather than being quoted with the
+    same authority as a figure with runs to spare."""
+
+    def test_a_single_run_blends_toward_the_curated_figure(self, plan):
+        """Catalog says 10; one observed run says 6 - the answer should
+        sit between them rather than repeat the thin point figure."""
+        answer = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 1
+        assert 6.0 < answer["minutes"] < 10.0
+        assert "low_confidence" not in answer
+
+    def test_a_blended_estimate_says_so(self, plan):
+        """#319: a blend is still `basis: observed`, so it needs its own
+        marker to be distinguishable from a raw, full-authority figure -
+        and it needs to name the two numbers it sat between, so a caller
+        can reconcile it against `list_workflows`' own `observed_minutes`."""
+        answer = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["tempered"] is True
+        assert answer["observed_minutes"] == 6.0
+        assert answer["curated_minutes"] == 10.0
+
+    def test_two_runs_blend_less_than_one(self, plan):
+        one = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        two = plan(definition(), observed=observed(minutes=6, runs=2))["estimate"]
+        assert two["minutes"] < one["minutes"]
+
+    def test_three_runs_is_no_longer_low_n(self, plan):
+        answer = plan(definition(), observed=observed(minutes=6, runs=3))["estimate"]
+        assert answer["minutes"] == 6.0
+        assert "low_confidence" not in answer
+        assert "tempered" not in answer
+
+    def test_a_single_run_with_no_curated_figure_is_flagged_instead(self, plan):
+        """No cost block to blend toward - the point figure is quoted as-is
+        but flagged, rather than invented a range for."""
+        spec = definition()
+        del spec["cost"]
+        answer = plan(spec, observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["minutes"] == 6.0
+        assert answer["low_confidence"] is True
+
+    def test_a_thin_rolled_up_child_is_flagged(self, plan, tmp_path):
+        """The #268 rollup has no parent cost block to blend toward by
+        construction, so a thin roll-up gets the flag."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            return observed(minutes=6, runs=1)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["minutes"] == 6.0
+        assert answer["low_confidence"] is True
 
 
 def composing(child_path):
@@ -522,6 +629,119 @@ class TestSubWorkflowEstimate:
         assert answer["minutes"] == 7.0
         # the parent's own basis is what is reported
         assert answer["basis"] == "catalog"
+
+    def test_a_childs_observed_history_rolls_up_when_the_parent_has_none(
+        self, plan, tmp_path
+    ):
+        """A parent with no cost block of its own, composing a child this
+        box has actually run: the child's own observed minutes should be
+        quoted as the parent's, with `basis: observed`, rather than falling
+        back to unknown just because the parent itself carries no figure
+        (#268)."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            return observed(minutes=6)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["minutes"] == 6.0
+        assert answer["basis"] == "observed"
+        assert answer["partial"] is False
+        assert answer["unpriced"] == []
+
+    def test_the_rolled_up_estimate_carries_the_childs_runs_and_measured_on(
+        self, plan, tmp_path
+    ):
+        """The #268 rollup quotes the child's minutes under `basis:
+        observed` - `runs`/`measured_on` have to come along with it, since
+        an "observed" estimate with `runs: null` says it was measured but
+        not how many times (#275)."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            return observed(minutes=6, runs=3, name="RTX 3090")
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] == "RTX 3090"
+
+    def test_the_rolled_up_runs_is_the_weakest_childs(self, plan, tmp_path):
+        """Multiple observed children on the same device: `runs` is the min
+        across them, the weakest history."""
+        (tmp_path / "a.json").write_text(json.dumps({"id": "a", "steps": []}))
+        (tmp_path / "b.json").write_text(json.dumps({"id": "b", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "a", "workflow": {"path": "a.json", "arguments": {}}},
+                {"name": "b", "workflow": {"path": "b.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            runs = 3 if path == "a.json" else 9
+            return observed(minutes=6, runs=runs, name="RTX 3090")
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] == "RTX 3090"
+
+    def test_the_rolled_up_measured_on_is_null_when_children_disagree(
+        self, plan, tmp_path
+    ):
+        """Children observed on different cards: nothing honest to name as
+        `measured_on`, so it is withheld rather than picking one."""
+        (tmp_path / "a.json").write_text(json.dumps({"id": "a", "steps": []}))
+        (tmp_path / "b.json").write_text(json.dumps({"id": "b", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "a", "workflow": {"path": "a.json", "arguments": {}}},
+                {"name": "b", "workflow": {"path": "b.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            name = "RTX 3090" if path == "a.json" else "RTX 4090"
+            return observed(minutes=6, runs=3, name=name)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 3
+        assert answer["measured_on"] is None
+
+    def test_an_unpriced_childs_history_leaves_the_estimate_partial(
+        self, plan, tmp_path
+    ):
+        """`observed_for_child` answering nothing for one child, and that
+        child having no catalog cost either, is still a gap - the rollup
+        must not paper over it with `observed` just because a sibling did
+        have history."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+        answer = plan(parent, observed_for_child=lambda path, defn: None)["estimate"]
+        assert answer["minutes"] is None
+        assert answer["basis"] == "unknown"
+        assert answer["partial"] is False
 
 
 class TestDownloadsRequired:
@@ -874,6 +1094,37 @@ class TestCachedSteps:
         spec = definition()
         spec["variables"]["seed"] = None
         assert plan(spec, cache_probe=probe)["cached_steps"] == 0
+
+
+class TestCachedMinutesEstimate:
+    """#255: `plan.estimate.minutes` used to ignore `cached_steps` entirely,
+    so a fully-cached rerun of a seeded workflow quoted the same minutes as
+    a cold one. `cached_minutes` is the share of `minutes` a caller would
+    actually wait for, once the steps the step cache would answer are
+    subtracted - `minutes` itself is left alone."""
+
+    def test_with_no_probe_cached_minutes_is_unknown(self, plan):
+        answer = plan()["estimate"]
+        assert answer["minutes"] == 10.0
+        assert answer["cached_minutes"] is None
+
+    def test_nothing_cached_leaves_cached_minutes_equal_to_minutes(self, plan):
+        answer = plan(cache_probe=lambda arguments: [])["estimate"]
+        assert answer["minutes"] == 10.0
+        assert answer["cached_minutes"] == 10.0
+
+    def test_a_partial_hit_reduces_cached_minutes(self, plan):
+        # 3 expanded steps (still, shot@a, shot@b); 1 of them cached
+        answer = plan(cache_probe=lambda arguments: ["still"])["estimate"]
+        assert answer["minutes"] == 10.0
+        assert answer["cached_minutes"] == 6.7
+
+    def test_a_full_hit_is_zero(self, plan):
+        answer = plan(cache_probe=lambda arguments: ["still", "shot@a", "shot@b"])[
+            "estimate"
+        ]
+        assert answer["minutes"] == 10.0
+        assert answer["cached_minutes"] == 0.0
 
 
 class TestUnseededCacheWarning:

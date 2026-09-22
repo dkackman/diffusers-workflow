@@ -28,14 +28,31 @@ load entirely.
 
 ## The pages
 
-- **Workflows** — every workflow on the search path (the workspace's own
-  `--workflow-dir` first, then any `--examples-dir`, read-only), as cards
-  with descriptions, output kinds, and variable counts. Folders one level
-  deep become sections. Click through to a run form generated from the
-  workflow's variables, with the raw JSON alongside. When the server holds
-  more than one workspace, a picker here chooses which one's workflows are
-  listed and where a save lands.
-- **Prompts** — the prompt library under `--prompt-dir` (default: discovered
+The UI is organised by workspace. A sidebar lists every workspace on the
+server; the selected one opens into **Overview, Workflows, Jobs, Gallery,
+Assets, Editor**, and the hash carries the workspace (`#/ws/studio/gallery`),
+so a link names where it points and an old `#/gallery` bookmark redirects to
+the last workspace you were in. Below the workspaces, **Shared** holds what
+every workspace sees — the prompt library, the `common` asset library and
+the read-only example workflows — and **Server** holds Models, Schema and
+Status.
+
+- **Overview** — a glance at the workspace: its recent outputs, its recent
+  jobs, its workflows (ones with a proof first, plus a filled **New
+  workflow** button), its asset count, and disk usage. Each panel loads and
+  fails independently, so a slow gallery does not hold the jobs list back
+  and a panel's own error shows in place of its content rather than reading
+  as an empty workspace. **Manage** on this page is where a workspace is
+  deleted (disabled for `default`); a workspace is created from the sidebar.
+- **Workflows** — every workflow on the workspace's own search path
+  (`--workflow-dir`), as cards with descriptions, output kinds, and variable
+  counts; the read-only ones from an `--examples-dir` are under Shared →
+  Examples instead, and opening one's Editor there saves a copy into the
+  current workspace. Folders one level deep become sections. Click through
+  to a run form generated from the workflow's variables, with the raw JSON
+  alongside.
+- **Prompts** — under Shared: the prompt library under `--prompt-dir`
+  (default: discovered
   the way a CLI run discovers it, then pinned for every job, so the page and
   `prompt:` resolution always agree), plus the read-only `prompts/` beside
   each `--examples-dir`, so an example's `prompt:` references resolve: stored
@@ -48,9 +65,8 @@ load entirely.
   argument written as `prompt:name` loads the stored text at run time,
   and deleting a prompt warns which workflows reference it.
 - **Jobs** — the queue and full run history (persisted in
-  `~/.diffusers_helper/jobs.sqlite`), spanning every workspace with a filter
-  to narrow to one; each job says which workspace it ran in, and keeps it
-  through a rerun. A running job streams step-by-step
+  `~/.diffusers_helper/jobs.sqlite`). A workspace's Jobs page lists its own;
+  Server → Status lists every workspace's with a filter. A running job streams step-by-step
   progress, per-step denoising ticks, what each step is doing when it is not
   denoising (loading a model, decoding, saving), and its result files as
   they land.
@@ -110,15 +126,16 @@ load entirely.
   upgrade it to GitHub HEAD - new model pipelines usually land there
   before a PyPI release. The idle worker restarts on success so the next
   job imports the new version; the upgrade is refused while a job runs.
-- **Server** — what this server is and how to reach it: device, version,
-  bind address and LAN addresses, whether a token is required, whether
-  `/mcp` is mounted (with the `claude mcp add` line to connect to it), the
-  directories in use, and the workspaces on this server — created and
-  deleted from here.
 - **Schema** — the workflow JSON schema the running server validates
   against, as a browsable tree: the document root plus every definition,
   with types, required markers, defaults, enums, and descriptions.
   `$ref` labels jump to their definition; a filter narrows the list.
+- **Server → Status** — what this server is and how to reach it: device,
+  version, bind address and LAN addresses, whether a token is required,
+  whether `/mcp` is mounted (with the `claude mcp add` line to connect to
+  it), and the directories in use — and, below, the queue across every
+  workspace. Workspaces are created from the sidebar and deleted from their
+  Overview.
 
 ## Workspaces
 
@@ -136,11 +153,12 @@ unless one is named.
 A workspace is a namespace, not a security boundary: the API token is
 all-or-nothing. See [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
 
-The Server page lists them, creates them, and deletes them - beside the
-directories it resolved and the `claude mcp add` line for connecting an agent
-from another machine:
+The sidebar lists every workspace, and `+ new` there creates one; a
+workspace's own Overview page is where it is deleted. Server → Status shows
+the resolved directories and the `claude mcp add` line for connecting an
+agent from another machine, plus the queue across every workspace:
 
-![The Server page: address picker, generated claude mcp add line, resolved directories, and the workspace list](img/ui-server-dark.png)
+![The Server page before the sidebar: address picker, generated claude mcp add line, resolved directories — the workspace list it shows now lives in the sidebar](img/ui-server-dark.png)
 
 ## Jobs API
 

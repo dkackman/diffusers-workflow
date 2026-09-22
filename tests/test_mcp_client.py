@@ -468,3 +468,65 @@ def test_reacknowledge_object_carries_a_measured_estimate():
 
     payload = _cost_gate_message(12.5).split("Re-acknowledge with ", 1)[1].rstrip(".")
     assert json.loads(payload)["minutes"] == 12.5
+
+
+class TrackingStream(httpx.SyncByteStream):
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.iterated = False
+
+    def __iter__(self):
+        self.iterated = True
+        yield from self.chunks
+
+    def close(self):
+        pass
+
+
+def test_get_media_if_rejects_an_over_budget_body_from_its_content_length():
+    """A whole soundtrack over the inline budget is refused from the
+    `content-length` header, before a byte of the body is read - the
+    server says how big it is up front, so a 4 MB refusal must not cost a
+    4 MB download first (#193 review)."""
+    stream = TrackingStream([b"\0" * 1024] * 8)
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "audio/wav",
+                "content-length": str(4 * 1024 * 1024),
+                "x-dw-duration": "240.0",
+            },
+            stream=stream,
+        )
+
+    client = client_with(handler)
+
+    body, content_type, headers = client.get_media_if(
+        "/api/gallery/cut.mp4/audio", lambda ct: ct.startswith("audio/"), max_bytes=1024
+    )
+
+    assert body is None
+    assert content_type == "audio/wav"
+    assert headers["content-length"] == str(4 * 1024 * 1024)
+    assert stream.iterated is False
+
+
+def test_get_media_if_reads_a_body_within_budget():
+    payload = b"RIFF" * 64
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "audio/wav", "content-length": str(len(payload))},
+            content=payload,
+        )
+
+    client = client_with(handler)
+
+    body, _, _ = client.get_media_if(
+        "/api/gallery/cut.mp4/audio", lambda ct: ct.startswith("audio/"), max_bytes=1024
+    )
+
+    assert body == payload

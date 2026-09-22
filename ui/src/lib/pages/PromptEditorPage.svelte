@@ -13,6 +13,7 @@
   import { api, fetchOutputText, streamJobEvents } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
   import { go } from '../router.svelte'
+  import { sharedHref } from '../routes'
   import { phaseLabel } from '../progress'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -439,7 +440,7 @@
     try {
       await api.deletePrompt(name)
       loadPromptLibrary()
-      go('prompts')
+      go('shared', 'prompts')
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     }
@@ -452,7 +453,7 @@
     )
     if (folder && folder !== '__new__')
       sessionStorage.setItem('dw-prompt-editor-folder', folder)
-    go('prompt-edit')
+    go('shared', 'prompt-edit')
   }
 </script>
 
@@ -467,7 +468,7 @@
 </datalist>
 
 <div class="head">
-  <a href="#/prompts" class="muted">← prompts</a>
+  <a href={sharedHref('prompts')} class="muted">← prompts</a>
   <h1>{name || 'New prompt'}</h1>
   <span class="flex"></span>
   <div class="viewswitch" role="group" aria-label="editor view">

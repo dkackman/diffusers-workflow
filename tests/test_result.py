@@ -1586,17 +1586,19 @@ class TestNoHeadroom:
             result.save(temp_dir, "cut")
 
     def test_a_track_at_full_scale_warns_with_its_figure(self):
+        """A wav's write is the clip (#295): the pre-write prediction and the
+        post-write ground truth are two different facts about this file, not
+        a duplicate of one, so a full-scale wav gets both."""
         warnings = self.events_from(lambda: self.save_audio(self.track(1.0)))
 
-        assert len(warnings) == 1
-        assert warnings[0]["kind"] == "audio_no_headroom"
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
         assert warnings[0]["peak_dbfs"] == 0.0
         assert "normalize_audio" in warnings[0]["message"]
 
     def test_a_track_over_full_scale_warns(self):
         warnings = self.events_from(lambda: self.save_audio(self.track(1.2)))
 
-        assert len(warnings) == 1
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
         assert warnings[0]["peak_dbfs"] == pytest.approx(1.58, abs=0.01)
 
     def test_a_mix_with_headroom_is_quiet(self):
@@ -1604,12 +1606,12 @@ class TestNoHeadroom:
         assert self.events_from(lambda: self.save_audio(self.track(0.89))) == []
 
     def test_silence_is_not_a_peak(self):
-        assert (
-            self.events_from(
-                lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
-            )
-            == []
+        """Silence is not a clipping/headroom problem - it is now its own
+        warning (audio_near_silent, #261), which this test is not about."""
+        warnings = self.events_from(
+            lambda: self.save_audio(numpy.zeros((2, 100), dtype=numpy.float32))
         )
+        assert [w["kind"] for w in warnings] == ["audio_near_silent"]
 
     def test_the_muxed_deliverable_is_measured_too(self):
         """The file the caller actually reads: the soundtrack of the cut."""
@@ -1627,8 +1629,8 @@ class TestNoHeadroom:
         check already fired assumed the encoder only ever adds overshoot -
         true for the mp3s #159/#161 measured, backwards for an H3 video mux,
         whose AAC mux can land under full scale after starting over it. A
-        video always gets the ground-truth post-encode read, regardless of
-        what the pre-encode waveform check already said."""
+        video always gets the ground-truth post-encode read, and once that
+        read is in, it - not the pre-encode guess - is what the caller sees."""
         with patch(
             "dw.media_info.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},
@@ -1636,7 +1638,54 @@ class TestNoHeadroom:
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
         kinds = {w["kind"] for w in warnings}
-        assert kinds == {"audio_no_headroom", "audio_clipped"}
+        assert kinds == {"audio_clipped"}
+
+    def test_a_clean_video_mux_drops_the_stale_prediction(self):
+        """#174 amendment: the pre-encode prediction fires on H3's own
+        soundtrack every run, and the post-encode probe already proved the
+        written file is fine - the caller should see nothing, not a stale
+        warning about a file that turned out clean."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": -1.12, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert warnings == []
+
+    def test_a_video_mux_is_decoded_only_once_for_both_level_checks(self):
+        """#262: `warn_if_written_above_full_scale` and
+        `warn_if_written_near_silent` used to each probe the file
+        independently - two full audio+video decodes of the same file for
+        one save, which is what made the 'saving' phase ~5x slower once
+        #261 added the second check. They now share one decode."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": -1.12, "mean_dbfs": -20.0, "kind": "video"},
+        ) as probe:
+            self.save_muxed(torch.ones((2, 100)))
+
+        assert probe.call_count == 1
+
+    def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
+        """The post-encode probe found a real clip - report that, not the
+        pre-encode guess, so the caller gets one answer with a real number."""
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"peak_dbfs": 0.94, "kind": "video"},
+        ):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert [w["kind"] for w in warnings] == ["audio_clipped"]
+        assert warnings[0]["peak_dbfs"] == pytest.approx(0.94, abs=0.01)
+
+    def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
+        """No ground truth available (a broken/short file) - the pre-encode
+        guess is the only signal there is, so it still reaches the caller."""
+        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
+
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
 
 
 class TestTheWrittenLevel:
@@ -1734,16 +1783,17 @@ class TestTheWrittenLevel:
         measured.assert_called_once()
         assert measured.call_args.args[0].endswith(".wav")
 
-    def test_it_does_not_say_what_the_waveform_check_already_said(self, tmp_path):
-        """Two warnings would be two answers to one mistake: a waveform over
-        the line before the encoder touched it is `audio_no_headroom`'s, and
-        that message carries the fix."""
+    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(self, tmp_path):
+        """A wav's write is itself the clip (#295): unlike a lossy re-encode,
+        there is no later encode step for the pre-write warning to describe
+        as a future risk, so the pre-write prediction and the post-write
+        ground truth are two different facts about this file and both fire."""
         kinds = [
             warning["kind"]
             for warning in self.warnings_from(lambda: self.save_wav(1.5, str(tmp_path)))
         ]
 
-        assert kinds == ["audio_no_headroom"]
+        assert kinds == ["audio_no_headroom", "audio_clipped"]
 
     def test_an_image_is_never_probed(self, tmp_path):
         """Only a file that can carry a soundtrack pays for the read-back."""
@@ -1756,6 +1806,132 @@ class TestTheWrittenLevel:
             result.save(str(tmp_path), "frame")
 
         measured.assert_not_called()
+
+
+class TestConsumedByNormalizer:
+    """#286: write_song's raw Music 3 mp3 always lands at/over full scale by
+    design and is always normalized (peak_dbfs -3.0) before the only
+    deliverable mux - a headroom warning on that intermediate save was
+    firing every run of `music-video` regardless. `consumed_by_normalizer`
+    is Workflow.run's answer to "does a later normalize_audio/match_levels
+    step read this result", threaded into Result so both the pre-write and
+    post-write headroom checks stay quiet for that save specifically."""
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def save_audio(self, waveform, consumed_by_normalizer, temp_dir):
+        from dw.result import Result
+
+        result = Result(
+            {"content_type": "audio/wav", "sample_rate": 44100},
+            consumed_by_normalizer=consumed_by_normalizer,
+        )
+        result.add_result(waveform)
+        result.save(temp_dir, "song")
+
+    def test_a_full_scale_track_is_quiet_when_a_normalizer_consumes_it(self, tmp_path):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        warnings = self.warnings_from(
+            lambda: self.save_audio(waveform, True, str(tmp_path))
+        )
+
+        assert [w["kind"] for w in warnings] == []
+
+    def test_a_full_scale_track_still_warns_when_nothing_normalizes_it(self, tmp_path):
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        warnings = self.warnings_from(
+            lambda: self.save_audio(waveform, False, str(tmp_path))
+        )
+
+        assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
+
+    def test_the_post_write_probe_is_also_quiet_when_normalized_downstream(
+        self, tmp_path
+    ):
+        """The written-level check (#161) is a second, independent path to
+        the same warning kind - a clean fix has to silence both."""
+        waveform = numpy.zeros((2, 100), dtype=numpy.float32)
+        waveform[0][0] = 1.0
+
+        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": 0.5}):
+            warnings = self.warnings_from(
+                lambda: self.save_audio(waveform, True, str(tmp_path))
+            )
+
+        assert [w["kind"] for w in warnings] == []
+
+
+class TestNearSilentWrite:
+    """A succeeded job could hand back a deliverable so quiet nothing could
+    hear it, with `warnings: []` - `get_gallery_metadata`'s hint text already
+    taught mean_dbfs below -40 on a track that should be full as near-silent
+    (#158), but nothing emitted the warning at save time (#261). Mirrors
+    TestFullScaleWrite above."""
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def measured_at(self, mean_dbfs, **kwargs):
+        from dw.result import warn_if_written_near_silent
+
+        with patch("dw.media_info.probe_media", return_value={"mean_dbfs": mean_dbfs}):
+            return self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/line.wav", **kwargs)
+            )
+
+    def test_a_file_that_decodes_near_silent_warns(self):
+        """-74.8 dBFS is what the reported Bark run measured (#261)."""
+        (warning,) = self.measured_at(-74.8)
+
+        assert warning["kind"] == "audio_near_silent"
+        assert warning["mean_dbfs"] == pytest.approx(-74.8, abs=0.01)
+        assert warning["file"] == "line.wav"
+
+    def test_a_file_at_the_threshold_is_quiet(self):
+        assert self.measured_at(-40.0) == []
+
+    def test_a_full_track_is_quiet(self):
+        assert self.measured_at(-2.48) == []
+
+    def test_a_source_that_arrived_near_silent_does_not_warn(self):
+        # #309: a slice of already-quiet source material (room tone) is not
+        # a defect the slice introduced
+        assert self.measured_at(-74.8, source_already_quiet=True) == []
+
+    def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
+        from dw.result import warn_if_written_near_silent
+
+        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+            assert (
+                self.warnings_from(
+                    lambda: warn_if_written_near_silent("/runs/final/broken.wav")
+                )
+                == []
+            )
+
+    def test_already_warned_suppresses_the_check(self):
+        assert self.measured_at(-74.8, already_warned=True) == []
 
 
 class TestTheMusicTemplatesLeaveHeadroom:

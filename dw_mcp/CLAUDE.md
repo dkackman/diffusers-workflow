@@ -16,10 +16,13 @@ its bytes, returning the `asset:` reference rather than a path (`assets.py`).
 agent with no filesystem in common with a remote `dw.serve --mcp` endpoint -
 the bytes travel inline in the call, capped at 4MB rather than `file_path`'s
 200MB since they compete with the caller's own context budget (#203).
-`get_output_audio` is `get_output_image`'s sibling for audio (`media.py`,
-#204): no downscale exists for a waveform, so a clip over the same 4MB
-budget is refused outright rather than cut short; video has neither, since
-the installed MCP SDK has no `VideoContent` type to return it as. A session
+`get_output_audio` is `get_output_image`'s sibling for sound (`media.py`,
+#204, #193): it reads `GET /api/gallery/{name}/audio`, which extracts a
+video's muxed track as WAV and cuts an excerpt on `start`/`duration`; a
+whole clip over the same 4MB budget is still refused rather than cut short,
+and the refusal says to ask for an excerpt. Video has no MCP content type,
+so `get_output_frames` returns frames of one as `ImageContent` - specific
+moments, a contact sheet, or the frame pair either side of each seam. A session
 works in one of the server's workspaces: `--workspace` /
 `DW_MCP_WORKSPACE` (a *name* on the server, not a directory - `DW_WORKSPACE`
 means something else to the engine), `use_workspace` to switch, and
@@ -68,6 +71,12 @@ forwarded verbatim, which the server refuses with 409 when the run's shape
 changed since (`_acknowledgement_body` in `diagnose.py`; the 409 is rendered
 with the new estimate by `DwClient._format_detail`). The three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
-timeout. Authoring has two halves: `get_schema` describes a workflow and
+timeout; `run_workflow(wait_seconds=N)` then folds the first `wait_for_job`
+into the same call (same `MAX_WAIT_SECONDS` clamp, same budget fields), because
+measured over ~1,400 agent-driven cases almost every run was followed by a
+wait turn of its own. `delete_output(job_id=...)` is the same economy for
+cleanup: the job record's `run_dir` is the `<workflow>/<run id>` the
+run-directory delete already accepts, so a whole run goes in one call without
+a gallery listing to find its name. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by
 `"prompt:name"`. See docs/MCP.md.
