@@ -97,3 +97,16 @@ def vram_estimate_errors(definition, arguments=None, supplied=()):
             }
         )
     return errors
+
+
+def apply_vram_estimate(definition, variables):
+    """The run-time half of the check above - the backstop for a caller
+    that skips validate_workflow (or an inline/composed workflow static
+    validation never saw). Raises ValueError for the same projection
+    vram_estimate_errors refuses, so run() cannot start a job the decode
+    step was always going to OOM on (#265)."""
+    if not isinstance(variables, dict):
+        return
+    errors = vram_estimate_errors(definition, variables)
+    if errors:
+        raise ValueError(errors[0]["message"])

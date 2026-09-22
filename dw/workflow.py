@@ -46,7 +46,7 @@ from .reference_names import reference_name_errors
 from .content_types import content_type_errors
 from .scalar_result_validation import scalar_result_errors
 from .kernel_availability import kernel_availability_errors
-from .vram_estimate import vram_estimate_errors
+from .vram_estimate import apply_vram_estimate, vram_estimate_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -821,6 +821,13 @@ class Workflow:
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
+            # A (width, height, num_frames)-shaped combination a declared
+            # vram_estimate projects past the card 'cost' was measured on -
+            # the run-time backstop for a caller that skips
+            # validate_workflow, so this raises the same refusal rather
+            # than starting a job the decode step was always going to OOM
+            # on (dw/vram_estimate.py, #265)
+            apply_vram_estimate(workflow_def, variables)
             # realize the variables, initializing downloads of images etc
             realize_args(variables, base_dir)
             ## then replace any variable references in the workflow definition with the actual values
