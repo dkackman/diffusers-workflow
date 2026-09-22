@@ -33,10 +33,9 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
+                    "offload": "model",
                     "components": {
-                        "transformer": {
-                            "device": "cuda"
-                        },
+                        "transformer": {},
                         "text_encoder": {
                             "group_offload": {
                                 "offload_type": "leaf_level",
@@ -49,18 +48,10 @@
                                 "use_stream": true
                             }
                         },
-                        "vae": {
-                            "device": "cuda"
-                        },
-                        "audio_vae": {
-                            "device": "cuda"
-                        },
-                        "vocoder": {
-                            "device": "cuda"
-                        },
-                        "duration_head": {
-                            "device": "cuda"
-                        }
+                        "vae": {},
+                        "audio_vae": {},
+                        "vocoder": {},
+                        "duration_head": {}
                     }
                 },
                 "from_pretrained_arguments": {
