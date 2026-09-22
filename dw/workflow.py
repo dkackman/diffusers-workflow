@@ -46,6 +46,7 @@ from .reference_names import reference_name_errors
 from .content_types import content_type_errors
 from .scalar_result_validation import scalar_result_errors
 from .kernel_availability import kernel_availability_errors
+from .vram_estimate import vram_estimate_errors
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -689,6 +690,14 @@ class Workflow:
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
             + constraint_reference_errors(self.workflow_definition)
+            # A (width, height, num_frames)-shaped combination a declared
+            # vram_estimate projects past the card 'cost' was measured on -
+            # refused here rather than found 90+ seconds into denoising on
+            # an OOM the caller had no way to see coming (dw/vram_estimate.py,
+            # #265)
+            + vram_estimate_errors(
+                self.workflow_definition, arguments, supplied=set(arguments or {})
+            )
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
             # loading, naming a torch/natten mismatch the construction alone

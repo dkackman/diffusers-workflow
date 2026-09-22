@@ -68,6 +68,24 @@
         "variables": {
             "$ref": "#/$defs/arguments"
         },
+        "vram_estimate": {
+            "description": "A declared VRAM ceiling over this workflow's cost_drivers, checked against each 'cost' entry's 'vram_gb' in validate_workflow. Never derived from a profiler - a maintainer's own reading of what a stage needs, the same way 'cost' itself is. required_gb = base_gb + bytes_per_voxel * (product of voxel_variables' values) / 2^30; a combination projecting above any cost entry's vram_gb for that entry's device is refused, not warned, since the failure this guards is an OOM partway through a run that already spent minutes loading. 'voxel_variables' names the cost_drivers whose product drives the estimate - typically width, height and num_frames for a video template.",
+            "type": "object",
+            "required": ["base_gb", "bytes_per_voxel", "voxel_variables"],
+            "properties": {
+                "base_gb": {"type": "number", "minimum": 0, "description": "What stays resident regardless of the voxel count - everything the pipeline keeps on the device throughout, measured or bounded by a real run."},
+                "bytes_per_voxel": {"type": "number", "minimum": 0, "description": "Bytes of additional VRAM per unit of the voxel_variables' product, calibrated from a real run's reported requirement at a known combination."},
+                "voxel_variables": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Variable names whose product is the voxel count the formula scales with. Each must be a declared variable."
+                },
+                "reason": {"type": "string"}
+            },
+            "additionalProperties": false
+        },
         "variable_constraints": {
             "description": "What each variable's value is allowed to be, by variable name. A rule the engine could only enforce after the weights were loaded costs minutes to discover; declared here it is a free refusal at validation time and a line in the catalog beside the default.",
             "type": "object",

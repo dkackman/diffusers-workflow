@@ -5,6 +5,12 @@
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.8}
     ],
     "cost_drivers": ["num_frames", "width", "height"],
+    "vram_estimate": {
+        "base_gb": 21.3,
+        "bytes_per_voxel": 16.04,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; bytes_per_voxel is calibrated from a real run that reported needing 2.69 GiB for decode with 557 MiB free at 960x544x345 frames (#265). base_gb is the tightest bound consistent with a confirmed pass at that same combination once the transformer offloads off VRAM before decode (#266) - so this ceiling is validated up to 345 frames at the default resolution and is deliberately conservative beyond it, pending a calibration run at a higher frame count"
+    },
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
@@ -35,7 +41,11 @@
                     ],
                     "components": {
                         "transformer": {
-                            "device": "cuda"
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1000,
+                                "use_stream": true
+                            }
                         },
                         "text_encoder": {
                             "group_offload": {
@@ -49,18 +59,10 @@
                                 "use_stream": true
                             }
                         },
-                        "vae": {
-                            "device": "cuda"
-                        },
-                        "audio_vae": {
-                            "device": "cuda"
-                        },
-                        "vocoder": {
-                            "device": "cuda"
-                        },
-                        "duration_head": {
-                            "device": "cuda"
-                        }
+                        "vae": {"device": "cuda"},
+                        "audio_vae": {"device": "cuda"},
+                        "vocoder": {"device": "cuda"},
+                        "duration_head": {"device": "cuda"}
                     }
                 },
                 "from_pretrained_arguments": {
