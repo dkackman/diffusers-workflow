@@ -269,7 +269,7 @@ def catalog_name_for(path, source):
     return _catalog_name_from_root(path, source.root)
 
 
-def attach_observed(details, observed_costs):
+def attach_observed(details, observed_costs, workspace_name=None):
     """Fold this box's own history into each detail, as `observed`.
 
     Separate from `workflow_details` because that cache is keyed on a file's
@@ -277,6 +277,12 @@ def attach_observed(details, observed_costs):
     every number here. A detail carries `cost_drivers` and the defaults they
     take, which is everything the aggregate needs - the file is not read a
     second time.
+
+    A detail's own `writable` says whether its entry is this workspace's own
+    copy or a shared catalog one (#274): only the former is scoped to
+    `workspace_name`, so two workspaces' saves of the same name do not leak
+    into each other's figure, while a template or example still pools every
+    workspace's runs of it, matching #154.
     """
     if observed_costs is None or not observed_costs.refresh():
         return details
@@ -292,7 +298,8 @@ def attach_observed(details, observed_costs):
                 **drivers,
             },
         }
-        observed = observed_costs.observed(name, surrogate, fresh=False)
+        workspace = workspace_name if detail.get("writable") else None
+        observed = observed_costs.observed(name, surrogate, fresh=False, workspace=workspace)
         if observed:
             detail["observed"] = observed
     return details
@@ -1798,7 +1805,16 @@ def create_app(
                 child_name = _catalog_name_from_root(child_path, child_root)
                 if not child_name:
                     return None
-                return _observed_for_name(child_name, child_definition)
+                # resolve_sub_workflow hands back a bare root string, not a
+                # Source, so writability is inferred the way that root was
+                # built: the workspace's own workflows/ is the writable one
+                # (#274)
+                child_workspace = (
+                    workspace.name if child_root == workspace.workflows else None
+                )
+                return _observed_for_name(
+                    child_name, child_definition, workspace=child_workspace
+                )
 
             answer["plan"] = build_plan(
                 candidate,
@@ -1816,7 +1832,10 @@ def create_app(
                 observed=(
                     (
                         lambda arguments: _observed_for_name(
-                            catalog_name, definition, arguments
+                            catalog_name,
+                            definition,
+                            arguments,
+                            workspace=workspace.name if source.writable else None,
                         )
                     )
                     if catalog_name
@@ -1837,11 +1856,14 @@ def create_app(
             answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
             if catalog_name:
                 answer["warnings"] += _host_memory_warnings(
-                    catalog_name, definition, answer["plan"]["list_entries"]
+                    catalog_name,
+                    definition,
+                    answer["plan"]["list_entries"],
+                    workspace=workspace.name if source.writable else None,
                 )
         return answer
 
-    def _host_memory_warnings(name, definition, list_entries):
+    def _host_memory_warnings(name, definition, list_entries, *, workspace=None):
         """Whether this box's own history says the requested list is
         projected to exceed host RAM (#243) - best effort, since a warning
         that 500s the free pre-flight would be worse than skipping it."""
@@ -1851,7 +1873,7 @@ def create_app(
         try:
             from ..host_memory import host_memory_stats
 
-            rows = costs.rows_for(name)
+            rows = costs.rows_for(name, workspace=workspace)
             ceiling_mb = (host_memory_stats().get("total_mb") or 0) * CEILING_FRACTION
             return host_memory_warnings(definition, list_entries, rows, ceiling_mb)
         except Exception:
@@ -1995,6 +2017,7 @@ def create_app(
                 attach_observed(
                     workflow_details(found),
                     getattr(app.state, "observed_costs", None),
+                    ws.name,
                 ),
                 shape=shape,
                 traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
@@ -2094,6 +2117,11 @@ def create_app(
         os.remove(path)
         logger.info(f"Deleted workflow {name} ({path})")
         forget_workspace_usage()
+        # This identity's job history goes with it (#274) - otherwise a name
+        # reused in this workspace, including by a regression cycle that
+        # deletes and recreates the same workflow, would inherit the deleted
+        # copy's observed figures and host-memory history
+        manager.history.orphan_workflow_history(ws.name, name)
         return {"name": name, "deleted": True}
 
     @app.get("/api/workflows/{name:path}/download")
@@ -2171,21 +2199,28 @@ def create_app(
             answer["lists"] = lists
         # What this box's own runs of it actually took, beside the defaults
         # they were run with - derived, never the curated `cost` (#93)
-        observed = _observed_for_name(name, definition)
+        observed = _observed_for_name(
+            name, definition, workspace=ws.name if source.writable else None
+        )
         if observed:
             answer["observed"] = observed
         return answer
 
-    def _observed_for_name(name, definition, arguments=None):
+    def _observed_for_name(name, definition, arguments=None, *, workspace=None):
         """One workflow's `observed` block, from the same aggregate the
         listing uses - so the figure a caller reads in the listing and the
         one they read here are the same figure.
 
         `arguments` narrow it to the bucket the run being planned falls in;
         without them it is the figure the stored defaults give, which is the
-        listing's."""
+        listing's. `workspace` scopes it to one workspace's own writable copy
+        (#274); omitted, it is a shared catalog entry's pooled figure (#154)."""
         costs = getattr(app.state, "observed_costs", None)
-        return costs.observed(name, definition, arguments) if costs else None
+        return (
+            costs.observed(name, definition, arguments, workspace=workspace)
+            if costs
+            else None
+        )
 
     @app.get("/api/workflows/{name:path}")
     def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):

@@ -412,7 +412,7 @@ class _every_workflow_observed:
     def refresh(self):
         return True
 
-    def observed(self, name, definition, arguments=None, *, fresh=True):
+    def observed(self, name, definition, arguments=None, *, fresh=True, workspace=None):
         if name not in self._names:
             return None
         return {

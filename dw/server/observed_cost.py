@@ -308,15 +308,31 @@ class ObservedCosts:
             self._mark = mark
         return True
 
-    def rows_for(self, name, *, fresh=True):
+    def rows_for(self, name, *, fresh=True, workspace=None):
         """That workflow's comparable-candidate runs, refreshing the cache
-        when the table has moved (unless the caller already did)."""
+        when the table has moved (unless the caller already did).
+
+        `workspace` is the identity a workspace-writable workflow's own copy
+        is scoped to (#274): two workspaces that each save a workflow called
+        the same thing are different workflows, so passing a workspace name
+        answers only for that one's own history and no other. Omitting it -
+        what a shared, read-only catalog source (a template or example) is
+        asked with - keeps #154's behavior: every workspace's runs of that
+        catalog entry are one pool, unioned across whichever workspaces
+        happen to have run it.
+        """
         if fresh and not self.refresh():
             return []
-        return self._rows.get(name, [])
+        if workspace is not None:
+            return self._rows.get((workspace, name), [])
+        rows = []
+        for (row_workspace, row_name), workspace_rows in self._rows.items():
+            if row_name == name:
+                rows.extend(workspace_rows)
+        return rows
 
-    def observed(self, name, definition, arguments=None, *, fresh=True):
-        rows = self.rows_for(name, fresh=fresh)
+    def observed(self, name, definition, arguments=None, *, fresh=True, workspace=None):
+        rows = self.rows_for(name, fresh=fresh, workspace=workspace)
         if not rows:
             return None
         device, device_name = self.device()
