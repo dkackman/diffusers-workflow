@@ -59,6 +59,13 @@ Two things differ from the local stdio setup:
   result, or open `http://<box>:8765/outputs/<name>` in the browser.
 - The connection is a plain HTTP call per tool invocation; there is no
   subprocess to restart.
+- `use_workspace`/`create_workspace` pin *this box's* one MCP client, shared
+  by every agent connected to it - this server is single-user, so there is
+  no per-session isolation. If you and another agent are both against the
+  same box, either one's `use_workspace` call can move what the other reads
+  and writes next (#298). Pass `workspace=` on each call that takes it
+  (`validate_workflow`, `run_workflow`, most read/media tools) instead of
+  relying on the session pin when that matters.
 
 ## Claude Code with a local install (stdio)
 

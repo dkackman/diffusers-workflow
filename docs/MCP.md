@@ -249,12 +249,29 @@ of its life. That is how two agents work against one GPU without saving over
 each other; see [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
 The session starts in `default` and stays there unless it is told otherwise.
 
+The pin above is per-*process* state on `client.py`'s `DwClient`, which is
+one session for the local stdio `dw-mcp`, but `dw.serve --mcp` (see
+[REMOTE.md](REMOTE.md#claude-code-no-local-install)) builds a single client
+for every agent it serves - so on that mounted surface the pin is shared by
+every concurrently connected caller, not scoped to any one of them (#298).
+A second client's `use_workspace`/`create_workspace(use=true)` can switch
+what your session reads and writes without your session calling either. This
+server is single-user by design, so nothing tracks distinct MCP sessions to
+fix that; `use_workspace`/`create_workspace` add a `warning` field to their
+result when the pin they are about to overwrite was already pointed
+somewhere other than `default` (a sign another client may depend on it), but
+they cannot warn the *other* session whose pin just moved out from under it.
+A caller that needs real isolation on a mounted server - the tester and
+regression harnesses among them - must pass `workspace=` on every call that
+accepts it (`validate_workflow`, `run_workflow`, and most of the read/media
+tools) rather than relying on the session pin.
+
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `validate_workflow(workflow=None, name=None, workspace=None, arguments=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it), optional `workspace`, optional `arguments` | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would. Returns every schema violation in `errors`, each with the JSON path it sits at, so a draft is fixed in one pass, and a `previous_result:` that names no earlier step is one of them. `warnings` covers what still runs but is probably wrong - a signature mismatch, and, for a list-driven variable, an entry key no step reads, at the entry's path. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's. Pass the same `arguments` you will pass to `run_workflow` and they are checked too - an undeclared or renamed variable name, a value that will not coerce to the declared type, and an `asset:`, `prompt:` or `output:` reference that names nothing this workspace can reach, each reported at `arguments.<name>`. `checked_arguments` lists what was covered, so a `valid: true` about the stored defaults cannot be mistaken for one about your values. A reference set the model would refuse - too many images, videos or audio clips, or, for MiniMax-H3, audio as the only reference - is an error here too, rather than a failure minutes into a run you acknowledged. `run_workflow` makes the same check and refuses a bad argument rather than queuing a job that fails on its first step. A valid answer carries `plan` - the fingerprint, step count, list lengths, `downloads_required`, `estimate` (with `basis`) and `elided_steps` for the arguments given; quote from it. `steps` counts what will run: a step nothing reads and which saves no file does not run, and is named in `elided_steps` instead |
 | `list_workspaces()` | — | The server's workspaces and which one this session is using. Each has its own workflows, assets and outputs; the prompt library is shared by all of them |
-| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing |
-| `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so |
+| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing. On a `dw.serve --mcp` endpoint the pin is shared by every connected client (#298, see the note above the table) - a `warning` field appears when this call overwrote a pin already pointed away from `default` |
+| `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so. `use=true` carries the same mounted-server caveat and `warning` field as `use_workspace` |
 | `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
 | `list_assets()` | — | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there. `libraries` names the roots searched and which are writable; `shadowed` lists names a nearer library hides |
 | `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None)` | `name`, optional `asset_name`, `overwrite`, `shared`, `workspace` | Keep a generated file as an input asset under a stable `asset:` name, so a later workflow can rely on it. The copy happens on the server: nothing is downloaded or re-uploaded. `asset_name` may name a folder and takes the kept file's extension when it has none; `shared=true` keeps it in the library every workspace shares, which is where a recurring cast belongs. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |

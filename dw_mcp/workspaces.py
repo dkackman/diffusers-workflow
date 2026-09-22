@@ -8,13 +8,51 @@ the transcript instead of an argument that can be forgotten on the one call
 where it mattered.
 """
 
+import logging
+
 from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path
 from dw_mcp import catalog
+
+logger = logging.getLogger(__name__)
 
 
 # What a compact workspace entry keeps: enough to choose one or judge its
 # size, nothing that only naming its folders needs
 WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage")
+
+# dw.serve --mcp builds one DwClient for every connected agent (#298) - the
+# pin is server-global there, not per-session, and that is a deliberate scope
+# decision (this server is single-user) rather than a bug to fix with session
+# tracking. The one thing owed to a caller is honesty: when the mounted
+# client's pin is about to move away from a workspace that was not the
+# default, warn - it may be this same caller switching again, or it may be
+# another connected agent's work about to lose its isolation
+_CONCURRENT_PIN_WARNING = (
+    "This server's MCP mount shares workspace state across every connected "
+    "client (dw.serve --mcp has no per-session pin). The pin was "
+    "'{previous}' and is now '{name}' - if another agent is also connected, "
+    "its calls saw the workspace change too, and its next switch will "
+    "change what this session sees. Pass workspace='{name}' on calls that "
+    "accept it if you need isolation from other clients."
+)
+
+
+def _switch(client, name):
+    """Set client.workspace to `name`, returning a warning string when the
+    mounted (shared) client is about to overwrite a pin already in use for
+    something other than the default - see `_CONCURRENT_PIN_WARNING`."""
+    previous = client.workspace
+    warning = None
+    if client.mounted and previous != DEFAULT_WORKSPACE and previous != name:
+        warning = _CONCURRENT_PIN_WARNING.format(previous=previous, name=name)
+        logger.warning(
+            "mcp workspace pin changed from %r to %r on the shared mounted "
+            "client - another connected agent may be affected",
+            previous,
+            name,
+        )
+    client.workspace = name
+    return warning
 
 
 def list_workspaces(client, detail=False):
@@ -76,8 +114,11 @@ def use_workspace(client, name):
             f"No workspace named '{name}' on this server. It has: "
             f"{', '.join(known)}. Create one with create_workspace."
         )
-    client.workspace = name
-    return {"current": name, "workspaces": known or [name]}
+    warning = _switch(client, name)
+    result = {"current": name, "workspaces": known or [name]}
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def create_workspace(client, name, use=False):
@@ -87,9 +128,8 @@ def create_workspace(client, name, use=False):
     create-then-run sequence otherwise runs in the workspace the session
     was already in, and the result says which that is."""
     body = client.post_json("/api/workspaces", {"name": name})
-    if use:
-        use_workspace(client, name)
-    return {
+    warning = _switch(client, name) if use else None
+    result = {
         **body,
         "current": client.workspace,
         "next": (
@@ -100,6 +140,9 @@ def create_workspace(client, name, use=False):
             f"run_workflow before running anything meant for it."
         ),
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def delete_workspace(client, name, acknowledged_cost=False):
