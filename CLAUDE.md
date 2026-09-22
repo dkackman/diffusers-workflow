@@ -447,6 +447,19 @@ same reason - default setup cannot load a pack.
   arguments)`); a resized list finds no bucket and falls back to the curated
   figure. Nothing is added for a composed child, since an observed run
   already ran it. An inline definition has no catalog name, so no history
+- **An observed figure below three runs is not the same statistical basis as
+  a dozen, and says so** — a single-run `observed_minutes` was quoted at the
+  same authority as a twelve-run one, and ran ~3x pessimistic doing it
+  (#301). Below `SMALL_N_THRESHOLD` (3) runs, `estimate()`'s `_tempered`
+  (`dw/plan.py`) blends the observed minutes toward the workflow's curated
+  `cost` when one exists — proportional to how thin the history is, one run
+  counting for a third of the blend — rather than quoting the raw point
+  figure; where no curated figure exists to blend toward (including the
+  #268 child-rollup case, which has none by construction), the minutes are
+  left alone and `low_confidence: true` is added to the estimate instead, so
+  a caller has something machine-checkable beyond having to know to inspect
+  `runs` itself. No new range/uncertainty-band math — that was considered
+  and rejected as more surface than the problem needs
 - **An H3 adapter is checked against the partition its step denoises on** —
   `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
   `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a

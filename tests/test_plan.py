@@ -494,6 +494,61 @@ class TestObservedEstimate:
         assert answer["unpriced"] == []
 
 
+class TestLowConfidenceObservedEstimate:
+    """#301: a single run is not the same statistical basis as a dozen - an
+    observed figure below SMALL_N_THRESHOLD runs is blended toward the
+    curated cost when one exists, and flagged `low_confidence` when there
+    is nothing curated to blend toward, rather than being quoted with the
+    same authority as a figure with runs to spare."""
+
+    def test_a_single_run_blends_toward_the_curated_figure(self, plan):
+        """Catalog says 10; one observed run says 6 - the answer should
+        sit between them rather than repeat the thin point figure."""
+        answer = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["runs"] == 1
+        assert 6.0 < answer["minutes"] < 10.0
+        assert "low_confidence" not in answer
+
+    def test_two_runs_blend_less_than_one(self, plan):
+        one = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        two = plan(definition(), observed=observed(minutes=6, runs=2))["estimate"]
+        assert two["minutes"] < one["minutes"]
+
+    def test_three_runs_is_no_longer_low_n(self, plan):
+        answer = plan(definition(), observed=observed(minutes=6, runs=3))["estimate"]
+        assert answer["minutes"] == 6.0
+        assert "low_confidence" not in answer
+
+    def test_a_single_run_with_no_curated_figure_is_flagged_instead(self, plan):
+        """No cost block to blend toward - the point figure is quoted as-is
+        but flagged, rather than invented a range for."""
+        spec = definition()
+        del spec["cost"]
+        answer = plan(spec, observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["minutes"] == 6.0
+        assert answer["low_confidence"] is True
+
+    def test_a_thin_rolled_up_child_is_flagged(self, plan, tmp_path):
+        """The #268 rollup has no parent cost block to blend toward by
+        construction, so a thin roll-up gets the flag."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
+            ],
+        }
+
+        def observed_for_child(path, child_definition):
+            return observed(minutes=6, runs=1)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["minutes"] == 6.0
+        assert answer["low_confidence"] is True
+
+
 def composing(child_path):
     return {
         "id": "parent",

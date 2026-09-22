@@ -280,6 +280,35 @@ DERIVED = "derived"
 OTHER_DEVICE = "other_device"
 OBSERVED = "observed"
 
+# #301: a single run is not the same statistical basis as a dozen. Below
+# this many observed runs, an "observed" figure is tempered rather than
+# quoted at full authority - see `_tempered`.
+SMALL_N_THRESHOLD = 3
+
+
+def _tempered(block, curated_minutes):
+    """An `observed` estimate below `SMALL_N_THRESHOLD` runs, corrected
+    toward the curated figure it might be papering over rather than
+    presented as if it carried the same authority as a dozen runs (#301).
+
+    With a curated minutes figure to blend toward, the point estimate is
+    pulled toward it in proportion to how thin the history is - one run
+    counts for a third of the blend, two for two thirds, three or more not
+    at all. With none to blend toward there is nothing to correct with, so
+    the number is left alone and a `low_confidence` flag is added instead:
+    machine-checkable without requiring a caller to know to inspect `runs`
+    itself. No new range/uncertainty math (rejected as more surface than
+    the problem needs) - just these two, approved shapes.
+    """
+    runs = block.get("runs")
+    if not isinstance(runs, int) or runs >= SMALL_N_THRESHOLD or block["minutes"] is None:
+        return block
+    if curated_minutes is None:
+        return {**block, "low_confidence": True}
+    weight = runs / SMALL_N_THRESHOLD
+    blended = curated_minutes * (1 - weight) + block["minutes"] * weight
+    return {**block, "minutes": round(blended, 1)}
+
 
 def _cached_minutes(minutes, cached_steps, total_steps):
     """The share of `minutes` a caller would actually wait for, once the
@@ -393,11 +422,6 @@ def estimate(
     children included, already measured.
     """
     measured = _observed(observed, device)
-    if measured is not None:
-        measured["cached_minutes"] = _cached_minutes(
-            measured["minutes"], cached_steps, total_steps
-        )
-        return measured
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     if own["basis"] == CATALOG and _scalar_driver_shifted(
         definition, expanded, list_entries
@@ -407,6 +431,12 @@ def estimate(
         # re-prices a for_each list's length - so the catalog figure would
         # otherwise be quoted for a run it was never measured for (#267)
         own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    if measured is not None:
+        measured = _tempered(measured, own["minutes"])
+        measured["cached_minutes"] = _cached_minutes(
+            measured["minutes"], cached_steps, total_steps
+        )
+        return measured
     minutes = own["minutes"]
     # An unpriced parent (own["minutes"] is None) whose total ends up coming
     # only from a priced child is not a complete figure - the parent's own
@@ -478,7 +508,7 @@ def estimate(
         top_measured_on = (
             next(iter(child_measured_on)) if len(child_measured_on) == 1 else None
         )
-    return {
+    result = {
         "minutes": round(minutes, 1) if minutes is not None else None,
         "basis": top_basis,
         "device": device,
@@ -492,6 +522,14 @@ def estimate(
             total_steps,
         ),
     }
+    if top_basis == OBSERVED:
+        # The rolled-up-from-children case (#268): no curated figure of the
+        # parent's own exists to blend toward (that is this branch's own
+        # precondition, above), so a thin roll-up gets the low_confidence
+        # flag rather than a blend. Never changes `minutes`, so
+        # `cached_minutes` above already reflects it.
+        result = _tempered(result, None)
+    return result
 
 
 def _observed(observed, device):
