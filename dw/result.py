@@ -254,7 +254,9 @@ def warn_if_written_above_full_scale(
 NEAR_SILENT_WARN_DBFS = -40.0
 
 
-def warn_if_written_near_silent(output_path, already_warned=False, info=_UNPROBED):
+def warn_if_written_near_silent(
+    output_path, already_warned=False, info=_UNPROBED, source_already_quiet=False
+):
     """Say when the file just written decodes as near-silent.
 
     The other end of the range `warn_if_written_above_full_scale` guards:
@@ -267,8 +269,15 @@ def warn_if_written_near_silent(output_path, already_warned=False, info=_UNPROBE
     takes. Best effort either way: a file that will not probe is not a
     level problem, and a deliverable that is already written is not worth
     failing a finished run over.
+
+    `source_already_quiet` is set by a pass-through task (slice_audio) whose
+    *source* material was already this quiet going in - a slice of room
+    tone is not a defect the slice introduced, and the warning's own wording
+    ("check the step that generated it... an unintended near-zero gain
+    upstream") is aimed at a step that could plausibly have caused the
+    level, which a plain cut out of an already-quiet recording did not (#309).
     """
-    if already_warned:
+    if already_warned or source_already_quiet:
         return None
     if info is _UNPROBED:
         info = _probe_written_media(output_path)
@@ -464,14 +473,19 @@ class AudioTrack:
     still wins over the one carried here.
     """
 
-    def __init__(self, audio, sample_rate):
+    def __init__(self, audio, sample_rate, source_mean_dbfs=None):
         """
         Args:
             audio: The waveform, shaped (channels, samples)
             sample_rate: Sample rate the waveform was generated at
+            source_mean_dbfs: The mean level of the material this track was
+                taken from, when a task (slice_audio) measured one before
+                cutting it down - lets a save skip the near-silent warning
+                for a slice whose source was already this quiet (#309)
         """
         self.audio = audio
         self.sample_rate = sample_rate
+        self.source_mean_dbfs = source_mean_dbfs
 
 
 class Result:
@@ -954,7 +968,15 @@ class Result:
                     file=os.path.basename(output_path),
                     peak_dbfs=round(self._predicted_peak_dbfs, 2),
                 )
-            warn_if_written_near_silent(output_path, info=probed_info)
+            source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
+            warn_if_written_near_silent(
+                output_path,
+                info=probed_info,
+                source_already_quiet=(
+                    source_mean_dbfs is not None
+                    and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
+                ),
+            )
 
         emit_log(
             f"wrote {os.path.basename(output_path)} in "

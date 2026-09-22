@@ -1914,6 +1914,11 @@ class TestNearSilentWrite:
     def test_a_full_track_is_quiet(self):
         assert self.measured_at(-2.48) == []
 
+    def test_a_source_that_arrived_near_silent_does_not_warn(self):
+        # #309: a slice of already-quiet source material (room tone) is not
+        # a defect the slice introduced
+        assert self.measured_at(-74.8, source_already_quiet=True) == []
+
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
         from dw.result import warn_if_written_near_silent
 
