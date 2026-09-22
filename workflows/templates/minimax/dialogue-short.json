@@ -117,7 +117,7 @@
         "voice_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
         "subject_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
         "audio_bleed_ms": 1800,
-        "audio_bleed_gain_db": 0,
+        "audio_bleed_gain_db": 0.0,
         "seam_fade_ms": null,
         "match_levels": null,
         "width": 960,

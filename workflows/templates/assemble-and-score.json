@@ -22,7 +22,7 @@
         "sample_rate": 44100,
         "fps": 24,
         "audio_bleed_ms": 0,
-        "audio_bleed_gain_db": 0,
+        "audio_bleed_gain_db": 0.0,
         "seam_fade_ms": null,
         "match_levels": null,
         "match_levels_dbfs": null,

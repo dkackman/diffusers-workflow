@@ -327,6 +327,21 @@ def get_value(v, desired_type, name=None):
     if isinstance(v, PIL.Image.Image):
         return v
 
+    # A variable typed int by its default (e.g. `"score_gain": 1`) silently
+    # truncates a fractional override - int(0.3) == 0, with no error - which
+    # reads as a valid, if small, argument rather than the wrong type. Refuse
+    # it instead of truncating; the fix is to declare the default as a float
+    # (`1.0`) if the variable is meant to accept fractions
+    if desired_type is int and isinstance(v, float) and not v.is_integer():
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"{var_label} {v!r} would be realized as {int(v)}: this variable "
+            f"is typed integer by its default; declare its default as a float "
+            f"(e.g. {float(int(v))!r}) to accept fractional values"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
     # A string cannot be coerced into a dict or a None - dict('/a/b.png') is
     # nonsense, NoneType('x') a TypeError. Those defaults are how media
     # variables ({'location': ...}) and optional inputs (null) are declared,
