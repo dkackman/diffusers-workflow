@@ -175,6 +175,12 @@ def list_entries(definition, realized):
     return entries
 
 
+# `estimate`'s own `list_entries` parameter (the parent's) shadows this
+# function's name in its scope - a child's entries are computed under this
+# alias instead (#341)
+_list_entries = list_entries
+
+
 def cached_steps(definition, realized, arguments, cache_probe):
     """How many steps the step cache would answer for this run: 0 without
     asking when the workflow is unseeded (the cache is off then), None
@@ -468,7 +474,7 @@ def estimate(
     children_all_observed = True
     child_runs = []
     child_measured_on = set()
-    for path in _sub_workflow_paths(expanded):
+    for path, step_arguments in _sub_workflow_paths(expanded):
         had_child = True
         # A builtin is the parent's to price; a local child prices itself
         raw = read_sub_workflow(path, base_dir, workflow_dir)
@@ -499,7 +505,33 @@ def estimate(
         child = _observed(child_observed, device)
         if child is None:
             children_all_observed = False
-            child = _price(child_cost, device, {}, {})
+            child_list_entries = {}
+            child_measured_entries = {}
+            child_expanded = {"variables": {}}
+            if child_definition is not None:
+                child_measured_entries = _list_entries(child_definition, child_definition)
+                # The composing step's own `arguments` are what the child
+                # actually runs with - folded over its declared defaults the
+                # same way a caller's arguments are, since `expanded` has
+                # already substituted them to concrete values (#341)
+                effective_variables = dict(child_definition.get("variables") or {})
+                effective_variables.update(step_arguments)
+                child_expanded = {"variables": effective_variables}
+                child_list_entries = _list_entries(child_definition, child_expanded)
+            child = _price(
+                child_cost, device, child_list_entries, child_measured_entries
+            )
+            if child["basis"] == CATALOG and child_definition is not None and (
+                _scalar_driver_shifted(
+                    child_definition, child_expanded, child_list_entries
+                )
+            ):
+                # A scalar cost_driver the composing step overrode (H3's
+                # num_frames at 345 against a default of 124, say) is the
+                # same #267 failure one level down - the child's own
+                # catalog figure was never measured for the value this
+                # step actually passes it (#341)
+                child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
         else:
             child_runs.append(child["runs"])
             child_measured_on.add(child["measured_on"])
@@ -588,12 +620,16 @@ def _observed(observed, device):
 
 
 def _sub_workflow_paths(expanded):
-    """The local (non-builtin) sub-workflow path of every composing step."""
+    """The local (non-builtin) sub-workflow path and composing arguments of
+    every composing step, as (path, arguments) - `expanded` has already
+    substituted and expanded `for_each`, so each occurrence carries the
+    concrete arguments that step actually passes the child (#341)."""
     for step in expanded.get("steps") or []:
         reference = step.get("workflow") if isinstance(step, dict) else None
         path = reference.get("path") if isinstance(reference, dict) else None
         if isinstance(path, str) and not path.startswith(BUILTIN_PREFIX):
-            yield path
+            arguments = reference.get("arguments")
+            yield path, arguments if isinstance(arguments, dict) else {}
 
 
 def _only_composes_children(definition):
@@ -702,7 +738,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     names = []
     urls = []
     _collect_sources(expanded, names, urls)
-    for path in _sub_workflow_paths(expanded):
+    for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
         if raw is None:
             continue

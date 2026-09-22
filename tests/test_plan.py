@@ -630,6 +630,42 @@ class TestSubWorkflowEstimate:
         # the parent's own basis is what is reported
         assert answer["basis"] == "catalog"
 
+    def test_a_composed_childs_shifted_scalar_driver_is_unpriced(self, plan, tmp_path):
+        """The composing step's own `arguments` are what the child actually
+        runs with, not its declared defaults - a scalar cost_driver moved
+        away from the value the child's catalog cost was measured against
+        is the same #267 failure one level down (#341)."""
+        child = {
+            "id": "child",
+            "cost": [cost("cuda", 5)],
+            "cost_drivers": ["num_frames"],
+            "variables": {"num_frames": 124},
+            "steps": [],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = composing("child.json")
+        parent["steps"][1]["workflow"]["arguments"] = {"num_frames": 345}
+        answer = plan(parent)["estimate"]
+        assert (answer["minutes"], answer["partial"]) == (2.0, True)
+        assert answer["unpriced"] == ["child.json"]
+
+    def test_a_composed_child_at_its_default_is_still_priced(self, plan, tmp_path):
+        """The companion case: a composing step that passes the child's own
+        default for a declared scalar driver is priced normally (#341)."""
+        child = {
+            "id": "child",
+            "cost": [cost("cuda", 5)],
+            "cost_drivers": ["num_frames"],
+            "variables": {"num_frames": 124},
+            "steps": [],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = composing("child.json")
+        parent["steps"][1]["workflow"]["arguments"] = {"num_frames": 124}
+        answer = plan(parent)["estimate"]
+        assert (answer["minutes"], answer["partial"]) == (7.0, False)
+        assert answer["unpriced"] == []
+
     def test_a_childs_observed_history_rolls_up_when_the_parent_has_none(
         self, plan, tmp_path
     ):
