@@ -32,7 +32,7 @@ from .locations import location_errors
 from .reference_limits import reference_limit_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
-from .introspection import task_signature_errors
+from .introspection import task_signature_errors, component_type_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
@@ -689,6 +689,12 @@ class Workflow:
             # is the one mistake a free pre-flight most obviously exists for
             # (dw/introspection.py, #141)
             + task_signature_errors(expanded, source_indices)
+            # A step's pipeline names a component_type/scheduler_type/
+            # config_type that does not exist (or is outside the trusted
+            # ecosystem entirely) - validated clean and died 3s into the run
+            # after a checkpoint the plan had already quoted for downloading
+            # (dw/introspection.py, #345)
+            + component_type_errors(expanded, source_indices)
             # A value outside a rule the workflow declares - the bound that
             # cost 138 s of loading to discover, refused for free at the
             # path the value sits at (dw/variable_constraints.py, #96)

@@ -14,6 +14,7 @@ any module on the system.
 import re
 import inspect
 import logging
+import difflib
 from .variables import undeclared_variable_references
 
 logger = logging.getLogger("dw")
@@ -632,6 +633,125 @@ def task_signature_errors(workflow_definition, source_indices=None):
             report(missing[0], missing_task_argument_message(command, missing))
         for key in unknown:
             report(key, unknown_task_argument_message(command, key))
+    return errors
+
+
+_TYPE_REFERENCE_KEYS = ("component_type", "scheduler_type", "config_type")
+
+# A class-name-shaped string, bare or dotted - excludes a {}-escaped literal
+# and a variable:/constant:/asset:/... reference, which use ':' or braces
+# and are checked elsewhere
+_DOTTED_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _type_reference_candidates(key):
+    """Names to suggest a close match from, keyed by which field was wrong."""
+    if key == "component_type":
+        return list_pipelines() + list_classes("models")
+    if key == "scheduler_type":
+        return list_classes("schedulers")
+    return list_classes("quantization")
+
+
+def _type_reference_error(key, value, path):
+    """One component_type/scheduler_type/config_type value, checked against
+    the resolver the run itself uses for a '*_type' value
+    (type_helpers.load_type_from_name) - not load_allowed_class's narrower
+    ALLOWED_MODULES, which would refuse names the catalog already relies on
+    (e.g. 'transformers.AutoProcessor', 'dw.community_pipelines...') that
+    TRUSTED_TOP_LEVEL_PACKAGES lets the run itself load. Using the real
+    resolver is what makes #345's own invariant hold: this can never refuse
+    a name that would in fact have run.
+
+    Returns an error dict ({path, message}), or None if `value` would resolve.
+    """
+    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+        return None
+
+    from .type_helpers import load_type_from_name
+    from .security import UntrustedWorkflowError
+
+    try:
+        load_type_from_name(value)
+    except UntrustedWorkflowError as e:
+        return {"path": path, "message": str(e)}
+    except (ImportError, AttributeError, ValueError):
+        class_name = value.rsplit(".", 1)[-1]
+        suggestions = difflib.get_close_matches(
+            class_name, _type_reference_candidates(key), n=3, cutoff=0.6
+        )
+        message = f"{key} {value!r} does not exist"
+        if suggestions:
+            message += f" (closest matches: {', '.join(suggestions)})"
+        return {"path": path, "message": message}
+    return None
+
+
+def _walk_type_references(node, path, errors):
+    if isinstance(node, dict):
+        for key in _TYPE_REFERENCE_KEYS:
+            if key in node:
+                error = _type_reference_error(key, node[key], path + (key,))
+                if error is not None:
+                    errors.append(error)
+        for k, v in node.items():
+            _walk_type_references(v, path + (k,), errors)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            _walk_type_references(item, path + (i,), errors)
+
+
+def component_type_errors(workflow_definition, source_indices=None):
+    """Every component_type/scheduler_type/config_type in a step's pipeline
+    naming a class the run itself could not load, as [{path, message}] - a
+    misspelled class used to validate clean and only die ~3s into the run,
+    after the worker had already loaded a checkpoint the plan's
+    downloads_required quoted for a pipeline that could never exist (#345).
+
+    A class outside the trusted ecosystem entirely (UntrustedWorkflowError,
+    see _type_reference_error) is reported with a distinct message from one
+    that is merely spelled wrong - "not allowed" is not "does not exist".
+
+    The definition handed here has already been substituted and expanded,
+    matching task_signature_errors; source_indices maps each expanded step
+    back to the step the author wrote.
+    """
+    from .for_each import MEMBER_SEPARATOR, render_path
+
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        pipeline = step.get("pipeline")
+        if not isinstance(pipeline, dict):
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+        found = []
+        _walk_type_references(pipeline, ("pipeline",), found)
+        for error in found:
+            full_message = f"{error['message']}{where}"
+            if not full_message.endswith("."):
+                full_message += "."
+            errors.append(
+                {
+                    "path": render_path(("steps", source) + error["path"]),
+                    "message": full_message,
+                }
+            )
     return errors
 
 
