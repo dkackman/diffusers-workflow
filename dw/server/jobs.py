@@ -147,6 +147,15 @@ class JobHistory:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN host_memory_peak_rss_mb REAL"
                 )
+            # This job's own contribution to that process-lifetime figure -
+            # growth since the job's first phase-boundary reading, or its
+            # current rss when it caused no growth (#272). NULL for a row
+            # predating the column and for any run that never got a
+            # memory_info message at all
+            if "host_memory_job_peak_rss_mb" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN host_memory_job_peak_rss_mb REAL"
+                )
 
     def _connect(self):
         # WAL mode lets a reader (the web UI polling job status, an MCP
@@ -168,8 +177,9 @@ class JobHistory:
                 "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
-                " acknowledged, host_memory_peak_rss_mb) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " acknowledged, host_memory_peak_rss_mb,"
+                " host_memory_job_peak_rss_mb) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -193,6 +203,7 @@ class JobHistory:
                     # (#243) - the same "absent means unknown" the column
                     # itself allows
                     getattr(job, "host_memory_peak_rss_mb", None),
+                    getattr(job, "host_memory_job_peak_rss_mb", None),
                 ),
             )
 
@@ -287,7 +298,7 @@ class JobHistory:
                 "SELECT workflow_name, started_at, finished_at, arguments,"
                 " manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb"
+                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb"
                 " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
@@ -302,6 +313,7 @@ class JobHistory:
             had_load,
             at_cap,
             peak_rss_mb,
+            job_peak_rss_mb,
         ) in rows:
             grouped.setdefault(name, []).append(
                 {
@@ -313,6 +325,7 @@ class JobHistory:
                     "had_load": bool(had_load),
                     "events_at_cap": bool(at_cap),
                     "host_memory_peak_rss_mb": peak_rss_mb,
+                    "host_memory_job_peak_rss_mb": job_peak_rss_mb,
                 }
             )
         return grouped
@@ -470,6 +483,11 @@ class Job:
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
+        # This job's own contribution to that process-lifetime figure -
+        # growth since the job's first phase boundary, or the job's current
+        # rss when it caused no growth (#272). None for a run that never got
+        # a memory_info message at all
+        self.host_memory_job_peak_rss_mb = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -1258,13 +1276,27 @@ class JobManager:
                 text = message.get("message") or message.get("workflow_name", "")
                 job.add_event({"event": "log", "message": text})
             elif message_type == "memory_info":
+                # One per phase boundary now, not just once post-run (#273) -
+                # each folds into the cached reading memory_status() answers
+                # from while the job is busy, which is what makes that call
+                # fresh instead of a refusal for the run's whole duration
                 self._record_memory(message.get("info"))
                 job.add_event({"event": "memory", "info": self.last_memory})
-                # The worker's post-run reading, so it survives as a real
+                # The worker's own high-water mark, latest reading wins (it
+                # is monotonic for the process' life) - persisted as a real
                 # column rather than only inside the trimmed event tail (#243)
-                peak = (message.get("info") or {}).get("host_memory_peak_rss_mb")
+                info = message.get("info") or {}
+                peak = info.get("host_memory_peak_rss_mb")
                 if peak is not None:
                     job.host_memory_peak_rss_mb = peak
+                # This job's own contribution to that process-lifetime peak,
+                # computed against its own baseline (#272) - max() is
+                # defensive; by construction each reading only grows
+                job_peak = info.get("host_memory_job_peak_rss_mb")
+                if job_peak is not None:
+                    job.host_memory_job_peak_rss_mb = max(
+                        job_peak, job.host_memory_job_peak_rss_mb or 0
+                    )
             elif message_type == "success":
                 self._record_manifest(job, message)
                 return (SUCCEEDED, None, None)

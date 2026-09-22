@@ -7,8 +7,8 @@ never covered - a `for_each` that keeps its pipeline resident across a
 SIGKILL on host RAM with the accelerator nowhere near full (#243).
 
 Scope is v1, by the repo owner's own sign-off on the issue: observed, not
-curated (no author-declared memory figure - `host_memory_peak_rss_mb` is a
-worker-reported field, not a schema key); warn, not refuse (host RAM headroom
+curated (no author-declared memory figure - `host_memory_job_peak_rss_mb` is
+a worker-reported field, not a schema key); warn, not refuse (host RAM headroom
 is a property of *this machine*, not something a caller chose, so it never
 blocks a run); no cross-machine normalization; and a cold start - no history
 for this workflow at all - means no check, the same rule `observed_cost.py`
@@ -114,7 +114,7 @@ def _already_survived(rows, list_entries, requested, projected_mb, variables):
     minutes ago.
     """
     for row in rows:
-        peak = row.get("host_memory_peak_rss_mb")
+        peak = row.get("host_memory_job_peak_rss_mb")
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
         count = _row_count(row, list_entries, variables)
@@ -129,16 +129,18 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
 
     `rows` are this workflow's finished runs as `JobHistory.finished_runs()`
     groups them - the same history `observed_cost.py` reads, extended with
-    `host_memory_peak_rss_mb` per row (#243). `ceiling_mb` is this box's own
-    RAM, scaled by `CEILING_FRACTION`; the caller reads that once per request
-    rather than this module importing `host_memory` for a per-validate
-    syscall.
+    `host_memory_job_peak_rss_mb` per row (#243, repointed from the
+    process-lifetime `host_memory_peak_rss_mb` by #272 - a small job run
+    right after a heavy one no longer inherits the heavy job's peak).
+    `ceiling_mb` is this box's own RAM, scaled by `CEILING_FRACTION`; the
+    caller reads that once per request rather than this module importing
+    `host_memory` for a per-validate syscall.
     """
     requested = _requested_count(list_entries)
     if requested is None or not rows or not ceiling_mb:
         return []
     variables = definition.get("variables") or {}
-    peaks = [row["host_memory_peak_rss_mb"] for row in rows]
+    peaks = [row["host_memory_job_peak_rss_mb"] for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]
     if not peaks:
         # Cold start: history exists for this workflow, but no run of it
@@ -150,7 +152,7 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     else:
         per_entry = []
         for row in rows:
-            peak = row["host_memory_peak_rss_mb"]
+            peak = row["host_memory_job_peak_rss_mb"]
             count = _row_count(row, list_entries, variables)
             if isinstance(peak, (int, float)) and count:
                 per_entry.append(peak / count)

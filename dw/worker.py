@@ -35,6 +35,28 @@ def _mb(value):
     return f"{value:.0f} MB" if value is not None else "unknown"
 
 
+def _job_scoped_peak_rss_mb(info, baseline_peak_mb):
+    """This job's own contribution to the process-lifetime peak (#272).
+
+    `host_memory_peak_rss_mb` is `ru_maxrss` - process-lifetime, never reset -
+    so in the persistent worker a small job run right after a heavy one
+    inherits the heavy job's high-water mark as its own. `baseline_peak_mb`
+    is that same process-lifetime figure read at this job's first phase
+    boundary; because ru_maxrss is monotonic non-decreasing, growth since
+    then is unambiguously this job's doing. A job that caused no growth at
+    all (it rode an earlier, larger peak) has no meaningful "job peak" to
+    report as a delta, so this floors at the job's current rss instead of
+    reporting a number that undersells what is resident right now.
+    """
+    peak = info.get("host_memory_peak_rss_mb")
+    if peak is None or baseline_peak_mb is None:
+        return None
+    growth = peak - baseline_peak_mb
+    if growth > 0:
+        return growth
+    return info.get("host_memory_rss_mb")
+
+
 logger = logging.getLogger("dw.worker")
 
 # Memory management constants
@@ -235,13 +257,33 @@ class WorkflowWorker:
                 }
             )
 
-            # Progress events stream to the client as they happen; the watcher
-            # thread keeps the command queue live so cancel works mid-run
-            context = RunContext(
-                on_event=lambda event: self.result_queue.put(
-                    {"type": "progress", **event}
-                )
-            )
+            # Progress events stream to the client as they happen; the
+            # watcher thread keeps the command queue live so cancel works
+            # mid-run. Each phase boundary also gets its own memory_info
+            # message (#273), so get_memory answers freshly mid-run instead
+            # of refusing with job_running for the run's whole duration; the
+            # first such reading is this job's baseline for the job-scoped
+            # peak field carried on every memory_info from here on (#272)
+            job_baseline = {"peak_rss_mb": None}
+
+            def _on_event(event):
+                self.result_queue.put({"type": "progress", **event})
+                if event.get("event") == "phase":
+                    memory_info = self._get_memory_info()
+                    if job_baseline["peak_rss_mb"] is None:
+                        job_baseline["peak_rss_mb"] = memory_info.get(
+                            "host_memory_peak_rss_mb"
+                        )
+                    memory_info["host_memory_job_peak_rss_mb"] = (
+                        _job_scoped_peak_rss_mb(
+                            memory_info, job_baseline["peak_rss_mb"]
+                        )
+                    )
+                    self.result_queue.put(
+                        {"type": "memory_info", "info": memory_info}
+                    )
+
+            context = RunContext(on_event=_on_event)
             watcher = self._watch_commands(context)
             # Which workspace's assets this job's 'asset:' references resolve
             # against. A server holds several workspaces and each has its own
@@ -272,8 +314,15 @@ class WorkflowWorker:
             # Aggressive memory cleanup after execution
             self._cleanup_between_runs()
 
-            # Report memory status
+            # Report memory status - the job's final reading, carrying the
+            # same job-scoped delta the phase-boundary readings above do
+            # (#272). A run with no phase events at all (job_baseline never
+            # set) reports host_memory_job_peak_rss_mb as null rather than
+            # guessing a baseline after the fact.
             memory_info = self._get_memory_info()
+            memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
+                memory_info, job_baseline["peak_rss_mb"]
+            )
             self.result_queue.put({"type": "memory_info", "info": memory_info})
 
             self.result_queue.put(

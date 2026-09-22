@@ -16,7 +16,7 @@ MB = 1.0
 def row(peak_mb, arguments=None):
     return {
         "arguments": json.dumps(arguments or {}),
-        "host_memory_peak_rss_mb": peak_mb,
+        "host_memory_job_peak_rss_mb": peak_mb,
     }
 
 
@@ -54,7 +54,7 @@ class TestProjection:
         rows = [
             {
                 "arguments": json.dumps({"shots": [1, 2, 3]}),
-                "host_memory_peak_rss_mb": None,
+                "host_memory_job_peak_rss_mb": None,
             }
         ]
         warnings = host_memory_warnings(definition, {"shots": 12}, rows, 10_000 * MB)
