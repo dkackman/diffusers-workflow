@@ -20,8 +20,7 @@
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",
-                    "torch_dtype": "torch.bfloat16",
-                    "low_cpu_mem_usage": false
+                    "torch_dtype": "torch.bfloat16"
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
