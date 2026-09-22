@@ -1,0 +1,27 @@
+# systemd user unit for dw.serve. Install on the server box (lem):
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp ~/diffusers-workflow/scripts/dw-serve.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now dw-serve
+#   loginctl enable-linger $USER      # keep it running when no one is logged in
+#
+# Then scripts/deploy.sh restarts it with systemctl instead of screen, and
+# `journalctl --user -u dw-serve -n 200` is where the log is. Adjust the
+# paths and token below if the box differs from lem's layout.
+[Unit]
+Description=diffusers-workflow server (dw.serve, MCP on)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/diffusers-workflow
+Environment=VIRTUAL_ENV=%h/diffusers-workflow/venv
+Environment=PATH=%h/diffusers-workflow/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/diffusers-workflow/venv/bin/python -m dw.serve --host 0.0.0.0 --port 8765 --mcp --token xyz --workspace %h/diffusers-workspace --examples-dir %h/diffusers-workflow/workflows
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
