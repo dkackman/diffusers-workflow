@@ -31,6 +31,13 @@ DECLICK_MS = 3.0
 # frame-aligned slicing produces, not a slice that overran its source
 SLICE_PAD_WARN_MS = 10.0
 
+# A dropped tail is only the "almost reached the end" signature this warning
+# exists for when it is both short next to the slice and short in absolute
+# terms - a deliberate excerpt out of a long recording drops most of the
+# source and should not warn
+SLICE_TRIM_WARN_SECONDS = 10.0
+SLICE_TRIM_WARN_FRACTION = 0.05
+
 
 def as_channels_samples(audio):
     """Normalize a waveform to a (channels, samples) float32 numpy array.
@@ -500,6 +507,7 @@ def slice_audio(
         )
 
     _warn_on_slice_past_end(total, start, length, sample_rate)
+    _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
     # #309: a cut out of a source that was already near-silent (room tone,
     # a deliberate quiet bed) is not a defect the slice introduced - measure
     # the source before cutting it down, so save can tell the two apart from
@@ -673,6 +681,50 @@ def _warn_on_slice_past_end(total, start, length, sample_rate):
         source_seconds=round(total / float(sample_rate), 3),
         requested_seconds=round(length / float(sample_rate), 3),
         padded_seconds=round(padded_seconds, 3),
+        sample_rate=sample_rate,
+    )
+
+
+def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
+    """Say when a slice left material behind that the caller likely wanted.
+
+    slice_audio is a slice, so most unused remainders are deliberate excerpts
+    and warning on every one would be noise. What #342 found is a narrower
+    signature: a cut landing a few seconds short of a source's natural end
+    (a frame-lattice total that cannot land exactly on the score's length)
+    silently drops the source's tail, including whatever is loudest there.
+    Only fires when the dropped remainder is both short in absolute terms
+    and small next to the slice itself, and only when that remainder is not
+    already silence - a track that legitimately ends in a fade should not
+    warn just because its last seconds are quiet.
+    """
+    if not sample_rate or length <= 0:
+        return
+    slice_end = start + length
+    remainder = total - slice_end
+    if remainder <= 0:
+        return
+    remainder_seconds = remainder / float(sample_rate)
+    if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
+        return
+    if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:
+        return
+    dropped = waveform[:, slice_end:total]
+    peak_dbfs = level_dbfs(dropped, "peak")
+    if peak_dbfs is None:
+        # No level at all is silence - nothing was lost
+        return
+    emit_warning(
+        f"slice_audio: the slice ends {remainder_seconds:.2f} s before the "
+        f"{total / float(sample_rate):.2f} s source does, dropping its tail "
+        f"(peak {peak_dbfs:.1f} dBFS in the dropped {remainder_seconds:.2f} s) "
+        f"- if the slice was meant to reach the source's end, adjust "
+        f"start/length to land there, or fade the source's own tail first",
+        kind="slice_trimmed_tail",
+        command="slice_audio",
+        source_seconds=round(total / float(sample_rate), 3),
+        dropped_seconds=round(remainder_seconds, 3),
+        dropped_peak_dbfs=round(peak_dbfs, 1),
         sample_rate=sample_rate,
     )
 

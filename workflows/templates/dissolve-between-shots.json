@@ -1,6 +1,6 @@
 {
     "id": "dissolve-between-shots",
-    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. As in assemble-and-score the shots are a list and go in untouched - a shot that drifts wants stabilize_video run on it first, as its own step, not on every shot by default. The audio bed is mixed the same way as in assemble-and-score. Shots generated independently drift in loudness and no overlap can hide a level jump, because it is either side of the seam rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. 'total_frames' is the length of the joined cut, which a dissolve shortens: every seam eats one 'dissolve_frames' overlap, so n shots of f frames joined with d-frame dissolves run n*f - (n-1)*d frames, not n*f. 'score' is a separate asset with its own length: it is sliced to 'total_frames' from 'score_start_frame', and a score that does not reach that far is padded to it with digital silence, which leaves the rest of the film unscored under the shots' own sound (the run says so as a 'slice_past_end' warning, but the film itself sounds plausible). A score must therefore be at least as long as the cut; to stretch a short bed to reach, make a longer one with the 'loop_audio' task first ('target_frames' and 'fps') and pass that as 'score'.",
+    "description": "assemble-and-score.json with the cuts softened into cross-dissolves. dissolve_videos overlaps each pair by 'dissolve_frames' rather than butting them together, which suits shots that share a composition - registered on the same centre at the same size, an overlap reads as one thing becoming another rather than as a fade between two pictures. Shots whose framing disagrees will read as a plain cross-fade, so use hard cuts there. As in assemble-and-score the shots are a list and go in untouched - a shot that drifts wants stabilize_video run on it first, as its own step, not on every shot by default. The audio bed is mixed the same way as in assemble-and-score. Shots generated independently drift in loudness and no overlap can hide a level jump, because it is either side of the seam rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. 'total_frames' is the length of the joined cut, which a dissolve shortens: every seam eats one 'dissolve_frames' overlap, so n shots of f frames joined with d-frame dissolves run n*f - (n-1)*d frames, not n*f. 'score' is a separate asset with its own length: it is sliced to 'total_frames' from 'score_start_frame', and a score that does not reach that far is padded to it with digital silence, which leaves the rest of the film unscored under the shots' own sound (the run says so as a 'slice_past_end' warning, but the film itself sounds plausible). A score must therefore be at least as long as the cut; to stretch a short bed to reach, make a longer one with the 'loop_audio' task first ('target_frames' and 'fps') and pass that as 'score'. The world track runs at a constant level through the score's own ending, so a score that decays into silence can sit 20+ dB under it there and be inaudible even though the mix's peak looks healthy; 'world_fade_out_ms', 0 by default, fades the world track out over its last N ms so the score's written ending is what is heard.",
     "cost": [
         {
             "device": "cuda",
@@ -27,7 +27,8 @@
         "score_start_frame": 0,
         "total_frames": 360,
         "score_gain": 1.0,
-        "world_gain": 1.8
+        "world_gain": 1.8,
+        "world_fade_out_ms": 0
     },
     "steps": [
         {
@@ -51,6 +52,17 @@
                 "arguments": {
                     "audio": "previous_result:edit",
                     "target_sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "world_faded",
+            "task": {
+                "command": "fade_audio",
+                "arguments": {
+                    "audio": "previous_result:world",
+                    "fade_out_ms": "variable:world_fade_out_ms",
+                    "sample_rate": "variable:sample_rate"
                 }
             }
         },
@@ -83,7 +95,7 @@
                 "arguments": {
                     "audios": [
                         "previous_result:soundtrack_resampled",
-                        "previous_result:world"
+                        "previous_result:world_faded"
                     ],
                     "gains": [
                         "variable:score_gain",
