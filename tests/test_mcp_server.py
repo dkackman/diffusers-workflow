@@ -240,6 +240,26 @@ async def test_run_workflow_takes_an_acknowledged_cost_flag():
 
 
 @pytest.mark.asyncio
+async def test_run_workflow_and_delete_output_take_the_turn_saving_parameters():
+    """Almost every run is followed by a wait, and most deletes are of the
+    run a job just wrote; each is a whole tool turn for an unattended agent.
+    `wait_seconds` folds the first wait into the run, `job_id` deletes the
+    run without a gallery listing to find its name, and neither is required
+    - a caller from before either existed sees the same defaults."""
+    tools = await tools_of(server_over(ok({})))
+
+    run = tools["run_workflow"].input_schema
+    assert run["properties"]["wait_seconds"]["default"] == 0
+    assert "wait_seconds" not in run.get("required", [])
+    assert "wait_for_job" in tools["run_workflow"].description
+
+    delete = tools["delete_output"].input_schema
+    assert "job_id" in delete["properties"]
+    assert "name" not in delete.get("required", [])
+    assert "job_id" in tools["delete_output"].description
+
+
+@pytest.mark.asyncio
 async def test_run_workflow_advertises_its_cost():
     """The description is what an agent reads before spending GPU minutes."""
     tools = await tools_of(server_over(ok({})))
@@ -1389,6 +1409,16 @@ def test_the_stated_tool_count_is_the_registered_one():
 # sentence to the terse "pins this call" form, and the envelope and asset
 # paragraphs said in fewer words with every fact kept. Measured 2026-09-21
 # at 13_760.5 (9_075.0 / 3_671.5 / 1_014.0). 39.5 tokens of headroom left.
+# run_workflow's `wait_seconds` and delete_output's `job_id` (two schema
+# parameters, ~50 tokens, plus the sentences that explain them) first
+# measured at 14_097. Paid for inside the three docstrings they touch:
+# run_workflow's wait paragraph said once and tersely, its spelling /
+# arguments / workspace sentences shortened with every fact kept,
+# wait_for_job's cap paragraph and stall sentence said in fewer words
+# (the pinned phrases stay), delete_output's "leaves the workspace as you
+# found it" clause dropped. Measured 2026-09-21 at 13_796.75 (9_061.5 /
+# 3_721.25 / 1_014.0). 3.25 tokens of headroom left; measure again before
+# the next docstring change.
 SURFACE_BUDGET = 13_800
 
 

@@ -75,6 +75,7 @@ def run_workflow(
     arguments=None,
     acknowledged_cost=False,
     workspace=None,
+    wait_seconds=0,
 ):
     """Queue a workflow. `workflow_path` (or `name` - the same thing
     `validate_workflow` calls it) is either a catalog name from
@@ -84,6 +85,17 @@ def run_workflow(
     `validate_workflow` can be handed straight to this call under either
     spelling. Returns as soon as it is queued - it does not wait for the job
     to finish. Poll `get_job_events` for progress.
+
+    `wait_seconds` folds the first `wait_for_job` into this call: when it
+    is above 0 the queued job is waited on exactly as
+    `wait_for_job(job_id, timeout_seconds=wait_seconds)` would - same clamp
+    to MAX_WAIT_SECONDS, same `waited_seconds` / `timeout_*` /
+    `still_running` fields - and the answer carries the queued-job fields
+    plus that wait's slim job. Almost every run is followed by a wait, and
+    an unattended agent pays a whole tool turn for it; where the cap covers
+    the job's runtime this one call is the run and the wait. The gate is
+    untouched: queuing is refused before anything is waited on, and a
+    refused queue (409 on a stale plan) returns nothing extra.
 
     `acknowledged_cost` is true or, better, the plan it was quoted from:
     {fingerprint, minutes, downloads} from `validate_workflow` - see
@@ -120,13 +132,21 @@ def run_workflow(
     # output: references in the wrong root fails after it was queued
     params = {"workspace": workspace} if workspace else None
     job = client.post_json("/api/jobs", payload, params=params)
-    return {
+    queued = {
         "job_id": job.get("id"),
         "status": job.get("status"),
         "queue_position": job.get("queue_position"),
         "next": "Poll get_job_events(job_id) for progress, then get_job(job_id) "
         "for the manifest or the error.",
     }
+    if not wait_seconds or float(wait_seconds) <= 0 or queued["job_id"] is None:
+        return queued
+    # The same loop wait_for_job runs, not a second one: its clamp, its
+    # budget fields and its `next` are what a caller already paces against.
+    # The wait's status and next overwrite the queued ones, since the job
+    # has moved on from "queued" by the time either is read
+    waited = wait_for_job(client, queued["job_id"], timeout_seconds=wait_seconds)
+    return {**queued, **waited}
 
 
 def get_job(client, job_id):

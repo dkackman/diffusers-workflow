@@ -71,6 +71,12 @@ forwarded verbatim, which the server refuses with 409 when the run's shape
 changed since (`_acknowledgement_body` in `diagnose.py`; the 409 is rendered
 with the new estimate by `DwClient._format_detail`). The three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
-timeout. Authoring has two halves: `get_schema` describes a workflow and
+timeout; `run_workflow(wait_seconds=N)` then folds the first `wait_for_job`
+into the same call (same `MAX_WAIT_SECONDS` clamp, same budget fields), because
+measured over ~1,400 agent-driven cases almost every run was followed by a
+wait turn of its own. `delete_output(job_id=...)` is the same economy for
+cleanup: the job record's `run_dir` is the `<workflow>/<run id>` the
+run-directory delete already accepts, so a whole run goes in one call without
+a gallery listing to find its name. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by
 `"prompt:name"`. See docs/MCP.md.
