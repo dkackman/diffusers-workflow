@@ -1172,6 +1172,7 @@ class Workflow:
                 run_context.emit(
                     "run_start",
                     run_id=run_id,
+                    version=self._run_version,
                     identity=workflow_identity(self.file_spec, workflow_id),
                     run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(
                         os.sep, "/"

@@ -441,7 +441,8 @@ The editor's forms come from these; they are just as usable from scripts:
   gallery entry carries `folder` (the workflow identity, the run id dropped)
   and `subfolder` (what followed the run id - the `final`/`intermediate` a
   step's `result.subfolder` chose, `''` when it chose none); `?folder=` and
-  `?subfolder=` filter independently, and the reply's `folders` and
+  `?subfolder=` filter independently (`?version=` too - with `?folder=`,
+  the one run the gallery labels `v4`), and the reply's `folders` and
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file

@@ -89,6 +89,9 @@ def test_progress_event_sequence():
 
     names = [event["event"] for event in events]
     assert names[0] == "run_start"
+    # the run's ordinal, so a job can name its run the way the gallery will
+    # (the output root here is shared, so only its shape is fixed)
+    assert isinstance(events[0]["version"], int) and events[0]["version"] >= 1
     assert names[1] == "workflow_start"
     assert names[-1] == "workflow_end"
     assert "step_start" in names and "step_end" in names

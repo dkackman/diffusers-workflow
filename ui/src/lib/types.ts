@@ -13,6 +13,12 @@ export interface JobSummary {
    * and any caller that sent nothing), a bare boolean, or one bound to the
    * plan a validate answered with. Absent on rows from older servers. */
   acknowledged?: 'none' | 'boolean' | 'bound'
+  /** The run this job opened - null until it opens one, and for a job
+   * recorded before runs were tracked. */
+  run_id?: string | null
+  /** That run's ordinal among the workflow's runs - the `v4` the gallery
+   * shows for its files. Null until the run opens, and for older rows. */
+  run_version?: number | null
 }
 
 export interface ManifestEntry {

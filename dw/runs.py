@@ -57,6 +57,17 @@ OUTPUT_PREFIX = "output:"
 # newest run directory
 LATEST = "latest"
 
+# 'v4' in the run-id position of an 'output:' reference: the run whose
+# ordinal is 4 - the number the gallery shows and an agent quotes
+_VERSION_SELECTOR = re.compile(r"^v([1-9][0-9]*)$")
+
+
+def version_selector(segment):
+    """The ordinal a 'v<N>' segment names, or None for any other segment."""
+    match = _VERSION_SELECTOR.match(segment)
+    return int(match.group(1)) if match else None
+
+
 # What a run id looks like: a UTC timestamp and a short digest of the spec.
 # The pattern is not only documentation - the gallery reads it to group a
 # workflow's runs under one folder rather than listing every run separately
@@ -126,8 +137,8 @@ def _runs_newest_first(directory):
 
 
 def _resolve_segments(directory, parts, reference, root):
-    """Build the path a name stands for, expanding 'latest' where it names
-    a run.
+    """Build the path a name stands for, expanding 'latest' or 'v<N>' where
+    it names a run.
 
     'latest' means the newest run *that has the file*, not the newest run
     directory: a run that failed part way, or one whose every step was a
@@ -136,9 +147,14 @@ def _resolve_segments(directory, parts, reference, root):
     stage before it plainly produced something. So the runs are tried
     newest first and the first one holding the rest of the name wins.
 
+    'v<N>' means the run whose recorded ordinal is N - the 'v4' the gallery
+    shows - so the number quoted to a person is also a name a workflow can
+    take. Unlike 'latest' it picks exactly one run: a v4 that did not write
+    the file is an error, not a reason to try v3.
+
     Only a segment standing where run directories are is a run selector. A
-    'latest' segment in a directory that holds no runs is a name like any
-    other, so a workflow or a file called 'latest' stays reachable.
+    'latest' or 'v4' segment in a directory that holds no runs is a name
+    like any other, so a workflow or a file called either stays reachable.
 
     Returns the path, or None when runs were found and none of them holds
     the file.
@@ -162,6 +178,27 @@ def _resolve_segments(directory, parts, reference, root):
                 f"'{reference}' names the newest run of a workflow that "
                 f"has not produced one"
             )
+    wanted = version_selector(part)
+    if wanted is not None and _runs_newest_first(directory):
+        versions = run_versions(directory)
+        matching = [run for run, version in versions.items() if version == wanted]
+        if not matching:
+            held = ", ".join(f"v{v}" for v in sorted(set(versions.values())))
+            raise ValueError(
+                f"No run v{wanted} under {os.path.relpath(directory, root)} - "
+                f"'{reference}' names a run by its version, and the runs "
+                f"there are {held}"
+            )
+        # Normally one; two only where history predating versions could
+        # not be ranked beneath the first recorded number. Newest first,
+        # as 'latest' would try them
+        for run in sorted(matching, key=run_id_sort_key, reverse=True):
+            candidate = _resolve_segments(
+                os.path.join(directory, run), rest, reference, root
+            )
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return None
     return _resolve_segments(os.path.join(directory, part), rest, reference, root)
 
 
@@ -170,7 +207,8 @@ def resolve_output_reference(reference, root=None):
 
     The name is a path under the output directory - '<workflow>/<run
     id>/<file>' - and the run id may be written as 'latest', which resolves
-    to the newest run of that workflow that holds the file. That is what
+    to the newest run of that workflow that holds the file, or as 'v<N>',
+    the run whose version is N. 'latest' is what
     lets a second-stage workflow name the first stage's product without
     being edited after every run, and without breaking when the newest run
     failed or reused cached files and so wrote none of its own.

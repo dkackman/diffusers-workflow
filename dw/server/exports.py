@@ -77,6 +77,7 @@ JOB_RECORD_KEYS = (
     "error",
     "run_id",
     "run_dir",
+    "run_version",
 )
 
 README_TEMPLATE = """# {workflow_name} - job {job_id}
@@ -90,6 +91,7 @@ README_TEMPLATE = """# {workflow_name} - job {job_id}
 | Job | `{job_id}` |
 | Workflow | `{workflow_name}` |
 | Catalog entry | {catalog_name} |
+| Run | {run} |
 | Status | {status} |
 | Started | {started_at} |
 | Finished | {finished_at} |
@@ -393,6 +395,16 @@ def _readme(job_id, detail, manifest, workflow, summary, realized):
             else "`workflow.json` is the definition as submitted - this job "
             "predates run tracking, so its arguments and prompts are not "
             "pinned into it."
+        ),
+        run=(
+            f"`{detail['run_id']}`"
+            + (
+                f" - version {manifest['version']}"
+                if isinstance(manifest.get("version"), int)
+                else ""
+            )
+            if detail.get("run_id")
+            else "not recorded"
         ),
         status=detail.get("status"),
         started_at=detail.get("started_at"),

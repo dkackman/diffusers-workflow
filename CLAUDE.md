@@ -153,7 +153,9 @@ references) are documented above in *Workflow sources* and *Type System*.
   `"output:ltx2/Gyre/latest/still.png"`. The name is `<workflow identity>/<run id>/<file>`
   under the output root, and `latest` in the run-id position picks the newest run that
   holds the file (run ids sort by their UTC timestamp; a failed or fully-cached run holds
-  only a manifest and is skipped). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
+  only a manifest and is skipped), and `v<N>` there picks the run whose version is N
+  (below) - exactly that run, with no fallback to an older one. Either is a selector only
+  where run directories are, and the realized workflow pins both to the run id. Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
   against the output root `Workflow.run` activates, and confined to it
 - A generated file becomes a stable input with `POST /api/assets/keep` (gallery "Keep as
   asset", MCP `keep_output`): it is hard-linked, else copied, from the workspace's outputs
@@ -395,9 +397,14 @@ same reason - default setup cannot load a pack.
   not only a deletion: a failed run or a fully cached rerun takes a number
   and may have no media for the gallery to show under it. `GET
   /api/gallery` and the metadata route carry `version` and `run_id`
-  (`run_versions` read once per identity per listing, not per file), MCP
-  `list_gallery` teaches the vocabulary, and the web UI reads the field only -
-  a `v4` chip on the card, the run id in the detail pane. Nothing on disk is
+  (`run_versions` read once per identity per listing, not per file), and
+  `?folder=&version=` lists one run's files. The number is also a name:
+  `output:<identity>/v4/<file>`. The `run_start` event carries it, the job
+  records it (`run_version`, a `jobs.sqlite` column) and the export README and
+  zip download name (`<identity>-v4-<job id>.zip`) carry it too. MCP
+  `list_gallery` teaches the vocabulary and takes `folder`/`version`, and the
+  web UI reads the field only - a `v4` chip on the gallery card, the jobs list
+  and the job page, the run id in the gallery's detail pane. Nothing on disk is
   renamed, so `output:` references, the step cache and `keep_output` are
   untouched. Two limits taken deliberately: deleting the *newest* run frees
   its number for reuse (the high-water mark lived in the manifest that went

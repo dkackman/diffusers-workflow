@@ -215,6 +215,13 @@
     events.find((e) => e.event === 'workflow_start')?.seed as
       number | undefined,
   )
+  // The record's number once the job has one; while it runs, the run_start
+  // event says it first - so the page names the run the moment it opens
+  const runVersion = $derived(
+    job?.run_version ??
+      (events.find((e) => e.event === 'run_start')?.version as
+        number | undefined),
+  )
   const etaSeconds = $derived.by(() => {
     if (!denoise?.total_steps || stepTimes.length < 3) return null
     const window = stepTimes.slice(-6)
@@ -343,6 +350,15 @@
         class="muted seed"
         title="the seed this run used - embedded in saved images alongside the recipe"
         >seed {seed}</code
+      >
+    {/if}
+    {#if runVersion}
+      <!-- The gallery labels this run's files the same way, so "version 4"
+           said here finds them there -->
+      <code
+        class="muted seed"
+        title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
+        >v{runVersion}</code
       >
     {/if}
     {#if job.acknowledged === 'bound'}

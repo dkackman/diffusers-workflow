@@ -905,6 +905,47 @@ class TestRunVersions:
             "20260903-120000-aaaaaaaa": 3,
         }
 
+    def test_an_output_reference_can_name_a_run_by_its_version(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        first = self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        self._run(str(identity), "20260903-120000-cccccccc", version=3)
+        with open(os.path.join(first, "still.png"), "wb") as file:
+            file.write(b"png")
+
+        resolved = resolve_output_reference(
+            "output:ltx2/Gyre/v1/still.png", str(tmp_path)
+        )
+        assert resolved == os.path.realpath(os.path.join(first, "still.png"))
+
+    def test_a_version_that_did_not_write_the_file_does_not_fall_back(self, tmp_path):
+        # Unlike 'latest', 'v3' picks one run: v3 lacking the file is an
+        # error, not a reason to hand back v1's
+        identity = tmp_path / "ltx2" / "Gyre"
+        first = self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        self._run(str(identity), "20260903-120000-cccccccc", version=3)
+        with open(os.path.join(first, "still.png"), "wb") as file:
+            file.write(b"png")
+
+        with pytest.raises(ValueError, match="not found"):
+            resolve_output_reference("output:ltx2/Gyre/v3/still.png", str(tmp_path))
+
+    def test_a_missing_version_names_the_ones_there_are(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        self._run(str(identity), "20260903-120000-cccccccc", version=3)
+
+        with pytest.raises(ValueError, match="No run v2 .* v1, v3"):
+            resolve_output_reference("output:ltx2/Gyre/v2/still.png", str(tmp_path))
+
+    def test_a_v_segment_where_no_runs_are_is_an_ordinary_name(self, tmp_path):
+        # A workflow folder called 'v2' stays reachable, as 'latest' does
+        target = tmp_path / "flat" / "v2"
+        target.mkdir(parents=True)
+        (target / "still.png").write_bytes(b"png")
+
+        resolved = resolve_output_reference("output:flat/v2/still.png", str(tmp_path))
+        assert resolved == os.path.realpath(str(target / "still.png"))
+
     def test_pinning_leaves_a_run_with_no_manifest_alone(self, tmp_path):
         # Writing one would invent a record of a run nobody recorded
         identity = tmp_path / "ltx2" / "Gyre"

@@ -134,6 +134,11 @@ class JobHistory:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
             if "run_dir" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
+            # That run's ordinal among the workflow's runs - the 'v4' the
+            # gallery shows. NULL before the column, and for a job that
+            # never opened a run
+            if "run_version" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN run_version INTEGER")
             # Which form of cost acknowledgement queued the job. Rows before
             # the column are 'none' - nothing recorded is nothing recorded
             if "acknowledged" not in columns:
@@ -178,8 +183,8 @@ class JobHistory:
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " host_memory_job_peak_rss_mb, run_version) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -204,6 +209,7 @@ class JobHistory:
                     # itself allows
                     getattr(job, "host_memory_peak_rss_mb", None),
                     getattr(job, "host_memory_job_peak_rss_mb", None),
+                    getattr(job, "run_version", None),
                 ),
             )
 
@@ -219,7 +225,8 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name, run_id, acknowledged FROM jobs"
+            " workspace, workflow_name, run_id, acknowledged, run_version"
+            " FROM jobs"
         )
         params = []
         clauses = []
@@ -249,6 +256,7 @@ class JobHistory:
                 "workflow_name": row[7],
                 "run_id": row[8],
                 "acknowledged": row[9] or ACK_NONE,
+                "run_version": row[10],
                 "historical": True,
             }
             for row in rows
@@ -259,8 +267,8 @@ class JobHistory:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir, acknowledged, events FROM jobs"
-                " WHERE id = ?",
+                " workflow_name, run_id, run_dir, acknowledged, events,"
+                " run_version FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -479,6 +487,7 @@ class JobHistory:
             "workflow_name": row[12],
             "run_id": row[13],
             "run_dir": row[14],
+            "run_version": row[17],
             "acknowledged": row[15] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
@@ -510,6 +519,7 @@ class Job:
         # never got that far
         self.run_id = None
         self.run_dir = None
+        self.run_version = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
         # The worker's own high-water mark for this run, from its final
@@ -685,6 +695,9 @@ class Job:
             # so it defaults the same way history's column does
             "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
             "run_id": self.run_id,
+            # The run's ordinal - 'v4' - so the job that just ran can be
+            # named the way the gallery will name it
+            "run_version": self.run_version,
             "acknowledged": self.acknowledged,
         }
 
@@ -1303,6 +1316,7 @@ class JobManager:
                 if event.get("event") == "run_start":
                     job.run_id = event.get("run_id")
                     job.run_dir = event.get("run_dir")
+                    job.run_version = event.get("version")
                 job.add_event(event)
             elif message_type in ("output", "workflow_loaded"):
                 text = message.get("message") or message.get("workflow_name", "")

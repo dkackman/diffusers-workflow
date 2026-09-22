@@ -56,8 +56,10 @@ def exporting_script(command):
         json.dump(
             {
                 "run_id": RUN_ID,
+                "version": 4,
                 "status": "completed",
                 "seed": 7,
+                "workflow": {"identity": "server_test"},
                 "steps": [{"step": "gen", "files": ["still.png"]}],
             },
             file,
@@ -66,6 +68,7 @@ def exporting_script(command):
         "type": "progress",
         "event": "run_start",
         "run_id": RUN_ID,
+        "version": 4,
         "identity": "server_test",
         "run_dir": RUN_DIR,
     }
@@ -282,6 +285,8 @@ class TestExportDirectory:
         assert job_id in readme
         assert "python -m dw.run workflow.json" in readme
         assert "Git LFS" in readme
+        # which run, in the form the gallery labels it
+        assert f"`{RUN_ID}` - version 4" in readme
 
     def test_the_job_s_own_asset_dir_is_used_not_the_export_s_workspace(
         self, server, workspace_root
@@ -376,6 +381,10 @@ class TestExportZip:
             response = client.get(f"/exports/{job_id}.zip")
 
         assert response.status_code == 200
+        # the saved file says which run it is; the URL and the entries
+        # inside keep the job id
+        disposition = response.headers["content-disposition"]
+        assert f"server_test-v4-{job_id}.zip" in disposition
         archive = zipfile.ZipFile(io.BytesIO(response.content))
         assert sorted(archive.namelist()) == sorted(
             f"{job_id}/{entry['path']}" for entry in body["files"]

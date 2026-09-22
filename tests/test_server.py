@@ -2043,6 +2043,18 @@ def test_gallery_reports_each_run_version(server, tmp_path):
         assert by_name["ltx/flat.png"]["version"] is None
         assert by_name["ltx/flat.png"]["run_id"] == ""
 
+        # "show me v3": folder and version together list exactly that run
+        names = [
+            f["name"]
+            for f in client.get(
+                "/api/gallery", params={"folder": "acorn/cut", "version": 3}
+            ).json()["files"]
+        ]
+        assert names == ["acorn/cut/20260903-120000-cccccccc/final/film.7-0.0.png"]
+        # version alone spans workflows: each one's v1
+        v1 = client.get("/api/gallery", params={"version": 1}).json()["files"]
+        assert {f["folder"] for f in v1} == {"acorn/cut", "acorn/score"}
+
 
 def test_gallery_metadata_names_the_run_and_its_version(server, tmp_path):
     """After "look at version 3", the next call is usually this one - so it

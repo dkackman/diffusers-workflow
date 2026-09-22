@@ -14,6 +14,7 @@ import zipfile
 import tempfile
 import copy
 import json
+import re
 import uuid
 import asyncio
 import logging
@@ -2824,6 +2825,7 @@ def create_app(
         folder: Optional[str] = None,
         subfolder: Optional[str] = None,
         only_orphans: bool = False,
+        version: Optional[int] = None,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2838,6 +2840,8 @@ def create_app(
         way: the in-run subfolders steps wrote into ('final',
         'intermediate'), '' for files at a run's root. `folder` and
         `subfolder` filter independently and intersect when both are given.
+        `version` narrows to the runs holding that ordinal - with `folder`,
+        the one run "v4" names; without it, that run of every workflow.
 
         `only_orphans=true` inverts the whole call: instead of media files,
         it returns run directories holding nothing but their own
@@ -2868,6 +2872,8 @@ def create_app(
             entries = [e for e in entries if e["folder"] == folder]
         if subfolder is not None:
             entries = [e for e in entries if e["subfolder"] == subfolder]
+        if version is not None:
+            entries = [e for e in entries if e["version"] == version]
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
@@ -4165,6 +4171,27 @@ def create_app(
         files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
 
+    def _export_download_name(directory, job_id):
+        """'<workflow>-v4-<job id>.zip' when the exported manifest says which
+        run it was, else '<job id>.zip'. Only the saved file's name: the
+        URL and the entries inside keep the job id, so nothing that already
+        names an export changes."""
+        try:
+            with open(os.path.join(directory, MANIFEST_FILE_NAME)) as file:
+                manifest = json.load(file)
+        except (OSError, ValueError):
+            return f"{job_id}.zip"
+        if not isinstance(manifest, dict):
+            return f"{job_id}.zip"
+        version = manifest.get("version")
+        identity = (manifest.get("workflow") or {}).get("identity")
+        if not isinstance(version, int) or isinstance(version, bool):
+            return f"{job_id}.zip"
+        if not isinstance(identity, str) or not identity:
+            return f"v{version}-{job_id}.zip"
+        slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", identity).strip("-.")
+        return f"{slug}-v{version}-{job_id}.zip" if slug else f"v{version}-{job_id}.zip"
+
     # Ungated for the same reason the two above are: a download link cannot
     # attach an Authorization header either
     @app.get("/exports/{job_id}.zip")
@@ -4186,7 +4213,7 @@ def create_app(
                 path = os.path.join(current, name)
                 entry = os.path.relpath(path, directory).replace(os.sep, "/")
                 entries.append((f"{job_id}/{entry}", path))
-        return _zip_download(entries, f"{job_id}.zip")
+        return _zip_download(entries, _export_download_name(directory, job_id))
 
     # ---------------------------------------------------------------- the UI
 

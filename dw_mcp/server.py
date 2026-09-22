@@ -395,6 +395,8 @@ def build_server(client):
         subfolder: str | None = None,
         only_orphans: bool = False,
         workspace: str | None = None,
+        folder: str | None = None,
+        version: int | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -412,8 +414,9 @@ def build_server(client):
 
         Entries also carry `run_id` and `version`, that run's ordinal among
         the workflow's runs - stable, never renumbered. Quote the version
-        to a person: the web UI labels the same file `v5`. Tools still take
-        `name`.
+        to a person: the web UI labels the same file `v5`. `folder=` with
+        `version=` lists that one run; "output:<folder>/v5/<file>" names it
+        in a workflow. Other tools still take `name`.
 
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping
@@ -438,6 +441,8 @@ def build_server(client):
             subfolder=subfolder,
             only_orphans=only_orphans,
             workspace=workspace,
+            folder=folder,
+            version=version,
         )
 
     def get_gallery_metadata(
