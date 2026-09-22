@@ -50,24 +50,56 @@ def video_shape(path):
         }
 
 
-def frames_at(path, moments, shape=None):
+def resolve_crop_box(crop, width, height):
+    """`[x, y, w, h]` as Pillow's `(left, upper, right, lower)`, clamped to
+    a frame. Every frame of one video shares the same dimensions, so a
+    caller resolves this once against `video_shape(path)` and reuses it
+    across every tile - the same `[x, y, width, height]` convention
+    `get_output_image`'s crop uses. Refused when it is not four
+    non-negative integers, starts outside the frame, or has nothing in it."""
+    try:
+        x, y, w, h = (int(v) for v in crop)
+    except (TypeError, ValueError):
+        raise ValueError(f"crop must be [x, y, width, height] in pixels, got {crop!r}.")
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        raise ValueError(
+            f"crop must have a non-negative origin and a positive size, got {crop!r}."
+        )
+    if x >= width or y >= height:
+        raise ValueError(
+            f"crop origin ({x}, {y}) lies outside the {width}x{height} frame."
+        )
+    return (x, y, min(x + w, width), min(y + h, height))
+
+
+def frames_at(path, moments, shape=None, crop_box=None):
     """One tile per moment - a float in seconds or "frame:N" - in the order
     asked for. Each tile is {label, frame, seconds, image}.
 
     `shape` reuses an already-computed `video_shape(path)` - a caller such
     as the gallery route that also reports the clip's own frame_count/fps
     would otherwise pay for `video_shape`'s container open (and, lacking a
-    header frame count, a full decode) a second time for the same answer."""
+    header frame count, a full decode) a second time for the same answer.
+
+    `crop_box` (`resolve_crop_box`'s Pillow box) is cut from each frame
+    right after decode, before it is returned - full source resolution,
+    not whatever a caller's `max_dimension` later downscales it to."""
     shape = shape if shape is not None else video_shape(path)
     indexes = [_moment_to_index(moment, shape) for moment in moments]
-    images = _read_frames(path, indexes)
+    fit = (lambda image, index: image.crop(crop_box)) if crop_box else None
+    images = _read_frames(path, indexes, fit=fit)
     return [_tile(index, images[index], shape) for index in indexes]
 
 
-def contact_sheet(path, count, tile_width=320, shape=None):
+def contact_sheet(path, count, tile_width=320, shape=None, crop_box=None):
     """N evenly spaced frames (first and last included) tiled into one
     image - frame_grid without a workflow. `shape` reuses an
-    already-computed `video_shape(path)`; see `frames_at`."""
+    already-computed `video_shape(path)`; see `frames_at`.
+
+    `crop_box`, as in `frames_at`, is cut from each frame before it is
+    stamped and tiled into the sheet - the sheet is built from cropped
+    frames rather than cropped after assembly, so the box means the same
+    source-pixel region whatever the sheet's own `tile_width` ends up."""
     if int(count) < 1:
         raise ValueError("count must be at least 1")
     shape = shape if shape is not None else video_shape(path)
@@ -81,11 +113,13 @@ def contact_sheet(path, count, tile_width=320, shape=None):
             f"({MAX_CONTACT_SHEET_FRAMES}); ask for a smaller one, or `at` for moments"
         )
     indexes = _evenly_spaced_indices(shape["frame_count"], count)
-    images = _read_frames(
-        path,
-        indexes,
-        fit=lambda image, index: _stamped_tile(image, index, shape["fps"], tile_width),
-    )
+
+    def fit(image, index):
+        if crop_box:
+            image = image.crop(crop_box)
+        return _stamped_tile(image, index, shape["fps"], tile_width)
+
+    images = _read_frames(path, indexes, fit=fit)
     tiles = [images[index] for index in indexes]
     grid = _compose_grid(tiles, _default_columns(len(tiles)))
     return {
@@ -97,7 +131,9 @@ def contact_sheet(path, count, tile_width=320, shape=None):
     }
 
 
-def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=None):
+def seam_tiles(
+    path, boundaries, names=None, tile_width=320, shape=None, wanted=None, crop_box=None
+):
     """For each boundary (the frame index a shot *starts* at), the last
     frame before it and the first frame at it, side by side - the seam and
     continuity evidence in one image. Seam i sits between shot i and shot
@@ -109,7 +145,11 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
     seam numbers, or None for all) then limits which seams are actually
     decoded and composed: a caller after seam 2 of twelve should not pay to
     decode and tile the other eleven. `shape` reuses an already-computed
-    `video_shape(path)`; see `frames_at`."""
+    `video_shape(path)`; see `frames_at`.
+
+    `crop_box`, as in `frames_at`, is cut from each source frame before it
+    is fit to `tile_width` and paired into a seam - the pair is built from
+    cropped frames rather than cropped after pairing."""
     shape = shape if shape is not None else video_shape(path)
     total = shape["frame_count"]
     for boundary in boundaries:
@@ -142,9 +182,13 @@ def seam_tiles(path, boundaries, names=None, tile_width=320, shape=None, wanted=
             "name the seams wanted (`seams=1,2,...`)"
         )
     frame_indexes = sorted({b - 1 for _, b in chosen} | {b for _, b in chosen})
-    images = _read_frames(
-        path, frame_indexes, fit=lambda image, _index: _fit_width(image, tile_width)
-    )
+
+    def fit(image, _index):
+        if crop_box:
+            image = image.crop(crop_box)
+        return _fit_width(image, tile_width)
+
+    images = _read_frames(path, frame_indexes, fit=fit)
     tiles = []
     for seam, boundary in chosen:
         before = images[boundary - 1]

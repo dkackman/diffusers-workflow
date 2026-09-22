@@ -5,7 +5,13 @@ or the frame pair either side of a seam (#193)."""
 import numpy
 import pytest
 
-from dw.media_frames import contact_sheet, frames_at, seam_tiles, video_shape
+from dw.media_frames import (
+    contact_sheet,
+    frames_at,
+    resolve_crop_box,
+    seam_tiles,
+    video_shape,
+)
 
 
 def write_ramp_mp4(path, frames=24, fps=6, width=32, height=16):
@@ -52,6 +58,33 @@ def write_shifted_ramp_mp4(path, frames=60, fps=6, width=32, height=16, offset=5
         frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
         shifted(stream.encode(frame))
     shifted(stream.encode())
+    container.close()
+
+
+def write_split_mp4(path, frames=12, fps=6, width=64, height=32, left=50, right=200):
+    """Every frame's left half is a flat grey of `left`, its right half
+    `right` - a positional fixture. `write_ramp_mp4`'s frames are each one
+    flat value, which proves *which frame* was read but not *which region*
+    of it - a crop of a uniform frame looks identical wherever the box sits.
+    This is what a crop-position test actually needs to fail under the old
+    bug (crop applied to the wrong pixels, or to the assembled/downscaled
+    result rather than the source frame)."""
+    import av
+
+    container = av.open(str(path), "w")
+    stream = container.add_stream("libx264", rate=fps)
+    stream.width, stream.height, stream.pix_fmt = width, height, "yuv420p"
+    stream.options = {"crf": "0", "preset": "ultrafast"}
+    half = width // 2
+    pixels = numpy.empty((height, width, 3), numpy.uint8)
+    pixels[:, :half] = left
+    pixels[:, half:] = right
+    for _ in range(frames):
+        frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
+        for packet in stream.encode(frame):
+            container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
     container.close()
 
 
@@ -412,3 +445,77 @@ def test_a_seam_tile_reports_the_mean_difference_across_the_join(tmp_path):
 
     # frame 7 is grey 70, frame 8 grey 80: a flat difference of 10
     assert tiles[0]["difference"] == pytest.approx(10.0, abs=6)
+
+
+def test_resolve_crop_box_converts_to_a_pillow_box_and_clamps():
+    assert resolve_crop_box([10, 5, 20, 8], width=100, height=50) == (10, 5, 30, 13)
+    # a box that overruns the frame is clamped, not refused
+    assert resolve_crop_box([90, 40, 50, 50], width=100, height=50) == (90, 40, 100, 50)
+
+
+def test_resolve_crop_box_refuses_malformed_input():
+    with pytest.raises(ValueError, match="x, y, width, height"):
+        resolve_crop_box([1, 2, 3], width=100, height=50)
+    with pytest.raises(ValueError, match="x, y, width, height"):
+        resolve_crop_box(["a", "b", "c", "d"], width=100, height=50)
+
+
+def test_resolve_crop_box_refuses_a_non_positive_origin_or_size():
+    with pytest.raises(ValueError, match="non-negative origin"):
+        resolve_crop_box([-1, 0, 10, 10], width=100, height=50)
+    with pytest.raises(ValueError, match="non-negative origin"):
+        resolve_crop_box([0, 0, 0, 10], width=100, height=50)
+
+
+def test_resolve_crop_box_refuses_an_origin_outside_the_frame():
+    with pytest.raises(ValueError, match="outside the"):
+        resolve_crop_box([100, 0, 10, 10], width=100, height=50)
+    with pytest.raises(ValueError, match="outside the"):
+        resolve_crop_box([0, 50, 10, 10], width=100, height=50)
+
+
+def test_frames_at_crop_box_cuts_the_source_frame_before_it_is_returned(tmp_path):
+    write_split_mp4(tmp_path / "split.mp4", width=64, height=32, left=50, right=200)
+
+    left = frames_at(str(tmp_path / "split.mp4"), [0.0], crop_box=(0, 0, 32, 32))
+    right = frames_at(str(tmp_path / "split.mp4"), [0.0], crop_box=(32, 0, 64, 32))
+
+    assert left[0]["image"].size == (32, 32)
+    assert grey_of(left[0]["image"]) == pytest.approx(50, abs=3)
+    assert grey_of(right[0]["image"]) == pytest.approx(200, abs=3)
+
+
+def test_contact_sheet_crop_box_is_cut_from_each_source_frame_before_tiling(tmp_path):
+    """The tester's original repro: a crop box in source pixels must select
+    the same region regardless of the sheet's own tile_width, and must not
+    be checked against the assembled (and possibly much smaller) sheet."""
+    write_split_mp4(tmp_path / "split.mp4", width=64, height=32, left=50, right=200)
+    path = str(tmp_path / "split.mp4")
+    crop_box = (32, 0, 64, 32)  # right half, in the 64-wide source
+
+    wide = contact_sheet(path, count=4, tile_width=64, crop_box=crop_box)
+    narrow = contact_sheet(path, count=4, tile_width=8, crop_box=crop_box)
+
+    # every source frame here is flat within its half, so a correctly
+    # cropped-then-stamped cell reads close to 200 wherever the stamp
+    # doesn't sit, at either tile_width - including a sheet far smaller
+    # than the crop box's own source-pixel coordinates.
+    for sheet in (wide, narrow):
+        corner = sheet["image"].crop(
+            (0, sheet["image"].height // 2, sheet["image"].width, sheet["image"].height)
+        )
+        assert grey_of(corner) > 150
+
+
+def test_seam_tiles_crop_box_is_cut_from_each_source_frame_before_pairing(tmp_path):
+    write_split_mp4(tmp_path / "split.mp4", width=64, height=32, left=50, right=200)
+    path = str(tmp_path / "split.mp4")
+
+    tiles = seam_tiles(
+        str(path), boundaries=[6], tile_width=32, crop_box=(32, 0, 64, 32)
+    )
+
+    # both sides of the seam are cropped to the right half of a uniformly
+    # split frame, so the whole paired image reads near 200 - a stray crop
+    # of the left half, or of the assembled pair, would not.
+    assert grey_of(tiles[0]["image"]) == pytest.approx(200, abs=6)

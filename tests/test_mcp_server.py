@@ -1428,6 +1428,13 @@ def test_the_stated_tool_count_is_the_registered_one():
 # envelope sentences shortened (still passing "WAV"/"own encoding").
 # Measured 2026-09-21 at 13_798.25 (9_032.5 / 3_751.75 / 1_014.0). 1.75
 # tokens of headroom left; measure again before the next docstring change.
+# The tester's #303 bounce (crop coordinates depended on max_dimension, and
+# a count-mode crop was checked against the assembled sheet rather than the
+# source frame) needed a docstring correction on top of that: get_output_
+# frames' and get_output_image's crop sentences now say "cut ... before the
+# downscale" without the old space-filling clause, which pushed descriptions
+# over budget first (13_820). Measured 2026-09-21 at 13_790.8 (9_025.0 /
+# 3_751.8 / 1_014.0). 9.2 tokens of headroom left.
 SURFACE_BUDGET = 13_800
 
 

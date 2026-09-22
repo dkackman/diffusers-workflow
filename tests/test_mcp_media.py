@@ -978,10 +978,12 @@ def tile_json(width, height, label="00:00.0 (frame 0)", frame=0, seconds=0.0):
     }
 
 
-def frames_server(tiles, seen=None):
+def frames_server(tiles, seen=None, crop=None, status=200, detail=None):
     def handler(request):
         if seen is not None:
             seen.append((request.url.path, list(request.url.params.multi_items())))
+        if status != 200:
+            return httpx.Response(status, json={"detail": detail})
         return httpx.Response(
             200,
             json={
@@ -991,6 +993,7 @@ def frames_server(tiles, seen=None):
                 "width": 64,
                 "height": 32,
                 "tiles": tiles,
+                "crop": crop,
             },
         )
 
@@ -1069,38 +1072,30 @@ def two_tone_tile(width, height, **kwargs):
     return {**tile_json(width, height, **kwargs), "data": base64.b64encode(buffer.getvalue()).decode("ascii")}
 
 
-def test_a_crop_cuts_each_tile_before_the_aggregate_shrink():
+def test_a_crop_is_forwarded_to_the_server_and_its_resolved_box_echoed_back():
+    # Cropping now happens server-side (dw/media_frames.py), in source
+    # pixels, before any downscale/composition - see test_media_frames.py
+    # and test_server.py for the actual crop math. This only covers the
+    # MCP layer's job: send `crop` as a query param, and read back the
+    # server's resolved box rather than echoing the caller's own.
+    seen = []
     client = frames_server(
-        [
-            two_tone_tile(200, 100),
-            two_tone_tile(200, 100, label="00:01.0 (frame 6)", frame=6, seconds=1.0),
-        ]
+        [two_tone_tile(80, 60)], seen, crop=[100, 0, 80, 60]
     )
 
-    result = get_output_frames(client, "x.mp4", at=[0.0, 1.0], crop=[100, 0, 80, 60])
+    result = get_output_frames(client, "x.mp4", at=[0.0], crop=[100, 0, 80, 60])
 
+    assert dict(seen[0][1])["crop"] == "100,0,80,60"
     assert result["crop"] == [100, 0, 80, 60]
-    for tile in result["tiles"]:
-        image = decoded(tile)
-        assert image.size == (80, 60)
-        assert image.getpixel((0, 0)) == (0, 0, 255)
-        assert tile["width"] == 80 and tile["height"] == 60
 
 
-def test_a_frame_crop_is_clamped_per_tile():
-    client = frames_server([two_tone_tile(200, 100)])
-
-    result = get_output_frames(client, "x.mp4", at=[0.0], crop=[150, 0, 100, 100])
-
-    assert result["crop"] == [150, 0, 100, 100]
-    assert decoded(result["tiles"][0]).size == (50, 100)
-
-
-def test_a_malformed_frame_crop_is_refused():
-    client = frames_server([two_tone_tile(200, 100)])
+def test_a_frame_crop_the_server_refuses_is_reported_to_the_caller():
+    client = frames_server(
+        [], status=400, detail="crop origin (150, 0) lies outside the 64x32 frame."
+    )
 
     with pytest.raises(DwApiError, match="crop"):
-        get_output_frames(client, "x.mp4", at=[0.0], crop=[0, 0, 0, 10])
+        get_output_frames(client, "x.mp4", at=[0.0], crop=[150, 0, 100, 100])
 
 
 def test_a_whole_track_over_budget_is_refused_from_its_content_length():
