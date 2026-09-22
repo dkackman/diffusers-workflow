@@ -1,12 +1,12 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent } from '@testing-library/dom'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock. Importing the component inside
 // the test instead would charge its (multi-second) compile to the test timeout
@@ -398,6 +398,10 @@ it('marks each file with the version of the run that wrote it', async () => {
   await waitFor(() => expect(screen.getAllByText('film.mp4')).toHaveLength(2))
   expect(screen.getByText('v1')).toBeTruthy()
   expect(screen.getByText('v4')).toBeTruthy()
+  // One space between chip and label, so a screen reader does not run
+  // 'v4' into the file name
+  const caption = screen.getByText('v4').closest('.caption') as HTMLElement
+  expect(caption.textContent?.replace(/\s+/g, ' ').trim()).toBe('v4 film.mp4')
 })
 
 it('shows no version for a flat-layout file, which belongs to no run', async () => {

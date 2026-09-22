@@ -2066,6 +2066,44 @@ def test_gallery_metadata_names_the_run_and_its_version(server, tmp_path):
         assert body["version"] == 3
 
 
+def test_deleting_an_older_run_renumbers_none_of_its_siblings(server, tmp_path):
+    """Runs from before versions existed are ranked, so removing the oldest
+    would slide every later one down a number. The delete pins the
+    siblings' numbers into their manifests first - both for a whole run
+    directory and for the last file of a run, which sweeps the directory."""
+    import json as _json
+
+    from PIL import Image
+
+    identity = tmp_path / "outputs" / "acorn" / "cut"
+    run_ids = [f"2026090{day}-120000-aaaaaaaa" for day in (1, 2, 3, 4)]
+    with server(success_script) as client:
+        for run_id in run_ids:
+            (identity / run_id).mkdir(parents=True)
+            Image.new("RGB", (2, 2)).save(identity / run_id / "film.png")
+            (identity / run_id / "manifest.json").write_text(
+                _json.dumps({"run_id": run_id})
+            )
+
+        def versions():
+            return {
+                f["run_id"]: f["version"]
+                for f in client.get("/api/gallery").json()["files"]
+            }
+
+        assert versions() == dict(zip(run_ids, (1, 2, 3, 4)))
+        # the whole run directory
+        assert client.delete(f"/api/gallery/acorn/cut/{run_ids[0]}").status_code == 200
+        assert versions() == dict(zip(run_ids[1:], (2, 3, 4)))
+        # the last file of a run, which takes its directory with it
+        assert (
+            client.delete(f"/api/gallery/acorn/cut/{run_ids[1]}/film.png").status_code
+            == 200
+        )
+        assert not (identity / run_ids[1]).exists()
+        assert versions() == dict(zip(run_ids[2:], (3, 4)))
+
+
 def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path):
     """#170: a run whose output was deleted before `delete_output` could
     remove it by name, or one that failed before writing anything, has no

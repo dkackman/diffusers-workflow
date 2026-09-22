@@ -11,6 +11,7 @@ import pytest
 from dw.runs import (
     FLAT_LAYOUT,
     assign_run_version,
+    record_run_versions,
     OUTPUT_LAYOUT_ENV_VAR,
     RUN_LAYOUT,
     is_run_id,
@@ -837,3 +838,81 @@ class TestRunVersions:
 
     def test_a_workflow_with_no_runs_yet_has_none(self, tmp_path):
         assert run_versions(str(tmp_path / "never" / "ran")) == {}
+
+    def test_a_run_after_an_out_of_order_second_takes_no_held_number(self, tmp_path):
+        # Two runs of one second sort opposite to their numbers (v6 then
+        # v5); a killed run after them must not be ranked back down onto 6
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-00000000", version=6)
+        self._run(str(identity), "20260901-120000-ffffffff", version=5)
+        os.makedirs(str(identity / "20260901-120005-aaaaaaaa"))
+        assert run_versions(str(identity)) == {
+            "20260901-120000-00000000": 6,
+            "20260901-120000-ffffffff": 5,
+            "20260901-120005-aaaaaaaa": 7,
+        }
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 8
+
+    def test_a_rerun_counter_sorts_as_a_number(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        for run_id in (
+            "20260901-120000-aaaaaaaa-10",
+            "20260901-120000-aaaaaaaa",
+            "20260901-120000-aaaaaaaa-2",
+        ):
+            self._run(str(identity), run_id)
+        assert list(run_versions(str(identity)).items()) == [
+            ("20260901-120000-aaaaaaaa", 1),
+            ("20260901-120000-aaaaaaaa-2", 2),
+            ("20260901-120000-aaaaaaaa-10", 3),
+        ]
+
+    def test_a_boolean_is_not_a_recorded_version(self, tmp_path):
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=True)
+        self._run(str(identity), "20260902-120000-bbbbbbbb", version=5)
+        assert run_versions(str(identity))["20260901-120000-aaaaaaaa"] == 4
+
+    def test_an_edited_manifest_is_read_again(self, tmp_path):
+        # Recorded numbers are cached against the manifest's stat, so a
+        # rewrite - the run's closing manifest, or a backfill - is seen
+        identity = tmp_path / "ltx2" / "Gyre"
+        run_dir = self._run(str(identity), "20260901-120000-aaaaaaaa")
+        assert run_versions(str(identity)) == {"20260901-120000-aaaaaaaa": 1}
+        with open(os.path.join(run_dir, "manifest.json"), "w") as file:
+            json.dump({"version": 9, "padding": "changes the size"}, file)
+        assert run_versions(str(identity)) == {"20260901-120000-aaaaaaaa": 9}
+
+    def test_opening_a_run_pins_the_numbers_of_older_runs(self, tmp_path):
+        # History from before the field is ranked, and a ranked number moves
+        # when an older sibling goes - until a new run writes it down
+        identity = tmp_path / "ltx2" / "Gyre"
+        for day in (1, 2, 3):
+            self._run(str(identity), f"2026090{day}-120000-aaaaaaaa")
+        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+        for day, version in ((1, 1), (2, 2), (3, 3)):
+            manifest_path = identity / f"2026090{day}-120000-aaaaaaaa" / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            assert manifest["version"] == version
+            # the rest of the record is untouched
+            assert manifest["status"] == "completed"
+        # now deleting the oldest renumbers nothing
+        import shutil
+
+        shutil.rmtree(str(identity / "20260901-120000-aaaaaaaa"))
+        assert run_versions(str(identity)) == {
+            "20260902-120000-aaaaaaaa": 2,
+            "20260903-120000-aaaaaaaa": 3,
+        }
+
+    def test_pinning_leaves_a_run_with_no_manifest_alone(self, tmp_path):
+        # Writing one would invent a record of a run nobody recorded
+        identity = tmp_path / "ltx2" / "Gyre"
+        self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
+        killed = identity / "20260902-120000-bbbbbbbb"
+        os.makedirs(str(killed))
+        assert record_run_versions(str(identity)) == {
+            "20260901-120000-aaaaaaaa": 1,
+            "20260902-120000-bbbbbbbb": 2,
+        }
+        assert not (killed / "manifest.json").exists()

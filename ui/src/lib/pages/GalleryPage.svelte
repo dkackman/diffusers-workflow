@@ -326,6 +326,10 @@
               title="version {file.version} of this workflow"
               >v{file.version}</span
             >
+            <!-- A real space rather than a margin, so a screen reader says
+                 "v4 film.mp4" instead of running the two together. Explicit:
+                 whitespace at the edge of an if block is trimmed -->
+            {' '}
           {/if}{file.label}</span
         >
       </button>
@@ -547,11 +551,10 @@
      across lines */
   .version {
     display: inline-block;
-    margin-right: 0.35rem;
     padding: 0 0.3rem;
     border-radius: 0.2rem;
-    background: var(--chip, rgb(255 255 255 / 0.08));
-    color: var(--fg);
+    background: var(--line);
+    color: var(--ink);
     font-weight: 600;
     word-break: keep-all;
   }

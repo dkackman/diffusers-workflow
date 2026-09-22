@@ -1152,6 +1152,20 @@ class Workflow:
                     # Never fatal: the record is worth less than the run
                     logger.warning(f"Could not realize workflow {workflow_id}: {e}")
 
+                # A manifest now, rewritten in full when the run ends: the
+                # version held only in memory until then was lost to a hard
+                # kill, and a second process opening a run of this workflow
+                # meanwhile could not see it and took the same number
+                self._write_run_manifest(
+                    run_id,
+                    "running",
+                    started_at,
+                    arguments,
+                    resolved_seed,
+                    realized_name,
+                    annotations,
+                )
+
                 # Which run this is, so a server job can find the directory
                 # it wrote. Emitted even when the realized file did not land:
                 # the manifest is still there, and so are the files
@@ -1505,7 +1519,12 @@ class Workflow:
                 "version": self._run_version,
                 "status": status,
                 "started_at": started_at,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                # None on the manifest written as the run opens
+                "finished_at": (
+                    None
+                    if status == "running"
+                    else datetime.now(timezone.utc).isoformat()
+                ),
                 "dw_version": __version__,
                 "device": str(get_device()),
                 "workflow": {

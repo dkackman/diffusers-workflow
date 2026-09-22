@@ -486,3 +486,33 @@ def test_each_run_records_its_own_version(tmp_path):
         versions.append(manifest["version"])
 
     assert versions == [1, 2, 3]
+
+
+def test_the_version_is_on_disk_before_the_first_step_runs(tmp_path):
+    """A run killed mid-step - which is how a stuck server gets restarted -
+    never reaches the closing manifest, so the number has to land when the
+    run opens. Also what lets a second process opening a run of the same
+    workflow see this one's number rather than taking it too."""
+    seen = {}
+
+    def mock_load(self, shared_components):
+        manifest_path = pathlib.Path(workflow._run_dir) / "manifest.json"
+        seen.update(json.loads(manifest_path.read_text()))
+        self.pipeline = FakePipeline()
+
+    workflow_def = _workflow_def()
+    workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
+    with patch.object(Pipeline, "load", mock_load):
+        with patch("dw.workflow.empty_device_cache"):
+            workflow.run({}, previous_pipelines={})
+
+    assert seen["version"] == 1
+    assert seen["status"] == "running"
+    assert seen["finished_at"] is None
+    closing = json.loads(
+        (pathlib.Path(workflow._run_dir) / "manifest.json").read_text()
+    )
+    assert closing["status"] == "completed"
+    assert closing["version"] == 1
+    assert closing["finished_at"] is not None

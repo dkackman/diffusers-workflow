@@ -98,6 +98,7 @@ from ..runs import (
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
+    record_run_versions,
     resolve_output_reference,
     run_versions,
     split_run_path,
@@ -3387,6 +3388,9 @@ def create_app(
                     continue
                 return None
 
+        # Pin the siblings' numbers first: a run that predates versions is
+        # ranked, and removing one ahead of it would renumber it
+        record_run_versions(os.path.dirname(run_dir))
         shutil.rmtree(run_dir, ignore_errors=True)
         # And the identity folders above it, while they are empty - a swept
         # workspace should not keep one directory per workflow it once ran
@@ -3429,6 +3433,9 @@ def create_app(
         """
         run_dir = _run_directory(name, ws.outputs)
         if run_dir is not None:
+            # As in _prune_empty_run_directory: pin the siblings' numbers
+            # before one of them goes
+            record_run_versions(os.path.dirname(run_dir))
             shutil.rmtree(run_dir, ignore_errors=True)
             parent = os.path.dirname(run_dir)
             while os.path.normpath(parent) != os.path.normpath(ws.outputs):

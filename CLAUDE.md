@@ -381,10 +381,19 @@ same reason - default setup cannot load a pack.
   run tomorrow. Assignment is `max(recorded) + 1` over *every* sibling
   manifest, not one past the newest - run ids are chronological only to the
   second, and within one second the spec digest decides the sort, which is
-  exactly what three quick reruns hit. A run with no recorded number (made
-  before the field, or killed before its manifest landed) is backfilled by
-  rank: the unrecorded runs older than every recorded one take the numbers
-  beneath the lowest, later ones continue from the run before. `GET
+  exactly what three quick reruns hit. The number is on disk from the moment
+  the run opens - a `status: "running"` manifest is written before the first
+  step and rewritten in full at the end - so a hard kill does not lose it and
+  a second process opening a run of the same workflow sees it. A run with no
+  recorded number (made before the field, or killed before even that first
+  manifest) is ranked: the unrecorded runs older than every recorded one take
+  the numbers beneath the lowest, later ones continue from the highest before
+  them. A ranked number would move when an older sibling is deleted, so
+  `record_run_versions` writes it into the manifest on the two write paths -
+  a run opening and a run directory being deleted; the listing never writes,
+  and a run with no manifest at all is left ranked. A gap in the numbers is
+  not only a deletion: a failed run or a fully cached rerun takes a number
+  and may have no media for the gallery to show under it. `GET
   /api/gallery` and the metadata route carry `version` and `run_id`
   (`run_versions` read once per identity per listing, not per file), MCP
   `list_gallery` teaches the vocabulary, and the web UI reads the field only -

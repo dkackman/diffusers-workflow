@@ -236,7 +236,9 @@ def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace
     the run it came from. The version is what to quote to a person - the web
     UI labels the same file `v5` - and is stable: it is assigned when the
     run opens and a deleted sibling leaves a gap rather than renumbering
-    what is left. Null under the flat output layout, which has no runs."""
+    what is left - as does a run that failed, or reused every step from
+    the cache, and so wrote nothing to list. Null under the flat output
+    layout, which has no runs."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
