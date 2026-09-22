@@ -510,6 +510,16 @@ class TestLowConfidenceObservedEstimate:
         assert 6.0 < answer["minutes"] < 10.0
         assert "low_confidence" not in answer
 
+    def test_a_blended_estimate_says_so(self, plan):
+        """#319: a blend is still `basis: observed`, so it needs its own
+        marker to be distinguishable from a raw, full-authority figure -
+        and it needs to name the two numbers it sat between, so a caller
+        can reconcile it against `list_workflows`' own `observed_minutes`."""
+        answer = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
+        assert answer["tempered"] is True
+        assert answer["observed_minutes"] == 6.0
+        assert answer["curated_minutes"] == 10.0
+
     def test_two_runs_blend_less_than_one(self, plan):
         one = plan(definition(), observed=observed(minutes=6, runs=1))["estimate"]
         two = plan(definition(), observed=observed(minutes=6, runs=2))["estimate"]
@@ -519,6 +529,7 @@ class TestLowConfidenceObservedEstimate:
         answer = plan(definition(), observed=observed(minutes=6, runs=3))["estimate"]
         assert answer["minutes"] == 6.0
         assert "low_confidence" not in answer
+        assert "tempered" not in answer
 
     def test_a_single_run_with_no_curated_figure_is_flagged_instead(self, plan):
         """No cost block to blend toward - the point figure is quoted as-is

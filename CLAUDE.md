@@ -459,7 +459,16 @@ same reason - default setup cannot load a pack.
   left alone and `low_confidence: true` is added to the estimate instead, so
   a caller has something machine-checkable beyond having to know to inspect
   `runs` itself. No new range/uncertainty-band math — that was considered
-  and rejected as more surface than the problem needs
+  and rejected as more surface than the problem needs. A blend still
+  answered `basis: "observed"`, the same label a raw, full-authority figure
+  carries, with nothing in the estimate saying the number had been moved off
+  what `list_workflows`' own `observed_minutes` reports for the same
+  workflow (#319) — a caller reconciling the two saw them disagree with no
+  explanation. `_tempered` now marks a blend with `tempered: true` plus
+  `observed_minutes` (the raw point figure) and `curated_minutes` (what it
+  blended toward) beside `runs`, additive fields only; `basis` stays
+  `"observed"` so an existing consumer that only reads `basis`/`minutes`
+  is unaffected
 - **An H3 adapter is checked against the partition its step denoises on** —
   `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
   `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a

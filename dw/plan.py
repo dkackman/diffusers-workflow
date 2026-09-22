@@ -294,20 +294,33 @@ def _tempered(block, curated_minutes):
     With a curated minutes figure to blend toward, the point estimate is
     pulled toward it in proportion to how thin the history is - one run
     counts for a third of the blend, two for two thirds, three or more not
-    at all. With none to blend toward there is nothing to correct with, so
-    the number is left alone and a `low_confidence` flag is added instead:
-    machine-checkable without requiring a caller to know to inspect `runs`
-    itself. No new range/uncertainty math (rejected as more surface than
-    the problem needs) - just these two, approved shapes.
+    at all. The blend is marked `tempered: true` with `observed_minutes`
+    (the raw point figure, the same number `list_workflows`' own
+    `observed_minutes` reports) and `curated_minutes` (what it blended
+    toward) alongside it, so a caller can reconcile the returned `minutes`
+    against either without the two disagreeing silently under the same
+    `basis: "observed"` label (#319). With none to blend toward there is
+    nothing to correct with, so the number is left alone and a
+    `low_confidence` flag is added instead: machine-checkable without
+    requiring a caller to know to inspect `runs` itself. No new
+    range/uncertainty math (rejected as more surface than the problem
+    needs) - just these two, approved shapes.
     """
     runs = block.get("runs")
     if not isinstance(runs, int) or runs >= SMALL_N_THRESHOLD or block["minutes"] is None:
         return block
     if curated_minutes is None:
         return {**block, "low_confidence": True}
+    observed_minutes = block["minutes"]
     weight = runs / SMALL_N_THRESHOLD
-    blended = curated_minutes * (1 - weight) + block["minutes"] * weight
-    return {**block, "minutes": round(blended, 1)}
+    blended = curated_minutes * (1 - weight) + observed_minutes * weight
+    return {
+        **block,
+        "minutes": round(blended, 1),
+        "tempered": True,
+        "observed_minutes": observed_minutes,
+        "curated_minutes": curated_minutes,
+    }
 
 
 def _cached_minutes(minutes, cached_steps, total_steps):
