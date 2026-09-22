@@ -2,12 +2,30 @@
     "id": "MiniMaxH3EnhancePrompt",
     "description": "Feeding one step's output into the next as an argument. A 'workflow' step delegates to the built-in prompt enhancer and the pipeline step draws its prompt from 'previous_result' instead of a variable, so a one-line idea is expanded into the structured, multi-section format H3 expects without anyone writing it by hand. What crosses the step boundary is data, so the producing step can be a pipeline, a task or - as here - an entire sub-workflow. Also shows 'release_models', which frees the language model once its step is done so it is not holding device memory while the generation step runs. The generated prompt is saved beside the video, leaving a record of what the model was actually given.",
     "summary": "H3 video with audio from a one-line idea, expanded by the built-in enhancer into the prompt H3 expects.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 5.67
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
         "width",
         "height"
     ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; base_gb and bytes_per_voxel are calibrated from two real runs: image-to-video's family baseline at 960x544x124 (on-demand VAE) succeeded at 18.03 GiB peak reserved (docs/WORKFLOW_GUIDE.md), and video-with-audio-768p at 1344x768x345 (the family's own num_frames ceiling) OOM'd mid-denoise needing >=25.82 GiB - 20.25 GiB already allocated plus a refused 5.57 GiB allocation, on a 23.56 GiB card (job 282172105da1, 2026-09-22) - closing the gap #265/#266 left the H3 family with nothing declared to check the engine's vram_estimate machinery against (#324)"
+    },
     "variables": {
         "idea": "prompt:minimax/glass_figure_t2va_idea",
         "enhancer_model_name": "Qwen/Qwen3-4B-Instruct-2507",
