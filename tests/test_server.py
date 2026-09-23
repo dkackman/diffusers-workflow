@@ -1305,6 +1305,59 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert still["media"] is None
 
 
+def test_gallery_metadata_accepts_an_output_reference(server, tmp_path):
+    """A name copied from an 'output:' reference used to 404 with "path does
+    not exist" instead of resolving - the prefix was joined straight into the
+    path rather than stripped first (#356)."""
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+
+        plain = client.get("/api/gallery/score-gen.0-0.0.wav/metadata")
+        prefixed = client.get("/api/gallery/output:score-gen.0-0.0.wav/metadata")
+
+        assert prefixed.status_code == plain.status_code == 200
+        assert prefixed.json()["media"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.01
+        )
+
+
+def test_gallery_output_reference_traversal_is_still_refused(server, tmp_path):
+    """Stripping the 'output:' prefix must not open a new escape - the
+    stripped remainder still goes through validate_path (#356)."""
+    with server(success_script) as client:
+        response = client.get("/api/gallery/output:../jobs.sqlite/metadata")
+        assert response.status_code == 404
+        assert (tmp_path / "jobs.sqlite").exists()
+
+
+def test_gallery_lists_media_duration_when_asked(server, tmp_path):
+    """size and mtime are misleading proxies for a take's length - a
+    bitrate difference can make a shorter file the bigger one - so
+    ?media=true adds duration_seconds per entry, bounded by the page
+    returned rather than the whole library (#356)."""
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+
+        default = client.get("/api/gallery").json()
+        assert all("duration_seconds" not in e for e in default["files"])
+
+        with_media = client.get("/api/gallery", params={"media": "true"}).json()
+        by_name = {e["name"]: e for e in with_media["files"]}
+        assert by_name["score-gen.0-0.0.wav"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.01
+        )
+        assert by_name["shot-gen.0-0.0.mp4"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.1
+        )
+
+
 def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
     """get_output_audio refused video/mp4 outright, so a generated clip's
     soundtrack could only be heard by fetching the file and demuxing it by
@@ -2329,6 +2382,20 @@ def test_gallery_delete_and_job_linkage(server, tmp_path):
         # encoded traversal: refused by routing (405) or validation (404)
         assert client.delete("/api/gallery/..%2Fjobs.sqlite").status_code in (404, 405)
         assert (tmp_path / "jobs.sqlite").exists()
+
+
+def test_gallery_delete_accepts_an_output_reference(server, tmp_path):
+    """The same 'output:' prefix delete_output rejected before #356."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        Image.new("RGB", (4, 4)).save(outputs / "victim.png")
+
+        response = client.delete("/api/gallery/output:victim.png")
+
+        assert response.status_code == 200
+        assert not (outputs / "victim.png").exists()
 
 
 def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):

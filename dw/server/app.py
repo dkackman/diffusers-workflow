@@ -96,6 +96,7 @@ from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
+    OUTPUT_PREFIX,
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
@@ -2511,10 +2512,30 @@ def create_app(
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
+    def _strip_output_prefix(name):
+        """A gallery name, accepting the way a workflow argument would
+        reference it ('output:<name>', #356) as well as the bare form
+        every gallery listing reports. `asset:` already gets this courtesy
+        on this same endpoint family (`is_asset_reference` below); a caller
+        who spelled a name by copying an `output:` reference used to be met
+        with a wrong-looking "path does not exist" instead, because the
+        prefix was joined straight into the path rather than stripped first.
+
+        Applied once, at the top of every route that takes a gallery
+        `name`, so the rest of that route - job lookups, run-path parsing,
+        the file it echoes back - sees the same bare name `_output_file`
+        resolves, rather than resolving the file correctly while a sibling
+        lookup keyed on the untouched string quietly misses.
+        """
+        if is_output_reference(name):
+            return name.removeprefix(OUTPUT_PREFIX).strip()
+        return name
+
     def _output_file(name, root=None):
         """A file inside a workspace's output directory, or a 404 - never
         outside it."""
         root = root or manager.output_dir
+        name = _strip_output_prefix(name)
         try:
             path = validate_path(
                 os.path.join(root, name),
@@ -2850,6 +2871,7 @@ def create_app(
         subfolder: Optional[str] = None,
         only_orphans: bool = False,
         version: Optional[int] = None,
+        media: bool = False,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2876,7 +2898,15 @@ def create_app(
         do not apply in this mode, since an orphan run has no file to
         carry either. `name` is exactly what `DELETE /api/gallery/{name}`
         accepts, so listing and deleting an orphan is a two-call round
-        trip (#170)."""
+        trip (#170).
+
+        `media=true` adds `duration_seconds` to each audio/video entry,
+        probed the same way `get_gallery_metadata` reports it - which two
+        takes of the same workflow otherwise have no way to be told apart
+        by, since size and mtime are misleading proxies for length (#356).
+        Off by default and bounded by `limit`: only the page actually
+        returned is probed, not the whole listing, so the cost of asking
+        stays proportional to the page size rather than the library size."""
         if only_orphans:
             entries = _orphan_entries(ws.outputs)
             offset = max(0, offset)
@@ -2901,6 +2931,13 @@ def create_app(
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
+        if media:
+            for entry in page:
+                if entry["kind"] not in ("audio", "video"):
+                    continue
+                probed = probe_media(os.path.join(ws.outputs, entry["name"]))
+                if probed is not None:
+                    entry["duration_seconds"] = probed.get("duration_seconds")
         return {
             "files": page,
             "total": len(entries),
@@ -2938,6 +2975,7 @@ def create_app(
         into the output directory. `job` is null for an asset (nothing here
         produced it) and `source` says which of the two roots answered."""
         run_id, version = "", None
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
             source, job = "asset", None
@@ -2993,6 +3031,7 @@ def create_app(
         An audio-only file asked for whole is served as its own bytes in its
         own encoding - there is nothing to extract, and a transcode would
         change what the agent hears."""
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
         else:
@@ -3099,6 +3138,7 @@ def create_app(
         every sampled frame before any stamping, fitting or composing, so
         it names the same region whatever `max_dimension` downscales the
         result to."""
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
         else:
@@ -3372,7 +3412,8 @@ def create_app(
         # selection fails the request instead of yielding a partial zip
         # the gallery-relative name is the entry name, so a workflow's output
         # subfolders stay intact inside the download
-        paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
+        names = [_strip_output_prefix(name) for name in request.names]
+        paths = [(name, _output_file(name, ws.outputs)) for name in names]
 
         return _archive_selection(paths, "output")
 
@@ -3461,6 +3502,7 @@ def create_app(
         (`<identity>/<run id>`), which removes the whole run - the only handle
         on a run that failed before it wrote any media (#134).
         """
+        name = _strip_output_prefix(name)
         run_dir = _run_directory(name, ws.outputs)
         if run_dir is not None:
             # As in _prune_empty_run_directory: pin the siblings' numbers
@@ -3774,15 +3816,16 @@ def create_app(
                 ),
             )
 
-        source = _output_file(request.name, ws.outputs)
-        asset_name = request.asset_name or os.path.basename(request.name)
+        kept_name = _strip_output_prefix(request.name)
+        source = _output_file(kept_name, ws.outputs)
+        asset_name = request.asset_name or os.path.basename(kept_name)
         # The kept file's own extension when the name carries none, and a
         # refusal when it carries a contradicting one - exactly what the
         # upload route does with its `asset_name`. Without this a kept asset
         # could be written under an extensionless name, which the library
         # listing (which reads by kind) never shows again: the call reported
         # success and the asset was invisible (T014)
-        extension = os.path.splitext(os.path.basename(request.name))[1].lower()
+        extension = os.path.splitext(os.path.basename(kept_name))[1].lower()
         if not os.path.splitext(asset_name)[1]:
             asset_name = f"{asset_name}{extension}"
         elif os.path.splitext(asset_name)[1].lower() != extension:
@@ -4182,7 +4225,7 @@ def create_app(
     ):
         """One generated file, from the workspace that made it."""
         files = _static_files_for(ws.outputs)
-        return await files.get_response(name, request.scope)
+        return await files.get_response(_strip_output_prefix(name), request.scope)
 
     @app.get("/inputs/{name:path}")
     async def input_file(
