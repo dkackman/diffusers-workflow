@@ -700,10 +700,16 @@ def build_server(client):
         for any file type, streams the body straight to disk rather than
         buffering it, and returns no content to the conversation - only
         where it was saved. `destination` may be a
-        full path, a directory, or omitted to save into the current
-        working directory under the output's own name; a '..' path segment
-        in it is refused. An existing file at the resolved path is left
-        alone unless `overwrite=True`.
+        full path or a directory; a '..' path segment in it is refused. An
+        existing file at the resolved path is left alone unless
+        `overwrite=True`. On the stdio `dw-mcp`, omitting `destination`
+        saves into the current working directory under the output's own
+        name. On a `dw.serve --mcp` endpoint the save happens on the server, and destination is required there -
+        an omitted one is refused rather than dropped loose in the
+        workspace root, where nothing can find or delete it later; use
+        the `url` list_gallery reports, get_output_image/get_output_audio/
+        get_output_frames for inline content, or keep_output to make it a
+        named asset instead.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -1239,13 +1245,20 @@ def build_server(client):
         what was copied. Returns the directory, a zip URL, the file list
         with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
-        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To
-        give the user the files, fetch the zip URL and unpack it into
-        exports/ under the session's working directory - it is the user's
-        deliverable, not a temp file; the archive already unpacks into one
-        folder named after the job id, so do not create that folder first.
-        Refuses a job that is still running; refuses an existing export
-        unless overwrite=true."""
+        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
+
+        `auth_required` says whether opening the zip needs this server's
+        bearer token, a token you cannot attach to someone else's browser
+        or tooling. When it is false, fetch open_url yourself and unpack
+        it into exports/ under the session's working directory - it is
+        the user's deliverable, not a temp file; the archive already
+        unpacks into one folder named after the job id, so do not create that folder first.
+        When it is true, do NOT fetch it: hand open_url to the person and let them open it
+        (`next` says whether it is already absolute or needs the server's
+        address told to them). Individual results stay reachable inline
+        via get_output_image/get_output_audio/get_output_frames either
+        way. Refuses a job that is still running; refuses an existing
+        export unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
 
     tool(get_job, READ_ONLY)
