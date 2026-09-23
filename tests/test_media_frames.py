@@ -138,6 +138,43 @@ def test_a_moment_past_the_end_is_refused(tmp_path):
         frames_at(str(tmp_path / "ramp.mp4"), ["frame:6"])
 
 
+def test_a_fractional_moment_past_the_end_gives_no_frame_hint(tmp_path):
+    # #370: a fractional overshoot is a seconds problem, not a frame index
+    # in disguise - "frame:6.5" would only fail again.
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=141, fps=24)
+
+    with pytest.raises(ValueError, match="past the end") as excinfo:
+        frames_at(str(tmp_path / "ramp.mp4"), [6.5])
+    assert "frame:" not in str(excinfo.value)
+
+
+def test_an_integer_moment_past_the_end_in_both_units_gives_no_frame_hint(tmp_path):
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=141, fps=24)
+
+    with pytest.raises(ValueError, match="past the end") as excinfo:
+        frames_at(str(tmp_path / "ramp.mp4"), [500])
+    assert "frame:" not in str(excinfo.value)
+
+
+def test_an_integer_moment_past_the_end_in_seconds_but_valid_as_a_frame_suggests_it(
+    tmp_path,
+):
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=141, fps=24)
+
+    with pytest.raises(ValueError, match="past the end") as excinfo:
+        frames_at(str(tmp_path / "ramp.mp4"), [130])
+    assert 'use "frame:130" for a frame index' in str(excinfo.value)
+
+
+def test_a_non_integer_frame_reference_gets_a_consumer_message(tmp_path):
+    write_ramp_mp4(tmp_path / "ramp.mp4", frames=141, fps=24)
+
+    with pytest.raises(
+        ValueError, match=r'"frame:6\.5" - frame index must be a whole number'
+    ):
+        frames_at(str(tmp_path / "ramp.mp4"), ["frame:6.5"])
+
+
 def test_a_contact_sheet_tiles_evenly_spaced_frames(tmp_path):
     write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6, width=64, height=32)
 
