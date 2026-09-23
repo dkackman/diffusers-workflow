@@ -28,10 +28,30 @@ def get_iterations(argument_template, previous_results):
     Returns:
         List of argument dictionaries, one for each possible combination
     """
-    # Special case: if template is a list, use it directly without processing
+    # An 'inputs' list is already one iteration per entry. The static check
+    # (previous_result_reference_errors) accepts a reference inside one, so the
+    # run must resolve it too rather than hand the task the literal string:
+    # a reference entry is one iteration per result it names, and an object
+    # entry expands exactly as an 'arguments' template would
     if isinstance(argument_template, list):
-        logger.debug("Using list argument template directly")
-        return argument_template
+        iterations = []
+        for entry in argument_template:
+            if isinstance(entry, str) and entry.startswith(PREVIOUS_RESULT_PREFIX):
+                iterations.extend(
+                    get_previous_results(
+                        previous_results, entry[len(PREVIOUS_RESULT_PREFIX) :]
+                    )
+                )
+            elif isinstance(entry, dict):
+                iterations.extend(get_iterations(entry, previous_results))
+            else:
+                iterations.append(entry)
+            if len(iterations) > MAX_ITERATIONS:
+                raise ValueError(
+                    f"Too many iterations generated: more than {MAX_ITERATIONS} "
+                    f"from an 'inputs' list. Consider splitting it across steps."
+                )
+        return iterations
 
     # Find any references to previous results in the template
     # Returns dict of {arg_key: result_reference}

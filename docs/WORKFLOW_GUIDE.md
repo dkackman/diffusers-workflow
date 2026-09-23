@@ -124,7 +124,9 @@ Run utility operations (image processing, QR codes, data gathering):
 ```
 
 A task can take `inputs` (a plain array) instead of `arguments`. Each array item becomes
-its own iteration, the same way multiple `previous_result` values do:
+its own iteration, the same way multiple `previous_result` values do. An item that is a
+`previous_result:` reference becomes one iteration per result it names, and an object item
+expands the way an `arguments` object would:
 
 ```json
 {

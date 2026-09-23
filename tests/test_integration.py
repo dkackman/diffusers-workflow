@@ -265,7 +265,7 @@ class TestWorkflowStepDependencies:
                     "name": "step2",
                     "task": {
                         "command": "gather_inputs",
-                        "arguments": {"value": "previous_result:step1"},
+                        "inputs": ["previous_result:step1"],
                     },
                     "result": {"content_type": "application/json", "save": False},
                 },
@@ -277,7 +277,8 @@ class TestWorkflowStepDependencies:
         result = workflow.run({})
 
         # step2 runs once per result step1 produced, receiving each one
-        assert result == [{"value": "value1"}, {"value": "value2"}]
+        # rather than the literal reference string
+        assert result == ["value1", "value2"]
 
 
 if __name__ == "__main__":
