@@ -1943,7 +1943,11 @@ class TestTheMusicTemplatesLeaveHeadroom:
     #161: -1 dBFS was enough for an mp3 (measured at -0.07 and -0.41) and
     not for the mux - the AAC encode overshoots by around 1.9 dB on this
     material, so `music-video`'s finished mp4 still decoded at +0.94 dBFS.
-    A deliverable that ends in a video mux normalizes to -3."""
+    A deliverable that ends in a video mux normalizes to -3.
+
+    #362: -1 dBFS was not reliably enough for the mp3 either - a run
+    measured +0.56 dBFS after the encode, so `music.json`'s own deliverable
+    takes -3 too."""
 
     def steps_of(self, path):
         with open(path) as definition_file:
@@ -1953,7 +1957,7 @@ class TestTheMusicTemplatesLeaveHeadroom:
     @pytest.mark.parametrize(
         "path,source,target",
         [
-            ("workflows/templates/minimax/music.json", "generate_music", -1.0),
+            ("workflows/templates/minimax/music.json", "generate_music", -3.0),
             ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
         ],
     )
