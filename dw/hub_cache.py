@@ -8,7 +8,9 @@ through scan_cache_dir's delete_revisions strategy, which only ever removes
 revisions it found inside the cache directory.
 """
 
+import json
 import logging
+import os
 import shutil
 import threading
 import time
@@ -86,6 +88,103 @@ def scan_models(cache_dir=None):
         "disk_free": usage.free,
         "disk_total": usage.total,
     }
+
+
+_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".msgpack", ".onnx", ".pt")
+
+
+def _repo_folder_name(repo_id, repo_type="model"):
+    return f"{repo_type}s--{repo_id.replace('/', '--')}"
+
+
+def _snapshot_dir(repo_dir):
+    """The snapshot directory `refs/main` currently points at, or None -
+    a repo dir with no readable ref or no matching snapshot folder is
+    itself a sign the pull never finished."""
+    try:
+        with open(os.path.join(repo_dir, "refs", "main")) as f:
+            commit = f.read().strip()
+    except OSError:
+        return None
+    snapshot = os.path.join(repo_dir, "snapshots", commit)
+    return snapshot if os.path.isdir(snapshot) else None
+
+
+def _component_incomplete(folder, variant):
+    """Whether a diffusers pipeline component's folder is missing files a
+    load would need. A component with no weight files at all (a scheduler
+    or tokenizer config) is complete once its folder exists; one with
+    weight files is checked against the requested `variant` only when that
+    variant is actually in play, since an unvarianted component (most
+    schedulers, safety checkers) never carries a tagged file."""
+    if not os.path.isdir(folder):
+        return True
+    try:
+        entries = os.listdir(folder)
+    except OSError:
+        return True
+    if not entries:
+        return True
+    if not variant:
+        return False
+    weight_files = [e for e in entries if e.endswith(_WEIGHT_SUFFIXES)]
+    if not weight_files:
+        return False
+    return not any(f".{variant}." in name for name in weight_files)
+
+
+def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
+    """Whether repo_id, though listed by `scan_models`, is left over from an
+    interrupted pull rather than fully fetched (#382): a cancelled
+    `snapshot_download` leaves the revision folder in place - the repo still
+    shows up in `scan_cache_dir` - but with an in-progress blob or with whole
+    components never fetched.
+
+    Two checks, in order of how cheap they are to rule out: any
+    `*.incomplete` blob (huggingface_hub's own marker for a file mid-transfer)
+    anywhere in the repo's `blobs/` makes the repo incomplete outright. Past
+    that, a diffusers pipeline repo (one with a `model_index.json` in its
+    current snapshot) is checked component by component, for the requested
+    `variant`; a plain checkpoint/LoRA repo (no `model_index.json`) has
+    nothing further to check beyond its blobs.  This is not a full hub
+    file-list diff - it does not fetch the repo's file list from the hub, so
+    a file that was never attempted at all on an otherwise-untouched repo
+    (nothing downloaded, no blobs, no snapshot) is caught by the "no snapshot"
+    case, not enumerated.
+    """
+    resolved = _resolved_cache_dir(cache_dir)
+    repo_dir = os.path.join(resolved, _repo_folder_name(repo_id))
+    if not os.path.isdir(repo_dir):
+        return True
+
+    blobs_dir = os.path.join(repo_dir, "blobs")
+    if os.path.isdir(blobs_dir):
+        try:
+            if any(name.endswith(".incomplete") for name in os.listdir(blobs_dir)):
+                return True
+        except OSError:
+            return True
+
+    snapshot = _snapshot_dir(repo_dir)
+    if snapshot is None:
+        return True
+
+    index_path = os.path.join(snapshot, "model_index.json")
+    if not os.path.isfile(index_path):
+        # Not a diffusers pipeline repo - blob completeness is all there is
+        return False
+    try:
+        with open(index_path) as f:
+            index = json.load(f)
+    except (OSError, ValueError):
+        return False
+
+    for key, value in index.items():
+        if key.startswith("_") or not isinstance(value, list):
+            continue
+        if _component_incomplete(os.path.join(snapshot, key), variant):
+            return True
+    return False
 
 
 def delete_model(repo_id, cache_dir=None):

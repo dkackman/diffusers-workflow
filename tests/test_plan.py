@@ -875,7 +875,39 @@ class TestDownloadsRequired:
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
+        monkeypatch.setattr(
+            dw.plan, "repo_download_incomplete", lambda *a, **k: False
+        )
         assert plan()["downloads_required"] == []
+
+    def test_a_present_but_incomplete_repo_is_still_required(self, plan, monkeypatch):
+        """#382: a repo scan_models lists (an interrupted pull left the
+        revision folder in place) but whose snapshot is missing files the
+        load needs stays in downloads_required rather than reading as
+        cached."""
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan,
+            "scan_models",
+            lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
+        )
+        seen = []
+
+        def fake_incomplete(name, cache_dir, variant=None):
+            seen.append((name, variant))
+            return True
+
+        monkeypatch.setattr(dw.plan, "repo_download_incomplete", fake_incomplete)
+        assert plan()["downloads_required"] == [
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+            }
+        ]
+        assert seen == [("org/still-model", None)]
 
     def test_cache_dir_reaches_scan_models(self, plan, monkeypatch):
         import dw.plan
@@ -1297,6 +1329,7 @@ class TestAnAdapterIsADownloadToo:
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": name} for name in present]},
         )
+        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
         return [
             entry["repo"]
             for entry in dw.plan.downloads_required(
