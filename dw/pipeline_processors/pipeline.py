@@ -1879,6 +1879,10 @@ def load_component(
             component, component_name, configuration, device, components_manager
         )
 
+    except WorkflowCancelled:
+        # A cancel that aborted a download (dw/download_watch.py) - not a
+        # load failure, so no error log
+        raise
     except Exception as e:
         # 401/403 from the Hub means the account behind whatever token (or
         # lack of one) HfApi is using cannot read this repo - almost always
