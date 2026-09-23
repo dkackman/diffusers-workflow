@@ -130,10 +130,14 @@ mismatch between episodes shows up before a viewer notices it - its
 as a whole; `integrated_lufs` (BS.1770, whole-track) is the field that
 answers that, and is what to compare across episodes. To confirm a
 line actually rendered rather than judging it by ear, `get_output_audio`
-returns sound, not text: `run_workflow(name="templates/transcribe-audio",
-arguments={"input_audio": "output:<name>"}, wait_seconds=55)` then
-`get_output_text` on the result (it takes the episode's muxed soundtrack
-directly), and delete the scratch run afterward.
+returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
+arguments={"input_audio": "output:<name>"})` first (free; it takes the
+episode's muxed soundtrack directly), then `run_workflow(...,
+acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
+wait_seconds=55)`, then `get_output_text` on the result, and
+`delete_output(job_id=...)` the scratch run afterward. This workflow's
+plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
+minutes; it runs in a few seconds.
 
 ## Sources
 

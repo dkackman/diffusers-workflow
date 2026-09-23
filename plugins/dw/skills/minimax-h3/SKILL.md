@@ -180,11 +180,11 @@ itself - or every shot inherits the portrait's composition.
    everywhere), a portrait imposing its framing on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. `get_output_audio` returns sound, not text; to
-   confirm a line rendered rather than judge its delivery,
-   `run_workflow(name="templates/transcribe-audio",
-   arguments={"input_audio": "output:<name>"}, wait_seconds=55)` then
-   `get_output_text` on the result, and `delete_output` the scratch run.
-   Then `get_gallery_metadata` for duration and whether audio is present,
+   confirm a line rendered, use its docstring's transcription route
+   (`validate_workflow` on `templates/transcribe-audio`, `run_workflow` with
+   `acknowledged_cost` bound, `get_output_text`, `delete_output`) - `basis:
+   "unknown"`, quote seconds not minutes.
+   Then `get_gallery_metadata` for duration/audio presence,
    and hand the user the gallery `url`
    (`list_gallery`). `get_output_image` works only on image steps - the
    Z-Image portraits and boards of `dialogue-short`, `storyboard`,
