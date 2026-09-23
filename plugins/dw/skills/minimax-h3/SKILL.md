@@ -171,7 +171,9 @@ portrait's composition.
    on to its next step boundary, minutes on this model. Silence is no hang:
    `denoise_step` is null through the reference encode (~90 s; 629 s for one
    5 s 960x544 video reference on a 3090), and the block cache makes later
-   steps uneven - two-minute gaps are healthy. Each entry carries
+   steps uneven - two-minute gaps are healthy. `phase_stall` in
+   `get_job_events` narrates it, not a fault; judge by `denoise_step`.
+   Each entry carries
    `subfolder`: `final` is the deliverable (`episode`, `music_video`,
    `voyage`), `intermediate` the scratch; keep that split in anything you
    compose.
@@ -185,8 +187,7 @@ portrait's composition.
    audio is present, and hand the user the gallery `url` (`list_gallery`).
    `get_output_image` works only on image steps - the Z-Image portraits and
    boards of `dialogue-short`, `storyboard`, `generated-subject-reference` and
-   `music-video`. Also look for a storyboard skipped, every shot the same
-   length, one look word on every board softening all of them.
+   `music-video`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it, so
    the next run is by name not pasted JSON; `export_job` bundles it on the
    server. `auth_required: false` - fetch `open_url` into `exports/` under

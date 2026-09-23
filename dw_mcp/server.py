@@ -1189,7 +1189,17 @@ def build_server(client):
         seconds since the job started, so where a step's time went is the
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
-        events."""
+        events.
+
+        A `kind: "phase_stall"` entry is a watchdog notice, not progress -
+        it fires every ~30s a phase goes quiet and repeats on that cadence
+        for as long as the silence continues, so it is not evidence of a
+        hang by itself and a climbing event_count made of nothing else is
+        not liveness either. It carries `seconds_since_last_progress`
+        (climbs across repeats) and `seconds_since_phase_start`; some
+        models are silent for minutes at a time in normal operation (a
+        video reference encode, block-cache gaps) - check the model's
+        skill/guide for what's expected before treating one as a fault."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
@@ -1215,8 +1225,13 @@ def build_server(client):
         `denoise_step` has moved since a poll minutes ago, not by silence:
         a video reference's lead-in can run many minutes emitting nothing,
         and denoise gaps are uneven under a transformer block cache - both
-        normal. Full diagnosis, and why `denoise_total_steps` can read one
-        less than asked, in WORKFLOW_GUIDE's "The loop", step 5."""
+        normal. If you're also reading get_job_events, a `phase_stall`
+        entry there is the same silence being narrated, not a fault or a
+        sign of progress - it repeats every ~30s the phase stays quiet, so
+        neither seeing one nor watching its event_count climb tells you
+        anything `denoise_step` doesn't already say better. Full diagnosis,
+        and why `denoise_total_steps` can read one less than asked, in
+        WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states

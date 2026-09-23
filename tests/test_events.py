@@ -463,7 +463,31 @@ def test_watchdog_event_carries_the_required_fields():
     assert stall["event"] == "warning"
     assert stall["phase"] == "saving"
     assert isinstance(stall["seconds_since_phase_start"], (int, float))
+    assert isinstance(stall["seconds_since_last_progress"], (int, float))
     assert "message" in stall
+
+
+def test_watchdog_reports_last_progress_kind_and_does_not_reset_on_repeat():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            context.emit("pipeline_step", step=1)
+            time.sleep(0.3)
+        finally:
+            context.exit_run()
+
+    stalls = [e for e in events if e.get("kind") == "phase_stall"]
+    assert len(stalls) >= 2
+    assert "pipeline_step" in stalls[0]["message"]
+    # seconds_since_last_progress climbs across repeats rather than
+    # resetting each time the watchdog itself emits (#357)
+    assert (
+        stalls[-1]["seconds_since_last_progress"]
+        > stalls[0]["seconds_since_last_progress"]
+    )
 
 
 def test_each_run_records_its_own_version(tmp_path):
