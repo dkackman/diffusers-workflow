@@ -7,8 +7,8 @@ description: Use when a dw MCP server is connected and the user wants LTX-2.5 vi
 
 LTX-2.5 generates video and a soundtrack together, 24 fps, on a distilled
 schedule that is not a knob. Every template here fits a 24 GB card. This
-skill chooses the template and the arguments; the prompt is written to
-Lightricks' own caption spec, quoted below from diffusers.
+skill chooses the template and the arguments; the prompt follows the
+caption spec below.
 
 ## Before anything
 
@@ -23,11 +23,11 @@ Lightricks' own caption spec, quoted below from diffusers.
    2x upscale - `get_memory` on an idle server and read a `live: true`
    reading's `gpu_memory_allocated_mb`. Only those are the worker's own:
    `info: null` means nothing is resident, and a `live: false` reading is
-   cached from another moment. A non-trivial idle figure is what an earlier
-   run left behind and comes off what this one has. With the server idle,
+   cached from another moment. A non-trivial idle figure is an earlier run's
+   leftover and comes off what this one has. With the server idle,
    `clear_memory` clears it (refused while a job is queued or running) - it
    also drops the step cache, so the next run, including a seeded rerun, is
-   cold and regenerates. Re-read `get_memory` afterwards to confirm. Don't
+   cold and regenerates. Re-read `get_memory` to confirm. Don't
    retry into a failed attempt without clearing first - a failed attempt is
    itself what leaves weight resident.
 
@@ -43,9 +43,8 @@ Lightricks' own caption spec, quoted below from diffusers.
   768x448, a 2x latent upsample, then renoise and three stage-two sigmas at
   1536x896 carrying the audio latents through. The upsample alone is soft; the
   refine pass is where the detail comes from.
-- **Comparing decoders**: `templates/ltx2/diffusion-decode`. Do not offer it:
-  without a `shi-labs/natten` build for the installed torch the FlexAttention
-  fallback OOMs on 24GB at any size (#153).
+- `templates/ltx2/diffusion-decode` compares decoders. Do not offer it: without
+  a `shi-labs/natten` build its fallback OOMs on 24GB at any size.
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
   low-resolution pass and has an IC-LoRA re-render it twice the size,
   inventing detail. `base_width`/`base_height` are that first render's size,
@@ -61,8 +60,8 @@ Lightricks' own caption spec, quoted below from diffusers.
   make. Each inverts one defect and no other - neither is an upscale, neither
   removes motion blur or grain - so say which defect you think it is and let
   the user correct you.
-- **Longer**: `templates/ltx2/extend-clip` generates an opening and continues it
-  conditioned on the whole opening, not one frame;
+- **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
+  on all of it, not one frame;
   `templates/ltx2/chained-segments` re-runs per segment on the previous last
   frame and stitches. Neither is a Lightricks recipe; both are dw's, and a
   single 481-frame pass reaches 20 seconds before either is needed.
@@ -76,12 +75,12 @@ read the `workflows` guide's authoring section first.
   The templates generate at 24 fps. RoPE time is `frame / fps` and the model is
   trained around 24, 25, 30 and 60, so for a higher-fps request generate at 24
   (or condition at 60 at most - `MAX_CONDITIONING_FPS`, never 120) and let
-  playback set the rate. The temporal-upscaling path that renders 48 and 96
-  fps belongs to the DFR pipelines, which no template here uses yet.
+  playback set the rate. 48 and 96 fps are the DFR pipelines', which no
+  template uses.
 - The distilled transformer runs its eight trained sigmas (`DISTILLED_SIGMA_VALUES`)
   with `guidance_scale` 1.0 and STG and modality guidance off. No
-  `num_inference_steps`. Those knobs mean something only against the dev
-  transformer, which no 24 GB template ships.
+  `num_inference_steps`. Those knobs belong to the dev transformer, which
+  no 24 GB template ships.
 - Stage two of the two-stage flow: renoise at 0.909375 (the first
   `STAGE_2_DISTILLED_SIGMA_VALUES` entry), three sigmas at full size.
 - An image condition is re-compressed at CRF 18 to match training and needs a

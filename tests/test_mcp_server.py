@@ -1304,13 +1304,33 @@ async def test_the_instructions_name_the_vocabulary():
         assert word in server.instructions
 
 
+# Claude Code shows an MCP server's instructions and each tool description
+# only up to this many characters and appends "[truncated]"; everything past
+# it never reaches the agent, however carefully it was written.
+CLIENT_TEXT_LIMIT = 2048
+
+
+@pytest.mark.asyncio
+async def test_no_text_the_agent_reads_is_cut_off_by_the_client():
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    assert len(server.instructions) <= CLIENT_TEXT_LIMIT
+    too_long = {
+        name: len(tool.description or "")
+        for name, tool in tools.items()
+        if len(tool.description or "") > CLIENT_TEXT_LIMIT
+    }
+    assert not too_long, too_long
+
+
 @pytest.mark.asyncio
 async def test_validate_workflow_teaches_quoting_from_the_plan():
     """The number an agent says out loud is the plan's - priced for the
     arguments it will run with, naming the weights this box lacks - not the
     listing's defaults-only cost (#85)."""
     tools = await tools_of(server_over(ok({})))
-    doc = tools["validate_workflow"].description
+    doc = tools["validate_workflow"].description[:CLIENT_TEXT_LIMIT]
     assert "plan" in doc
     assert "downloads_required" in doc
     assert "estimate" in doc

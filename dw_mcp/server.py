@@ -67,88 +67,47 @@ def build_server(client):
     server = MCPServer(
         "diffusers-workflow",
         instructions=(
-            "Generate images and video on a real GPU: author, run and "
-            "diagnose diffusers-workflow jobs against a running dw.serve. "
-            "A workflow is a JSON document of named steps, each a "
+            "Generate images, video and audio on a real GPU: author, run "
+            "and diagnose diffusers-workflow jobs against a running "
+            "dw.serve. A workflow is a JSON document of named steps, each a "
             "diffusers pipeline or a utility task; the engine runs one job "
             "at a time.\n"
             "\n"
-            "Start from `list_workflows(shape=...)`: the server keeps a "
-            "large catalog, and its compact listing carries each "
-            "workflow's summary, shape, traits, cost, variable names and, "
-            "for a list-driven workflow, `lists` - what an entry of each "
-            "list carries; a list-driven workflow's `cost` may also carry "
-            "a measured `per_entry` (neither template does yet) - "
-            "run what is already there, with `arguments` overriding its "
-            "variables, rather than authoring a new workflow for a "
-            "request an existing one covers. Shapes: image, image-set, "
-            "image-edit, shot, sequence, audio, text, utility. Traits: "
-            "has-audio, chained, image-conditioned, identity-referenced, "
-            "needs-input-media, composes-workflows.\n"
+            "Start from `list_workflows(shape=...)` and run what the catalog "
+            "already holds, with `arguments` overriding its variables. "
+            "Shapes: image, image-set, image-edit, shot, sequence, audio, "
+            "text, utility. Traits: has-audio, chained, image-conditioned, "
+            "identity-referenced, needs-input-media, composes-workflows. An "
+            "open-ended request names a subject, not a shape - decide the "
+            "deliverable's shape first. `list_guides` indexes the docs by "
+            "section and `list_tasks` is what a shape is composed from; "
+            "author new JSON only when neither the catalog nor a "
+            "composition covers the request.\n"
             "\n"
-            "When a request is open-ended - a subject rather than a shape "
-            '("a lego movie trailer set in the marvel universe") - no '
-            "catalog entry will name it, because entries are written in "
-            "shapes: a single image, an image set, one shot, a multi-shot "
-            "cut sequence, video with speech. Decide which shape the "
-            "deliverable is first, then call `list_workflows` with it; "
-            "`list_guides` indexes the documentation by section so a shape "
-            "can be looked up rather than guessed at, and `list_tasks` is "
-            "what a shape is composed from when no single workflow covers "
-            "it. Author new JSON only once neither does, and say what it "
-            "will cost before spending it.\n"
-            "\n"
-            "The engine that answers is one machine: `get_server_info` "
-            "reports its accelerator, its directories and which workspace "
-            "this session works in, and what a workflow can ask for "
-            "follows from that - a CUDA-only choice is not available on an "
+            "`get_server_info` reports the accelerator, directories and this "
+            "session's workspace; a CUDA-only choice is unavailable on an "
             "mps or cpu server.\n"
             "\n"
-            "The loop for anything that generates: `get_guide` "
-            '("workflows", section "Authoring a workflow from an agent") '
-            "before writing or repairing any JSON, since the reference "
-            "conventions below are engine-specific and a draft that guesses "
-            "them validates and then fails at run time -> `validate_workflow` "
-            "(free, catches schema errors and arguments the pipeline does "
-            "not accept; repeat until it is clean, since fixing one layer "
-            "exposes the next) -> `run_workflow` -> `wait_for_job` rather than a "
-            "polling loop -> `get_job` for the manifest -> "
-            "`get_output_image`, `get_output_frames` and `get_output_audio` to "
-            "actually look at and listen to what was made and say whether "
-            "it answers the request. Tools that cost GPU minutes, "
-            "disk or unrecoverable deletion refuse until "
-            "`acknowledged_cost=true`: tell the user what it will cost (a "
-            "workflow you wrote or copied has no `cost`; quote the figure "
-            "from the `models/` entry that loads the same pipeline, found "
-            "with `list_workflows(include_models=true)`, times the number "
-            "of images), get their go-ahead, then call again.\n"
+            "The loop: `get_guide(\"workflows\", section=\"Authoring a "
+            "workflow from an agent\")` before writing or repairing JSON -> "
+            "`validate_workflow` (free; repeat until clean) -> quote its "
+            "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
+            "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
+            "`get_output_frames`, `get_output_audio` to look at and listen "
+            "to the result and judge it against the request. Tools that "
+            "spend GPU time or disk, or delete for good, refuse until "
+            "`acknowledged_cost` is set. A workflow you wrote has no "
+            "measured cost: quote the `models/` entry that loads the same "
+            "pipeline (`list_workflows(include_models=true)`) times the "
+            "number of images.\n"
             "\n"
-            "Workflow arguments carry references rather than literals, "
-            "which is what makes multi-stage work composable: "
-            '"variable:name" (an override), '
-            '"previous_result:step" (an earlier step in the same run), '
-            '"prompt:name" or "prompt:folder/name" (the stored prompt '
-            "library - `list_prompts`, `get_prompt_schema`), "
-            '"asset:name.ext" (input media on the server - `list_assets`, '
-            "`upload_asset` to push a local file, `keep_output` to promote "
-            "a generated file into a stable input), and "
-            '"output:workflow/run-id/file.png" (a file an earlier run '
-            'wrote, with "latest" in the run-id position picking the '
-            "newest run holding it). Prefer an asset: or output: reference "
-            "over a filesystem path: a path on this machine usually means "
-            "nothing to the server.\n"
-            "\n"
-            "Each run writes its own directory, "
-            "<workflow>/<run id>/, with a manifest beside its files; "
-            "`list_gallery` and a job's manifest name files the way "
-            "`get_output_image`, `download_output` and `keep_output` "
-            "expect them.\n"
-            "\n"
-            "The server can hold several workspaces - separate workflows, "
-            "assets and outputs, one shared prompt library: "
-            "`list_workspaces` shows them and `use_workspace` picks one "
-            "for the rest of the session, which is how to keep your work "
-            "out of another agent's namespace."
+            "Arguments carry references rather than literals: `variable:`, "
+            "`previous_result:`, `prompt:` (the stored prompt library), "
+            "`asset:` (input media on the server - `upload_asset`, "
+            "`keep_output`) and `output:` (an earlier run's file). The "
+            "guide's References section defines each; prefer them to a "
+            "local path, which means nothing to the server. "
+            "`use_workspace` picks the workspace this session works in."
         ),
     )
 
@@ -180,10 +139,9 @@ def build_server(client):
         image-conditioned, identity-referenced, needs-input-media,
         composes-workflows. Each entry carries a one-line `summary`, its
         `shape` and `traits` (what it needs supplied), `cost` (curated:
-        figures a maintainer measured once on the devices named and wrote
-        into the workflow, never derived from this server's job history -
-        so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. It is also the mark of an
+        measured once by a maintainer on the devices named, never derived
+        from this server's history - null means nobody wrote one down, not
+        that the run is cheap. It is also the mark of an
         entry that has been run through on a real device: one without a
         `cost` has only been authored, and its first run is the one that
         finds what the description could not verify. `observed_minutes` and
@@ -191,9 +149,8 @@ def build_server(client):
         of that workflow - the cold median, model load included, and how
         many runs are behind it. Prefer it when quoting a price for this
         machine, fall back to `cost`, and say "unknown" only when neither
-        is there; say which one you used, since a figure a maintainer
-        measured on their card and one this box averaged last week are
-        different claims), output kinds and variable names. `lists`, present for a
+        is there; say which one you used - a maintainer's card and this
+        box's average are different claims), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
@@ -424,7 +381,7 @@ def build_server(client):
         writing anything, invisible to a normal listing because it has no
         file to show. `subfolder` does not apply in this mode. `name` is
         exactly what `delete_output` accepts, so clearing the backlog is
-        list, then delete each name (#170). A run that wrote any file at
+        list, then delete each name. A run that wrote any file at
         all - a text-shape prompt, a utility's side output - is not listed;
         this call only lists, so deciding whether a listed entry is actually
         junk before calling `delete_output` on it is still yours to make.
@@ -432,7 +389,7 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return catalog.list_gallery(
             client,
             limit=limit,
@@ -472,7 +429,7 @@ def build_server(client):
         and rates are arguments the caller supplies, and a wrong one is a
         failed job or, worse, silence padded onto the end of a track.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         return catalog.get_gallery_metadata(
             client, name, envelope=envelope, workspace=workspace
         )
@@ -538,7 +495,7 @@ def build_server(client):
         `crop` is `[x, y, width, height]` in the original's pixels,
         cut before the downscale.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_image(
             client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
@@ -571,7 +528,7 @@ def build_server(client):
         seconds, per `get_gallery_metadata`'s envelope. The text part
         says what was cut. To *see* a video, `get_output_frames`.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_audio(
             client, name, start=start, duration=duration, workspace=workspace
         )
@@ -610,7 +567,7 @@ def build_server(client):
         pixels, cut from every frame before any downscale, like
         `get_output_image`'s.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_frames(
             client,
             name,
@@ -687,7 +644,7 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return media.get_output_text(
             client, name, max_characters=max_characters, workspace=workspace
         )
@@ -710,7 +667,7 @@ def build_server(client):
         directory, or unknown, is an error.
 
         `workspace` pins this call to another workspace without switching
-        the session (#99); a `job_id` delete with no `workspace` goes to
+        the session; a `job_id` delete with no `workspace` goes to
         the workspace the job ran in."""
         return media.delete_output(client, name, workspace=workspace, job_id=job_id)
 
@@ -743,7 +700,7 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return media.download_output(
             client,
             name,
@@ -837,7 +794,7 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return assets.keep_output(
             client,
             name,
@@ -916,55 +873,36 @@ def build_server(client):
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
         signatures. Free and instant - always run this before run_workflow.
-        Give exactly one of `workflow` or `name` - `name` being a stored
-        workflow as `list_workflows` reports it. `run_workflow` calls these
-        same two concepts `inline_workflow` and `workflow_path`; both tools
-        accept both spellings, so a definition or a name checked here can be
-        handed straight to `run_workflow` without renaming a key. Every
-        schema error comes back at once, each with its JSON path.
-        `workflow`/`inline_workflow` may also be a JSON-encoded string; a
-        parse failure is reported as invalid JSON, not a type mismatch.
-        `workspace` names the workspace for this one call without switching
-        the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's.
-
-        Pass the same `arguments` you will pass to `run_workflow` and they
-        are checked too: a name the workflow no longer declares, a value
-        that will not coerce to the declared type, and an `asset:`,
-        `prompt:` or `output:` reference that names nothing this workspace
-        can reach - each with `arguments.<name>` as its path.
-        `checked_arguments` lists what was checked, so a valid answer says
-        whether it covered your values or only the stored defaults.
-
-        A value outside a bound the workflow declares for that variable is
-        an error here rather than a failed run: H3's frame count has to be
-        `17 * n + 5` between 124 and 345, and 61 used to validate and then
-        fail 138 s into the run, after the weights were loaded. A value the
-        workflow rounds up instead of refusing comes back as a warning
-        naming what it becomes, so a frame count the run changes is known
-        before the run. `get_workflow(variables_only=true)` and
-        `list_workflows` report the bound beside the default.
-
-        A `result.subfolder` or `file_base_name` that cannot be written (a
-        `..`, a backslash, a separator in `file_base_name`) is reported here
-        at its JSON path, after `for_each` expansion.
-
-        A sub-workflow step is resolved too: a `workflow.path` that names
-        nothing this server can reach is an error at
-        `steps[N].workflow.path` (the message lists where it looked), the
-        workflow it names is validated in turn under that path, a
-        composition cycle is refused, and an argument passed down that the
-        composed workflow declares no variable for comes back as a
-        warning.
+        Give exactly one of `workflow` or `name` (a stored workflow as
+        `list_workflows` reports it); `run_workflow`'s `inline_workflow`
+        and `workflow_path` spellings are accepted here too. `workflow` may
+        be a JSON-encoded string. Every error comes back at once, each with
+        its JSON path. `workspace` pins this one call to another workspace
+        without switching the session.
 
         A valid answer carries `plan`: what will execute for these
         arguments - `estimate.minutes` and its `basis` (`observed`,
         `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
-        what each means and how to quote it is WORKFLOW_GUIDE's "The loop",
-        step 4), each `downloads_required` entry as its own cost line, and
-        `steps`/`list_entries` for how many members the list actually
-        produced. `plan` is null when it could not be built; the verdict
-        stands."""
+        how to quote each is WORKFLOW_GUIDE's "The loop", step 4), each
+        `downloads_required` entry as its own cost line, and
+        `steps`/`list_entries` for how many members the list produced.
+        `plan` is null when it could not be built; the verdict stands.
+
+        Pass the same `arguments` you will pass to `run_workflow` and they
+        are checked too: an undeclared name, a value that will not coerce,
+        and an `asset:`/`prompt:`/`output:` reference naming nothing this
+        workspace can reach, each at `arguments.<name>`.
+        `checked_arguments` says whether your values or only the stored
+        defaults were checked. A value outside a bound the workflow
+        declares (H3's frame count is `17 * n + 5` from 124 to 345) is an
+        error here rather than a failed run; one the workflow rounds up
+        comes back as a warning naming what it becomes.
+
+        Also checked: an unwritable `result.subfolder` or `file_base_name`,
+        after `for_each` expansion; and each sub-workflow step - an
+        unreachable `workflow.path`, the composed workflow in turn, a
+        composition cycle, and (as a warning) an argument passed down that
+        it declares no variable for."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,

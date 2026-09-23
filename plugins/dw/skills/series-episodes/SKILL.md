@@ -123,6 +123,4 @@ mismatch between episodes shows up before a viewer notices it.
 `workflows/templates/assemble-and-score.json`, `dw/tasks/audio_utils.py`
 (`loop_audio`, `match_levels`, `normalize_audio`), `dw/tasks/pair_audio.py`,
 `docs/WORKSPACES.md` (the shared asset library), the `minimax-h3` skill
-this composes into. Written from issue #217 (dkackman/diffusers-workflow),
-which named the drift as a recurring, undocumented failure across two
-hand-built episodes.
+this composes into.

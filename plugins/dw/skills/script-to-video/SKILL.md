@@ -24,10 +24,7 @@ does not parse screenplay formats.
 The unit that matters is *shots*, not lines or scenes: one scene may be
 several shots, and `dw:minimax-h3`'s sweet spot is 4-6 second shots (the
 `17*n+5` frame grid). For each shot, name it, note which character(s)
-appear, what happens, and roughly how long it runs. This is genuine
-reasoning work with no existing mechanism to lean on - the one step where
-"an LLM does this well" is actually true here, unlike auto-tuning a slow
-model.
+appear, what happens, and roughly how long it runs.
 
 ## 3. Cast recurring characters once, before any shot generates
 

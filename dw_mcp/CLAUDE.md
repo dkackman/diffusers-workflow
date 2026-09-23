@@ -80,3 +80,13 @@ run-directory delete already accepts, so a whole run goes in one call without
 a gallery listing to find its name. Authoring has two halves: `get_schema` describes a workflow and
 `get_prompt_schema` a stored prompt, which a workflow reaches by
 `"prompt:name"`. See docs/MCP.md.
+
+Claude Code shows an MCP server's `instructions` and each tool description
+only up to 2,048 characters, then appends "[truncated]": nothing past that
+reaches the agent. The instructions ran to 4,056 and cut off before the run
+loop, `acknowledged_cost` and the reference prefixes; `validate_workflow`'s
+`plan` paragraph sat past the cut. `CLIENT_TEXT_LIMIT` in
+`tests/test_mcp_server.py` pins every one under it, alongside
+`SURFACE_BUDGET`'s total. Put what an agent must act on first, and point at a
+guide section rather than restating it - the instructions and `list_workflows`
+sit within a few dozen characters of the limit.

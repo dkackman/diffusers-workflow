@@ -148,16 +148,15 @@ Control" section.
    deliverables. Keep the convention in anything you compose from a template:
    the step whose output the user will be shown is `final`, every other
    saving step `intermediate`.
-4. You cannot listen: no tool returns audio inline. Hand the user the gallery
-   `url` (`list_gallery`, or the manifest's file name) and check what you can
-   yourself - `get_gallery_metadata` for the file's duration against the
-   ceiling: `media.duration_seconds` within 0.2 s of `audio_duration` means
-   the ceiling cut the track (raise it and rerun); well short of it means the
-   song finished on its own. Also check the sample rate. Ask the user to
-   listen for the family's failure
-   modes: a song that went instrumental (name the vocals in the caption), an
-   ending cut mid-note (raise the ceiling, then trim), a structure that ignored
-   the tags (fewer sections, plainer directions).
+4. Judge it yourself. `get_gallery_metadata` for duration and sample rate:
+   `media.duration_seconds` within 0.2 s of `audio_duration` means the
+   ceiling cut the track (raise it and rerun); well short of it means the
+   song finished on its own. Then listen with `get_output_audio` (a long
+   track in `start`/`duration` excerpts) for the family's failure modes: a
+   song that went instrumental (name the vocals in the caption), an ending
+   cut mid-note (raise the ceiling, then trim), a structure that ignored the
+   tags (fewer sections, plainer directions). Hand the user the gallery
+   `url` (`list_gallery`, or the manifest's file name).
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
 6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
