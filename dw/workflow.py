@@ -86,6 +86,7 @@ from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
 from . import get_device, empty_device_cache, device_memory_stats
+from .host_memory import release_host_caches
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -250,6 +251,21 @@ def _allocated_mb():
     except Exception:  # a progress figure is never worth failing a run over
         return None
     return stats["allocated_mb"] if stats["available"] else None
+
+
+def _release_host_caches(step_name):
+    """Hand the host memory a release freed back to the OS, not at job end.
+
+    `release_host_caches` only touches blocks nothing is using, so anything
+    still loaded is undisturbed. A cleanup is never worth failing a run for.
+    """
+    try:
+        released = release_host_caches()
+    except Exception as e:
+        logger.debug(f"Could not release host caches after {step_name}: {e}")
+        return
+    if released:
+        logger.info(f"Release after {step_name} returned {released:.0f} MB to the OS")
 
 
 def selected_field(step_data, selected):
@@ -1418,6 +1434,13 @@ class Workflow:
                     step_action = None
                     gc.collect()
                     empty_device_cache()
+                    # The device cache is not the only one the release fills:
+                    # the pinned-host staging buffers the pipeline offloaded
+                    # through and the heap arenas its weights were read into
+                    # stay in this process's RSS until they are handed back,
+                    # which otherwise waits for the end of the job - ~10 GB
+                    # held through every step after the release (#368)
+                    _release_host_caches(step.name)
                     # Say so on the event stream. The release is otherwise
                     # invisible to a consumer: it sits inside the sub-second
                     # window between a step's generation and its files
@@ -1512,6 +1535,8 @@ class Workflow:
                 if step_data.get("release_models", False):
                     logger.info(f"Releasing task models for step: {step.name}")
                     clear_model_cache()
+                    gc.collect()
+                    _release_host_caches(step.name)
 
                 # Cleanup between steps (but keep pipelines loaded). Returning
                 # cached blocks to the device lets the next step's differently
@@ -1738,6 +1763,7 @@ class Workflow:
                 previous_pipelines.pop(prior_key, None)
                 gc.collect()
                 empty_device_cache()
+                _release_host_caches(step_name)
                 # Say so on the event stream, for the same reason the explicit
                 # release does: without it a reload-on-top-of-a-resident-model
                 # is indistinguishable from a cold load, and the difference is
