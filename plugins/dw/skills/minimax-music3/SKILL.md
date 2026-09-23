@@ -25,9 +25,11 @@ shapes; do not author a new workflow until the shape decision below fails.
    is cached from another moment - it reads low while a job is loading a model,
    so ask again once the server is idle rather than trusting it. A non-trivial
    idle figure is what an earlier run left behind, and it comes off the ~22 GB
-   these templates need. Nothing over
-   MCP clears it, so say so and ask the operator to restart the worker rather
-   than retrying into it - a failed attempt is itself what leaves weight
+   these templates need. With the server idle, `clear_memory` clears it
+   (refused while a job is queued or running) - it also drops the step cache,
+   so the next run, including a seeded rerun, is cold and regenerates. Re-read
+   `get_memory` afterwards to confirm. Don't retry into a failed attempt
+   without clearing first - a failed attempt is itself what leaves weight
    resident, so an immediate retry starts from less than the attempt that just
    failed had.
 

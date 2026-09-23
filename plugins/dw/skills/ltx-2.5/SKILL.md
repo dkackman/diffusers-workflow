@@ -24,9 +24,12 @@ Lightricks' own caption spec, quoted below from diffusers.
    reading's `gpu_memory_allocated_mb`. Only those are the worker's own:
    `info: null` means nothing is resident, and a `live: false` reading is
    cached from another moment. A non-trivial idle figure is what an earlier
-   run left behind and comes off what this one has. Nothing over MCP clears
-   it - ask the operator to restart the worker rather than retrying into it,
-   since a failed attempt is itself what leaves weight resident.
+   run left behind and comes off what this one has. With the server idle,
+   `clear_memory` clears it (refused while a job is queued or running) - it
+   also drops the step cache, so the next run, including a seeded rerun, is
+   cold and regenerates. Re-read `get_memory` afterwards to confirm. Don't
+   retry into a failed attempt without clearing first - a failed attempt is
+   itself what leaves weight resident.
 
 ## Which shape is the request
 
