@@ -138,6 +138,7 @@ def run_workflow(
         "job_id": job.get("id"),
         "status": job.get("status"),
         "queue_position": job.get("queue_position"),
+        "workspace": job.get("workspace"),
         "next": "Poll get_job_events(job_id) for progress, then get_job(job_id) "
         "for the manifest or the error.",
     }
