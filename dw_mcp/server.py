@@ -526,7 +526,15 @@ def build_server(client):
         excerpted. No downscale exists for audio - a whole clip too
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
-        says what was cut. To *see* a video, `get_output_frames`.
+        says what was cut. To *see* a video, `get_output_frames`. To
+        confirm the *words* an output speaks rather than hear it - a
+        text-only client can't consume the `AudioContent` block this
+        returns - run `run_workflow(name="templates/transcribe-audio",
+        arguments={"input_audio": "output:<name>"}, wait_seconds=55)` (it
+        takes an audio file or a video's muxed soundtrack directly) then
+        `get_output_text` on the result, and `delete_output` the scratch
+        run afterward. Two calls and a short wait, not a GPU-spending read
+        tool - keep the normal queue rather than adding one.
 
         `workspace` pins this call to another workspace."""
         result = media.get_output_audio(

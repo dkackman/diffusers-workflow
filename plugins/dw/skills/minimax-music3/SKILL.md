@@ -46,7 +46,10 @@ shapes; do not author a new workflow until the shape decision below fails.
   ceiling comfortably longer than the cut, trimmed and faded with
   `templates/audio-trim-fade`, then mixed under the picture the way
   `templates/assemble-and-score` does with `pair_audio`. Each H3 shot should
-  have written `non_diegetic_music: N/A` so the two scores do not fight.
+  have written `non_diegetic_music: N/A` so the two scores do not fight. A
+  score that buries a shot's voice-over is not a `world_gain` fix - see the
+  `minimax-h3` skill's ducking recipe: `gain_audio` regions on the score
+  itself, one per voice-over shot, applied before it is passed as `score`.
 - **A music video**: `templates/minimax/music-video`. The song is written
   first, `slice_audio` deals frame-exact pieces to lip-synced H3 shots, and
   `pair_audio` lays the unbroken track back over the edit. The ceiling must

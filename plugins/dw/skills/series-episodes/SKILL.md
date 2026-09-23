@@ -86,7 +86,11 @@ composes into, not something to re-derive:
 - **match_levels**: shots generated independently drift in loudness -
   `assemble-and-score`'s `match_levels` (`"rms"` or `"peak"`) evens them
   before the cut; leaving it null only warns on a wide spread instead of
-  fixing it.
+  fixing it. A shot whose voice-over the score buries is a different
+  problem, not fixed by `match_levels` or `world_gain` (which lifts the
+  whole world track, action sound included) - see `minimax-h3`'s ducking
+  recipe: `gain_audio` regions on the score, one per voice-over shot,
+  applied before the score is passed in.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS) so one episode is not
   louder than the next.
@@ -116,7 +120,12 @@ between shots, a portrait imposing its framing, a voice without affect):
 watch two episodes back to back and check the cast reads as the same
 people - the failure mode step 0 exists to prevent. `get_gallery_metadata`
 on each episode's final file for duration and loudness, so a level
-mismatch between episodes shows up before a viewer notices it.
+mismatch between episodes shows up before a viewer notices it. To confirm a
+line actually rendered rather than judging it by ear, `get_output_audio`
+returns sound, not text: `run_workflow(name="templates/transcribe-audio",
+arguments={"input_audio": "output:<name>"}, wait_seconds=55)` then
+`get_output_text` on the result (it takes the episode's muxed soundtrack
+directly), and delete the scratch run afterward.
 
 ## Sources
 
