@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from dw.for_each import MAX_FOR_EACH_ENTRIES
@@ -6,15 +7,22 @@ from dw.step_cache import (
     deep_equal,
     reference_resolves_to,
     normalized_downstream,
+    _result_bytes,
 )
 
 
 class FakeResult:
-    def __init__(self, label, saved_files=None):
+    def __init__(self, label, saved_files=None, result_list=None):
         self.label = label
         # Default to no files: a hit verifies every saved file still exists,
         # and most of these tests are about key matching, not disk state
         self.saved_files = [] if saved_files is None else list(saved_files)
+        self.result_list = [] if result_list is None else result_list
+
+
+def _frames(count, height=64, width=64, channels=3):
+    # A stand-in for decoded video frames - real weight, not a mock of it
+    return [np.zeros((height, width, channels), dtype=np.uint8) for _ in range(count)]
 
 
 def test_deep_equal_matches_identical_nested_dicts():
@@ -260,6 +268,60 @@ def test_the_default_cap_fits_a_maximal_for_each_run():
     # A maximal for_each run over two groups plus fixed steps must fit, or a
     # run evicts its own earlier members before it finishes.
     assert StepCache.DEFAULT_MAX_ENTRIES >= 2 * MAX_FOR_EACH_ENTRIES + 8
+
+
+def test_result_bytes_sums_array_frames_and_ignores_scalars():
+    result = FakeResult("video", result_list=[{"videos": _frames(10), "fps": 24}])
+    assert _result_bytes(result) == 10 * 64 * 64 * 3
+
+
+def test_result_bytes_does_not_double_count_a_shared_object():
+    # get_artifact_list's fitted-in-place audio can be referenced by more
+    # than one artifact in the same result_list - the byte budget should
+    # not charge for it twice
+    audio = np.zeros(1000, dtype=np.float32)
+    result = FakeResult("av", result_list=[{"audio": audio}, {"audio": audio}])
+    assert _result_bytes(result) == audio.nbytes
+
+
+def test_step_cache_evicts_retained_entries_over_the_byte_budget():
+    """Every shot@ member of a for_each group is legitimately retained (the
+    gather step genuinely reads all of them), but nothing bounded how much
+    decoded media that retention pins resident once the run that needed it
+    is done (#368) - the byte budget is the bound, on top of the entry cap."""
+    frame_bytes = 64 * 64 * 3
+    cache = StepCache(max_entries=128, max_retained_bytes=4 * frame_bytes)
+    for name in ("shot@a", "shot@b", "shot@c"):
+        result = FakeResult(name, result_list=[{"videos": _frames(2)}])
+        cache.put("w", {"name": name}, 1, result, "/out", True)
+
+    # 3 entries x 2 frames each = 6 frames worth, over the 4-frame budget -
+    # the least recently used (shot@a) is evicted despite being well under
+    # the entry-count cap
+    assert cache.get("w", {"name": "shot@a"}, 1, set(), "/out", True) is None
+    assert cache.get("w", {"name": "shot@b"}, 1, set(), "/out", True) is not None
+    assert cache.get("w", {"name": "shot@c"}, 1, set(), "/out", True) is not None
+
+
+def test_step_cache_has_a_default_byte_budget():
+    cache = StepCache()
+    assert cache.max_retained_bytes == StepCache.DEFAULT_MAX_RETAINED_BYTES
+
+
+def test_step_cache_never_evicts_the_only_retained_entry_over_budget():
+    cache = StepCache(max_retained_bytes=1)
+    result = FakeResult("big", result_list=[{"videos": _frames(5)}])
+    cache.put("w", {"name": "only"}, 1, result, "/out", True)
+
+    assert cache.get("w", {"name": "only"}, 1, set(), "/out", True) is result
+
+
+def test_step_cache_unretained_result_does_not_count_against_the_byte_budget():
+    cache = StepCache(max_retained_bytes=1)
+    heavy = FakeResult("heavy", result_list=[{"videos": _frames(5)}])
+    cache.put("w", {"name": "unretained"}, 1, heavy, "/out", False)
+
+    assert cache._retained_bytes == 0
 
 
 def test_step_cache_clear():

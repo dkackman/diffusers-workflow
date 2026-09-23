@@ -146,6 +146,7 @@ def test_shutdown_during_run_cancels_then_flags_shutdown():
 
 class StubResult:
     saved_files = []
+    result_list = []
 
 
 def test_full_cleanup_clears_step_cache():
