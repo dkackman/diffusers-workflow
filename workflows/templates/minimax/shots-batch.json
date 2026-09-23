@@ -1,46 +1,66 @@
 {
-    "id": "MiniMaxH3768p",
-    "description": "The 768p counterpart to 'video-with-audio'. Same pipeline, same offload and quantization; what differs is the checkpoint and the four numbers that go with it. 'lightx2v/Minimax-h3-Turbo' carries an 8-step FL2VA/T2VA turbo LoRA trained at exactly 1344x768 with a training shift of 6 for video and 3 for audio, and LightX2V's own hosted Studio runs it. Those move together: the base scheduler ships shift 12.0, which is the 544p figure, so the same weights on the default schedule spend a short sigma grid near sigma 1 and then drop to zero in one step. The alpha moves with them too - the file records 'alpha: 8' in its '__metadata__' at rank 128 and diffusers honors that, while upstream's own 768p invocation passes '--lora-alpha 128', sixteen times the strength the file asks for. 'num_inference_steps' is 9 for an 8-step checkpoint because the scheduler counts sigma grid points and the terminal zero is one of them. Keep 'video-with-audio' for fast iteration at 544p; this is the render. It does not lift the memory ceiling: peak attention memory is per step, so 1344x768 buys quality and, at 9 steps rather than 20, time - but a 24 GB card still runs out of room long before 345 frames at this canvas, and the frame count is where to give ground.",
-    "summary": "The MiniMax H3 quality path: text to video with audio at 1344x768, on the 768p turbo LoRA's own schedule.",
+    "id": "MiniMaxH3ShotsBatch",
+    "description": "A batch of independent H3 shots on one loaded model - each its own prompt and length, no shared subject, no concat. The assembly is a deliberately separate job: promote each clip with keep_output and hand the set to assemble-and-score, which cuts them together and lays a score underneath.",
     "cost": [
         {
             "device": "cuda",
             "name": "RTX 3090",
             "vram_gb": 24,
-            "minutes": 9.87
+            "minutes": 19.4,
+            "per_entry": {
+                "variable": "shots",
+                "minutes": 3.49,
+                "entries": 5
+            }
         }
     ],
-    "cost_drivers": [
-        "num_frames",
-        "num_inference_steps",
-        "width",
-        "height"
-    ],
+    "cost_drivers": ["shots", "num_inference_steps", "width", "height"],
     "vram_estimate": {
         "base_gb": 16.3,
         "bytes_per_voxel": 28.71,
-        "voxel_variables": [
-            "width",
-            "height",
-            "num_frames"
-        ],
-        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; base_gb and bytes_per_voxel are calibrated from two real runs: image-to-video's family baseline at 960x544x124 (on-demand VAE) succeeded at 18.03 GiB peak reserved (docs/WORKFLOW_GUIDE.md), and video-with-audio-768p at 1344x768x345 (the family's own num_frames ceiling) OOM'd mid-denoise needing >=25.82 GiB - 20.25 GiB already allocated plus a refused 5.57 GiB allocation, on a 23.56 GiB card (job 282172105da1, 2026-09-22) - closing the gap #265/#266 left the H3 family with nothing declared to check the engine's vram_estimate machinery against (#324)"
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the transformer's peak activation memory scales with the token count the video and audio streams produce, which is proportional to width * height * num_frames"
     },
     "variables": {
-        "prompt": "prompt:minimax/fox_dawn_context_ir",
-        "num_frames": 124,
-        "width": 1344,
-        "height": 768,
+        "shots": [
+            {
+                "name": "shot_1",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. A lighthouse keeper climbs a spiral staircase at dawn, footsteps echoing on iron treads, gulls calling outside. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_2",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. The keeper reaches the lamp room and lights the beacon, glass clinking, wind picking up against the panes. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_3",
+                "prompt": "Task: T2VA. Duration: 6.42 seconds. The beacon sweeps across a dark sea, waves rolling against rocks below, a foghorn sounding in the distance. non_diegetic_music: N/A",
+                "num_frames": 158
+            },
+            {
+                "name": "shot_4",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. A distant ship changes course toward the light, its horn answering the foghorn once. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_5",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. The keeper settles into a chair by the lamp, journal in hand, the beacon turning steadily behind him. non_diegetic_music: N/A",
+                "num_frames": 124
+            }
+        ],
+        "width": 960,
+        "height": 544,
         "num_inference_steps": 9,
-        "video_shift": 6.0,
+        "video_shift": 12.0,
         "audio_shift": 3.0,
         "weights_dtype": "{int4}",
         "lora_scale": 1.0,
-        "lora_alpha": 128,
+        "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
         "lora_adapter_name": "turbo",
-        "seed": 42
+        "seed": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -55,20 +75,18 @@
     "seed": "variable:seed",
     "steps": [
         {
-            "name": "text_to_video_audio",
+            "name": "shot",
+            "for_each": "variable:shots",
+            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
+                    "pre_load_modules": ["sdnq"],
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
                             "transformer": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
                                 "arguments": {
                                     "weights_dtype": "variable:weights_dtype",
                                     "quantization_device": "cuda",
@@ -89,24 +107,17 @@
                                 }
                             },
                             "text_encoder": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
                                 "arguments": {
                                     "weights_dtype": "variable:weights_dtype",
                                     "quantization_device": "cuda",
                                     "return_device": "cpu",
                                     "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        ".model.visual",
-                                        "lm_head"
-                                    ]
+                                    "modules_to_not_convert": [".model.visual", "lm_head"]
                                 }
                             },
                             "vae": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
                                 "arguments": {
                                     "weights_dtype": "{int8}",
                                     "quant_conv": true,
@@ -128,27 +139,13 @@
                                 "low_cpu_mem_usage": true
                             }
                         },
-                        "text_encoder": {
-                            "remove_modules": [
-                                "lm_head"
-                            ]
-                        },
+                        "text_encoder": {"remove_modules": ["lm_head"]},
                         "text_encoder.model": {
-                            "truncate_layers": {
-                                "language_model.layers": 51
-                            },
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
+                            "truncate_layers": {"language_model.layers": 51},
+                            "group_offload": {"offload_type": "leaf_level"}
                         },
-                        "vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        },
-                        "audio_vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        }
+                        "vae": {"device": "cuda", "residency": "on_demand"},
+                        "audio_vae": {"device": "cuda", "residency": "on_demand"}
                     }
                 },
                 "from_pretrained_arguments": {
@@ -164,28 +161,21 @@
                         "alpha": "variable:lora_alpha"
                     }
                 ],
-                "scheduler": {
-                    "shift": "variable:video_shift"
-                },
-                "audio_scheduler": {
-                    "shift": "variable:audio_shift"
-                },
+                "scheduler": {"shift": "variable:video_shift"},
+                "audio_scheduler": {"shift": "variable:audio_shift"},
                 "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_frames": "variable:num_frames",
+                    "prompt": "item:prompt",
+                    "num_frames": "item:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_inference_steps": "variable:num_inference_steps",
-                    "output": [
-                        "videos",
-                        "audio",
-                        "sampling_rate"
-                    ]
+                    "output": ["videos", "audio", "sampling_rate"]
                 }
             },
             "result": {
                 "content_type": "video/mp4",
                 "fps": 24,
+                "file_base_name": "item:name",
                 "subfolder": "final"
             }
         }

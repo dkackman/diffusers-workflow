@@ -1,11 +1,13 @@
 {
     "variables": {
         "checkpoint_path": "https://huggingface.co/city96/FLUX.1-dev-gguf/blob/main/flux1-dev-Q2_K.gguf",
-        "prompt": "a marmot wearing a tophat, in a forest scene."
+        "prompt": "a marmot wearing a tophat, in a forest scene.",
+        "seed": null
     },
     "id": "FluxGGUF",
     "description": "FLUX.1 dev loaded from a GGUF-quantized transformer checkpoint.",
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "main",

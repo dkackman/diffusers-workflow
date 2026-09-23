@@ -15,8 +15,10 @@
     "variables": {
         "prompt": "prompt:minimax/acoustic_pop_song",
         "lyrics": "[verse]\nMining farms burning through the grid all day\nChia swapped the furnace for the plots you lay\nNo more e-waste piling up when the rigs retire\nGreen space farming puts out yesterday's fire\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this\n[verse]\nOffer files trade without a middleman in sight\nChialisp writes the rules and locks the CAT in tight\nMarmots watch the validators keep it fair and slow\nNo more trusting strangers with the coins you owe\n[chorus]\nChia fixes this\nChia fixes this\nEnergy waste, ASIC greed, centralized control\nChia fixes this",
-        "audio_duration": 120
+        "audio_duration": 120,
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "generate_music",

@@ -16,8 +16,10 @@
         "image": {
             "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
         },
-        "enhancer_weights_dtype": "{uint4}"
+        "enhancer_weights_dtype": "{uint4}",
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "enhanced_image_to_video",

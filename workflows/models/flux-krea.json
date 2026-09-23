@@ -5,11 +5,13 @@
         "num_inference_steps": 25,
         "guidance_scale": 4.5,
         "width": 768,
-        "height": 768
+        "height": 768,
+        "seed": null
     },
     "id": "FluxDevKrea",
     "description": "Text-to-image with FLUX.1 Krea dev, tuned for photographic aesthetics.",
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

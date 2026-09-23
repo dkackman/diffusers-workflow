@@ -2,10 +2,12 @@
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true",
         "vision_model": "Qwen/Qwen3-VL-4B-Instruct",
-        "language_model": "Qwen/Qwen2.5-1.5B-Instruct"
+        "language_model": "Qwen/Qwen2.5-1.5B-Instruct",
+        "seed": null
     },
     "id": "img2txt2img",
     "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev. Both text steps are the 'text_generation' task - with an image it runs the vision model named in 'vision_model', without one the language model in 'language_model' - and 'release_models' drops each before the next model loads. Every model is one transformers ships, so nothing needs --trust-workflows.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "input_image",

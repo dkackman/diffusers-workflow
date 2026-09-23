@@ -1,10 +1,12 @@
 {
     "variables": {
         "input_image": "https://pbs.twimg.com/media/Ge7NpKpWAAAq6L4?format=jpg&name=large",
-        "prompt": "fill in with more clouds, rainbows, stars and rockets"
+        "prompt": "fill in with more clouds, rainbows, stars and rockets",
+        "seed": null
     },
     "id": "FluxOutpaint",
     "description": "Extends an image beyond its borders: adds a border mask, then fills it with FLUX.1 Fill dev.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "mask_image",

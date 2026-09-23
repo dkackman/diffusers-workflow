@@ -3,8 +3,10 @@
     "description": "FLUX.1 dev generation with full generation metadata embedded in the saved PNG.",
     "variables": {
         "prompt": "A serene mountain landscape at golden hour, photorealistic",
-        "steps": 25
+        "steps": 25,
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "generate",

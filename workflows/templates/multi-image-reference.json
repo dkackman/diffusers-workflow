@@ -10,7 +10,8 @@
         },
         "second_image": {
             "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
-        }
+        },
+        "seed": null
     },
     "id": "Flux2DevImageCombine",
     "description": "FLUX.2 dev combining multiple reference images into a single generation. Loads its 4-bit text encoder locally with model offloading rather than calling a remote encoder.",
@@ -22,6 +23,7 @@
             "minutes": 2.5
         }
     ],
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

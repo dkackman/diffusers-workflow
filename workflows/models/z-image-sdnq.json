@@ -5,11 +5,13 @@
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
         "width": 1024,
-        "height": 1024
+        "height": 1024,
+        "seed": null
     },
     "id": "ZImageSDNQ",
     "description": "Z-Image Turbo pre-quantized to SDNQ uint4 - the same nine-step generation in a fraction of the VRAM.",
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

@@ -2,13 +2,15 @@
     "cost_drivers": ["num_images_per_prompt"],
     "variables": {
         "prompt": "an apple",
-        "num_images_per_prompt": 1
+        "num_images_per_prompt": 1,
+        "seed": null
     },
     "id": "text-to-image",
     "description": "Baseline text-to-image with Stable Diffusion 1.5 - the smallest, fastest starting point. It loads with 'safety_checker': null: SD 1.5's checker false-positives on ordinary prompts for particular seeds and returns a solid black image rather than an error, which a reference template used to prove the engine works must not do. Any pipeline that keeps the checker says so as a 'safety_checker_blanked' warning when it fires.",
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.2}
     ],
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "main",

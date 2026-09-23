@@ -6,7 +6,8 @@
         "num_inference_steps": 25,
         "guidance_scale": 3.5,
         "width": 768,
-        "height": 768
+        "height": 768,
+        "seed": null
     },
     "id": "FluxDev",
     "description": "Text-to-image with FLUX.1 dev - the reference FLUX workflow.",
@@ -14,6 +15,7 @@
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.0}
     ],
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

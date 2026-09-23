@@ -37,9 +37,9 @@ arguments; the prompt format is MiniMax's, from their text not here.
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
-  generation, which no concat of separate clips can match. One beat with fixed
-  cut points, not a building block; past one beat with a recurring cast, use
-  the cuts pattern below.
+  generation, which no concat can match. One beat with fixed cut points, not
+  a building block; past one beat with a recurring cast, use the cuts
+  pattern below.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes (each cut its own generation).
   Six distinct scenes are a cuts piece, not a chain.
@@ -56,27 +56,26 @@ arguments; the prompt format is MiniMax's, from their text not here.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry on one loaded model, `concat_videos` splices) and
   `templates/minimax/music-video` (a song, one slice and one lip-synced shot
-  per entry; its singer is the `singer_reference` argument - a `from_file`
-  reference uses a cast portrait that exists and elides the drawing).
+  per entry; its singer is `singer_reference` - a `from_file` reference uses
+  an existing cast portrait and elides the drawing).
   `shots` is one list argument: a dialogue entry is `name`, `prompt`,
   `references` (portraits and voices: `from_previous_result` for one drawn
   here, `from_file` for an `asset:` cast) and `num_frames`; a music-video
-  entry is `name`, `prompt` and `start_frame`.
-  A six-shot piece is one more entry, not another file. The listing's
+  entry is `name`, `prompt`, `start_frame`.
+  A six-shot piece is one more entry, not a new file. The listing's
   `lists` block says what an entry carries; its `cost` carries `per_entry`
   when one shot was measured: quote
   `minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N`
-  for N entries. Without `per_entry`, quote the total and say it is the
-  default list's.
+  for N entries. Without `per_entry`, quote the total for the default list.
   A cut erases drift: the last shot is as clean as the first. Each shot makes
   its own audio, so write `non_diegetic_music: N/A` in every shot and lay one
   score under the concat afterwards: `templates/minimax/music` writes the
   track and `templates/assemble-and-score` shows the `pair_audio` step that
   mixes it under the world sound (three shots; for more, author the concat
   and score steps the same way). A character speaking in several shots keeps
-  one voice by passing the same clip as an audio reference in each (the
+  one voice by passing the same clip as an audio reference each time (the
   `voice-timbre-reference` pattern) - a repeated description alone drifts.
-  Each entry's `num_frames` is its own, so pace the cut.
+  Each entry's `num_frames` paces the cut.
   A score burying voice-over is not a `world_gain` fix: the world track
   carries narration and action together (narration ~24 dB over its own
   ambience, score 6-15 dB over that), so raising it lifts both. Duck the
@@ -84,7 +83,10 @@ arguments; the prompt format is MiniMax's, from their text not here.
   step per voice-over shot, chained, `start_frame` = running sum of
   preceding shots' `num_frames`, `num_frames` that shot's length, `fps`
   the cut's rate, negative `gain_db` (-6 to -10). `dissolve-between-shots`
-  eats a `dissolve_frames` per seam, so its sum isn't plain.
+  eats `dissolve_frames` per seam, so its sum isn't plain.
+- **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
+  step per `shots` entry, no shared cast, no concat. `keep_output` each
+  clip, then `templates/assemble-and-score` cuts and scores.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -106,10 +108,10 @@ read the `workflows` guide's authoring section first.
   **6**/3, **alpha 128** - `video-with-audio-768p`; 768p Ref2VA turbo, shift
   12/3, alpha unset - every `ref2va` template. The two 768p LoRAs differ in
   shift; do not generalise.
-  Never put an FL2VA LoRA on a reference template: a `ref2va` step holds
-  `transformer_ref` alone and diffusers routes whatever it is handed there,
-  so it only degrades the output. `validate_workflow` refuses it and warns
-  on a `weight_name` naming neither path.
+  Never put an FL2VA LoRA on a reference template: `ref2va` holds
+  `transformer_ref` alone, so whatever is handed there only degrades the
+  output. `validate_workflow` refuses it and warns on a `weight_name`
+  naming neither path.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8 - expected, not
   upstream's `--inference-steps 8` read literally.
@@ -138,8 +140,7 @@ the rules come from MiniMax, not from paraphrasing one:
    https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
    say once that
    `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing` installs
-   it - only that skill; the repo's other eight are style packs - and go on
-   without it.
+   it - only that one; the rest are style packs - and go on without it.
 2. Else read the guides on the model card:
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
    for text and frame conditioning, and
@@ -172,27 +173,26 @@ itself - or every shot inherits the portrait's composition.
    two-minute gaps are healthy. `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
-   `intermediate` the scratch; keep that split in anything you compose.
+   `intermediate` the scratch; keep that split in what you compose.
 4. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
    `seams=true` (each later shot's start frame) for a cut's joins - a
    character that changes between shots (reference the same portraits
    everywhere), a portrait imposing its framing on every shot - `at` late in
-   a chain for drift sharpening into noise, and `get_output_audio` for a
+   a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. `get_output_audio` returns sound, not text; to
    confirm a line rendered rather than judge its delivery,
    `run_workflow(name="templates/transcribe-audio",
-   arguments={"input_audio": "output:<name>"}, wait_seconds=55)` (takes the
-   muxed soundtrack directly) then `get_output_text` on the result, and
-   `delete_output` the scratch run. Then `get_gallery_metadata` for duration
-   and whether audio is present, and hand the user the gallery `url`
+   arguments={"input_audio": "output:<name>"}, wait_seconds=55)` then
+   `get_output_text` on the result, and `delete_output` the scratch run.
+   Then `get_gallery_metadata` for duration and whether audio is present,
+   and hand the user the gallery `url`
    (`list_gallery`). `get_output_image` works only on image steps - the
    Z-Image portraits and boards of `dialogue-short`, `storyboard`,
    `generated-subject-reference` and `music-video`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
-   `open_url` into `exports/` (never a temp dir; unpacks into a job-id
-   folder). `true` - hand `open_url` to the person instead and keep using
-   `get_output_image`/`_audio`/`_frames`.
+   `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
+   to the person instead and keep using `get_output_image`/`_audio`/`_frames`.
 
 ## Sources
 

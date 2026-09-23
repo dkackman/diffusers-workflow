@@ -215,8 +215,9 @@ def unseeded_cache_warnings(definition, arguments=None):
     return [
         "This workflow sets no 'seed', so the step cache is disabled and "
         "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed' to make a repeat run reuse "
-        "what it already produced"
+        "on every run. Set a top-level 'seed': 'variable:seed' with a "
+        "declared default in 'variables' to make a repeat run reuse what it "
+        "already produced"
     ]
 
 
