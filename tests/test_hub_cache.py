@@ -1,9 +1,11 @@
 """The hub cache manager: scanning what from_pretrained left on disk and
 deleting it through huggingface_hub's own strategy."""
 
+import json
+
 import pytest
 
-from dw.hub_cache import scan_models, delete_model
+from dw.hub_cache import scan_models, delete_model, repo_download_incomplete
 
 
 def make_repo(cache_dir, name="tiny", commit="aaaa1111", size=64):
@@ -47,6 +49,109 @@ class TestDelete:
         with pytest.raises(ValueError, match="not in the hub cache"):
             delete_model("acme/other", cache_dir=tmp_path)
         assert len(scan_models(tmp_path)["repos"]) == 1
+
+
+def make_pipeline_repo(cache_dir, name="pipe", commit="aaaa1111", components=None, variant=None):
+    """A repo shaped like a diffusers pipeline: model_index.json at the
+    snapshot root plus one folder per component. `components` maps a
+    component name to its file list (weight-suffixed names get the
+    `.{variant}.` tag when `variant` is given); a component omitted from
+    `components` gets no folder at all, as an interrupted pull would leave it.
+    """
+    repo = cache_dir / f"models--acme--{name}"
+    snapshot = repo / "snapshots" / commit
+    snapshot.mkdir(parents=True)
+    (repo / "blobs").mkdir()
+    (repo / "refs").mkdir()
+    (repo / "refs" / "main").write_text(commit)
+    index = {"_class_name": "SomePipeline"}
+    for component in components or {}:
+        index[component] = ["diffusers", "SomeComponent"]
+    (snapshot / "model_index.json").write_text(json.dumps(index))
+    for component, files in (components or {}).items():
+        folder = snapshot / component
+        folder.mkdir()
+        for file_name in files:
+            tagged = file_name
+            if variant and file_name.endswith((".safetensors", ".bin")):
+                base, _, ext = file_name.rpartition(".")
+                tagged = f"{base}.{variant}.{ext}"
+            (folder / tagged).write_bytes(b"x")
+    return repo
+
+
+class TestRepoDownloadIncomplete:
+    def test_a_repo_with_no_cache_trace_at_all_is_incomplete(self, tmp_path):
+        assert repo_download_incomplete("acme/never-pulled", cache_dir=tmp_path) is True
+
+    def test_an_incomplete_blob_marks_the_repo_incomplete(self, tmp_path):
+        repo = make_repo(tmp_path)
+        (repo / "blobs").mkdir()
+        (repo / "blobs" / "deadbeef.incomplete").write_bytes(b"x")
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
+
+    def test_a_plain_checkpoint_with_no_model_index_is_complete_once_present(self, tmp_path):
+        # make_repo has no model_index.json - a bare checkpoint/LoRA repo
+        make_repo(tmp_path)
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+
+    def test_a_repo_whose_ref_points_at_no_snapshot_is_incomplete(self, tmp_path):
+        repo = make_repo(tmp_path)
+        (repo / "refs" / "main").write_text("some-other-commit-never-fetched")
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
+
+    def test_a_pipeline_with_every_component_present_is_complete(self, tmp_path):
+        make_pipeline_repo(
+            tmp_path,
+            components={
+                "unet": ["diffusion_pytorch_model.safetensors"],
+                "scheduler": ["scheduler_config.json"],
+            },
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
+
+    def test_a_pipeline_missing_a_component_folder_entirely_is_incomplete(self, tmp_path):
+        # model_index.json lists "vae" but the folder was never fetched
+        repo = make_pipeline_repo(
+            tmp_path,
+            components={"unet": ["diffusion_pytorch_model.safetensors"]},
+        )
+        snapshot = repo / "snapshots" / "aaaa1111"
+        index = json.loads((snapshot / "model_index.json").read_text())
+        index["vae"] = ["diffusers", "AutoencoderKL"]
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    def test_a_component_with_only_config_files_is_complete_regardless_of_variant(self, tmp_path):
+        make_pipeline_repo(
+            tmp_path,
+            components={"scheduler": ["scheduler_config.json"]},
+            variant="fp16",
+        )
+        assert (
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is False
+        )
+
+    def test_a_component_missing_the_requested_variant_is_incomplete(self, tmp_path):
+        # weights were fetched in the default dtype, not the fp16 variant the
+        # workflow's from_pretrained_arguments asks for
+        make_pipeline_repo(
+            tmp_path,
+            components={"unet": ["diffusion_pytorch_model.safetensors"]},
+        )
+        assert (
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is True
+        )
+
+    def test_a_component_with_the_requested_variant_present_is_complete(self, tmp_path):
+        make_pipeline_repo(
+            tmp_path,
+            components={"unet": ["diffusion_pytorch_model.safetensors"]},
+            variant="fp16",
+        )
+        assert (
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is False
+        )
 
 
 class FakeSibling:
