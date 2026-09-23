@@ -150,6 +150,7 @@ def get_zoe_depth_map(image, device):
 
 
 def image_to_canny(image, low_threshold=100, high_threshold=200):
+    """Raw cv2 Canny edge map at the image's native resolution."""
     # Raw cv2.Canny at the image's native resolution - intentionally kept
     # separate from the "canny" controlnet_aux CannyDetector above, which
     # resizes to 512px first. See comment on _ZERO_ARG_DETECTOR_SPECS["canny"].
@@ -202,6 +203,7 @@ def image_to_depth(image, device, height=1024, width=1024):
 
 
 def image_to_segmentation(image):
+    """Semantic segmentation map from the UperNet ConvNeXt model, colored by class."""
     from transformers import AutoImageProcessor, UperNetForSemanticSegmentation
 
     image_processor = AutoImageProcessor.from_pretrained(
@@ -226,10 +228,12 @@ def image_to_segmentation(image):
 
 
 def get_image_size(image):
+    """Return the image's width and height in pixels."""
     return {"width": image.width, "height": image.height}
 
 
 def crop_square(img: Image) -> Image:
+    """Crop the image to a centered square of its shorter side."""
     # Determine the shortest side
     min_side = min(img.width, img.height)
 
@@ -248,6 +252,7 @@ def crop_square(img: Image) -> Image:
 
 
 def resize_center_crop(img, height=768, width=768):
+    """Crop the image to its centered square and resize to width x height."""
     output_size = (width, height)
     W, H = img.size
 
@@ -266,11 +271,14 @@ def resize_center_crop(img, height=768, width=768):
 
 
 def resize_rescale(image, height=768, width=768):
+    """Resize the image to width x height, ignoring its original aspect ratio."""
     input_image = image.convert("RGB")
     return input_image.resize((width, height))
 
 
 def resize_resample(image, resolution=1024):
+    """Resize the image so its shorter side is `resolution`, rounded to a
+    multiple of 64, preserving aspect ratio."""
     input_image = image.convert("RGB")
     W, H = input_image.size
     k = float(resolution) / min(H, W)
@@ -557,6 +565,36 @@ def available_processors():
     without duplicating this dispatch table.
     """
     return sorted(_PROCESSORS)
+
+
+# Processors whose handler is a plain (image, device, kwargs) -> function(image, **kwargs)
+# forward - i.e. every argument beyond `image` is the named function's own, so
+# introspection can read them straight off its signature and docstring instead of
+# reporting the generic (image, device) shape every processor otherwise shares
+# (#350). Detector-backed processors (controlnet_aux, transformers, dw_pose, sam)
+# are left out on purpose: their real argument shape is the detector's __call__,
+# not a Python function get_task can point at.
+_PROCESSOR_TARGETS = {
+    "get_image_size": get_image_size,
+    "add_border_and_mask": add_border_and_mask,
+    "add_border_and_mask_with_size": add_border_and_mask_with_size,
+    "canny_cv": image_to_canny,
+    "segmentation": image_to_segmentation,
+    "resize_center_crop": resize_center_crop,
+    "resize_resample": resize_resample,
+    "crop_square": crop_square,
+    "recenter_crop": recenter_crop,
+    "resize_rescale": resize_rescale,
+    "resize_bucket": resize_bucket,
+    "strip_exif": strip_exif,
+    "add_watermark": add_watermark,
+}
+
+
+def image_processor_target(processor):
+    """The plain function backing `processor`'s handler, or None when the
+    processor is detector-backed and has no such function to introspect."""
+    return _PROCESSOR_TARGETS.get(processor)
 
 
 def process_image(image, processor, device, kwargs):

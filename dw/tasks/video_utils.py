@@ -38,7 +38,38 @@ def process_video(video, processor, device, kwargs):
     raise Exception(f"Unknown video processor type: {processor}")
 
 
+class VideoFileReference:
+    """A 'video' argument realized to a file on disk rather than an in-memory
+    clip - built by dw/arguments.py's _realize_lazy_frame_arguments so
+    get_frame can seek to the one frame it needs instead of decoding the
+    whole file (#367). Not a public shape; nothing else constructs or
+    consumes one."""
+
+    __slots__ = ("path",)
+
+    def __init__(self, path):
+        self.path = path
+
+
 def get_frame(video, frame_index=0):
+    """Pull one frame out of a video as a PIL image.
+
+    Args:
+        video: List of PIL images, numpy array or torch tensor of frames, an
+            AudioVideo, a one-video batch wrapping any of those, or a
+            VideoFileReference naming a file this call reads by seeking
+            rather than decoding in full
+        frame_index: Frame to extract, 0-based; negative indexes count from
+            the end (-1 is the last frame). Past either end of the clip
+            raises an error naming the clip's frame count
+
+    Returns:
+        The frame as a PIL image
+    """
+    if isinstance(video, VideoFileReference):
+        from ..media_frames import frames_at
+
+        return frames_at(video.path, [f"frame:{frame_index}"])[0]["image"]
     return extract_frame(video, frame_index)
 
 
