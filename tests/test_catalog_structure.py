@@ -402,7 +402,7 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 8_450 for the catalog-wide seed convention (#351): every generative
 # entry now declares `seed` in `variables`, which is a compact field
 # (`variable_names`), measured at 8_424.
-COMPACT_BUDGET = 8_450
+COMPACT_BUDGET = 8_650
 FILTERED_BUDGET = 1_500
 
 

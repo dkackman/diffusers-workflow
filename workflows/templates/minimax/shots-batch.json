@@ -1,0 +1,183 @@
+{
+    "id": "MiniMaxH3ShotsBatch",
+    "description": "A batch of independent H3 shots on one loaded model - each its own prompt and length, no shared subject, no concat. The assembly is a deliberately separate job: promote each clip with keep_output and hand the set to assemble-and-score, which cuts them together and lays a score underneath.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 19.4,
+            "per_entry": {
+                "variable": "shots",
+                "minutes": 3.49,
+                "entries": 5
+            }
+        }
+    ],
+    "cost_drivers": ["shots", "num_inference_steps", "width", "height"],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the transformer's peak activation memory scales with the token count the video and audio streams produce, which is proportional to width * height * num_frames"
+    },
+    "variables": {
+        "shots": [
+            {
+                "name": "shot_1",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. A lighthouse keeper climbs a spiral staircase at dawn, footsteps echoing on iron treads, gulls calling outside. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_2",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. The keeper reaches the lamp room and lights the beacon, glass clinking, wind picking up against the panes. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_3",
+                "prompt": "Task: T2VA. Duration: 6.42 seconds. The beacon sweeps across a dark sea, waves rolling against rocks below, a foghorn sounding in the distance. non_diegetic_music: N/A",
+                "num_frames": 158
+            },
+            {
+                "name": "shot_4",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. A distant ship changes course toward the light, its horn answering the foghorn once. non_diegetic_music: N/A",
+                "num_frames": 124
+            },
+            {
+                "name": "shot_5",
+                "prompt": "Task: T2VA. Duration: 5.17 seconds. The keeper settles into a chair by the lamp, journal in hand, the beacon turning steadily behind him. non_diegetic_music: N/A",
+                "num_frames": 124
+            }
+        ],
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": null
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "shot",
+            "for_each": "variable:shots",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": ["sdnq"],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [".model.visual", "lm_head"]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {"remove_modules": ["lm_head"]},
+                        "text_encoder.model": {
+                            "truncate_layers": {"language_model.layers": 51},
+                            "group_offload": {"offload_type": "leaf_level"}
+                        },
+                        "vae": {"device": "cuda", "residency": "on_demand"},
+                        "audio_vae": {"device": "cuda", "residency": "on_demand"}
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {"shift": "variable:video_shift"},
+                "audio_scheduler": {"shift": "variable:audio_shift"},
+                "arguments": {
+                    "prompt": "item:prompt",
+                    "num_frames": "item:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": ["videos", "audio", "sampling_rate"]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "file_base_name": "item:name",
+                "subfolder": "final"
+            }
+        }
+    ]
+}
