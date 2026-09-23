@@ -413,20 +413,39 @@ def describe_task(command):
     }
 
     if info["kind"] == "image_processor":
+        from .tasks.image_utils import image_processor_target
+
+        target = image_processor_target(command)
+        image_parameter = {
+            "name": "image",
+            "required": True,
+            "default": None,
+            "annotation": None,
+            "description": "The image to process",
+        }
+        if target is None:
+            return {
+                "name": command,
+                "summary": f"'{command}' image processor (ControlNet preprocessor)",
+                "accepts_kwargs": True,
+                "parameters": [image_parameter, device_parameter],
+            }
+
+        # target is a plain (image, **kwargs) function - introspect it directly
+        # rather than reporting the generic (image, device) shape every other
+        # image processor shares (#350). Its first positional parameter is
+        # the image (named "image" or "img" across these functions), dropped
+        # in favor of the uniform image_parameter above.
+        parameters, accepts_kwargs = _callable_parameters(target)
+        parameters = [image_parameter] + parameters[1:]
+        if not any(p["name"] == "device" for p in parameters):
+            parameters.append(device_parameter)
+        summary = _first_paragraph(inspect.getdoc(target))
         return {
             "name": command,
-            "summary": f"'{command}' image processor (ControlNet preprocessor)",
-            "accepts_kwargs": True,
-            "parameters": [
-                {
-                    "name": "image",
-                    "required": True,
-                    "default": None,
-                    "annotation": None,
-                    "description": "The image to process",
-                },
-                device_parameter,
-            ],
+            "summary": summary,
+            "accepts_kwargs": accepts_kwargs,
+            "parameters": parameters,
         }
 
     if info["implementation"] is None:
@@ -460,7 +479,9 @@ def describe_task(command):
         if domain is not None:
             parameter["domain"] = domain
 
-    summary = _first_paragraph(inspect.getdoc(implementation))
+    summary = info.get("summary")
+    if not summary:
+        summary = _first_paragraph(inspect.getdoc(implementation))
     if not summary:
         from .tasks.task import _COMMAND_REGISTRY
 
