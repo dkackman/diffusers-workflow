@@ -149,7 +149,10 @@ class TestLoudness:
 
         seconds, rate, amplitude = 2.0, 8000, 0.5
         write_wav(
-            tmp_path / "tone.wav", seconds=seconds, sample_rate=rate, amplitude=amplitude
+            tmp_path / "tone.wav",
+            seconds=seconds,
+            sample_rate=rate,
+            amplitude=amplitude,
         )
         t = numpy.arange(int(seconds * rate)) / rate
         tone = numpy.sin(2 * numpy.pi * 220 * t) * amplitude
@@ -169,9 +172,7 @@ class TestLoudness:
         assert info["integrated_lufs"] is None
         assert info["true_peak_dbfs"] == -120.0
 
-    def test_a_clip_shorter_than_the_gating_block_reports_lufs_as_none(
-        self, tmp_path
-    ):
+    def test_a_clip_shorter_than_the_gating_block_reports_lufs_as_none(self, tmp_path):
         write_wav(tmp_path / "short.wav", seconds=0.1, sample_rate=8000, amplitude=0.5)
 
         info = probe_media(str(tmp_path / "short.wav"))

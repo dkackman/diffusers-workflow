@@ -1329,9 +1329,7 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
         An AudioTrack holding the scaled waveform and its rate; a silent
         track is returned unchanged
     """
-    check_arguments(
-        "normalize_audio", sample_rate=sample_rate, target_lufs=target_lufs
-    )
+    check_arguments("normalize_audio", sample_rate=sample_rate, target_lufs=target_lufs)
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "normalize_audio")
     if peak_dbfs > 0:
         raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")

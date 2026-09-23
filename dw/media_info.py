@@ -163,7 +163,9 @@ def probe_media(path, envelope=False):
                             length = (
                                 full_length
                                 if max_lufs_samples is None
-                                else max(0, min(full_length, max_lufs_samples - lufs_seen))
+                                else max(
+                                    0, min(full_length, max_lufs_samples - lufs_seen)
+                                )
                             )
                             if length > 0:
                                 lufs_chunks.append(frame[:length])
@@ -184,9 +186,7 @@ def probe_media(path, envelope=False):
                 rms = math.sqrt(total / count) if count else 0.0
                 info["peak_dbfs"] = _dbfs(peak)
                 info["mean_dbfs"] = _dbfs(rms)
-                full = (
-                    numpy.concatenate(lufs_chunks, axis=0) if lufs_chunks else None
-                )
+                full = numpy.concatenate(lufs_chunks, axis=0) if lufs_chunks else None
                 info["integrated_lufs"] = integrated_lufs(full, audio.rate)
                 info["true_peak_dbfs"] = true_peak_dbfs(full)
                 if bins is not None:
