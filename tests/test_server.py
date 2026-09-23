@@ -2356,6 +2356,23 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         assert fetched.content == b"not-really-png-bytes"
 
 
+def test_upload_media_adds_an_absolute_url_when_a_public_url_is_configured(
+    server, monkeypatch
+):
+    # #353: a client with no way to learn this server's origin otherwise -
+    # an MCP-only agent - gets an absolute_url only when an operator
+    # configured one; nothing derives an origin from request headers.
+    monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
+    with server(success_script) as client:
+        body = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"not-really-png-bytes",
+        ).json()
+
+    assert body["absolute_url"] == f"https://dw.example.com{body['url']}"
+
+
 @pytest.fixture
 def asset_server(tmp_path):
     """A server with an asset library configured, which is where uploads go."""

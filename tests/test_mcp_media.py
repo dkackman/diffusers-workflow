@@ -956,6 +956,21 @@ def test_a_mounted_server_writes_a_relative_destination_into_its_workspace(tmp_p
     assert (workspace / "kept" / "probe.jpg").read_bytes() == png_bytes(4, 4)
 
 
+def test_a_mounted_server_refuses_an_omitted_destination(tmp_path):
+    """#353: defaulting into the workspace root stranded a file nothing could
+    later find or delete - so a mounted endpoint now requires an explicit
+    destination rather than picking one."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+
+    with pytest.raises(DwApiError) as refusal:
+        download_output(client, "run/probe.jpg")
+
+    assert "destination is required" in str(refusal.value)
+    assert list(workspace.iterdir()) == []
+
+
 def test_a_stdio_client_still_writes_wherever_the_user_can(tmp_path):
     """Unmounted, 'local disk' is genuinely the caller's own machine."""
     client = serving(png_bytes(4, 4), "image/png")

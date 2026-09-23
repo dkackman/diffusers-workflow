@@ -151,6 +151,7 @@ from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
 from . import guides
 from .guides import GuideError
+from .. import settings
 
 logger = logging.getLogger("dw")
 
@@ -1328,7 +1329,16 @@ def create_app(
                 raise HTTPException(status_code=404, detail=message)
             raise HTTPException(status_code=409, detail=message)
         body = summary.as_dict()
-        body["zip_url"] = _served_url(f"/exports/{quote(job_id)}.zip", ws)
+        zip_path = f"/exports/{quote(job_id)}.zip"
+        body["zip_url"] = _served_url(zip_path, ws)
+        absolute_zip_url = _absolute_served_url(zip_path, ws)
+        if absolute_zip_url is not None:
+            body["absolute_zip_url"] = absolute_zip_url
+        # Same rule get_server_info's field states (#353): whether the zip
+        # URL above needs a bearer token an MCP-only agent has no way to
+        # attach itself, which is what tells the caller whether to fetch it
+        # or hand it to the person.
+        body["auth_required"] = bool(token)
         for key, name in (
             ("workflow", "workflow.json"),
             ("manifest", "manifest.json"),
@@ -2675,6 +2685,19 @@ def create_app(
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}v={version}"
 
+    def _absolute_served_url(path, ws, version=None):
+        """The same URL, made openable by a client with no other way to
+        learn this server's origin (#353) - an MCP-only agent, which is
+        never told a request's Host and must not guess one. `None` unless
+        an operator has configured `public_url` (or `DW_PUBLIC_URL`):
+        deriving an origin from request/forwarded headers would trust
+        whatever the caller claims to be, so a caller gets nothing rather
+        than a guess."""
+        origin = os.environ.get("DW_PUBLIC_URL") or settings.public_url
+        if not origin:
+            return None
+        return f"{origin.rstrip('/')}{_served_url(path, ws, version)}"
+
     def _iter_gallery_files(root, group_runs=True):
         """Every media file under a directory tree. Yields (relative_name,
         folder, subfolder, kind, path) - relative_name always uses '/' so
@@ -2747,35 +2770,36 @@ def create_app(
             # and a step that writes more than one kind of file (e.g. a still
             # plus a video) would lose the extension that tells them apart
             label = os.path.basename(relative_name)
-            entries.append(
-                {
-                    "name": relative_name,
-                    "folder": folder,
-                    "subfolder": subfolder,
-                    # Which run wrote it, and that run's ordinal among this
-                    # workflow's runs - the 'v4' a person sees in the grid
-                    # and an agent says out loud. Two runs write the same
-                    # basename, so `label` cannot tell them apart and
-                    # `name` is too long to quote. None under the flat
-                    # layout, which has no runs to number
-                    "run_id": run_id,
-                    "version": _version(folder, run_id),
-                    # Quoted (slashes kept literal): a name carrying '#', '?'
-                    # or '%' would otherwise break the src the gallery
-                    # renders it into. The mtime still rides along for cache
-                    # busting when a file's content changes without its name
-                    # changing (e.g. a manual overwrite outside the engine) -
-                    # normal reruns get a fresh name instead, see
-                    # dw/result.py's output_file_path
-                    "url": _served_url(
-                        f"/outputs/{quote(relative_name)}", ws, int(stat.st_mtime)
-                    ),
-                    "kind": kind,
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime,
-                    "label": label,
-                }
-            )
+            output_path = f"/outputs/{quote(relative_name)}"
+            entry = {
+                "name": relative_name,
+                "folder": folder,
+                "subfolder": subfolder,
+                # Which run wrote it, and that run's ordinal among this
+                # workflow's runs - the 'v4' a person sees in the grid
+                # and an agent says out loud. Two runs write the same
+                # basename, so `label` cannot tell them apart and
+                # `name` is too long to quote. None under the flat
+                # layout, which has no runs to number
+                "run_id": run_id,
+                "version": _version(folder, run_id),
+                # Quoted (slashes kept literal): a name carrying '#', '?'
+                # or '%' would otherwise break the src the gallery
+                # renders it into. The mtime still rides along for cache
+                # busting when a file's content changes without its name
+                # changing (e.g. a manual overwrite outside the engine) -
+                # normal reruns get a fresh name instead, see
+                # dw/result.py's output_file_path
+                "url": _served_url(output_path, ws, int(stat.st_mtime)),
+                "kind": kind,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "label": label,
+            }
+            absolute_url = _absolute_served_url(output_path, ws, int(stat.st_mtime))
+            if absolute_url is not None:
+                entry["absolute_url"] = absolute_url
+            entries.append(entry)
         entries.sort(key=lambda e: e["mtime"], reverse=True)
         return entries
 
@@ -3572,15 +3596,25 @@ def create_app(
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
         if shared or ws.assets:
-            return {
+            path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
+            result = {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
-                "url": _served_url(f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+                "url": _served_url(path, ws),
                 "shared": shared,
             }
-        return {
+            absolute_url = _absolute_served_url(path, ws)
+            if absolute_url is not None:
+                result["absolute_url"] = absolute_url
+            return result
+        path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
+        result = {
             "path": dest,
-            "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+            "url": _served_url(path, ws),
         }
+        absolute_url = _absolute_served_url(path, ws)
+        if absolute_url is not None:
+            result["absolute_url"] = absolute_url
+        return result
 
     def _asset_origin(ws, root):
         """Which library an asset came from: this workspace's own, the one
@@ -3664,20 +3698,23 @@ def create_app(
                     )
                     continue
                 seen[relative] = origin
-                assets.append(
-                    {
-                        "name": relative,
-                        "reference": f"asset:{relative}",
-                        "folder": folder,
-                        "kind": kind,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                        "origin": origin,
-                        # For the editor's own preview - fetchable the same
-                        # way an upload's URL is
-                        "url": _served_url(f"/inputs/{quote(relative)}", ws),
-                    }
-                )
+                asset_path = f"/inputs/{quote(relative)}"
+                asset_entry = {
+                    "name": relative,
+                    "reference": f"asset:{relative}",
+                    "folder": folder,
+                    "kind": kind,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                    "origin": origin,
+                    # For the editor's own preview - fetchable the same
+                    # way an upload's URL is
+                    "url": _served_url(asset_path, ws),
+                }
+                absolute_url = _absolute_served_url(asset_path, ws)
+                if absolute_url is not None:
+                    asset_entry["absolute_url"] = absolute_url
+                assets.append(asset_entry)
         assets.sort(key=lambda entry: entry["mtime"], reverse=True)
         return {
             # The workspace's own library, unchanged: where an upload lands

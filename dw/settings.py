@@ -28,6 +28,13 @@ class Settings:
     cudnn_benchmark: bool = True  # cuDNN autotuner (faster for fixed sizes)
     cudnn_deterministic: bool = False  # Set True for reproducibility
 
+    # This server's public origin (e.g. "https://dw.example.com"), for a
+    # client that can't otherwise turn a served path into a URL it can open
+    # itself. None (the default) means no such origin is configured, so
+    # nothing composes one - see dw/server/app.py's `_served_url`. The
+    # DW_PUBLIC_URL environment variable overrides this for a single run.
+    public_url: str = None
+
 
 def load_settings():
     settings = Settings()
@@ -52,6 +59,8 @@ def load_settings():
     settings.enable_tf32 = settings_dict.get("enable_tf32", True)
     settings.cudnn_benchmark = settings_dict.get("cudnn_benchmark", True)
     settings.cudnn_deterministic = settings_dict.get("cudnn_deterministic", False)
+
+    settings.public_url = settings_dict.get("public_url", None)
 
     return settings
 
