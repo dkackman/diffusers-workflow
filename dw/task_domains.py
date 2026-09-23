@@ -38,10 +38,15 @@ logger = logging.getLogger("dw")
 # second, since the head of a track is a legitimate place to begin
 POSITIVE = "positive"
 NON_NEGATIVE = "non_negative"
+# A level that cannot exceed full scale - peak_dbfs's own long-standing rule
+# (0 is full scale, positive is not a level any of these commands can reach),
+# shared here with normalize_audio's target_lufs
+NON_POSITIVE = "non_positive"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
     NON_NEGATIVE: "zero or above",
+    NON_POSITIVE: "at or below full scale (0)",
 }
 
 # command -> argument -> domain. Every entry here is pinned to a real command
@@ -80,7 +85,10 @@ TASK_ARGUMENT_DOMAINS = {
         "fade_out_ms": NON_NEGATIVE,
         "sample_rate": POSITIVE,
     },
-    "normalize_audio": {"sample_rate": POSITIVE},
+    "normalize_audio": {
+        "sample_rate": POSITIVE,
+        "target_lufs": NON_POSITIVE,
+    },
     "crossfade_audio": {
         "crossfade_ms": NON_NEGATIVE,
         "sample_rate": POSITIVE,
@@ -127,7 +135,11 @@ def in_domain(value, domain):
     number = as_number(value)
     if number is None:
         return True
-    return number > 0 if domain == POSITIVE else number >= 0
+    if domain == POSITIVE:
+        return number > 0
+    if domain == NON_POSITIVE:
+        return number <= 0
+    return number >= 0
 
 
 def as_number(value):
