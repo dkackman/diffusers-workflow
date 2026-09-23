@@ -32,27 +32,10 @@ def test_workflow_validation_invalid(invalid_workflow_json, tmp_path):
     assert "Validation error" in str(exc_info.value)
 
 
-def test_workflow_name(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    assert workflow.name == "test_workflow"
-
-
 def test_workflow_from_file(test_data_dir, tmp_path):
     workflow_path = os.path.join(test_data_dir, "workflows", "valid_workflow.json")
     workflow = workflow_from_file(workflow_path, str(tmp_path))
     assert isinstance(workflow, Workflow)
-
-
-def test_workflow_variables_property(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    assert "prompt" in workflow.variables
-    assert workflow.variables["prompt"] == "test prompt"
-
-
-def test_workflow_argument_template(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    # Should return empty dict if no argument_template
-    assert workflow.argument_template == {}
 
 
 def test_workflow_security_validation(tmp_path):
@@ -409,7 +392,7 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             device="cpu",
         )
 
-        assert action is not None
+        assert action.name == "child"
 
     def test_a_parent_directory_step_escaping_the_root_is_refused(self, tmp_path):
         import json
@@ -523,7 +506,7 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             device="cpu",
         )
 
-        assert action is not None
+        assert action.name == "child"
 
     def test_a_file_outside_any_catalog_is_confined_to_its_own_directory(
         self, tmp_path
@@ -1040,12 +1023,6 @@ class TestSubWorkflowNameResolution:
         # not a name reported as refused when it was simply absent
         assert "does-not-exist.json" in message
         assert "outside the root" not in message
-
-    def test_a_relative_path_beside_the_file_still_wins(self, tmp_path):
-        """The '../models/x.json' form every template uses is unchanged."""
-        action = self._resolve(tmp_path, "minimax/ref2va.json")
-
-        assert action.name == "child"
 
 
 class TestComposedStepSavesOnce:

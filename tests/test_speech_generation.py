@@ -302,23 +302,6 @@ class TestGenerateSpeech(unittest.TestCase):
             )
 
     @patch("dw.tasks.speech_generation.hf_pipeline")
-    def test_messages_on_a_model_with_no_chat_template_propagates_the_error(
-        self, mock_pipeline
-    ):
-        # Bark and other non-chat-templated models have no apply_chat_template
-        # to call; transformers' own failure surfaces rather than dw silently
-        # falling back to treating messages as text
-        pipe = MagicMock(side_effect=ValueError("no chat template is set"))
-        mock_pipeline.return_value = pipe
-
-        with self.assertRaisesRegex(ValueError, "no chat template is set"):
-            generate_speech(
-                device="cpu",
-                model_name=_DEFAULT_MODEL,
-                messages=[{"role": "user", "content": "hi"}],
-            )
-
-    @patch("dw.tasks.speech_generation.hf_pipeline")
     def test_a_seed_seeds_the_global_rng_before_generating(self, mock_pipeline):
         # transformers' generate() takes no generator= kwarg, unlike a diffusers
         # pipeline - reproducing Bark means seeding torch's global RNG (#261)

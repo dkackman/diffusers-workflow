@@ -325,14 +325,34 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
     assert current_context() is None, "context must deactivate after the run"
 
 
-def _fast_watchdog():
+def _fast_watchdog(threshold=0.05, interval=0.02):
     """Patches the watchdog's timing constants down to something a test can
     wait out in real time, without touching the production defaults."""
     return patch.multiple(
         events_module,
-        PHASE_STALL_THRESHOLD_SECONDS=0.05,
-        PHASE_STALL_CHECK_INTERVAL_SECONDS=0.02,
+        PHASE_STALL_THRESHOLD_SECONDS=threshold,
+        PHASE_STALL_CHECK_INTERVAL_SECONDS=interval,
     )
+
+
+# Production checks six times per threshold (30s / 5s). A test that asserts
+# something does *not* happen within a window keeps that ratio, so the margin
+# between the window and the threshold is several check intervals wide rather
+# than a scheduler hiccup wide.
+_RATIO_THRESHOLD = 0.6
+_RATIO_INTERVAL = 0.1
+
+
+def _stalls(events):
+    return [e for e in events if e.get("kind") == "phase_stall"]
+
+
+def _wait_for_stall(events, deadline_seconds=5.0):
+    """Poll until the watchdog has reported at least one stall."""
+    deadline = time.monotonic() + deadline_seconds
+    while not _stalls(events):
+        assert time.monotonic() < deadline, "watchdog never reported a stall"
+        time.sleep(0.005)
 
 
 def test_watchdog_fires_after_threshold_with_no_events():
@@ -355,16 +375,18 @@ def test_watchdog_fires_after_threshold_with_no_events():
 def test_watchdog_does_not_fire_before_threshold():
     events = []
     context = RunContext(on_event=events.append)
-    with _fast_watchdog():
+    with _fast_watchdog(_RATIO_THRESHOLD, _RATIO_INTERVAL):
         context.enter_run()
         try:
             context.note_phase("generating")
-            time.sleep(0.03)
+            # Two check intervals, so the watchdog has really looked (a
+            # watchdog that ignored the threshold would fire here), and well
+            # short of the threshold
+            time.sleep(2.5 * _RATIO_INTERVAL)
         finally:
             context.exit_run()
 
-    stalls = [e for e in events if e.get("kind") == "phase_stall"]
-    assert not stalls
+    assert not _stalls(events)
 
 
 def test_watchdog_repeats_while_the_stall_continues():
@@ -390,26 +412,28 @@ def test_watchdog_repeats_while_the_stall_continues():
 
 
 def test_watchdog_stops_once_a_new_event_arrives():
+    # The stall report bumps the silence clock itself, so it repeats one
+    # threshold after the last report. A progress event part-way through that
+    # wait must restart the clock: the window below runs past when the repeat
+    # would have come without the reset, and ends well before one threshold
+    # after the progress event.
+    threshold = _RATIO_THRESHOLD
     events = []
     context = RunContext(on_event=events.append)
-    with _fast_watchdog():
+    with _fast_watchdog(threshold, _RATIO_INTERVAL):
         context.enter_run()
         try:
             context.note_phase("generating")
-            time.sleep(0.06)
+            _wait_for_stall(events)
+            stalls_before_progress = len(_stalls(events))
+            time.sleep(0.6 * threshold)
             context.emit("pipeline_step", step=1)
-            time.sleep(0.01)
-            count_after_progress = len(
-                [e for e in events if e.get("kind") == "phase_stall"]
-            )
-            time.sleep(0.01)
-            count_soon_after = len(
-                [e for e in events if e.get("kind") == "phase_stall"]
-            )
+            time.sleep(0.65 * threshold)
+            stalls_after_progress = _stalls(events)[stalls_before_progress:]
         finally:
             context.exit_run()
 
-    assert count_soon_after == count_after_progress, (
+    assert stalls_after_progress == [], (
         "a fresh event must reset the silence clock, not just a fresh phase"
     )
 

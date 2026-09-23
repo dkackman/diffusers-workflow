@@ -152,20 +152,6 @@ def test_save_surfaces_a_rejected_definition():
         authoring.save_workflow(client, "mine", WORKFLOW)
 
 
-def test_save_surfaces_a_path_the_server_refuses():
-    client, _seen = scripted(
-        {
-            ("PUT", "/api/workflows/../escape"): (
-                400,
-                {"detail": "Path traversal is not allowed"},
-            )
-        }
-    )
-
-    with pytest.raises(DwApiError, match="traversal"):
-        authoring.save_workflow(client, "../escape", WORKFLOW)
-
-
 def test_save_with_patch_merges_onto_the_stored_definition():
     """A small edit shouldn't require resending the whole document (#202)."""
     stored = {
@@ -232,15 +218,6 @@ def test_delete_calls_delete():
 
     assert authoring.delete_workflow(client, "mine")["deleted"] is True
     assert seen == [("DELETE", "/api/workflows/mine")]
-
-
-def test_delete_surfaces_a_missing_workflow():
-    client, _seen = scripted(
-        {("DELETE", "/api/workflows/ghost"): (404, {"detail": "No such workflow"})}
-    )
-
-    with pytest.raises(DwApiError, match="No such workflow"):
-        authoring.delete_workflow(client, "ghost")
 
 
 def body_recording_client():

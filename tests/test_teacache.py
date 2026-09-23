@@ -101,16 +101,6 @@ def _call(bound_forward, timestep_value):
     )
 
 
-def test_duplicate_timestep_raises_runtime_error():
-    """Two forward calls with the identical timestep (true CFG) must raise."""
-    _, bound_forward = _make_bound_forward()
-
-    _call(bound_forward, 0.9)  # first call: no prior timestep, always allowed
-
-    with pytest.raises(RuntimeError, match="true classifier-free guidance"):
-        _call(bound_forward, 0.9)  # duplicate timestep: simulates the uncond pass
-
-
 def test_duplicate_timestep_error_names_both_features():
     """The guard's error message must name both TeaCache and true CFG."""
     _, bound_forward = _make_bound_forward()

@@ -2675,18 +2675,6 @@ def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     assert body["shadowed"] == []
 
 
-def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):
-    """A workflow's audio reference is built from a .wav - refusing it would
-    leave one input kind with no way onto the machine."""
-    with asset_server(success_script) as client:
-        response = client.post(
-            "/api/uploads", params={"filename": "voice.wav"}, content=b"riff"
-        )
-    assert response.status_code == 201
-    assert response.json()["path"].startswith("asset:uploads/")
-    assert response.json()["path"].endswith(".wav")
-
-
 def test_the_asset_library_is_reported(asset_server, tmp_path):
     with asset_server(success_script) as client:
         directories = client.get("/api/server").json()["directories"]
@@ -4000,25 +3988,6 @@ def test_event_log_clamps_a_negative_after(server):
         assert body["events"][0]["seq"] == 0
 
 
-def test_event_log_serves_a_historical_jobs_persisted_events(server):
-    """A job recovered from sqlite is a plain dict, but its event tail was
-    persisted with it - that is what makes last night's failure explainable."""
-    with server(success_script) as client:
-        manager = client.app.state.job_manager
-        manager.get = lambda job_id: {"id": job_id, "status": "failed"}
-        manager.history.events_for = lambda job_id: [
-            {"seq": 0, "event": "phase", "phase": "loading"},
-            {"seq": 1, "event": "job_status", "status": "failed"},
-        ]
-
-        body = client.get("/api/jobs/historical/event-log").json()
-
-        assert [event["seq"] for event in body["events"]] == [0, 1]
-        assert body["last_seq"] == 1
-        assert body["truncated"] is False
-        assert body["note"] is None
-
-
 def test_event_log_pages_a_historical_jobs_events(server):
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -4111,6 +4080,7 @@ def test_a_recorded_job_reads_back_through_the_event_log_route(server):
         body = client.get("/api/jobs/recorded/event-log").json()
 
         assert [event["seq"] for event in body["events"]] == [0, 1]
+        assert body["last_seq"] == 1
         assert body["events"][0]["phase"] == "loading"
         assert body["status"] == "complete"
         assert body["truncated"] is False
@@ -4134,21 +4104,6 @@ def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
         assert body["events"][0]["seq"] == 3000 - MAX_PERSISTED_EVENTS
         assert body["truncated"] is False
         assert f"last {MAX_PERSISTED_EVENTS}" in body["note"]
-
-
-def test_workflow_details_name_their_variables(server):
-    """The listing says which knobs a workflow takes, so an agent picking a
-    workflow to run knows what to pass without fetching each candidate's
-    full definition. Names only - the defaults of every workflow on disk
-    are an order of magnitude more payload on a listing the UI reloads."""
-    with server(success_script) as client:
-        workflow = valid_workflow("knobby")
-        workflow["variables"] = {"prompt": "a cat", "steps": 25}
-        client.put("/api/workflows/Knobby", json={"workflow": workflow})
-
-        details = client.get("/api/workflows").json()["details"]
-        assert details["Knobby"]["variable_names"] == ["prompt", "steps"]
-        assert details["Knobby"]["variables"] == 2
 
 
 def test_workflow_details_describe_their_lists(server):

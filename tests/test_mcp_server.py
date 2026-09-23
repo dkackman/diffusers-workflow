@@ -233,13 +233,6 @@ async def test_no_tool_exposes_base_dir():
 
 
 @pytest.mark.asyncio
-async def test_run_workflow_takes_an_acknowledged_cost_flag():
-    tools = await tools_of(server_over(ok({})))
-
-    assert "acknowledged_cost" in tools["run_workflow"].input_schema["properties"]
-
-
-@pytest.mark.asyncio
 async def test_run_workflow_and_delete_output_take_the_turn_saving_parameters():
     """Almost every run is followed by a wait, and most deletes are of the
     run a job just wrote; each is a whole tool turn for an unattended agent.
@@ -267,15 +260,6 @@ async def test_run_workflow_advertises_its_cost():
     description = tools["run_workflow"].description
     assert "COSTS GPU TIME" in description
     assert "acknowledged_cost" in description
-
-
-@pytest.mark.asyncio
-async def test_a_read_only_tool_round_trips_to_the_api():
-    server = server_over(ok({"workflows": ["a"], "details": {}}))
-
-    result = await server.call_tool("list_workflows", {})
-
-    assert "workflows" in json.dumps(_text_of(result))
 
 
 @pytest.mark.asyncio
@@ -924,13 +908,6 @@ async def test_optional_parameters_are_declared_nullable():
                 assert "anyOf" in schema or schema.get("type") == "null", (
                     f"{name}.{parameter} defaults to null but is not nullable"
                 )
-
-
-@pytest.mark.asyncio
-async def test_rerun_job_takes_an_acknowledged_cost_flag():
-    tools = await tools_of(server_over(ok({})))
-
-    assert "acknowledged_cost" in tools["rerun_job"].input_schema["properties"]
 
 
 @pytest.mark.asyncio

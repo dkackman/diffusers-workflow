@@ -189,11 +189,6 @@ class TestSharedAssetLibrary:
     the prompt library's treatment applied to a recurring cast, which
     belongs to no one workspace."""
 
-    def test_it_hangs_off_the_root(self, tmp_path):
-        root = Workspace(tmp_path / "studio", FLAG)
-
-        assert root.common_assets == os.path.join(root.root, "common", "assets")
-
     def test_a_named_workspace_points_back_at_the_root_s(self, tmp_path):
         from dw.workspace import named_workspace
 

@@ -7,7 +7,31 @@ import pytest
 import os
 import json
 import tempfile
+from PIL import Image
 from dw.workflow import Workflow, workflow_from_file
+
+
+def decode_qr(image):
+    """The text a QR code image carries, read back with OpenCV.
+
+    OpenCV's default detector misses some codes at 768px that it reads at
+    another size (it cannot read "Overridden Content" at 768), so this tries
+    the ArUco-based detector and a second size before giving up. Decoding is
+    deterministic, so the fallbacks add no flakiness."""
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+
+    gray = image.convert("L")
+    attempts = (
+        (cv2.QRCodeDetectorAruco, gray),
+        (cv2.QRCodeDetector, gray),
+        (cv2.QRCodeDetector, gray.resize((256, 256))),
+    )
+    for detector, candidate in attempts:
+        text, _, _ = detector().detectAndDecode(np.array(candidate))
+        if text:
+            return text
+    return ""
 
 
 @pytest.fixture
@@ -57,7 +81,7 @@ def multi_step_workflow():
                     "command": "format_chat_message",
                     "arguments": {
                         "system_prompt": "System",
-                        "user_message": "variable:text1",
+                        "user_message": "previous_result:gather_inputs",
                     },
                 },
                 "result": {"content_type": "application/json", "save": False},
@@ -89,7 +113,8 @@ class TestWorkflowExecution:
         # Override the content variable
         result = workflow.run({"content": "Overridden Content"})
 
-        assert result is not None
+        assert len(result) == 1
+        assert decode_qr(result[0]) == "Overridden Content"
 
     def test_multi_step_workflow(self, multi_step_workflow, temp_workflow_dir):
         """Test workflow with multiple steps"""
@@ -98,8 +123,22 @@ class TestWorkflowExecution:
 
         result = workflow.run({})
 
-        # Should return the last step's results
-        assert result is not None
+        # The last step's results: one chat message per value the first step
+        # gathered, each carrying that step's substituted variable
+        assert result == [
+            {
+                "text_inputs": [
+                    {"role": "system", "content": "System"},
+                    {"role": "user", "content": "First"},
+                ]
+            },
+            {
+                "text_inputs": [
+                    {"role": "system", "content": "System"},
+                    {"role": "user", "content": "Second"},
+                ]
+            },
+        ]
 
     def test_workflow_from_file_execution(self, simple_qr_workflow, temp_workflow_dir):
         """Test loading and executing workflow from file"""
@@ -113,7 +152,15 @@ class TestWorkflowExecution:
         workflow.validate()
         result = workflow.run({})
 
-        assert result is not None
+        assert decode_qr(result[0]) == "Hello World"
+        # The file's name is the run's identity, and the saved image is the
+        # one the step returned
+        [entry] = workflow.manifest
+        [saved] = entry["files"]
+        relative = os.path.relpath(saved, os.path.realpath(temp_workflow_dir))
+        assert relative.split(os.sep)[0] == "test_workflow"
+        with Image.open(saved) as image:
+            assert decode_qr(image) == "Hello World"
 
     def test_workflow_result_saving(self, simple_qr_workflow, temp_workflow_dir):
         """Test that workflow results are saved to output directory"""
@@ -218,7 +265,7 @@ class TestWorkflowStepDependencies:
                     "name": "step2",
                     "task": {
                         "command": "gather_inputs",
-                        "inputs": ["previous_result:step1"],
+                        "arguments": {"value": "previous_result:step1"},
                     },
                     "result": {"content_type": "application/json", "save": False},
                 },
@@ -229,8 +276,8 @@ class TestWorkflowStepDependencies:
         workflow.validate()
         result = workflow.run({})
 
-        # step2 should receive the results from step1
-        assert result is not None
+        # step2 runs once per result step1 produced, receiving each one
+        assert result == [{"value": "value1"}, {"value": "value2"}]
 
 
 if __name__ == "__main__":

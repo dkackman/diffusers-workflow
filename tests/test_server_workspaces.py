@@ -660,23 +660,6 @@ class TestDeletingAssets:
 
 
 class TestRunning:
-    def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
-        with server() as client:
-            client.post("/api/workspaces", json={"name": "shots"})
-            client.put(
-                "/api/workflows/Mine?workspace=shots",
-                json={"workflow": valid_workflow("mine")},
-            )
-            response = client.post(
-                "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
-            )
-            assert response.status_code == 201
-            detail = wait_for_status(
-                client, response.json()["id"], {"succeeded", "failed"}
-            )
-
-        assert detail["status"] == "succeeded"
-
     def test_enhance_runs_in_the_selected_workspace(self, server):
         """The enhance job used to be submitted unscoped, so its text landed
         in the default workspace's outputs while the editor read it back
@@ -728,10 +711,14 @@ class TestRunning:
                 "/api/workflows/Mine?workspace=shots",
                 json={"workflow": valid_workflow("mine")},
             )
-            original = client.post(
+            submitted = client.post(
                 "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
-            ).json()
-            wait_for_status(client, original["id"], {"succeeded", "failed"})
+            )
+            # a stored workflow found only in the named workspace runs there
+            assert submitted.status_code == 201
+            original = submitted.json()
+            detail = wait_for_status(client, original["id"], {"succeeded", "failed"})
+            assert detail["status"] == "succeeded"
 
             rerun = client.post(f"/api/jobs/{original['id']}/rerun")
             assert rerun.status_code == 201

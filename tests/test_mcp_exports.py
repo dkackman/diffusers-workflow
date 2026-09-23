@@ -2,10 +2,9 @@
 says so - the lesson download_output taught."""
 
 import httpx
-import pytest
 
 from dw_mcp import exports
-from dw_mcp.client import DwApiError, DwClient
+from dw_mcp.client import DwClient
 
 SUMMARY = {
     "job_id": "job-1",
@@ -88,15 +87,6 @@ def test_overwrite_travels_as_a_query_parameter():
     exports.export_job(client, "job-1", overwrite=True)
 
     assert seen[0]["params"]["overwrite"] == "true"
-
-
-def test_a_409_reaches_the_model_as_a_readable_refusal():
-    client, _ = exporting(status=409, body={"detail": "An export already exists"})
-
-    with pytest.raises(DwApiError) as caught:
-        exports.export_job(client, "job-1")
-
-    assert "already exists" in str(caught.value)
 
 
 def test_the_docstring_names_total_bytes():

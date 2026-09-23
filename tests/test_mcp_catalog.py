@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from dw_mcp import catalog
-from dw_mcp.client import DwApiError, DwClient
+from dw_mcp.client import DwClient
 
 
 def recording_client(body=None, status=200):
@@ -140,12 +140,6 @@ def test_list_gallery_sends_only_orphans_only_when_true():
     assert seen["params"]["only_orphans"] == "true"
 
 
-def test_a_pass_through_tool_returns_the_body_unchanged():
-    client, _seen = recording_client({"workflows": ["a"], "details": {}})
-
-    assert catalog.list_workflows(client)["workflows"] == ["a"]
-
-
 FULL_ENTRY = {
     "summary": "a cut sequence",
     "shape": "sequence",
@@ -210,16 +204,6 @@ def test_list_workflows_passes_its_filters_through():
         "configures": "templates/x",
         "include_models": "true",
     }
-
-
-def test_a_missing_workflow_propagates_the_api_error():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "No such workflow: ghost"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError, match="ghost"):
-        catalog.get_workflow(client, "ghost")
 
 
 def test_get_workflow_sends_the_name_percent_encoded_on_the_wire():

@@ -77,22 +77,6 @@ class TestGatherImages:
             (0, 0, 255),
         ]
 
-    @patch("dw.tasks.gather.load_image")
-    @patch("dw.tasks.gather.validate_media_url")
-    def test_gather_images_from_urls(self, mock_validate_url, mock_load_image):
-        """Test gathering images from URLs"""
-        mock_validate_url.side_effect = lambda url, what=None: url
-        mock_image = Image.new("RGB", (100, 100))
-        mock_load_image.return_value = mock_image
-
-        urls = ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]
-
-        images = gather_images(urls=urls)
-
-        assert len(images) == 2
-        assert mock_validate_url.call_count == 2
-        assert mock_load_image.call_count == 2
-
     def test_gather_images_mixed_sources(self, tmp_path):
         """Local matches and URLs are both gathered - the files first, then
         the URLs in the order given."""

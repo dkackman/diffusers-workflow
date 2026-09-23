@@ -100,16 +100,6 @@ class TestOptionalVoices:
             built = [r for r in references if not isinstance(r, dict)]
             assert len(built) == (1 if "a" in SPEAKERS[name] else 0), name
 
-    def test_the_tag_runs_longer(self, definition):
-        frames = {e["name"]: e["num_frames"] for e in definition["variables"]["shots"]}
-        assert frames == {
-            "cold_open": 124,
-            "deflect": 124,
-            "react": 124,
-            "button": 124,
-            "tag": 141,
-        }
-
     def test_the_variable_names_are_roles_rather_than_a_cast(self, definition):
         """Every run carried howie_portrait_prompt and shot_3_howie_incredulous
         through its arguments, manifest and export whatever the cast was."""

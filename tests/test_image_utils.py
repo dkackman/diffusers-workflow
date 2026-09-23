@@ -18,14 +18,6 @@ from dw.tasks.image_utils import available_processors, process_image
 
 
 class TestUnknownProcessor(unittest.TestCase):
-    def test_unknown_processor_raises_with_expected_message(self):
-        img = Image.new("RGB", (10, 10))
-        with self.assertRaises(Exception) as ctx:
-            process_image(img, "not_a_real_processor", "cpu", {})
-        self.assertEqual(
-            str(ctx.exception), "Unknown image processor type: not_a_real_processor"
-        )
-
     def test_unknown_processor_message_uses_lowered_name(self):
         img = Image.new("RGB", (10, 10))
         with self.assertRaises(Exception) as ctx:

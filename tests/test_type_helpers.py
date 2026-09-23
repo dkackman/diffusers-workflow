@@ -15,11 +15,9 @@ class TestGetType:
     """Test getting type from module"""
 
     def test_get_type_from_diffusers(self):
-        # This would work if diffusers is installed
-        # For testing, we'll use a built-in type
+        import diffusers
 
-        result = get_type("sys", "version")
-        assert result is not None
+        assert get_type("diffusers", "DiffusionPipeline") is diffusers.DiffusionPipeline
 
     def test_get_type_invalid_module(self):
         with pytest.raises(ModuleNotFoundError):

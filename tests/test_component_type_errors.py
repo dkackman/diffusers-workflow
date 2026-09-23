@@ -64,7 +64,13 @@ class TestAMisspelledClass:
 
 
 class TestAllowlistedAbsentVsPresentButDisallowed:
-    def test_an_absent_class_in_a_trusted_module_says_does_not_exist(self):
+    @pytest.mark.parametrize("trust", ["0", "1"])
+    def test_an_absent_class_in_a_trusted_module_says_does_not_exist(
+        self, monkeypatch, trust
+    ):
+        """Untrusted too: an allowlisted module's missing class is a
+        misspelling, not the disallowed-module refusal below."""
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", trust)
         errors = component_type_errors(
             {
                 "id": "ct",
@@ -90,24 +96,6 @@ class TestAllowlistedAbsentVsPresentButDisallowed:
         assert len(errors) == 1
         assert "does not exist" not in errors[0]["message"]
         assert "outside the ecosystem" in errors[0]["message"]
-
-    def test_the_two_messages_differ(self, monkeypatch):
-        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
-        absent = component_type_errors(
-            {
-                "id": "ct",
-                "steps": [
-                    pipeline_step(
-                        None,
-                        extra={
-                            "quantization_config": {"config_type": "sdnq.NoSuchConfig"}
-                        },
-                    )
-                ],
-            }
-        )[0]["message"]
-        disallowed = errors_for("os.system")[0]["message"]
-        assert absent != disallowed
 
 
 class TestSchedulerAndQuantizationFields:

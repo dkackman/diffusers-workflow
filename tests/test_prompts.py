@@ -7,7 +7,12 @@ import os
 import pytest
 
 from dw.arguments import is_prompt_reference, realize_args
-from dw.prompts import fetch_prompt, get_prompt_dir, load_prompt
+from dw.prompts import (
+    RESERVED_TEXT_PREFIXES,
+    fetch_prompt,
+    get_prompt_dir,
+    load_prompt,
+)
 from dw.security import InvalidInputError, SecurityError
 
 
@@ -180,48 +185,12 @@ def shipped_prompt_files():
     )
 
 
-def shipped_prompt_references():
-    """Every distinct 'prompt:' string in the shipped and builtin workflows."""
-    references = set()
-
-    def collect(value):
-        if isinstance(value, str) and is_prompt_reference(value):
-            references.add(value)
-        elif isinstance(value, dict):
-            for item in value.values():
-                collect(item)
-        elif isinstance(value, list):
-            for item in value:
-                collect(item)
-
-    for tree in (
-        os.path.join(REPO_ROOT, "workflows"),
-        os.path.join(REPO_ROOT, "dw", "workflows"),
-    ):
-        for root, _, files in os.walk(tree):
-            for name in files:
-                if not name.endswith(".json"):
-                    continue
-                try:
-                    with open(os.path.join(root, name), encoding="utf-8") as file:
-                        collect(json.load(file))
-                except json.JSONDecodeError:
-                    continue
-    return sorted(references)
-
-
 class TestShippedLibrary:
-    """The prompt library the repo ships stays loadable, and the workflows
-    that lean on it keep pointing at prompts that exist - a rename under
-    prompts/ should fail here, not at run time."""
+    """The prompt library the repo ships stays loadable. That the workflows
+    leaning on it point at prompts that exist is
+    tests/test_prompt_references.py's sweep."""
 
     @pytest.mark.parametrize("path", shipped_prompt_files())
     def test_shipped_prompt_is_valid(self, path):
         prompt = load_prompt(os.path.join(REPO_ROOT, path))
-        assert not prompt["text"].startswith(
-            ("previous_result:", "variable:", "constant:", "prompt:")
-        )
-
-    @pytest.mark.parametrize("reference", shipped_prompt_references())
-    def test_shipped_reference_resolves(self, reference):
-        assert fetch_prompt(reference, prompt_dir=LIBRARY_DIR)
+        assert not prompt["text"].startswith(RESERVED_TEXT_PREFIXES)

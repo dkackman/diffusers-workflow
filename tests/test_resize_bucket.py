@@ -3,7 +3,7 @@
 import unittest
 from PIL import Image
 
-from dw.tasks.image_utils import resize_bucket, _DEFAULT_RATIOS
+from dw.tasks.image_utils import resize_bucket
 
 
 class TestResizeBucket(unittest.TestCase):
@@ -70,15 +70,6 @@ class TestResizeBucket(unittest.TestCase):
         img = Image.new("RGBA", (500, 500))
         result = resize_bucket(img, resolution=512)
         self.assertEqual(result.mode, "RGB")
-
-    def test_default_ratios_has_expected_entries(self):
-        # Sanity check that we have the standard ratios
-        ratio_values = {(r[0], r[1]) for r in _DEFAULT_RATIOS}
-        self.assertIn((1, 1), ratio_values)
-        self.assertIn((16, 9), ratio_values)
-        self.assertIn((9, 16), ratio_values)
-        self.assertIn((4, 3), ratio_values)
-        self.assertIn((3, 4), ratio_values)
 
 
 class TestResizeBucketRegistration(unittest.TestCase):

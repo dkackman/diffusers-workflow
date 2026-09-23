@@ -142,6 +142,22 @@ def test_get_bytes_if_translates_a_body_read_failure():
     assert "/outputs/a.png" in str(caught.value)
 
 
+def test_get_media_if_surfaces_an_error_status_verbatim():
+    """The streamed path has to read the body before it can report an
+    error status - the media tools (get_output_image/_audio/_text) all
+    reach the server this way rather than through get_json."""
+
+    def handler(request):
+        return httpx.Response(404, json={"detail": "Unknown file"})
+
+    with pytest.raises(DwApiError) as caught:
+        client_with(handler).get_media_if(
+            "/api/gallery/ghost.wav/audio", lambda ct: True, max_bytes=1024
+        )
+
+    assert str(caught.value) == "Unknown file"
+
+
 def test_a_refused_connection_says_how_to_start_the_server():
     def handler(request):
         raise httpx.ConnectError("refused", request=request)
@@ -241,22 +257,8 @@ def test_api_path_joins_literal_and_encoded_segments():
     assert api_path("api", "jobs", "j1", "cancel") == "/api/jobs/j1/cancel"
 
 
-def test_api_path_quotes_a_slash_in_a_segment():
-    assert (
-        api_path("api", "workflows", "flux/FluxDev") == "/api/workflows/flux%2FFluxDev"
-    )
-
-
 def test_api_path_quotes_dot_segments_so_they_cannot_traverse():
     assert api_path("api", "workflows", "../escape") == "/api/workflows/..%2Fescape"
-
-
-def test_api_path_quotes_a_hash():
-    assert api_path("api", "gallery", "a#1") == "/api/gallery/a%231"
-
-
-def test_api_path_quotes_a_space():
-    assert api_path("outputs", "a b.png") == "/outputs/a%20b.png"
 
 
 # Every dw_mcp handler module that talks to the API must build request paths

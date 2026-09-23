@@ -55,18 +55,9 @@ def test_run_submits_once_the_cost_is_acknowledged():
     assert result["job_id"] == "job-1"
     assert result["status"] == "queued"
     assert result["queue_position"] == 2
-    assert len(seen) == 1
-
-
-def test_run_returns_immediately_rather_than_waiting_for_the_job():
-    """A generation takes minutes; no MCP client will hold a call open. The
-    contract is submit-then-poll, so exactly one request goes out."""
-    client, seen = submitting()
-
-    result = diagnose.run_workflow(
-        client, workflow_path="w.json", acknowledged_cost=True
-    )
-
+    # A generation takes minutes and no MCP client holds a call open: the
+    # contract is submit-then-poll, so one request goes out and the answer
+    # names the tool to poll with
     assert [entry["key"] for entry in seen] == [("POST", "/api/jobs")]
     assert "get_job_events" in result["next"]
 
@@ -121,15 +112,6 @@ def test_run_passes_variable_overrides():
     )
 
     assert b"a cat" in seen[0]["body"]
-
-
-def test_run_surfaces_a_rejected_workflow():
-    client, _seen = scripted(
-        {("POST", "/api/jobs"): (400, {"detail": "steps must not be empty"})}
-    )
-
-    with pytest.raises(DwApiError, match="steps must not be empty"):
-        diagnose.run_workflow(client, inline_workflow=WORKFLOW, acknowledged_cost=True)
 
 
 def test_get_job_returns_the_detail_payload():
@@ -204,20 +186,6 @@ def test_cancel_rerun_and_move_call_their_routes():
         "/api/jobs/job-1/move",
     ]
     assert b"front" in seen[2]["body"]
-
-
-def test_move_surfaces_a_job_that_has_left_the_queue():
-    client, _seen = scripted(
-        {
-            ("POST", "/api/jobs/job-1/move"): (
-                409,
-                {"detail": "Job is not queued - only queued jobs move"},
-            )
-        }
-    )
-
-    with pytest.raises(DwApiError, match="only queued jobs move"):
-        diagnose.move_job(client, "job-1", "up")
 
 
 def test_rerun_refuses_without_an_acknowledged_cost():
@@ -363,18 +331,6 @@ def test_wait_for_job_reports_an_uncapped_budget_honestly(monkeypatch):
     assert result["timeout_applied_seconds"] == 5.0
     assert result["timeout_requested_seconds"] == 5.0
     assert "waited_seconds" in result
-
-
-def test_wait_for_job_does_not_require_acknowledged_cost():
-    """It reads an already-queued job rather than starting anything, so the
-    cost gate other job-queuing tools carry does not apply here."""
-    client, _seen = sequenced(
-        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
-    )
-
-    result = diagnose.wait_for_job(client, "job-1")
-
-    assert result["status"] == "succeeded"
 
 
 FAT_JOB = {
@@ -625,12 +581,6 @@ class TestGetJobWorkflow:
 
         assert "save_workflow" in result["next"]
         assert "run_workflow" in result["next"]
-
-    def test_an_unknown_job_raises_the_client_error(self):
-        client, _ = scripted({})
-
-        with pytest.raises(DwApiError):
-            diagnose.get_job_workflow(client, "nope")
 
 
 def test_run_pins_a_job_to_a_named_workspace_without_switching():

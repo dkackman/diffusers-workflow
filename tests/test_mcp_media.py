@@ -230,15 +230,6 @@ class TestGetOutputAudio:
         with pytest.raises(DwApiError, match="byte limit"):
             get_output_audio(client, "clip.wav")
 
-    def test_a_missing_file_propagates_the_api_error(self):
-        def handler(request):
-            return httpx.Response(404, json={"detail": "Unknown file"})
-
-        client = DwClient(transport=httpx.MockTransport(handler))
-
-        with pytest.raises(DwApiError, match="Unknown file"):
-            get_output_audio(client, "ghost.wav")
-
 
 def test_audio_is_fetched_from_the_gallery_audio_route():
     seen = []
@@ -331,16 +322,6 @@ def test_a_non_image_output_is_refused_without_reading_the_body():
         get_output_image(client, "clip.mp4")
 
     assert stream.iterated is False
-
-
-def test_a_missing_file_propagates_the_api_error():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError, match="Unknown file"):
-        get_output_image(client, "ghost.png")
 
 
 def test_the_name_is_url_quoted_in_the_request():
@@ -509,16 +490,6 @@ def test_the_text_tool_names_the_tool_that_can_read_an_image():
         media.get_output_text(client, "out.png")
 
 
-def test_a_missing_text_output_surfaces_the_error():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError):
-        media.get_output_text(client, "ghost.txt")
-
-
 def test_undecodable_bytes_do_not_crash_the_tool():
     """A file the server labels text but that is not valid UTF-8 should read
     as damaged output, not as a tool that blew up."""
@@ -543,16 +514,6 @@ def test_delete_output_calls_delete_on_the_gallery_route():
 
     assert media.delete_output(client, "out.png")["deleted"] is True
     assert seen == [("DELETE", "/api/gallery/out.png")]
-
-
-def test_delete_output_surfaces_a_missing_file():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError, match="Unknown file"):
-        media.delete_output(client, "ghost.png")
 
 
 def deleting_by_job(job):

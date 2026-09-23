@@ -14,13 +14,15 @@ from dw.tasks.model_cache import cached_model, clear_model_cache
 
 class TestCachedModel:
     def test_factory_called_once_for_same_key(self):
-        factory = MagicMock(return_value="the-model")
+        """Callers get the identical cached object back, not a copy."""
+        loaded = object()
+        factory = MagicMock(return_value=loaded)
 
         first = cached_model(("task", "model-a", "cpu"), factory)
         second = cached_model(("task", "model-a", "cpu"), factory)
 
-        assert first == "the-model"
-        assert second == "the-model"
+        assert first is loaded
+        assert second is loaded
         factory.assert_called_once()
 
     def test_distinct_keys_get_distinct_loads(self):
@@ -34,27 +36,6 @@ class TestCachedModel:
         assert result_b == "model-b-instance"
         factory_a.assert_called_once()
         factory_b.assert_called_once()
-
-    def test_returns_the_same_object_instance(self):
-        """Callers get the identical cached object back, not a copy."""
-        loaded = object()
-        factory = MagicMock(return_value=loaded)
-
-        first = cached_model(("task", "model-a", "cpu"), factory)
-        second = cached_model(("task", "model-a", "cpu"), factory)
-
-        assert first is loaded
-        assert second is loaded
-
-    def test_factory_not_called_until_needed(self):
-        """A cache hit must not invoke factory at all, even zero times isn't assumed."""
-        cached_model(("task", "shared-key", "cpu"), MagicMock(return_value="v1"))
-
-        never_called = MagicMock(return_value="v2")
-        result = cached_model(("task", "shared-key", "cpu"), never_called)
-
-        assert result == "v1"
-        never_called.assert_not_called()
 
     def test_clear_model_cache_releases_entries(self):
         factory = MagicMock(return_value="the-model")

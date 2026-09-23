@@ -83,14 +83,6 @@ def test_gather_images_task_dispatches_to_gather():
     assert [call.args[0] for call in load_image.call_args_list] == urls
 
 
-def test_gather_inputs_task():
-    task_def = {"command": "gather_inputs", "inputs": ["value1", "value2"]}
-    task = Task(task_def, "cpu")
-    result = task.run(task_def["inputs"])
-    assert isinstance(result, list), "Expected a list of inputs from gather_inputs"
-    assert "value1" in result and "value2" in result, "Should gather all passed inputs"
-
-
 def test_format_chat_message_task():
     task_def = {
         "command": "format_chat_message",

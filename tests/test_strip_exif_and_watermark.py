@@ -1,6 +1,8 @@
 """Tests for strip_exif and add_watermark image processing commands."""
 
 import unittest
+
+import numpy as np
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
@@ -61,15 +63,20 @@ class TestAddWatermark(unittest.TestCase):
         self.assertNotEqual(img.tobytes(), result.tobytes())
 
     def test_default_text(self):
-        # Should not raise with defaults
         img = Image.new("RGB", (400, 200))
         result = add_watermark(img)
-        self.assertIsInstance(result, Image.Image)
+        # The defaults draw "AI Generated", pixel for pixel
+        expected = add_watermark(img, text="AI Generated")
+        other = add_watermark(img, text="SOMETHING ELSE")
+        self.assertNotEqual(result.tobytes(), img.tobytes())
+        self.assertEqual(result.tobytes(), expected.tobytes())
+        self.assertNotEqual(result.tobytes(), other.tobytes())
 
     def test_custom_text(self):
         img = Image.new("RGB", (400, 200))
         result = add_watermark(img, text="DO NOT DISTRIBUTE")
-        self.assertIsInstance(result, Image.Image)
+        self.assertNotEqual(result.tobytes(), img.tobytes())
+        self.assertNotEqual(result.tobytes(), add_watermark(img).tobytes())
 
     def test_all_positions(self):
         img = Image.new("RGB", (400, 200))
@@ -88,13 +95,24 @@ class TestAddWatermark(unittest.TestCase):
 
     def test_custom_color(self):
         img = Image.new("RGB", (400, 200))
-        result = add_watermark(img, color=(255, 0, 0))
-        self.assertIsInstance(result, Image.Image)
+        result = add_watermark(img, color=(255, 0, 0), opacity=255)
+        # Red text on black: every drawn pixel is some shade of pure red
+        pixels = np.asarray(result).reshape(-1, 3)
+        drawn = pixels[pixels.any(axis=1)]
+        self.assertTrue(len(drawn))
+        self.assertFalse(drawn[:, 1:].any())
+        self.assertEqual(drawn[:, 0].max(), 255)
 
     def test_custom_font_size(self):
         img = Image.new("RGB", (400, 200))
-        result = add_watermark(img, font_size=24)
-        self.assertIsInstance(result, Image.Image)
+
+        def inked(font_size):
+            result = add_watermark(img, text="W", font_size=font_size, opacity=255)
+            return int(np.asarray(result).any(axis=2).sum())
+
+        # the auto size here is max(12, 200 // 30) = 12; a larger size draws more
+        self.assertGreater(inked(48), inked(24))
+        self.assertGreater(inked(24), inked(0))
 
     def test_rgba_input_converted(self):
         img = Image.new("RGBA", (200, 100))
@@ -103,8 +121,13 @@ class TestAddWatermark(unittest.TestCase):
 
     def test_dispatch_via_process_image(self):
         img = Image.new("RGB", (200, 100))
-        result = process_image(img, "add_watermark", "cpu", {"text": "TEST"})
-        self.assertIsInstance(result, Image.Image)
+        result = process_image(
+            img, "add_watermark", "cpu", {"text": "TEST", "opacity": 255}
+        )
+        # the kwargs reach add_watermark: same pixels as a direct call
+        expected = add_watermark(img, text="TEST", opacity=255)
+        self.assertEqual(result.tobytes(), expected.tobytes())
+        self.assertNotEqual(result.tobytes(), img.tobytes())
 
 
 if __name__ == "__main__":

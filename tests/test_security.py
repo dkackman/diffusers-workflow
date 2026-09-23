@@ -63,10 +63,7 @@ def test_url_validation():
     )
     assert validate_url("http://localhost:8080/api") == "http://localhost:8080/api"
 
-    # Invalid schemes should fail
-    with pytest.raises(InvalidInputError):
-        validate_url("file:///etc/passwd")
-
+    # Invalid schemes should fail (file:// is in TestValidateUrl)
     with pytest.raises(InvalidInputError):
         validate_url("ftp://example.com/file")
 

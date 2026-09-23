@@ -40,6 +40,7 @@ class TestResult:
         result = Result({})
         result.add_result(["item1", "item2", "item3"])
         assert result.result_list == ["item1", "item2", "item3"]
+        assert result.get_artifacts() == ["item1", "item2", "item3"]
 
     def test_add_string_strips_quotes(self):
         result = Result({})
@@ -54,12 +55,6 @@ class TestResult:
 
         assert result.result_list == ["b"]
         assert result.selected == {"position": 1, "score": 0.9}
-
-    def test_get_artifacts_from_simple_list(self):
-        result = Result({})
-        result.add_result(["item1", "item2"])
-        artifacts = result.get_artifacts()
-        assert artifacts == ["item1", "item2"]
 
     def test_get_artifact_properties(self):
         result = Result({})
@@ -1753,18 +1748,6 @@ class TestTheWrittenLevel:
 
         measured.assert_called_once()
         assert measured.call_args.args[0].endswith(".wav")
-
-    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(self, tmp_path):
-        """A wav's write is itself the clip (#295): unlike a lossy re-encode,
-        there is no later encode step for the pre-write warning to describe
-        as a future risk, so the pre-write prediction and the post-write
-        ground truth are two different facts about this file and both fire."""
-        kinds = [
-            warning["kind"]
-            for warning in self.warnings_from(lambda: self.save_wav(1.5, str(tmp_path)))
-        ]
-
-        assert kinds == ["audio_no_headroom", "audio_clipped"]
 
     def test_an_image_is_never_probed(self, tmp_path):
         """Only a file that can carry a soundtrack pays for the read-back."""

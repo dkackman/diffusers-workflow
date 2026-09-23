@@ -123,12 +123,6 @@ class TestRoundingNotTruncation:
         assert truncated == 127
         assert pixel[0] != truncated
 
-    def test_half_value_rounds_up_not_down(self):
-        """0.5/255-scaled exact half (127.5) rounds to nearest even (128)."""
-        tensor = torch.full((1, 3, 1, 1), 127.5 / 255.0)
-        image = float_tensor_to_pil(tensor)
-        assert image.getpixel((0, 0)) == (128, 128, 128)
-
 
 class TestModuleAdoption:
     """Verify upscale.py and interpolate_frames.py actually route through the

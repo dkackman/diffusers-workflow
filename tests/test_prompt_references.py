@@ -17,6 +17,18 @@ from dw.server.app import collect_prompt_references
 from tests.test_examples import REPO_ROOT, get_example_files
 
 PROMPT_DIR = os.path.join(REPO_ROOT, "prompts")
+BUILTIN_DIR = os.path.join(REPO_ROOT, "dw", "workflows")
+
+
+def get_builtin_files():
+    """The packaged builtin workflows - what 'builtin:' steps name - which
+    resolve prompt: references against the same library."""
+    return sorted(
+        os.path.relpath(os.path.join(root, name), REPO_ROOT)
+        for root, _, files in os.walk(BUILTIN_DIR)
+        for name in files
+        if name.endswith(".json")
+    )
 
 
 def prompt_references(definition):
@@ -27,7 +39,7 @@ def prompt_references(definition):
     ]
 
 
-@pytest.mark.parametrize("example_file", get_example_files())
+@pytest.mark.parametrize("example_file", get_example_files() + get_builtin_files())
 def test_every_prompt_reference_resolves(example_file):
     path = os.path.join(REPO_ROOT, example_file)
     with open(path, encoding="utf-8") as file:
