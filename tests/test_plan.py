@@ -551,7 +551,7 @@ class TestLowConfidenceObservedEstimate:
             ],
         }
 
-        def observed_for_child(path, child_definition):
+        def observed_for_child(path, child_definition, arguments=None):
             return observed(minutes=6, runs=1)
 
         answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
@@ -682,7 +682,7 @@ class TestSubWorkflowEstimate:
             ],
         }
 
-        def observed_for_child(path, child_definition):
+        def observed_for_child(path, child_definition, arguments=None):
             return observed(minutes=6)
 
         answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
@@ -706,7 +706,7 @@ class TestSubWorkflowEstimate:
             ],
         }
 
-        def observed_for_child(path, child_definition):
+        def observed_for_child(path, child_definition, arguments=None):
             return observed(minutes=6, runs=3, name="RTX 3090")
 
         answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
@@ -727,7 +727,7 @@ class TestSubWorkflowEstimate:
             ],
         }
 
-        def observed_for_child(path, child_definition):
+        def observed_for_child(path, child_definition, arguments=None):
             runs = 3 if path == "a.json" else 9
             return observed(minutes=6, runs=runs, name="RTX 3090")
 
@@ -751,7 +751,7 @@ class TestSubWorkflowEstimate:
             ],
         }
 
-        def observed_for_child(path, child_definition):
+        def observed_for_child(path, child_definition, arguments=None):
             name = "RTX 3090" if path == "a.json" else "RTX 4090"
             return observed(minutes=6, runs=3, name=name)
 
@@ -774,10 +774,86 @@ class TestSubWorkflowEstimate:
                 {"name": "child", "workflow": {"path": "child.json", "arguments": {}}},
             ],
         }
-        answer = plan(parent, observed_for_child=lambda path, defn: None)["estimate"]
+        answer = plan(
+            parent, observed_for_child=lambda path, defn, arguments=None: None
+        )["estimate"]
         assert answer["minutes"] is None
         assert answer["basis"] == "unknown"
         assert answer["partial"] is False
+
+    def test_a_composed_childs_shifted_scalar_driver_stays_unpriced_despite_default_bucket_history(
+        self, plan, tmp_path
+    ):
+        """The observed-history rollup must not paper over a shifted scalar
+        driver by quoting the *default* bucket's figure just because it
+        exists - `observed_for_child` is called with the composing step's
+        own arguments, and answering None for the shifted bucket falls
+        through to the catalog path's `_scalar_driver_shifted` unpriced
+        check rather than silently reusing the default bucket's history
+        (#341)."""
+        child = {
+            "id": "child",
+            "cost": [cost("cuda", 5)],
+            "cost_drivers": ["num_frames"],
+            "variables": {"num_frames": 124},
+            "steps": [],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "child",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"num_frames": 345},
+                    },
+                },
+            ],
+        }
+
+        calls = []
+
+        def observed_for_child(path, child_definition, arguments=None):
+            calls.append(arguments)
+            if (arguments or {}).get("num_frames") == 124:
+                return observed(minutes=6, runs=3)
+            return None
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert calls == [{"num_frames": 345}]
+        assert answer["basis"] == "unknown"
+        assert (answer["minutes"], answer["partial"]) == (None, False)
+
+    def test_a_composed_childs_observed_history_is_bucketed_by_the_composing_steps_arguments(
+        self, plan, tmp_path
+    ):
+        """The companion case: when the composing step's arguments do match
+        a bucket this box has history for, that bucket's real figure is
+        quoted rather than always the child's stored-default bucket
+        (#341)."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "child",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"num_frames": 345},
+                    },
+                },
+            ],
+        }
+
+        def observed_for_child(path, child_definition, arguments=None):
+            if (arguments or {}).get("num_frames") == 345:
+                return observed(minutes=9, runs=2)
+            return observed(minutes=6, runs=5)
+
+        answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["minutes"] == 9.0
 
 
 class TestDownloadsRequired:

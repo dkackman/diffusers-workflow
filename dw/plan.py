@@ -75,12 +75,15 @@ def build_plan(
             run's arguments and answering one - what the estimate quotes in
             preference to a curated figure (#154). None on a caller that has
             no history to offer, which is every caller but the server.
-        observed_for_child: A callable taking a composed child's local path
-            and its parsed definition, answering that child's own `observed`
-            block or None - so a composing workflow's estimate can roll up a
-            child's history instead of resetting to `unknown` when the
-            parent has no figure of its own (#268). None on a caller that
-            cannot resolve a child's catalog name to look history up by.
+        observed_for_child: A callable taking a composed child's local path,
+            its parsed definition, and the composing step's own `arguments`,
+            answering that child's own `observed` block or None - so a
+            composing workflow's estimate can roll up a child's history
+            instead of resetting to `unknown` when the parent has no figure
+            of its own (#268), bucketed against the value the composing step
+            actually passes rather than always the child's stored defaults
+            (#341). None on a caller that cannot resolve a child's catalog
+            name to look history up by.
     """
     definition = candidate.workflow_definition
     base_dir = (
@@ -499,7 +502,13 @@ def estimate(
             and child_definition is not None
         ):
             try:
-                child_observed = observed_for_child(path, child_definition)
+                # `step_arguments` are the composing step's own overrides -
+                # passed through so a child observed lookup buckets against
+                # the value this step actually runs with rather than always
+                # the child's stored defaults (#341)
+                child_observed = observed_for_child(
+                    path, child_definition, step_arguments
+                )
             except Exception:
                 child_observed = None
         child = _observed(child_observed, device)

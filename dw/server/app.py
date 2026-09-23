@@ -1814,11 +1814,19 @@ def create_app(
 
             command = _probe_command_for(candidate, request, workspace, source_root)
 
-            def observed_for_child(path, child_definition):
+            def observed_for_child(path, child_definition, arguments=None):
                 """A composed child's own observed figure, keyed by the
                 catalog name it resolves to - so a parent with no figure of
                 its own can quote what this box's runs of the *child* took
-                rather than falling back to unknown (#268)."""
+                rather than falling back to unknown (#268).
+
+                `arguments` are the composing step's own overrides - the
+                same role `arguments` plays for the top-level `observed`
+                callback - so a child whose composing step shifted a
+                declared scalar `cost_driver` (#341) is bucketed against
+                *that* value rather than always the child's stored
+                defaults, which silently answered the default bucket's
+                history for every override."""
                 base_dir = (
                     os.path.dirname(os.path.abspath(candidate.file_spec))
                     if candidate.file_spec
@@ -1841,7 +1849,7 @@ def create_app(
                     workspace.name if child_root == workspace.workflows else None
                 )
                 return _observed_for_name(
-                    child_name, child_definition, workspace=child_workspace
+                    child_name, child_definition, arguments, workspace=child_workspace
                 )
 
             answer["plan"] = build_plan(
