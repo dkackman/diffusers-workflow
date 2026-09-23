@@ -96,7 +96,7 @@ MEDIA_KINDS = ("image", "video", "audio")
 
 
 # Helper functions for processing and loading workflow arguments
-def realize_args(arg, base_dir=None):
+def realize_args(arg, base_dir=None, apply_key_conventions=True):
     """
     Recursively processes workflow arguments to:
     1. Convert type references into actual Python types
@@ -108,6 +108,17 @@ def realize_args(arg, base_dir=None):
         arg: The arguments to process, modified in place
         base_dir: Directory relative file paths are resolved against - the
             workflow file's directory. Defaults to the process working directory
+        apply_key_conventions: Whether a bare value loads by what its key looks
+            like (an 'image'/'video'/'_type' name). Explicit references
+            (asset:, output:, constant:, prompt:, a {media_type, location}
+            dict) always resolve regardless of this flag - only the fallback
+            that guesses from the key name is gated. The top-level variables
+            dict is realized with this off (dw/workflow.py): a variable's own
+            name is not the argument it will end up filling, so 'image' guessed
+            a variable named that way into a PIL Image before the step that
+            actually names its argument 'video' ever saw the value (#365).
+            Nested structures still recurse with this at its default, since by
+            then a dict key is a real argument name again
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
@@ -132,23 +143,29 @@ def realize_args(arg, base_dir=None):
             elif is_media_reference(v):
                 arg[k] = fetch_media(v, base_dir)
             # Handle image loading for keys ending in '_image' or exactly 'image'
-            elif k.endswith("_image") or k == "image":
+            elif apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
-                arg[k] = fetch_image(v, base_dir)
+                arg[k] = _fetch_image_with_context(v, base_dir, k)
             # get_frame/get_first_frame/get_last_frame only ever need one frame
             # out of their 'video' - loading the ordinary way decodes the whole
             # clip to throw all but one frame away, which is what OOM-killed a
             # long clip (#367). Recognized by the sibling 'command' on this same
             # task object, since that is the only place the command name and
             # this argument meet before a task handler runs
-            elif k == "arguments" and arg.get("command") in _LAZY_FRAME_COMMANDS:
+            elif (
+                apply_key_conventions
+                and k == "arguments"
+                and arg.get("command") in _LAZY_FRAME_COMMANDS
+            ):
                 _realize_lazy_frame_arguments(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
-            elif k.endswith("_video") or k == "video":
+            elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = fetch_video(v, base_dir)
+                arg[k] = _fetch_video_with_context(v, base_dir, k)
             # Handle type references, and the keys that only look like one
-            elif k.endswith("_type") or k.endswith("_dtype") or k == "dtype":
+            elif apply_key_conventions and (
+                k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
+            ):
                 if isinstance(v, EscapedString):
                     # An earlier pass already consumed this value's escape
                     continue
@@ -199,7 +216,14 @@ def realize_args(arg, base_dir=None):
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)
                 continue
-            realize_args(item, base_dir)
+            try:
+                realize_args(item, base_dir)
+            except ValueError as error:
+                if isinstance(item, dict) and "name" in item:
+                    raise ValueError(
+                        f"{error} (step '{item['name']}')"
+                    ) from error
+                raise
             arg[i] = realize_object(item, base_dir)
         # An optional entry whose media is null leaves the list rather than
         # reaching the pipeline as a reference with nothing in it
@@ -893,6 +917,44 @@ def resolve_relative_path(path, base_dir):
     if base_dir and not os.path.isabs(os.path.expanduser(path)):
         return os.path.join(base_dir, path)
     return path
+
+
+def _describe_value_source(value):
+    """A short, human phrase for what a mistyped value already is - the
+    'source' half of an argument-mismatch error, since the type name alone
+    (PIL.Image.Image) doesn't say *how* it got there."""
+    if hasattr(value, "mode") and hasattr(value, "size"):
+        return "an already-loaded image"
+    if isinstance(value, tuple) and value and hasattr(value[0], "size"):
+        return "already-loaded video frames"
+    return f"a {type(value).__name__}"
+
+
+def _fetch_image_with_context(v, base_dir, key):
+    """fetch_image, with the argument key folded into a type-mismatch error -
+    a bare 'got <class ...>' names neither the argument nor what the value
+    already was (#365)."""
+    try:
+        return fetch_image(v, base_dir)
+    except ValueError as error:
+        raise ValueError(
+            f"{error} (argument '{key}' expected an image, got "
+            f"{_describe_value_source(v)} - check what variable or previous "
+            f"result feeds it)"
+        ) from error
+
+
+def _fetch_video_with_context(v, base_dir, key):
+    """fetch_video, with the same argument-key context as
+    _fetch_image_with_context."""
+    try:
+        return fetch_video(v, base_dir)
+    except ValueError as error:
+        raise ValueError(
+            f"{error} (argument '{key}' expected a video, got "
+            f"{_describe_value_source(v)} - check what variable or previous "
+            f"result feeds it)"
+        ) from error
 
 
 def fetch_image(img_spec, base_dir=None):

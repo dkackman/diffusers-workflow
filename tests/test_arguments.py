@@ -420,6 +420,80 @@ class TestRealizeArgs:
 
         assert args["scheduler_type"] == mock_type
 
+    def test_variables_dict_skips_key_conventions(self):
+        # A variable named 'image', with apply_key_conventions off, is left
+        # as the plain path it was declared with - the value only loads once
+        # the argument that actually consumes it is realized (#365)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "clip.mp4")
+            with open(video_path, "wb") as f:
+                f.write(b"not a real video, just a placeholder")
+
+            variables = {"image": video_path}
+            realize_args(variables, apply_key_conventions=False)
+
+            assert variables["image"] == video_path
+
+    def test_variable_named_image_feeds_video_argument(self):
+        # The exact #365 shape: a variable named 'image' is substituted into
+        # a step's 'video' argument. Realizing the variables dict without key
+        # conventions, then the step with them, loads it as a video rather
+        # than pre-loading it as an image and handing fetch_video a PIL Image
+        with patch("dw.arguments.load_video") as mock_load:
+            with patch("dw.arguments.validate_media_url") as mock_validate:
+                mock_validate.return_value = "https://example.com/clip.mp4"
+                mock_load.return_value = ["frame1", "frame2"]
+
+                variables = {"image": "https://example.com/clip.mp4"}
+                realize_args(variables, apply_key_conventions=False)
+
+                # simulate substitution of the variable into the step's argument
+                steps = {"video": variables["image"]}
+                realize_args(steps)
+
+                assert steps["video"] == ["frame1", "frame2"]
+
+    def test_star_image_variable_still_loads_as_image_under_image_argument(self):
+        # Regression check: a variable named like a media convention (e.g.
+        # 'input_image') still loads correctly once substituted into a
+        # matching argument - only the variable-stage guess is removed
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_image = Image.new("RGB", (50, 50), color="purple")
+            image_path = os.path.join(temp_dir, "subject.png")
+            test_image.save(image_path)
+
+            variables = {"input_image": image_path}
+            realize_args(variables, apply_key_conventions=False)
+            assert variables["input_image"] == image_path
+
+            steps = {"image": variables["input_image"]}
+            realize_args(steps, base_dir=temp_dir)
+
+            assert isinstance(steps["image"], Image.Image)
+
+    def test_reference_type_variable_stays_a_string(self):
+        # A '_type'-suffixed variable holding a plain category string must
+        # not be run through load_type_from_name at the variable stage
+        variables = {"reference_type": "character"}
+        realize_args(variables, apply_key_conventions=False)
+
+        assert variables["reference_type"] == "character"
+
+    def test_image_variable_fed_to_video_argument_error_names_argument(self):
+        # If a value still reaches the wrong loader, the error names the
+        # argument and describes the value's source rather than a raw
+        # '<class ...>' message
+        img = Image.new("RGB", (10, 10))
+        steps = {"video": img}
+
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(steps)
+
+        message = str(exc_info.value)
+        assert "must be a string" in message
+        assert "'video'" in message
+        assert "already-loaded image" in message
+
 
 class Reference:
     """Stands in for a pipeline argument built from a file, e.g. MiniMaxH3ImageReference"""

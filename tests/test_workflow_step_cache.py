@@ -126,8 +126,10 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
 
     original_realize_args = workflow_module.realize_args
 
-    def realize_and_poison(target, base_dir):
-        original_realize_args(target, base_dir)
+    def realize_and_poison(target, base_dir, apply_key_conventions=True):
+        original_realize_args(
+            target, base_dir, apply_key_conventions=apply_key_conventions
+        )
         if isinstance(target, list):  # the steps list, not the variables dict
             target[0]["pipeline"]["arguments"]["image"] = NotCopyable()
 

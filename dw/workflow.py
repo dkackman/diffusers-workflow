@@ -896,8 +896,15 @@ class Workflow:
             # than starting a job the decode step was always going to OOM
             # on (dw/vram_estimate.py, #265)
             apply_vram_estimate(workflow_def, variables)
-            # realize the variables, initializing downloads of images etc
-            realize_args(variables, base_dir)
+            # realize the variables - explicit references only (asset:,
+            # output:, constant:, prompt:, a {media_type, location} dict).
+            # Key-name conventions (an 'image'/'video'/'_type' argument) are
+            # left off here: a variable's own name is not the argument it
+            # will end up filling, so a variable named 'image' fed to a step's
+            # 'video' argument was pre-loaded as a PIL Image before that step
+            # was ever substituted in (#365). The step-level realize_args
+            # passes below apply the conventions under the real argument key
+            realize_args(variables, base_dir, apply_key_conventions=False)
             ## then replace any variable references in the workflow definition with the actual values
             # replace_variables returns a new structure rather than mutating in
             # place, so the result must be captured here
