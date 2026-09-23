@@ -591,7 +591,9 @@ def _handle_video_processing(task, arguments, previous_pipelines):
 # Command names process_video (video_utils.py) accepts, with the function
 # whose signature carries their arguments. video_utils dispatches via a plain
 # if-chain, so keep this in sync with the branches in process_video().
-# get_first/last_frame pin frame_index themselves, so it is 'provided'.
+# get_first/last_frame pin frame_index themselves, so it is 'provided'; they
+# share get_frame's implementation and so would share its generic docstring
+# summary too (#366) - 'summary' overrides that per command.
 _VIDEO_PROCESSOR_INFO = {
     "get_frame": {
         "kind": "video_processor",
@@ -602,11 +604,13 @@ _VIDEO_PROCESSOR_INFO = {
         "kind": "video_processor",
         "implementation": "dw.tasks.video_utils.get_frame",
         "provided": ("frame_index",),
+        "summary": "The first frame of a video, as a PIL image.",
     },
     "get_last_frame": {
         "kind": "video_processor",
         "implementation": "dw.tasks.video_utils.get_frame",
         "provided": ("frame_index",),
+        "summary": "The last frame of a video, as a PIL image.",
     },
 }
 _VIDEO_PROCESSOR_COMMANDS = sorted(_VIDEO_PROCESSOR_INFO)
