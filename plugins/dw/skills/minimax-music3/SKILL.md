@@ -154,7 +154,12 @@ Control" section.
 4. Judge it yourself. `get_gallery_metadata` for duration and sample rate:
    `media.duration_seconds` within 0.2 s of `audio_duration` means the
    ceiling cut the track (raise it and rerun); well short of it means the
-   song finished on its own. Then listen with `get_output_audio` (a long
+   song finished on its own. Its `peak_dbfs` is a single sample and does not
+   say how loud the song reads end to end - `integrated_lufs` (BS.1770,
+   whole-track) is the field for that, and what `normalize_audio`'s optional
+   `target_lufs` targets when a score or a music-video mix needs to match
+   another track by ear rather than by peak alone. Then listen with
+   `get_output_audio` (a long
    track in `start`/`duration` excerpts) for the family's failure modes: a
    song that went instrumental (name the vocals in the caption), an ending
    cut mid-note (raise the ceiling, then trim), a structure that ignored the

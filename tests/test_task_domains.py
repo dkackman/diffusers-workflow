@@ -16,6 +16,7 @@ import pytest
 from dw.task_domains import (
     TASK_ARGUMENT_DOMAINS,
     NON_NEGATIVE,
+    NON_POSITIVE,
     POSITIVE,
     as_number,
     task_argument_errors,
@@ -59,9 +60,9 @@ class TestTheRegistryNamesRealArguments:
             parameters = {p["name"] for p in describe_task(command)["parameters"]}
             assert set(domains) <= parameters, command
 
-    def test_every_domain_is_one_of_the_two(self):
+    def test_every_domain_is_one_of_the_three(self):
         for domains in TASK_ARGUMENT_DOMAINS.values():
-            assert set(domains.values()) <= {POSITIVE, NON_NEGATIVE}
+            assert set(domains.values()) <= {POSITIVE, NON_NEGATIVE, NON_POSITIVE}
 
 
 class TestAsNumber:
@@ -99,6 +100,13 @@ class TestTheStaticPass:
         )
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.target_sample_rate"
+
+    def test_a_positive_target_lufs_is_refused(self):
+        errors = errors_for(
+            "normalize_audio", {"audio": "asset:bed.wav", "target_lufs": 3.0}
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.target_lufs"
 
     def test_a_zero_offset_is_fine(self):
         assert (

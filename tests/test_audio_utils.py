@@ -619,6 +619,89 @@ class TestNormalizeAudio:
         with pytest.raises(ValueError, match="full scale"):
             normalize_audio(numpy.ones((1, 10)), peak_dbfs=1.0, sample_rate=100)
 
+    def _tone(self, rate=48000, seconds=2.0, amplitude=0.1, density=1.0):
+        """A calibration tone, optionally sparse - `density` zeroes out all
+        but that fraction of the track so a "sparse" and a "dense" signal
+        can share a peak and still sit apart in integrated loudness."""
+        n = int(rate * seconds)
+        t = numpy.arange(n) / rate
+        tone = amplitude * numpy.sin(2 * numpy.pi * 1000 * t)
+        if density < 1.0:
+            mask = numpy.zeros(n, dtype=bool)
+            mask[: int(n * density)] = True
+            tone = tone * mask
+        return tone[numpy.newaxis, :].astype(numpy.float32), rate
+
+    def test_target_lufs_hits_its_target_on_a_sparse_signal(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone(density=0.1)
+
+        scaled = samples(
+            normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
+        )
+
+        from dw.loudness import integrated_lufs
+
+        assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
+
+    def test_target_lufs_hits_its_target_on_a_dense_signal(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone(density=1.0)
+
+        scaled = samples(
+            normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
+        )
+
+        from dw.loudness import integrated_lufs
+
+        assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
+
+    def test_the_peak_ceiling_holds_and_warns_when_target_lufs_would_exceed_it(
+        self,
+    ):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        # A loud, dense tone: reaching -1 LUFS would need to push the gain
+        # up past the -1 dBFS ceiling, so the ceiling has to win.
+        track, rate = self._tone(amplitude=0.5, density=1.0)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            scaled = samples(
+                normalize_audio(
+                    track, peak_dbfs=-1.0, target_lufs=-1.0, sample_rate=rate
+                )
+            )
+        finally:
+            deactivate_context(token)
+
+        peak_dbfs = 20 * numpy.log10(numpy.abs(scaled).max())
+        assert peak_dbfs == pytest.approx(-1.0, abs=0.01)
+
+        warnings = [e for e in events if e.get("kind") == "target_lufs_capped"]
+        assert len(warnings) == 1
+        assert warnings[0]["shortfall_lu"] > 0
+
+    def test_default_behavior_is_unchanged_without_target_lufs(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone()
+
+        with_default = samples(
+            normalize_audio(track.copy(), peak_dbfs=-3.0, sample_rate=rate)
+        )
+        explicit_none = samples(
+            normalize_audio(
+                track.copy(), peak_dbfs=-3.0, target_lufs=None, sample_rate=rate
+            )
+        )
+
+        assert numpy.array_equal(with_default, explicit_none)
+
 
 class TestAudioTasksTakeAnAudioVideo:
     """Every audio task accepts the video an earlier step generated with its
