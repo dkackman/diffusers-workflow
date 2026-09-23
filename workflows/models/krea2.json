@@ -1,10 +1,12 @@
 {
     "variables": {
-        "prompt": "prompt:zimage/kidney_trade_in"
+        "prompt": "prompt:zimage/kidney_trade_in",
+        "seed": null
     },
     "id": "Krea2",
     "description": "Text-to-image with Krea 2 Turbo - fast, few-step photorealistic generation.",
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

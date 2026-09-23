@@ -2,8 +2,10 @@
     "id": "MarigoldDepth",
     "description": "Estimates depth maps for input images with Marigold.",
     "variables": {
-        "image_url": "https://marigoldmonodepth.github.io/images/einstein.jpg"
+        "image_url": "https://marigoldmonodepth.github.io/images/einstein.jpg",
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "load_image",

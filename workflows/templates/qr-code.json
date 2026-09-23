@@ -1,10 +1,12 @@
     {
         "variables": {
             "qr_code_contents": "txch1jdsqdz4069k00t5vlk9l8mnr5ycljz640g36ymnygslgkra675ssg2y4ng",
-            "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain"
+            "init_image_location": "https://th.bing.com/th/id/OIP.Lsm7UOwPR37OPvDy3HUUTQHaE7?rs=1&pid=ImgDetMain",
+            "seed": null
         },
         "id": "qr_code",
         "description": "Generates a scannable artistic QR code with an SD 2.1 ControlNet.",
+        "seed": "variable:seed",
         "steps": [
             {
                 "name": "qr_code",

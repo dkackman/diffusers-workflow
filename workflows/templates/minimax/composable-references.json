@@ -2,7 +2,7 @@
     "id": "MiniMaxH3Ref2VAVideo",
     "description": "Reference types are composable, and each one contributes a different attribute. Here an image reference supplies the subject and a video reference supplies the shot - its framing, lighting and camera movement - so the two are recombined into a clip that copies neither wholesale. The prompt's retention analysis is what assigns those roles; the reference list only declares what is available.",
     "summary": "H3 video: an image reference supplies the subject, a video reference the framing and camera.",
-    "seed": 12345,
+    "seed": "variable:seed",
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
@@ -24,7 +24,8 @@
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
-        "weights_dtype": "{int4}"
+        "weights_dtype": "{int4}",
+        "seed": 12345
     },
     "variable_constraints": {
         "num_frames": {

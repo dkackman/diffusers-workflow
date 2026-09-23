@@ -2,7 +2,7 @@
     "id": "MiniMaxH3Ref2VAChainedVideo",
     "description": "The stronger form of chain continuity. Instead of handing the next segment a single frame, 'last_segment' hands it the tail of the previous segment as a video reference, complete with the audio generated alongside it - so motion, camera and voice survive the seam, not just appearance. 'carry_frames' bounds how much of that tail is carried, which is the lever between continuity and the sequence length (and memory) each segment costs.",
     "summary": "A long H3 clip chained on each segment's video tail, so motion, camera and voice carry across the seams.",
-    "seed": 12345,
+    "seed": "variable:seed",
     "cost_drivers": [
         "segments",
         "num_frames",
@@ -27,7 +27,8 @@
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
-        "weights_dtype": "{int4}"
+        "weights_dtype": "{int4}",
+        "seed": 12345
     },
     "variable_constraints": {
         "num_frames": {

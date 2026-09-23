@@ -399,7 +399,10 @@ def test_no_stale_entry_in_the_allowlist():
 # storyboard) each add a `[{device, name, vram_gb, minutes}]` entry to the
 # listing; `vram_estimate` beside it is not a compact field and costs nothing
 # here.
-COMPACT_BUDGET = 8_350
+# Then to 8_450 for the catalog-wide seed convention (#351): every generative
+# entry now declares `seed` in `variables`, which is a compact field
+# (`variable_names`), measured at 8_424.
+COMPACT_BUDGET = 8_450
 FILTERED_BUDGET = 1_500
 
 

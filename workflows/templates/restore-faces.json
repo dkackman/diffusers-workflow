@@ -7,10 +7,12 @@
         "num_inference_steps": 9,
         "guidance_scale": 0.0,
         "width": 1024,
-        "height": 1024
+        "height": 1024,
+        "seed": null
     },
     "id": "FaceRestore",
     "description": "Generates with Z-Image Turbo, then restores and sharpens faces in the result.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "generate",
