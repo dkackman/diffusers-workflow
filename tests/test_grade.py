@@ -117,7 +117,7 @@ class TestVideoIsGradedPerFrame:
 
     def test_grade_dispatches_over_every_frame_and_keeps_audio_and_fps(self):
         task = Task({"command": "grade", "arguments": {}}, "cpu")
-        result = task.run({"image": self.video(), "exposure": 1.0})
+        result = task.run({"media": self.video(), "exposure": 1.0})
 
         assert isinstance(result, AudioVideo)
         assert len(result.frames) == 3
@@ -129,6 +129,36 @@ class TestVideoIsGradedPerFrame:
             assert not numpy.array_equal(
                 numpy.asarray(source_frame), numpy.asarray(graded_frame)
             )
+
+    def test_a_video_file_path_is_loaded_with_its_audio(self, tmp_path):
+        # The regression this guards: `media` is deliberately not called
+        # "image" or "video" - either name would make the engine's own
+        # key-convention loading grab the string first (an image-only
+        # loader that refuses a .mp4 extension, or a frame-only loader that
+        # silently drops the audio), before the command ever saw it.
+        import av
+
+        path = tmp_path / "clip.mp4"
+        container = av.open(str(path), mode="w")
+        stream = container.add_stream("libx264rgb", rate=24)
+        stream.width, stream.height = 4, 4
+        stream.pix_fmt = "rgb24"
+        for i in range(3):
+            frame = av.VideoFrame.from_ndarray(
+                numpy.full((4, 4, 3), i * 40, dtype=numpy.uint8), format="rgb24"
+            )
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+        container.close()
+
+        task = Task({"command": "grade", "arguments": {}}, "cpu")
+        result = task.run({"media": str(path), "exposure": 1.0})
+
+        assert isinstance(result, AudioVideo)
+        assert len(result.frames) == 3
+        assert result.fps == 24
 
 
 class TestDomains:
@@ -146,15 +176,23 @@ class TestDomains:
         return task_argument_errors(definition)
 
     def test_a_negative_contrast_is_refused_at_its_path(self):
-        errors = self._errors({"image": "asset:a.png", "contrast": -0.5})
+        errors = self._errors({"media": "asset:a.png", "contrast": -0.5})
         assert [e["path"] for e in errors] == ["steps[0].task.arguments.contrast"]
 
     def test_a_negative_saturation_is_refused(self):
-        errors = self._errors({"image": "asset:a.png", "saturation": -1.0})
+        errors = self._errors({"media": "asset:a.png", "saturation": -1.0})
         assert [e["path"] for e in errors] == ["steps[0].task.arguments.saturation"]
 
     def test_zero_saturation_is_a_legitimate_request(self):
-        assert self._errors({"image": "asset:a.png", "saturation": 0.0}) == []
+        assert self._errors({"media": "asset:a.png", "saturation": 0.0}) == []
+
+    def test_an_out_of_range_temperature_is_refused(self):
+        errors = self._errors({"media": "asset:a.png", "temperature": 5.0})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.temperature"]
+
+    def test_an_out_of_range_tint_is_refused(self):
+        errors = self._errors({"media": "asset:a.png", "tint": -1.5})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.tint"]
 
     def test_validate_workflow_refuses_it_before_a_run(self):
         workflow = Workflow(
@@ -165,7 +203,7 @@ class TestDomains:
                         "name": "grade",
                         "task": {
                             "command": "grade",
-                            "arguments": {"image": "asset:a.png", "contrast": -1.0},
+                            "arguments": {"media": "asset:a.png", "contrast": -1.0},
                         },
                         "result": {"content_type": "image/png"},
                     }
@@ -177,13 +215,14 @@ class TestDomains:
         errors = workflow.validation_errors()
         assert [e["path"] for e in errors] == ["steps[0].task.arguments.contrast"]
 
-    def test_exposure_and_temperature_are_unconstrained(self):
+    def test_exposure_is_unconstrained_temperature_and_tint_are_closed_unit(self):
         from dw.introspection import describe_task
+        from dw.task_domains import CLOSED_UNIT
 
         parameters = {p["name"]: p for p in describe_task("grade")["parameters"]}
         assert "domain" not in parameters["exposure"]
-        assert "domain" not in parameters["temperature"]
-        assert "domain" not in parameters["tint"]
+        assert parameters["temperature"]["domain"] == CLOSED_UNIT
+        assert parameters["tint"]["domain"] == CLOSED_UNIT
 
 
 if __name__ == "__main__":

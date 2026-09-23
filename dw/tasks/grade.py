@@ -23,14 +23,14 @@ _WHITE_BALANCE_STRENGTH = 0.15
 
 
 def grade_image(
-    image,
+    media,
     exposure=0.0,
     contrast=1.0,
     saturation=1.0,
     temperature=0.0,
     tint=0.0,
 ):
-    """Adjust exposure, contrast, saturation and white balance of an image.
+    """Adjust exposure, contrast, saturation and white balance of a single frame.
 
     Every parameter is optional; omitting one leaves that adjustment at its
     identity value, so calling with no arguments returns the input pixels
@@ -38,7 +38,9 @@ def grade_image(
     then contrast, then temperature/tint, then saturation.
 
     Args:
-        image: PIL Image to grade.
+        media: PIL Image to grade. A video is dispatched to this one frame at
+            a time by the command handler (task.py's _per_frame), so this
+            function itself only ever sees a single frame.
         exposure: Stops to brighten (positive) or darken (negative) by,
             applied as a multiply of 2**exposure. 0.0 (default) is identity.
         contrast: Multiplier applied around the mid grey point (0.5).
@@ -60,10 +62,10 @@ def grade_image(
         channel, if the input has one, passes through untouched.
     """
     alpha = None
-    if image.mode in ("RGBA", "LA"):
-        alpha = image.getchannel("A")
+    if media.mode in ("RGBA", "LA"):
+        alpha = media.getchannel("A")
 
-    rgb = image.convert("RGB")
+    rgb = media.convert("RGB")
     array = np.asarray(rgb, dtype=np.float32) / 255.0
 
     if exposure != 0.0:

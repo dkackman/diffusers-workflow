@@ -15,6 +15,7 @@ import pytest
 
 from dw.task_domains import (
     TASK_ARGUMENT_DOMAINS,
+    CLOSED_UNIT,
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
@@ -60,9 +61,14 @@ class TestTheRegistryNamesRealArguments:
             parameters = {p["name"] for p in describe_task(command)["parameters"]}
             assert set(domains) <= parameters, command
 
-    def test_every_domain_is_one_of_the_three(self):
+    def test_every_domain_is_one_of_the_declared_kinds(self):
         for domains in TASK_ARGUMENT_DOMAINS.values():
-            assert set(domains.values()) <= {POSITIVE, NON_NEGATIVE, NON_POSITIVE}
+            assert set(domains.values()) <= {
+                POSITIVE,
+                NON_NEGATIVE,
+                NON_POSITIVE,
+                CLOSED_UNIT,
+            }
 
 
 class TestAsNumber:
@@ -107,6 +113,20 @@ class TestTheStaticPass:
         )
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.target_lufs"
+
+    def test_an_out_of_range_temperature_is_refused(self):
+        errors = errors_for("grade", {"media": "asset:a.png", "temperature": 5.0})
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.temperature"
+        assert "-1.0 and 1.0" in errors[0]["message"]
+
+    def test_an_out_of_range_tint_is_refused(self):
+        errors = errors_for("grade", {"media": "asset:a.png", "tint": -1.5})
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.tint"
+
+    def test_a_boundary_temperature_is_fine(self):
+        assert errors_for("grade", {"media": "asset:a.png", "temperature": 1.0}) == []
 
     def test_a_zero_offset_is_fine(self):
         assert (
