@@ -64,10 +64,14 @@ _DOMAIN_REASON = {
         "the documented scale is only defined inside it"
     ),
 }
+# Shared by POSITIVE, NON_NEGATIVE and NON_POSITIVE, which span both counts/
+# rates (audio, frame) and multipliers (grade's contrast, saturation) - kept
+# neutral rather than naming either, since a wording specific to one reads as
+# nonsense on the other (#383)
 _DEFAULT_REASON = (
-    "A value outside that range is refused rather than interpreted - "
-    "a negative count or a zero rate would otherwise produce a "
-    "plausible-looking track of the wrong length or speed"
+    "A value outside that range is refused rather than interpreted - it "
+    "would otherwise produce a plausible-looking result outside the "
+    "documented range"
 )
 
 # command -> argument -> domain. Every entry here is pinned to a real command

@@ -479,6 +479,12 @@ def describe_task(command):
         if domain is not None:
             parameter["domain"] = domain
 
+    parameter_descriptions = info.get("parameter_descriptions") or {}
+    for parameter in parameters:
+        description = parameter_descriptions.get(parameter["name"])
+        if description:
+            parameter["description"] = description
+
     summary = info.get("summary")
     if not summary:
         summary = _first_paragraph(inspect.getdoc(implementation))
