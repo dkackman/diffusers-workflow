@@ -9,6 +9,14 @@ this only watches the Hugging Face cache directory the download writes into
 while a `loading` phase is in progress, the same directory `hub_cache.py`
 scans for `list_downloads`. Byte growth there is real progress whoever
 triggered it, and is reported as such.
+
+A `download_progress` event fires on a fixed cadence, not only when the
+watched size has grown (#343 follow-up): an xet-backed file reconstructs
+against its local CAS cache in bursts, and can hold an unchanged size on
+disk for well past the phase-stall threshold while a transfer is genuinely
+still running underneath. Ticking on a timer reports that honestly - a
+quiet interval is `bytes_per_second=0`, not silence - which is what keeps
+the watchdog from mistaking it for a hang.
 """
 
 import logging
@@ -95,23 +103,25 @@ class DownloadWatch:
 
     def _run(self):
         baseline = _blob_dir_size(self._blob_dir)
-        last_size = baseline
-        last_sample_at = time.monotonic()
-        last_emit_at = 0.0
+        last_emitted_size = baseline
+        last_emit_at = time.monotonic()
         while not self._stop.wait(CHECK_INTERVAL_SECONDS):
             try:
                 size = _blob_dir_size(self._blob_dir)
                 now = time.monotonic()
-                if size <= last_size:
-                    last_size = size
-                    last_sample_at = now
+                elapsed = now - last_emit_at
+                if elapsed < EMIT_INTERVAL_SECONDS:
                     continue
-                elapsed = now - last_sample_at
-                rate = (size - last_size) / elapsed if elapsed > 0 else None
-                last_size = size
-                last_sample_at = now
-                if now - last_emit_at < EMIT_INTERVAL_SECONDS:
-                    continue
+                # Emitted on a timer, not on growth: a large xet-backed file
+                # reconstructs in bursts (dedup against its CAS cache) and
+                # can sit with an unchanged size on disk for well over
+                # EMIT_INTERVAL_SECONDS while genuinely still transferring
+                # (#343) - waiting for growth before emitting reproduces the
+                # exact silence the phase-stall watchdog is meant to catch.
+                # A tick with no growth still reports honestly: 0 B/s, not a
+                # guessed or carried-over rate.
+                rate = (size - last_emitted_size) / elapsed if elapsed > 0 else None
+                last_emitted_size = size
                 last_emit_at = now
                 self._context.emit(
                     "download_progress",
