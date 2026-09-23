@@ -1,60 +1,56 @@
-#!/usr/bin/env python
-"""
-Test the reorganized REPL commands interactively.
-"""
+"""The REPL's command groups: help routing, and what each group answers
+before any workflow is loaded or any worker has started."""
 
-import sys
-import os
-
-# Add parent to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
 from dw.repl import DiffusersWorkflowREPL
 
 
-def test_repl_commands():
-    """Test the reorganized command structure"""
+def output_of(repl, capsys, line):
+    capsys.readouterr()
+    repl.onecmd(line)
+    return capsys.readouterr().out
+
+
+def test_help_lists_every_command_group(capsys):
+    out = output_of(DiffusersWorkflowREPL(), capsys, "help")
+    for group in DiffusersWorkflowREPL.COMMAND_GROUPS:
+        assert f"  {group}" in out
+
+
+@pytest.mark.parametrize("group", DiffusersWorkflowREPL.COMMAND_GROUPS)
+def test_group_help_and_help_group_tell_the_same_story(capsys, group):
     repl = DiffusersWorkflowREPL()
-
-    test_commands = [
-        ("help", "Main help"),
-        ("workflow ?", "Workflow help"),
-        ("arg ?", "Arg help"),
-        ("model ?", "Model help"),
-        ("memory ?", "Memory help"),
-        ("config ?", "Config help"),
-        ("config show", "Show config"),
-        ("workflow status", "Workflow status (no workflow loaded)"),
-        ("arg show", "Show args (no workflow loaded)"),
-        # Test backward compatibility
-        ("status", "Old status command"),
-        ("load", "Old load command (no args)"),
-    ]
-
-    print("=" * 70)
-    print("Testing REPL Command Reorganization")
-    print("=" * 70)
-
-    for cmd, description in test_commands:
-        print(f"\n{'=' * 70}")
-        print(f"Test: {description}")
-        print(f"Command: {cmd}")
-        print(f"{'=' * 70}")
-        repl.onecmd(cmd)
-
-    print("\n" + "=" * 70)
-    print("✅ All command tests completed successfully!")
-    print("=" * 70)
-    print("\nCommand hierarchy implemented:")
-    print("  • workflow - Load and manage workflows")
-    print("  • arg      - Manage workflow arguments")
-    print("  • model    - Control model execution")
-    print("  • memory   - Monitor and manage GPU memory")
-    print("  • config   - Configure global settings")
-    print("\nBackward compatibility maintained for:")
-    print("  load, reload, status, run, restart, clear, set, clear_args")
-    print("\nUse '<command> ?' to explore any command group!")
+    via_group = output_of(repl, capsys, f"{group} ?")
+    via_help = output_of(repl, capsys, f"help {group}")
+    assert f"{group.capitalize()} commands:" in via_group
+    assert via_help == via_group
 
 
-if __name__ == "__main__":
-    test_repl_commands()
+@pytest.mark.parametrize(
+    "line, expected",
+    [
+        ("workflow status", "No workflow currently loaded"),
+        ("arg show", "No workflow loaded"),
+        ("memory show", "No worker process running"),
+        ("memory clear", "No worker process running"),
+        ("workflow bogus", "Unknown workflow subcommand: bogus"),
+        ("memory bogus", "Unknown memory subcommand: bogus"),
+        ("config bogus", "Unknown config subcommand: bogus"),
+    ],
+)
+def test_commands_answer_before_a_workflow_or_worker_exists(capsys, line, expected):
+    assert expected in output_of(DiffusersWorkflowREPL(), capsys, line)
+
+
+def test_config_show_lists_the_session_settings(capsys):
+    repl = DiffusersWorkflowREPL()
+    out = output_of(repl, capsys, "config show")
+    for name, value in repl.globals.items():
+        assert f"  {name}={value}" in out
+
+
+def test_unknown_command_suggests_the_close_match(capsys):
+    out = output_of(DiffusersWorkflowREPL(), capsys, "worklfow status")
+    assert "Unknown command: worklfow status" in out
+    assert "Did you mean: workflow?" in out

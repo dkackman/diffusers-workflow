@@ -11,10 +11,14 @@ from dw import events as events_module
 from dw.events import RunContext
 
 
+# Scaled down from production's 5s emit / 30s stall, keeping the margin
+# between them wide enough that scheduler jitter cannot open a stall-sized
+# gap between two progress events. Each test still runs longer than the
+# threshold, so silence would trip the watchdog.
 def _fast_watchdog():
     return patch.multiple(
         events_module,
-        PHASE_STALL_THRESHOLD_SECONDS=0.1,
+        PHASE_STALL_THRESHOLD_SECONDS=0.4,
         PHASE_STALL_CHECK_INTERVAL_SECONDS=0.02,
     )
 
@@ -40,10 +44,10 @@ def test_growing_download_emits_progress_and_suppresses_stall(tmp_path, monkeypa
             with download_watch.DownloadWatch(
                 repo_id, context, cache_dir=str(tmp_path)
             ):
-                for _ in range(6):
+                for _ in range(20):
                     with open(blob_file, "ab") as f:
                         f.write(b"x" * 4096)
-                    time.sleep(0.06)
+                    time.sleep(0.04)
         finally:
             context.exit_run()
 
@@ -73,7 +77,7 @@ def test_stalled_download_still_stalls(tmp_path, monkeypatch):
             with download_watch.DownloadWatch(
                 repo_id, context, cache_dir=str(tmp_path)
             ):
-                time.sleep(0.3)
+                time.sleep(0.8)
         finally:
             context.exit_run()
 

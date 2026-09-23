@@ -51,6 +51,9 @@ def _untrust(monkeypatch):
 
 class TestTrustFlag:
     def test_set_trust_workflows_true(self, monkeypatch):
+        # conftest already trusts; start untrusted so this can fail
+        _untrust(monkeypatch)
+        assert workflows_are_trusted() is False
         set_trust_workflows(True)
         assert workflows_are_trusted() is True
 

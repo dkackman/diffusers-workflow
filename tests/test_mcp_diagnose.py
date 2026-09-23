@@ -310,16 +310,23 @@ def test_wait_for_job_reports_still_running_at_timeout(monkeypatch):
     assert elapsed < 1, "must return once timeout_seconds elapses, not hang"
 
 
-def test_wait_for_job_caps_the_timeout_it_is_given():
+def test_wait_for_job_caps_the_timeout_it_is_given(monkeypatch):
     """A caller asking for an absurd timeout does not get an absurd wait -
-    the value is clamped before it ever reaches the poll loop."""
+    the value is clamped before it ever reaches the poll loop. The job never
+    finishes, so only the cap can end the call."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0.05)
     client, seen = sequenced(
-        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "running"}]
     )
 
-    diagnose.wait_for_job(client, "job-1", timeout_seconds=10_000)
+    started = time.monotonic()
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=10_000)
+    elapsed = time.monotonic() - started
 
-    assert len(seen) == 1, "a terminal status on the first poll returns immediately"
+    assert result["still_running"] is True
+    assert elapsed < 2, "the cap, not the requested 10,000s, bounds the wait"
+    assert len(seen) >= 2, "it still polls inside the capped budget"
 
 
 def test_wait_for_job_says_when_it_capped_the_timeout(monkeypatch):

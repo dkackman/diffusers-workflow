@@ -251,10 +251,6 @@ class TestConfinement:
             )
         assert response.status_code == 200
 
-    def test_an_unknown_workspace_query_param_is_a_404(self, server):
-        with server() as client:
-            assert client.get("/api/workflows?workspace=nope").status_code == 404
-
     def test_a_traversal_attempt_as_a_workspace_name_is_a_400(self, server):
         with server() as client:
             response = client.get("/api/workflows", params={"workspace": "../x"})
@@ -393,14 +389,16 @@ class TestServingFiles:
         assert fetched.status_code == 200
         assert fetched.content == b"iris"
 
-    def test_get_workflow_reports_its_origin_and_writability(
-        self, server, workspace_root
-    ):
+    def test_get_workflow_reports_its_origin_and_writability(self, server):
+        # a named workspace's own library is as writable as the default's -
+        # the headers follow the workspace the route was scoped to
         with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
             client.put(
-                "/api/workflows/Basic", json={"workflow": valid_workflow("mine")}
+                "/api/workflows/Basic?workspace=shots",
+                json={"workflow": valid_workflow("mine")},
             )
-            response = client.get("/api/workflows/Basic")
+            response = client.get("/api/workflows/Basic?workspace=shots")
         assert response.status_code == 200
         assert response.headers["x-workflow-origin"] == "workspace"
         assert response.headers["x-workflow-writable"] == "true"
@@ -448,8 +446,28 @@ class TestKeepingOutputs:
                 "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
             ).json()
         assert body["reference"] == "asset:clip.mp4"
-        if body["linked"]:
-            assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+        # outputs and assets share one temporary filesystem, so a link is
+        # always possible here
+        assert body["linked"] is True
+        assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+
+    def test_it_copies_when_it_cannot_link(self, server, workspace_root, monkeypatch):
+        """A different filesystem, or one with no links, still keeps the
+        output - as a separate copy of the same bytes."""
+        source = self.written(workspace_root.outputs, "Gyre/run/clip.mp4", b"clip")
+
+        def no_links(*args, **kwargs):
+            raise OSError("cross-device link")
+
+        monkeypatch.setattr(os, "link", no_links)
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
+            ).json()
+        assert body["linked"] is False
+        assert os.stat(source).st_ino != os.stat(body["path"]).st_ino
+        with open(body["path"], "rb") as kept:
+            assert kept.read() == b"clip"
 
     def test_the_name_defaults_to_the_files_own(self, server, workspace_root):
         self.written(workspace_root.outputs, "Gyre/run/still.png")

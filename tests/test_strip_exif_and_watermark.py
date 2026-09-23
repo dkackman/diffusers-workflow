@@ -79,9 +79,12 @@ class TestAddWatermark(unittest.TestCase):
 
     def test_invalid_position_falls_back(self):
         img = Image.new("RGB", (400, 200))
-        # Unknown position should fall back to bottom-right
-        result = add_watermark(img, position="nonsense")
-        self.assertIsInstance(result, Image.Image)
+        # Unknown position should fall back to bottom-right, pixel for pixel
+        result = add_watermark(img, position="nonsense", opacity=255)
+        expected = add_watermark(img, position="bottom-right", opacity=255)
+        elsewhere = add_watermark(img, position="top-left", opacity=255)
+        self.assertEqual(result.tobytes(), expected.tobytes())
+        self.assertNotEqual(result.tobytes(), elsewhere.tobytes())
 
     def test_custom_color(self):
         img = Image.new("RGB", (400, 200))

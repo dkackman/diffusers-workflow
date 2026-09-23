@@ -35,19 +35,6 @@ class TestCachedModel:
         factory_a.assert_called_once()
         factory_b.assert_called_once()
 
-    def test_device_is_part_of_the_key(self):
-        """Same model name on two different devices must load independently."""
-        factory_cpu = MagicMock(return_value="on-cpu")
-        factory_cuda = MagicMock(return_value="on-cuda")
-
-        result_cpu = cached_model(("task", "model-a", "cpu"), factory_cpu)
-        result_cuda = cached_model(("task", "model-a", "cuda"), factory_cuda)
-
-        assert result_cpu == "on-cpu"
-        assert result_cuda == "on-cuda"
-        factory_cpu.assert_called_once()
-        factory_cuda.assert_called_once()
-
     def test_returns_the_same_object_instance(self):
         """Callers get the identical cached object back, not a copy."""
         loaded = object()

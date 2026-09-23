@@ -1,250 +1,64 @@
-#!/usr/bin/env python3
-"""
-Test to verify that cached pipelines get fresh arguments on each run.
-This addresses the bug where changing arguments between runs didn't work.
-"""
+"""A cached pipeline reuses its loaded model but takes each run's own
+arguments and seed. Guards the bug where changing arguments between runs of
+a cached pipeline did nothing."""
 
-import os
-import sys
-import logging
-from unittest.mock import patch, MagicMock
+import copy
+from unittest.mock import MagicMock, patch
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
-from dw import get_device
-
-# Setup logging
-logging.basicConfig(
-    level=logging.DEBUG, format="%(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from dw.workflow import Workflow
 
 
-def test_cached_pipeline_uses_new_arguments():
-    """Test that cached pipelines receive fresh arguments on each run."""
-
-    # Create a workflow definition
-    workflow_def = {
-        "id": "test_args",
-        "steps": [
-            {
-                "name": "generate",
-                "pipeline": {
-                    "configuration": {
-                        "component_type": "MockPipeline",
-                    },
-                    "from_pretrained_arguments": {"model_name": "test-model"},
-                    "arguments": {
-                        "prompt": "INITIAL_PROMPT",
-                        "num_inference_steps": 10,
-                    },
-                },
-            }
-        ],
+def pipeline_definition(**overrides):
+    definition = {
+        "configuration": {"component_type": "MockPipeline"},
+        "from_pretrained_arguments": {"model_name": "test-model"},
+        "arguments": {"prompt": "a cat", "num_inference_steps": 20},
     }
-
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
-
-    # Track what arguments are passed to pipeline.run()
-    captured_arguments = []
-
-    original_pipeline_init = Pipeline.__init__
-
-    def mock_pipeline_init(self, *args, **kwargs):
-        original_pipeline_init(self, *args, **kwargs)
-        self.pipeline = MagicMock()
-
-    def mock_pipeline_load(self, *args, **kwargs):
-        logger.info("Pipeline.load() called")
-        self.pipeline = MagicMock()
-
-    def mock_pipeline_run(self, arguments, *args, **kwargs):
-        prompt = arguments.get("prompt", "NO_PROMPT")
-        steps = arguments.get("num_inference_steps", "NO_STEPS")
-        logger.info(f"🔵 Pipeline.run() called with: prompt='{prompt}', steps={steps}")
-        captured_arguments.append(arguments.copy())
-        return MagicMock()
-
-    with patch.object(Pipeline, "__init__", mock_pipeline_init):
-        with patch.object(Pipeline, "load", mock_pipeline_load):
-            with patch.object(Pipeline, "run", mock_pipeline_run):
-                pipeline_cache = {}
-
-                # First run - should create and cache pipeline
-                logger.info("\n" + "=" * 60)
-                logger.info("RUN 1: Initial prompt")
-                logger.info("=" * 60)
-
-                action1 = workflow.create_step_action(
-                    workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
-                )
-
-                # Simulate step.run() calling action.run()
-                action1.run({"prompt": "a cat", "num_inference_steps": 20}, {})
-
-                logger.info("✅ Run 1 complete")
-                logger.info(f"   Prompt passed: '{captured_arguments[-1]['prompt']}'")
-                logger.info(
-                    f"   Steps passed: {captured_arguments[-1]['num_inference_steps']}"
-                )
-
-                # Second run - should reuse cached model but with NEW arguments
-                logger.info("\n" + "=" * 60)
-                logger.info("RUN 2: Changed prompt (should use NEW prompt)")
-                logger.info("=" * 60)
-
-                # Modify the workflow definition to simulate new arguments
-                workflow_def["steps"][0]["pipeline"]["arguments"]["prompt"] = "a dog"
-                workflow_def["steps"][0]["pipeline"]["arguments"][
-                    "num_inference_steps"
-                ] = 30
-
-                action2 = workflow.create_step_action(
-                    workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
-                )
-
-                # Simulate step.run() calling action.run()
-                action2.run({"prompt": "a dog", "num_inference_steps": 30}, {})
-
-                logger.info("✅ Run 2 complete")
-                logger.info(f"   Prompt passed: '{captured_arguments[-1]['prompt']}'")
-                logger.info(
-                    f"   Steps passed: {captured_arguments[-1]['num_inference_steps']}"
-                )
-
-                # Verify results
-                logger.info("\n" + "=" * 60)
-                logger.info("VERIFICATION")
-                logger.info("=" * 60)
-
-                assert len(captured_arguments) == 2, (
-                    f"Expected 2 runs, got {len(captured_arguments)}"
-                )
-                logger.info("✅ Both runs executed")
-
-                run1_prompt = captured_arguments[0].get("prompt")
-                run2_prompt = captured_arguments[1].get("prompt")
-
-                assert run1_prompt == "a cat", (
-                    f"Run 1 should have 'a cat', got '{run1_prompt}'"
-                )
-                logger.info(f"✅ Run 1 used correct prompt: '{run1_prompt}'")
-
-                assert run2_prompt == "a dog", (
-                    f"Run 2 should have 'a dog', got '{run2_prompt}'"
-                )
-                logger.info(f"✅ Run 2 used NEW prompt: '{run2_prompt}'")
-
-                assert run1_prompt != run2_prompt, (
-                    "Arguments should be different between runs!"
-                )
-                logger.info("✅ Arguments changed between runs")
-
-                run1_steps = captured_arguments[0].get("num_inference_steps")
-                run2_steps = captured_arguments[1].get("num_inference_steps")
-
-                assert run1_steps == 20, f"Run 1 should have 20 steps, got {run1_steps}"
-                logger.info(f"✅ Run 1 used correct steps: {run1_steps}")
-
-                assert run2_steps == 30, f"Run 2 should have 30 steps, got {run2_steps}"
-                logger.info(f"✅ Run 2 used NEW steps: {run2_steps}")
-
-                logger.info("\n" + "=" * 60)
-                logger.info("🎉 TEST PASSED - Cached pipelines use fresh arguments!")
-                logger.info("=" * 60)
+    definition.update(overrides)
+    return definition
 
 
-def test_generator_seed_updates():
-    """Test that generator seed is updated on cached pipeline runs."""
-
-    workflow_def = {
-        "id": "test_seed",
-        "steps": [
-            {
-                "name": "generate",
-                "pipeline": {
-                    "configuration": {
-                        "component_type": "MockPipeline",
-                    },
-                    "from_pretrained_arguments": {},
-                    "arguments": {"prompt": "test"},
-                    "seed": 100,
-                },
-            }
-        ],
-    }
-
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
-    pipeline_cache = {}
-
-    original_pipeline_init = Pipeline.__init__
-
-    def mock_pipeline_init(self, *args, **kwargs):
-        original_pipeline_init(self, *args, **kwargs)
-        self.pipeline = MagicMock()
-
-    def mock_pipeline_load(self, *args, **kwargs):
-        self.pipeline = MagicMock()
-
-    with patch.object(Pipeline, "__init__", mock_pipeline_init):
-        with patch.object(Pipeline, "load", mock_pipeline_load):
-            logger.info("\n" + "=" * 60)
-            logger.info("SEED TEST")
-            logger.info("=" * 60)
-
-            # Run 1 with seed 100
-            workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
-            )
-            seed1 = workflow_def["steps"][0]["pipeline"].get("seed", 42)
-            logger.info(f"Run 1: seed={seed1}")
-
-            # Run 2 with seed 200
-            workflow_def["steps"][0]["pipeline"]["seed"] = 200
-            action2 = workflow.create_step_action(
-                workflow_def["steps"][0], {}, pipeline_cache, 42, get_device()
-            )
-            seed2 = workflow_def["steps"][0]["pipeline"].get("seed", 42)
-            logger.info(f"Run 2: seed={seed2}")
-
-            # Check that action2 has the new pipeline definition with seed 200
-            assert action2.pipeline_definition["seed"] == 200, (
-                f"Expected seed 200, got {action2.pipeline_definition.get('seed')}"
-            )
-
-            logger.info("✅ Pipeline wrapper gets updated seed")
-
-            logger.info("\n" + "=" * 60)
-            logger.info("🎉 SEED TEST PASSED!")
-            logger.info("=" * 60)
+def fake_load(self, shared_components):
+    self.pipeline = MagicMock()
 
 
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("Testing Cached Pipeline Argument Updates")
-    print("=" * 60 + "\n")
+def create_both(tmp_path, first, second):
+    """Create the step twice against one pipeline cache, as two runs do."""
+    workflow = Workflow({"id": "test_args", "steps": []}, str(tmp_path), "test.json")
+    cache = {}
+    with patch.object(Pipeline, "load", autospec=True, side_effect=fake_load) as load:
+        action1 = workflow.create_step_action(
+            {"name": "generate", "pipeline": first}, {}, cache, 42, "cpu"
+        )
+        action2 = workflow.create_step_action(
+            {"name": "generate", "pipeline": second}, {}, cache, 42, "cpu"
+        )
+    return load, action1, action2
 
-    try:
-        test_cached_pipeline_uses_new_arguments()
-        test_generator_seed_updates()
 
-        print("\n" + "=" * 60)
-        print("✅ ALL TESTS PASSED!")
-        print("=" * 60)
-        print("\nFix verified:")
-        print("  • Cached pipelines receive fresh arguments on each run")
-        print("  • Generator seeds update correctly")
-        print("  • Arguments don't get stuck with old values")
+def test_cached_pipeline_uses_new_arguments(tmp_path):
+    first = pipeline_definition()
+    second = copy.deepcopy(first)
+    second["arguments"] = {"prompt": "a dog", "num_inference_steps": 30}
 
-    except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
+    load, action1, action2 = create_both(tmp_path, first, second)
 
-        traceback.print_exc()
-        sys.exit(1)
+    # One load; the second run reuses the model under a fresh wrapper
+    assert load.call_count == 1
+    assert action2 is not action1
+    assert action2.pipeline is action1.pipeline
+    assert action2.argument_template["prompt"] == "a dog"
+    assert action2.argument_template["num_inference_steps"] == 30
+
+
+def test_generator_seed_updates(tmp_path):
+    first = pipeline_definition(seed=100)
+    second = copy.deepcopy(first)
+    second["seed"] = 200
+
+    load, action1, action2 = create_both(tmp_path, first, second)
+
+    assert load.call_count == 1
+    assert action2.pipeline is action1.pipeline
+    assert action2.argument_template["generator"].initial_seed() == 200

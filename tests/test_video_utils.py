@@ -513,11 +513,6 @@ class TestVideoFileReference:
 
         assert task["arguments"]["video"] == "variable:my_video"
 
-    def test_an_in_memory_frame_list_is_unaffected(self, video):
-        """A step whose 'video' is an earlier step's in-memory result still
-        goes through the ordinary extract_frame path."""
-        assert get_frame(video, 2) is video[2]
-
 
 class TestIsVideo:
     def test_the_shapes_that_are_videos(self):

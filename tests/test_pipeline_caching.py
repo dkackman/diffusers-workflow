@@ -362,34 +362,6 @@ def test_release_models_evicts_task_models_after_step(release, expect_cached):
         clear_model_cache()
 
 
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("Testing Pipeline Caching Implementation")
-    print("=" * 60 + "\n")
-
-    try:
-        test_pipeline_caching()
-        test_pipeline_caching_different_steps()
-
-        print("\n" + "=" * 60)
-        print("✅ ALL TESTS PASSED!")
-        print("=" * 60)
-        print("\nModels will now persist in GPU memory across workflow runs!")
-        print(
-            "This significantly improves performance by avoiding repeated model loading."
-        )
-
-    except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
-
-
 def test_cache_hit_republishes_shared_components():
     """A warm sharing step must refill the fresh shared_components dict, or a
     later reusing step that missed the cache finds nothing."""

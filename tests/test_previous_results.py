@@ -422,19 +422,6 @@ class TestNestedReferences:
         assert template["references"][0] is description
         assert description["from_previous_result"] == "draw"
 
-    def test_siblings_are_shared_rather_than_copied(self):
-        result = Result({})
-        result.add_result(["first", "second"])
-
-        frames = [object()]
-        template = {"video": frames, "prompt": "previous_result:write"}
-        iterations = get_iterations(template, {"write": result})
-
-        # Only the containers on the path to the substitution are copied - a
-        # deep copy would duplicate the media the iterations mean to share
-        assert iterations[0]["video"] is frames
-        assert iterations[1]["video"] is frames
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

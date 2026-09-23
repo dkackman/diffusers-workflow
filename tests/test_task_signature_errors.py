@@ -24,6 +24,8 @@ from dw.introspection import (
 )
 from dw.tasks.task import Task
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 
 def task_step(command, arguments, name="a"):
     return {
@@ -208,13 +210,13 @@ class TestTheCatalogItself:
     @pytest.mark.parametrize(
         "path",
         sorted(
-            str(p)
-            for p in list(pathlib.Path("workflows").rglob("*.json"))
-            + list(pathlib.Path("dw/workflows").glob("*.json"))
+            str(p.relative_to(REPO_ROOT))
+            for p in list((REPO_ROOT / "workflows").rglob("*.json"))
+            + list((REPO_ROOT / "dw" / "workflows").glob("*.json"))
         ),
     )
     def test_workflow_has_no_task_signature_error(self, path):
-        definition = json.loads(pathlib.Path(path).read_text())
+        definition = json.loads((REPO_ROOT / path).read_text())
         if not isinstance(definition, dict) or "steps" not in definition:
             pytest.skip("not a workflow")
         assert task_signature_errors(definition) == []

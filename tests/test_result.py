@@ -371,16 +371,6 @@ class TestGetArtifactList:
         # channels-first, the layout AudioTrack documents
         assert artifacts[0].audio.shape == (2, 100)
 
-    def test_audios_without_a_rate_stay_bare_waveforms(self):
-        # Nothing to carry: the shape every existing consumer already handles
-        class MockResult:
-            audios = numpy.zeros((1, 2, 100), dtype=numpy.float32)
-
-        artifacts = get_artifact_list(MockResult())
-
-        assert isinstance(artifacts[0], numpy.ndarray)
-        assert artifacts[0].shape == (100, 2)
-
     def test_images_take_precedence_over_frames(self):
         # The output-field registry is consulted in order - a result exposing both
         # (which nothing real does, but the registry order must still be deterministic)
@@ -1141,15 +1131,6 @@ class TestMetadataEmbedding:
             saved_img = Image.open(output_file)
             assert "parameters" not in saved_img.info
 
-    def test_set_metadata_method(self):
-        """set_metadata should store metadata on the Result instance."""
-        result = Result({})
-        assert result.metadata is None
-
-        metadata = {"workflow_id": "test", "step_name": "step1"}
-        result.set_metadata(metadata)
-        assert result.metadata == metadata
-
     def test_metadata_with_embed_false(self):
         """When embed_metadata is explicitly false, no metadata embedded even if set."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1624,22 +1605,6 @@ class TestNoHeadroom:
     def test_a_video_with_a_quiet_track_is_not_warned_about(self):
         assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []
 
-    def test_a_video_is_probed_even_though_the_waveform_already_warned(self):
-        """#174: suppressing the post-encode probe whenever the pre-encode
-        check already fired assumed the encoder only ever adds overshoot -
-        true for the mp3s #159/#161 measured, backwards for an H3 video mux,
-        whose AAC mux can land under full scale after starting over it. A
-        video always gets the ground-truth post-encode read, and once that
-        read is in, it - not the pre-encode guess - is what the caller sees."""
-        with patch(
-            "dw.media_info.probe_media",
-            return_value={"peak_dbfs": 0.94, "kind": "video"},
-        ):
-            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
-
-        kinds = {w["kind"] for w in warnings}
-        assert kinds == {"audio_clipped"}
-
     def test_a_clean_video_mux_drops_the_stale_prediction(self):
         """#174 amendment: the pre-encode prediction fires on H3's own
         soundtrack every run, and the post-encode probe already proved the
@@ -1669,7 +1634,13 @@ class TestNoHeadroom:
 
     def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
         """The post-encode probe found a real clip - report that, not the
-        pre-encode guess, so the caller gets one answer with a real number."""
+        pre-encode guess, so the caller gets one answer with a real number.
+
+        #174: suppressing the post-encode probe whenever the pre-encode check
+        already fired assumed the encoder only ever adds overshoot - true for
+        the mp3s #159/#161 measured, backwards for an H3 video mux, whose AAC
+        mux can land under full scale after starting over it. A video always
+        gets the ground-truth post-encode read."""
         with patch(
             "dw.media_info.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},

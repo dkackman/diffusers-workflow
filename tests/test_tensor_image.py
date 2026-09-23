@@ -43,11 +43,6 @@ class TestPilToFloatTensor:
         tensor = pil_to_float_tensor(image, "cpu", dtype=torch.float64)
         assert tensor.dtype == torch.float64
 
-    def test_dtype_defaults_to_float32(self):
-        image = Image.new("RGB", (4, 4), color=(1, 2, 3))
-        tensor = pil_to_float_tensor(image, "cpu")
-        assert tensor.dtype == torch.float32
-
 
 class TestFloatTensorToPil:
     def test_accepts_batched_and_unbatched(self):

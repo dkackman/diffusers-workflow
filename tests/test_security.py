@@ -120,29 +120,6 @@ def test_string_input_validation():
         validate_string_input("hello\x01world")
 
 
-def test_command_sanitization():
-    """Test command argument sanitization"""
-    # Normal arguments should work
-    args = ["python", "-m", "dw.run", "workflow.json"]
-    sanitized = sanitize_command_args(args)
-    assert len(sanitized) == len(args)
-    assert (
-        sanitized == args
-    )  # With shell=False, arguments pass through after validation
-
-    # Arguments with semicolons should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["rm", "-rf", "; rm -rf /"])
-
-    # Arguments with $ should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["echo", "$(malicious_command)"])
-
-    # Arguments with pipes should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["cat", "/etc/passwd | grep root"])
-
-
 class TestValidatePathRejections:
     """Inputs validate_path must refuse outright"""
 
@@ -432,6 +409,11 @@ class TestSafeJoinPath:
 
 
 class TestSanitizeCommandArgs:
+    def test_ordinary_arguments_pass_through_unchanged(self):
+        # shell=False does the quoting, so a clean argument is returned verbatim
+        args = ["python", "-m", "dw.run", "workflow.json"]
+        assert sanitize_command_args(args) == args
+
     def test_non_string_arguments_are_coerced(self):
         assert sanitize_command_args(["--steps", 25, 1.5]) == ["--steps", "25", "1.5"]
 

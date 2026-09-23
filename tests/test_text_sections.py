@@ -90,7 +90,7 @@ def test_no_sections_requested_is_a_passthrough():
 def h3_prompts():
     """Every hand-written H3 prompt in the examples, as (file, key, text)."""
     found = []
-    pattern = os.path.join(REPO_ROOT, "workflows", "minimax", "MiniMaxH3*.json")
+    pattern = os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json")
     for path in sorted(glob.glob(pattern)):
         with open(path, encoding="utf-8") as handle:
             workflow = json.load(handle)
@@ -98,6 +98,12 @@ def h3_prompts():
             if isinstance(value, str) and "non_diegetic_music:" in value:
                 found.append((os.path.basename(path), key, value))
     return found
+
+
+def test_the_sweep_finds_the_shipped_prompts():
+    """The parametrized test below collects nothing, and so passes, if the
+    templates move again."""
+    assert h3_prompts()
 
 
 @pytest.mark.parametrize("name,key,prompt", h3_prompts())

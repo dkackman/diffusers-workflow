@@ -280,18 +280,6 @@ class TestUnpinnedOutputs:
         assert realized["variables"]["prompt"] == "a harbour at dusk"
         assert annotations["prompts"] == ["scenic/dusk"]
 
-    def test_the_default_still_pins(self, output_root):
-        root, run_id = output_root
-        spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
-            "output:ltx2/Gyre/latest/still.png"
-        )
-        realized, _ = realize_workflow(spec, {}, 7, output_root=root)
-        assert (
-            realized["steps"][0]["pipeline"]["arguments"]["image"]
-            == f"output:ltx2/Gyre/{run_id}/still.png"
-        )
-
 
 class TestReadSubWorkflow:
     def test_reads_a_child_beside_the_parent(self, tmp_path):

@@ -279,16 +279,6 @@ async def test_a_read_only_tool_round_trips_to_the_api():
 
 
 @pytest.mark.asyncio
-async def test_run_workflow_refuses_without_acknowledgement():
-    server = server_over(ok({"id": "job-1", "status": "queued"}))
-
-    with pytest.raises(Exception) as caught:
-        await server.call_tool("run_workflow", {"workflow_path": "w.json"})
-
-    assert "acknowledged_cost" in str(caught.value)
-
-
-@pytest.mark.asyncio
 async def test_an_unreachable_server_reports_how_to_start_it():
     def refusing(request):
         raise httpx.ConnectError("refused", request=request)

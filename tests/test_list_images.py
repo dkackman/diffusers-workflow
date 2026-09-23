@@ -59,20 +59,3 @@ def test_fetch_video_list():
     assert isinstance(result, list), "Result should be a list"
     assert len(result) == 2, "Should have 2 frames"
     print("✓ List of already loaded frames works")
-
-
-if __name__ == "__main__":
-    try:
-        test_fetch_image_list()
-        test_fetch_video_list()
-        print("\n✅ All tests passed!")
-        sys.exit(0)
-    except AssertionError as e:
-        print(f"\n❌ Test failed: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)

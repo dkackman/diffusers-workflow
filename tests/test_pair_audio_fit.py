@@ -17,6 +17,8 @@ import pytest
 from dw.result import AudioVideo
 from dw.tasks.pair_audio import pair_audio
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 SAMPLE_RATE = 44100
 FPS = 24
 
@@ -53,11 +55,6 @@ def warnings_emitted():
 
 
 class TestFitToTheVideo:
-    def test_the_reported_case_is_cut_to_the_two_shot_edit(self):
-        """248 frames at 24 fps is 10.33 s, from a 30 s song."""
-        result = pair_audio(cut(248), song(30), sample_rate=SAMPLE_RATE, fit="video")
-        assert samples(result) == round(248 / FPS * SAMPLE_RATE)
-
     def test_the_default_four_shot_length_is_unchanged(self):
         """496 frames - what the hardcoded slice used to produce."""
         result = pair_audio(cut(496), song(30), sample_rate=SAMPLE_RATE, fit="video")
@@ -72,7 +69,9 @@ class TestFitToTheVideo:
 
     def test_trimming_the_track_warns_with_the_seconds_cut(self, warnings_emitted):
         """The pad direction cannot lose content; the trim direction always
-        can, so it is the one that most needs saying out loud (#246)."""
+        can, so it is the one that most needs saying out loud (#246). This is
+        also #142's reported case: 248 frames at 24 fps is 10.33 s, from a
+        30 s song."""
         result = pair_audio(cut(248), song(30), sample_rate=SAMPLE_RATE, fit="video")
         assert samples(result) == round(248 / FPS * SAMPLE_RATE)
         trimmed = [w for w in warnings_emitted if "trimmed" in w]
@@ -115,7 +114,7 @@ class TestWithoutFit:
 class TestTheTemplateItself:
     def test_music_video_derives_its_soundtrack(self):
         definition = json.loads(
-            pathlib.Path("workflows/templates/minimax/music-video.json").read_text()
+            (REPO_ROOT / "workflows/templates/minimax/music-video.json").read_text()
         )
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
@@ -131,7 +130,7 @@ class TestTheTemplateItself:
         """Every `slice_audio` in the catalog whose count is a literal is one
         a list cannot resize out from under - so the literal must not be the
         length of a whole cut."""
-        for path in pathlib.Path("workflows").rglob("*.json"):
+        for path in (REPO_ROOT / "workflows").rglob("*.json"):
             definition = json.loads(path.read_text())
             if not isinstance(definition, dict):
                 continue

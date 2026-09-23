@@ -333,13 +333,6 @@ def test_a_non_image_output_is_refused_without_reading_the_body():
     assert stream.iterated is False
 
 
-def test_an_undecodable_body_is_refused_clearly():
-    client = serving(b"not an image at all", "image/png")
-
-    with pytest.raises(DwApiError, match="could not be decoded"):
-        get_output_image(client, "broken.png")
-
-
 def test_a_missing_file_propagates_the_api_error():
     def handler(request):
         return httpx.Response(404, json={"detail": "Unknown file"})

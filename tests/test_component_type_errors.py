@@ -18,6 +18,8 @@ import pytest
 
 from dw.introspection import component_type_errors
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 
 def pipeline_step(component_type, name="a", extra=None):
     step = {
@@ -144,20 +146,26 @@ class TestSchedulerAndQuantizationFields:
 
 
 class TestNoDownloadIsQuotedForARefusedStep:
-    def test_component_type_plays_no_part_in_collecting_sources(self):
+    def test_the_refusal_reaches_validation_errors(self, tmp_path):
         """POST /api/validate builds `plan` (and its downloads_required) only
         when validation_errors is empty - see dw/server/app.py's validate
-        route - and component_type never feeds `_collect_sources` at all, so
-        a step that fails this check was never going to contribute a
-        download either way."""
-        from dw.plan import _collect_sources
+        route - so a misspelled class on a step that names a checkpoint must
+        surface there, or the plan quotes a download for a step that cannot
+        run."""
+        from dw.workflow import Workflow
 
-        definition = {"id": "ct", "steps": [pipeline_step("FluxPipelin")]}
-        assert errors_for("FluxPipelin") != []
-        names, urls = [], []
-        _collect_sources(definition, names, urls)
-        assert names == []
-        assert urls == []
+        step = pipeline_step(
+            "FluxPipelin",
+            extra={
+                "from_pretrained_arguments": {"model_name": "org/model"},
+                "arguments": {"prompt": "a cat"},
+            },
+        )
+        definition = {"id": "ct", "steps": [step]}
+        workflow = Workflow(definition, str(tmp_path), str(tmp_path / "ct.json"))
+
+        paths = [error["path"] for error in workflow.validation_errors()]
+        assert "steps[0].pipeline.configuration.component_type" in paths
 
 
 class TestTheCatalogItself:
@@ -166,13 +174,13 @@ class TestTheCatalogItself:
     @pytest.mark.parametrize(
         "path",
         sorted(
-            str(p)
-            for p in list(pathlib.Path("workflows").rglob("*.json"))
-            + list(pathlib.Path("dw/workflows").glob("*.json"))
+            str(p.relative_to(REPO_ROOT))
+            for p in list((REPO_ROOT / "workflows").rglob("*.json"))
+            + list((REPO_ROOT / "dw" / "workflows").glob("*.json"))
         ),
     )
     def test_workflow_has_no_component_type_error(self, path):
-        definition = json.loads(pathlib.Path(path).read_text())
+        definition = json.loads((REPO_ROOT / path).read_text())
         if not isinstance(definition, dict) or "steps" not in definition:
             pytest.skip("not a workflow")
         assert component_type_errors(definition) == []

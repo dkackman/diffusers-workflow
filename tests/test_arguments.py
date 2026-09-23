@@ -314,8 +314,11 @@ class TestRealizeArgs:
         assert steps["arguments"]["weights_dtype"] == "int4"
 
     def test_realize_escaped_offload_type_survives_second_pass(self):
+        # The previously mandatory {} escape keeps working after the key
+        # was excluded from type conversion, and stays unescaped on a rerealize
         args = {"group_offload": {"offload_type": "{leaf_level}"}}
         realize_args(args)
+        assert args["group_offload"]["offload_type"] == "leaf_level"
         realize_args(args)
 
         assert args["group_offload"]["offload_type"] == "leaf_level"
@@ -330,14 +333,6 @@ class TestRealizeArgs:
     def test_realize_offload_type_not_converted(self):
         # offload_type names a group offloading strategy, not a python type
         args = {"group_offload": {"offload_type": "leaf_level"}}
-        realize_args(args)
-
-        assert args["group_offload"]["offload_type"] == "leaf_level"
-
-    def test_realize_escaped_offload_type_is_unescaped(self):
-        # The previously mandatory {} escape keeps working after the key
-        # was excluded from type conversion
-        args = {"group_offload": {"offload_type": "{leaf_level}"}}
         realize_args(args)
 
         assert args["group_offload"]["offload_type"] == "leaf_level"

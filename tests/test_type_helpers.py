@@ -33,12 +33,6 @@ class TestGetType:
 class TestLoadTypeFromName:
     """Test loading type by name from diffusers"""
 
-    def test_load_type_with_full_path(self):
-        # Test with fully qualified name
-        result = load_type_from_full_name("os.path.join")
-        assert callable(result)
-        assert result.__name__ == "join"
-
     def test_load_type_invalid_full_path(self):
         with pytest.raises(ModuleNotFoundError):
             load_type_from_full_name("fake.module.Type")

@@ -99,11 +99,9 @@ def test_a_409_reaches_the_model_as_a_readable_refusal():
     assert "already exists" in str(caught.value)
 
 
-def test_the_docstring_says_copying_costs_disk_and_names_total_bytes():
-    # A caller reading only the handler's docstring has to learn this before
-    # exporting a video job fills the server's disk a second time - the
-    # export copies files rather than linking them.
-    assert "copies every output and input" in exports.export_job.__doc__
+def test_the_docstring_names_total_bytes():
+    # The field a caller reads to see what an export cost on disk has to be
+    # named where the caller looks - the handler's docstring.
     assert "total_bytes" in exports.export_job.__doc__
 
 

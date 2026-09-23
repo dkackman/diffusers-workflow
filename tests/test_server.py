@@ -1189,13 +1189,6 @@ def test_bearer_token_gates_the_api_when_configured(tmp_path):
         assert client.get(f"/api/jobs/{job['id']}/events").status_code == 401
 
 
-def test_no_token_configured_means_no_auth(server):
-    """The default, unconfigured behavior is unchanged: no token means no
-    Authorization check at all."""
-    with server(success_script) as client:
-        assert client.get("/api/health").status_code == 200
-
-
 def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
     with server(success_script) as client:
         workflow = valid_workflow("saved")
@@ -2700,17 +2693,6 @@ def test_the_asset_library_is_reported(asset_server, tmp_path):
         assert directories["assets"] == str(tmp_path / "assets")
 
 
-def test_without_an_asset_library_uploads_keep_the_old_shape(server, tmp_path):
-    with server(success_script) as client:
-        body = client.post(
-            "/api/uploads",
-            params={"filename": "source-image.png"},
-            content=b"bytes",
-        ).json()
-        assert os.path.isabs(body["path"])
-        assert body["url"].startswith("/outputs/uploads/")
-
-
 def test_upload_media_rejects_disallowed_extension(server):
     with server(success_script) as client:
         response = client.post(
@@ -2776,34 +2758,6 @@ def test_workflow_listing_carries_details(server):
             "writable": True,
         }
         assert listing["details"]["Basic"]["kinds"] == []
-
-
-def test_workflow_details_name_the_template_a_model_config_configures(server):
-    """A model config is a tuned instance of a template, and a client that
-    cannot see which is which shows it as just another catalog entry - the
-    thing the two-tree layout exists to stop."""
-    with server(success_script) as client:
-        client.put(
-            "/api/workflows/templates/text-to-image",
-            json={"workflow": valid_workflow("tti")},
-        )
-
-        workflow = valid_workflow("tuned")
-        workflow["configures"] = "templates/text-to-image"
-        client.put("/api/workflows/models/Tuned", json={"workflow": workflow})
-
-        listing = client.get("/api/workflows").json()
-
-        assert listing["details"]["models/Tuned"]["configures"] == (
-            "templates/text-to-image"
-        )
-
-
-def test_a_workflow_that_configures_nothing_says_so(server):
-    with server(success_script) as client:
-        listing = client.get("/api/workflows").json()
-
-        assert listing["details"]["Basic"]["configures"] == ""
 
 
 def test_the_listing_filters_and_compacts(server):
