@@ -559,7 +559,49 @@ def missing_task_argument_message(command, missing):
     )
 
 
-def task_signature_errors(workflow_definition, source_indices=None):
+def null_variable_task_argument_message(command, missing_arg, variable_name):
+    """The wording for a required argument the step *does* supply, by
+    `variable:<variable_name>`, but the variable's value is null (#364).
+
+    `missing_task_argument_message` says "the step does not supply" it,
+    which is false here - the step names the variable, the variable just
+    hasn't been given a real value yet. That is a caller's job to do at
+    run time, not a defect in the document.
+    """
+    return (
+        f"'{missing_arg}' is fed by variable '{variable_name}', which is "
+        f"null - task '{command}' requires a real value for it. Pass "
+        f"arguments={{'{variable_name}': ...}} when running or validating, "
+        f"or give '{variable_name}' a non-null default"
+    )
+
+
+def _null_fed_variable(written_steps, source_index, key, declared_variables):
+    """The variable name, if the argument at `key` was written as
+    `variable:<name>` naming a declared variable - the shape that makes a
+    "missing" required argument actually a null-variable one (#364). None
+    otherwise, including when `written_steps` can't be indexed (a for_each
+    template step, whose members are checked by `item:`/`gather:` instead).
+    """
+    if not isinstance(source_index, int) or source_index >= len(written_steps):
+        return None
+    step = written_steps[source_index]
+    if not isinstance(step, dict):
+        return None
+    task = step.get("task")
+    if not isinstance(task, dict):
+        return None
+    arguments = task.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+    value = arguments.get(key)
+    if not isinstance(value, str) or not value.startswith("variable:"):
+        return None
+    name = value[len("variable:") :]
+    return name if name in declared_variables else None
+
+
+def task_signature_errors(workflow_definition, source_indices=None, written_definition=None):
     """Every task step whose arguments its command's signature refuses, as
     [{path, message}] - a required argument left unset, and an argument the
     command does not take - plus a step naming a command that is not
@@ -587,6 +629,16 @@ def task_signature_errors(workflow_definition, source_indices=None):
     The definition handed here has already been substituted and expanded, so
     a for_each member is checked as it will run; `source_indices` maps each
     expanded step back to the step the author wrote.
+
+    `written_definition`, when given, is that step *as the author wrote it* -
+    before substitution - plus the declared `variables` block. A required
+    argument reported missing whose written form is `variable:<name>` naming
+    a declared variable is not a step that "does not supply" it (#364): the
+    step does name it, the variable's value just resolved to null (the only
+    way substitution drops a `variable:` reference, per #209). That error
+    carries a `variable` key naming it, so a caller checking a document with
+    no arguments of its own can treat it as caller input rather than a
+    defect in the document.
     """
     from .for_each import MEMBER_SEPARATOR, render_path
     from .tasks.task import task_command_info
@@ -594,6 +646,17 @@ def task_signature_errors(workflow_definition, source_indices=None):
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
         return []
+
+    written_steps = (
+        (written_definition or {}).get("steps") or []
+        if isinstance(written_definition, dict)
+        else []
+    )
+    declared_variables = (
+        (written_definition or {}).get("variables") or {}
+        if isinstance(written_definition, dict)
+        else {}
+    )
 
     errors = []
     for index, step in enumerate(steps):
@@ -642,16 +705,28 @@ def task_signature_errors(workflow_definition, source_indices=None):
         if not missing and not unknown:
             continue
 
-        def report(key, message):
-            errors.append(
-                {
-                    "path": render_path(("steps", source, "task", "arguments", key)),
-                    "message": f"{message}{where}.",
-                }
-            )
+        def report(key, message, variable=None):
+            entry = {
+                "path": render_path(("steps", source, "task", "arguments", key)),
+                "message": f"{message}{where}.",
+            }
+            if variable is not None:
+                entry["variable"] = variable
+            errors.append(entry)
 
         if missing:
-            report(missing[0], missing_task_argument_message(command, missing))
+            key = missing[0]
+            variable = _null_fed_variable(
+                written_steps, source, key, declared_variables
+            )
+            if variable is not None:
+                report(
+                    key,
+                    null_variable_task_argument_message(command, key, variable),
+                    variable=variable,
+                )
+            else:
+                report(key, missing_task_argument_message(command, missing))
         for key in unknown:
             report(key, unknown_task_argument_message(command, key))
     return errors

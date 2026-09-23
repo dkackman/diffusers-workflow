@@ -638,6 +638,19 @@ class Workflow:
         base_dir = (
             os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
         )
+        task_errors = task_signature_errors(expanded, source_indices, self.workflow_definition)
+        if arguments is None:
+            # A step that feeds a required argument from `variable:name` and
+            # a variable whose default is null is a fine document - the
+            # variable just hasn't been given a value yet, which is exactly
+            # what no-arguments means here (save_workflow, or
+            # validate_workflow called to check the document rather than a
+            # specific run). Downgraded to a warning
+            # (null_variable_argument_warnings) rather than dropped outright,
+            # since it is still true a run left as-is would fail (#364).
+            # Anything else task_signature_errors reports - a genuinely
+            # missing or unknown argument - stays a hard error regardless
+            task_errors = [e for e in task_errors if "variable" not in e]
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
@@ -694,8 +707,13 @@ class Workflow:
             # A required task argument left unset validated as `valid: true`
             # and then failed the job on Python's own signature error, which
             # is the one mistake a free pre-flight most obviously exists for
-            # (dw/introspection.py, #141)
-            + task_signature_errors(expanded, source_indices)
+            # (dw/introspection.py, #141). When the step supplies it by
+            # `variable:name` and only the variable's value is null, the
+            # error carries a `variable` key (#364) so a caller checking the
+            # document itself - no arguments of its own - can tell "the
+            # variable needs a value at run time" apart from "the step is
+            # broken", and downgrade the former below
+            + task_errors
             # A step's pipeline names a component_type/scheduler_type/
             # config_type that does not exist (or is outside the trusted
             # ecosystem entirely) - validated clean and died 3s into the run
@@ -748,6 +766,37 @@ class Workflow:
             written=self.workflow_definition,
             supplied=set(arguments or {}),
         )
+
+    def null_variable_argument_warnings(self, arguments=None):
+        """Every required task argument fed by `variable:name` where name's
+        value is null - downgraded out of `validation_errors` when
+        `arguments` is None (#364), surfaced here so a caller checking the
+        document without arguments of its own (save_workflow,
+        validate_workflow with no `arguments`) still sees it, just not as a
+        reason the document is invalid.
+
+        Empty once `arguments` is given: at that point the same condition is
+        a hard error in `validation_errors`, since a real run or a validate
+        call naming its own arguments needed the variable to hold something.
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        if arguments is not None:
+            return []
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No null-variable-argument warnings available", exc_info=True)
+            return []
+        return [
+            f"{entry['path']}: {entry['message']}"
+            for entry in task_signature_errors(
+                expanded, source_indices, self.workflow_definition
+            )
+            if "variable" in entry
+        ]
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.

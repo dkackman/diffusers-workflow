@@ -264,7 +264,7 @@
         "arguments": {
             "type": "object",
             "additionalProperties": {
-                "description": "null declares an argument that is optional - a workflow can expose a variable a caller may pass without inventing a sentinel value for its absence.",
+                "description": "null declares an argument that is optional - a workflow can expose a variable a caller may pass without inventing a sentinel value for its absence. If a step feeds a required task argument from a variable whose value is null, the document itself still saves and validates - but a run (or a validate/save call that supplies its own arguments) that leaves the variable null fails, since the argument the step needs was never actually given a value.",
                 "type": [
                     "string",
                     "integer",

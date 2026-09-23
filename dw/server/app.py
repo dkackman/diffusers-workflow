@@ -1793,6 +1793,11 @@ def create_app(
             # future checkpoint cannot be predicted, but nothing at run time
             # would say it loaded onto the wrong one (#155)
             + candidate.adapter_warnings(request.arguments)
+            # A required task argument fed by variable:name where name's
+            # default is null - a fine document, but a run left as-is would
+            # fail; empty once request.arguments names anything, since that
+            # condition is a hard error above instead (#364)
+            + candidate.null_variable_argument_warnings(request.arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),
@@ -2107,6 +2112,7 @@ def create_app(
         # to shape-first discovery
         metadata = derive_catalog_metadata(request.workflow)
         warnings = list(workflow_argument_warnings(request.workflow))
+        warnings += candidate.null_variable_argument_warnings()
         if not metadata["summary"]:
             warnings.append(
                 "No summary: add a 'description' (its first sentence becomes "

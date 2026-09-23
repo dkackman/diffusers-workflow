@@ -23,6 +23,7 @@ from dw.introspection import (
     workflow_argument_warnings,
 )
 from dw.tasks.task import Task
+from dw.workflow import Workflow
 
 
 def task_step(command, arguments, name="a"):
@@ -109,6 +110,76 @@ class TestAnArgumentTheCommandDoesNotTake:
     def test_a_free_form_command_accepts_anything(self):
         assert unknown_task_arguments("gather_inputs", ["whatever"]) == []
         assert errors_for("gather_inputs", {"whatever": 1}) == []
+
+
+class TestARequiredArgumentFedByANullVariable:
+    """A step that names the argument by `variable:name`, where `name`'s
+    value is null, is not a step that "does not supply" it (#364) - the
+    error carries a `variable` key so a caller with no arguments of its own
+    can tell the two apart."""
+
+    def test_the_repro_carries_the_variable_key_and_a_clearer_message(self):
+        written = {
+            "id": "sig",
+            "variables": {"audio": None},
+            "steps": [
+                task_step(
+                    "resample_audio",
+                    {"audio": "variable:audio", "target_sample_rate": 16000},
+                )
+            ],
+        }
+        # replace_variables drops a variable: reference resolved to null
+        # from its containing dict (#209) - this is what the expanded
+        # definition looks like once that has happened
+        expanded = {
+            "id": "sig",
+            "steps": [task_step("resample_audio", {"target_sample_rate": 16000})],
+        }
+        errors = task_signature_errors(expanded, written_definition=written)
+        assert len(errors) == 1
+        assert errors[0]["variable"] == "audio"
+        assert errors[0]["path"] == "steps[0].task.arguments.audio"
+        assert "variable 'audio'" in errors[0]["message"]
+        assert "does not supply" not in errors[0]["message"]
+
+    def test_no_written_definition_keeps_the_original_wording(self):
+        """Without the author-written form to compare against - the #141
+        call sites already in the codebase before #364 - nothing changes."""
+        errors = errors_for("resample_audio", {"target_sample_rate": 16000})
+        assert "variable" not in errors[0]
+        assert "does not supply" in errors[0]["message"]
+
+    def test_a_genuinely_missing_argument_is_unaffected(self):
+        """No `variable:` reference at all in the written step - still the
+        plain #141 message, even with a written_definition available."""
+        written = {
+            "id": "sig",
+            "steps": [task_step("resample_audio", {"target_sample_rate": 16000})],
+        }
+        errors = task_signature_errors(written, written_definition=written)
+        assert "variable" not in errors[0]
+        assert "does not supply" in errors[0]["message"]
+
+    def test_a_variable_not_declared_is_unaffected(self):
+        """`variable:audio` written but nothing declares `audio` - not the
+        shape #364 covers, so the original wording stands."""
+        written = {
+            "id": "sig",
+            "steps": [
+                task_step(
+                    "resample_audio",
+                    {"audio": "variable:audio", "target_sample_rate": 16000},
+                )
+            ],
+        }
+        expanded = {
+            "id": "sig",
+            "steps": [task_step("resample_audio", {"target_sample_rate": 16000})],
+        }
+        errors = task_signature_errors(expanded, written_definition=written)
+        assert "variable" not in errors[0]
+        assert "does not supply" in errors[0]["message"]
 
 
 class TestTheRunTimeBackstop:
