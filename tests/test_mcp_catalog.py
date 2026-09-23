@@ -140,6 +140,16 @@ def test_list_gallery_sends_only_orphans_only_when_true():
     assert seen["params"]["only_orphans"] == "true"
 
 
+def test_list_gallery_sends_media_only_when_true():
+    client, seen = recording_client()
+    catalog.list_gallery(client, limit=7)
+    assert "media" not in seen["params"]
+
+    client, seen = recording_client()
+    catalog.list_gallery(client, media=True)
+    assert seen["params"]["media"] == "true"
+
+
 FULL_ENTRY = {
     "summary": "a cut sequence",
     "shape": "sequence",

@@ -354,6 +354,7 @@ def build_server(client):
         workspace: str | None = None,
         folder: str | None = None,
         version: int | None = None,
+        media: bool = False,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -378,8 +379,7 @@ def build_server(client):
         (manifest.json, workflow.json, job.json) as `runs`, each
         `{name, mtime}` - a run whose output was deleted before
         `delete_output` could remove it by name, or one that failed before
-        writing anything, invisible to a normal listing because it has no
-        file to show. `subfolder` does not apply in this mode. `name` is
+        writing anything. `subfolder` does not apply in this mode. `name` is
         exactly what `delete_output` accepts, so clearing the backlog is
         list, then delete each name. A run that wrote any file at
         all - a text-shape prompt, a utility's side output - is not listed;
@@ -389,7 +389,11 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one."""
+        here without leaving this one.
+
+        `media=True` adds `duration_seconds` to audio/video entries - two
+        takes sharing a basename are told apart by length, not size or
+        mtime."""
         return catalog.list_gallery(
             client,
             limit=limit,
@@ -398,6 +402,7 @@ def build_server(client):
             workspace=workspace,
             folder=folder,
             version=version,
+            media=media,
         )
 
     def get_gallery_metadata(
