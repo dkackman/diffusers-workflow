@@ -135,6 +135,14 @@ def realize_args(arg, base_dir=None):
             elif k.endswith("_image") or k == "image":
                 logger.debug(f"Loading image for key: {k}")
                 arg[k] = fetch_image(v, base_dir)
+            # get_frame/get_first_frame/get_last_frame only ever need one frame
+            # out of their 'video' - loading the ordinary way decodes the whole
+            # clip to throw all but one frame away, which is what OOM-killed a
+            # long clip (#367). Recognized by the sibling 'command' on this same
+            # task object, since that is the only place the command name and
+            # this argument meet before a task handler runs
+            elif k == "arguments" and arg.get("command") in _LAZY_FRAME_COMMANDS:
+                _realize_lazy_frame_arguments(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif k.endswith("_video") or k == "video":
                 logger.debug(f"Loading video for key: {k}")
@@ -1056,3 +1064,46 @@ def fetch_video(video_spec, base_dir=None):
     except Exception as e:
         logger.error(f"Failed to load video {video_spec}: {e}")
         raise
+
+
+# get_frame and its two fixed-index siblings - see _realize_lazy_frame_arguments
+_LAZY_FRAME_COMMANDS = frozenset({"get_frame", "get_first_frame", "get_last_frame"})
+
+
+def _realize_lazy_frame_arguments(arguments, base_dir):
+    """Realize a get_frame/get_first_frame/get_last_frame step's arguments,
+    reading a file-based 'video' by reference rather than decoding it (#367).
+
+    Everything but 'video' is realized the ordinary way. A 'video' naming a
+    real file or an asset/output path becomes a VideoFileReference the task
+    reads one frame out of by seeking; a 'previous_result:'/'variable:'
+    reference is still deferred, and a URL still goes through the ordinary
+    eager fetch_video, since a seek needs a local, seekable file.
+    """
+    from .tasks.video_utils import VideoFileReference
+
+    if "video" in arguments:
+        video = arguments["video"]
+        if is_path_reference(video) or isinstance(video, (list, dict)):
+            video = resolve_path_references(video, base_dir)
+        deferred = isinstance(video, str) and (
+            video.startswith("previous_result:") or video.startswith("variable:")
+        )
+        url = isinstance(video, str) and (
+            video.startswith("http://") or video.startswith("https://")
+        )
+        if isinstance(video, str) and not deferred and not url:
+            validated_path = validate_media_path(video, base_dir, "a video argument")
+            ext = os.path.splitext(validated_path)[1].lower()
+            if ext not in ALLOWED_VIDEO_EXTENSIONS:
+                raise SecurityError(f"Video file extension not allowed: {ext}")
+            arguments["video"] = VideoFileReference(validated_path)
+        elif video is not None:
+            arguments["video"] = fetch_video(video, base_dir)
+
+    for k, v in list(arguments.items()):
+        if k == "video":
+            continue
+        single = {k: v}
+        realize_args(single, base_dir)
+        arguments[k] = single[k]

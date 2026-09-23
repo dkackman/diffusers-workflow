@@ -399,6 +399,126 @@ class TestLoadAudioVideo:
             load_audio_video(str(payload))
 
 
+class TestVideoFileReference:
+    """#367. get_frame/get_first_frame/get_last_frame only need one frame; a
+    VideoFileReference lets get_frame seek to it with PyAV instead of
+    decoding the whole clip through fetch_video/load_video."""
+
+    def write_long_clip(self, path, num_frames=300, fps=30, marked=()):
+        """A clip whose frames are black except the given indexes, which are
+        pure red - a marker robust to a lossy codec's compression noise,
+        unlike a unique near-black shade per frame."""
+        from diffusers.utils.export_utils import encode_video
+
+        marked = set(marked)
+        frames = [
+            Image.new("RGB", (8, 8), (255, 0, 0) if index in marked else (0, 0, 0))
+            for index in range(num_frames)
+        ]
+        encode_video(frames, fps=fps, output_path=str(path))
+        return str(path)
+
+    def assert_is_red(self, frame):
+        r, g, b = frame.getpixel((0, 0))
+        assert r > 128 and r > g + 64 and r > b + 64
+
+    def assert_is_black(self, frame):
+        r, g, b = frame.getpixel((0, 0))
+        assert r < 96
+
+    def test_get_frame_seeks_rather_than_decoding_the_whole_clip(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[250])
+        ref = VideoFileReference(path)
+
+        self.assert_is_red(get_frame(ref, 250))
+        self.assert_is_black(get_frame(ref, 100))
+
+    def test_negative_indexes_count_from_the_end(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[299])
+        ref = VideoFileReference(path)
+
+        self.assert_is_red(get_frame(ref, -1))
+
+    def test_an_out_of_range_index_names_the_frame_count(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4")
+        ref = VideoFileReference(path)
+
+        with pytest.raises(ValueError, match="past the end of a 300-frame clip"):
+            get_frame(ref, 999999)
+
+    def test_process_video_dispatches_first_and_last_through_the_reference(
+        self, tmp_path
+    ):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[0, 299])
+        ref = VideoFileReference(path)
+
+        first = process_video(ref, "get_first_frame", "cpu", {})
+        last = process_video(ref, "get_last_frame", "cpu", {})
+
+        self.assert_is_red(first)
+        self.assert_is_red(last)
+
+    def test_realize_args_builds_a_reference_without_calling_load_video(
+        self, tmp_path, monkeypatch
+    ):
+        """The whole point of #367: a get_frame step's 'video' must not go
+        through the eager, whole-clip fetch_video/load_video path."""
+        import dw.arguments as arguments_module
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[250])
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("load_video must not be called for get_frame (#367)")
+
+        monkeypatch.setattr(arguments_module, "load_video", _boom)
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": path, "frame_index": 250},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        video = task["arguments"]["video"]
+        assert isinstance(video, VideoFileReference)
+        self.assert_is_red(get_frame(video, 250))
+
+    def test_a_deferred_previous_result_reference_is_left_unchanged(self, tmp_path):
+        import dw.arguments as arguments_module
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": "previous_result:shot", "frame_index": 0},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        assert task["arguments"]["video"] == "previous_result:shot"
+
+    def test_a_variable_reference_is_left_unchanged(self, tmp_path):
+        import dw.arguments as arguments_module
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": "variable:my_video"},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        assert task["arguments"]["video"] == "variable:my_video"
+
+    def test_an_in_memory_frame_list_is_unaffected(self, video):
+        """A step whose 'video' is an earlier step's in-memory result still
+        goes through the ordinary extract_frame path."""
+        assert get_frame(video, 2) is video[2]
+
+
 class TestIsVideo:
     def test_the_shapes_that_are_videos(self):
         import numpy
