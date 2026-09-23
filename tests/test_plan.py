@@ -875,9 +875,7 @@ class TestDownloadsRequired:
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
-        monkeypatch.setattr(
-            dw.plan, "repo_download_incomplete", lambda *a, **k: False
-        )
+        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
         assert plan()["downloads_required"] == []
 
     def test_a_present_but_incomplete_repo_is_still_required(self, plan, monkeypatch):

@@ -51,7 +51,9 @@ class TestDelete:
         assert len(scan_models(tmp_path)["repos"]) == 1
 
 
-def make_pipeline_repo(cache_dir, name="pipe", commit="aaaa1111", components=None, variant=None):
+def make_pipeline_repo(
+    cache_dir, name="pipe", commit="aaaa1111", components=None, variant=None
+):
     """A repo shaped like a diffusers pipeline: model_index.json at the
     snapshot root plus one folder per component. `components` maps a
     component name to its file list (weight-suffixed names get the
@@ -90,7 +92,9 @@ class TestRepoDownloadIncomplete:
         (repo / "blobs" / "deadbeef.incomplete").write_bytes(b"x")
         assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
 
-    def test_a_plain_checkpoint_with_no_model_index_is_complete_once_present(self, tmp_path):
+    def test_a_plain_checkpoint_with_no_model_index_is_complete_once_present(
+        self, tmp_path
+    ):
         # make_repo has no model_index.json - a bare checkpoint/LoRA repo
         make_repo(tmp_path)
         assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
@@ -110,7 +114,9 @@ class TestRepoDownloadIncomplete:
         )
         assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
 
-    def test_a_pipeline_missing_a_component_folder_entirely_is_incomplete(self, tmp_path):
+    def test_a_pipeline_missing_a_component_folder_entirely_is_incomplete(
+        self, tmp_path
+    ):
         # model_index.json lists "vae" but the folder was never fetched
         repo = make_pipeline_repo(
             tmp_path,
@@ -122,14 +128,17 @@ class TestRepoDownloadIncomplete:
         (snapshot / "model_index.json").write_text(json.dumps(index))
         assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
 
-    def test_a_component_with_only_config_files_is_complete_regardless_of_variant(self, tmp_path):
+    def test_a_component_with_only_config_files_is_complete_regardless_of_variant(
+        self, tmp_path
+    ):
         make_pipeline_repo(
             tmp_path,
             components={"scheduler": ["scheduler_config.json"]},
             variant="fp16",
         )
         assert (
-            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is False
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16")
+            is False
         )
 
     def test_a_component_missing_the_requested_variant_is_incomplete(self, tmp_path):
@@ -140,7 +149,8 @@ class TestRepoDownloadIncomplete:
             components={"unet": ["diffusion_pytorch_model.safetensors"]},
         )
         assert (
-            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is True
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16")
+            is True
         )
 
     def test_a_component_with_the_requested_variant_present_is_complete(self, tmp_path):
@@ -150,7 +160,8 @@ class TestRepoDownloadIncomplete:
             variant="fp16",
         )
         assert (
-            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16") is False
+            repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16")
+            is False
         )
 
 
