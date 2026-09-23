@@ -4,7 +4,7 @@
 #   scripts/deploy.sh [branch] [--force]
 #
 # Run ON the server box (lem), from anywhere:
-#   ssh lem ~/diffusers-workflow/scripts/deploy.sh develop
+#   ssh lem '~/diffusers-workflow/scripts/deploy.sh develop'
 #
 # What it does, in order, stopping at the first failure:
 #   1. fetch; check out <branch> (default: the current branch); fast-forward
