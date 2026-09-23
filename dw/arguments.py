@@ -220,9 +220,7 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
                 realize_args(item, base_dir)
             except ValueError as error:
                 if isinstance(item, dict) and "name" in item:
-                    raise ValueError(
-                        f"{error} (step '{item['name']}')"
-                    ) from error
+                    raise ValueError(f"{error} (step '{item['name']}')") from error
                 raise
             arg[i] = realize_object(item, base_dir)
         # An optional entry whose media is null leaves the list rather than

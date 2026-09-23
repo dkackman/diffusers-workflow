@@ -405,7 +405,9 @@ class TestExportDirectory:
             job_id = finished(client)
             body = client.post(f"/api/jobs/{job_id}/export").json()
 
-        assert body["absolute_zip_url"] == f"https://dw.example.com/exports/{job_id}.zip"
+        assert (
+            body["absolute_zip_url"] == f"https://dw.example.com/exports/{job_id}.zip"
+        )
 
     def test_no_absolute_zip_url_when_no_public_url_is_configured(self, server):
         with server() as client:

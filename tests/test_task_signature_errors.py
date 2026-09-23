@@ -23,7 +23,6 @@ from dw.introspection import (
     workflow_argument_warnings,
 )
 from dw.tasks.task import Task
-from dw.workflow import Workflow
 
 
 def task_step(command, arguments, name="a"):

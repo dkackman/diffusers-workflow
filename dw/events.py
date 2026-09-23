@@ -139,7 +139,9 @@ class RunContext:
             seconds_since_phase_start = round(now - self._phase_started_at, 1)
             seconds_since_last_progress = round(now - self._last_progress_at, 1)
             last_kind = self._last_progress_kind or "phase start"
-            last_offset = round(max(0.0, self._last_progress_at - self._phase_started_at), 1)
+            last_offset = round(
+                max(0.0, self._last_progress_at - self._phase_started_at), 1
+            )
             message = (
                 f"no progress event for {seconds_since_last_progress:.1f}s in phase "
                 f"'{phase}' (last: {last_kind} at +{last_offset:.1f}s) - informational; "

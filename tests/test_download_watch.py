@@ -37,7 +37,9 @@ def test_growing_download_emits_progress_and_suppresses_stall(tmp_path, monkeypa
         context.enter_run()
         try:
             context.note_phase("loading")
-            with download_watch.DownloadWatch(repo_id, context, cache_dir=str(tmp_path)):
+            with download_watch.DownloadWatch(
+                repo_id, context, cache_dir=str(tmp_path)
+            ):
                 for _ in range(6):
                     with open(blob_file, "ab") as f:
                         f.write(b"x" * 4096)
@@ -68,7 +70,9 @@ def test_stalled_download_still_stalls(tmp_path, monkeypatch):
         context.enter_run()
         try:
             context.note_phase("loading")
-            with download_watch.DownloadWatch(repo_id, context, cache_dir=str(tmp_path)):
+            with download_watch.DownloadWatch(
+                repo_id, context, cache_dir=str(tmp_path)
+            ):
                 time.sleep(0.3)
         finally:
             context.exit_run()

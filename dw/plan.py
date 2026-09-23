@@ -509,7 +509,9 @@ def estimate(
             child_measured_entries = {}
             child_expanded = {"variables": {}}
             if child_definition is not None:
-                child_measured_entries = _list_entries(child_definition, child_definition)
+                child_measured_entries = _list_entries(
+                    child_definition, child_definition
+                )
                 # The composing step's own `arguments` are what the child
                 # actually runs with - folded over its declared defaults the
                 # same way a caller's arguments are, since `expanded` has
@@ -521,9 +523,13 @@ def estimate(
             child = _price(
                 child_cost, device, child_list_entries, child_measured_entries
             )
-            if child["basis"] == CATALOG and child_definition is not None and (
-                _scalar_driver_shifted(
-                    child_definition, child_expanded, child_list_entries
+            if (
+                child["basis"] == CATALOG
+                and child_definition is not None
+                and (
+                    _scalar_driver_shifted(
+                        child_definition, child_expanded, child_list_entries
+                    )
                 )
             ):
                 # A scalar cost_driver the composing step overrode (H3's

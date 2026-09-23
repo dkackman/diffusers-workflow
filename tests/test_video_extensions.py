@@ -57,7 +57,10 @@ class TestTheFault:
 
     def test_a_non_string_is_not_this_passs_complaint(self):
         assert _extension_problem(None) is None
-        assert _extension_problem({"media_type": "video", "location": "asset:x.mp4"}) is None
+        assert (
+            _extension_problem({"media_type": "video", "location": "asset:x.mp4"})
+            is None
+        )
 
 
 class TestTheValidationPass:

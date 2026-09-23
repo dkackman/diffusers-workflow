@@ -638,7 +638,9 @@ class Workflow:
         base_dir = (
             os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
         )
-        task_errors = task_signature_errors(expanded, source_indices, self.workflow_definition)
+        task_errors = task_signature_errors(
+            expanded, source_indices, self.workflow_definition
+        )
         if arguments is None:
             # A step that feeds a required argument from `variable:name` and
             # a variable whose default is null is a fine document - the

@@ -88,8 +88,8 @@ def build_server(client):
             "session's workspace; a CUDA-only choice is unavailable on an "
             "mps or cpu server.\n"
             "\n"
-            "The loop: `get_guide(\"workflows\", section=\"Authoring a "
-            "workflow from an agent\")` before writing or repairing JSON -> "
+            'The loop: `get_guide("workflows", section="Authoring a '
+            'workflow from an agent")` before writing or repairing JSON -> '
             "`validate_workflow` (free; repeat until clean) -> quote its "
             "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
             "-> `wait_for_job` -> `get_job` -> `get_output_image`, "

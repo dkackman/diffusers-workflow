@@ -601,7 +601,9 @@ def _null_fed_variable(written_steps, source_index, key, declared_variables):
     return name if name in declared_variables else None
 
 
-def task_signature_errors(workflow_definition, source_indices=None, written_definition=None):
+def task_signature_errors(
+    workflow_definition, source_indices=None, written_definition=None
+):
     """Every task step whose arguments its command's signature refuses, as
     [{path, message}] - a required argument left unset, and an argument the
     command does not take - plus a step naming a command that is not
@@ -737,7 +739,9 @@ _TYPE_REFERENCE_KEYS = ("component_type", "scheduler_type", "config_type")
 # A class-name-shaped string, bare or dotted - excludes a {}-escaped literal
 # and a variable:/constant:/asset:/... reference, which use ':' or braces
 # and are checked elsewhere
-_DOTTED_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_DOTTED_NAME_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
 
 
 def _type_reference_candidates(key):

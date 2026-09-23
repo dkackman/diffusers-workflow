@@ -329,6 +329,7 @@
             <!-- A real space rather than a margin, so a screen reader says
                  "v4 film.mp4" instead of running the two together. Explicit:
                  whitespace at the edge of an if block is trimmed -->
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
             {' '}
           {/if}{file.label}</span
         >

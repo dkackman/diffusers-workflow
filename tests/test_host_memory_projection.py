@@ -92,7 +92,10 @@ class TestProjection:
         # peaked at 31000 MB, 5 entries at 62000 MB -> a 6-entry request
         # should project roughly 70000 MB, not 31000 * 6 = 186000 MB
         definition = for_each_workflow(release=False)
-        rows = [row(31000 * MB, {"shots": [1]}), row(62000 * MB, {"shots": [1, 2, 3, 4, 5]})]
+        rows = [
+            row(31000 * MB, {"shots": [1]}),
+            row(62000 * MB, {"shots": [1, 2, 3, 4, 5]}),
+        ]
         warnings = host_memory_warnings(definition, {"shots": 6}, rows, 8_000 * MB)
         assert len(warnings) == 1
         assert "69750" in warnings[0] or "69,750" in warnings[0]
@@ -101,7 +104,10 @@ class TestProjection:
 
     def test_growth_fit_under_the_ceiling_warns_nothing(self):
         definition = for_each_workflow(release=False)
-        rows = [row(31000 * MB, {"shots": [1]}), row(62000 * MB, {"shots": [1, 2, 3, 4, 5]})]
+        rows = [
+            row(31000 * MB, {"shots": [1]}),
+            row(62000 * MB, {"shots": [1, 2, 3, 4, 5]}),
+        ]
         warnings = host_memory_warnings(definition, {"shots": 2}, rows, 100_000 * MB)
         assert warnings == []
 

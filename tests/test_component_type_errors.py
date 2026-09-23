@@ -69,7 +69,9 @@ class TestAllowlistedAbsentVsPresentButDisallowed:
                 "steps": [
                     pipeline_step(
                         None,
-                        extra={"quantization_config": {"config_type": "sdnq.NoSuchConfig"}},
+                        extra={
+                            "quantization_config": {"config_type": "sdnq.NoSuchConfig"}
+                        },
                     )
                 ],
             }
@@ -95,7 +97,9 @@ class TestAllowlistedAbsentVsPresentButDisallowed:
                 "steps": [
                     pipeline_step(
                         None,
-                        extra={"quantization_config": {"config_type": "sdnq.NoSuchConfig"}},
+                        extra={
+                            "quantization_config": {"config_type": "sdnq.NoSuchConfig"}
+                        },
                     )
                 ],
             }
@@ -112,7 +116,9 @@ class TestSchedulerAndQuantizationFields:
                 {
                     "name": "a",
                     "pipeline": {
-                        "scheduler": {"configuration": {"scheduler_type": "DDIMSchedulr"}}
+                        "scheduler": {
+                            "configuration": {"scheduler_type": "DDIMSchedulr"}
+                        }
                     },
                     "result": {"content_type": "image/png"},
                 }
@@ -127,7 +133,12 @@ class TestSchedulerAndQuantizationFields:
     def test_a_real_config_type_is_accepted(self):
         definition = {
             "id": "ct",
-            "steps": [pipeline_step(None, extra={"quantization_config": {"config_type": "sdnq.SDNQConfig"}})],
+            "steps": [
+                pipeline_step(
+                    None,
+                    extra={"quantization_config": {"config_type": "sdnq.SDNQConfig"}},
+                )
+            ],
         }
         assert component_type_errors(definition) == []
 

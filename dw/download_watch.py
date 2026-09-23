@@ -148,7 +148,9 @@ def watch(repo_id, cache_dir=None, repo_type="model"):
 
     if not is_watchable_repo_id(repo_id):
         return _NULL_WATCH
-    return DownloadWatch(repo_id, get_context(), cache_dir=cache_dir, repo_type=repo_type)
+    return DownloadWatch(
+        repo_id, get_context(), cache_dir=cache_dir, repo_type=repo_type
+    )
 
 
 class _NullWatch:
