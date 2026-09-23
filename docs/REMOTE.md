@@ -33,6 +33,21 @@ Check it from the laptop:
 
 `hostname` and `device` are there so you can tell which machine answered.
 
+If an agent on this box will ever export a job or list gallery/asset URLs to
+hand to a person who isn't at a terminal on the box itself, set
+`DW_API_TOKEN` and also set `DW_PUBLIC_URL` to this server's origin (for
+example `https://dw.example.com`, or `http://<box>:8765` with no proxy):
+
+    DW_API_TOKEN=<token> DW_PUBLIC_URL=https://dw.example.com dw-serve --host 0.0.0.0 --mcp
+
+Without it, `export_job`, `list_gallery` and the upload/asset routes only
+return paths relative to this server (`/exports/job-1.zip`) - correct for a
+browser already pointed at the box, useless handed to someone who isn't.
+With `DW_PUBLIC_URL` set (or the equivalent `public_url` setting), those
+responses add an `absolute_url` / `absolute_zip_url` built from it; nothing
+guesses this from request headers, so an unconfigured server omits the
+field rather than composing a wrong origin.
+
 ## Browser
 
 Open `http://<box>:8765`. Click the key icon next to the theme toggle,
@@ -55,8 +70,12 @@ both require the token in an `Authorization: Bearer` header - the
 Two things differ from the local stdio setup:
 
 - `download_output` writes on the GPU box (where the MCP server runs), not
-  on your laptop. Use `get_output_image` / `get_output_text` to see a
-  result, or open `http://<box>:8765/outputs/<name>` in the browser.
+  on your laptop, so an omitted destination is refused rather than dropped
+  loose in the workspace root - nothing on your laptop would find or
+  delete it there (#353). Pass an explicit destination inside the
+  workspace to save one anyway, or use `get_output_image` /
+  `get_output_text` to see a result, or open
+  `http://<box>:8765/outputs/<name>` in the browser.
 - The connection is a plain HTTP call per tool invocation; there is no
   subprocess to restart.
 - `use_workspace`/`create_workspace` pin *this box's* one MCP client, shared

@@ -187,12 +187,12 @@ portrait's composition.
    boards of `dialogue-short`, `storyboard`, `generated-subject-reference` and
    `music-video`. Also look for a storyboard skipped, every shot the same
    length, one look word on every board softening all of them.
-5. After an inline run worth keeping, `get_job_workflow` and `save_workflow`
-   it, so the next run is by name rather than pasted JSON; `export_job` bundles
-   the run — workflow, manifest, job row and media — for git. It is on the
-   server: fetch its zip URL and unpack it into `exports/` under the session's
-   working directory, never a temp dir; the archive holds a job-id folder, so
-   do not make one first.
+5. After a run worth keeping, `get_job_workflow` and `save_workflow` it, so
+   the next run is by name not pasted JSON; `export_job` bundles it on the
+   server. `auth_required: false` - fetch `open_url` into `exports/` under
+   the working directory (never a temp dir; it unpacks into a job-id
+   folder). `true` - hand `open_url` to the person instead and keep using
+   `get_output_image`/`_audio`/`_frames`.
 
 ## Sources
 

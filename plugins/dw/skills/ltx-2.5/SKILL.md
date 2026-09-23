@@ -156,11 +156,12 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    `get_job` for the manifest and its warnings, `get_gallery_metadata` for
    duration, size and whether audio is present, and hand the user the
    gallery `url` (`list_gallery`, or the manifest's file name).
-6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
-   so the next run is by name rather than pasted JSON; `export_job` bundles the
-   run for git. Fetch its zip URL and unpack it into `exports/` under the
-   session's working directory, never a temp dir - the archive already
-   unpacks into a job-id folder.
+6. After a run worth keeping, `get_job_workflow` and `save_workflow` it, so
+   the next run is by name not pasted JSON; `export_job` bundles it on the
+   server. `auth_required: false` - fetch `open_url` into `exports/` under
+   the working directory (never a temp dir; unpacks into a job-id folder).
+   `true` - hand `open_url` to the person instead, keep using
+   `get_output_image`/`_audio`/`_frames`
 
 ## Sources
 

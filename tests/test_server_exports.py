@@ -4,6 +4,7 @@ same tree as a zip."""
 import io
 import json
 import os
+import time
 import zipfile
 
 import pytest
@@ -351,6 +352,67 @@ class TestExportDirectory:
             assert again.status_code == 409
             forced = client.post(f"/api/jobs/{job_id}/export?overwrite=true")
             assert forced.status_code == 201
+
+    def test_auth_required_reflects_whether_a_token_is_configured(
+        self, workspace_root, tmp_path
+    ):
+        # #353: an MCP-only agent has no way to attach a bearer token to a
+        # fetch on the person's behalf, so export_job's `next` hint branches
+        # on this field rather than assuming the zip is open to fetch.
+        manager = JobManager(
+            workspace_root.outputs,
+            worker_manager=ScriptedWorkerManager(exporting_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=workspace_root.workflows,
+        )
+        app = create_app(
+            workflow_dir=workspace_root.workflows,
+            output_dir=workspace_root.outputs,
+            job_manager=manager,
+            prompt_dir=workspace_root.prompts,
+            asset_dir=workspace_root.assets,
+            workspace=workspace_root.root,
+            token="s3cr3t",
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            headers = {"Authorization": "Bearer s3cr3t"}
+            submitted = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow(), "arguments": {}},
+                headers=headers,
+            ).json()
+            deadline = time.time() + 5.0
+            detail = None
+            while time.time() < deadline:
+                detail = client.get(
+                    f"/api/jobs/{submitted['id']}", headers=headers
+                ).json()
+                if detail["status"] in TERMINAL_STATES:
+                    break
+                time.sleep(0.02)
+            assert detail["status"] in TERMINAL_STATES
+            body = client.post(
+                f"/api/jobs/{submitted['id']}/export", headers=headers
+            ).json()
+
+        assert body["auth_required"] is True
+
+    def test_an_absolute_zip_url_is_added_when_a_public_url_is_configured(
+        self, server, monkeypatch
+    ):
+        monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
+        with server() as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        assert body["absolute_zip_url"] == f"https://dw.example.com/exports/{job_id}.zip"
+
+    def test_no_absolute_zip_url_when_no_public_url_is_configured(self, server):
+        with server() as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        assert "absolute_zip_url" not in body
 
 
 class TestExportWithoutAWorkspace:

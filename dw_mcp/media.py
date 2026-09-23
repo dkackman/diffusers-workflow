@@ -516,10 +516,26 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     Over a `dw.serve --mcp` endpoint the file lands on the *server*, not on
     the calling agent's machine, so there the destination is confined to that
     workspace: an absolute or '~' path outside it is refused rather than
-    written (#113). A stdio `dw-mcp` keeps writing anywhere the user can,
+    written (#113). An omitted `destination` is refused outright there
+    rather than defaulting into the workspace root - a file dropped loose in
+    the root has no run to delete it with and nothing names it back as an
+    output (#353); pass an explicit destination inside the workspace to save
+    one anyway. A stdio `dw-mcp` keeps writing anywhere the user can, and an
+    omitted `destination` keeps defaulting to the current working directory,
     because there "local disk" is genuinely their own.
     """
+    root = _remote_root(client)
     if destination is None:
+        if root:
+            raise DwApiError(
+                "destination is required over a dw.serve --mcp endpoint - "
+                "omitting it would drop the file loose in the workspace "
+                "root, where nothing can find or delete it later. Pass an "
+                "explicit destination inside the workspace, or use the url "
+                "list_gallery reports, get_output_image / get_output_audio / "
+                "get_output_frames for inline content, or keep_output to "
+                "make it a named asset instead."
+            )
         destination = os.path.basename(name)
     destination = os.path.expanduser(destination)
     if ".." in pathlib.PurePath(destination).parts:
@@ -533,7 +549,6 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     # this transport: the caller's own working directory for stdio, the
     # server's workspace when the tool runs inside dw.serve - where the
     # process's cwd is an implementation detail the caller never chose
-    root = _remote_root(client)
     destination = (
         os.path.abspath(os.path.join(root, destination))
         if root and not os.path.isabs(destination)
