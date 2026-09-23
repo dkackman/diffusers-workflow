@@ -408,7 +408,7 @@ def build_server(client):
         not a summary, so a result can be reproduced or a failed run's
         definition edited and re-run. For audio and video the `media`
         block carries duration, sample rate, channels, fps, size and level
-        - the checks an agent that cannot listen makes on a deliverable.
+        - the numbers to check a deliverable by, beside listening to it.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: whether a shot still sounds at its last frame,
@@ -685,7 +685,7 @@ def build_server(client):
         get_output_text for inline content, or the `url` that
         `list_gallery` reports for each entry, which already carries the
         workspace selector - do not build an /outputs URL by hand). This is
-        also NOT how a generated file becomes an input for a later
+        also not how a generated file becomes an input for a later
         workflow: use `keep_output`, which links it inside the workspace
         under an "asset:" name, rather than writing into the server's asset
         directory behind the API's back. Unlike the inline tools, this works
@@ -872,7 +872,7 @@ def build_server(client):
         arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
-        signatures. Free and instant - always run this before run_workflow.
+        signatures. Free and instant - run it before run_workflow.
         Give exactly one of `workflow` or `name` (a stored workflow as
         `list_workflows` reports it); `run_workflow`'s `inline_workflow`
         and `workflow_path` spellings are accepted here too. `workflow` may
@@ -1020,7 +1020,7 @@ def build_server(client):
         acknowledged_cost: bool = False,
     ) -> dict:
         """Expand a short idea into a full prompt with a language model.
-        THIS COSTS TIME ON THE ENGINE: it queues a real job, and the engine
+        This costs time on the engine: it queues a real job, and the engine
         runs one at a time, so a generation waiting behind it is delayed.
         Tell the user what will be enhanced and get their go-ahead, then
         pass acknowledged_cost=true. Returns as soon as the job is queued;
@@ -1052,10 +1052,10 @@ def build_server(client):
         workspace: str | None = None,
         wait_seconds: int = 0,
     ) -> dict:
-        """Queue a workflow for generation. THIS COSTS GPU TIME: a run
+        """Queue a workflow for generation. This costs GPU time: a run
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
-        acknowledged_cost=true. Returns as soon as the job is queued;
+        acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
         fold that first wait in with `wait_seconds` above 0, which waits on
         the job exactly as `wait_for_job(job_id,
@@ -1063,7 +1063,7 @@ def build_server(client):
         its fields to the result (`still_running`, `waited_seconds`,
         `timeout_*`, the slim `job`). If the cap covers the job's
         runtime one call is enough; on `still_running: true` call
-        `wait_for_job` as before. Give exactly one of `workflow_path` - a
+        `wait_for_job` again. Give exactly one of `workflow_path` - a
         catalog name from `list_workflows`, with or without .json, or a
         path on the server - or `inline_workflow`, a full definition
         nothing stored covers; `validate_workflow` calls these `name` and
@@ -1194,10 +1194,10 @@ def build_server(client):
     def rerun_job(
         job_id: str, acknowledged_cost: bool | dict = False, new_seed: bool = False
     ) -> dict:
-        """Queue a fresh job from a previous job's stored specification. THIS
-        COSTS GPU TIME: a rerun is a run - it occupies the machine for
+        """Queue a fresh job from a previous job's stored specification. This
+        costs GPU time: a rerun is a run - it occupies the machine for
         minutes and the engine runs one job at a time. Tell the user what
-        will run and get their go-ahead, then pass acknowledged_cost=true.
+        will run and get their go-ahead, then pass acknowledged_cost.
 
         Pass new_seed=true for a different image: a workflow that pins its
         seed reruns to the same pixels, and the step cache serves that whole
@@ -1231,11 +1231,13 @@ def build_server(client):
         what was copied. Returns the directory, a zip URL, the file list
         with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
-        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To
-        give the user the files, fetch the zip URL and unpack it into
-        exports/ under the session's working directory - it is the user's
-        deliverable, not a temp file; the archive already unpacks into one
-        folder named after the job id, so do not create that folder first.
+        The directory is on the machine running the server, not yours.
+        `open_url` is the zip: with `auth_required` false, fetch it and
+        unpack it into exports/ under the session's working directory - the
+        user's deliverable, not a temp file; it unpacks into a folder named
+        after the job id, so do not create that folder first. With it true
+        the zip needs a token you cannot attach, so hand `open_url` to the
+        person.
         Refuses a job that is still running; refuses an existing export
         unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
@@ -1250,8 +1252,8 @@ def build_server(client):
     # -------------------------------------------------------------- models
 
     def download_model(repo_id: str, acknowledged_cost: bool = False) -> dict:
-        """Fetch a model repo into the Hugging Face cache. THIS COSTS DISK
-        AND BANDWIDTH: a model repo is commonly tens of gigabytes. Check
+        """Fetch a model repo into the Hugging Face cache. This costs disk
+        and bandwidth: a model repo is commonly tens of gigabytes. Check
         list_models first - it may already be cached. Tell the user what you
         are about to fetch and get their go-ahead, then pass
         acknowledged_cost=true. Returns as soon as the download starts; poll
@@ -1270,8 +1272,8 @@ def build_server(client):
         return models.cancel_download(client, download_id)
 
     def delete_model(repo: str, acknowledged_cost: bool = False) -> dict:
-        """Delete every cached revision of one model repo. THIS IS NOT
-        RECOVERABLE: getting the model back means downloading it again. Tell
+        """Delete every cached revision of one model repo. This is not
+        recoverable: getting the model back means downloading it again. Tell
         the user which repo and how much it frees, get their go-ahead, then
         pass acknowledged_cost=true. Refused while a job or download is
         active."""
@@ -1282,7 +1284,7 @@ def build_server(client):
         return models.get_diffusers_state(client)
 
     def update_diffusers(acknowledged_cost: bool = False) -> dict:
-        """Upgrade diffusers to GitHub HEAD. THIS CAN BREAK THE INSTALL: it
+        """Upgrade diffusers to GitHub HEAD. This can break the install: it
         installs an untagged development build that workflows running today
         may not survive, and this tool cannot undo it. Report the current
         version, explain why the update is worth it, get the user's

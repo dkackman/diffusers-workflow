@@ -258,7 +258,7 @@ async def test_run_workflow_advertises_its_cost():
     tools = await tools_of(server_over(ok({})))
 
     description = tools["run_workflow"].description
-    assert "COSTS GPU TIME" in description
+    assert "costs gpu time" in description.lower()
     assert "acknowledged_cost" in description
 
 
@@ -915,7 +915,7 @@ async def test_rerun_job_advertises_its_cost():
     tools = await tools_of(server_over(ok({})))
 
     description = tools["rerun_job"].description
-    assert "COSTS GPU TIME" in description
+    assert "costs gpu time" in description.lower()
     assert "acknowledged_cost" in description
 
 

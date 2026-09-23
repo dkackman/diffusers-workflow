@@ -22,9 +22,9 @@ does not parse screenplay formats.
 ## 2. Decompose into a shot list, not a shot count
 
 The unit that matters is *shots*, not lines or scenes: one scene may be
-several shots, and `dw:minimax-h3`'s sweet spot is 4-6 second shots (the
-`17*n+5` frame grid). For each shot, name it, note which character(s)
-appear, what happens, and roughly how long it runs.
+several shots, and a `dw:minimax-h3` shot runs 5.17 to 14.4 seconds (the
+`17*n+5` frame grid, 124 to 345 frames). For each shot, name it, note
+which character(s) appear, what happens, and roughly how long it runs.
 
 ## 3. Cast recurring characters once, before any shot generates
 
@@ -92,8 +92,6 @@ already owns this step - do not re-derive it here.
   catalog templates; a script whose shape no template covers is a
   "propose a new template" conversation, not something to improvise at
   run time.
-- **Full unattended autonomy.** Step 5's cost acknowledgment is a real gate
-  every time, not a one-time setup step.
 
 ## Sources
 
