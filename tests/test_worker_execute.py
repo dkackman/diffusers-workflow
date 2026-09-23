@@ -393,3 +393,25 @@ def test_a_workflow_switch_forgets_the_prior_keys():
         command={"workflow_path": "other.json", "arguments": {}, "output_dir": "/tmp"},
     )
     assert worker.prior_step_keys == {}
+
+
+def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
+    """#368: a job's own cleanup left ~10GB resident that only clear_memory
+    reclaimed - the pinned-host staging buffers of group_offload and the
+    glibc arenas a released pipeline's weights were read into. Neither is
+    touched by gc.collect()/empty_device_cache() alone, so the light,
+    every-job cleanup must also call release_host_caches() - and must keep
+    loaded_pipelines/shared_components warm while doing it, since those
+    exist for exactly this (inter-run) cleanup to leave alone.
+    """
+    worker = _make_worker()
+    worker.loaded_pipelines["warm-key"] = object()
+    worker.shared_components["warm-component"] = object()
+
+    with patch("dw.worker.release_host_caches", return_value=512.0) as released:
+        worker._cleanup_between_runs()
+
+    released.assert_called_once()
+    # the whole point: still-warm state for the next run survives this call
+    assert "warm-key" in worker.loaded_pipelines
+    assert "warm-component" in worker.shared_components
