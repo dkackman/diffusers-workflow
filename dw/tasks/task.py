@@ -426,6 +426,16 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     )
 
 
+@register_command("grade", implementation="dw.tasks.grade.grade_image")
+def _handle_grade(task, arguments, previous_pipelines):
+    """Adjust exposure, contrast, saturation and white balance of an image or video"""
+    logger.debug("Grading image")
+    image = arguments.pop("image")
+    from .grade import grade_image
+
+    return _per_frame(image, lambda frame: grade_image(frame, **arguments))
+
+
 @register_command(
     "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
 )

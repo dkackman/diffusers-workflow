@@ -114,6 +114,10 @@ TASK_ARGUMENT_DOMAINS = {
         "sample_rate": POSITIVE,
     },
     "analyze_audio": {"sample_rate": POSITIVE},
+    "grade": {
+        "contrast": NON_NEGATIVE,
+        "saturation": NON_NEGATIVE,
+    },
 }
 
 
