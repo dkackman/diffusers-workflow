@@ -253,6 +253,11 @@ def warn_if_written_above_full_scale(
 # warnings: [] (#261)
 NEAR_SILENT_WARN_DBFS = -40.0
 
+# Above this, a peak means "quiet but not empty" rather than "check for a
+# defect" - s02's -18.5 dBFS peaks (an ambience-only shot) clear it, #261's
+# -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize do not (#358)
+NEAR_SILENT_QUIET_NOT_EMPTY_DBFS = -30.0
+
 
 def warn_if_written_near_silent(
     output_path, already_warned=False, info=_UNPROBED, source_already_quiet=False
@@ -276,6 +281,15 @@ def warn_if_written_near_silent(
     ("check the step that generated it... an unintended near-zero gain
     upstream") is aimed at a step that could plausibly have caused the
     level, which a plain cut out of an already-quiet recording did not (#309).
+
+    The trigger stays mean-only (#358): a wordless, ambience-only shot (paws,
+    husks scraping, water) reads a low mean with real peaks - -54 dBFS mean,
+    -18 to -31 dBFS peaks - and split perfectly with dialogue presence, not
+    with silence, costing an investigation every run. The fix is the message,
+    not the gate: a peak above `NEAR_SILENT_QUIET_NOT_EMPTY_DBFS` says so
+    plainly rather than reusing the "check the step that generated it"
+    wording aimed at a genuinely empty render (#261's -68.7 dBFS, S-F077's
+    -60 dBFS).
     """
     if already_warned or source_already_quiet:
         return None
@@ -287,16 +301,26 @@ def warn_if_written_near_silent(
     if mean is None or mean >= NEAR_SILENT_WARN_DBFS:
         return mean
     name = os.path.basename(output_path)
-    emit_warning(
-        f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
-        f"for a deliverable meant to be heard. Check the step that "
-        f"generated it: an empty or malformed prompt, a source model that "
-        f"produced no meaningful audio for this input, or an unintended "
-        f"near-zero gain upstream ('normalize_audio' or 'match_levels').",
-        kind="audio_near_silent",
-        file=name,
-        mean_dbfs=round(mean, 2),
-    )
+    peak = info.get("peak_dbfs")
+    if peak is not None and peak >= NEAR_SILENT_QUIET_NOT_EMPTY_DBFS:
+        message = (
+            f"{name} decodes at a mean level of {mean:+.2f} dBFS but peaks "
+            f"at {peak:+.2f} dBFS: quiet overall, not empty. Expected for "
+            f"an ambience-only shot; a concern only if this was meant to "
+            f"carry speech or music."
+        )
+    else:
+        message = (
+            f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
+            f"for a deliverable meant to be heard. Check the step that "
+            f"generated it: an empty or malformed prompt, a source model that "
+            f"produced no meaningful audio for this input, or an unintended "
+            f"near-zero gain upstream ('normalize_audio' or 'match_levels')."
+        )
+    fields = {"kind": "audio_near_silent", "file": name, "mean_dbfs": round(mean, 2)}
+    if peak is not None:
+        fields["peak_dbfs"] = round(peak, 2)
+    emit_warning(message, **fields)
     return mean
 
 

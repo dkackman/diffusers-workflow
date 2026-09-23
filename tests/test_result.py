@@ -1862,6 +1862,56 @@ class TestNearSilentWrite:
         assert warning["mean_dbfs"] == pytest.approx(-74.8, abs=0.01)
         assert warning["file"] == "line.wav"
 
+    def test_a_quiet_shot_with_real_peaks_says_quiet_not_empty(self):
+        """#358: an ambience-only shot (paws, husks scraping, water) reads a
+        low mean with real peaks - s02's own -54.46 dBFS mean, -18.5 dBFS
+        peak - and the old wording ("check the step that generated it...")
+        sent every one of those to an investigation. The trigger is
+        unchanged (mean still below -40); only the message and the added
+        peak_dbfs field distinguish it from a genuinely empty render."""
+        from dw.result import warn_if_written_near_silent
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"mean_dbfs": -54.46, "peak_dbfs": -18.5},
+        ):
+            (warning,) = self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/shot.wav")
+            )
+
+        assert warning["kind"] == "audio_near_silent"
+        assert warning["mean_dbfs"] == pytest.approx(-54.46, abs=0.01)
+        assert warning["peak_dbfs"] == pytest.approx(-18.5, abs=0.01)
+        assert "quiet overall, not empty" in warning["message"]
+        assert "check the step that generated it" not in warning["message"].lower()
+
+    def test_a_genuinely_empty_render_keeps_the_old_wording(self):
+        """#261's -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize both
+        have low peaks too - those still get the "check the step" message,
+        not the ambience one."""
+        from dw.result import warn_if_written_near_silent
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"mean_dbfs": -68.7, "peak_dbfs": -55.0},
+        ):
+            (warning,) = self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/empty.wav")
+            )
+
+        assert "check the step that generated it" in warning["message"].lower()
+        assert "quiet overall, not empty" not in warning["message"]
+        assert warning["peak_dbfs"] == pytest.approx(-55.0, abs=0.01)
+
+    def test_no_peak_available_keeps_the_old_wording(self):
+        """A probe that reports only mean_dbfs (no peak) can't distinguish
+        the two cases, so it falls back to the original message and carries
+        no peak_dbfs field."""
+        (warning,) = self.measured_at(-74.8)
+
+        assert "check the step that generated it" in warning["message"].lower()
+        assert "peak_dbfs" not in warning
+
     def test_a_file_at_the_threshold_is_quiet(self):
         assert self.measured_at(-40.0) == []
 
