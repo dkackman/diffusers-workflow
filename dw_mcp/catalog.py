@@ -308,9 +308,10 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "the level normalize_audio would be given, and the range has two "
             "ends: mean_dbfs below -40 on a track that should be full is a "
             "near-silent render, and peak_dbfs at or above 0 is a deliverable "
-            "at or over full scale - a decoded lossy file overshoots by a few "
-            "tenths legitimately, but a figure of +1 or more is a mix with no "
-            "headroom, and 'normalize_audio' (peak_dbfs: -1) before the saving "
-            "step is what fixes it."
+            "at or over full scale - a decoded lossy file overshoots by up to "
+            "a couple dB legitimately (0.59-1.56 dB measured on Music 3 "
+            "mp3s), but a figure of +1 or more is a mix with no headroom, and "
+            "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
+            "fixes it."
         )
     return body
