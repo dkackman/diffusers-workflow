@@ -111,7 +111,9 @@ class TestAlphaPassesThrough:
 class TestVideoIsGradedPerFrame:
     def video(self):
         frames = [Image.new("RGB", (4, 4), (i * 40, 100, 100)) for i in range(3)]
-        return AudioVideo(frames, numpy.zeros((2, 50), dtype=numpy.float32), 100, fps=24)
+        return AudioVideo(
+            frames, numpy.zeros((2, 50), dtype=numpy.float32), 100, fps=24
+        )
 
     def test_grade_dispatches_over_every_frame_and_keeps_audio_and_fps(self):
         task = Task({"command": "grade", "arguments": {}}, "cpu")
