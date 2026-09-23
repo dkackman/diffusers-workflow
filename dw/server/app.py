@@ -1731,10 +1731,20 @@ def create_app(
                 detail="Workflow could not be constructed - the server log "
                 "has the detail",
             )
+        # `arguments` defaults to `{}` on the model (JobRequest is shared
+        # with run_workflow, which needs a dict), so an omitted field and an
+        # explicit `{}` are otherwise indistinguishable here - and the two
+        # mean different things: omitted is "check the document", explicit
+        # is "check a run with these arguments" (#364). model_fields_set
+        # tells them apart without changing the field's default for every
+        # other caller of validate_workflow.
+        caller_arguments = (
+            request.arguments if "arguments" in request.model_fields_set else None
+        )
         try:
             # The caller's list is the one a for_each expands over, so the
             # pre-flight checks the step set that will actually run
-            errors = candidate.validation_errors(arguments=request.arguments)
+            errors = candidate.validation_errors(arguments=caller_arguments)
         except Exception:
             # An error here is not the schema's verdict on the workflow -
             # validation_errors() reports that by returning it. It is the
@@ -1795,9 +1805,9 @@ def create_app(
             + candidate.adapter_warnings(request.arguments)
             # A required task argument fed by variable:name where name's
             # default is null - a fine document, but a run left as-is would
-            # fail; empty once request.arguments names anything, since that
+            # fail; empty once the caller names any arguments, since that
             # condition is a hard error above instead (#364)
-            + candidate.null_variable_argument_warnings(request.arguments)
+            + candidate.null_variable_argument_warnings(caller_arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),
