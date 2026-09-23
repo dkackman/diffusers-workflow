@@ -6,9 +6,7 @@ traversal and anything outside the workflow directory). Nothing here
 re-implements it - a second, subtly different check is how the two drift.
 """
 
-import json
-
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
 
 def validate_workflow(
@@ -38,6 +36,8 @@ def validate_workflow(
     `outputs/` - a run sitting in a different workspace, however identical
     its arguments and seed, does not count as a hit. Pin `workspace` to the
     one an earlier run actually used if you want to see it credited."""
+    workflow = coerce_json_object(workflow, "workflow")
+    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
     if workflow is not None and inline_workflow is not None:
         raise DwApiError(
             "`workflow` and `inline_workflow` are the same thing - provide only one."
@@ -82,37 +82,12 @@ def save_workflow(client, name, workflow=None, patch=None):
             "Provide exactly one of `workflow` (a full replacement) or "
             "`patch` (a JSON merge patch onto the stored version)."
         )
-    workflow = _coerce_json_object(workflow, "workflow")
-    patch = _coerce_json_object(patch, "patch")
+    workflow = coerce_json_object(workflow, "workflow")
+    patch = coerce_json_object(patch, "patch")
     if patch is not None:
         current = client.get_json(api_path("api", "workflows", name))
         workflow = _merge_patch(current, patch)
     return client.put_json(api_path("api", "workflows", name), {"workflow": workflow})
-
-
-def _coerce_json_object(value, param_name):
-    """A tool argument typed as an object can still arrive as a JSON-encoded
-    string (a caller that serialized it before handing it over, or a client
-    that couldn't parse a malformed document and passed the raw text
-    through). Accept that case rather than letting it reach the server as a
-    string, where the schema rejection names the wrong problem - not "this
-    isn't an object" but a bare pydantic `type=dict_type, input_type=str`,
-    which reads as if the field itself were misdeclared."""
-    if value is None or isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        raise DwApiError(
-            f"`{param_name}` must be a JSON object, not {type(value).__name__}."
-        )
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as e:
-        raise DwApiError(f"`{param_name}` is not valid JSON: {e}") from e
-    if not isinstance(parsed, dict):
-        raise DwApiError(
-            f"`{param_name}` must be a JSON object, not {type(parsed).__name__}."
-        )
-    return parsed
 
 
 def _merge_patch(target, patch):

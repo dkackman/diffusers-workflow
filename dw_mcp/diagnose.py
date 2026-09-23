@@ -10,7 +10,7 @@ progress is polled from the event log.
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
@@ -105,6 +105,8 @@ def run_workflow(
         raise DwApiError(
             "`workflow_path` and `name` are the same thing - provide only one."
         )
+    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
+    workflow = coerce_json_object(workflow, "workflow")
     if inline_workflow is not None and workflow is not None:
         raise DwApiError(
             "`inline_workflow` and `workflow` are the same thing - provide only one."

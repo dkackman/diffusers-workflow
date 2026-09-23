@@ -1216,8 +1216,10 @@ def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
         # the one who can act on it (#82)
         emit_warning(
             f"{command}: the tracks being joined span {spread:.1f} dB "
-            f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - the cut "
-            f"will be audible as a level jump. Pass match_levels to even them out",
+            f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - "
+            "audible as a level jump unless the difference is intended (a "
+            "shot written silent against the score). If it is not, pass "
+            "match_levels to even them out",
             kind="level_spread",
             command=command,
             spread_db=round(spread, 1),

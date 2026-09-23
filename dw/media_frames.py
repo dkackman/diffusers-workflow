@@ -216,19 +216,37 @@ def _moment_to_index(moment, shape):
     total = shape["frame_count"]
     if isinstance(moment, str) and moment.startswith("frame:"):
         index = int(moment[len("frame:") :])
-    else:
-        fps = shape["fps"]
-        if fps is None:
-            raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
-        seconds = float(moment)
-        if not math.isfinite(seconds):
-            raise ValueError(f"{moment!r} is not a moment in seconds")
-        index = int(round(seconds * fps))
+        if index < 0:
+            index += total
+        if not 0 <= index < total:
+            raise ValueError(
+                f"frame {index} is past the end of a {total}-frame clip "
+                f"(frames 0-{total - 1})"
+            )
+        return index
+    fps = shape["fps"]
+    if fps is None:
+        raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
+    seconds = float(moment)
+    if not math.isfinite(seconds):
+        raise ValueError(f"{moment!r} is not a moment in seconds")
+    index = int(round(seconds * fps))
     if index < 0:
         index += total
     if not 0 <= index < total:
-        raise ValueError(f"{moment!r} is past the end of a {total}-frame clip")
+        duration = total / fps
+        raise ValueError(
+            f"{moment!r} s is past the end of a {duration:.2f} s "
+            f"({total}-frame) clip - bare numbers in 'at' are seconds; "
+            f'use "frame:{_format_moment(moment)}" for a frame index'
+        )
     return index
+
+
+def _format_moment(moment):
+    if isinstance(moment, float) and moment.is_integer():
+        return str(int(moment))
+    return str(moment)
 
 
 def _seconds(index, shape):

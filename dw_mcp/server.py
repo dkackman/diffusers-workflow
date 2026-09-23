@@ -907,9 +907,9 @@ def build_server(client):
     # ----------------------------------------------------------- authoring
 
     def validate_workflow(
-        workflow: dict | None = None,
+        workflow: dict | str | None = None,
         name: str | None = None,
-        inline_workflow: dict | None = None,
+        inline_workflow: dict | str | None = None,
         workflow_path: str | None = None,
         workspace: str | None = None,
         arguments: dict | None = None,
@@ -922,6 +922,8 @@ def build_server(client):
         accept both spellings, so a definition or a name checked here can be
         handed straight to `run_workflow` without renaming a key. Every
         schema error comes back at once, each with its JSON path.
+        `workflow`/`inline_workflow` may also be a JSON-encoded string; a
+        parse failure is reported as invalid JSON, not a type mismatch.
         `workspace` names the workspace for this one call without switching
         the session to it - use it to pin a job whose `output:` or `asset:`
         references live in a workspace other than the session's.
@@ -1051,12 +1053,14 @@ def build_server(client):
         before writing one, as you would get_schema before a workflow."""
         return prompts.get_prompt_schema(client)
 
-    def save_prompt(name: str, prompt: dict) -> dict:
+    def save_prompt(name: str, prompt: dict | str) -> dict:
         """Save a prompt to the library, overwriting any prompt of that
         name. Its `text` may not itself begin with a reference prefix
         (variable:, previous_result:, constant:, asset:, output:, prompt:)
         - the server refuses that to prevent a reference resolving twice.
-        The library is shared by every workspace on this server."""
+        The library is shared by every workspace on this server. `prompt`
+        may also be a JSON-encoded string; a parse failure is reported as
+        invalid JSON, not a type mismatch."""
         return prompts.save_prompt(client, name, prompt)
 
     def delete_prompt(name: str) -> dict:
@@ -1102,8 +1106,8 @@ def build_server(client):
 
     def run_workflow(
         workflow_path: str | None = None,
-        inline_workflow: dict | None = None,
-        workflow: dict | None = None,
+        inline_workflow: dict | str | None = None,
+        workflow: dict | str | None = None,
         name: str | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
@@ -1125,8 +1129,10 @@ def build_server(client):
         catalog name from `list_workflows`, with or without .json, or a
         path on the server - or `inline_workflow`, a full definition
         nothing stored covers; `validate_workflow` calls these `name` and
-        `workflow`, and both tools accept both spellings. `arguments`
-        overrides the workflow's variables by name. `workspace` pins this
+        `workflow`, and both tools accept both spellings.
+        `inline_workflow`/`workflow` may also be a JSON-encoded string; a
+        parse failure is reported as invalid JSON, not a type mismatch.
+        `arguments` overrides the workflow's variables by name. `workspace` pins this
         call to another workspace without switching the session (where its
         `output:`/`asset:` references live).
 
