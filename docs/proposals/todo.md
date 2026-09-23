@@ -9,13 +9,15 @@ benefit vs. added complexity/risk, highest ROI first. Updated 2026-09-20
 original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
+Since 2026-09-23 every open item below is also a GitHub issue labeled
+`feature` (#374–#380, and #244 for `resume.md`), parked with Don. Its
+`priority:N` label mirrors the tier here. Work starts from the issue.
+
 ## Tier 1 — do these first (small, scoped, clear payoff)
 
-1. **h3-video-mux-headroom-warning-partial.md** — fixes (1)-(4) shipped
-   2026-09-20 (`bbe4adb`); item 5 (updating the M-F008 regression case
-   wording against the external suite) is still owed, and fix (2) (a
-   `normalize_audio` gain stage on the H3 video templates) stays deferred
-   pending a real clipped-in-practice case.
+None open. The last item, the H3 video mux headroom warning, shipped. Its
+remaining deferred fix is recorded in
+`complete/h3-video-mux-headroom-warning-complete.md`.
 
 ## Tier 2 — solid ROI, moderate scope
 
