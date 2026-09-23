@@ -21,9 +21,12 @@ this pass can never see it. The static pass therefore only ever refuses what
 the command would refuse anyway - it is the earlier of two answers, not a
 second opinion.
 
-Only numbers whose domain is not a judgement call are listed. A level in dBFS,
-a gain, a colour: those are the command's business, and a command that wants
-to refuse something subtler does it in its own body.
+Only numbers whose domain is not a judgement call are listed. Whether a level
+in dBFS or a gain is the *right* one for a mix is the command's business, and
+a command that wants to refuse something subtler does it in its own body -
+but a value's documented range is not a judgement call either: grade's
+temperature and tint are only defined from -1.0 to 1.0, and a value outside
+it is not a bolder version of the effect, just an unmodelled one (#349).
 """
 
 import logging
@@ -42,12 +45,30 @@ NON_NEGATIVE = "non_negative"
 # (0 is full scale, positive is not a level any of these commands can reach),
 # shared here with normalize_audio's target_lufs
 NON_POSITIVE = "non_positive"
+# A value documented as a scale from -1.0 to 1.0 - grade's temperature and
+# tint, whose linear interpolation is only defined inside that range; outside
+# it the same formula still runs and produces a value, just not the one the
+# documented scale promised
+CLOSED_UNIT = "closed_unit"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
     NON_NEGATIVE: "zero or above",
     NON_POSITIVE: "at or below full scale (0)",
+    CLOSED_UNIT: "between -1.0 and 1.0",
 }
+
+_DOMAIN_REASON = {
+    CLOSED_UNIT: (
+        "A value outside that range is refused rather than extrapolated - "
+        "the documented scale is only defined inside it"
+    ),
+}
+_DEFAULT_REASON = (
+    "A value outside that range is refused rather than interpreted - "
+    "a negative count or a zero rate would otherwise produce a "
+    "plausible-looking track of the wrong length or speed"
+)
 
 # command -> argument -> domain. Every entry here is pinned to a real command
 # and a real parameter of it by tests/test_task_domains.py, so a renamed
@@ -125,6 +146,8 @@ TASK_ARGUMENT_DOMAINS = {
     "grade": {
         "contrast": NON_NEGATIVE,
         "saturation": NON_NEGATIVE,
+        "temperature": CLOSED_UNIT,
+        "tint": CLOSED_UNIT,
     },
 }
 
@@ -139,6 +162,8 @@ def in_domain(value, domain):
         return number > 0
     if domain == NON_POSITIVE:
         return number <= 0
+    if domain == CLOSED_UNIT:
+        return -1.0 <= number <= 1.0
     return number >= 0
 
 
@@ -186,11 +211,9 @@ def domain_violation(command, name, value, domain):
         if in_domain(item, domain):
             continue
         label = f"{name}[{index}]" if index is not None else name
+        reason = _DOMAIN_REASON.get(domain, _DEFAULT_REASON)
         message = (
-            f"{command} needs '{label}' {_DOMAIN_TEXT[domain]}, got {item!r}. "
-            f"A value outside that range is refused rather than interpreted - "
-            f"a negative count or a zero rate would otherwise produce a "
-            f"plausible-looking track of the wrong length or speed"
+            f"{command} needs '{label}' {_DOMAIN_TEXT[domain]}, got {item!r}. {reason}"
         )
         return index, message
     return None

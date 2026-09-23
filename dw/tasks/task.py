@@ -428,12 +428,25 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
 
 @register_command("grade", implementation="dw.tasks.grade.grade_image")
 def _handle_grade(task, arguments, previous_pipelines):
-    """Adjust exposure, contrast, saturation and white balance of an image or video"""
-    logger.debug("Grading image")
-    image = arguments.pop("image")
+    """Adjust exposure, contrast, saturation and white balance of an image or a video"""
+    logger.debug("Grading media")
+    media = arguments.pop("media")
     from .grade import grade_image
 
-    return _per_frame(image, lambda frame: grade_image(frame, **arguments))
+    if isinstance(media, str):
+        import os
+
+        from ..security import ALLOWED_VIDEO_EXTENSIONS
+        from .video_utils import load_audio_video
+
+        if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
+            media = load_audio_video(media)
+        else:
+            from ..arguments import fetch_image
+
+            media = fetch_image(media)
+
+    return _per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
 @register_command(
