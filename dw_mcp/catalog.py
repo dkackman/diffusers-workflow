@@ -221,6 +221,7 @@ def list_gallery(
     workspace=None,
     folder=None,
     version=None,
+    media=False,
 ):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
@@ -248,7 +249,12 @@ def list_gallery(
     run opens and a deleted sibling leaves a gap rather than renumbering
     what is left - as does a run that failed, or reused every step from
     the cache, and so wrote nothing to list. Null under the flat output
-    layout, which has no runs."""
+    layout, which has no runs.
+
+    `media=True` adds `duration_seconds` to each audio/video entry in the
+    page returned, probed the way `get_gallery_metadata` measures a file -
+    enough to pick between two takes without one metadata call per
+    candidate. Off by default; a plain call carries no `duration_seconds`."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
@@ -258,6 +264,8 @@ def list_gallery(
         params["version"] = version
     if only_orphans:
         params["only_orphans"] = "true"
+    if media:
+        params["media"] = "true"
     return client.get_json("/api/gallery", params=params, workspace=workspace)
 
 
