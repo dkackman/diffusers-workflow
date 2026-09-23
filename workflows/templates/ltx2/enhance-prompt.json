@@ -176,7 +176,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24,
+                "fps": "variable:frame_rate",
                 "subfolder": "final"
             }
         }

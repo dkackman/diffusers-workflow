@@ -41,6 +41,7 @@ from .variable_constraints import (
     constraint_reference_errors,
     resolve_constraint_references,
 )
+from .result_fps import fps_errors
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -656,6 +657,7 @@ class Workflow:
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
+            + fps_errors(expanded, source_indices)
             # A reference name no workspace could ever resolve - the '@' a
             # for_each member's own file carries, rejected after the queue
             # by a message that named a valid form and not the objection
