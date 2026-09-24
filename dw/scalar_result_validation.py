@@ -10,16 +10,24 @@ naming neither the step nor the command. Checked here against the command's
 own declared `returns` kind (`dw/tasks/task.py`'s `register_command`) rather
 than a name match on `judge`, so a future scalar-returning task is covered
 by declaring itself rather than by a second special case here.
+
+A "json" command (the assessment probes, #387) answers a dict of
+measurements, which `Result.save` writes whole only under
+`application/json`; any other content type explodes the dict key by key
+into files, or dies on a number. So a `result` on one is allowed and must
+say `application/json`.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
 from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
+JSON_CONTENT_TYPE = "application/json"
 
 
 def scalar_result_errors(workflow_definition, source_indices=None):
-    """Every `result` block on a scalar-returning command, as [{path, message}].
+    """Every `result` block a command's `returns` kind cannot save, as
+    [{path, message}].
 
     The definition handed here has already been substituted and expanded,
     so a step's `task.command` is literal. `source_indices`, when given, is
@@ -49,7 +57,21 @@ def scalar_result_errors(workflow_definition, source_indices=None):
             info = task_command_info(command)
         except ValueError:
             continue
-        if info.get("returns") != "scalar":
+        returns = info.get("returns")
+        if returns == "json":
+            if result.get("content_type") == JSON_CONTENT_TYPE:
+                continue
+            message = (
+                f"{command} answers a JSON document - 'result' must set "
+                f"content_type '{JSON_CONTENT_TYPE}', not "
+                f"{result.get('content_type')!r}"
+            )
+        elif returns == "scalar":
+            message = (
+                f"{command} returns a number, not an artifact - "
+                f"'result' cannot be saved"
+            )
+        else:
             continue
 
         source = (
@@ -66,10 +88,7 @@ def scalar_result_errors(workflow_definition, source_indices=None):
         errors.append(
             {
                 "path": render_path(("steps", source, RESULT_KEY)),
-                "message": (
-                    f"{command} returns a number, not an artifact - "
-                    f"'result' cannot be saved{where}"
-                ),
+                "message": f"{message}{where}",
             }
         )
     return errors
