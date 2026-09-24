@@ -294,6 +294,64 @@ class TestConcatVideosShots:
             4 / fps * sample_rate
         )
 
+    def test_an_inner_input_nests_its_own_shots(self):
+        """#399: a video that is itself an earlier join's output carries its
+        own `.shots` - concat_videos flattens those into the joined output,
+        offset onto where the whole input landed, rather than collapsing
+        them to one record for the whole file."""
+        fps, sample_rate = 4, 100
+        inner_shots = [
+            shot_record("shot@accuse", 0, 4, start_sample=0, num_samples=100),
+            shot_record("shot@deflect", 4, 4, start_sample=100, num_samples=100),
+        ]
+        nested = AudioVideo(
+            frames(8),
+            numpy.full((2, 200), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        trailing = audio_video(4, 2, fps=fps, sample_rate=sample_rate)
+
+        result = concat_videos([nested, trailing], fps=fps)
+
+        names = [shot["name"] for shot in result.shots]
+        assert names == ["shot@accuse", "shot@deflect", "video 2"]
+        starts = [shot["start_frame"] for shot in result.shots]
+        assert starts == [0, 4, 8]
+        sample_starts = [shot["start_sample"] for shot in result.shots]
+        assert sample_starts[:2] == [0, 100]
+
+    def test_a_trimmed_inner_input_clips_and_clears_its_shots(self):
+        """The same nested input, but trimmed as the second video - the
+        trim can cut into or through an inner shot; one entirely inside it
+        is dropped, one straddling it survives clipped and re-based, and
+        either way its sample fields are cleared because the crossfade
+        draws from the trimmed material (dw/shots.py's trimmed_shots)."""
+        fps, sample_rate = 4, 100
+        inner_shots = [
+            shot_record("shot@a", 0, 2, start_sample=0, num_samples=50),
+            shot_record("shot@b", 2, 6, start_sample=50, num_samples=150),
+        ]
+        nested = AudioVideo(
+            frames(8),
+            numpy.full((2, 200), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        leading = audio_video(4, 1, fps=fps, sample_rate=sample_rate)
+
+        result = concat_videos([leading, nested], trim_frames=3, fps=fps)
+
+        names = [shot["name"] for shot in result.shots]
+        assert names == ["video 1", "shot@b"]
+        trimmed = result.shots[1]
+        assert trimmed["start_frame"] == 4
+        assert trimmed["num_frames"] == 5
+        assert trimmed["start_sample"] is None
+        assert trimmed["num_samples"] is None
+
 
 # ---------------------------------------------------------------------------
 # 4. dissolve_videos
@@ -345,6 +403,43 @@ class TestDissolveVideosShots:
 
         assert result.shots[0]["name"] == "ep3-shot2-reply.mp4"
         assert "/" not in result.shots[0]["name"]
+
+    def test_an_inner_input_nests_its_own_shots(self):
+        """#399: same fix as concat_videos - an input already carrying
+        `.shots` from an earlier join keeps its inner seams instead of
+        collapsing to a single record for the whole file. A dissolve maps a
+        clip's own frame j to joined frame frame_starts[index] + j exactly
+        (no head trim), so the offset is a straight add with no clipping."""
+        fps, sample_rate = 4, 100
+        inner_shots = [
+            shot_record("shot@accuse", 0, 4, start_sample=0, num_samples=100),
+            shot_record("shot@deflect", 4, 4, start_sample=100, num_samples=100),
+        ]
+        nested = AudioVideo(
+            frames(8),
+            numpy.full((2, 200), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        leading = AudioVideo(
+            frames(10),
+            numpy.full((2, 250), 2.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+        )
+
+        result = dissolve_videos([leading, nested], 3, fps=fps)
+
+        names = [shot["name"] for shot in result.shots]
+        assert names == ["video 1", "shot@accuse", "shot@deflect"]
+        frame_offset = 10 - 3  # frame_starts[1]
+        starts = [shot["start_frame"] for shot in result.shots]
+        assert starts[1:] == [frame_offset, frame_offset + 4]
+        # overlap_frames marks the dissolve's head - the first nested
+        # sub-shot only, since the seam is between videos, not inside one
+        assert result.shots[1]["overlap_frames"] == 3
+        assert "overlap_frames" not in result.shots[2]
 
 
 # ---------------------------------------------------------------------------

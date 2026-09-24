@@ -117,6 +117,90 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
     ]
 
 
+def trimmed_shots(shots, head_trim):
+    """The shots of a video after dropping `head_trim` frames off its start.
+
+    concat_videos trims the head of every video after the first before
+    joining it. A shot entirely inside the trim never reaches the joined
+    picture and is dropped; one straddling the cut survives, clipped to what
+    is left and re-based to start at 0, so a later frame offset places it
+    correctly. The crossfade drawn from the trimmed material makes the
+    surviving samples' position in the joined track unmeasurable, so the
+    sample side is cleared regardless of rate.
+    """
+    if not head_trim:
+        return shots
+    clipped = []
+    for shot in shots:
+        end = shot["start_frame"] + shot["num_frames"]
+        if end <= head_trim:
+            continue
+        start = max(shot["start_frame"], head_trim)
+        clipped.append(
+            {
+                **shot,
+                "start_frame": start - head_trim,
+                "num_frames": end - start,
+                "start_sample": None,
+                "num_samples": None,
+            }
+        )
+    return clipped
+
+
+def nested_shots(shots, frame_offset, sample_offset, native_rate, target_rate):
+    """An input's own shots, offset onto where the whole input landed in a join.
+
+    Frames are exact: a join only ever adds frames before an input, never
+    inside it, so `start_frame + frame_offset` is where each inner shot now
+    sits. Samples are only ever offset when the join measured where the
+    input's own track landed (`sample_offset`) and both rates are known -
+    resampling a partial waveform inside the crossfaded region is not a
+    measurement, so trimmed_shots already clears those before this runs.
+    Otherwise the sample side is cleared, same as without_samples.
+    """
+    rescale = (
+        target_rate / native_rate
+        if sample_offset is not None and native_rate and target_rate
+        else None
+    )
+    offset = []
+    for shot in shots:
+        entry = {**shot, "start_frame": shot["start_frame"] + frame_offset}
+        start_sample = shot.get("start_sample")
+        if rescale is not None and start_sample is not None:
+            entry["start_sample"] = sample_offset + round(start_sample * rescale)
+        else:
+            entry["start_sample"] = None
+            entry["num_samples"] = None
+        offset.append(entry)
+    return offset
+
+
+def measured_num_samples(shots, total_samples):
+    """Fill each shot's `num_samples` from where the next measured one starts.
+
+    A shot's track runs up to wherever the next shot with a known
+    `start_sample` begins, or to the end of the joined track for the last
+    one - shared by concat_videos and dissolve_videos so nesting an input's
+    shots (which can leave some entries with no `start_sample`) is handled
+    the same way in both.
+    """
+    for index, shot in enumerate(shots):
+        if total_samples is None or shot["start_sample"] is None:
+            shot["num_samples"] = None
+            if total_samples is None:
+                shot["start_sample"] = None
+            continue
+        end = total_samples
+        for following in shots[index + 1 :]:
+            if following["start_sample"] is not None:
+                end = following["start_sample"]
+                break
+        shot["num_samples"] = end - shot["start_sample"]
+    return shots
+
+
 def shot_reference_names(references):
     """A name per entry of a step's list naming a shot, else None.
 
