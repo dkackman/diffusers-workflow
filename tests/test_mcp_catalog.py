@@ -309,7 +309,12 @@ def test_gallery_metadata_says_a_kept_asset_has_no_provenance():
         "media": {"kind": "video", "duration_seconds": 4.2},
     }
     client, _ = scripted(
-        {("GET", "/api/gallery/asset:qa-cast/ep37-shot2-alibi.mp4/metadata"): (200, body)}
+        {
+            ("GET", "/api/gallery/asset:qa-cast/ep37-shot2-alibi.mp4/metadata"): (
+                200,
+                body,
+            )
+        }
     )
 
     result = catalog.get_gallery_metadata(client, "asset:qa-cast/ep37-shot2-alibi.mp4")
