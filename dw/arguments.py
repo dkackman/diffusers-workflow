@@ -1029,19 +1029,30 @@ def fetch_image(img_spec, base_dir=None):
 
 
 def _with_frame_rate(frames, location):
-    """The loaded frames carrying the rate their file declares.
+    """The loaded frames carrying the rate their file declares, and the
+    shot boundaries its run (or kept-asset sidecar) recorded for it.
 
-    `load_video` reads frames and drops the rate, so a step that paired a
-    24 fps file with a soundtrack wrote it back at 8 - three times long,
-    silently (#104). The rate is read from the container without decoding
-    anything, and a file that will not say stays a plain list.
+    `load_video` reads frames and drops both: a step that paired a 24 fps
+    file with a soundtrack wrote it back at 8 - three times long, silently
+    (#104) - and a video loaded from an `asset:`/`output:` path had no
+    `shots` to hand `pair_audio`, even when the server had them on file
+    for that exact video (#398). The rate is read from the container
+    without decoding anything; the shots come from `shots_beside`, which
+    only looks at a real local path, so a URL carries none. A file that
+    says neither stays a plain list.
     """
+    from .runs import shots_beside
     from .tasks.video_utils import FrameList, file_fps
 
     if not isinstance(frames, list):
         return frames
     fps = file_fps(location)
-    return FrameList(frames, fps) if fps else frames
+    shots = (
+        shots_beside(location)
+        if not (location.startswith("http://") or location.startswith("https://"))
+        else None
+    )
+    return FrameList(frames, fps, shots) if (fps or shots) else frames
 
 
 def fetch_video(video_spec, base_dir=None):

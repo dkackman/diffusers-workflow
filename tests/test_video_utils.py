@@ -361,6 +361,100 @@ class TestLoadAudioVideo:
 
         assert paired.fps == 24
 
+    def test_a_loaded_video_argument_carries_the_run_s_shots(self, tmp_path):
+        """A video loaded by path (an asset:/output: reference, already
+        resolved to a local file by the time fetch_video sees it) carries
+        the shots its run's manifest recorded, the way it already carries
+        the file's fps - #398."""
+        import json
+
+        from dw.arguments import fetch_video
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.tasks.video_utils import FrameList
+
+        run_dir = tmp_path / "ep42" / "20260101-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        path = self.write_video(run_dir / "ep42-film.mp4", fps=24, num_frames=24)
+        shots = [
+            {
+                "name": "shot@accuse",
+                "start_frame": 0,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@deflect",
+                "start_frame": 12,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        manifest = {
+            "steps": [
+                {"step": "concat_videos", "files": ["ep42-film.mp4"], "shots": shots}
+            ]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+
+        frames = fetch_video(path)
+
+        assert isinstance(frames, FrameList)
+        assert [shot["name"] for shot in frames.shots] == [
+            "shot@accuse",
+            "shot@deflect",
+        ]
+
+    def test_pair_audio_remeasures_the_shots_a_loaded_video_carries(self, tmp_path):
+        """The other half of #398: pair_audio's own remeasuring, fed a
+        video loaded from a path rather than built by an earlier step in
+        the same workflow."""
+        import json
+
+        from dw.arguments import fetch_video
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.tasks.pair_audio import pair_audio
+
+        run_dir = tmp_path / "ep42" / "20260101-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        path = self.write_video(run_dir / "ep42-film.mp4", fps=24, num_frames=24)
+        shots = [
+            {
+                "name": "shot@accuse",
+                "start_frame": 0,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@deflect",
+                "start_frame": 12,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        manifest = {
+            "steps": [
+                {"step": "concat_videos", "files": ["ep42-film.mp4"], "shots": shots}
+            ]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+
+        paired = pair_audio(
+            video=fetch_video(path),
+            audio=numpy.zeros((2, 16000), dtype=numpy.float32),
+            sample_rate=16000,
+        )
+
+        assert [shot["name"] for shot in paired.shots] == [
+            "shot@accuse",
+            "shot@deflect",
+        ]
+        assert paired.shots[0]["start_sample"] == 0
+        assert paired.shots[1]["start_sample"] == round(12 / 24 * 16000)
+
     def test_audio_is_fitted_to_the_frames_own_duration(self, tmp_path):
         """The codec pads the last block; joined shot after shot that padding
         would walk the sound off the picture."""

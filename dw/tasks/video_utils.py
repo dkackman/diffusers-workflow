@@ -411,7 +411,8 @@ def _to_pil(frame):
 
 
 class FrameList(list):
-    """The frames of a video file, carrying the rate the file plays at.
+    """The frames of a video file, carrying the rate the file plays at and
+    the shot boundaries its run recorded, if any.
 
     `load_video` answers a plain list of images, which is what every
     pipeline argument and every task wants - and which says nothing about
@@ -422,11 +423,18 @@ class FrameList(list):
     every consumer working unchanged while `getattr(video, "fps", None)` -
     the question AudioVideo, concat_videos and interpolate_frames already
     ask - gets a real answer.
+
+    `shots` is the same idea for the boundaries `dw.runs.shots_beside`
+    finds beside the file: a video loaded from an `asset:`/`output:` path
+    carried no way to answer `getattr(video, "shots", None)`, so
+    `pair_audio` had nothing to remeasure even though the file's own
+    manifest (or its kept-asset sidecar) already held them (#398).
     """
 
-    def __init__(self, frames, fps=None):
+    def __init__(self, frames, fps=None, shots=None):
         super().__init__(frames)
         self.fps = fps
+        self.shots = shots
 
 
 def file_fps(path):
