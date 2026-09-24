@@ -161,6 +161,42 @@ class TestVideoIsGradedPerFrame:
         assert result.fps == 24
 
 
+class TestAppliedParametersAreLogged:
+    def test_logs_the_non_identity_parameters_applied(self):
+        # #392: with save:false a caller can only see what grade did through
+        # job events, so the parameters actually applied must reach the log
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        task = Task({"command": "grade", "arguments": {}}, "cpu")
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            task.run({"media": _swatch(), "exposure": 1.0, "saturation": 0.5})
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["exposure"] == 1.0
+        assert logs[0]["saturation"] == 0.5
+        assert "contrast" not in logs[0]
+
+    def test_logs_no_adjustment_when_every_parameter_is_identity(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        task = Task({"command": "grade", "arguments": {}}, "cpu")
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            task.run({"media": _swatch()})
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert "no adjustment" in logs[0]["message"]
+
+
 class TestDomains:
     def _errors(self, arguments):
         definition = {

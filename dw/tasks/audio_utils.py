@@ -1094,15 +1094,21 @@ def loop_audio(
 
     window = min(int(crossfade_ms / 1000.0 * sample_rate), waveform.shape[1] // 2)
     bed = waveform
+    laps = 1
     # Each lap after the first overlaps the one before it by the crossfade, so
     # a lap adds (source - window) samples rather than a whole source
     while bed.shape[1] < length:
         bed = crossfade_concat(
             [bed, waveform], sample_rate, window / sample_rate * 1000.0
         )
-    logger.debug(
-        f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped to "
-        f"{length} ({bed.shape[1]} before trimming)"
+        laps += 1
+    emit_log(
+        f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped "
+        f"{laps}x to {length} samples ({length / sample_rate:.2f} s)",
+        command="loop_audio",
+        laps=laps,
+        output_samples=length,
+        output_seconds=round(length / sample_rate, 2),
     )
     return _as_track(bed[:, :length], sample_rate, "loop_audio")
 
@@ -1346,12 +1352,15 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
         logger.warning("normalize_audio: the track is silent - left unchanged")
         return _as_track(waveform, sample_rate, "normalize_audio")
 
+    peak_db = 20 * numpy.log10(peak)
+    measured_lufs = None
     if target_lufs is None:
-        gain_db = peak_dbfs - 20 * numpy.log10(peak)
+        constraint = "peak_dbfs"
+        gain_db = peak_dbfs - peak_db
     else:
-        peak_db = 20 * numpy.log10(peak)
         ceiling_gain_db = peak_dbfs - peak_db
         current_lufs = integrated_lufs(waveform.T, sample_rate)
+        measured_lufs = current_lufs
         if current_lufs is None:
             emit_warning(
                 f"normalize_audio: target_lufs={target_lufs} was given, but the "
@@ -1363,9 +1372,11 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
                 target_lufs=target_lufs,
             )
             gain_db = ceiling_gain_db
+            constraint = "peak_ceiling"
         else:
             target_gain_db = target_lufs - current_lufs
             gain_db = min(target_gain_db, ceiling_gain_db)
+            constraint = "peak_ceiling" if gain_db < target_gain_db else "target_lufs"
             if gain_db < target_gain_db:
                 emit_warning(
                     f"normalize_audio: target_lufs={target_lufs} would need "
@@ -1379,7 +1390,16 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
                     shortfall_lu=target_gain_db - gain_db,
                 )
     gain = 10 ** (gain_db / 20)
-    logger.debug(f"normalize_audio: peak {peak:.3f}, gain {gain_db:+.1f} dB")
+    emit_log(
+        f"normalize_audio: measured {peak_db:.1f} dBFS peak"
+        + ("" if measured_lufs is None else f", {measured_lufs:.1f} LUFS")
+        + f" -> gain {gain_db:+.1f} dB, set by {constraint}",
+        command="normalize_audio",
+        measured_peak_dbfs=round(peak_db, 1),
+        measured_lufs=round(measured_lufs, 1) if measured_lufs is not None else None,
+        gain_db=round(gain_db, 1),
+        constraint=constraint,
+    )
     return _as_track(
         (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"
     )

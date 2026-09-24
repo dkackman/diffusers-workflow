@@ -2,6 +2,7 @@ import logging
 from typing import Callable, Dict
 
 from .. import resolve_device
+from ..events import emit_log
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -522,6 +523,25 @@ def _handle_grade(task, arguments, previous_pipelines):
 
             media = fetch_image(media)
 
+    defaults = {
+        "exposure": 0.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "temperature": 0.0,
+        "tint": 0.0,
+    }
+    applied = {
+        name: arguments.get(name, default)
+        for name, default in defaults.items()
+        if arguments.get(name, default) != default
+    }
+    emit_log(
+        f"grade: applied {applied}"
+        if applied
+        else "grade: no adjustment (all identity)",
+        command="grade",
+        **applied,
+    )
     return _per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
