@@ -452,31 +452,37 @@ class TestDissolveVideosShots:
         fps, sample_rate, dissolve_frames = 24, 44100, 12
         inner_shots = [
             shot_record("shot@x", 0, 112, start_sample=0, num_samples=205800),
-            shot_record("shot@receipt", 112, 124, start_sample=205800, num_samples=227850),
+            shot_record(
+                "shot@receipt", 112, 124, start_sample=205800, num_samples=227850
+            ),
         ]
         nested = AudioVideo(
             frames(236),
-            numpy.full((2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32),
+            numpy.full(
+                (2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32
+            ),
             sample_rate,
             fps=fps,
             shots=inner_shots,
         )
         leading = AudioVideo(
             frames(608),
-            numpy.full((2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32),
+            numpy.full(
+                (2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32
+            ),
             sample_rate,
             fps=fps,
         )
         trailing = AudioVideo(
             frames(124),
-            numpy.full((2, frames_to_samples(124, fps, sample_rate)), 3.0, dtype=numpy.float32),
+            numpy.full(
+                (2, frames_to_samples(124, fps, sample_rate)), 3.0, dtype=numpy.float32
+            ),
             sample_rate,
             fps=fps,
         )
 
-        result = dissolve_videos(
-            [leading, nested, trailing], dissolve_frames, fps=fps
-        )
+        result = dissolve_videos([leading, nested, trailing], dissolve_frames, fps=fps)
 
         by_name = {shot["name"]: shot for shot in result.shots}
         # frame_starts[1] = 608 - 12 = 596; the nested video's own inner
@@ -512,14 +518,18 @@ class TestDissolveVideosShots:
         ]
         nested = AudioVideo(
             frames(236),
-            numpy.full((2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32),
+            numpy.full(
+                (2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32
+            ),
             sample_rate,
             fps=fps,
             shots=inner_shots,
         )
         leading = AudioVideo(
             frames(608),
-            numpy.full((2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32),
+            numpy.full(
+                (2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32
+            ),
             sample_rate,
             fps=fps,
         )
@@ -527,9 +537,7 @@ class TestDissolveVideosShots:
         result = dissolve_videos([leading, nested], dissolve_frames, fps=fps)
 
         by_name = {shot["name"]: shot for shot in result.shots}
-        expected = frames_to_samples(
-            by_name["shot@b"]["start_frame"], fps, sample_rate
-        )
+        expected = frames_to_samples(by_name["shot@b"]["start_frame"], fps, sample_rate)
         assert by_name["shot@b"]["start_sample"] == expected
 
     def test_seam_sample_start_matches_the_frame_to_sample_conversion(self):
