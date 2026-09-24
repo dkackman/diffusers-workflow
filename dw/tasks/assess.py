@@ -35,7 +35,12 @@ logger = logging.getLogger("dw")
 THUMB_WIDTH = 64
 THUMB_HEIGHT = 36
 
-# Audio windows around a seam, in seconds
+# Audio windows around a seam, in seconds. The edge windows say whether the
+# join itself is voiced (the hole guard) and what the balance does across it;
+# they are not the level step, which is shot against shot (`_shot_rms`): a
+# shot's own last and first quarter-second differ by whatever the take does
+# there - 20 dB on a line that trails off and opens on a breath - and read
+# as a step at every seam of a cut made of one clip (#387's bounce).
 LEVEL_WINDOW = 0.25
 FLOOR_WINDOW = 0.02
 CLICK_WINDOW = 0.002
@@ -331,7 +336,7 @@ def analyze_shots(video, shots=None):
         shots: Shot records to measure by, overriding any the video carries
 
     Returns:
-        {shots: [{name, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
+        {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
         high_dbfs, samples}], rms_range_db, findings, rules_applied,
         shots_source}
     """
@@ -362,6 +367,8 @@ def analyze_shots(video, shots=None):
         measured.append(
             {
                 "name": shot.get("name"),
+                "start_frame": shot.get("start_frame"),
+                "num_frames": shot.get("num_frames"),
                 "peak_dbfs": _round(peak),
                 "rms_dbfs": _round(rms),
                 "crest_db": _round(None if peak is None or rms is None else peak - rms),
@@ -405,11 +412,20 @@ def _band_shares(window, sample_rate):
     return {key: value / total for key, value in energies.items()}
 
 
-def _seam_audio(media, before_end, after_start):
-    """Audio measurements at a seam: the level windows end at `before_end`
+def _shot_rms(media, shot):
+    """A shot's RMS level over its whole sample span, in dBFS, or None."""
+    start, count, _source = _sample_span(shot, media)
+    if start is None:
+        return None
+    return _db(_rms(_clip(media, start, start + count)))
+
+
+def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
+    """Audio measurements at a seam: the edge windows end at `before_end`
     and open at `after_start` (the same sample at a cut, either side of the
     fade at a dissolve), and the join is what lies between them - or the
-    FLOOR_WINDOW centred on the cut."""
+    FLOOR_WINDOW centred on the cut. The level step is between the two
+    shots' own levels, `previous_rms` and `next_rms`."""
     rate = media.sample_rate
     level = int(round(LEVEL_WINDOW * rate))
     before = _clip(media, before_end - level, before_end)
@@ -453,10 +469,12 @@ def _seam_audio(media, before_end, after_start):
     return {
         "before_rms_dbfs": _round(before_rms),
         "after_rms_dbfs": _round(after_rms),
+        "before_shot_rms_dbfs": _round(previous_rms),
+        "after_shot_rms_dbfs": _round(next_rms),
         "level_step_db": _round(
             None
-            if before_rms is None or after_rms is None
-            else abs(after_rms - before_rms)
+            if previous_rms is None or next_rms is None
+            else abs(next_rms - previous_rms)
         ),
         "floor_dbfs": _round(floor),
         "click_db": _round(click),
@@ -517,8 +535,9 @@ def analyze_seams(video, shots=None):
             A shot marked `hard_cut: true` opens a seam meant as a cut
 
     Returns:
-        {seams: [{seam, between, seconds, kind, level_step_db, floor_dbfs,
-        click_db, spectral_shift, before_rms_dbfs, after_rms_dbfs,
+        {seams: [{seam, between, seconds, kind, level_step_db,
+        before_shot_rms_dbfs, after_shot_rms_dbfs, floor_dbfs, click_db,
+        spectral_shift, before_rms_dbfs, after_rms_dbfs,
         frame_delta, typical_delta, jump_ratio}], findings, rules_applied,
         shots_source}
     """
@@ -551,7 +570,15 @@ def analyze_seams(video, shots=None):
                     if fade and media.fps
                     else 0
                 )
-                record.update(_seam_audio(media, start, start + fade_samples))
+                record.update(
+                    _seam_audio(
+                        media,
+                        start,
+                        start + fade_samples,
+                        _shot_rms(media, previous),
+                        _shot_rms(media, shot),
+                    )
+                )
                 if (
                     record["before_rms_dbfs"] is None
                     or record["after_rms_dbfs"] is None
