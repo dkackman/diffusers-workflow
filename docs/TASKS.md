@@ -523,15 +523,16 @@ material:
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `gain_db` | Yes | Gain to apply within the region, in decibels - negative ducks it, positive boosts it |
-| `start_seconds` / `duration_seconds` | One pair | The region in seconds; either may be omitted |
-| `start_frame` / `num_frames` / `fps` | One pair | The region in video frames; `fps` is required, start and count may be omitted |
+| `start_seconds` / `duration_seconds` | No | The region in seconds; either may be omitted |
+| `start_frame` / `num_frames` / `fps` | No | The region in video frames; `fps` is required if either is given, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
-One pair is required — there is no separate "whole track" mode — but the
-whole track is still one step: give just `start_seconds: 0` and leave
-`duration_seconds` unset (or `start_frame: 0` + `fps` and leave `num_frames`
-unset), which runs to the end of the track without needing to already know
-how long that is.
+No region argument is required: with every one of them omitted, the gain
+applies to the whole track (#395) - the same "no region means everything"
+reading `mix_audio`'s gains use. To gain everything from some point on
+instead, give just `start_seconds: 0` and leave `duration_seconds` unset (or
+`start_frame: 0` + `fps` and leave `num_frames` unset), which runs to the
+end of the track without needing to already know how long that is.
 
 ### crossfade_audio
 

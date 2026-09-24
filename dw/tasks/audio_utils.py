@@ -548,11 +548,13 @@ def gain_audio(
     passed through unchanged, so ducking a scene under another is one step
     rather than the slice/gain/mix/rejoin/pair_audio chain that was
     previously the only way to apply a gain to part of a track rather than
-    all of it (#187). At least one of the two pairs is required - there is
-    no separate "whole track" mode - but the whole track is still one step:
-    give just start_seconds=0 (or start_frame=0 + fps) and leave
-    duration_seconds/num_frames unset, which runs to the end of the track
-    without the caller needing to already know how long that is.
+    all of it (#187). With no region given at all, the gain applies to the
+    whole track - the same "no region means everything" reading mix_audio's
+    gains use, and the obvious meaning of "duck this clip by 8 dB" (#395).
+    To gain everything from some point on, give just start_seconds=0 (or
+    start_frame=0 + fps) and leave duration_seconds/num_frames unset, which
+    runs to the end of the track without the caller needing to already know
+    how long that is.
 
     Unlike slice_audio, a region reaching past the end of the track is
     clipped to it rather than zero-padded: there is no silence there to
@@ -569,7 +571,8 @@ def gain_audio(
             soundtrack, or a waveform (which needs sample_rate alongside it)
         gain_db: Gain to apply within the region, in decibels - negative
             ducks it, positive boosts it
-        start_seconds: Start of the region, in seconds
+        start_seconds: Start of the region, in seconds. Omitted along with
+            every other region argument, the gain applies to the whole track
         duration_seconds: Length of the region, in seconds
         start_frame: Start of the region, in video frames
         num_frames: Length of the region, in video frames
@@ -622,10 +625,8 @@ def gain_audio(
             else frames_to_samples(num_frames, fps, sample_rate)
         )
     else:
-        raise ValueError(
-            "gain_audio needs either 'start_seconds'/'duration_seconds' or "
-            "'start_frame'/'num_frames'/'fps' to address the region to gain"
-        )
+        start = 0
+        length = total
 
     region_start = max(0, min(start, total))
     region_end = max(region_start, min(start + max(length, 0), total))
