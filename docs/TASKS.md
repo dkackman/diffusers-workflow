@@ -902,6 +902,7 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | Field | Meaning |
 | ----- | ------- |
 | `shots[].name` | The shot's name |
+| `shots[].start_frame` / `num_frames` | The shot's frame range, as the shot record gave it |
 | `shots[].peak_dbfs` | Peak level within the shot |
 | `shots[].rms_dbfs` | RMS level within the shot |
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
@@ -921,8 +922,9 @@ Every seam between shots, audio and picture:
 | `seams[].seconds` | Where the seam sits in the file |
 | `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
 | `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
-| `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level either side of the seam |
-| `seams[].level_step_db` | The absolute level jump across the seam |
+| `seams[].before_shot_rms_dbfs` / `after_shot_rms_dbfs` | RMS level of the whole shot either side of the seam |
+| `seams[].level_step_db` | The absolute difference between those two shot levels. Shot against shot, not the audio at the seam's edges: a take's own tail and head can sit 20 dB apart, which is not a step the cut made |
+| `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level of the 0.25 s either side of the seam - what `seam_hole`'s both-sides-voiced guard reads |
 | `seams[].floor_dbfs` | RMS level of the join itself (the fade, or a short window centred on a cut) |
 | `seams[].click_db` | How far a spike at the join peaks above its immediate neighbours |
 | `seams[].spectral_shift` | How much the low/mid/high balance shifts across the seam (0-1) |

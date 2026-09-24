@@ -158,6 +158,46 @@ class TestLevelStep:
         json.dumps(seams)
         json.dumps(shots_answer)
 
+    @staticmethod
+    def _one_clip_three_times(duck_db=0.0):
+        """One take cut after itself three times, as C-F099 builds it: the
+        take trails off (-46 dBFS tail) and opens near silence (-66 dBFS
+        head) around a voiced body, so its own edges sit 20 dB apart. The
+        third shot is optionally ducked by `duck_db`."""
+        fps, sample_rate, frames_per_shot = 24, 48000, 48
+        samples_per_shot = sample_rate * frames_per_shot // fps
+        edge = sample_rate // 4
+        take = make_tone(samples_per_shot, sample_rate, amplitude=0.2)
+        take[:, :edge] *= 10 ** (-66 / 20) / (0.2 / numpy.sqrt(2))
+        take[:, -edge:] *= 10 ** (-46 / 20) / (0.2 / numpy.sqrt(2))
+        ducked = take * 10 ** (-duck_db / 20)
+        audio = numpy.concatenate([take, take, ducked], axis=1)
+        frames = []
+        for index in range(3):
+            frames.extend(make_frames(frames_per_shot, 120, noise=3.0, seed=index))
+        shots = cut_shots(["a", "b", "c"], frames_per_shot, samples_per_shot)
+        return AudioVideo(frames, audio, sample_rate, fps=fps, shots=shots)
+
+    def test_a_take_with_quiet_edges_cut_after_itself_is_clean(self):
+        seams = analyze_seams(self._one_clip_three_times())
+        assert all(seam["before_rms_dbfs"] < -40 for seam in seams["seams"])
+        assert all(seam["level_step_db"] == 0.0 for seam in seams["seams"])
+        assert not [f for f in seams["findings"] if f["rule"] == "seam_level_step"]
+
+    def test_a_duck_reports_its_own_size_at_its_seam_only(self):
+        seams = analyze_seams(self._one_clip_three_times(duck_db=12.0))
+        steps = [f for f in seams["findings"] if f["rule"] == "seam_level_step"]
+        assert [f["at"]["seam"] for f in steps] == [2]
+        assert steps[0]["value"] == pytest.approx(12.0, abs=0.1)
+
+    def test_shots_echo_their_frame_range(self):
+        answer = analyze_shots(self._one_clip_three_times())
+        assert [(s["start_frame"], s["num_frames"]) for s in answer["shots"]] == [
+            (0, 48),
+            (48, 48),
+            (96, 48),
+        ]
+
 
 # ---------------------------------------------------------------------------
 # 2. A dissolve does not flag a level step, click, hole or frame jump

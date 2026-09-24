@@ -57,7 +57,7 @@ RULES = (
         "comparator": ">",
         "threshold": 3.0,
         "severity": "warn",
-        "says": "the level steps this much across the seam",
+        "says": "the shots either side of the seam sit this far apart in level",
     },
     {
         "name": "seam_click",
