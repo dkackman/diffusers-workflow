@@ -702,6 +702,70 @@ class TestNormalizeAudio:
 
         assert numpy.array_equal(with_default, explicit_none)
 
+    def test_logs_peak_only_constraint_without_target_lufs(self):
+        # #392: without target_lufs the peak ceiling is the only constraint,
+        # and a caller reading job events should see that named explicitly
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone()
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            normalize_audio(track, peak_dbfs=-3.0, sample_rate=rate)
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["constraint"] == "peak_dbfs"
+        assert logs[0]["measured_lufs"] is None
+        assert logs[0]["gain_db"] is not None
+
+    def test_logs_measured_lufs_and_target_lufs_constraint(self):
+        # #392: the caller needs to know the gain was set by the LUFS target,
+        # not just that a gain was applied
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone(density=0.1)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["constraint"] == "target_lufs"
+        # measured_lufs is the *input's* loudness before the gain was applied,
+        # not the target - the scaled track's loudness is what test_target_lufs_*
+        # already checks lands on target
+        assert logs[0]["measured_lufs"] is not None
+        assert logs[0]["gain_db"] == pytest.approx(-16.0 - logs[0]["measured_lufs"])
+
+    def test_logs_peak_ceiling_constraint_when_it_caps_the_target(self):
+        # #392: the ceiling-capped case (already warned via target_lufs_capped)
+        # should also name peak_ceiling as the constraint in the summary log
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, rate = self._tone(amplitude=0.5, density=1.0)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            normalize_audio(track, peak_dbfs=-1.0, target_lufs=-1.0, sample_rate=rate)
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["constraint"] == "peak_ceiling"
+
 
 class TestAudioTasksTakeAnAudioVideo:
     """Every audio task accepts the video an earlier step generated with its
@@ -859,6 +923,26 @@ class TestLoopAudio:
         bed = loop_audio(self.tone(), target_frames=48, fps=24, sample_rate=100)
 
         assert samples(bed).shape == (200, 1)
+
+    def test_logs_the_loop_count_and_output_length(self):
+        # #392: with save:false a caller can only see what loop_audio did
+        # through job events, so the lap count and resulting length must
+        # reach the log rather than only logger.debug
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import loop_audio
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            loop_audio(self.tone(), duration_seconds=3.5, sample_rate=100)
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert len(logs) == 1
+        assert logs[0]["laps"] > 1
+        assert logs[0]["output_samples"] == 350
+        assert logs[0]["output_seconds"] == pytest.approx(3.5)
 
     def test_a_source_longer_than_the_bed_is_trimmed(self):
         from dw.tasks.audio_utils import loop_audio
