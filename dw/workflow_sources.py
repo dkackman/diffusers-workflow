@@ -196,7 +196,26 @@ def suggest_workflow_names(sources, name, limit=3):
     ]
     if suffix_matches:
         return suffix_matches[:limit]
-    return difflib.get_close_matches(stripped, catalog_names, n=limit, cutoff=0.6)
+
+    # A typo is measured against the catalog entry's own name, not against
+    # its directory prefix - "dialog-short" scores 0.92 against
+    # "dialogue-short" and 0.55 against "templates/minimax/dialogue-short",
+    # so comparing full paths lets a real typo miss the cutoff (#397). The
+    # query's own prefix is stripped the same way, so "sub/Basik" is
+    # measured as "Basik" against "Basic" rather than against "sub/Basic".
+    query_basename = stripped.rsplit("/", 1)[-1]
+    by_basename = {}
+    for candidate in catalog_names:
+        by_basename.setdefault(candidate.rsplit("/", 1)[-1], []).append(candidate)
+    close_bases = difflib.get_close_matches(
+        query_basename, list(by_basename.keys()), n=limit, cutoff=0.6
+    )
+    matches = []
+    for base in close_bases:
+        for candidate in by_basename[base]:
+            if candidate not in matches:
+                matches.append(candidate)
+    return matches[:limit]
 
 
 def listing(sources):
