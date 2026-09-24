@@ -682,6 +682,41 @@ def recorded_shots(output_root, relative_path):
     return None
 
 
+def record_kept_shots(directory, file_name, shots):
+    """Write or update the manifest sidecar beside a kept asset so
+    `shots_beside` can read the shot boundaries the source run recorded for
+    it (#393).
+
+    Keeping a file copies its bytes but not the run directory it lived in,
+    so a join's shot records - `pair_audio`'s picture is unchanged, but
+    nothing carried them past `keep_output` - were unreachable from the
+    asset and every probe saw `shots_source: "none"`. One manifest per
+    directory, keyed by file name, in the same shape a run's own
+    `manifest.json` uses, so the existing manifest-reading path (used by
+    both outputs and assets) picks it up with no change of its own. A
+    re-keep replaces the entry for that name rather than leaving a stale
+    one from a differently-shot source; `shots` of None or [] removes it.
+    """
+    manifest_path = os.path.join(directory, MANIFEST_FILE_NAME)
+    manifest = _read_manifest(directory) or {}
+    steps = [
+        entry
+        for entry in manifest.get("steps") or []
+        if not (isinstance(entry, dict) and entry.get("files") == [file_name])
+    ]
+    if shots:
+        steps.append({"step": "keep_output", "files": [file_name], "shots": shots})
+    if not steps:
+        try:
+            os.remove(manifest_path)
+        except OSError:
+            pass
+        return
+    manifest["steps"] = steps
+    with open(manifest_path, "w") as handle:
+        json.dump(manifest, handle)
+
+
 # How far up from a file its run's manifest can sit: the run directory, a
 # subfolder (`final/`) and the subfolder's own nesting, which
 # SUBFOLDER_PATTERN caps well below this
