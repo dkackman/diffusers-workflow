@@ -407,6 +407,40 @@ def test_submit_validation(server):
         assert client.app.state.job_manager.worker_manager.commands == []
 
 
+def test_submit_refuses_a_content_type_that_only_resolves_active_via_arguments(server):
+    # #414: a literal "text/html" is refused before queueing (#410); the same
+    # value reached through "variable:ct" and the caller's own arguments used
+    # to slip past submit_job's schema-only validate() and queue a job that
+    # then failed at save time - the same call POST /api/validate already
+    # refused
+    workflow = {
+        "id": "se-f035",
+        "variables": {"ct": "text/plain"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    with server(success_script) as client:
+        validated = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "arguments": {"ct": "text/html"}},
+        ).json()
+        assert validated["valid"] is False
+
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"ct": "text/html"}},
+        )
+        assert response.status_code == 400
+        assert "text/html" in response.json()["detail"]
+        # nothing reached the worker
+        assert client.app.state.job_manager.worker_manager.commands == []
+
+
 def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
     """The names /api/workflows hands out are what an agent has in hand, so
     they must be submittable as-is - with or without .json, nested included."""
