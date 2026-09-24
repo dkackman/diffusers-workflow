@@ -1833,7 +1833,12 @@ def create_app(
             + candidate.null_variable_argument_warnings(caller_arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
-            + candidate.sub_workflow_warnings(),
+            + candidate.sub_workflow_warnings()
+            # A slice_audio source whose real duration is already knowable
+            # (an asset:/output: reference validate can already probe) and
+            # whose requested slice reaches past it - zero-padded rather than
+            # refused, but previously said only by the run itself (#402)
+            + candidate.slice_past_end_warnings(request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
