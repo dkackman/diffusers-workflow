@@ -33,6 +33,7 @@ from .reference_limits import reference_limit_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import task_signature_errors, component_type_errors
+from .dissolve_frame_errors import dissolve_frame_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
@@ -728,6 +729,13 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A dissolve_videos overlap wider than a statically-resolvable
+            # input's real frame count decoded clean past the queue and
+            # failed only after every upstream step had already generated -
+            # refused here for a literal dissolve_frames against an asset:/
+            # output:/literal-path video, the cases the frame count is
+            # already knowable (dw/dissolve_frame_errors.py, #400)
+            + dissolve_frame_errors(expanded, source_indices, base_dir)
             # A select step whose rule is misspelled, or whose
             # threshold/index does not match its rule, validated clean and
             # died on select's own run-time ValueError after the fan-out
