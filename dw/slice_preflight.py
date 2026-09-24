@@ -12,8 +12,10 @@ correct message, but late when the slice sits downstream of a long render
 just ahead of the queue.
 
 Deliberately narrower than the run-time check, same as #400's: a
-`previous_result:` audio (nothing written yet), a literal path, a remote URL,
-or a source `probe_media` cannot read, all answer "unknown" rather than
+`previous_result:` audio (nothing written yet), a remote URL, a literal path
+outside the directories the run may read (`dw/probe_paths.py` - a literal
+inside them is resolved against the workflow's directory and probed), or a
+source `probe_media` cannot read, all answer "unknown" rather than
 guessing - silence here is correct, not a gap, since the run-time warning
 still fires once the file exists. `variable:` needs no hop of its own: by the
 time `validation_errors`/`adapter_warnings` hand this module the *expanded*
@@ -25,40 +27,10 @@ only a reference that genuinely cannot resolve yet. The threshold
 padding for the same arguments.
 """
 
-import os
-
-from .arguments import resolve_path_references
-from .assets import is_asset_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
-from .runs import is_output_reference
+from .probe_paths import resolve_probe_path
 from .tasks.audio_utils import SLICE_PAD_WARN_MS
-
-# Left to the run-time check: not yet resolved to a real file at the point
-# validation walks the expanded definition.
-_UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
-
-
-def _resolve_audio_path(value, base_dir):
-    """The local file `value` names, or None when it is not yet resolvable,
-    is not a local file, or does not exist - any of which defers the check
-    to the run, exactly as `slice_audio` itself would then load it."""
-    if not isinstance(value, str):
-        return None
-    if value.startswith(_UNRESOLVED_PREFIXES):
-        return None
-    if value.startswith(("http://", "https://")):
-        return None
-    if is_asset_reference(value) or is_output_reference(value):
-        try:
-            value = resolve_path_references(value, base_dir)
-        except Exception:
-            # Existence/traversal problems belong to reference_name_errors
-            # and reference resolution at run time, not to this check
-            return None
-        if not isinstance(value, str):
-            return None
-    return value if os.path.isfile(value) else None
 
 
 def _source_seconds(path):
@@ -132,7 +104,7 @@ def slice_past_end_warnings(workflow_definition, source_indices=None, base_dir=N
         if not isinstance(task_args, dict):
             continue
 
-        path = _resolve_audio_path(task_args.get("audio"), base_dir)
+        path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")
         if path is None:
             continue
         source_seconds = _source_seconds(path)
