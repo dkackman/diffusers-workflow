@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
+# Local pre-merge checks: ruff (format + fix), pytest, and the UI's own
+# preflight (check, lint, format, build, unit and e2e tests). Runs every step
+# and lists the ones that failed. Run it from anywhere:
+#
+#   scripts/preflight.sh
+#
+# ruff format and ruff check --fix rewrite files in place; review the diff.
 set -uo pipefail
 
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1
 
 failures=()
 
