@@ -548,9 +548,7 @@ class TestKeepingOutputs:
                 "num_samples": 80,
             },
         ]
-        manifest = {
-            "steps": [{"step": "concat", "files": ["cut.mp4"], "shots": shots}]
-        }
+        manifest = {"steps": [{"step": "concat", "files": ["cut.mp4"], "shots": shots}]}
         with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
             json.dump(manifest, handle)
 
@@ -564,9 +562,7 @@ class TestKeepingOutputs:
             )
             assert kept.status_code == 201
 
-            metadata = client.get(
-                "/api/gallery/asset:qa-cast/cut.mp4/metadata"
-            ).json()
+            metadata = client.get("/api/gallery/asset:qa-cast/cut.mp4/metadata").json()
         assert metadata["source"] == "asset"
         assert metadata["media"]["shots"] == shots
 
