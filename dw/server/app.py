@@ -33,6 +33,7 @@ from starlette.routing import Match, Route
 from starlette.background import BackgroundTask
 
 from ..security import (
+    contained,
     validate_asset_reference,
     validate_path,
     validate_output_path,
@@ -2830,7 +2831,11 @@ def create_app(
         whole directory is the folder, as it always was.
 
         Without it (the asset library's use, which has no run ids to strip):
-        folder is just the plain relative directory and subfolder is ''."""
+        folder is just the plain relative directory and subfolder is ''.
+
+        A file symlink resolving outside root is skipped: os.walk lists it
+        among the names, and the entry would carry the target's size and
+        mtime. A linked directory is never descended (os.walk's default)."""
         for current, _dirs, names in os.walk(root):
             rel_root = os.path.relpath(current, root)
             directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
@@ -2838,6 +2843,9 @@ def create_app(
                 extension = os.path.splitext(name)[1].lower()
                 kind = MEDIA_KINDS.get(extension)
                 if kind is None:
+                    continue
+                path = os.path.join(current, name)
+                if not contained(path, root):
                     continue
                 relative_name = name if not directory else f"{directory}/{name}"
                 if group_runs:
@@ -2850,7 +2858,7 @@ def create_app(
                     subfolder,
                     run_id,
                     kind,
-                    os.path.join(current, name),
+                    path,
                 )
 
     def _gallery_entries(root, ws):
@@ -3515,6 +3523,10 @@ def create_app(
             with handle:
                 with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
                     for arcname, path in entries:
+                        # ZipFile.write follows a symlink and archives the
+                        # target's bytes; nothing the server writes is one
+                        if os.path.islink(path):
+                            continue
                         extension = os.path.splitext(path)[1].lower()
                         # A file in MEDIA_KINDS but not RAW_MEDIA_EXTENSIONS
                         # is an already-compressed container - deflating it
