@@ -23,6 +23,7 @@ from ..shots import measured_num_samples, nested_shots, shot_record
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
+    frames_to_samples,
     match_levels as match_track_levels,
     resample_waveform,
     warn_on_level_spread,
@@ -120,7 +121,10 @@ def dissolve_videos(
             )
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
-    sample_starts = []
+    written_fps = fps or next(
+        (v.fps for v in loaded if getattr(v, "fps", None)),
+        None,
+    )
     audio, sample_rate = _dissolve_audio(
         loaded,
         dissolve_frames,
@@ -128,14 +132,13 @@ def dissolve_videos(
         match_levels,
         match_levels_dbfs,
         sample_rate,
-        sample_starts,
     )
     shots = _dissolve_shots(
         loaded,
         video_names(videos),
         frame_starts,
         len(frames),
-        sample_starts,
+        written_fps,
         audio,
         sample_rate,
         dissolve_frames,
@@ -143,10 +146,6 @@ def dissolve_videos(
     logger.info(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
         f"({dissolve_frames}-frame seams)"
-    )
-    written_fps = fps or next(
-        (v.fps for v in loaded if getattr(v, "fps", None)),
-        None,
     )
     return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
 
@@ -156,7 +155,7 @@ def _dissolve_shots(
     names,
     frame_starts,
     total_frames,
-    sample_starts,
+    fps,
     audio,
     sample_rate,
     dissolve_frames,
@@ -171,12 +170,26 @@ def _dissolve_shots(
     output keeps its inner seams rather than collapsing to one record
     (#399). `overlap_frames` marks how much of the shot's own head - the
     first inner one, when it nests - is blended with what came before.
+
+    Each shot's `start_sample` is *derived* from its frame offset
+    (frames_to_samples), the same rule pair_audio's remeasured_shots uses,
+    rather than read off where the crossfade actually landed: summing the
+    individually-rounded per-clip lengths a real dissolve measures does not
+    equal rounding the cumulative frame count in one step, so the two tools
+    disagreed by a sample on a shot whose frames never changed (#401). The
+    crossfade itself still blends the real, measured audio - only the
+    recorded seam position is derived, so it matches whatever a later
+    pair_audio recomputes for the same boundary.
     """
     total_samples = audio.shape[1] if audio is not None else None
     shots = []
     for index, (video, name) in enumerate(zip(videos, names)):
         inner = getattr(video, "shots", None)
-        sample_offset = sample_starts[index] if audio is not None else None
+        sample_offset = (
+            min(frames_to_samples(frame_starts[index], fps, sample_rate), total_samples)
+            if audio is not None and fps
+            else None
+        )
         if inner:
             nested = nested_shots(
                 inner,
@@ -236,12 +249,8 @@ def _dissolve_audio(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
-    starts=None,
 ):
-    """Crossfade every video's track over the seams' own span.
-
-    `starts` is filled with where each track begins in the joined one.
-    """
+    """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
     if len(tracks) != len(videos):
         if tracks:
@@ -294,6 +303,6 @@ def _dissolve_audio(
     else:
         warn_on_level_spread(waveforms, "dissolve_videos")
     return (
-        crossfade_concat(waveforms, sample_rate, crossfade_ms, starts),
+        crossfade_concat(waveforms, sample_rate, crossfade_ms),
         sample_rate,
     )
