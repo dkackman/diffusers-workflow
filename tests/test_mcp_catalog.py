@@ -321,3 +321,41 @@ def test_gallery_metadata_says_a_kept_asset_has_no_provenance():
 
     assert "no provenance" in result["next"]
     assert "get_job_workflow" not in result["next"]
+
+
+def test_gallery_metadata_points_a_cut_at_assess_output():
+    """#388: whole-file numbers cannot see inside a join, so a file carrying
+    shots is pointed at the tool that measures each seam."""
+    name = "cut/20260923-120000-abcdef01/final/cut.mp4"
+    body = {
+        "name": name,
+        "source": "output",
+        "metadata": None,
+        "job": None,
+        "media": {
+            "kind": "video",
+            "shots": [{"name": "a"}, {"name": "b"}, {"name": "c"}],
+        },
+    }
+    client, _ = scripted({("GET", f"/api/gallery/{name}/metadata"): (200, body)})
+
+    result = catalog.get_gallery_metadata(client, name)
+
+    assert "assess_output" in result["next"]
+    assert name in result["next"]
+    assert "3 shots" in result["next"]
+
+
+def test_gallery_metadata_does_not_point_an_uncut_file_at_assess_output():
+    body = {
+        "name": "shot.mp4",
+        "source": "output",
+        "metadata": None,
+        "job": None,
+        "media": {"kind": "video", "shots": None},
+    }
+    client, _ = scripted({("GET", "/api/gallery/shot.mp4/metadata"): (200, body)})
+
+    result = catalog.get_gallery_metadata(client, "shot.mp4")
+
+    assert "assess_output" not in (result.get("next") or "")

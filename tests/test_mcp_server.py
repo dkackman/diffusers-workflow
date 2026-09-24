@@ -1501,9 +1501,11 @@ def test_the_stated_tool_count_is_the_registered_one():
 # from the entry above, the total agrees) and 13_670.5 after (9_316.5 /
 # 3_845.75 / 508.25). The ceiling stays: the 219.5 tokens of headroom are
 # reserved for #388 (`assess_output`), which raises it only by any remainder.
-# #388 spent it: the assess_output tool (description + schema) and one clause
-# in the instructions' loop pointing at it on a cut. Measured 2026-09-24 at
-# 13_862.5 (9_395.0 / 3_946.25 / 521.25); the ceiling stays, 27.5 of headroom.
+# #388 spent it on the assess_output tool (description + schema). The design's
+# optional pointer in the instructions' loop did not fit the client's 2_048
+# character cap on instructions, so get_gallery_metadata's hint carries it.
+# Measured 2026-09-24 at 13_849.5 (9_395.0 / 3_946.25 / 508.25); the ceiling
+# stays, 40.5 of headroom.
 SURFACE_BUDGET = 13_890
 
 
