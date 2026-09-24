@@ -381,10 +381,14 @@ def analyze_shots(video, shots=None):
         high_dbfs, samples}], rms_range_db, findings, rules_applied,
         rules_skipped, shots_source}
     """
+    media = media_from(video)
+    return shots_answer(media, *resolve_shots(video, media, shots))
+
+
+def shots_answer(media, records, source):
+    """`analyze_shots` over an already-read Media and resolved shots."""
     from .audio_utils import _spectral_balance
 
-    media = media_from(video)
-    records, source = resolve_shots(video, media, shots)
     if media.audio is None:
         return _answer(
             "analyze_shots",
@@ -585,7 +589,11 @@ def analyze_seams(video, shots=None):
         rules_skipped, shots_source}
     """
     media = media_from(video)
-    records, source = resolve_shots(video, media, shots)
+    return seams_answer(media, *resolve_shots(video, media, shots))
+
+
+def seams_answer(media, records, source):
+    """`analyze_seams` over an already-read Media and resolved shots."""
     if not records or len(records) < 2:
         return _answer("analyze_seams", {"seams": []}, [], source, shot_dependent=True)
 
@@ -667,7 +675,11 @@ def analyze_sync_drift(video, shots=None):
         rules_applied, rules_skipped, shots_source}
     """
     media = media_from(video)
-    records, source = resolve_shots(video, media, shots)
+    return sync_drift_answer(media, *resolve_shots(video, media, shots))
+
+
+def sync_drift_answer(media, records, source):
+    """`analyze_sync_drift` over an already-read Media and resolved shots."""
     measured = []
     findings = []
     rate = media.sample_rate
@@ -729,4 +741,7 @@ __all__ = [
     "media_from",
     "read_media",
     "resolve_shots",
+    "seams_answer",
+    "shots_answer",
+    "sync_drift_answer",
 ]

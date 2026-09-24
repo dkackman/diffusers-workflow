@@ -625,7 +625,13 @@ same reason - default setup cannot load a pack.
   whole file as one shot (`shots_source` says which). A shot's `hard_cut:
   true` field suppresses the `seam_frame_jump` rule at the seam it opens - a
   cut meant as a cut. `tests/test_assessment_rules.py` pins the rules table
-  to real probe fields, so a rename cannot leave a rule reading nothing.
+  to real probe fields, so a rename cannot leave a rule reading nothing. `GET /api/gallery/{name}/assess` (MCP `assess_output`, #388,
+  `dw/server/assess.py`) runs the applicable probes in the server process on
+  one decode - a sync route, so it answers beside a GPU job rather than
+  queueing - with the shots the run's manifest (or an asset's keep sidecar)
+  recorded, merging `findings`/`rules_applied`/`rules_skipped` and naming
+  each inapplicable probe in `not_applicable`; `probe=` returns one probe's
+  full body and is whitelisted before the name is read.
 
 ## JSON Workflow Structure
 

@@ -107,6 +107,9 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 
 ## Run and judge
 
+Judge a finished episode with `assess_output(name)` before listening end
+to end: it measures every seam and the shots' levels, and says where to look.
+
 `output:` a shot straight from its generation run rather than downloading
 and re-uploading it as an asset - only the cast portraits from step 0 need
 to be assets, since they are the one thing that must outlive a single

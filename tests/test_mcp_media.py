@@ -1277,3 +1277,48 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     assert "audio" not in result["tiles"][1]
     assert "audio" not in result["tiles"][2]
     assert result["audio_truncated"] is True
+
+
+def _assess_client(body=None):
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json=body or {"findings": []})
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_assess_output_refuses_an_unknown_probe_before_any_request():
+    """#388: the probe is whitelisted before anything else is read - no
+    request leaves for a name outside it."""
+    client, seen = _assess_client()
+
+    with pytest.raises(DwApiError) as refused:
+        media.assess_output(client, "cut.mp4", probe="analyze_vibes")
+
+    assert seen == []
+    for probe in ("analyze_shots", "analyze_seams", "analyze_sync_drift"):
+        assert probe in str(refused.value)
+
+
+def test_assess_output_passes_probe_detail_and_an_asset_name_through():
+    client, seen = _assess_client({"probe": "analyze_seams", "seams": []})
+
+    result = media.assess_output(
+        client, "asset:episode.mp4", probe="analyze_seams", detail=True
+    )
+
+    assert result == {"probe": "analyze_seams", "seams": []}
+    method, path, params = seen[0]
+    assert method == "GET"
+    assert path == "/api/gallery/asset:episode.mp4/assess"
+    assert params == {"probe": "analyze_seams", "detail": "true"}
+
+
+def test_assess_output_sends_no_parameters_by_default():
+    client, seen = _assess_client()
+
+    media.assess_output(client, "cut.mp4")
+
+    assert seen[0][2] == {}
