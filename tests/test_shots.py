@@ -237,7 +237,9 @@ class TestConcatVideosShots:
         leaked that path onto every consumer of the shots - the manifest,
         get_gallery_metadata, and the seams route's labels (#390). Only the
         file name means anything off this box."""
-        resolved = "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot1-incident.mp4"
+        resolved = (
+            "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot1-incident.mp4"
+        )
         videos = [resolved, audio_video(4, 2)]
 
         with patch(
@@ -311,7 +313,9 @@ class TestDissolveVideosShots:
         """Same leak as concat_videos (#390): a resolved asset: reference
         arrives here as an absolute server path, and only its file name
         belongs on a consumer-facing shot name."""
-        resolved = "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot2-reply.mp4"
+        resolved = (
+            "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot2-reply.mp4"
+        )
         videos = [resolved, frames(10)]
 
         with patch(

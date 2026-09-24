@@ -41,7 +41,9 @@ def video_names(videos):
     anything off this box.
     """
     return [
-        os.path.basename(original) if isinstance(original, str) else f"video {index + 1}"
+        os.path.basename(original)
+        if isinstance(original, str)
+        else f"video {index + 1}"
         for index, original in enumerate(videos)
     ]
 
