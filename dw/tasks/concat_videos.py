@@ -9,6 +9,7 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 """
 
 import logging
+import os
 
 from ..events import emit_warning
 from ..result import AudioVideo
@@ -33,10 +34,14 @@ def video_names(videos):
     A caller passes a path, or a previous step's result; only the path says
     anything by itself, so the rest are named by position - which is what a
     six-entry `shots` list needs to be actionable ("24000 then 32000" does
-    not say which entry to fix).
+    not say which entry to fix). By the time this runs, an `asset:`/`output:`
+    reference has already been resolved to its absolute path on this server
+    (#390) - naming a shot by that path leaked server layout onto a consumer
+    surface, so a path is trimmed to its file name, the one part that means
+    anything off this box.
     """
     return [
-        original if isinstance(original, str) else f"video {index + 1}"
+        os.path.basename(original) if isinstance(original, str) else f"video {index + 1}"
         for index, original in enumerate(videos)
     ]
 

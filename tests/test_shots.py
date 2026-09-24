@@ -230,6 +230,24 @@ class TestConcatVideosShots:
             assert shot["start_sample"] is None
             assert shot["num_samples"] is None
 
+    def test_asset_literal_shots_are_named_by_file_not_absolute_path(self):
+        """An `asset:`/`output:` reference is resolved to its absolute
+        server path before the task ever runs (dw/workflow.py's
+        realize_args), so naming a shot by the string the join received
+        leaked that path onto every consumer of the shots - the manifest,
+        get_gallery_metadata, and the seams route's labels (#390). Only the
+        file name means anything off this box."""
+        resolved = "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot1-incident.mp4"
+        videos = [resolved, audio_video(4, 2)]
+
+        with patch(
+            "dw.tasks.concat_videos.load_audio_video", return_value=audio_video(4, 1)
+        ):
+            result = concat_videos(videos, fps=4)
+
+        assert result.shots[0]["name"] == "ep3-shot1-incident.mp4"
+        assert "/" not in result.shots[0]["name"]
+
     def test_an_overrun_track_is_measured_not_derived(self):
         """One input's audio runs 267 samples longer than its frames alone
         would imply - concat_videos records the measured length of the
@@ -288,6 +306,22 @@ class TestDissolveVideosShots:
         sample_counts = [shot["num_samples"] for shot in result.shots]
         assert sample_starts[0] == 0
         assert sum(sample_counts) == result.audio.shape[1]
+
+    def test_asset_literal_shots_are_named_by_file_not_absolute_path(self):
+        """Same leak as concat_videos (#390): a resolved asset: reference
+        arrives here as an absolute server path, and only its file name
+        belongs on a consumer-facing shot name."""
+        resolved = "/home/don/diffusers-workspace/common/assets/qa-cast/ep3-shot2-reply.mp4"
+        videos = [resolved, frames(10)]
+
+        with patch(
+            "dw.tasks.dissolve_videos.load_audio_video",
+            return_value=frames(10),
+        ):
+            result = dissolve_videos(videos, 3)
+
+        assert result.shots[0]["name"] == "ep3-shot2-reply.mp4"
+        assert "/" not in result.shots[0]["name"]
 
 
 # ---------------------------------------------------------------------------
