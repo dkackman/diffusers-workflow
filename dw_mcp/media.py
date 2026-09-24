@@ -31,6 +31,11 @@ MIN_DIMENSION = 64
 # a job that logged its way to a megabyte would otherwise arrive whole.
 MAX_RETURNED_CHARACTERS = 20000
 
+# The most pixels an image is decoded at, checked before the decode - a PNG
+# header can claim any size. dw.security.MAX_DECODE_PIXELS's value, kept here
+# because dw_mcp cannot import dw; a test pins the two equal.
+MAX_DECODE_PIXELS = 50_000_000
+
 
 def get_output_image(client, name, max_dimension=768, workspace=None, crop=None):
     """One image from the output directory, downscaled, as base64 plus the
@@ -54,6 +59,14 @@ def get_output_image(client, name, max_dimension=768, workspace=None, crop=None)
         )
     try:
         image = Image.open(io.BytesIO(body))
+    except Exception:
+        raise DwApiError(f"{name} could not be decoded as an image.")
+    if image.width * image.height > MAX_DECODE_PIXELS:
+        raise DwApiError(
+            f"{name} is {image.width}x{image.height}, more than the "
+            f"{MAX_DECODE_PIXELS:,} pixels this tool decodes."
+        )
+    try:
         image.load()
     except Exception:
         raise DwApiError(f"{name} could not be decoded as an image.")

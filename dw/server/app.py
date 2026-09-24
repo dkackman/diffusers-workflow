@@ -33,6 +33,7 @@ from starlette.routing import Match, Route
 from starlette.background import BackgroundTask
 
 from ..security import (
+    MAX_DECODE_PIXELS,
     contained,
     validate_asset_reference,
     validate_path,
@@ -3475,6 +3476,13 @@ def create_app(
             from PIL import Image
 
             with Image.open(path) as image:
+                if image.width * image.height > MAX_DECODE_PIXELS:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"{name} is {image.width}x{image.height}, more "
+                        f"than the {MAX_DECODE_PIXELS:,} pixels a thumbnail "
+                        "is decoded from",
+                    )
                 # shrink first (JPEGs decode at reduced size via draft), then
                 # convert - converting a full-resolution image only to
                 # discard most of it is the expensive order
@@ -3485,6 +3493,9 @@ def create_app(
                 image = image.convert("RGB")
                 buffer = io.BytesIO()
                 image.save(buffer, format="JPEG", quality=80)
+        except Image.DecompressionBombError as e:
+            # Pillow's own refusal, on open, of a header past twice its limit
+            raise HTTPException(status_code=413, detail=str(e))
         except (OSError, ValueError) as e:
             # what PIL raises for an unreadable or corrupt file
             raise HTTPException(

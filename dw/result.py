@@ -15,6 +15,7 @@ from diffusers.utils import (
 from collections.abc import Mapping
 from .events import emit_log, emit_phase, emit_warning
 from .security import (
+    MAX_DECODE_PIXELS,
     SecurityError,
     validate_file_base_name,
     validate_output_path,
@@ -1247,7 +1248,11 @@ def read_embedded_metadata(path):
         from PIL import Image
 
         with Image.open(path) as image:
-            text = getattr(image, "text", {}).get("parameters")
+            # image.text would load() the whole image to reach chunks after
+            # IDAT; the writer puts its chunk before IDAT, where info holds it
+            if image.width * image.height > MAX_DECODE_PIXELS:
+                return None
+            text = image.info.get("parameters")
             if text is None and "exif" in getattr(image, "info", {}):
                 import piexif
                 import piexif.helper
