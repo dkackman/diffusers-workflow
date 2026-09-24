@@ -461,7 +461,7 @@ class AudioVideo:
     the result mux them into one file instead of dropping the audio on the floor.
     """
 
-    def __init__(self, frames, audio, sample_rate, fps=None):
+    def __init__(self, frames, audio, sample_rate, fps=None, shots=None):
         """
         Args:
             frames: The video, as PIL images or an array of frames
@@ -474,11 +474,16 @@ class AudioVideo:
                 joins 24 fps shots writing them at 8 is three times slow with
                 its audio still the right length (#84). A declared
                 `result.fps` still wins over this
+            shots: Where each input landed, for a video a step joined from
+                several - a list of shot records (dw/shots.py), or None for a
+                video that is one shot. Carried into the step's manifest
+                entry when the video is saved (#378)
         """
         self.frames = frames
         self.audio = audio
         self.sample_rate = sample_rate
         self.fps = fps
+        self.shots = shots
 
 
 class AudioTrack:
@@ -537,6 +542,10 @@ class Result:
         self.result_list = []
         self.metadata = None
         self.saved_files = []
+        # The shots (dw/shots.py) of each saved file whose artifact carried
+        # any, keyed by the path in saved_files - plain data, so a step cache
+        # hit's stripped copy still reports them (#378)
+        self.saved_shots = {}
         # Set when a select step's Selected wrapper flows through
         # add_result - the winning position/score, replayable in the
         # manifest and step_end alongside the unwrapped value (#119)
@@ -715,6 +724,7 @@ class Result:
         if not self.result_definition.get("save", True) or content_type is None:
             logger.debug("Skipping save - disabled or no content type specified")
             self.saved_files = []
+            self.saved_shots = {}
             return self.saved_files
 
         # Determine base filename with validation. A file_base_name *replaces*
@@ -743,6 +753,7 @@ class Result:
 
         # Save each result, collecting the paths written as the step's manifest
         saved_files = []
+        saved_shots = {}
         for i, result in enumerate(self.result_list):
             if content_type.endswith("json"):
                 # Handle JSON content type
@@ -756,16 +767,19 @@ class Result:
             else:
                 # Handle other content types
                 for j, artifact in enumerate(self._artifacts_for(result)):
-                    saved_files.extend(
-                        self.save_artifact(
-                            validated_output_dir,
-                            artifact,
-                            f"{file_base_name}-{i}.{j}",
-                            content_type,
-                            extension,
-                        )
+                    paths = self.save_artifact(
+                        validated_output_dir,
+                        artifact,
+                        f"{file_base_name}-{i}.{j}",
+                        content_type,
+                        extension,
                     )
+                    shots = getattr(artifact, "shots", None)
+                    if shots:
+                        saved_shots.update((path, shots) for path in paths)
+                    saved_files.extend(paths)
         self.saved_files = saved_files
+        self.saved_shots = saved_shots
         return saved_files
 
     def save_artifact(

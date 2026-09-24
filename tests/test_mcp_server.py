@@ -470,14 +470,14 @@ async def test_the_media_tool_descriptions_say_what_they_hand_back():
 
 @pytest.mark.asyncio
 async def test_the_frames_tool_says_where_boundaries_come_from():
-    """Until a joined file carries its own shots (stage 2), the agent has to
-    derive seam boundaries; the tool has to say from what, or `seams` is a
-    parameter nobody can fill in."""
+    """A joined output's seams come from the shots its run recorded (#385);
+    the tool has to say so, and say what to pass for a file with none, or
+    `seams` is a parameter nobody can fill in."""
     server = server_over(ok({}))
     tools = await tools_of(server)
     text = tools["get_output_frames"].description
-    assert "get_gallery_metadata" in text
-    assert "frame_count" in text
+    assert "media.shots" in text
+    assert "boundaries" in text
 
 
 # Every tool, the arguments a client would send, and the one API call it is

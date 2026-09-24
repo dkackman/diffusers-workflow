@@ -1563,6 +1563,64 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
         assert _png_of(body["tiles"][0]).size == (32, 16)
 
 
+def test_gallery_frames_seams_read_a_joined_outputs_recorded_shots(server, tmp_path):
+    """#385: `seams` without `boundaries` was a 400 - the file carried no
+    seams of its own. An output whose run recorded shots for it now answers
+    from the manifest, named as recorded; `media.shots` in the metadata is
+    the same list. A file whose run recorded none still needs `boundaries`."""
+    import json
+
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        run = tmp_path / "outputs" / "cut" / "20260924-000000-0123abcd"
+        run.mkdir(parents=True)
+        write_ramp_mp4(run / "cut.mp4", frames=24, fps=6, width=64, height=32)
+        write_ramp_mp4(run / "other.mp4", frames=24, fps=6, width=64, height=32)
+        shots = [
+            {
+                "name": "shot@wide",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@close",
+                "start_frame": 10,
+                "num_frames": 14,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        (run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {"step": "cut", "files": ["cut.mp4"], "shots": shots},
+                        {"step": "other", "files": ["other.mp4"]},
+                    ]
+                }
+            )
+        )
+        name = "cut/20260924-000000-0123abcd/cut.mp4"
+
+        response = client.get(f"/api/gallery/{name}/frames", params={"seams": "true"})
+        assert response.status_code == 200, response.text
+        (tile,) = response.json()["tiles"]
+        assert tile["label"] == "seam 1: shot@wide | shot@close"
+
+        metadata = client.get(f"/api/gallery/{name}/metadata").json()
+        assert metadata["media"]["shots"] == shots
+
+        refused = client.get(
+            "/api/gallery/cut/20260924-000000-0123abcd/other.mp4/frames",
+            params={"seams": "true"},
+        )
+        assert refused.status_code == 400
+        assert "boundaries" in refused.json()["detail"]
+
+
 def test_gallery_frames_crop_names_the_same_source_region_at_any_max_dimension(
     server, tmp_path
 ):

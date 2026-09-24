@@ -12,6 +12,7 @@ import logging
 
 from ..events import emit_warning
 from ..result import AudioVideo
+from ..shots import shot_record
 from .audio_utils import (
     as_channels_samples,
     bleed_join,
@@ -184,10 +185,21 @@ def concat_videos(
     frames = []
     audio = None
     audio_native_rate = None
+    # Where each video landed, measured on the joined picture and track as
+    # they grow - never derived from the frame count, so a track that runs
+    # long shows up here as the samples it actually took (#378)
+    shots = []
 
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
+        start_frame = len(frames)
+        start_sample = audio.shape[1] if audio is not None else 0
         frames.extend(clip[head_trim:])
+        shots.append(
+            shot_record(
+                names[index], start_frame, len(frames) - start_frame, start_sample
+            )
+        )
 
         if waveforms[index] is None:
             continue
@@ -227,6 +239,14 @@ def concat_videos(
             )
         audio_native_rate = video.sample_rate
 
+    for shot, following in zip(shots, shots[1:] + [None]):
+        # A seam's crossfade leaves the samples before it where they were, so
+        # a shot's track is everything up to where the next one's began
+        end = following["start_sample"] if following else _length(audio)
+        shot["num_samples"] = None if audio is None else end - shot["start_sample"]
+        if audio is None:
+            shot["start_sample"] = None
+
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     # The rate the caller declared, else the rate the first input carries -
     # either beats the result's 8 fps default (#84)
@@ -234,4 +254,9 @@ def concat_videos(
         (v.fps for v in videos if getattr(v, "fps", None)),
         None,
     )
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _length(audio):
+    """How many samples a joined track holds, 0 for none."""
+    return 0 if audio is None else audio.shape[1]

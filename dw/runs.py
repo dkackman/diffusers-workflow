@@ -649,3 +649,34 @@ def manifest_relative_files(files, run_dir):
             path if relative.startswith(os.pardir) else relative.replace(os.sep, "/")
         )
     return recorded
+
+
+def recorded_shots(output_root, relative_path):
+    """The shot boundaries the run's manifest records for one of its files.
+
+    None when the file is not in a run directory (the flat layout), its run
+    has no readable manifest, or no step recorded shots for it - a file that
+    was not joined from shots, or one written before shots were recorded.
+    """
+    from .shots import shots_for_file
+
+    folder, run_id, _subfolder = split_run_path(relative_path)
+    if not run_id:
+        return None
+    run_dir = os.path.join(output_root, folder, run_id)
+    manifest = _read_manifest(run_dir)
+    if manifest is None:
+        return None
+    prefix = f"{folder}/{run_id}/" if folder else f"{run_id}/"
+    own = relative_path[len(prefix) :] if relative_path.startswith(prefix) else None
+    if own is None:
+        return None
+    for entry in manifest.get("steps") or []:
+        if not isinstance(entry, dict) or entry.get("reused"):
+            continue
+        files = entry.get("files") or []
+        if own in files:
+            shots = shots_for_file(entry.get("shots"), own, files)
+            if shots:
+                return shots
+    return None
