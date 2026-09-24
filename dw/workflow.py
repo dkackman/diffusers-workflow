@@ -805,6 +805,28 @@ class Workflow:
             supplied=set(arguments or {}),
         )
 
+    def slice_past_end_warnings(self, arguments=None):
+        """Every `slice_audio` step whose source's real duration is already
+        knowable and whose requested slice reaches past it - valid, padded
+        with silence rather than refused, but worth saying before the run
+        rather than only after it (#402).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .slice_preflight import slice_past_end_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No slice_past_end warnings available", exc_info=True)
+            return []
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+        return slice_past_end_warnings(expanded, source_indices, base_dir)
+
     def null_variable_argument_warnings(self, arguments=None):
         """Every required task argument fed by `variable:name` where name's
         value is null - downgraded out of `validation_errors` when
