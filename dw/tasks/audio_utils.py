@@ -316,7 +316,7 @@ def crossfade_concat(waveforms, sample_rate, crossfade_ms, starts=None):
     for following in waveforms[1:]:
         result, following = _matched_channels(result, following)
         window = min(
-            int(crossfade_ms / 1000.0 * sample_rate),
+            int(round(crossfade_ms / 1000.0 * sample_rate)),
             result.shape[1],
             following.shape[1],
         )
