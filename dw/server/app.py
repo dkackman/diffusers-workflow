@@ -100,10 +100,12 @@ from ..runs import (
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
+    record_kept_shots,
     record_run_versions,
     resolve_output_reference,
     run_versions,
     recorded_shots,
+    shots_beside,
     split_run_path,
 )
 from ..workspace import (
@@ -3036,6 +3038,11 @@ def create_app(
             # Where each shot of a joined video sits, as the run that wrote
             # it recorded (dw/shots.py) - null for a file not joined from shots
             media["shots"] = recorded_shots(ws.outputs, name)
+        elif media is not None and source == "asset":
+            # keep_output carries the source run's shots into a sidecar
+            # manifest beside the asset (#393); a file kept before that fix,
+            # or never joined from shots, has none
+            media["shots"] = shots_beside(path)
         return {
             "name": name,
             "source": source,
@@ -3911,6 +3918,15 @@ def create_app(
         except OSError:
             shutil.copy2(source, destination)
             linked = False
+
+        # The source run's shot boundaries - carrying bytes without them left
+        # a kept multi-shot cut looking like one shot to every probe, with no
+        # sign anything was missing (#393)
+        record_kept_shots(
+            os.path.dirname(destination),
+            os.path.basename(destination),
+            recorded_shots(ws.outputs, kept_name),
+        )
 
         logger.info(f"Kept output {request.name} as asset:{asset_name}")
         return {

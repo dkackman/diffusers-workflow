@@ -2,6 +2,7 @@
 root, each with its own workflows, assets and outputs, all sharing the one
 prompt library."""
 
+import json
 import os
 
 import pytest
@@ -515,6 +516,62 @@ class TestKeepingOutputs:
                 json={"name": "Gyre/run/still.png", "asset_name": asset_name},
             )
         assert response.status_code == 400
+
+    def test_a_kept_outputs_shots_survive_and_report_through_the_gallery(
+        self, server, workspace_root
+    ):
+        """#393: keeping a cut copied only its bytes, so a joined video's shot
+        boundaries were unreachable from the asset it became - the gallery
+        metadata for a kept asset carried no `shots` at all, where the same
+        file's metadata as an output did. keep_output now carries the run's
+        recorded shots into a manifest sidecar beside the asset, which is the
+        same convention `shots_beside` (and so every assessment probe) already
+        reads."""
+        from .test_media_info import write_mp4
+
+        run_dir = os.path.join(workspace_root.outputs, "Gyre/20260905-101500-aaaaaaaa")
+        os.makedirs(run_dir, exist_ok=True)
+        write_mp4(os.path.join(run_dir, "cut.mp4"), frames=18, fps=6)
+        shots = [
+            {
+                "name": "a",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": 0,
+                "num_samples": 100,
+            },
+            {
+                "name": "b",
+                "start_frame": 10,
+                "num_frames": 8,
+                "start_sample": 100,
+                "num_samples": 80,
+            },
+        ]
+        manifest = {
+            "steps": [{"step": "concat", "files": ["cut.mp4"], "shots": shots}]
+        }
+        with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
+            json.dump(manifest, handle)
+
+        with server() as client:
+            kept = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "Gyre/20260905-101500-aaaaaaaa/cut.mp4",
+                    "asset_name": "qa-cast/cut.mp4",
+                },
+            )
+            assert kept.status_code == 201
+
+            metadata = client.get(
+                "/api/gallery/asset:qa-cast/cut.mp4/metadata"
+            ).json()
+        assert metadata["source"] == "asset"
+        assert metadata["media"]["shots"] == shots
+
+        sidecar = os.path.join(workspace_root.assets, "qa-cast", "manifest.json")
+        assert os.path.isfile(sidecar)
 
     def test_keeping_stays_inside_the_workspace(self, server, workspace_root):
         """The source is read from the named workspace's outputs and the copy
