@@ -469,6 +469,34 @@ async def test_the_media_tool_descriptions_say_what_they_hand_back():
 
 
 @pytest.mark.asyncio
+async def test_get_output_audio_points_at_the_loop_for_transcription():
+    """#376: the transcription walkthrough lives in WORKFLOW_GUIDE's "The
+    loop", step 6; the resident description keeps one sentence and a pointer,
+    so the procedure does not creep back in as a third copy."""
+    tools = await tools_of(server_over(ok({})))
+    audio = tools["get_output_audio"].description
+    assert '"The loop"' in audio
+    assert "transcrib" in audio
+    assert "transcribe-audio" not in audio
+
+
+def test_the_loop_carries_the_transcription_procedure():
+    """The other half of #376's move: the pointer from get_output_audio
+    resolves to a section that names the template and the read tool."""
+    from dw.server import guides
+
+    # "The loop" is a ### subsection; get_guide resolves ## sections.
+    section = guides.get_guide(
+        "workflows", section="Authoring a workflow from an agent"
+    )["content"]
+    loop = section.split("### The loop", 1)[1].split("\n### ", 1)[0]
+    content = loop.split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    assert "templates/transcribe-audio" in content
+    assert "get_output_text" in content
+    assert "delete_output(job_id=" in content
+
+
+@pytest.mark.asyncio
 async def test_the_frames_tool_says_where_boundaries_come_from():
     """A joined output's seams come from the shots its run recorded (#385);
     the tool has to say so, and say what to pass for a file with none, or
@@ -1460,6 +1488,16 @@ def test_the_stated_tool_count_is_the_registered_one():
 # said in fewer words); the two schema entries (+49) are what the budget
 # takes, since no docstring can pay for a parameter's schema. Measured
 # 2026-09-22 at 13_883.0 (9_068.0 / 3_801.0 / 1_014.0). 7 tokens of headroom.
+# #376 moved model narrative out of the resident descriptions, each fact
+# still stated where an agent reads it on demand: get_output_audio's
+# transcription walkthrough to WORKFLOW_GUIDE's "The loop" step 6 (a pointer
+# stays), and the H3 frame-grid example (validate_workflow, list_workflows),
+# the family list (list_prompts) and get_job_events' silent-phase examples
+# dropped, every rule kept. Measured 2026-09-24 at 13_883.0 before (9_529.0 /
+# 3_845.75 / 508.25 - the instructions and descriptions split differently
+# from the entry above, the total agrees) and 13_670.5 after (9_316.5 /
+# 3_845.75 / 508.25). The ceiling stays: the 219.5 tokens of headroom are
+# reserved for #388 (`assess_output`), which raises it only by any remainder.
 SURFACE_BUDGET = 13_890
 
 
