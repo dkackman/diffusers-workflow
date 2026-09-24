@@ -229,7 +229,7 @@ class WorkflowWorker:
             set_log_level(log_level)
 
             workflow, identity = self._load_workflow(command, output_dir)
-            workflow.validate()
+            workflow.validate(arguments=arguments)
 
             # Switching to a different workflow frees the old one's models
             # before the new one loads - on one accelerator, holding both is

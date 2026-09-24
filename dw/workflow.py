@@ -895,15 +895,18 @@ class Workflow:
             for path, name in undeclared_variable_references(definition)
         ]
 
-    def validate(self):
+    def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
 
         Every violation is reported, one per line, so the CLI, the REPL
         and an agent iterating on a draft fix them in one pass rather than
-        one per round trip.
+        one per round trip. ``arguments``, when given, are folded in before
+        checking - a caller's override (e.g. a content_type-driving variable)
+        must be judged as it will actually run, not against the document's
+        unsubstituted defaults.
         """
         logger.debug(f"Validating workflow: {self.name}")
-        errors = self.validation_errors()
+        errors = self.validation_errors(arguments=arguments)
         if errors:
             # message already carries the 'Validation error' prefix
             message = format_validation_errors(errors)
