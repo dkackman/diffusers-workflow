@@ -162,12 +162,6 @@ class TestOutputs:
         assert response.status_code >= 400
         assert not _leaks(response)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="_iter_gallery_files walks outputs with os.walk and os.stat, "
-        "so GET /api/gallery lists a symlink pointing outside, with the "
-        "target's size and mtime",
-    )
     def test_the_gallery_listing_does_not_enumerate_the_link(self, client):
         names = [entry["name"] for entry in client.get("/api/gallery").json()["files"]]
         assert "leak.png" not in names
@@ -246,11 +240,6 @@ class TestAssets:
         with pytest.raises((SecurityError, ValueError)):
             resolve_asset_reference(reference)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the asset listing walks the library with os.walk/os.stat and "
-        "lists a symlink that resolves outside it",
-    )
     def test_the_asset_listing_does_not_enumerate_the_link(self, client):
         listing = client.get("/api/assets").json()
         assert "leak.png" not in json.dumps(listing)
@@ -385,12 +374,6 @@ class TestWorkflows:
         response = client.get(path)
         assert not _leaks(response), path
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="workflow_details opens every *.json os.walk finds without a "
-        "containment check, so GET /api/workflows reads a linked file's "
-        "description and variable names",
-    )
     def test_the_listing_does_not_read_through_the_link(self, client):
         response = client.get("/api/workflows")
         assert SECRET not in response.text
@@ -422,12 +405,6 @@ class TestPrompts:
     def test_reads_do_not_follow_the_link(self, client, path):
         assert not _leaks(client.get(path)), path
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="list_prompts hands every *.json workflow_names finds to "
-        "prompt_details, which opens it without a containment check - the "
-        "listing carries a linked file's text",
-    )
     def test_the_listing_does_not_read_through_the_link(self, client):
         assert SECRET not in client.get("/api/prompts").text
 
@@ -458,12 +435,6 @@ class TestPrompts:
 
 
 class TestExportsAndWorkspaces:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="GET /exports/<job>.zip (no token) zips the export directory "
-        "with os.walk + ZipFile.write, which follows a planted file symlink "
-        "and archives the target's bytes",
-    )
     def test_the_export_zip_does_not_follow_a_planted_link(self, client, tree):
         export = tree["root"] / "exports" / "job-1"
         export.mkdir(parents=True)
@@ -636,3 +607,90 @@ class TestDownloadOutputDestination:
         with pytest.raises(DwApiError):
             self._download(linked_root, str(tmp_path / "outside" / "escaped.png"))
         _outside_untouched(tree)
+
+
+# ------------------------------------------------ the containment helper (#412)
+
+
+class TestContained:
+    """`contained` resolves both sides, so a link inside a root that points
+    elsewhere drops out of a listing, and a root that is itself a link keeps
+    its own files."""
+
+    def test_a_link_pointing_outside_is_not_contained(self, tree):
+        from dw.security import contained
+
+        leak = link(tree["outputs"] / "leak.png", tree["outside"] / "secret.png")
+        assert not contained(leak, tree["outputs"])
+
+    def test_a_link_pointing_inside_the_root_is_contained(self, tree):
+        from dw.security import contained
+
+        real = _png(tree["outputs"] / "real.png")
+        alias = link(tree["outputs"] / "alias.png", real)
+        assert contained(alias, tree["outputs"])
+
+    def test_a_sibling_sharing_the_prefix_is_not_contained(self, tree, tmp_path):
+        from dw.security import contained
+
+        sibling = tmp_path / "ws" / "outputs-evil"
+        sibling.mkdir()
+        assert not contained(_png(sibling / "x.png"), tree["outputs"])
+
+    def test_a_root_that_is_itself_a_link_contains_its_files(self, tree, tmp_path):
+        from dw.security import contained
+        from dw.workflow_sources import workflow_names
+
+        (tree["workflows"] / "flux").mkdir()
+        (tree["workflows"] / "flux" / "dev.json").write_text("{}")
+        link(tree["workflows"] / "leak.json", tree["outside"] / "secret.json")
+        linked_root = link(tmp_path / "wf-link", tree["workflows"])
+
+        assert contained(linked_root / "flux" / "dev.json", linked_root)
+        names = workflow_names(str(linked_root))
+        assert "flux/dev" in names
+        assert "leak" not in names
+
+
+class TestListingsKeepWhatBelongs:
+    """Filtering must drop only the escaping link: an ordinary file, and a
+    link that stays inside the root, are listed as they were."""
+
+    def test_the_gallery_keeps_ordinary_and_internal_files(self, client, tree):
+        run = tree["outputs"] / "wf" / "20260924T000000Z-deadbeef"
+        run.mkdir(parents=True)
+        _png(run / "real.png")
+        link(tree["outputs"] / "alias.png", run / "real.png")
+        link(tree["outputs"] / "leak.png", tree["outside"] / "secret.png")
+
+        names = [entry["name"] for entry in client.get("/api/gallery").json()["files"]]
+        assert "wf/20260924T000000Z-deadbeef/real.png" in names
+        assert "alias.png" in names
+        assert "leak.png" not in names
+
+    def test_the_repl_listing_drops_the_link(self, tree):
+        from types import SimpleNamespace
+
+        from dw.repl_commands import WorkflowCommands
+
+        (tree["workflows"] / "mine.json").write_text("{}")
+        link(tree["workflows"] / "leak.json", tree["outside"] / "secret.json")
+        commands = WorkflowCommands.__new__(WorkflowCommands)
+        commands.repl = SimpleNamespace(
+            globals={"workflow_dir": str(tree["workflows"])}
+        )
+        names = commands.workflow_names()
+        assert "mine" in names
+        assert "leak" not in names
+
+    def test_the_export_zip_keeps_its_ordinary_files(self, client, tree):
+        export = tree["root"] / "exports" / "job-3"
+        (export / "outputs").mkdir(parents=True)
+        (export / "README.md").write_text("an export")
+        _png(export / "outputs" / "still.png")
+        link(export / "leak.txt", tree["outside"] / "secret.txt")
+
+        response = client.get("/exports/job-3.zip")
+        assert response.status_code == 200
+        names = zipfile.ZipFile(io.BytesIO(response.content)).namelist()
+        assert sorted(names) == ["job-3/README.md", "job-3/outputs/still.png"]

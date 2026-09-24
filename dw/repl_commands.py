@@ -24,6 +24,7 @@ from .security import (
     MAX_FILE_PATH_LENGTH,
 )
 from .workflow import workflow_from_file
+from .workflow_sources import workflow_names
 
 logger = logging.getLogger("dw")
 
@@ -436,18 +437,7 @@ class WorkflowCommands:
         Names are paths relative to workflow_dir with the .json dropped
         ('flux/FluxDev'), sorted for stable listing and completion.
         """
-        workflow_dir = self.repl.globals["workflow_dir"]
-        names = []
-        if not os.path.isdir(workflow_dir):
-            return names
-        for root, _dirs, files in os.walk(workflow_dir):
-            for file_name in files:
-                if file_name.endswith(".json"):
-                    relative = os.path.relpath(
-                        os.path.join(root, file_name), workflow_dir
-                    )
-                    names.append(relative[: -len(".json")])
-        return sorted(names)
+        return workflow_names(self.repl.globals["workflow_dir"])
 
     def _workflow_list(self, arg: str):
         """List workflows available in the workflow directory"""

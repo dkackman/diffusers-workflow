@@ -287,6 +287,20 @@ def validate_path(
     return resolved_path
 
 
+def contained(path: Union[str, Path], root: Union[str, Path]) -> bool:
+    """Whether path, symlinks resolved, lies inside root, symlinks resolved.
+
+    For a listing that walks a directory with os.walk: a file symlink shows
+    up among the names like any other file, and naming it would carry the
+    target's name, size or content out of the root. Both sides are resolved,
+    so a root that is itself a link (a data volume) still contains its own
+    files, while a link inside it pointing elsewhere does not.
+    """
+    real_root = os.path.realpath(root)
+    real = os.path.realpath(path)
+    return real == real_root or real.startswith(real_root.rstrip(os.sep) + os.sep)
+
+
 def validate_file_extension(path: str, allowed_extensions: set) -> str:
     """
     Validate file extension against allowed list.

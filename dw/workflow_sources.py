@@ -20,7 +20,7 @@ writable source, which is what "open an example, change it, save" should do.
 import logging
 import os
 
-from .security import SecurityError, validate_path
+from .security import SecurityError, contained, validate_path
 
 logger = logging.getLogger("dw")
 
@@ -88,14 +88,20 @@ class WorkflowSource:
 
 
 def workflow_names(root):
-    """Workflow names under a root, as relative paths without .json."""
+    """Workflow names under a root, as relative paths without .json.
+
+    A file symlink resolving outside the root is not a name here: a listing
+    opens every file it names, and reads by name already refuse the link."""
     names = []
     if not os.path.isdir(root):
         return names
     for directory, _dirs, files in os.walk(root):
         for file_name in files:
             if file_name.endswith(".json"):
-                relative = os.path.relpath(os.path.join(directory, file_name), root)
+                path = os.path.join(directory, file_name)
+                if not contained(path, root):
+                    continue
+                relative = os.path.relpath(path, root)
                 names.append(relative[: -len(".json")].replace(os.sep, "/"))
     return sorted(names)
 
