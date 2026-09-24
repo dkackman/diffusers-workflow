@@ -700,7 +700,9 @@ def test_workflow_browsing_and_confinement(server):
         assert "did you mean" not in missed.json()["detail"]
 
         short = client.get("/api/workflows/Basic")
-        assert short.status_code == 200  # the top-level name still shadows the nested one
+        assert (
+            short.status_code == 200
+        )  # the top-level name still shadows the nested one
 
         suggested = client.get("/api/workflows/sub%2FBasik")
         assert suggested.status_code == 404

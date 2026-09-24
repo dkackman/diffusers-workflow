@@ -474,7 +474,9 @@ def resolve_readable_workflow(sources, name):
     """
     path, source = find_workflow(sources, name)
     if path is None:
-        raise HTTPException(status_code=404, detail=_unknown_workflow_detail(sources, name))
+        raise HTTPException(
+            status_code=404, detail=_unknown_workflow_detail(sources, name)
+        )
     return path, source
 
 
