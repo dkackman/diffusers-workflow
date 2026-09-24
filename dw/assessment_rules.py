@@ -24,6 +24,10 @@ probe and named here in `unless` so it is written down beside the number:
 `seam_hole` holds only while both sides of the seam are voiced, and
 `seam_frame_jump` does not fire at a seam whose incoming shot is marked
 `hard_cut: true` - a cut meant as a cut.
+
+The thresholds were settled against real runs on the server in stage D
+(#386); `docs/WORKFLOW_GUIDE.md` and `docs/TASKS.md` quote every one, and
+`tests/test_assessment_rules.py` pins those quotes to this table.
 """
 
 from .tasks.audio_utils import LEVEL_SPREAD_WARN_DB
@@ -83,7 +87,10 @@ RULES = (
         "probe": "analyze_seams",
         "field": "jump_ratio",
         "comparator": ">",
-        "threshold": 8.0,
+        # Above every intended cut the stage D field runs measured (#386):
+        # seven ordinary cuts between generated shots read 9.9-20.3, dissolves
+        # about 1.8. At the original 8 the rule fired on every cut
+        "threshold": 25.0,
         "severity": "info",
         "says": "the picture changes this many times more across the seam than inside either shot",
         "unless": "the incoming shot is marked hard_cut: true",

@@ -852,7 +852,7 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `seam_level_step` | `analyze_seams` | the shots either side of a seam differ by more than 3 dB |
 | `seam_click` | `analyze_seams` | the join peaks more than 12 dB above the audio either side |
 | `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
-| `seam_frame_jump` | `analyze_seams` | the picture changes more than 8x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
+| `seam_frame_jump` | `analyze_seams` | the picture changes more than 25x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
 

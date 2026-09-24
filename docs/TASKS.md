@@ -960,7 +960,7 @@ its threshold, and the severity of a crossing:
 | `seam_level_step` | `analyze_seams` | `level_step_db` | > 3.0 dB | warn |
 | `seam_click` | `analyze_seams` | `click_db` | > 12.0 dB | warn |
 | `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
-| `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 8.0 | info |
+| `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 25.0 | info |
 | `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
 | `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
 

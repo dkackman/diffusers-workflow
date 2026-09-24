@@ -9,13 +9,18 @@ real `returns="json"` task command, would silently find nothing - this pins
 every rule to the real probes in `dw/tasks/assess.py`.
 """
 
+import re
+from pathlib import Path
+
 import numpy
 import pytest
 from PIL import Image
 
 from dw.assessment_rules import (
     COMPARATORS,
+    HOLE_VOICED_DBFS,
     RULES,
+    RULES_BY_NAME,
     SEVERITIES,
     crosses,
     finding,
@@ -188,3 +193,83 @@ class TestFinding:
             "threshold": rule["threshold"],
             "says": rule["says"],
         }
+
+
+# ---------------------------------------------------------------------------
+# The docs quote the table (#386): every threshold the guide and TASKS.md
+# state is the one RULES holds, so settling a number cannot leave a stale
+# quote behind
+# ---------------------------------------------------------------------------
+
+DOCS = Path(__file__).resolve().parent.parent / "docs"
+NUMBER = r"(-?\d+(?:\.\d+)?)"
+
+
+def _rule_rows(path, heading):
+    """The `| `rule` | ... |` rows of the first table after `heading`."""
+    text = path.read_text(encoding="utf-8")
+    section = text[text.index(heading) :]
+    rows = {}
+    for line in section.splitlines():
+        if line.startswith("## ") and rows:
+            break
+        match = re.match(r"\| `(\w+)` \|(.*)\|\s*$", line)
+        if match and match.group(1) in RULES_BY_NAME:
+            rows[match.group(1)] = [cell.strip() for cell in match.group(2).split("|")]
+        elif rows and not line.startswith("|"):
+            break
+    return rows
+
+
+def _section(path, heading):
+    text = path.read_text(encoding="utf-8")
+    start = text.index(heading)
+    end = text.find("\n## ", start + len(heading))
+    return text[start : end if end != -1 else len(text)]
+
+
+class TestDocsQuoteTheTable:
+    def test_the_guide_names_every_rule_once(self):
+        rows = _rule_rows(DOCS / "WORKFLOW_GUIDE.md", "## Assessing a run's output")
+        assert set(rows) == set(RULES_BY_NAME)
+
+    def test_tasks_names_every_rule_once(self):
+        rows = _rule_rows(DOCS / "TASKS.md", "### Rules")
+        assert set(rows) == set(RULES_BY_NAME)
+
+    @pytest.mark.parametrize("rule", RULES, ids=lambda rule: rule["name"])
+    def test_the_guide_quotes_the_threshold(self, rule):
+        rows = _rule_rows(DOCS / "WORKFLOW_GUIDE.md", "## Assessing a run's output")
+        probe, fires_when = rows[rule["name"]]
+        assert probe == f"`{rule['probe']}`"
+        wording = {">=": " or more", ">": "more than ", "<": "below "}[
+            rule["comparator"]
+        ]
+        assert wording in fires_when
+        numbers = [float(n) for n in re.findall(NUMBER, fires_when)]
+        assert numbers[0] == rule["threshold"]
+        if rule["name"] == "seam_hole":
+            assert numbers[1:] == [HOLE_VOICED_DBFS]
+        else:
+            assert numbers[1:] == []
+        assert f"`{rule['severity']}`" in fires_when or rule["severity"] == "warn"
+
+    @pytest.mark.parametrize("rule", RULES, ids=lambda rule: rule["name"])
+    def test_tasks_quotes_the_threshold(self, rule):
+        rows = _rule_rows(DOCS / "TASKS.md", "### Rules")
+        probe, field, threshold, severity = rows[rule["name"]]
+        assert probe == f"`{rule['probe']}`"
+        assert field == f"`{rule['field']}`"
+        match = re.match(r"(>=|>|<) " + NUMBER, threshold)
+        assert match, threshold
+        assert match.group(1) == rule["comparator"]
+        assert float(match.group(2)) == rule["threshold"]
+        assert ("(magnitude)" in threshold) == bool(rule.get("magnitude"))
+        assert severity == rule["severity"]
+
+    def test_both_docs_quote_the_voiced_guard(self):
+        guard = f"above {HOLE_VOICED_DBFS:g} dBFS"
+        assert guard in _section(DOCS / "TASKS.md", "### Rules")
+        assert guard in _section(
+            DOCS / "WORKFLOW_GUIDE.md", "## Assessing a run's output"
+        )

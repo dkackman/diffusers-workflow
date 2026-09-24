@@ -12,6 +12,7 @@ import numpy
 import pytest
 from PIL import Image
 
+from dw.assessment_rules import RULES_BY_NAME
 from dw.result import AudioVideo
 from dw.runs import MANIFEST_FILE_NAME, shots_beside
 from dw.shots import shot_record
@@ -303,7 +304,7 @@ class TestStaticShotThenModestCut:
         seam = answer["seams"][0]
         assert seam["typical_delta"] is not None
         assert seam["jump_ratio"] is not None
-        assert seam["jump_ratio"] <= 8.0
+        assert seam["jump_ratio"] <= RULES_BY_NAME["seam_frame_jump"]["threshold"]
         jump_findings = [
             f for f in answer["findings"] if f["rule"] == "seam_frame_jump"
         ]
