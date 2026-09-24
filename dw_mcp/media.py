@@ -231,8 +231,9 @@ def get_output_frames(
     the last frame before and the first frame after each boundary, side by
     side). `boundaries` is the list of frame indexes each shot after the
     first starts at - the running sum of the shots' `frame_count` from
-    `get_gallery_metadata` on their own files - `names` the shots' names -
-    both needed with `seams` until a joined file carries its own.
+    `get_gallery_metadata` on their own files - `names` the shots' names.
+    Without `boundaries`, an output joined from shots uses the boundaries
+    its run recorded (`get_gallery_metadata`'s `media.shots`).
 
     `crop` is `[x, y, width, height]` in the video's own source pixels -
     the same convention `get_output_image` uses - resolved once against

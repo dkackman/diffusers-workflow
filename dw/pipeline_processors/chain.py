@@ -41,6 +41,7 @@ from ..result import (
     get_artifact_list,
     output_file_path,
 )
+from ..shots import shot_record, without_samples
 from ..tasks.audio_utils import (
     as_channels_samples,
     equal_power_crossfade_join,
@@ -315,6 +316,11 @@ def run_chain(pipeline, chain_definition, arguments):
     audio = None  # joined generated audio, (channels, samples) float32
     audio_rate = None
     carry = None
+    # One shot per segment, measured as the picture and track grow (#378);
+    # the frames are counted rather than read off `frames`, which a spilled
+    # chain never fills
+    shots = []
+    frame_count = 0
 
     for segment in config.plan:
         segment_arguments = dict(arguments)
@@ -349,6 +355,16 @@ def run_chain(pipeline, chain_definition, arguments):
         segment_audio, segment_rate = _generated_audio(artifact)
 
         kept_frames = segment_frames[segment.head_trim :]
+        start_sample = audio.shape[1] if audio is not None else 0
+        shots.append(
+            shot_record(
+                f"segment {segment.index + 1}",
+                frame_count,
+                len(kept_frames),
+                start_sample,
+            )
+        )
+        frame_count += len(kept_frames)
         if spill is not None:
             spill.write(
                 kept_frames,
@@ -362,6 +378,10 @@ def run_chain(pipeline, chain_definition, arguments):
             audio, audio_rate = _joined_audio(
                 audio, audio_rate, segment_audio, segment_rate, segment, config
             )
+
+        shots[-1]["num_samples"] = (
+            audio.shape[1] if audio is not None else 0
+        ) - start_sample
 
         # The segment's raw output is finished with - the frames live on
         # (in RAM or on disk) and the carry frame is extracted. Free it
@@ -387,10 +407,32 @@ def run_chain(pipeline, chain_definition, arguments):
         if spill is None:
             frames = frames[: config.total_frames]
         return AudioVideo(
-            frames, config.source_audio, config.source_rate, fps=config.fps
+            frames,
+            config.source_audio,
+            config.source_rate,
+            fps=config.fps,
+            shots=_trimmed_shots(shots, config.total_frames),
         )
 
-    return AudioVideo(frames, audio, audio_rate, fps=config.fps)
+    if audio is None:
+        shots = without_samples(shots)
+    return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
+
+
+def _trimmed_shots(shots, total_frames):
+    """A match_audio chain's shots, cut where its overshooting picture is.
+
+    The soundtrack is the caller's own, laid under whole rather than built
+    segment by segment, so no shot has a stretch of it to measure: the sample
+    side is cleared, not derived.
+    """
+    trimmed = []
+    for shot in without_samples(shots):
+        if shot["start_frame"] >= total_frames:
+            break
+        end = min(shot["start_frame"] + shot["num_frames"], total_frames)
+        trimmed.append({**shot, "num_frames": end - shot["start_frame"]})
+    return trimmed
 
 
 class ChainConfig:

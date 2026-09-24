@@ -42,6 +42,7 @@ from .variable_constraints import (
     resolve_constraint_references,
 )
 from .result_fps import fps_errors
+from .shots import step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -266,6 +267,15 @@ def _release_host_caches(step_name):
         return
     if released:
         logger.info(f"Release after {step_name} returned {released:.0f} MB to the OS")
+
+
+def _relative_shots(entry, run_dir):
+    """A manifest entry's `shots`, each `file` made relative as `files` is."""
+    shots = entry.get("shots")
+    if not shots or not any("file" in shot for shot in shots):
+        return {}
+    files = manifest_relative_files([shot["file"] for shot in shots], run_dir)
+    return {"shots": [{**shot, "file": f} for shot, f in zip(shots, files)]}
 
 
 def selected_field(step_data, selected):
@@ -1493,6 +1503,15 @@ class Workflow:
                     manifest_entry["reused"] = True
                 if selected is not None:
                     manifest_entry["selected"] = selected
+                # Where each joined shot sits in the file, named by the
+                # step's own `videos` references (dw/shots.py)
+                shots = step_shots(
+                    getattr(result, "saved_shots", None),
+                    saved_files,
+                    step_data.get("task", {}).get("arguments", {}).get("videos"),
+                )
+                if shots:
+                    manifest_entry["shots"] = shots
                 # No entry at all for a step the parent saves for: the
                 # parent's own entry names the same files, under the step
                 # name the caller wrote (#92)
@@ -1506,6 +1525,8 @@ class Workflow:
                     step_end_data["reused"] = True
                 if selected is not None:
                     step_end_data["selected"] = selected
+                if shots:
+                    step_end_data["shots"] = shots
                 run_context.emit(
                     "step_end",
                     workflow=workflow_id,
@@ -1651,6 +1672,7 @@ class Workflow:
                         "files": manifest_relative_files(
                             entry.get("files"), self._run_dir
                         ),
+                        **_relative_shots(entry, self._run_dir),
                     }
                     for entry in self.manifest
                 ],

@@ -593,6 +593,21 @@ same reason - default setup cannot load a pack.
   name into the JSON. An entry violation is reported at
   `arguments.shots[0].num_frames`, and the rule is reported beside the field in
   the catalog's `lists` block as well as in `constraints`
+- **A joined video records its shots, measured** — `concat_videos`,
+  `dissolve_videos` and both `run_chain` returns set `AudioVideo.shots`
+  (`dw/shots.py`): one `{name, start_frame, num_frames, start_sample,
+  num_samples}` per input. The frames are partitioned, and the samples are
+  read off the waveform the join built, never derived from the frames, so a
+  shot's overrun stays visible (#385). Every other `AudioVideo` constructor
+  carries, rescales (`interpolate_frames`), re-measures (`pair_audio`) or
+  drops them, and `tests/test_shots.py` enumerates the constructor sites with
+  `ast`, so a new one fails until someone decides for it. `Result.save`
+  keeps them as plain data in `saved_shots` (path -> shots), which survives
+  the step cache's stripped copy. The manifest entry and `step_end` carry
+  `shots`, renamed `shot@<key>` from the step's `videos` references (as
+  `selected_field` does). `recorded_shots` (`dw/runs.py`) reads them back for
+  `get_gallery_metadata`'s `media.shots` and for `get_output_frames(seams=true)`
+  without `boundaries`. The mp4 itself carries nothing yet
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image

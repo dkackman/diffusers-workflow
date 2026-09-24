@@ -11,6 +11,7 @@ import logging
 import torch
 
 from ..result import AudioVideo
+from ..shots import rescaled_shots
 from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
 from .video_utils import frames_as_pil_list
 
@@ -50,6 +51,7 @@ def interpolate_frames(video, device="cpu", **kwargs):
     # through by identity. The soundtrack does not survive - the frame count
     # changes, so pair_audio is how it comes back
     source_fps = getattr(video, "fps", None)
+    source_shots = getattr(video, "shots", None)
     video = frames_as_pil_list(video)
     if len(video) < 2:
         raise ValueError(f"Need at least 2 frames to interpolate, got {len(video)}")
@@ -74,8 +76,14 @@ def interpolate_frames(video, device="cpu", **kwargs):
     # was given, so playing them back at the source rate would run the clip
     # `multiplier` times long. The rate that keeps the source's duration is
     # the source's times the multiplier (#84)
+    # The shots stretch with the frames between them; the track is gone, so
+    # their sample side goes with it
     return AudioVideo(
-        frames, None, None, fps=source_fps * multiplier if source_fps else None
+        frames,
+        None,
+        None,
+        fps=source_fps * multiplier if source_fps else None,
+        shots=rescaled_shots(source_shots, multiplier),
     )
 
 

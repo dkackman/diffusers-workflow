@@ -296,17 +296,23 @@ def bleed_join(
     return numpy.concatenate([previous, following], axis=1)
 
 
-def crossfade_concat(waveforms, sample_rate, crossfade_ms):
+def crossfade_concat(waveforms, sample_rate, crossfade_ms, starts=None):
     """Concatenate waveforms, overlapping each seam by an equal-power crossfade.
 
     The classic crossfade: each seam overlaps the two waveforms by the fade
     window, so the result is shorter than the plain sum by one window per seam.
+
+    `starts`, when given a list, is filled with the sample each waveform
+    begins at in the result - where its crossfade opens - measured as the
+    result grows rather than worked out from the lengths (#378).
     """
     waveforms = [as_channels_samples(waveform) for waveform in waveforms]
     if not waveforms:
         raise ValueError("No waveforms to concatenate")
 
     result = waveforms[0]
+    if starts is not None:
+        starts.append(0)
     for following in waveforms[1:]:
         result, following = _matched_channels(result, following)
         window = min(
@@ -314,6 +320,8 @@ def crossfade_concat(waveforms, sample_rate, crossfade_ms):
             result.shape[1],
             following.shape[1],
         )
+        if starts is not None:
+            starts.append(result.shape[1] - window)
         if window == 0:
             result = _declick_join(result, following, sample_rate)
             continue

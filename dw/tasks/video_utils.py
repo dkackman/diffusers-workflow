@@ -527,7 +527,9 @@ def _decode_audio_video(handle):
         f"{audio.shape[1] if audio is not None else 0} audio samples"
     )
     # The file's own rate travels with it: a step that joins videos read
-    # from disk knows what to write them back at without being told (#84)
+    # from disk knows what to write them back at without being told (#84).
+    # A file carries no shots - the manifest that recorded them is the run's,
+    # not the file's
     return AudioVideo(
         frames, audio, sample_rate if audio is not None else None, fps=frame_rate
     )

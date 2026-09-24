@@ -19,6 +19,7 @@ from PIL import Image
 
 from ..events import emit_warning
 from ..result import AudioVideo
+from ..shots import shot_record
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
@@ -98,7 +99,10 @@ def dissolve_videos(
             )
 
     joined = clips[0]
+    # Where each clip's first frame landed - the start of its dissolve
+    frame_starts = [0]
     for clip in clips[1:]:
+        frame_starts.append(len(joined) - dissolve_frames)
         joined = _dissolve_join(joined, clip, dissolve_frames)
 
     if fade_in_frames or fade_out_frames:
@@ -116,8 +120,23 @@ def dissolve_videos(
             )
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
+    sample_starts = []
     audio, sample_rate = _dissolve_audio(
-        loaded, dissolve_frames, fps, match_levels, match_levels_dbfs, sample_rate
+        loaded,
+        dissolve_frames,
+        fps,
+        match_levels,
+        match_levels_dbfs,
+        sample_rate,
+        sample_starts,
+    )
+    shots = _dissolve_shots(
+        video_names(videos),
+        frame_starts,
+        len(frames),
+        sample_starts,
+        audio,
+        dissolve_frames,
     )
     logger.info(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
@@ -127,7 +146,39 @@ def dissolve_videos(
         (v.fps for v in loaded if getattr(v, "fps", None)),
         None,
     )
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _dissolve_shots(
+    names, frame_starts, total_frames, sample_starts, audio, dissolve_frames
+):
+    """One shot per video, partitioning the dissolved picture and track.
+
+    A dissolve belongs to the shot coming in: each shot runs from where its
+    dissolve opens to where the next one's does, so the counts add up to the
+    file's and `overlap_frames` says how much of its head is blended.
+    """
+    frame_ends = frame_starts[1:] + [total_frames]
+    if audio is None:
+        sample_starts = [None] * len(frame_starts)
+        sample_ends = sample_starts
+    else:
+        sample_ends = sample_starts[1:] + [audio.shape[1]]
+    shots = []
+    for index, name in enumerate(names):
+        start_sample = sample_starts[index]
+        shots.append(
+            shot_record(
+                name,
+                frame_starts[index],
+                frame_ends[index] - frame_starts[index],
+                start_sample,
+                None if start_sample is None else sample_ends[index] - start_sample,
+            )
+        )
+        if index and dissolve_frames:
+            shots[-1]["overlap_frames"] = dissolve_frames
+    return shots
 
 
 def _dissolve_join(previous, following, overlap):
@@ -159,8 +210,12 @@ def _dissolve_audio(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
+    starts=None,
 ):
-    """Crossfade every video's track over the seams' own span."""
+    """Crossfade every video's track over the seams' own span.
+
+    `starts` is filled with where each track begins in the joined one.
+    """
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
     if len(tracks) != len(videos):
         if tracks:
@@ -212,4 +267,7 @@ def _dissolve_audio(
         )
     else:
         warn_on_level_spread(waveforms, "dissolve_videos")
-    return crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate
+    return (
+        crossfade_concat(waveforms, sample_rate, crossfade_ms, starts),
+        sample_rate,
+    )
