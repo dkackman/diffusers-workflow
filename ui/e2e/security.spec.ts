@@ -236,10 +236,13 @@ test.describe('a run that writes text/html', () => {
   test('opening the output does not run it on the UI origin', async ({
     page,
   }) => {
-    await page.goto('/')
-    await page.evaluate(() =>
-      localStorage.setItem('dw-api-token', JSON.stringify('secret-probe')),
-    )
+    // entered the way a user does, through the header's token popover -
+    // the UI is what puts the token where the output's script reads it
+    await page.goto(`/#/ws/${WS}/overview`)
+    await page.getByRole('button', { name: 'API token' }).click()
+    await page.getByPlaceholder('API token').fill('secret-probe')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible()
     await page.goto(`/outputs/${htmlOutput}?workspace=${WS}`)
     await page.waitForLoadState('load')
     const title = await page.title()
