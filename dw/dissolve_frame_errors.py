@@ -10,7 +10,8 @@ reaching a step that was always going to fail, for an arithmetic mistake
 visible from the workflow document alone (#400).
 
 Moved here, into `validation_errors`, for exactly the cases where a video's
-frame count is knowable without running anything: a literal file path, or an
+frame count is knowable without running anything: a literal file path inside
+the directories the run may read (`dw/probe_paths.py`), or an
 `asset:`/`output:` reference, with a literal `dissolve_frames`.
 `resolve_path_references` is what turns either into a real path before the
 run reads it; `probe_media` decodes that file the same way `dw/server/app.py`
@@ -29,39 +30,9 @@ its window to the shortest side (`crossfade_concat`) - a different, and
 already silent, shape of problem with no run-time error to move earlier.
 """
 
-import os
-
-from .arguments import resolve_path_references
-from .assets import is_asset_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
-from .runs import is_output_reference
-
-# Left to the run-time check: not yet resolved to a real file at the point
-# validation walks the expanded definition.
-_UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
-
-
-def _resolve_video_path(value, base_dir):
-    """The local file `value` names, or None when it is not yet resolvable,
-    is not a local file, or does not exist - any of which defers the check
-    to the run, exactly as `dissolve_videos` itself would then load it."""
-    if not isinstance(value, str):
-        return None
-    if value.startswith(_UNRESOLVED_PREFIXES):
-        return None
-    if value.startswith(("http://", "https://")):
-        return None
-    if is_asset_reference(value) or is_output_reference(value):
-        try:
-            value = resolve_path_references(value, base_dir)
-        except Exception:
-            # Existence/traversal problems belong to reference_name_errors
-            # and reference resolution at run time, not to this check
-            return None
-        if not isinstance(value, str):
-            return None
-    return value if os.path.isfile(value) else None
+from .probe_paths import resolve_probe_path
 
 
 def _frame_count(path):
@@ -109,7 +80,7 @@ def dissolve_frame_errors(workflow_definition, source_indices=None, base_dir=Non
 
         problems = []
         for video_index, video in enumerate(videos):
-            path = _resolve_video_path(video, base_dir)
+            path = resolve_probe_path(video, base_dir, "a video argument")
             if path is None:
                 continue
             frame_count = _frame_count(path)
