@@ -113,10 +113,39 @@ class TestLoadTypeFromFullName:
 
     def test_in_ecosystem_dotted_type_works_untrusted(self, monkeypatch):
         _untrust(monkeypatch)
-        result = load_type_from_full_name("torch.bfloat16")
+        result = load_type_from_full_name("torch.nn.Linear", "component_type")
         import torch
 
-        assert result is torch.bfloat16
+        assert result is torch.nn.Linear
+
+    def test_a_dtype_resolves_untrusted_under_a_dtype_key(self, monkeypatch):
+        _untrust(monkeypatch)
+        import torch
+
+        for key in ("dtype", "torch_dtype", "compute_dtype"):
+            assert load_type_from_full_name("torch.bfloat16", key) is torch.bfloat16
+
+    @pytest.mark.parametrize("key", [None, "component_type", "config_type"])
+    def test_a_dtype_is_refused_untrusted_under_a_type_key(self, monkeypatch, key):
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="not a class"):
+            load_type_from_full_name("torch.bfloat16", key)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["torch.hub.load", "torch.load", "diffusers.utils.load_image", "torch.hub"],
+    )
+    def test_an_in_ecosystem_non_class_is_refused_untrusted(self, monkeypatch, name):
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="not a class"):
+            load_type_from_full_name(name, "config_type")
+
+    def test_a_bare_non_class_is_refused_untrusted(self, monkeypatch):
+        from dw.type_helpers import load_type_from_name
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="not a class"):
+            load_type_from_name("utils", "component_type")
 
     def test_out_of_ecosystem_dotted_type_refused_untrusted(self, monkeypatch):
         _untrust(monkeypatch)
@@ -202,6 +231,41 @@ class TestConstantReferencesAreGated:
 
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
         assert load_constant_from_name("os.sep") == "/"
+        assert load_constant_from_name("torch.os.sep") == "/"
+
+    @pytest.mark.parametrize(
+        "name",
+        ["torch.os.environ", "torch.os.sep", "diffusers.utils.constants.os.environ"],
+    )
+    def test_a_walk_through_an_outside_module_is_refused(self, monkeypatch, name):
+        from dw.type_helpers import load_constant_from_name
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="'os' module"):
+            load_constant_from_name(name)
+
+    @pytest.mark.parametrize(
+        "name", ["torch._C", "torch.__dict__", "diffusers._version.__version__"]
+    )
+    def test_a_private_segment_is_refused(self, monkeypatch, name):
+        from dw.type_helpers import load_constant_from_name
+
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError, match="private name"):
+            load_constant_from_name(name)
+
+    def test_a_walk_into_a_dataclass_still_resolves(self, monkeypatch):
+        from dw.type_helpers import load_constant_from_name
+        from diffusers.pipelines.ltx2.utils import GEMMA4_PROMPT_ENHANCEMENT_CONFIG
+
+        _untrust(monkeypatch)
+        assert (
+            load_constant_from_name(
+                "diffusers.pipelines.ltx2.utils."
+                "GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens"
+            )
+            == GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens
+        )
 
 
 class TestValidationGatesUntrustedConstantDefaults:
@@ -396,3 +460,74 @@ class TestTrustPreflightRunsBeforeTheLoadingMarker:
 
         phases = [e for e in events if e.get("event") == "phase"]
         assert not any(p.get("phase") == "loading" for p in phases), phases
+
+
+def _catalog_files():
+    """Every workflow JSON the repo ships: the runnable catalog and the
+    packaged builtins its sub-workflow steps name."""
+    import glob
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return sorted(
+        os.path.relpath(path, root)
+        for tree in ("workflows", os.path.join("dw", "workflows"))
+        for path in glob.glob(os.path.join(root, tree, "**", "*.json"), recursive=True)
+    )
+
+
+def _catalog_references(node):
+    """Every '*_type' / '*_dtype' / 'dtype' value a run would load, keyed by
+    the key it sits under, and every 'constant:' reference."""
+    from dw.arguments import NON_TYPE_KEYS, is_constant_reference, is_escaped
+
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if (
+                isinstance(value, str)
+                and (key.endswith("_type") or key.endswith("_dtype") or key == "dtype")
+                and key not in NON_TYPE_KEYS
+                and key != "media_type"
+                and not is_escaped(value)
+                and ":" not in value
+            ):
+                yield "type", key, value
+            elif is_constant_reference(value):
+                yield "constant", key, value
+            else:
+                yield from _catalog_references(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _catalog_references(value)
+
+
+class TestTheCatalogResolvesUntrusted:
+    """Tightening the untrusted gate to classes and dtypes, and keeping a
+    constant's walk inside the allowed packages (#407), must not refuse a
+    name any shipped workflow uses."""
+
+    @pytest.mark.parametrize("workflow_file", _catalog_files())
+    def test_every_type_and_constant_resolves(self, monkeypatch, workflow_file):
+        import json
+        import os
+
+        from dw.arguments import fetch_constant
+        from dw.type_helpers import load_type_from_name
+
+        _untrust(monkeypatch)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, workflow_file), encoding="utf-8") as file:
+            definition = json.load(file)
+
+        for kind, key, value in _catalog_references(definition):
+            try:
+                if kind == "type":
+                    load_type_from_name(value, key)
+                else:
+                    fetch_constant(value)
+            except UntrustedWorkflowError as error:
+                pytest.fail(f"{workflow_file}: {key}={value!r} refused: {error}")
+            except (ImportError, AttributeError, ValueError):
+                # Not installed here, or not a type at all - test_examples
+                # owns whether a name resolves; this owns whether it is refused
+                pass

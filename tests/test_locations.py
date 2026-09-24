@@ -271,6 +271,12 @@ class TestRemoteEncoderUrl:
 
         assert "Authorization" not in sent["headers"]
 
+    def test_a_backslash_is_refused(self, untrusted):
+        """#409: urllib.parse and urllib3 disagree on the host of a URL
+        holding '\\', so the checked host need not be the dialed one."""
+        with pytest.raises(InvalidInputError, match="backslash"):
+            validate_remote_encoder_url("https://evil.example\\@huggingface.co/encode")
+
 
 class _Embeds:
     def to(self, device):
@@ -343,6 +349,25 @@ class TestValidationTimeErrors:
             ]
         }
         assert location_errors(definition, base_dir=workflow_dir)
+
+    def test_a_backslash_url_is_an_error(self, untrusted, workflow_dir):
+        definition = {
+            "steps": [
+                {
+                    "name": "edit",
+                    "pipeline": {
+                        "arguments": {
+                            "image": "http://169.254.169.254\\@example.com/a.png"
+                        }
+                    },
+                }
+            ]
+        }
+        errors = location_errors(definition, base_dir=workflow_dir)
+        assert [error["path"] for error in errors] == [
+            "steps[0].pipeline.arguments.image"
+        ]
+        assert "backslash" in errors[0]["message"]
 
     def test_an_uncontained_glob_is_an_error(self, untrusted, workflow_dir):
         definition = {

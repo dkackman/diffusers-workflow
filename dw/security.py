@@ -340,6 +340,16 @@ def validate_url(url: str) -> str:
     if not url:
         raise InvalidInputError("URL cannot be empty")
 
+    # urllib.parse and urllib3 disagree on where a backslash ends the host:
+    # 'http://169.254.169.254\@example.com/' is example.com to the check and
+    # 169.254.169.254 to the request. No valid URL needs one, so refuse it
+    # rather than pick a parser
+    if "\\" in url:
+        raise InvalidInputError(
+            f"Invalid URL: '{url}' contains a backslash, which parsers read "
+            f"differently - percent-encode it as %5C if it belongs in the path"
+        )
+
     try:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
