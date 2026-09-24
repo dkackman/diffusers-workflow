@@ -88,7 +88,8 @@ two more rules apply (`dw/type_helpers.py`):
   (`"torch.bfloat16"`) is accepted too, since that is data rather than
   something called. A bare name (`"FluxPipeline"`) resolves against
   `diffusers` and is held to the same rule. `validate_workflow` reports the
-  refusal at the key's path.
+  refusal at the key's path, for every key the run loads as a type
+  (`from_pretrained_arguments.torch_dtype` as much as `config_type`).
 - **A `constant:` walk stays inside the package.** A dotted `constant:`
   reference is gated like a type (the module it names is imported before
   `fetch_constant` gets to refuse a callable, so the import itself is what
@@ -99,7 +100,10 @@ two more rules apply (`dw/type_helpers.py`):
   environment, and is refused at `torch.os`. Reading a field off a value
   declared in an allowed module still works
   (`...ltx2.utils.GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens`). A bare
-  name (`constant:SOME_NAME`) reads from `diffusers`.
+  name (`constant:SOME_NAME`) reads from `diffusers`. `validate_workflow`
+  resolves every literal `constant:` in a step the way the run does and
+  reports a refusal at its path (a variable's default at `variables.<name>`),
+  so nothing is queued to find out.
 
 Every `*_type` and `constant:` in the bundled catalog satisfies both rules,
 pinned by `tests/test_workflow_trust.py`'s catalog sweep. `--trust-workflows`

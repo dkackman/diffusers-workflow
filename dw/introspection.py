@@ -809,18 +809,81 @@ def _type_reference_error(key, value, path):
     return None
 
 
+def _is_type_key(key):
+    """Whether realize_args loads this key's value as a type - the same test
+    it applies at run time, so validation refuses only what the run would."""
+    from .arguments import NON_TYPE_KEYS
+
+    return (
+        isinstance(key, str)
+        and key not in NON_TYPE_KEYS
+        and (key.endswith("_type") or key.endswith("_dtype") or key == "dtype")
+    )
+
+
+def _loose_type_reference_error(key, value, path):
+    """Any other '*_type' / '*_dtype' / 'dtype' value the run loads as a type
+    (a pipeline's torch_dtype, say), put to the same untrusted gate. Only the
+    gate's refusal is reported: a name that merely fails to resolve is left
+    to the run, since realize_args reads some of these keys as something
+    other than a type."""
+    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+        return None
+
+    from .type_helpers import load_type_from_name
+    from .security import UntrustedWorkflowError
+
+    try:
+        load_type_from_name(value, key)
+    except UntrustedWorkflowError as e:
+        return {"path": path, "message": str(e)}
+    except (ImportError, AttributeError, ValueError):
+        pass
+    return None
+
+
+def _constant_reference_error(value, path):
+    """One literal 'constant:' value, resolved the way the run resolves it
+    (arguments.fetch_constant) - so the untrusted walk rules, a callable and
+    a name that does not exist are each refused here rather than after the
+    job is queued. A 'variables' default is resolved earlier, by
+    expanded_definition, and reported at 'variables.<name>'."""
+    from .arguments import fetch_constant, is_constant_reference
+    from .security import InvalidInputError, UntrustedWorkflowError
+
+    if not is_constant_reference(value):
+        return None
+    try:
+        fetch_constant(value)
+    except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+        return {"path": path, "message": str(e)}
+    return None
+
+
 def _walk_type_references(node, path, errors):
-    if isinstance(node, dict):
-        for key in _TYPE_REFERENCE_KEYS:
-            if key in node:
-                error = _type_reference_error(key, node[key], path + (key,))
-                if error is not None:
-                    errors.append(error)
+    from .arguments import is_media_reference
+
+    # A {media_type, location} dict is loaded as media, and its media_type
+    # names a kind rather than a type - realize_args never reads it as one
+    if isinstance(node, dict) and not is_media_reference(node):
         for k, v in node.items():
-            _walk_type_references(v, path + (k,), errors)
+            if k in _TYPE_REFERENCE_KEYS:
+                error = _type_reference_error(k, v, path + (k,))
+            elif _is_type_key(k):
+                error = _loose_type_reference_error(k, v, path + (k,))
+            else:
+                error = _constant_reference_error(v, path + (k,))
+            if error is not None:
+                errors.append(error)
+            else:
+                _walk_type_references(v, path + (k,), errors)
     elif isinstance(node, list):
         for i, item in enumerate(node):
-            _walk_type_references(item, path + (i,), errors)
+            error = _constant_reference_error(item, path + (i,))
+            if error is not None:
+                errors.append(error)
+            else:
+                _walk_type_references(item, path + (i,), errors)
 
 
 def component_type_errors(workflow_definition, source_indices=None):
@@ -829,6 +892,10 @@ def component_type_errors(workflow_definition, source_indices=None):
     misspelled class used to validate clean and only die ~3s into the run,
     after the worker had already loaded a checkpoint the plan's
     downloads_required quoted for a pipeline that could never exist (#345).
+    Every other key the run loads as a type ('torch_dtype', any '*_type')
+    and every literal 'constant:' value in the step are checked the same way,
+    so the untrusted gate refuses them here rather than after the queue
+    (#409).
 
     A class outside the trusted ecosystem entirely (UntrustedWorkflowError,
     see _type_reference_error) is reported with a distinct message from one
@@ -848,9 +915,6 @@ def component_type_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
         source = (
             source_indices[index]
             if source_indices is not None and index < len(source_indices)
@@ -863,7 +927,9 @@ def component_type_errors(workflow_definition, source_indices=None):
             else ""
         )
         found = []
-        _walk_type_references(pipeline, ("pipeline",), found)
+        # The whole step, since realize_args loads a type or a constant
+        # wherever one sits in it - a task's arguments as much as a pipeline
+        _walk_type_references(step, (), found)
         for error in found:
             full_message = f"{error['message']}{where}"
             if not full_message.endswith("."):
