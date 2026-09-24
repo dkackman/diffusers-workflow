@@ -456,9 +456,7 @@ class TestDissolveVideosShots:
             audio = numpy.full((2, samples), float(level), dtype=numpy.float32)
             return AudioVideo(frames(num_frames), audio, sample_rate, fps=fps)
 
-        result = dissolve_videos(
-            [clip(20, 1), clip(20, 2)], dissolve_frames, fps=fps
-        )
+        result = dissolve_videos([clip(20, 1), clip(20, 2)], dissolve_frames, fps=fps)
 
         frame_starts = [shot["start_frame"] for shot in result.shots]
         assert frame_starts[1] == 12  # 20 - dissolve_frames
