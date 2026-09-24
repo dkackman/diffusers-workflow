@@ -36,7 +36,7 @@ from dw.shots import (
     shots_for_file,
     step_shots,
 )
-from dw.tasks.audio_utils import slice_audio
+from dw.tasks.audio_utils import frames_to_samples, slice_audio
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.pair_audio import pair_audio
@@ -440,6 +440,54 @@ class TestDissolveVideosShots:
         # sub-shot only, since the seam is between videos, not inside one
         assert result.shots[1]["overlap_frames"] == 3
         assert "overlap_frames" not in result.shots[2]
+
+    def test_seam_sample_start_matches_the_frame_to_sample_conversion(self):
+        """#401: dissolve_videos' crossfade window used to floor its
+        ms->sample conversion while every other tool that places a frame on
+        a track (frames_to_samples, remeasured_shots) rounds - so a shot's
+        start_sample recorded here could land one sample below what
+        pair_audio would recompute for the same frame boundary. The seam's
+        recorded start_sample must agree with frames_to_samples for the same
+        frame offset, fps and rate."""
+        fps, sample_rate, dissolve_frames = 24, 32000, 8
+
+        def clip(num_frames, level):
+            samples = frames_to_samples(num_frames, fps, sample_rate)
+            audio = numpy.full((2, samples), float(level), dtype=numpy.float32)
+            return AudioVideo(frames(num_frames), audio, sample_rate, fps=fps)
+
+        result = dissolve_videos(
+            [clip(20, 1), clip(20, 2)], dissolve_frames, fps=fps
+        )
+
+        frame_starts = [shot["start_frame"] for shot in result.shots]
+        assert frame_starts[1] == 12  # 20 - dissolve_frames
+
+        expected_sample_start = frames_to_samples(frame_starts[1], fps, sample_rate)
+        assert result.shots[1]["start_sample"] == expected_sample_start
+
+    def test_shots_survive_a_pair_audio_round_trip_unchanged(self):
+        """#401: a shot passed through pair_audio unchanged in frames must
+        come out unchanged in samples - the invariant the two tools' sample
+        math is required to agree on."""
+        fps, sample_rate, dissolve_frames = 24, 32000, 8
+
+        def clip(num_frames, level):
+            samples = frames_to_samples(num_frames, fps, sample_rate)
+            audio = numpy.full((2, samples), float(level), dtype=numpy.float32)
+            return AudioVideo(frames(num_frames), audio, sample_rate, fps=fps)
+
+        joined = dissolve_videos([clip(20, 1), clip(20, 2)], dissolve_frames, fps=fps)
+
+        new_track = numpy.zeros((2, joined.audio.shape[1]), dtype=numpy.float32)
+        paired = pair_audio(joined, new_track, sample_rate=sample_rate, fps=fps)
+
+        assert [shot["start_frame"] for shot in paired.shots] == [
+            shot["start_frame"] for shot in joined.shots
+        ]
+        assert [shot["start_sample"] for shot in paired.shots] == [
+            shot["start_sample"] for shot in joined.shots
+        ]
 
 
 # ---------------------------------------------------------------------------
