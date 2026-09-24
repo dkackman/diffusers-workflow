@@ -142,6 +142,18 @@ class TestSuggestions:
             "templates/minimax/dialogue-short"
         ]
 
+    def test_a_typo_on_a_short_name_still_finds_the_full_catalog_path(self):
+        # The tester's own follow-up: "dialog-short" scores 0.92 against the
+        # entry's own name but 0.55 against the full path, so comparing
+        # full paths missed a real typo entirely
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sources = workflow_sources(
+            os.path.join(repo_root, "workflows"), include_builtin=True
+        )
+        assert suggest_workflow_names(sources, "dialog-short") == [
+            "templates/minimax/dialogue-short"
+        ]
+
 
 class TestSubWorkflowResolution:
     """A composed step's relative path is confined to the root it is handed
