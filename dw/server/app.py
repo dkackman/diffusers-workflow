@@ -2982,7 +2982,11 @@ def create_app(
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one, plus - for audio and
         video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track.
+        which is how an agent that cannot listen checks a track. Only an
+        image embeds 'metadata' this way - it is always null for audio and
+        video, since neither format has a slot this writer uses; recover
+        the recipe from 'job' (GET /api/jobs/{id}/workflow) when one is
+        known, or from nothing when it isn't (a kept asset has no job).
 
         `envelope=true` adds the soundtrack's level second by second, which
         is what says *where* in a track something is - whether a shot is
