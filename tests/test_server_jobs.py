@@ -54,6 +54,32 @@ def finished_job(manager):
     return job
 
 
+def test_submit_checks_content_type_against_the_callers_arguments(manager):
+    """A document-default 'text/html' content_type that the caller's own
+    argument overrides to 'text/plain' must queue - JobManager.submit used
+    to validate the unsubstituted document (loaded.validate(), no
+    arguments), refusing a run that validate_workflow had already accepted
+    for the same call (#415, the run_workflow mirror of #414)."""
+    definition = {
+        "id": "se-415",
+        "variables": {"ct": "text/html"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    job = manager.submit(
+        workflow=definition, arguments={"ct": "text/plain"}, base_dir=None
+    )
+    deadline = time.time() + 5
+    while job.status not in TERMINAL_STATES and time.time() < deadline:
+        time.sleep(0.01)
+    assert job.status == "succeeded", job.error
+
+
 def test_run_start_populates_the_job(manager):
     job = finished_job(manager)
     assert job.run_id == RUN_ID

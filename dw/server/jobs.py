@@ -21,6 +21,7 @@ from ..download_watch import format_progress
 from ..repl_worker import WorkerManager
 from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
+from ..schema import format_validation_errors
 from ..variables import argument_errors
 from ..security import (
     SecurityError,
@@ -814,9 +815,15 @@ class JobManager:
 
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
-            # request, not the queue
+            # request, not the queue. Checked against the caller's arguments,
+            # not the document alone - a bare validate() checks the document
+            # with no arguments and so could refuse a run _candidate_for had
+            # already accepted for the same call (#415, the run_workflow
+            # mirror of #414)
             loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
-            loaded.validate()
+            errors = loaded.validation_errors(arguments=arguments)
+            if errors:
+                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
@@ -829,7 +836,9 @@ class JobManager:
             loaded = workflow_from_definition(
                 copy.deepcopy(workflow), job_output_dir, base_dir, confinement
             )
-            loaded.validate()
+            errors = loaded.validation_errors(arguments=arguments)
+            if errors:
+                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow": workflow,
                 # Must match workflow_from_definition's fallback - the worker
