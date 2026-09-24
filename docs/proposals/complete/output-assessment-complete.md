@@ -1,6 +1,9 @@
 # Proposal: output assessment - let an agent measure, look at and listen to what it made
 
-Status: proposed, 2026-09-20. Scopes issue #193 (agent has no way to hear or
+Status: complete, 2026-09-24 (stage 1 under #193; stages 2-4 as feature
+#378, built smaller than written here - see *Stages 2-4 as built* at the end,
+which supersedes this document wherever the two disagree). Originally
+proposed 2026-09-20. Scopes issue #193 (agent has no way to hear or
 watch generated output), folding in #210 (no `VideoContent` in the MCP SDK)
 and the per-segment `analyze_cut` proposal from #193's thread. Written from
 a design conversation with Don, every section agreed; revised the same day
@@ -481,3 +484,71 @@ A review pass against the code changed the design in these ways:
   until lem data; `get_output_audio` keeps its whole-file refusal; probe
   steps require `application/json`; `list_tasks` gets a fourth list rather
   than a tag; no `next` hint on `get_job`.
+
+## Stages 2-4 as built (#378, 2026-09-24)
+
+Built as feature #378 from plan v2 (issue comment, approved by Don
+2026-09-24), which cut this design down before any code. The plan's verdict
+was *build smaller*: the boundaries and the three probes that answer filed
+bugs (#82, #142, #126, #158/#280, #197, #214, #286), nothing that answered
+none. This section is the record; the sections above are the original
+design and are kept for the analysis behind the deferred parts.
+
+### What was built
+
+| Stage | Issue | What landed | Bounces |
+|---|---|---|---|
+| A, boundaries | #385 | `AudioVideo.shots` (`dw/shots.py`) set by `concat_videos`, `dissolve_videos` and both `run_chain` returns; samples measured off the joined waveform, never derived. Every other constructor carries, rescales, re-measures or drops them, and `tests/test_shots.py` enumerates the sites with `ast`. Names `shot@<key>` from the step's `previous_result:` references. Manifest entries and `step_end` carry `shots`; `get_gallery_metadata` has `media.shots`; `get_output_frames(seams=true)` needs no `boundaries`. | 0 (one follow-up, #390: asset-literal inputs were named by absolute path; fixed separately) |
+| B, probes | #387 | `analyze_shots`, `analyze_seams`, `analyze_sync_drift` in `dw/tasks/assess.py`, a streaming reader, `dw/assessment_rules.py`, the `json` returns kind, `list_tasks`' `assessment` list, `docs/TASKS.md` sections. | 2: `seam_level_step` compared a seam's edge windows and fired on every cut of one clip (now compares shot levels, `9589cae`); a probe could not read an `asset:`/`output:` video (now reads the file, `eda82ba`) |
+| C, `assess_output` | #388 | `GET /api/gallery/{name}/assess` (`dw/server/assess.py`), sync route, one decode; MCP `assess_output(name, probe=None, detail=False, workspace=None)`, probe whitelisted before the name is read, `asset:` accepted with the keep sidecar's shots; `get_gallery_metadata`'s `next` points at it for a cut; the guide's `## Assessing a run's output` (procedure, answer fields, rules, authority rule, remediation table); one pointer in `series-episodes`. Tool count 59. | 0 |
+| D, field test | #386 | `assess_output` over real lem runs (dialogue-short, dissolve-of-joins, double-bill, two drift-step repros, acorn-wars). `seam_frame_jump` moved 8 -> 25 (intended cuts read 9.9-20.3, dissolves ~1.8); every other threshold held by the data; the docs' quoted thresholds are pinned to the table. | 0 |
+
+Cost per stage is not recorded: the stage comments carry no `usage:`
+figures.
+
+### Decisions (Don, 2026-09-24)
+
+- **Q1:** the procedure and remediation table live in the guide
+  (`get_guide`), not a new `dw:judging-output` skill (Section 6 above is
+  superseded). A generic skill failed the skill tests' catalog and
+  `## Run and judge` rules, and stage 1 had already rewritten the family
+  skills' judging steps.
+- **Q2:** the MCP surface budget was made room for by #376 (model narrative
+  out of the tool descriptions), which closed as built; `SURFACE_BUDGET`
+  stayed 13,890, measured 13,849.5 after stage C. The fallback (raise the
+  budget) was not needed.
+- **Q3:** one level-spread threshold, 6 dB, shared with the run-time
+  `level_spread` warning. Stage D's data kept it.
+
+### Deferred, and what brings each back
+
+- **`analyze_continuity`, `analyze_av_alignment`** (and `av_correlation`):
+  no filed issue for either class. Back when a `field-report` shows a
+  continuity or alignment miss frames didn't catch.
+- **The mp4 remux tag** (`dw.shots` in the container comment): rewrites
+  every video, and only matters for a kept asset whose manifest is gone;
+  `keep_output`'s sidecar covers the kept case. Back when someone assesses
+  a file and gets `shots_source: "none"` - the pre-stage-A runs in stage D
+  are exactly that, and have only the sync probe.
+- **`inspect_output`:** folded into `assess_output(probe=...)`.
+- **`hard_cuts` on `concat_videos`:** a shot's `hard_cut: true` is honoured
+  by `seam_frame_jump`, but no task argument sets it.
+
+### Where this document was stale (corrected by plan v2)
+
+- Section 3's constructor table: `loop_frames` builds no `AudioVideo`;
+  `interpolate_frames` drops audio and maps N frames to (N-1)*m+1; chain.py
+  has two sites; there is no `trim_*` task; `_per_frame` also serves
+  `grade`. The authoritative table is now `tests/test_shots.py`.
+- Shot names: `gather:` has already expanded to `previous_result:shot@<key>`
+  when `Workflow.run` sees the step, so names come from that form.
+- `extend-clip` has no chain.
+- `get_output_frames` had grown `boundaries`, `names`, `hear` and `crop`.
+- `returns=` had no kind for a dict saved as JSON; stage B added `json`.
+
+### Release note items
+
+Manifest entries carry `shots`; `get_gallery_metadata` has `media.shots`;
+`get_output_frames(seams=true)` works without `boundaries`; `list_tasks` has
+a fourth list, `assessment`; a probe step must save `application/json`; new
+MCP tool `assess_output` (59 tools).

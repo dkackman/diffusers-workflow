@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374 and #377–#380, and #244 for `resume.md`; #375 was declined, #376 shipped), parked with Don. Its
+`feature` (#374, #377, #379, #380, and #244 for `resume.md`; #375 was declined, #376 and #378 shipped), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -30,13 +30,6 @@ remaining deferred fix is recorded in
 
 ## Tier 3 — high benefit, but big lifts (stage carefully, don't take all at once)
 
-6. **output-assessment-partial.md (stages 2-4)** — the highest-value item on
-   the list; it's the actual fix for the motivating problem (#193's
-   undetected 33ms drift). But it's a multi-stage engine feature (boundary
-   persistence, 5 new probe tasks, a rules table, new routes, a new skill).
-   `output-assessment-complete.md` already stages it into 4
-   independently-landable pieces — treat each as its own decision rather
-   than one big yes/no.
 7. **resume.md** — meaningful for expensive multi-step runs that crash, but
    rehydrating the step cache from disk manifests is a correctness-sensitive
    engine change (step identity matching, partial-state edge cases). High
