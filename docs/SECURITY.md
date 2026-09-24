@@ -253,6 +253,7 @@ SecurityError
 - **Path traversal** — Cannot access files outside allowed directories
 - **Command injection** — No shell interpretation is used anywhere in `dw/`; `sanitize_command_args()` is available as a guard should a subprocess call be added
 - **Resource exhaustion** — File size limits prevent memory exhaustion
+- **Decompression bombs** — an image a caller names is decoded at no more than `MAX_DECODE_PIXELS` (50M; an 8K frame is 33M), checked after `Image.open` and before any decode: `get_output_image` (crops included) refuses it, the gallery thumbnail answers 413, and embedded metadata is read from the PNG header chunks without decoding. Video and audio decode are not limited
 - **Malicious URLs** — Only http/https schemes allowed, and an untrusted
   workflow may not name a host inside the deployment (SSRF)
 - **Arbitrary file read through a media argument** — a location a workflow

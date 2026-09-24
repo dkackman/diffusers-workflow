@@ -27,6 +27,11 @@ ALLOWED_JSON_EXTENSIONS = {".json"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg"}
+# The most pixels an image a caller names is decoded at. A PNG header can claim
+# any size, and Pillow only warns below twice its own MAX_IMAGE_PIXELS, so this
+# is checked after Image.open and before anything decodes. An 8K frame is 33M.
+# dw_mcp keeps its own copy (it cannot import dw), pinned equal by a test.
+MAX_DECODE_PIXELS = 50_000_000
 
 # Dangerous path patterns (handle both Unix and Windows paths)
 DANGEROUS_PATTERNS = [

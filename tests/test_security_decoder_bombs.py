@@ -13,6 +13,7 @@ one that records the attempt and raises before allocating. A test fails when
 that record is non-empty - "refused" means refused *before* the decode.
 """
 
+import io
 import struct
 import zlib
 
@@ -102,11 +103,6 @@ class TestGetOutputImage:
             get_output_image(_serving(bomb_png(*OVER_PILLOWS_ERROR)), "bomb.png")
         assert decodes == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no pixel clamp - gap: get_output_image calls image.load() on "
-        "whatever Pillow opens, and Pillow only warns below 2x MAX_IMAGE_PIXELS",
-    )
     def test_a_bomb_under_pillows_limit_is_refused_before_decode(self, decodes):
         try:
             get_output_image(_serving(bomb_png(*UNDER_PILLOWS_ERROR)), "bomb.png")
@@ -114,11 +110,6 @@ class TestGetOutputImage:
             pass
         assert decodes == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no pixel clamp - gap: a crop is cut from the fully decoded "
-        "image, so a small crop still decodes the whole bomb",
-    )
     def test_a_crop_does_not_decode_the_whole_bomb(self, decodes):
         try:
             get_output_image(
@@ -158,11 +149,6 @@ class TestGalleryThumbnail:
         assert response.status_code >= 400
         assert decodes == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no pixel clamp - gap: gallery_thumbnail's draft() is a no-op "
-        "for PNG, so thumbnail() decodes the full image first",
-    )
     def test_a_bomb_under_pillows_limit_is_refused_before_decode(
         self, gallery, decodes
     ):
@@ -172,12 +158,6 @@ class TestGalleryThumbnail:
             client.get("/api/gallery/bomb.png/thumbnail")
         assert decodes == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no pixel clamp - gap: read_embedded_metadata (dw/result.py) "
-        "reads PngImageFile.text, which makes Pillow load() the whole image "
-        "to reach text chunks after IDAT",
-    )
     def test_the_gallery_metadata_route_does_not_decode_it(self, gallery, decodes):
         """Width and height are in the header; nothing about a request for
         metadata needs every pixel of a bomb."""
@@ -193,3 +173,37 @@ class TestGalleryThumbnail:
         with client:
             assert client.get("/api/gallery").status_code == 200
         assert decodes == []
+
+
+def test_the_mcp_limit_is_the_engines():
+    """dw_mcp cannot import dw (the torch boundary), so it keeps its own copy
+    of the limit; the two may not drift."""
+    from dw.security import MAX_DECODE_PIXELS as engine
+    from dw_mcp.media import MAX_DECODE_PIXELS as mcp
+
+    assert mcp == engine == DECODE_LIMIT
+
+
+def test_the_refusal_names_the_size_and_the_limit(decodes):
+    with pytest.raises(DwApiError, match=r"12000x12000.*50,000,000 pixels"):
+        get_output_image(_serving(bomb_png(*UNDER_PILLOWS_ERROR)), "bomb.png")
+
+
+def test_the_thumbnail_route_answers_413(gallery, decodes):
+    client, outputs = gallery
+    (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
+    (outputs / "bigger.png").write_bytes(bomb_png(*OVER_PILLOWS_ERROR))
+    with client:
+        assert client.get("/api/gallery/bomb.png/thumbnail").status_code == 413
+        assert client.get("/api/gallery/bigger.png/thumbnail").status_code == 413
+
+
+def test_an_image_under_the_limit_is_still_served(tmp_path):
+    """The limit is on pixels decoded, not a new ceiling on ordinary work: an
+    image under it still decodes, crops and thumbnails."""
+    image = Image.new("RGB", (640, 480), (200, 40, 40))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    result = get_output_image(_serving(buffer.getvalue()), "ok.png", crop=[0, 0, 8, 8])
+    assert result["original_size"] == [640, 480]
+    assert result["crop"] == [0, 0, 8, 8]
