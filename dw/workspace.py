@@ -671,7 +671,11 @@ class ConfiguredWorkspace(Workspace):
             os.path.abspath(os.path.expanduser(str(assets))) if assets else None
         )
         self._outputs = os.path.abspath(os.path.expanduser(str(outputs)))
-        self._prompts = os.path.abspath(os.path.expanduser(str(prompts)))
+        # prompts is optional too - a server configured with no prompt
+        # library at all (app.state.prompt_dir can be None)
+        self._prompts = (
+            os.path.abspath(os.path.expanduser(str(prompts))) if prompts else None
+        )
 
     @property
     def is_default(self):

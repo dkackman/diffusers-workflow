@@ -4155,7 +4155,7 @@ def create_app(
         }
 
     @app.get("/api/server")
-    def server_info():
+    def server_info(ws: Workspace = Depends(selected_workspace)):
         """How this server is reachable, for the UI's Server page: what it
         is bound to, whether a token is needed, whether MCP is mounted, and
         the addresses another machine could name it by.
@@ -4164,6 +4164,12 @@ def create_app(
         and `mcp.path` - and the token itself is never reported in any
         form, only whether one is required. An interface enumeration
         failure is not a server failure: `addresses` comes back empty.
+
+        `directories` is scoped to the `?workspace=` a caller names (or the
+        session's own pin, via `_scoped`) - a mounted `download_output`
+        confines a write to *that* workspace's output tree, so reporting
+        the server's own default here regardless of the selector sent a
+        caller pinned elsewhere writing into `default` without any error (#389).
         """
         import socket
 
@@ -4196,17 +4202,18 @@ def create_app(
             # answers, e.g. whether bitsandbytes is even installed (#222)
             "runtime": runtime_info(),
             "directories": {
-                # The workspace the three below default to folders of; an
-                # individually overridden folder still reports its own path
-                "workspace": app.state.workspace,
-                "workflows": os.path.abspath(app.state.workflow_dir),
-                "assets": app.state.asset_dir,
-                "outputs": os.path.abspath(manager.output_dir),
-                "prompts": (
-                    os.path.abspath(app.state.prompt_dir)
-                    if app.state.prompt_dir
-                    else None
-                ),
+                # ws's properties are already absolute (Workspace and
+                # ConfiguredWorkspace both resolve at construction). This
+                # "workspace" is the root path a mounted download_output
+                # confines a write to (dw_mcp/media.py's _remote_root) -
+                # None for a default workspace configured from individual
+                # directory overrides with no --workspace root, same as
+                # before this route was workspace-aware
+                "workspace": ws.root,
+                "workflows": ws.workflows,
+                "assets": ws.assets,
+                "outputs": ws.outputs,
+                "prompts": ws.prompts,
             },
         }
 
