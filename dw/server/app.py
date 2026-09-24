@@ -134,6 +134,7 @@ from ..workflow_sources import (
     resolve_in_source,
     resolve_sub_workflow,
     source_for_path,
+    suggest_workflow_names,
     workflow_names,
     workflow_sources,
     writable_source,
@@ -449,6 +450,21 @@ def _write_bytes(path, data):
         f.write(data)
 
 
+def _unknown_workflow_detail(sources, name):
+    """'Unknown workflow: x', with a '- did you mean ...?' pointer when the
+    catalog holds something `name` could be short for or a typo of (#397) -
+    otherwise a caller has to spend a list_workflows call and guess the
+    right shape/traits to find the entry it already knows by its short
+    name."""
+    detail = f"Unknown workflow: {name}"
+    suggestions = suggest_workflow_names(sources, name)
+    if len(suggestions) == 1:
+        detail += f" - did you mean {suggestions[0]}?"
+    elif suggestions:
+        detail += f" - did you mean one of: {', '.join(suggestions)}?"
+    return detail
+
+
 def resolve_readable_workflow(sources, name):
     """The path a name has anywhere on the search path, and its source.
 
@@ -458,7 +474,7 @@ def resolve_readable_workflow(sources, name):
     """
     path, source = find_workflow(sources, name)
     if path is None:
-        raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
+        raise HTTPException(status_code=404, detail=_unknown_workflow_detail(sources, name))
     return path, source
 
 
@@ -521,11 +537,13 @@ def resolve_workflow_reference(workflow_path, sources):
             confined = None
         if confined is not None and os.path.isfile(confined):
             return confined, source
-    raise HTTPException(
-        status_code=400,
-        detail=f"workflow_path must name a workflow the server can reach: "
-        f"{workflow_path}",
-    )
+    detail = f"workflow_path must name a workflow the server can reach: {workflow_path}"
+    suggestions = suggest_workflow_names(sources, workflow_path)
+    if len(suggestions) == 1:
+        detail += f" - did you mean {suggestions[0]}?"
+    elif suggestions:
+        detail += f" - did you mean one of: {', '.join(suggestions)}?"
+    raise HTTPException(status_code=400, detail=detail)
 
 
 # What each prompt says about itself, for listing cards - cached by mtime
