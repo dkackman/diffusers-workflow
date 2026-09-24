@@ -15,6 +15,14 @@ mismatch its writer later. image/*, text/* and *.json values stay
 permissive beyond the MIME-shape check: their writer dispatch is a generic
 prefix/suffix match (PIL's own format inference, a literal text or JSON
 write) with no narrower container to enforce a whitelist against.
+
+The one text/* exception is active content. `/outputs` serves a written
+file on the UI's own origin, without a token, so an .html or .xml output is
+a page whose script reads the API token the UI keeps in localStorage (#407).
+`text/html` and `text/xml` are the two active types the text writer can
+produce, so they are refused outright; the server also serves every active
+type it finds on disk under a `Content-Security-Policy: sandbox`, since a
+planted file never passes through here.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
@@ -27,6 +35,24 @@ CONTENT_TYPE_KEY = "content_type"
 # spelled out here is one nothing resolved, and that is the undeclared-
 # variable pass's complaint rather than a shape error
 _UNRESOLVED_PREFIXES = ("variable:", "item:")
+
+# Result types a browser would run as a document on the UI origin
+REFUSED_ACTIVE_CONTENT_TYPES = frozenset({"text/html", "text/xml"})
+
+
+def _active_content_fault(value):
+    # compared without parameters or case: 'Text/HTML; charset=utf-8' is
+    # the same document type
+    if (
+        isinstance(value, str)
+        and value.split(";", 1)[0].strip().lower() in REFUSED_ACTIVE_CONTENT_TYPES
+    ):
+        return (
+            f"Invalid content_type: {value!r} - active content is not written: "
+            f"a browser would run it as a page on the server's origin. Use "
+            f"'text/plain' or 'application/json'"
+        )
+    return None
 
 
 def content_type_fault(value):
@@ -41,6 +67,9 @@ def content_type_fault(value):
     except InvalidInputError as e:
         return str(e)
 
+    active = _active_content_fault(value)
+    if active is not None:
+        return active
     main_type = value.split("/", 1)[0]
     if main_type == "audio" and value not in AUDIO_FORMATS:
         return (
@@ -102,4 +131,20 @@ def content_type_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["content_type_errors", "content_type_fault"]
+def refuse_active_content_type(value):
+    """Raise InvalidInputError for an active result type - the writer's
+    run-time half of the refusal `content_type_errors` makes, for a
+    definition that reached it without validation. Only this refusal: the
+    writer's own dispatch still answers every other value as it did."""
+    fault = _active_content_fault(value)
+    if fault is not None:
+        raise InvalidInputError(fault)
+    return value
+
+
+__all__ = [
+    "REFUSED_ACTIVE_CONTENT_TYPES",
+    "content_type_errors",
+    "content_type_fault",
+    "refuse_active_content_type",
+]

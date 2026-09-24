@@ -254,12 +254,6 @@ class TestOriginAndHostSpoofing:
             assert response.status_code >= 400
             assert _jobs(client) == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="reject_foreign_origins calls urlparse outside a try, so a "
-        "bracketed non-IPv6 Origin is a 500 from an unhandled ValueError "
-        "rather than the 403 every other refused Origin gets",
-    )
     def test_an_unparseable_origin_is_a_403_not_a_500(self, make_client):
         app = make_client().app
         with TestClient(

@@ -686,6 +686,18 @@ WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 # it tells you to run on the other machine
 MCP_PATH = "/mcp"
 
+# Types a browser renders as a document, where script runs: /outputs and
+# /inputs serve these under a CSP sandbox (_sandbox_active_content)
+ACTIVE_DOCUMENT_TYPES = frozenset(
+    {
+        "text/html",
+        "application/xhtml+xml",
+        "text/xml",
+        "application/xml",
+        "image/svg+xml",
+    }
+)
+
 
 def query_token_ok(fn):
     """Mark a GET endpoint as one a browser loads without being able to set
@@ -874,7 +886,16 @@ def create_app(
         forwards Host unchanged while the browser's Origin is https."""
         origin = request.headers.get("origin")
         if origin:
-            origin_host = (urlparse(origin).hostname or "").lower()
+            try:
+                origin_host = (urlparse(origin).hostname or "").lower()
+            except ValueError:
+                # urlparse raises on a bracketed host that is not IPv6
+                # ('http://[::1].evil.example'): refused like any other
+                # foreign Origin rather than escaping as a 500
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin requests are not allowed"},
+                )
             request_host = (request.url.hostname or "").lower()
             # origin_host must be non-empty for the same-origin clause:
             # `Origin: null` (a sandboxed iframe, a file:// page) parses to
@@ -952,6 +973,18 @@ def create_app(
                 content={"detail": "Missing or invalid bearer token"},
             )
         return await call_next(request)
+
+    # Added last, so it is the outermost middleware and its headers land on
+    # every response - including the 400/401/403 answers the checks above
+    # return without reaching a route. nosniff stops a browser reading an
+    # output as a type other than the one it was served as; DENY stops any
+    # other site framing the UI to click its buttons (#407)
+    @app.middleware("http")
+    async def browser_headers(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
 
     # -------------------------------------------------------- workspace lookup
 
@@ -4359,13 +4392,33 @@ def create_app(
     # /assets/, and serving the library there shadows them - the page loads
     # and then renders nothing, because its script and stylesheet 404. The
     # name is also the symmetric one, next to /outputs
+    def _sandbox_active_content(response):
+        """Serve a document type under `Content-Security-Policy: sandbox`.
+
+        /outputs and /inputs share the UI's origin and need no token, so an
+        .html, .xhtml, .xml or .svg file served as-is is a page whose script
+        reads the token the UI keeps in localStorage. Validation refuses a
+        workflow writing one (dw/content_types.py), but a planted file or a
+        kept asset never passes through there. sandbox gives the document an
+        opaque origin and no script, and still lets an image or a .txt show
+        in the tab, which an attachment disposition would not. Set on the
+        Response StaticFiles built, so its ETag/304 and Range/206 stand"""
+        media_type = (
+            response.headers.get("content-type", "").split(";")[0].strip().lower()
+        )
+        if media_type in ACTIVE_DOCUMENT_TYPES:
+            response.headers["Content-Security-Policy"] = "sandbox"
+        return response
+
     @app.get("/outputs/{name:path}")
     async def output_file(
         name: str, request: Request, ws: Workspace = Depends(selected_workspace)
     ):
         """One generated file, from the workspace that made it."""
         files = _static_files_for(ws.outputs)
-        return await files.get_response(_strip_output_prefix(name), request.scope)
+        return _sandbox_active_content(
+            await files.get_response(_strip_output_prefix(name), request.scope)
+        )
 
     @app.get("/inputs/{name:path}")
     async def input_file(
@@ -4385,7 +4438,9 @@ def create_app(
                 continue
             if os.path.isfile(candidate):
                 files = _static_files_for(root)
-                return await files.get_response(name, request.scope)
+                return _sandbox_active_content(
+                    await files.get_response(name, request.scope)
+                )
         # Nothing has it: let the workspace's own library answer, so the
         # 404 (and its headers) come from StaticFiles as they always did
         files = _static_files_for(roots[0])
