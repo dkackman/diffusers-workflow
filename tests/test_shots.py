@@ -222,6 +222,25 @@ class TestConcatVideosShots:
         # "shot@" marker, which is how a for_each member is named elsewhere
         assert [shot["name"] for shot in named] == ["shot@a", "shot@b"]
 
+    def test_shot_reference_names_name_an_ordinary_step(self):
+        """A `previous_result:` reference that does not name a `shot@`
+        for_each member still names a shot - after the step it points at,
+        so a shot from an ordinary step (a `pair_audio`, a chain) is
+        traceable rather than falling back to "video N" (#396)."""
+        videos = [audio_video(4, 1), audio_video(4, 2)]
+
+        result = concat_videos(videos, fps=4)
+        named = named_shots(
+            result.shots,
+            shot_reference_names(
+                ["asset:ep31-shot1-return.mp4", "previous_result:shot2d"]
+            ),
+        )
+
+        # position 0 keeps whatever name the join itself gave it - only the
+        # previous_result reference at position 1 is renamed
+        assert [shot["name"] for shot in named] == ["video 1", "shot2d"]
+
     def test_no_audio_input_leaves_sample_fields_none(self):
         result = concat_videos([frames(4), frames(3)])
 
