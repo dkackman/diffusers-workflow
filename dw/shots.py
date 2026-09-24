@@ -158,6 +158,23 @@ def named_shots(shots, names):
     ]
 
 
+def _rename_in_place(shots, names):
+    """Write the step-named `name`s back onto the shot dicts themselves.
+
+    `Result.save` stores `saved_shots[path]` as the artifact's own `.shots`
+    list, not a copy (`self._artifacts_for` / `getattr(artifact, "shots")`),
+    and that same artifact is what a later `previous_result:` step reads
+    (`results[step.name]` holds it directly). Renaming only the manifest's
+    deep copy left that artifact carrying the join's `video N` fallback, so
+    a probe reading `previous_result:cut` still saw the unnamed shot even
+    after the manifest was fixed (#396 follow-up). Mutating here reaches
+    both.
+    """
+    for shot, named in zip(shots, named_shots(shots, names)):
+        if named is not shot:
+            shot["name"] = named["name"]
+
+
 def step_shots(saved_shots, saved_files, references=None):
     """The `shots` a step's manifest entry and step_end carry, or None.
 
@@ -171,12 +188,14 @@ def step_shots(saved_shots, saved_files, references=None):
         return None
     names = shot_reference_names(references)
     files = [path for path in saved_files or [] if path in saved_shots]
+    for path in files:
+        _rename_in_place(saved_shots[path], names)
     if len(files) == 1 and len(saved_files) == 1:
-        return named_shots(copy.deepcopy(saved_shots[files[0]]), names)
+        return copy.deepcopy(saved_shots[files[0]])
     return [
         {**shot, "file": path}
         for path in files
-        for shot in named_shots(copy.deepcopy(saved_shots[path]), names)
+        for shot in copy.deepcopy(saved_shots[path])
     ]
 
 

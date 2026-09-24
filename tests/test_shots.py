@@ -594,6 +594,45 @@ class TestRoundTrip:
 
         assert read_back == manifest_shots
 
+    def test_step_shots_renames_reach_the_artifact_a_later_step_would_read(
+        self, tmp_path
+    ):
+        """A later step's `previous_result:cut` reads the same artifact
+        object `Result.save` extracted (`Result._artifacts_for`'s cache, by
+        identity) - not a fresh copy - so a probe reading `previous_result:
+        cut` after this step must see the step-named shot too, not just the
+        manifest built alongside it. Renaming only a deep copy for the
+        manifest left the artifact itself carrying the join's `video 2`
+        fallback (#396 follow-up)."""
+        videos = [audio_video(4, 1), audio_video(4, 2)]
+        joined = concat_videos(videos, fps=4)
+
+        result = Result({"content_type": "video/mp4", "save": True})
+        result.add_result(joined)
+
+        run_dir = tmp_path / "cut-demo" / "20260924-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            saved_files = result.save(str(run_dir), "cut-demo-join.0")
+
+        step_shots(
+            result.saved_shots,
+            saved_files,
+            references=["asset:ep31-shot1-return.mp4", "previous_result:shot2d"],
+        )
+
+        # What a later step reads via previous_result:cut (get_artifacts, the
+        # same-identity artifact) - not the manifest's deep copy
+        artifact = result.get_artifacts()[0]
+        assert [shot["name"] for shot in artifact.shots] == [
+            "video 1",
+            "shot2d",
+        ]
+
     def test_recorded_shots_is_none_outside_a_run_directory(self, tmp_path):
         # The flat layout - no run id segment - has no manifest to read shots from
         assert recorded_shots(str(tmp_path), "workflow/still.png") is None
