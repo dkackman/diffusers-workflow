@@ -442,18 +442,24 @@ def delete_output(client, name=None, workspace=None, job_id=None):
     return {**deleted, "job_id": job_id, "run_dir": run_dir}
 
 
-def _remote_root(client):
+def _remote_root(client, workspace=None):
     """The workspace a remote write is confined to, or None when local.
 
     Only the mounted MCP surface is remote: there the tool runs inside
     dw.serve, so the path a caller names is a path on the operator's box
     rather than on its own machine. A stdio `dw-mcp` returns None and keeps
     writing wherever the user can.
+
+    `workspace` is an explicit per-call override (download_output's own
+    `workspace` argument); when omitted, `client.get_json`'s `_scoped`
+    already falls back to the session's own pin (#389).
     """
     if not getattr(client, "mounted", False):
         return None
 
-    directories = (client.get_json("/api/server").get("directories")) or {}
+    directories = (
+        client.get_json("/api/server", workspace=workspace).get("directories")
+    ) or {}
     root = directories.get("workspace")
     if not root:
         raise DwApiError(
@@ -524,7 +530,7 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     omitted `destination` keeps defaulting to the current working directory,
     because there "local disk" is genuinely their own.
     """
-    root = _remote_root(client)
+    root = _remote_root(client, workspace=workspace)
     if destination is None:
         if root:
             raise DwApiError(

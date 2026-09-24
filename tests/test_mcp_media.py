@@ -897,6 +897,42 @@ def test_a_mounted_server_refuses_an_overwrite_outside_the_workspace(tmp_path):
     assert victim.read_text() == "mine"
 
 
+def test_a_mounted_server_confines_a_per_call_workspace_override(tmp_path):
+    """#389: download_output's own `workspace` argument overrides the
+    session's pin for the download itself (stream_to_file already forwarded
+    it), but _remote_root asked /api/server with no workspace at all, so the
+    confinement root stayed the session's - a relative destination under a
+    workspace= override landed in the wrong tree with no error."""
+    default_ws = tmp_path / "default"
+    default_ws.mkdir()
+    other_ws = tmp_path / "other"
+    other_ws.mkdir()
+
+    def handler(request):
+        if request.url.path == "/api/server":
+            requested = httpx.QueryParams(request.url.query.decode())
+            root = other_ws if requested.get("workspace") == "other" else default_ws
+            return httpx.Response(
+                200,
+                json={"directories": {"workspace": str(root)}},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200, content=png_bytes(4, 4), headers={"content-type": "image/png"}
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    client.mounted = True
+
+    result = download_output(
+        client, "run/probe.jpg", destination="kept/probe.jpg", workspace="other"
+    )
+
+    assert result["saved_to"] == str(other_ws / "kept" / "probe.jpg")
+    assert (other_ws / "kept" / "probe.jpg").read_bytes() == png_bytes(4, 4)
+    assert not (default_ws / "kept" / "probe.jpg").exists()
+
+
 def test_a_mounted_server_writes_a_relative_destination_into_its_workspace(tmp_path):
     """And the default keeps working: a relative destination is joined onto
     the workspace rather than onto whatever the server's cwd happens to be."""

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.server import netinfo
+from dw.workspace import Workspace, create_workspace
 
 from tests.test_server import ScriptedWorkerManager, success_script
 
@@ -97,6 +98,49 @@ def test_prompt_dir_may_be_absent(tmp_path):
     )
     with TestClient(app, base_url="http://localhost") as c:
         assert c.get("/api/server").json()["directories"]["prompts"] is None
+
+
+def test_directories_are_scoped_to_the_requested_workspace(tmp_path):
+    """#389: a mounted download_output confines a write against
+    directories.workspace, so this route has to answer per the ?workspace=
+    a caller (or the client's session pin) actually names, not the server's
+    own default - a caller pinned to a named workspace was writing into the
+    default workspace's tree with no error."""
+    root = Workspace(tmp_path / "studio", "flag").ensure()
+    named = create_workspace(root, "session-a")
+    manager = JobManager(
+        root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=root.workflows,
+    )
+    app = create_app(
+        workflow_dir=root.workflows,
+        output_dir=root.outputs,
+        prompt_dir=root.prompts,
+        asset_dir=root.assets,
+        job_manager=manager,
+        workspace=root.root,
+    )
+    with TestClient(app, base_url="http://localhost") as c:
+        default_directories = c.get("/api/server").json()["directories"]
+        scoped_directories = c.get("/api/server?workspace=session-a").json()[
+            "directories"
+        ]
+
+    assert default_directories["workspace"] == root.root
+    assert default_directories["workflows"] == root.workflows
+    assert default_directories["assets"] == root.assets
+    assert default_directories["outputs"] == root.outputs
+    assert default_directories["prompts"] == root.prompts
+
+    assert scoped_directories["workspace"] == named.root
+    assert scoped_directories["workflows"] == named.workflows
+    assert scoped_directories["assets"] == named.assets
+    assert scoped_directories["outputs"] == named.outputs
+    assert scoped_directories["prompts"] == named.prompts
+
+    assert scoped_directories["workspace"] != default_directories["workspace"]
 
 
 def test_auth_required_and_token_never_disclosed(tmp_path):
