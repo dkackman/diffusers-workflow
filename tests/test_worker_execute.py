@@ -22,7 +22,7 @@ class StubWorkflow:
         self.behavior = behavior
         self.manifest = [{"step": "s", "files": ["/out/a.png"]}]
 
-    def validate(self):
+    def validate(self, arguments=None):
         pass
 
     def run(
@@ -393,6 +393,53 @@ def test_a_workflow_switch_forgets_the_prior_keys():
         command={"workflow_path": "other.json", "arguments": {}, "output_dir": "/tmp"},
     )
     assert worker.prior_step_keys == {}
+
+
+def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_path):
+    """#415: a document-default 'text/html' content_type that the caller's
+    own argument overrides to 'text/plain' must actually run, not just queue.
+
+    JobManager.submit() (fixed for #415's first bounce) checks the caller's
+    arguments before handing the command to the worker, but _handle_execute
+    itself called workflow.validate() with none - so the job queued, then
+    failed at execution against the unsubstituted default. This drives a
+    real Workflow (not StubWorkflow, which stubs validate() to a no-op)
+    through the actual worker path, the one StubWorkflow-based tests above
+    cannot catch."""
+    from dw.workflow import workflow_from_definition
+
+    worker = _make_worker()
+    definition = {
+        "id": "se-415",
+        "variables": {"ct": "text/html"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": ["<b>x</b>"]}},
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    with patch(
+        "dw.worker.workflow_from_definition",
+        lambda data, out, base_dir=None, workflow_dir=None: workflow_from_definition(
+            data, out, base_dir, workflow_dir
+        ),
+    ):
+        worker._handle_execute(
+            {
+                "workflow": definition,
+                "arguments": {"ct": "text/plain"},
+                "output_dir": str(tmp_path),
+            }
+        )
+    messages = _drain(worker.result_queue)
+    types = [m["type"] for m in messages]
+    assert "success" in types, messages
+    success = next(m for m in messages if m["type"] == "success")
+    files = success["manifest"][0]["files"]
+    assert len(files) == 1
+    assert (tmp_path / files[0]).read_text() == "<b>x</b>"
 
 
 def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():

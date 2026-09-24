@@ -201,8 +201,8 @@ def for_each_script(command):
         command.get("workflow_dir"),
     )
     # Mirrors dw/worker.py's _handle_execute: validated against the
-    # defaults first, then run() substitutes and expands the real arguments.
-    workflow.validate()
+    # caller's own arguments (#415), which run() then substitutes and expands.
+    workflow.validate(arguments=command["arguments"])
     workflow.run(command["arguments"], {})
     yield {
         "type": "success",
