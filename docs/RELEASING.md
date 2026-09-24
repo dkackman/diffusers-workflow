@@ -19,8 +19,11 @@ release body once the tag has published (`gh release edit v0.4.0
 - `download_output` over a `dw.serve --mcp` endpoint refuses a call with no
   `destination`. It used to write into the server's own directory (#353).
 - Untrusted workflows are refused in more cases (#409-#413):
-  - a `*_type` that doesn't resolve to a class, or that resolves to a class
-    defined outside the trusted packages;
+  - a `*_type` that doesn't resolve to a class, or that isn't a kind a
+    workflow constructs: a diffusers or transformers model, pipeline,
+    scheduler, tokenizer or processor, a quantization config, an auto
+    factory, a diffusers reference/condition type or an attention processor.
+    A plain `torch` class such as `torch.nn.Linear` is now refused;
   - `constant:` walks through `_` names or out of the allowed packages;
   - URLs with backslashes;
   - `text/html` and `text/xml` result types;
