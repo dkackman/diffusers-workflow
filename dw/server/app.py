@@ -1119,8 +1119,15 @@ def create_app(
             candidate = workflow_from_definition(
                 copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
             )
-        candidate.validate()
-        problems = argument_errors(candidate.workflow_definition, arguments)
+        # Checked against the caller's arguments, not the document alone -
+        # validate_workflow's candidate.validation_errors(arguments=...) is
+        # what catches a content_type (or reference_name, video_extension,
+        # ...) that only becomes active once a 'variable:' resolves; a bare
+        # candidate.validate() checked the document with no arguments and so
+        # queued a job validate_workflow had already refused for the same
+        # call (#414)
+        problems = candidate.validation_errors(arguments=arguments)
+        problems += argument_errors(candidate.workflow_definition, arguments)
         # A value outside a rule the workflow declares, refused before the
         # job id rather than after the weights are loaded (#96)
         problems += constraint_errors(
