@@ -42,6 +42,12 @@ remaining deferred fix is recorded in
    2026-09-20; the maintenance/observability page itself (orphan listing,
    disk usage, job pruning) is the remaining, much bigger ask.
 
+## Shipped since the ranking
+
+- **Closing the xfail security tests** (#407, stages #409-#413), shipped
+  2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
+  Playwright in CI): `complete/xfail-security-tests-complete.md`.
+
 ## Declined
 
 Kept in `declined/` with the reason at the top, so a revival starts from
