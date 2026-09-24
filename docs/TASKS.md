@@ -861,7 +861,9 @@ sample rate, reads as `null` rather than `-inf`.
 
 Three read-only commands measure a finished cut and say where to look -
 `analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each takes a video
-(a path, or the video an earlier step returned) and answers one JSON
+(a stored file - `asset:`, `output:` or a path, read straight from disk
+rather than decoded first - or the video an earlier step returned; not a
+URL, whose download is a bare frame list with no soundtrack) and answers one JSON
 document: every measurement it took, plus `findings` (the measurements that
 crossed a rule in the table below), `rules_applied` (the rule names the probe
 checked) and `shots_source` (where the shot list came from). A probe reads
