@@ -680,3 +680,47 @@ def recorded_shots(output_root, relative_path):
             if shots:
                 return shots
     return None
+
+
+# How far up from a file its run's manifest can sit: the run directory, a
+# subfolder (`final/`) and the subfolder's own nesting, which
+# SUBFOLDER_PATTERN caps well below this
+MANIFEST_SEARCH_DEPTH = 8
+
+
+def shots_beside(path):
+    """The shots a run's manifest records for a file named by its absolute path.
+
+    `recorded_shots` needs the output root and a gallery name; a task that
+    was handed a resolved `output:` path has neither, only the file. The run
+    directory is the nearest parent holding a manifest, and the file's name
+    inside it is what the manifest records. None when no manifest is found
+    within MANIFEST_SEARCH_DEPTH parents, or it records no shots for the
+    file.
+    """
+    from .shots import shots_for_file
+
+    path = os.path.abspath(path)
+    run_dir = os.path.dirname(path)
+    for _ in range(MANIFEST_SEARCH_DEPTH):
+        if os.path.isfile(os.path.join(run_dir, MANIFEST_FILE_NAME)):
+            break
+        parent = os.path.dirname(run_dir)
+        if parent == run_dir:
+            return None
+        run_dir = parent
+    else:
+        return None
+    manifest = _read_manifest(run_dir)
+    if manifest is None:
+        return None
+    own = os.path.relpath(path, run_dir).replace(os.sep, "/")
+    for entry in manifest.get("steps") or []:
+        if not isinstance(entry, dict) or entry.get("reused"):
+            continue
+        files = entry.get("files") or []
+        if own in files:
+            shots = shots_for_file(entry.get("shots"), own, files)
+            if shots:
+                return shots
+    return None

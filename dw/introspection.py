@@ -370,14 +370,30 @@ def unknown_call_arguments(name, argument_names):
 
 
 def list_tasks():
-    """Every task command a workflow's task step can name."""
-    from .tasks.task import _COMMAND_REGISTRY, _VIDEO_PROCESSOR_COMMANDS
+    """Every task command a workflow's task step can name.
+
+    `assessment` names the probes among the commands (#387) - the ones that
+    answer a JSON document of measurements about a finished file rather than
+    make one - so a caller looking for a way to check a cut finds them
+    without reading every command's schema. They stay in `commands` too,
+    since a step still names one as its `command`.
+    """
+    from .tasks.task import (
+        _COMMAND_INFO,
+        _COMMAND_REGISTRY,
+        _VIDEO_PROCESSOR_COMMANDS,
+    )
     from .tasks.image_utils import available_processors
 
     return {
         "commands": sorted(_COMMAND_REGISTRY.keys()),
         "image_processors": sorted(available_processors()),
         "video_processors": list(_VIDEO_PROCESSOR_COMMANDS),
+        "assessment": sorted(
+            name
+            for name, info in _COMMAND_INFO.items()
+            if info.get("returns") == "json"
+        ),
     }
 
 

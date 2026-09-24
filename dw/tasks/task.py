@@ -66,6 +66,10 @@ def register_command(
             `validation_errors` (dw/scalar_result_validation.py, #212) rather
             than reaching `save_artifact` at run time, where a float has
             nothing left identifying which command produced it
+            - or "json" for a command answering a JSON-safe dict of
+            measurements (the assessment probes, `dw/tasks/assess.py`): its
+            `result` may only be `application/json`, since any other content
+            type would explode the dict key by key into files
         summary: Overrides the command's `get_task` summary, which otherwise
             reads the implementation function's docstring. For a command
             whose handler dispatches its implementation per video frame
@@ -333,6 +337,38 @@ def _handle_analyze_audio(task, arguments, previous_pipelines):
     from .audio_utils import analyze_audio
 
     return analyze_audio(**arguments)
+
+
+@register_command(
+    "analyze_shots", implementation="dw.tasks.assess.analyze_shots", returns="json"
+)
+def _handle_analyze_shots(task, arguments, previous_pipelines):
+    """Measure each shot of a cut's soundtrack and how far apart they sit"""
+    from .assess import analyze_shots
+
+    return analyze_shots(**arguments)
+
+
+@register_command(
+    "analyze_seams", implementation="dw.tasks.assess.analyze_seams", returns="json"
+)
+def _handle_analyze_seams(task, arguments, previous_pipelines):
+    """Measure every seam of a cut - level step, hole, click, frame jump"""
+    from .assess import analyze_seams
+
+    return analyze_seams(**arguments)
+
+
+@register_command(
+    "analyze_sync_drift",
+    implementation="dw.tasks.assess.analyze_sync_drift",
+    returns="json",
+)
+def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
+    """Measure how far a cut's soundtrack sits from its picture"""
+    from .assess import analyze_sync_drift
+
+    return analyze_sync_drift(**arguments)
 
 
 @register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")

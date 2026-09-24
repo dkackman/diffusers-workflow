@@ -857,6 +857,118 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
 
+## Assessment Probes
+
+Three read-only commands measure a finished cut and say where to look -
+`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each takes a video
+(a path, or the video an earlier step returned) and answers one JSON
+document: every measurement it took, plus `findings` (the measurements that
+crossed a rule in the table below), `rules_applied` (the rule names the probe
+checked) and `shots_source` (where the shot list came from). A probe reads
+the file streaming - a 64x36 grey thumbnail per frame and the soundtrack,
+never a full frame list - so it runs on a cut of any length.
+
+Findings are places to look, not verdicts: nothing in the engine acts on
+one, no run fails for one, and a finding someone has looked at and accepted
+is simply left alone.
+
+A probe's `result` must save as JSON:
+
+```json
+{
+    "task": {
+        "command": "analyze_seams",
+        "arguments": {
+            "video": "output:<identity>/latest/final/cut.mp4"
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+Any other `content_type` (or none) fails validation - a JSON document can
+only be saved whole under `application/json`; every other content type
+would explode it key by key or die trying to write a number.
+
+Shot boundaries come, in order: the step's own `shots` argument, the shots
+carried by the video an earlier step returned, the run manifest beside the
+file, and otherwise the whole file is treated as one shot. `shots_source`
+reports which - `argument`, `artifact`, `manifest`, or `none`.
+
+### analyze_shots
+
+Each shot's level and spectral balance, and how far apart the shots sit:
+
+| Field | Meaning |
+| ----- | ------- |
+| `shots[].name` | The shot's name |
+| `shots[].peak_dbfs` | Peak level within the shot |
+| `shots[].rms_dbfs` | RMS level within the shot |
+| `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
+| `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
+| `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
+| `rms_range_db` | The spread between the loudest and quietest voiced shot |
+| `has_audio` | Whether the file carries a soundtrack at all |
+
+### analyze_seams
+
+Every seam between shots, audio and picture:
+
+| Field | Meaning |
+| ----- | ------- |
+| `seams[].seam` | The seam's index (1-based) |
+| `seams[].between` | `[previous shot name, next shot name]` |
+| `seams[].seconds` | Where the seam sits in the file |
+| `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
+| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
+| `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level either side of the seam |
+| `seams[].level_step_db` | The absolute level jump across the seam |
+| `seams[].floor_dbfs` | RMS level of the join itself (the fade, or a short window centred on a cut) |
+| `seams[].click_db` | How far a spike at the join peaks above its immediate neighbours |
+| `seams[].spectral_shift` | How much the low/mid/high balance shifts across the seam (0-1) |
+| `seams[].frame_delta` | The largest single-frame picture change across the seam |
+| `seams[].typical_delta` | The larger shot's own typical frame-to-frame change, floored |
+| `seams[].jump_ratio` | `frame_delta` divided by `typical_delta` |
+
+### analyze_sync_drift
+
+How far the soundtrack sits from the picture, shot by shot and over the
+whole file:
+
+| Field | Meaning |
+| ----- | ------- |
+| `shots[].name` | The shot's name |
+| `shots[].start_offset_ms` | How far the audio sits from the picture at the shot's start |
+| `shots[].end_offset_ms` | How far the audio sits from the picture at the shot's end |
+| `max_offset_ms` | The largest `end_offset_ms` across all shots, by magnitude |
+| `video_seconds` / `audio_seconds` | Each stream's own duration |
+| `length_delta_ms` | `audio_seconds` minus `video_seconds` |
+
+### Rules
+
+Each rule names the probe and field it reads, how the value is compared to
+its threshold, and the severity of a crossing:
+
+| Rule | Probe | Field | Threshold | Severity |
+| ---- | ----- | ----- | --------- | -------- |
+| `shot_level_spread` | `analyze_shots` | `rms_range_db` | >= 6.0 dB | warn |
+| `seam_level_step` | `analyze_seams` | `level_step_db` | > 3.0 dB | warn |
+| `seam_click` | `analyze_seams` | `click_db` | > 12.0 dB | warn |
+| `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
+| `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 8.0 | info |
+| `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
+| `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
+
+Two rules carry a guard beyond the threshold: `seam_hole` only fires while
+both sides of the seam are voiced above -30 dBFS (a quiet join between two
+quiet shots is not a hole, it's a pause the shots themselves hold), and
+`seam_frame_jump` is skipped at a seam whose incoming shot is marked
+`hard_cut: true` - a cut meant as a cut.
+
+`list_tasks` names the probes in their own `assessment` list, alongside
+`commands`, so a caller looking for a way to check a cut can find them
+without reading every command's schema.
+
 ## Data Gathering
 
 ### gather_images
