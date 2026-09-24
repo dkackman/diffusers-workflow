@@ -361,14 +361,10 @@ def load_audio(location, base_dir=None):
         return as_channels_samples(video.audio), video.sample_rate
 
     if location.startswith(("http://", "https://")):
-        import requests
+        from ..locations import safe_get
 
-        from ..locations import validate_media_url
-
-        validated_url = validate_media_url(location, "an audio argument")
-        logger.debug(f"Downloading audio from {validated_url}")
-        response = requests.get(validated_url, timeout=60)
-        response.raise_for_status()
+        logger.debug(f"Downloading audio from {location}")
+        response = safe_get(location, "an audio argument", timeout=60)
         data, sample_rate = soundfile.read(
             io.BytesIO(response.content), dtype="float32"
         )

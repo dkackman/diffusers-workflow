@@ -1,9 +1,11 @@
 import glob as glob_lib
+import io
 import logging
 from diffusers.utils import load_image
+from PIL import Image
 from ..arguments import fetch_image
 from ..security import SecurityError
-from ..locations import contained_matches, validate_media_glob, validate_media_url
+from ..locations import contained_matches, safe_get, validate_media_glob
 from .video_utils import load_audio_video
 
 logger = logging.getLogger("dw")
@@ -60,8 +62,10 @@ def gather_images(glob=None, urls=None):
     for url in urls:
         try:
             logger.debug(f"Loading image from URL: {url}")
-            validated_url = validate_media_url(url, "a gathered image url")
-            images.append(load_image(validated_url))
+            # safe_get re-checks every redirect, which load_image's own
+            # fetch does not; load_image still transposes and converts
+            response = safe_get(url, "a gathered image url", timeout=60)
+            images.append(load_image(Image.open(io.BytesIO(response.content))))
         except SecurityError:
             raise
         except Exception as e:

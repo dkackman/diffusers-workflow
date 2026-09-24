@@ -17,9 +17,11 @@ Two rules, applied wherever a caller-supplied location is resolved:
   pointed somewhere else entirely. The remedy is an `asset:` reference, which
   is what the roots exist for.
 - An `http(s)` URL must not name a host inside the deployment - loopback,
-  link-local (the cloud metadata address), or a private range. The check runs
-  on the resolved address, not on the literal string, so a hostname that
-  answers 127.0.0.1 is caught too.
+  link-local (the cloud metadata address), a private range, or anything else
+  that is not globally routable (100.64.0.0/10, Tailscale's range). The check
+  runs on the resolved address, not on the literal string, so a hostname that
+  answers 127.0.0.1 is caught too, and `safe_get` runs it again on every
+  redirect before following it.
 
 Both yield to `--trust-workflows`, exactly as the import and remote-code
 gates do: an operator who has vouched for a workflow's source may point it at
@@ -37,7 +39,7 @@ import ipaddress
 import logging
 import os
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from .security import (
     InvalidInputError,
@@ -247,10 +249,14 @@ def contained_matches(paths, base_dir=None, what="a glob argument"):
 # link-local range cloud metadata services answer on, and the private ranges
 # that make up whatever network the box sits in. This is the SSRF boundary -
 # an internal address is exactly the thing a caller cannot otherwise reach,
-# which is why naming one is the attack rather than a mistake
+# which is why naming one is the attack rather than a mistake. `is_global`
+# closes what the named ranges leave open: 100.64.0.0/10 is neither private
+# nor reserved to `ipaddress`, and it is both Tailscale's tailnet and the
+# range Alibaba's metadata service answers on (#407)
 def _is_internal(address):
     return (
-        address.is_loopback
+        not address.is_global
+        or address.is_loopback
         or address.is_link_local
         or address.is_private
         or address.is_reserved
@@ -310,11 +316,57 @@ def validate_media_url(url, what="a media argument"):
         raise InvalidInputError(
             f"Refusing to fetch {what} from '{url}': {host} resolves to "
             f"{internal[0]}, an address inside this deployment (loopback, "
-            f"link-local or private). A workflow may not use the server to "
+            f"link-local, private or otherwise not global). A workflow may not use the server to "
             f"reach its own network. Pass --trust-workflows if you trust "
             f"this workflow's source."
         )
     return validated
+
+
+# How many redirects a media fetch follows before giving up. requests' own
+# default is 30; a CDN needs one or two
+MAX_MEDIA_REDIRECTS = 5
+
+
+def safe_get(url, what="a media argument", timeout=60):
+    """GET a workflow-supplied media URL, re-checking every redirect.
+
+    `validate_media_url` checks the URL the document wrote, but a fetch that
+    follows redirects on its own goes wherever the first host tells it to -
+    a public URL answering 302 to 169.254.169.254 or to the server's own
+    loopback was fetched unchecked (#407). Redirects are followed here, one
+    hop at a time, and each `Location` passes the same host policy before it
+    is dialed.
+
+    Args:
+        url: The http(s) URL the workflow supplied
+        what: Short phrase naming the argument, for the error message
+        timeout: Seconds per request
+
+    Returns:
+        The final requests.Response, its status already checked
+
+    Raises:
+        InvalidInputError: If the URL or any redirect target is refused, or
+            the redirects run past MAX_MEDIA_REDIRECTS
+        requests.HTTPError: If the final answer is an error status
+    """
+    import requests
+
+    current = validate_media_url(url, what)
+    for _ in range(MAX_MEDIA_REDIRECTS + 1):
+        response = requests.get(current, timeout=timeout, allow_redirects=False)
+        if not response.is_redirect:
+            response.raise_for_status()
+            return response
+        target = urljoin(current, response.headers["Location"])
+        response.close()
+        logger.debug(f"{current} redirects to {target}")
+        current = validate_media_url(target, f"{what} (redirected from '{url}')")
+    raise InvalidInputError(
+        f"Refusing to fetch {what} from '{url}': it redirects more than "
+        f"{MAX_MEDIA_REDIRECTS} times"
+    )
 
 
 # Hosts this machine's HuggingFace token belongs to. The token is the

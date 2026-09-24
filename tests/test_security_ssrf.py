@@ -209,14 +209,17 @@ class TestInternalAddressSpellings:
             {"metadata.google.internal": ["169.254.169.254"]},
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="100.64.0.0/10 (CGNAT, Alibaba's 100.100.100.200 metadata) is "
-        "not is_private in ipaddress, and _is_internal never asks is_global",
-    )
     def test_shared_address_space_metadata_is_refused(self, untrusted, no_real_sockets):
         assert "inside this deployment" in _refused(
             "http://100.100.100.200/latest/meta-data/"
+        )
+
+    def test_a_tailnet_host_is_refused(self, untrusted, no_real_sockets):
+        """100.64.0.0/10 is Tailscale's range: a name answering inside it is
+        another machine on the operator's tailnet."""
+        assert "inside this deployment" in _refused(
+            "http://gpu-box.tail1234.ts.net/x.png",
+            {"gpu-box.tail1234.ts.net": ["100.101.102.103"]},
         )
 
     @pytest.mark.parametrize(
@@ -285,11 +288,6 @@ class TestRedirects:
     """A URL is checked once, before the fetch - but the fetch follows
     redirects, and the redirect target was never in the document to check."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="fetch_image validates the first URL only; requests follows "
-        "a 302 from a public host to 169.254.169.254 unchecked",
-    )
     def test_fetch_image_does_not_follow_a_redirect_inside(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
@@ -318,11 +316,6 @@ class TestRedirects:
 
         assert "169.254.169.254" not in transport.hosts()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="audio fetch validates the first URL only; requests follows "
-        "a redirect to loopback unchecked",
-    )
     def test_audio_fetch_does_not_follow_a_redirect_inside(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
@@ -379,6 +372,195 @@ class TestRedirects:
             with pytest.raises(InvalidInputError):
                 fetch_image("http://2852039166/latest/meta-data/", str(tmp_path))
         assert transport.sent == []
+
+    def test_a_redirect_to_another_public_host_still_runs(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        """The policy is not 'refuse redirects': a CDN hop is followed, and
+        the image still comes back transposed and converted by load_image."""
+        from dw.arguments import fetch_image
+
+        rgba = io.BytesIO()
+        Image.new("RGBA", (3, 2), "blue").save(rgba, format="PNG")
+        transport = _Transport(
+            {
+                "https://cdn.example.com/x.png": (
+                    302,
+                    {"Location": "https://evil.example/moved.png"},
+                    b"",
+                ),
+                "https://evil.example/moved.png": (
+                    200,
+                    {"Content-Type": "image/png"},
+                    rgba.getvalue(),
+                ),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            image = fetch_image("https://cdn.example.com/x.png", str(tmp_path))
+
+        assert transport.hosts() == ["cdn.example.com", "evil.example"]
+        assert image.size == (3, 2)
+        assert image.mode == "RGB"
+
+    def test_a_relative_redirect_is_checked_against_its_origin(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.arguments import fetch_image
+
+        transport = _Transport(
+            {
+                "https://cdn.example.com/x.png": (301, {"Location": "/y.png"}, b""),
+                "https://cdn.example.com/y.png": (
+                    200,
+                    {"Content-Type": "image/png"},
+                    _png_bytes(),
+                ),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            image = fetch_image("https://cdn.example.com/x.png", str(tmp_path))
+
+        assert image.size == (2, 2)
+        assert len(transport.sent) == 2
+
+    def test_the_refusal_names_the_redirect_target(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.arguments import fetch_image
+
+        _Transport(
+            {
+                "https://cdn.example.com/x.png": (
+                    302,
+                    {"Location": "http://127.0.0.1:8765/api/server"},
+                    b"",
+                ),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            with pytest.raises(InvalidInputError) as refusal:
+                fetch_image("https://cdn.example.com/x.png", str(tmp_path))
+
+        assert "http://127.0.0.1:8765/api/server" in str(refusal.value)
+        assert "inside this deployment" in str(refusal.value)
+
+    def test_a_redirect_chain_is_capped(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.arguments import fetch_image
+        from dw.locations import MAX_MEDIA_REDIRECTS
+
+        routes = {
+            f"https://cdn.example.com/{hop}.png": (
+                302,
+                {"Location": f"https://cdn.example.com/{hop + 1}.png"},
+                b"",
+            )
+            for hop in range(20)
+        }
+        transport = _Transport(routes).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            with pytest.raises(InvalidInputError) as refusal:
+                fetch_image("https://cdn.example.com/0.png", str(tmp_path))
+
+        assert "redirects more than" in str(refusal.value)
+        assert len(transport.sent) == MAX_MEDIA_REDIRECTS + 1
+
+    def test_a_redirect_to_another_scheme_is_refused(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.tasks.audio_utils import load_audio
+
+        _Transport(
+            {
+                "https://cdn.example.com/a.wav": (
+                    302,
+                    {"Location": "file:///etc/passwd"},
+                    b"",
+                ),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            with pytest.raises(InvalidInputError):
+                load_audio("https://cdn.example.com/a.wav", str(tmp_path))
+
+    def test_fetch_video_does_not_follow_a_redirect_inside(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.arguments import fetch_video
+
+        transport = _Transport(
+            {
+                "https://cdn.example.com/v.mp4": (
+                    302,
+                    {"Location": "http://10.0.0.7/v.mp4"},
+                    b"",
+                ),
+                "http://10.0.0.7/v.mp4": (200, {}, b"not a video"),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            with pytest.raises(InvalidInputError):
+                fetch_video("https://cdn.example.com/v.mp4", str(tmp_path))
+
+        assert "10.0.0.7" not in transport.hosts()
+
+    def test_load_audio_video_does_not_follow_a_redirect_inside(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        from dw.tasks.video_utils import load_audio_video
+
+        transport = _Transport(
+            {
+                "https://cdn.example.com/v.mp4": (
+                    303,
+                    {"Location": "http://[::1]:8765/api/server"},
+                    b"",
+                ),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            with pytest.raises(InvalidInputError):
+                load_audio_video("https://cdn.example.com/v.mp4", str(tmp_path))
+
+        assert transport.hosts() == ["cdn.example.com"]
+
+    def test_fetch_video_follows_a_public_redirect(
+        self, untrusted, no_real_sockets, monkeypatch, tmp_path
+    ):
+        """The frames are decoded from what the final hop answered, and the
+        rate is read off the fetched file."""
+        from dw.arguments import fetch_video
+
+        frames = [Image.new("RGB", (4, 4), color) for color in ("red", "blue")]
+        gif = io.BytesIO()
+        frames[0].save(
+            gif, format="GIF", save_all=True, append_images=frames[1:], duration=100
+        )
+        transport = _Transport(
+            {
+                "https://cdn.example.com/v.gif": (
+                    302,
+                    {"Location": "https://evil.example/v.gif"},
+                    b"",
+                ),
+                "https://evil.example/v.gif": (200, {}, gif.getvalue()),
+            }
+        ).install(monkeypatch)
+
+        with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
+            video = fetch_video("https://cdn.example.com/v.gif", str(tmp_path))
+
+        assert transport.hosts() == ["cdn.example.com", "evil.example"]
+        assert len(video) == 2
 
 
 # ------------------------------------------------------------- the HF token

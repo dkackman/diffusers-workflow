@@ -1,4 +1,6 @@
+import io
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch
 from dw.tasks.task import Task
 from PIL import Image
@@ -67,20 +69,19 @@ def test_image_processor_command_dispatches_without_registry_entry():
 
 def test_gather_images_task_dispatches_to_gather():
     urls = ["https://example.com/a.jpg", "https://example.com/b.jpg"]
-    images = [Image.new("RGB", (4, 4)), Image.new("RGB", (8, 8))]
+    responses = []
+    for size in ((4, 4), (8, 8)):
+        buffer = io.BytesIO()
+        Image.new("RGB", size).save(buffer, format="PNG")
+        responses.append(SimpleNamespace(content=buffer.getvalue()))
     task_def = {"command": "gather_images", "arguments": {"urls": urls}}
     task = Task(task_def, "cpu")
 
-    with (
-        patch(
-            "dw.tasks.gather.validate_media_url", side_effect=lambda url, what=None: url
-        ),
-        patch("dw.tasks.gather.load_image", side_effect=images) as load_image,
-    ):
+    with patch("dw.tasks.gather.safe_get", side_effect=responses) as safe_get:
         result = task.run(task_def["arguments"])
 
-    assert result == images
-    assert [call.args[0] for call in load_image.call_args_list] == urls
+    assert [image.size for image in result] == [(4, 4), (8, 8)]
+    assert [call.args[0] for call in safe_get.call_args_list] == urls
 
 
 def test_format_chat_message_task():

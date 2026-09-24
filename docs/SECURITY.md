@@ -147,7 +147,20 @@ One policy now answers all of it, untrusted:
   cannot carry the expansion out.
 - **An `http(s)` URL** must not resolve to an address inside the deployment -
   loopback, link-local (`169.254.0.0/16`, the cloud metadata address),
-  private ranges. Checked after DNS resolution, not on the literal string.
+  private ranges, and anything else that is not globally routable
+  (`is_global`). Checked after DNS resolution, not on the literal string.
+  That last rule covers `100.64.0.0/10`, the shared address space, which is
+  **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
+  that fetches media from another machine on your tailnet is refused unless
+  it runs under `--trust-workflows`.
+- **Every redirect is re-checked.** A media fetch (`safe_get`) never lets the
+  HTTP client follow a redirect on its own: it follows at most 5 hops
+  (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
+  host policy before it is dialed. A public URL answering `302` to
+  `http://127.0.0.1:8765/api/server` is refused with the target named, and
+  nothing is fetched from it. Images are decoded from the fetched bytes and
+  still go through diffusers' `load_image`, so EXIF orientation and RGB
+  conversion are unchanged.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.

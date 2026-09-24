@@ -476,20 +476,17 @@ def load_audio_video(location, base_dir=None):
         seams inside it (#399); a URL carries none.
     """
     from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
-    from ..locations import validate_media_path, validate_media_url
+    from ..locations import safe_get, validate_media_path
 
     if _URL_SCHEME.match(location):
         import io
-        import requests
 
         # Any other scheme - ftp:, file:, data: - is refused here rather than
         # falling through to be read as a relative path that happens to
         # contain a colon. An http(s) one still has to name a host outside
-        # this deployment (dw/locations.py)
-        validated_url = validate_media_url(location, "a video argument")
-        logger.debug(f"Downloading video from {validated_url}")
-        response = requests.get(validated_url, timeout=300)
-        response.raise_for_status()
+        # this deployment (dw/locations.py), and so does every redirect
+        logger.debug(f"Downloading video from {location}")
+        response = safe_get(location, "a video argument", timeout=300)
         handle = io.BytesIO(response.content)
         return _decode_audio_video(handle)
 
