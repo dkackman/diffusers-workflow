@@ -1469,6 +1469,41 @@ each already names something pinned by the asset library or by the manifest's
 SHA-256 recorded in the manifest. The manifest also lists which stored prompts
 were inlined, since inlining loses the name.
 
+A step that joins shots (`concat_videos`, `dissolve_videos`, or a pipeline
+step with a `chain`) also records where each one landed, as `shots` on its
+manifest entry (and on its `step_end` event):
+
+```json
+{
+  "step": "cut",
+  "files": ["final/film.mp4"],
+  "subfolder": "final",
+  "shots": [
+    {"name": "shot@a", "start_frame": 0,   "num_frames": 121, "start_sample": 0,      "num_samples": 242267},
+    {"name": "shot@b", "start_frame": 121, "num_frames": 97,  "start_sample": 242267, "num_samples": 194000}
+  ]
+}
+```
+
+The shots partition the file's frames: the `num_frames` add up to the frame
+count. The sample fields are *measured* off the track the join built, not
+worked out from the frames. That means a shot whose track ran long shows it
+here: the first shot above is 267 samples longer than 121 frames at 24 fps.
+They are null when the video has no track, and for a chain that uses
+`match_audio`. A shot is named `shot@<key>` when the step's `videos` entry was
+a `previous_result:shot@<key>` reference, else by its input's position
+(`video N`, a chain's `segment N`). A dissolve's shots after the first carry
+`overlap_frames`, the head they share with the shot before. A step that wrote
+several joined files marks each shot with its `file`.
+
+The steps that keep the frames pass `shots` on. `stabilize` and the per-frame
+tasks keep them as they are. `interpolate_frames` rescales them to the new
+frame count and clears the samples. `pair_audio` measures the samples again
+against the new track. Everything else drops them: an audio task's track,
+say, or a video read back from a file. `get_gallery_metadata` reports the
+recorded shots as `media.shots`, and `get_output_frames(seams=true)` uses them
+when you pass no `boundaries`.
+
 The file is a valid workflow, and running it again is `python -m dw.run
 workflow.json` or handing its contents to `run_workflow` as `inline_workflow`
 — but either way the `asset:` and `output:` names in it resolve against the
