@@ -157,7 +157,7 @@ def build_server(client):
         entry (`{variable, minutes, entries}`), so a run over a
         different-length list can be priced from it. `constraints`, present
         for a workflow that bounds a variable, is the rule each bounded one
-        has to satisfy, terse (`17*n+5, 124-345, rounds up`) - pass an
+        has to satisfy, terse - pass an
         `arguments` value outside it and `validate_workflow` refuses it for
         free, instead of the run failing after the weights are loaded.
         Templates only by default; `configures=<template>` lists the checkpoint configs
@@ -533,21 +533,11 @@ def build_server(client):
         excerpted. No downscale exists for audio - a whole clip too
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
-        says what was cut. To *see* a video, `get_output_frames`. To
-        confirm the *words* an output speaks rather than hear it - a
-        text-only client can't consume the `AudioContent` block this
-        returns - `validate_workflow(name="templates/transcribe-audio",
-        arguments={"input_audio": "output:<name>"})` first (free; it takes
-        an audio file or a video's muxed soundtrack directly), then
-        `run_workflow(..., acknowledged_cost={"fingerprint": ...,
-        "minutes": ..., "downloads": [...]})` bound to that plan with
-        `wait_seconds=55`, then `get_output_text` on the result, and
-        `delete_output(job_id=...)` the scratch run afterward. This
-        workflow's plan comes back `basis: "unknown"` with `minutes: null`
-        - nothing is curated or observed for it - so quote what it actually
-        takes rather than the plan: seconds, not minutes (a few seconds per
-        clip in practice). Four calls and a short wait, not a GPU-spending
-        read tool - keep the normal queue rather than adding one.
+        says what was cut. To *see* a video, `get_output_frames`. A
+        text-only client confirms the *words* an output speaks by
+        transcribing it instead: WORKFLOW_GUIDE's "The loop", step 6, in
+        `get_guide("workflows", section="Authoring a workflow from an
+        agent")`.
 
         `workspace` pins this call to another workspace."""
         result = media.get_output_audio(
@@ -920,8 +910,7 @@ def build_server(client):
         workspace can reach, each at `arguments.<name>`.
         `checked_arguments` says whether your values or only the stored
         defaults were checked. A value outside a bound the workflow
-        declares (H3's frame count is `17 * n + 5` from 124 to 345) is an
-        error here rather than a failed run; one the workflow rounds up
+        declares is an error here rather than a failed run; one the workflow rounds up
         comes back as a warning naming what it becomes.
 
         Also checked: an unwritable `result.subfolder` or `file_base_name`,
@@ -995,9 +984,8 @@ def build_server(client):
         `get_prompt` returns the text itself. This is where the caption a
         model was trained on is already written out, so read the exemplar
         for the family you are about to run rather than inventing the
-        format: `intended_model` narrows to one family (`minimax-h3`,
-        `minimax-music3`, `ltx-2.5`, `z-image`, `flux`) and `tag` to one
-        label. `include_text=true` returns every body, which for the whole
+        format: `intended_model` narrows to one family, as the listing
+        reports it, and `tag` to one label. `include_text=true` returns every body, which for the whole
         library is more than a client will accept - filter first."""
         return prompts.list_prompts(
             client,
@@ -1167,8 +1155,7 @@ def build_server(client):
         hang by itself and a climbing event_count made of nothing else is
         not liveness either. It carries `seconds_since_last_progress`
         (climbs across repeats) and `seconds_since_phase_start`; some
-        models are silent for minutes at a time in normal operation (a
-        video reference encode, block-cache gaps) - check the model's
+        models are silent for minutes at a time in normal operation - check the model's
         skill/guide for what's expected before treating one as a fault."""
         return diagnose.get_job_events(client, job_id, after=after, limit=limit)
 

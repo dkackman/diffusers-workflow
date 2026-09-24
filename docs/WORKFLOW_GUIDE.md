@@ -642,6 +642,23 @@ the entry an item needs.
    like it does.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
+   `get_output_frames` looks at a video and `get_output_audio` listens to a
+   soundtrack.
+
+   To confirm the words a clip speaks - a text-only client can't consume the
+   `AudioContent` block `get_output_audio` returns - transcribe it instead.
+   `validate_workflow(name="templates/transcribe-audio",
+   arguments={"input_audio": "output:<name>"})` first (free; it takes an
+   audio file or a video's muxed soundtrack directly), then
+   `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
+   "downloads": [...]})` bound to that plan with `wait_seconds=55`, then
+   `get_output_text` on the result, and `delete_output(job_id=...)` the
+   scratch run afterward. This workflow's plan comes back
+   `basis: "unknown"` with `minutes: null` - nothing is curated or observed
+   for it - so quote what it actually takes rather than the plan: seconds,
+   not minutes (a few seconds per clip in practice). Four calls and a short
+   wait, not a GPU-spending read tool - keep the normal queue rather than
+   adding one.
 7. Getting the files to the user's machine. `download_output` and `export_job`
    write on the machine running `dw.serve`, which over a remote `--mcp`
    endpoint is the GPU box. The last mile of every deliverable is the `url`
