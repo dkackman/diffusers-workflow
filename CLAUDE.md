@@ -611,6 +611,21 @@ same reason - default setup cannot load a pack.
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
+- **Assessment probes measure a finished file and say where to look, and
+  decide nothing** (`dw/tasks/assess.py`, #387) - `analyze_shots`,
+  `analyze_seams` and `analyze_sync_drift` each read a video streaming
+  (thumbnails only, never the full frame list, so a long cut is cheap) and
+  answer a JSON dict of measurements plus `findings`, the ones that crossed a
+  threshold in `dw/assessment_rules.py`'s table; nothing in the engine acts
+  on a finding. These are the `returns: "json"` task kind, listed separately
+  in `list_tasks`' `assessment` (probes stay in `commands` too), and a step
+  on one must save `"result": {"content_type": "application/json"}` -
+  anything else fails validation. Shot boundaries resolve in order: the step's `shots` argument,
+  the video's own carried shots, the run manifest beside the file, else the
+  whole file as one shot (`shots_source` says which). A shot's `hard_cut:
+  true` field suppresses the `seam_frame_jump` rule at the seam it opens - a
+  cut meant as a cut. `tests/test_assessment_rules.py` pins the rules table
+  to real probe fields, so a rename cannot leave a rule reading nothing.
 
 ## JSON Workflow Structure
 
