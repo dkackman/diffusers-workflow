@@ -19,6 +19,35 @@ def _accepts_dtype(key):
     return key is not None and (key == "dtype" or key.endswith("_dtype"))
 
 
+def _defining_package(value):
+    """The top-level package a class or function was defined in, or None."""
+    module = getattr(value, "__module__", None)
+    if not isinstance(module, str) or not module:
+        return None
+    return module.split(".", 1)[0]
+
+
+def _require_defined_inside(name, value, what):
+    """Refuse a class an untrusted name reached through a re-export.
+
+    The allowlist is checked on the name's top-level package, but a module
+    re-exports what it imported: a name under an allowed package can resolve
+    to a class defined anywhere. So the class itself must have been defined
+    in an allowed package, not just be reachable from one.
+    """
+    package = _defining_package(value)
+    if package in TRUSTED_TOP_LEVEL_PACKAGES:
+        return
+    raise UntrustedWorkflowError(
+        f"Refusing to load {what} '{name}': it resolves to "
+        f"'{getattr(value, '__module__', None)}."
+        f"{getattr(value, '__qualname__', type(value).__name__)}', defined "
+        f"outside the ecosystem ({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this "
+        f"workflow is allowed to reach untrusted. Pass --trust-workflows if "
+        f"you trust this workflow's source."
+    )
+
+
 def require_loadable_type(name, value, key=None):
     """Refuse a type reference that resolved to something other than a class,
     unless the workflow is trusted.
@@ -29,11 +58,18 @@ def require_loadable_type(name, value, key=None):
     A 'dtype' or '*_dtype' key names a torch.dtype, which is data, not a
     class, and is accepted there.
 
+    A class must also be defined inside TRUSTED_TOP_LEVEL_PACKAGES, not
+    merely re-exported by a module there.
+
     Raises:
         UntrustedWorkflowError: If untrusted and `value` is neither a class
-            nor, under a dtype key, a torch.dtype
+            nor, under a dtype key, a torch.dtype, or is a class defined
+            outside the allowed packages
     """
-    if workflows_are_trusted() or inspect.isclass(value):
+    if workflows_are_trusted():
+        return value
+    if inspect.isclass(value):
+        _require_defined_inside(name, value, key or "a type reference")
         return value
     if _accepts_dtype(key):
         import torch
@@ -84,7 +120,11 @@ def _require_walk_stays_inside(name, parts, value, index):
     The allowlist is checked on the name's top-level package, but a module
     re-exports what it imported: 'torch.os.environ' starts in torch and ends
     in the server's environment. So every module the walk passes through must
-    itself be in an allowed package, and no segment may be private.
+    itself be in an allowed package, and no segment may be private. The same
+    holds for what is not a module: a class or function must be defined in an
+    allowed package, and any other value must be an instance of a builtin
+    type or of one defined in an allowed package - a trusted module that ran
+    'from os import environ' would otherwise hand over the environment.
     """
     if parts[index].startswith("_"):
         raise UntrustedWorkflowError(
@@ -103,6 +143,23 @@ def _require_walk_stays_inside(name, parts, value, index):
                 f"allowed to reach untrusted. Pass --trust-workflows if you "
                 f"trust this workflow's source."
             )
+        return
+    if value is None:
+        return
+    if inspect.isclass(value) or inspect.isroutine(value):
+        _require_defined_inside(name, value, "the constant")
+        return
+    package = type(value).__module__.split(".", 1)[0]
+    if package != "builtins" and package not in TRUSTED_TOP_LEVEL_PACKAGES:
+        raise UntrustedWorkflowError(
+            f"Refusing the constant '{name}': "
+            f"'{'.'.join(parts[: index + 1])}' is a "
+            f"'{type(value).__module__}.{type(value).__qualname__}', a type "
+            f"defined outside the ecosystem "
+            f"({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this workflow is "
+            f"allowed to reach untrusted. Pass --trust-workflows if you "
+            f"trust this workflow's source."
+        )
 
 
 def load_constant_from_name(name):
