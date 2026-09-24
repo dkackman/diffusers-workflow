@@ -3,8 +3,10 @@ Unit tests for gather module
 Tests image/video gathering from files and URLs
 """
 
+import io
 import pytest
 import os
+from types import SimpleNamespace
 import tempfile
 from unittest.mock import patch
 from PIL import Image
@@ -81,22 +83,21 @@ class TestGatherImages:
         """Local matches and URLs are both gathered - the files first, then
         the URLs in the order given."""
         Image.new("RGB", (50, 50)).save(tmp_path / "local.jpg")
-        remote = Image.new("RGB", (100, 100))
+        remote = io.BytesIO()
+        Image.new("RGB", (100, 100)).save(remote, format="PNG")
 
-        with (
-            patch("dw.tasks.gather.load_image", return_value=remote) as mock_load,
-            patch(
-                "dw.tasks.gather.validate_media_url",
-                side_effect=lambda url, what=None: url,
-            ),
-        ):
+        with patch(
+            "dw.tasks.gather.safe_get",
+            return_value=SimpleNamespace(content=remote.getvalue()),
+        ) as mock_fetch:
             images = gather_images(
                 glob=os.path.join(str(tmp_path), "*.jpg"),
                 urls=["https://example.com/remote.jpg"],
             )
 
         assert [img.size for img in images] == [(50, 50), (100, 100)]
-        mock_load.assert_called_once_with("https://example.com/remote.jpg")
+        mock_fetch.assert_called_once()
+        assert mock_fetch.call_args[0][0] == "https://example.com/remote.jpg"
 
     def test_gather_images_no_results_raises_error(self):
         """Test that gathering no images raises ValueError"""

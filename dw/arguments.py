@@ -1,12 +1,16 @@
+import io
 import os
 import copy
 import logging
+import tempfile
+from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
 from .runs import fetch_output, is_output_reference
 from diffusers.utils import load_image, load_video
+from PIL import Image
 from .security import (
     validate_path,
     validate_constant_name,
@@ -17,7 +21,7 @@ from .security import (
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_AUDIO_EXTENSIONS,
 )
-from .locations import validate_media_path, validate_media_url
+from .locations import safe_get, validate_media_path
 
 logger = logging.getLogger("dw")
 
@@ -1007,8 +1011,11 @@ def fetch_image(img_spec, base_dir=None):
         if isinstance(img_spec, str) and (
             img_spec.startswith("http://") or img_spec.startswith("https://")
         ):
-            validated_url = validate_media_url(img_spec, "an image argument")
-            return load_image(validated_url)
+            # Fetched here rather than by load_image, which follows redirects
+            # without re-checking them; load_image still does the EXIF
+            # transpose and RGB conversion on the decoded result
+            response = safe_get(img_spec, "an image argument", timeout=60)
+            return load_image(Image.open(io.BytesIO(response.content)))
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
@@ -1053,6 +1060,28 @@ def _with_frame_rate(frames, location):
         else None
     )
     return FrameList(frames, fps, shots) if (fps or shots) else frames
+
+
+def _fetch_remote_video(url):
+    """A video URL's frames, fetched through `safe_get` and decoded from a
+    temporary file. `load_video` would fetch the URL itself and follow its
+    redirects unchecked; handed a path, it only decodes. The suffix comes
+    from the URL, as `load_video`'s own download names it, since a `.gif`
+    decodes differently."""
+    from .tasks.video_utils import FrameList, file_fps
+
+    response = safe_get(url, "a video argument", timeout=300)
+    suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
+    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        with handle:
+            handle.write(response.content)
+        frames = load_video(handle.name)
+        fps = file_fps(handle.name)
+    finally:
+        os.remove(handle.name)
+    # A URL has no run beside it, so it carries no shots
+    return FrameList(frames, fps, None) if fps else frames
 
 
 def fetch_video(video_spec, base_dir=None):
@@ -1116,8 +1145,7 @@ def fetch_video(video_spec, base_dir=None):
         if isinstance(video_spec, str) and (
             video_spec.startswith("http://") or video_spec.startswith("https://")
         ):
-            validated_url = validate_media_url(video_spec, "a video argument")
-            return _with_frame_rate(load_video(validated_url), validated_url)
+            return _fetch_remote_video(video_spec)
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
