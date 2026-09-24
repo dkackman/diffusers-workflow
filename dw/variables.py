@@ -1,6 +1,5 @@
 import copy
 import logging
-import PIL
 from .arguments import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
@@ -304,6 +303,22 @@ def get_value(v, desired_type, name=None):
         logger.debug("Variable has no declared type, using the value as given")
         return v
 
+    # A value already realized by an earlier step (an AudioTrack, an
+    # AudioVideo, a PIL.Image, ...) is a live object, not a JSON literal -
+    # 'previous_result:' resolves it to this before set_variables ever sees
+    # it, so a sibling step's task argument receives it unchanged. A
+    # sub-workflow's declared variable must too, rather than being coerced
+    # through the type of the variable's own default (usually a string
+    # 'asset:'/'output:' reference): desired_type(v) on one of these called
+    # str() on an AudioTrack and got its Python repr, which then reached
+    # slice_audio looking like a bogus path (#404)
+    if not isinstance(v, (str, int, float, bool, list, dict)):
+        logger.debug(
+            f"Value for variable '{name}' is an already-realized {type(v).__name__}; "
+            "using it as given"
+        )
+        return v
+
     # Special handling for boolean string values - bool("0") and bool("no") are
     # both truthy in Python, which would silently invert the user's intent, so
     # only a known set of true/false spellings is accepted here
@@ -322,10 +337,6 @@ def get_value(v, desired_type, name=None):
     # string into ['c', 'a', 't'], so a comma-separated string is split instead
     if isinstance(v, str) and desired_type is list:
         return [item.strip() for item in v.split(",")]
-
-    # special handling for images that have already been realized
-    if isinstance(v, PIL.Image.Image):
-        return v
 
     # A variable typed int by its default (e.g. `"score_gain": 1`) silently
     # truncates a fractional override - int(0.3) == 0, with no error - which

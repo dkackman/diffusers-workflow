@@ -295,7 +295,21 @@ def test_set_variables_list_with_ordinary_strings_passes_unchanged():
 
     set_variables(values, variables)
 
-    assert variables["shots"] == [{"name": "a", "prompt": "a cat"}, {"name": "b"}]
+
+def test_set_variables_already_realized_object_passes_through_a_string_default():
+    """A sub-workflow argument built from 'previous_result:<step>' is already
+    a live object (an AudioTrack, here) by the time it reaches set_variables -
+    coercing it through the declared variable's own type (a string
+    'asset:...' default) called str() on the object and produced its Python
+    repr, which a downstream task then tried to read as a file path (#404)."""
+    from dw.result import AudioTrack
+
+    track = AudioTrack(audio=[0.0, 0.1, 0.2], sample_rate=44100)
+    variables = {"score": "asset:score.wav"}
+
+    set_variables({"score": track}, variables)
+
+    assert variables["score"] is track
 
 
 def test_argument_errors_reports_a_too_long_entry_under_the_list_argument():

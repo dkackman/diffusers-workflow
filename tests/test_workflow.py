@@ -1099,6 +1099,95 @@ class TestComposedStepSavesOnce:
         )
 
 
+class TestSubWorkflowPreviousResultArgument:
+    """A 'previous_result:' argument folded into a sub-workflow step is
+    already a live object (an AudioTrack here) by the time it reaches the
+    child's declared variables - coercing it through the variable's own
+    default type (a string 'asset:' reference) used to call str() on the
+    object and hand the child's task the object's Python repr instead of the
+    track, which then failed as a bogus file path (#404)."""
+
+    def _compose(self, tmp_path, monkeypatch):
+        import soundfile
+        import numpy
+
+        workflows = tmp_path / "workflows"
+        assets = workflows / "assets"
+        assets.mkdir(parents=True)
+        soundfile.write(
+            str(assets / "tone.wav"),
+            numpy.zeros((16000, 1), dtype=numpy.float32),
+            16000,
+        )
+        monkeypatch.setenv("DW_ASSET_DIR", str(assets))
+
+        child = {
+            "id": "child",
+            "variables": {"score": "asset:score.wav"},
+            "steps": [
+                {
+                    "name": "cut",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {
+                            "audio": "variable:score",
+                            "start_seconds": 0,
+                            "duration_seconds": 0.5,
+                        },
+                    },
+                    "result": {"content_type": "audio/wav"},
+                }
+            ],
+        }
+        (workflows / "child.json").write_text(json.dumps(child))
+
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "bed",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {
+                            "audio": "asset:tone.wav",
+                            "start_seconds": 0,
+                            "duration_seconds": 1.0,
+                        },
+                    },
+                    "result": {"content_type": "audio/wav"},
+                },
+                {
+                    "name": "sub",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"score": "previous_result:bed"},
+                    },
+                    "result": {"content_type": "audio/wav"},
+                },
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workflows)
+        )
+        workflow.run({}, {})
+        return workflow
+
+    def test_the_live_result_reaches_the_child_task_unchanged(
+        self, tmp_path, monkeypatch
+    ):
+        """This used to raise: 'Refusing to read an audio argument at
+        <dw.result.AudioTrack object at 0x...>: it resolves outside every
+        directory this workflow may read' (#404)."""
+        workflow = self._compose(tmp_path, monkeypatch)
+
+        assert [entry["step"] for entry in workflow.manifest] == ["bed", "sub"]
+
+
 class TestSubWorkflowValidation:
     """A sub-workflow path that cannot resolve is a validation error, not a
     run that fails 0.6 s in after the pre-flight said valid (#89)."""
