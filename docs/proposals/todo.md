@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374 and #376–#380, and #244 for `resume.md`; #375 was declined), parked with Don. Its
+`feature` (#374 and #377–#380, and #244 for `resume.md`; #375 was declined, #376 shipped), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -24,11 +24,6 @@ remaining deferred fix is recorded in
 2. **orphaned-run-directories.md** — real, recurring disk-usage annoyance
    (leftover manifests invisible to gallery/asset listings); the proposal
    already recommends the simple option (A). Moderate but bounded work.
-4. **mcp-context-cost-partial.md** — cheap and safe, but the remaining
-   payoff is small (~1.1k tokens of connect cost), and recommendation 6 in
-   `mcp-context-cost-complete.md` suggests the harness-level fix (deferred
-   MCP schemas) may already make this moot — worth confirming that before
-   spending effort here.
 5. **mcp-job-notifications.md** — improves reliability of the wait/poll loop
    (cursor-based, `failure_kind`), but there's no reported live pain forcing
    this yet; medium complexity touching the event/job-record schema.

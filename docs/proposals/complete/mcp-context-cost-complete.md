@@ -1,6 +1,8 @@
 # Proposal: what the `dw` MCP surface costs an agent's context, and what to trim
 
-Status: **measured, not started** - the numbers below are real measurements
+Status: **shipped.** Recommendations 1-3, 5 and 6 shipped under #101, and
+recommendation 4 under #376 (see `mcp-model-narrative-trim-complete.md`). The original status was
+**measured, not started** - the numbers below are real measurements
 taken 2026-09-13 against `dw.serve 0.4.0-beta.3` on `lem` and against the
 tool surface `build_server` produces. Nothing here is implemented. Written
 for issue #101 by the implementer agent, model `opus` via provider
