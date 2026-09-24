@@ -1126,17 +1126,30 @@ def fetch_video(video_spec, base_dir=None):
         raise
 
 
-# get_frame and its two fixed-index siblings - see _realize_lazy_frame_arguments
-_LAZY_FRAME_COMMANDS = frozenset({"get_frame", "get_first_frame", "get_last_frame"})
+# get_frame and its two fixed-index siblings, and the assessment probes
+# (dw/tasks/assess.py), which stream the file themselves - decoding it to a
+# frame list first dropped the soundtrack they measure and failed every probe
+# on an asset:/output: video (#387) - see _realize_lazy_frame_arguments
+_LAZY_FRAME_COMMANDS = frozenset(
+    {
+        "get_frame",
+        "get_first_frame",
+        "get_last_frame",
+        "analyze_shots",
+        "analyze_seams",
+        "analyze_sync_drift",
+    }
+)
 
 
 def _realize_lazy_frame_arguments(arguments, base_dir):
-    """Realize a get_frame/get_first_frame/get_last_frame step's arguments,
-    reading a file-based 'video' by reference rather than decoding it (#367).
+    """Realize a get_frame/get_first_frame/get_last_frame or probe step's
+    arguments, reading a file-based 'video' by reference rather than decoding
+    it (#367, #387).
 
     Everything but 'video' is realized the ordinary way. A 'video' naming a
     real file or an asset/output path becomes a VideoFileReference the task
-    reads one frame out of by seeking; a 'previous_result:'/'variable:'
+    reads one frame out of by seeking, or a probe streams; a 'previous_result:'/'variable:'
     reference is still deferred, and a URL still goes through the ordinary
     eager fetch_video, since a seek needs a local, seekable file.
     """

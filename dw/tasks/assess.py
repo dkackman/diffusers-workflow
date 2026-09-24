@@ -197,12 +197,25 @@ def _in_memory_thumbs(frames):
     return numpy.stack(thumbs) if thumbs else None
 
 
-def media_from(video):
-    """A Media from a path or an in-memory AudioVideo."""
-    if isinstance(video, str):
-        from ..locations import validate_media_path
+def _file_path(video):
+    """The validated file a probe's 'video' names, or None for an in-memory
+    clip: a path, or the VideoFileReference an asset:/output: reference or a
+    literal path is realized to (dw/arguments.py, #387)."""
+    from ..locations import validate_media_path
+    from .video_utils import VideoFileReference
 
-        return read_media(validate_media_path(video, None, "a video to assess"))
+    if isinstance(video, VideoFileReference):
+        video = video.path
+    if isinstance(video, str):
+        return validate_media_path(video, None, "a video to assess")
+    return None
+
+
+def media_from(video):
+    """A Media from a path, a VideoFileReference or an in-memory AudioVideo."""
+    path = _file_path(video)
+    if path is not None:
+        return read_media(path)
     if hasattr(video, "frames") or hasattr(video, "audio"):
         from .audio_utils import as_channels_samples
 
@@ -232,8 +245,9 @@ def media_from(video):
         )
         return media
     raise ValueError(
-        "a probe takes a video file's path or the video an earlier step "
-        f"returned, not {type(video).__name__}"
+        "a probe takes a stored video (asset:, output: or a path) or the "
+        f"video an earlier step returned, not {type(video).__name__} - a URL "
+        "downloads as bare frames with no soundtrack to measure"
     )
 
 
@@ -243,11 +257,11 @@ def resolve_shots(video, media, shots=None):
         return [dict(shot) for shot in shots], "argument"
     if media.shots:
         return [dict(shot) for shot in media.shots], "artifact"
-    if isinstance(video, str):
-        from ..locations import validate_media_path
+    path = _file_path(video)
+    if path is not None:
         from ..runs import shots_beside
 
-        recorded = shots_beside(validate_media_path(video, None, "a video to assess"))
+        recorded = shots_beside(path)
         if recorded:
             return [dict(shot) for shot in recorded], "manifest"
     return None, "none"

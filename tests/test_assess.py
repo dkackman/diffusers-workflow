@@ -598,3 +598,102 @@ class TestAnswerShape:
             assert "rules_applied" in answer
             assert "shots_source" in answer
             assert answer["shots_source"] == "artifact"
+
+
+# ---------------------------------------------------------------------------
+# 10. A probe step on a stored video: asset: and output: stream the file (#387)
+# ---------------------------------------------------------------------------
+
+
+class TestStoredMediaInAWorkflow:
+    """A probe's 'video' naming a stored file used to be decoded to a frame
+    list first - dropping the soundtrack - and every probe then refused it
+    ("not FrameList"). It is now read by reference, like get_frame's."""
+
+    def probe_workflow(self, video, command="analyze_shots"):
+        return {
+            "id": "probe-stored",
+            "steps": [
+                {
+                    "name": "probe",
+                    "task": {"command": command, "arguments": {"video": video}},
+                    "result": {"content_type": "application/json"},
+                }
+            ],
+        }
+
+    def run(self, definition, output_dir):
+        from dw.workflow import Workflow
+
+        results = Workflow(definition, str(output_dir), "").run({})
+        answers = list(results.values()) if isinstance(results, dict) else results
+        return answers
+
+    def saved_answer(self, output_dir):
+        saved = [
+            p
+            for p in output_dir.rglob("*.json")
+            if p.name not in ("manifest.json", "workflow.json")
+        ]
+        assert len(saved) == 1, saved
+        return json.loads(saved[0].read_text())
+
+    def test_an_asset_video_is_probed_from_the_file(self, tmp_path, monkeypatch):
+        import dw.arguments as arguments_module
+
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        assets = tmp_path / "assets" / "cast"
+        assets.mkdir(parents=True)
+        write_mp4(assets / "clip.mp4", frames=48, fps=24)
+        monkeypatch.setenv("DW_ASSET_DIR", str(tmp_path / "assets"))
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("a probe's video must not be decoded eagerly")
+
+        monkeypatch.setattr(arguments_module, "load_video", _boom)
+
+        outputs = tmp_path / "outputs"
+        self.run(self.probe_workflow("asset:cast/clip.mp4"), outputs)
+
+        answer = self.saved_answer(outputs)
+        assert answer["shots_source"] == "none"
+        assert len(answer["shots"]) == 1
+        # The soundtrack was read, not dropped with a frame-list decode
+        assert answer["shots"][0]["rms_dbfs"] is not None
+
+    def test_an_output_video_is_probed_with_its_manifest_shots(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        outputs = tmp_path / "outputs"
+        run_dir = outputs / "cutter" / "20260923-120000-abcdef01"
+        (run_dir / "final").mkdir(parents=True)
+        write_mp4(run_dir / "final" / "cut.mp4", frames=48, fps=24)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {
+                            "step": "cut",
+                            "files": ["final/cut.mp4"],
+                            "shots": [
+                                shot_record("shot@a", 0, 24, 0, 48000),
+                                shot_record("shot@b", 24, 24, 48000, 48000),
+                            ],
+                        }
+                    ],
+                }
+            )
+        )
+
+        self.run(
+            self.probe_workflow(
+                "output:cutter/20260923-120000-abcdef01/final/cut.mp4",
+                command="analyze_seams",
+            ),
+            outputs,
+        )
+
+        answer = self.saved_answer(outputs / "probe-stored")
+        assert answer["shots_source"] == "manifest"
+        assert len(answer["seams"]) == 1
