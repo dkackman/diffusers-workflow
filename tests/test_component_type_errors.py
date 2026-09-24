@@ -189,6 +189,131 @@ class TestNoDownloadIsQuotedForARefusedStep:
         assert "steps[0].pipeline.configuration.component_type" in paths
 
 
+def step_with(pipeline_extra=None, task=None):
+    step = {"name": "a", "result": {"content_type": "image/png"}}
+    if task is not None:
+        step["task"] = task
+    else:
+        step["pipeline"] = {
+            "configuration": {"component_type": "StableDiffusionPipeline"},
+            **(pipeline_extra or {}),
+        }
+    return {"id": "ct", "steps": [step]}
+
+
+class TestDtypeKeysAtValidate:
+    """A 'torch_dtype' (or any key the run loads as a type) is held to the
+    same gate at validate as the three '*_type' keys - it was checked only
+    at run time, after the queue (#409's bounce, SE-F031 f)."""
+
+    @pytest.fixture(autouse=True)
+    def _untrusted(self, monkeypatch):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+
+    def _errors(self, value):
+        return component_type_errors(
+            step_with({"from_pretrained_arguments": {"torch_dtype": value}})
+        )
+
+    @pytest.mark.parametrize(
+        "value, says",
+        [("torch.hub.load", "not a class"), ("os.system", "outside the ecosystem")],
+    )
+    def test_a_non_dtype_is_refused_at_its_path(self, value, says):
+        errors = self._errors(value)
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.from_pretrained_arguments.torch_dtype"
+        ]
+        assert says in errors[0]["message"]
+
+    @pytest.mark.parametrize("value", ["torch.bfloat16", "torch.float16", "{nf4}"])
+    def test_a_dtype_or_escaped_value_passes(self, value):
+        assert self._errors(value) == []
+
+    def test_a_non_type_key_is_left_alone(self):
+        assert component_type_errors(step_with({"offload_type": "model"})) == []
+
+    def test_trusted_is_unchanged(self, monkeypatch):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        assert self._errors("torch.hub.load") == []
+
+
+class TestConstantsAtValidate:
+    """A literal 'constant:' in a step is resolved at validate the way the
+    run resolves it, so the untrusted walk rules refuse it before the queue
+    rather than only at run time (#409's bounce, SE-F032)."""
+
+    @pytest.fixture(autouse=True)
+    def _untrusted(self, monkeypatch):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+
+    def _errors(self, value):
+        return component_type_errors(
+            step_with({"arguments": {"cross_attention_kwargs": value}})
+        )
+
+    @pytest.mark.parametrize(
+        "name, says",
+        [
+            ("torch.os.environ", "outside the ecosystem"),
+            ("transformers.utils.hub.os.environ", "outside the ecosystem"),
+            ("os.environ", "outside the ecosystem"),
+            ("torch._C", "private name"),
+            ("diffusers.__builtins__", "private name"),
+            ("torch.nn.Module.__subclasses__", "private name"),
+            ("torch.hub.load", "not a constant"),
+            ("diffusers.NO_SUCH_CONSTANT", "No constant named"),
+        ],
+    )
+    def test_a_refused_walk_is_reported_at_its_path(self, name, says):
+        errors = self._errors(f"constant:{name}")
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.arguments.cross_attention_kwargs"
+        ]
+        assert says in errors[0]["message"]
+
+    def test_a_constant_in_a_list_is_reported_at_its_index(self):
+        errors = component_type_errors(
+            step_with({"arguments": {"sigmas": [1.0, "constant:torch.os.sep"]}})
+        )
+        assert [e["path"] for e in errors] == ["steps[0].pipeline.arguments.sigmas[1]"]
+
+    def test_a_constant_in_task_arguments_is_checked_too(self):
+        errors = component_type_errors(
+            step_with(
+                task={"command": "x", "arguments": {"a": "constant:torch.os.environ"}}
+            )
+        )
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.a"]
+
+    def test_the_dataclass_walk_still_validates(self):
+        name = (
+            "diffusers.pipelines.ltx2.utils."
+            "GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens"
+        )
+        assert self._errors(f"constant:{name}") == []
+
+    def test_it_reaches_validation_errors(self, tmp_path):
+        from dw.workflow import Workflow
+
+        definition = step_with(
+            {
+                "from_pretrained_arguments": {
+                    "model_name": "org/model",
+                    "torch_dtype": "torch.hub.load",
+                },
+                "arguments": {
+                    "prompt": "a cat",
+                    "cross_attention_kwargs": "constant:torch.os.environ",
+                },
+            }
+        )
+        workflow = Workflow(definition, str(tmp_path), str(tmp_path / "ct.json"))
+        paths = [error["path"] for error in workflow.validation_errors()]
+        assert "steps[0].pipeline.arguments.cross_attention_kwargs" in paths
+        assert "steps[0].pipeline.from_pretrained_arguments.torch_dtype" in paths
+
+
 class TestTheCatalogItself:
     """Every workflow shipped in the repo passes the new check."""
 
@@ -200,7 +325,10 @@ class TestTheCatalogItself:
             + list((REPO_ROOT / "dw" / "workflows").glob("*.json"))
         ),
     )
-    def test_workflow_has_no_component_type_error(self, path):
+    def test_workflow_has_no_component_type_error(self, path, monkeypatch):
+        # Untrusted, the server's default posture - the dtype keys and
+        # constant: values the walk now covers must all pass it (#409)
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
         definition = json.loads((REPO_ROOT / path).read_text())
         if not isinstance(definition, dict) or "steps" not in definition:
             pytest.skip("not a workflow")
