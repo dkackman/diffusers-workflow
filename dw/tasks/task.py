@@ -380,6 +380,7 @@ def _per_frame(image, process):
     carried through untouched. A single image is processed as itself.
     """
     from ..result import AudioVideo
+    from ..shots import carried_shots
     from .video_utils import frames_as_pil_list, is_video
 
     if not is_video(image):
@@ -387,7 +388,14 @@ def _per_frame(image, process):
     frames = [process(frame) for frame in frames_as_pil_list(image)]
     audio = getattr(image, "audio", None)
     sample_rate = getattr(image, "sample_rate", None)
-    return AudioVideo(frames, audio, sample_rate, fps=getattr(image, "fps", None))
+    # One frame out per frame in, so the shot boundaries carry through too
+    return AudioVideo(
+        frames,
+        audio,
+        sample_rate,
+        fps=getattr(image, "fps", None),
+        shots=carried_shots(image),
+    )
 
 
 @register_command(

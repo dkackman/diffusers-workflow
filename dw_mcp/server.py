@@ -416,7 +416,8 @@ def build_server(client):
         `get_job_workflow(job_id)` when known, else a kept asset has no
         provenance. `media` itself carries duration, sample rate,
         channels, fps, size and level - the checks an agent that cannot
-        listen makes on a deliverable.
+        listen makes on a deliverable; `media.shots` places a joined
+        video's shots.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: a shot's last frame, a seam's hole, where a
@@ -579,9 +580,8 @@ def build_server(client):
         """See a generated video as frames - no video content type exists
         over MCP. One selector: `count` (contact sheet), `at` (seconds or
         "frame:N"), or `seams` (true, or seam numbers from 1) for each
-        join's frame pair. `seams` needs `boundaries` - each later shot's
-        first frame, running sum of `get_gallery_metadata`'s `frame_count`;
-        `names` names the shots. Over budget, tiles shrink together.
+        join's frame pair, at a joined output's `media.shots`; else
+        `boundaries` (each later shot's first frame) and `names`. Over budget, tiles shrink together.
         `hear=N` adds N seconds of soundtrack around each `at`.
         `crop` is `[x, y, width, height]` in the video's own source
         pixels, cut from every frame before any downscale, like

@@ -11,6 +11,7 @@ import logging
 
 from ..events import emit_warning
 from ..result import AudioVideo
+from ..shots import remeasured_shots
 from .audio_utils import as_channels_samples
 
 logger = logging.getLogger("dw")
@@ -186,4 +187,14 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     waveform = _fit_to_video(
         as_channels_samples(waveform), rate, frames, frame_rate, fit
     )
-    return AudioVideo(frames, waveform, rate, fps=getattr(video, "fps", None))
+    # The picture's shots survive; their samples are re-measured on the new
+    # track, which was laid under whole rather than built shot by shot
+    return AudioVideo(
+        frames,
+        waveform,
+        rate,
+        fps=getattr(video, "fps", None),
+        shots=remeasured_shots(
+            getattr(video, "shots", None), frame_rate, rate, waveform.shape[1]
+        ),
+    )

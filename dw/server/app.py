@@ -103,6 +103,7 @@ from ..runs import (
     record_run_versions,
     resolve_output_reference,
     run_versions,
+    recorded_shots,
     split_run_path,
 )
 from ..workspace import (
@@ -3031,6 +3032,10 @@ def create_app(
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )
+        if media is not None and source == "output":
+            # Where each shot of a joined video sits, as the run that wrote
+            # it recorded (dw/shots.py) - null for a file not joined from shots
+            media["shots"] = recorded_shots(ws.outputs, name)
         return {
             "name": name,
             "source": source,
@@ -3158,8 +3163,10 @@ def create_app(
         numbers) for the last frame before and first frame after each
         boundary, side by side. `boundaries` is the comma list of frame
         indexes each shot after the first starts at, and `names` the
-        shots' names; both are required with `seams` until a joined file
-        carries its own (stage 2 of docs/proposals/output-assessment.md).
+        shots' names. Without `boundaries`, an output's seams are the shots
+        its run's manifest recorded for it (a `concat_videos`,
+        `dissolve_videos` or chained step), named as recorded unless `names`
+        is given; a file with none recorded still needs `boundaries`.
         Tiles are downscaled to `max_dimension` on their longest side.
         `crop` is `x,y,width,height` in the video's own source pixels
         (`video_shape`'s `width`/`height`) - resolved once and cut from
@@ -3232,15 +3239,31 @@ def create_app(
                     )
                 ]
             else:
-                if not boundaries:
+                recorded = (
+                    None
+                    if boundaries or is_asset_reference(name)
+                    else recorded_shots(ws.outputs, name)
+                )
+                if recorded:
+                    # The file's own seams, from its run's manifest
+                    starts = [shot["start_frame"] for shot in recorded[1:]]
+                    shot_names = (
+                        [n.strip() for n in names.split(",")]
+                        if names
+                        else [shot["name"] for shot in recorded]
+                    )
+                elif not boundaries:
                     raise HTTPException(
                         status_code=400,
                         detail="`seams` needs `boundaries`: the frame index each "
                         "shot after the first starts at, comma-separated - this "
-                        "file carries none of its own",
+                        "file's run recorded no shots for it",
                     )
-                starts = [int(b) for b in boundaries.split(",") if b.strip()]
-                shot_names = [n.strip() for n in names.split(",")] if names else None
+                else:
+                    starts = [int(b) for b in boundaries.split(",") if b.strip()]
+                    shot_names = (
+                        [n.strip() for n in names.split(",")] if names else None
+                    )
                 wanted = (
                     None
                     if seams.lower() == "true"
