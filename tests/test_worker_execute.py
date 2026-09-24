@@ -415,7 +415,10 @@ def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_pat
         "steps": [
             {
                 "name": "t",
-                "task": {"command": "compose_text", "arguments": {"parts": ["<b>x</b>"]}},
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["<b>x</b>"]},
+                },
                 "result": {"content_type": "variable:ct"},
             }
         ],
