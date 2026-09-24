@@ -48,7 +48,7 @@ from ..tasks.audio_utils import (
     frames_to_samples,
     slice_samples,
 )
-from ..tasks.video_utils import extract_frame, frames_as_pil_list
+from ..tasks.video_utils import _fit_audio_to_frames, extract_frame, frames_as_pil_list
 
 logger = logging.getLogger("dw")
 
@@ -353,6 +353,16 @@ def run_chain(pipeline, chain_definition, arguments):
         carry = continuity.extract(artifact)
         segment_frames = frames_as_pil_list(artifact)
         segment_audio, segment_rate = _generated_audio(artifact)
+        # A segment's own generated audio can run a codec-padding sliver
+        # short of the frames it was asked for - the same gap #197 fixed for
+        # a decoded file (_decode_audio_video) and for an in-memory
+        # previous_result shot (Result.save). A chained segment goes through
+        # neither of those, so the shortfall was surviving here uncorrected
+        # and compounding once per segment (#408).
+        if segment_audio is not None and segment_rate and config.fps:
+            segment_audio = _fit_audio_to_frames(
+                segment_audio, len(segment_frames), config.fps, segment_rate
+            )
 
         kept_frames = segment_frames[segment.head_trim :]
         start_sample = audio.shape[1] if audio is not None else 0
