@@ -470,7 +470,10 @@ def load_audio_video(location, base_dir=None):
     Returns:
         An AudioVideo holding the frames as PIL images and, when the file
         carries an audio stream, its waveform as a (channels, samples) float32
-        array with the stream's sample rate
+        array with the stream's sample rate. A local file also carries the
+        shots its own run manifest recorded for it (`shots_beside`), so a
+        join of a file that is itself an earlier join's output can see the
+        seams inside it (#399); a URL carries none.
     """
     from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
     from ..locations import validate_media_path, validate_media_url
@@ -488,13 +491,16 @@ def load_audio_video(location, base_dir=None):
         response = requests.get(validated_url, timeout=300)
         response.raise_for_status()
         handle = io.BytesIO(response.content)
-    else:
-        validated_path = validate_media_path(location, base_dir, "a video argument")
-        validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
-        logger.debug(f"Reading video from {validated_path}")
-        handle = validated_path
+        return _decode_audio_video(handle)
 
-    return _decode_audio_video(handle)
+    validated_path = validate_media_path(location, base_dir, "a video argument")
+    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    logger.debug(f"Reading video from {validated_path}")
+    video = _decode_audio_video(validated_path)
+    from ..runs import shots_beside
+
+    video.shots = shots_beside(validated_path)
+    return video
 
 
 def _decode_audio_video(handle):

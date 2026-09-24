@@ -19,7 +19,7 @@ from PIL import Image
 
 from ..events import emit_warning
 from ..result import AudioVideo
-from ..shots import shot_record
+from ..shots import measured_num_samples, nested_shots, shot_record
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
@@ -131,11 +131,13 @@ def dissolve_videos(
         sample_starts,
     )
     shots = _dissolve_shots(
+        loaded,
         video_names(videos),
         frame_starts,
         len(frames),
         sample_starts,
         audio,
+        sample_rate,
         dissolve_frames,
     )
     logger.info(
@@ -150,34 +152,58 @@ def dissolve_videos(
 
 
 def _dissolve_shots(
-    names, frame_starts, total_frames, sample_starts, audio, dissolve_frames
+    videos,
+    names,
+    frame_starts,
+    total_frames,
+    sample_starts,
+    audio,
+    sample_rate,
+    dissolve_frames,
 ):
-    """One shot per video, partitioning the dissolved picture and track.
+    """One shot per video - or, for one that already carries its own, one per
+    inner shot - partitioning the dissolved picture and track.
 
-    A dissolve belongs to the shot coming in: each shot runs from where its
-    dissolve opens to where the next one's does, so the counts add up to the
-    file's and `overlap_frames` says how much of its head is blended.
+    A dissolve belongs to the shot coming in: each video's own frames map
+    onto the joined picture by the exact offset frame_starts[index] gives (a
+    dissolve blends in place rather than dropping frames, unlike
+    concat_videos' head trim), so an input that is itself an earlier join's
+    output keeps its inner seams rather than collapsing to one record
+    (#399). `overlap_frames` marks how much of the shot's own head - the
+    first inner one, when it nests - is blended with what came before.
     """
-    frame_ends = frame_starts[1:] + [total_frames]
-    if audio is None:
-        sample_starts = [None] * len(frame_starts)
-        sample_ends = sample_starts
-    else:
-        sample_ends = sample_starts[1:] + [audio.shape[1]]
+    total_samples = audio.shape[1] if audio is not None else None
     shots = []
-    for index, name in enumerate(names):
-        start_sample = sample_starts[index]
-        shots.append(
-            shot_record(
+    for index, (video, name) in enumerate(zip(videos, names)):
+        inner = getattr(video, "shots", None)
+        sample_offset = sample_starts[index] if audio is not None else None
+        if inner:
+            nested = nested_shots(
+                inner,
+                frame_starts[index],
+                sample_offset,
+                getattr(video, "sample_rate", None),
+                sample_rate,
+            )
+            if index and dissolve_frames and nested:
+                nested[0]["overlap_frames"] = dissolve_frames
+            shots.extend(nested)
+        else:
+            frame_end = (
+                frame_starts[index + 1]
+                if index + 1 < len(frame_starts)
+                else total_frames
+            )
+            shot = shot_record(
                 name,
                 frame_starts[index],
-                frame_ends[index] - frame_starts[index],
-                start_sample,
-                None if start_sample is None else sample_ends[index] - start_sample,
+                frame_end - frame_starts[index],
+                sample_offset,
             )
-        )
-        if index and dissolve_frames:
-            shots[-1]["overlap_frames"] = dissolve_frames
+            if index and dissolve_frames:
+                shot["overlap_frames"] = dissolve_frames
+            shots.append(shot)
+    measured_num_samples(shots, total_samples)
     return shots
 
 
