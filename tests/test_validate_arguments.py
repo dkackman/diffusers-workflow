@@ -30,6 +30,27 @@ def typed_workflow():
     return workflow
 
 
+def null_variable_workflow():
+    """A required task argument fed by `variable:audio`, where `audio`'s
+    declared default is null - the #364 repro. A fine document (the step
+    does supply the argument, just not yet a value); a run left as-is
+    would fail."""
+    return {
+        "id": "null_var",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+
+
 def placeholder_workflow():
     """A stored default that names no file in this workspace, the shape of
     `templates/ltx2/reference-sheet` and its siblings (#166): a bare call
@@ -47,6 +68,8 @@ def server(tmp_path):
         json.dump(typed_workflow(), file)
     with open(os.path.join(root.workflows, "Placeholder.json"), "w") as file:
         json.dump(placeholder_workflow(), file)
+    with open(os.path.join(root.workflows, "NullVariable.json"), "w") as file:
+        json.dump(null_variable_workflow(), file)
     with open(os.path.join(root.assets, "iris.png"), "wb") as file:
         file.write(b"not really a png, but it is a file under that name")
     with open(os.path.join(root.prompts, "hero.json"), "w") as file:
@@ -409,6 +432,84 @@ class TestSubmission:
             )
 
         assert validated["errors"][0]["message"] in refused.json()["detail"]
+
+
+class TestNullVariableArgument:
+    """#364: a required task argument fed by `variable:name` where `name`'s
+    declared value is null is a fine document - `save_workflow` accepts it,
+    and `validate_workflow` called with no `arguments` at all must agree,
+    since that is the same "check the document" question. The moment the
+    caller names arguments of their own - even `{}` - it is a real run
+    being checked, and one that leaves the variable null is a hard error.
+    """
+
+    def test_no_arguments_key_at_all_is_a_warning_not_an_error(self, server):
+        """The literal repro: no `arguments` field in the request body."""
+        with server() as client:
+            response = client.post(
+                "/api/validate", json={"workflow_path": "NullVariable"}
+            ).json()
+
+        assert response["valid"] is True
+        assert response["errors"] == []
+        assert any("audio" in warning for warning in response["warnings"])
+
+    def test_an_inline_document_with_no_arguments_is_a_warning_too(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/validate", json={"workflow": null_variable_workflow()}
+            ).json()
+
+        assert response["valid"] is True
+        assert any("audio" in warning for warning in response["warnings"])
+
+    def test_an_explicit_empty_arguments_dict_is_still_a_hard_error(self, server):
+        """`{}` names a run with no values supplied, distinct from omitting
+        `arguments` entirely - the variable is still null for that run."""
+        with server() as client:
+            response = client.post(
+                "/api/validate",
+                json={"workflow_path": "NullVariable", "arguments": {}},
+            ).json()
+
+        assert response["valid"] is False
+        assert response["errors"][0]["variable"] == "audio"
+
+    def test_arguments_that_still_leave_it_null_are_a_hard_error(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/validate",
+                json={
+                    "workflow_path": "NullVariable",
+                    "arguments": {"audio": None},
+                },
+            ).json()
+
+        assert response["valid"] is False
+        assert response["errors"][0]["variable"] == "audio"
+
+    def test_arguments_that_supply_a_value_pass(self, server):
+        with server() as client:
+            response = client.post(
+                "/api/validate",
+                json={
+                    "workflow_path": "NullVariable",
+                    "arguments": {"audio": "asset:iris.png"},
+                },
+            ).json()
+
+        assert response["valid"] is True
+        assert response["errors"] == []
+
+    def test_save_workflow_accepts_the_document_with_a_warning(self, server):
+        with server() as client:
+            response = client.put(
+                "/api/workflows/NullVariableSaved",
+                json={"workflow": null_variable_workflow()},
+            )
+
+        assert response.status_code == 200
+        assert any("audio" in warning for warning in response.json()["warnings"])
 
 
 def test_an_entry_key_no_step_reads_is_a_warning_not_an_error(server):

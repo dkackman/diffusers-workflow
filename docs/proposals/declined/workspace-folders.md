@@ -1,9 +1,25 @@
 # Design: hierarchical workspace names
 
-Status: **proposal, not implemented**. Written for issue #167. Researched
-2026-09-16 (feasibility comment on the issue, model claude-sonnet-5 via
-provider anthropic); this document is the triaged follow-up (model
-claude-sonnet-5, provider anthropic).
+Status: **declined 2026-09-23** (issue #375, closed not planned). Written for
+issue #167 and researched 2026-09-16 by claude-sonnet-5 via anthropic.
+
+Why it was declined: plan v2 on #375 weighed value against build cost,
+inertia and reversibility. `lem` held 20 workspaces, 14 of them unrelated
+projects, and the `QA-EP*` clutter behind the ask was down to one. Against
+that, the change loosens `WORKSPACE_NAME_PATTERN`, a deliberate security
+boundary, and it cannot be backed out without a breaking change once
+grouped names reach job records. Don: "don't build".
+
+The design below still has two errors, corrected in #375's plan. Read that
+plan before reviving this:
+- `DELETE /api/workspaces/{name}` needs `{name:path}`.
+- Reserved names must be checked per segment: whole-string, `outputs/x`
+  passes.
+
+Revisit if a workflow starts making per-episode workspaces again, or the
+list reaches about 40 with real prefix families. If only the look is
+wanted, a display-only prefix grouping in the UI sidebar gets most of it
+with no engine change.
 
 ## The ask, as filed
 

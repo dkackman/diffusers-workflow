@@ -143,3 +143,14 @@ def test_no_auth_required_still_fetches_the_zip_itself():
     assert result["auth_required"] is False
     assert result["open_url"] == "/exports/job-1.zip"
     assert "fetch open_url" in result["next"]
+
+
+def test_absolute_zip_url_is_omitted_rather_than_null_when_unconfigured():
+    """#353 follow-up: the API omits absolute_zip_url when DW_PUBLIC_URL
+    isn't set, matching list_gallery's absolute_url; this tool used to pass
+    the missing key through as an explicit null instead of leaving it out."""
+    client, _ = exporting()
+
+    result = exports.export_job(client, "job-1")
+
+    assert "absolute_zip_url" not in result

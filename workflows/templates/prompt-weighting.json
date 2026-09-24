@@ -1,9 +1,11 @@
 {
     "variables": {
-        "prompt": "prompt:flux/weighted_portrait"
+        "prompt": "prompt:flux/weighted_portrait",
+        "seed": null
     },
     "id": "FluxSchnellWeighted",
     "description": "FLUX.1 schnell with A1111-style (word:1.5) prompt weighting.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

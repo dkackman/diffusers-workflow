@@ -55,7 +55,11 @@ def validate_workflow(
         )
     params = {"workspace": workspace} if workspace else None
     payload = {"workflow_path": stored} if inline is None else {"workflow": inline}
-    if arguments:
+    if arguments is not None:
+        # An explicit {} still means "check a run with no values supplied" -
+        # distinct from omitting arguments entirely, which means "check the
+        # document" (#364). A falsy-but-not-None check here would drop that
+        # distinction before it ever reaches the server.
         payload["arguments"] = arguments
     # The server resolves a name against its own workflow directory, so
     # validation sees the same base directory a run would

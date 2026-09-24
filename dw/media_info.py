@@ -11,25 +11,29 @@ import math
 import av
 import numpy
 
+from .loudness import _dbfs, integrated_lufs, true_peak_dbfs
+
 logger = logging.getLogger("dw")
-
-# The floor a level is reported at rather than -inf, which JSON cannot carry
-SILENCE_DBFS = -120.0
-
-
-def _dbfs(value):
-    if value <= 0:
-        return SILENCE_DBFS
-    return max(SILENCE_DBFS, 20.0 * math.log10(float(value)))
 
 
 def probe_media(path, envelope=False):
     """Duration, format and level of an audio or video file, or None.
 
     Video answers fps, frame_count, width and height, plus the soundtrack's
-    sample_rate, channels, peak_dbfs and mean_dbfs when it carries one;
-    audio answers the soundtrack fields. Levels come from decoding the
-    whole track, which is cheap next to generating it.
+    sample_rate, channels, peak_dbfs, mean_dbfs, integrated_lufs and
+    true_peak_dbfs when it carries one; audio answers the soundtrack fields.
+    Levels come from decoding the whole track, which is cheap next to
+    generating it.
+
+    peak_dbfs and mean_dbfs are a single sample's level; integrated_lufs is
+    the BS.1770 loudness of the whole track (#361) - a sparse voice-over and
+    a dense score can share a peak and still sit tens of dB apart in how
+    loud they sound. integrated_lufs is None for a track shorter than the
+    400 ms gating block or one that is silent throughout - "unmeasurable",
+    not zero. true_peak_dbfs is the inter-sample (oversampled) peak BS.1770
+    also defines, which can read higher than peak_dbfs when an encoder's
+    reconstruction filter rings a decoded peak up past what any single
+    sample showed.
 
     When a frame count still needs counting and/or a soundtrack still needs
     its levels measured, both are gathered from a single decode pass over
@@ -107,6 +111,19 @@ def probe_media(path, envelope=False):
                 if bins is not None and info.get("duration_seconds") is not None
                 else None
             )
+            # The whole soundtrack, accumulated the same way regardless of
+            # envelope - integrated loudness and true peak are measured over
+            # the full track, not per frame, so they need it assembled
+            # rather than the running peak/sum above. Trimmed past the
+            # file's reported duration for the same reason as the envelope
+            # bins (#277): priming/padding is not real content to measure.
+            lufs_chunks = [] if audio is not None else None
+            lufs_seen = 0
+            max_lufs_samples = (
+                int(round(info["duration_seconds"] * audio.rate))
+                if lufs_chunks is not None and info.get("duration_seconds") is not None
+                else None
+            )
             streams = [
                 s
                 for s in ((video if need_frame_count else None), audio)
@@ -140,6 +157,19 @@ def probe_media(path, envelope=False):
                                 int(audio.channels),
                                 max_envelope_samples,
                             )
+                        if lufs_chunks is not None:
+                            frame = _as_frame_samples(samples, int(audio.channels))
+                            full_length = frame.shape[0]
+                            length = (
+                                full_length
+                                if max_lufs_samples is None
+                                else max(
+                                    0, min(full_length, max_lufs_samples - lufs_seen)
+                                )
+                            )
+                            if length > 0:
+                                lufs_chunks.append(frame[:length])
+                            lufs_seen += full_length
                 if bins is not None and max_envelope_samples is None:
                     _merge_trailing_fragment(bins, audio.rate)
             except Exception as e:
@@ -156,6 +186,9 @@ def probe_media(path, envelope=False):
                 rms = math.sqrt(total / count) if count else 0.0
                 info["peak_dbfs"] = _dbfs(peak)
                 info["mean_dbfs"] = _dbfs(rms)
+                full = numpy.concatenate(lufs_chunks, axis=0) if lufs_chunks else None
+                info["integrated_lufs"] = integrated_lufs(full, audio.rate)
+                info["true_peak_dbfs"] = true_peak_dbfs(full)
                 if bins is not None:
                     info["envelope"] = _as_envelope(bins)
         return info

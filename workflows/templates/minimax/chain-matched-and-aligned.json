@@ -2,7 +2,7 @@
     "id": "MiniMaxH3Ref2VAChainedAligned",
     "description": "The chaining features used together, for a long clip driven by a supplied soundtrack. 'match_audio' sizes the chain to the audio while 'last_segment' continuity carries motion and framing across the seams, with 'carry_audio' off because the segments already take their audio from the supplied track rather than from each other. Also shows 'prompts', which lets a chain say something different on its opening segment than on its continuations, and 'save_segments', which writes each finished segment to disk so memory stays bounded to one segment and a crashed run keeps its progress.",
     "summary": "A long H3 clip sized to a supplied soundtrack, with video-tail continuity across every seam.",
-    "seed": 12345,
+    "seed": "variable:seed",
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
@@ -27,7 +27,8 @@
         "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
-        "lora_adapter_name": "turbo"
+        "lora_adapter_name": "turbo",
+        "seed": 12345
     },
     "variable_constraints": {
         "num_frames": {

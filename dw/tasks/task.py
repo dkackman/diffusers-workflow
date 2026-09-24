@@ -38,6 +38,8 @@ def register_command(
     provided=(),
     consumes_device=False,
     returns="artifact",
+    summary=None,
+    parameter_descriptions=None,
 ):
     """
     Decorator to register a command handler function.
@@ -64,6 +66,16 @@ def register_command(
             `validation_errors` (dw/scalar_result_validation.py, #212) rather
             than reaching `save_artifact` at run time, where a float has
             nothing left identifying which command produced it
+        summary: Overrides the command's `get_task` summary, which otherwise
+            reads the implementation function's docstring. For a command
+            whose handler dispatches its implementation per video frame
+            (`_per_frame`), that docstring describes the single-frame
+            function rather than the command a caller invokes - same reason
+            `_VIDEO_PROCESSOR_INFO` overrides `get_first_frame`/
+            `get_last_frame` (#366, #383)
+        parameter_descriptions: Overrides one or more of the implementation's
+            per-parameter `get_task` descriptions by name, for the same
+            single-frame-vs-command reason as `summary`
 
     Returns:
         Decorator function
@@ -80,12 +92,17 @@ def register_command(
                 return _func(task, arguments, previous_pipelines)
 
         _COMMAND_REGISTRY[command_name] = handler
-        _COMMAND_INFO[command_name] = {
+        info = {
             "kind": "command",
             "implementation": implementation,
             "provided": tuple(provided),
             "returns": returns,
         }
+        if summary:
+            info["summary"] = summary
+        if parameter_descriptions:
+            info["parameter_descriptions"] = dict(parameter_descriptions)
+        _COMMAND_INFO[command_name] = info
         logger.debug(f"Registered command handler: {command_name}")
         return func
 
@@ -424,6 +441,44 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
         image,
         lambda frame: restore_faces(frame, model_name, device=device, **arguments),
     )
+
+
+@register_command(
+    "grade",
+    implementation="dw.tasks.grade.grade_image",
+    summary=(
+        "Adjust exposure, contrast, saturation and white balance of an "
+        "image or a video."
+    ),
+    parameter_descriptions={
+        "media": (
+            "Image or video to grade. An image is a PIL Image; a video is a "
+            "file path or an asset:/output: reference, read with its audio "
+            "and graded frame by frame, keeping its frame rate and audio "
+            "unchanged."
+        ),
+    },
+)
+def _handle_grade(task, arguments, previous_pipelines):
+    """Adjust exposure, contrast, saturation and white balance of an image or a video"""
+    logger.debug("Grading media")
+    media = arguments.pop("media")
+    from .grade import grade_image
+
+    if isinstance(media, str):
+        import os
+
+        from ..security import ALLOWED_VIDEO_EXTENSIONS
+        from .video_utils import load_audio_video
+
+        if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
+            media = load_audio_video(media)
+        else:
+            from ..arguments import fetch_image
+
+            media = fetch_image(media)
+
+    return _per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
 @register_command(

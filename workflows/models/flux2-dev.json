@@ -4,7 +4,8 @@
         "prompt": "A realistic photograph of a mouse wearing a skirt playing volleyball against a team of professional volleyball players.",
         "num_images_per_prompt": 1,
         "num_inference_steps": 40,
-        "guidance_scale": 4.0
+        "guidance_scale": 4.0,
+        "seed": null
     },
     "id": "Flux2Dev",
     "description": "Text-to-image with FLUX.2 dev, pre-quantized to 4-bit BitsAndBytes. The 4-bit text encoder is loaded first as its own component and rested on the CPU, since BitsAndBytes materializes on the accelerator and the two together do not fit at load; model offloading then hands the accelerator to one component at a time, so both run on a 24 GB card.",
@@ -17,6 +18,7 @@
         }
     ],
     "configures": "templates/text-to-image",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "txt2img",

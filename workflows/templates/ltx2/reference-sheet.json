@@ -18,7 +18,8 @@
         "num_frames": 121,
         "reference_frames": 121,
         "frame_rate": 24.0,
-        "lora_scale": 1.0
+        "lora_scale": 1.0,
+        "seed": 42
     },
     "variable_constraints": {
         "num_frames": {
@@ -32,7 +33,7 @@
             "reason": "the Ingredients IC-LoRA reads the reference through a 121-frame bucket, and every target it was trained on was at least that long - a shorter static sheet breaks the reference encoding rather than shortening it"
         }
     },
-    "seed": 42,
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "static_sheet",
@@ -184,7 +185,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24,
+                "fps": "variable:frame_rate",
                 "subfolder": "final"
             }
         }

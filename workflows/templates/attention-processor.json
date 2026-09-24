@@ -6,8 +6,10 @@
         "num_inference_steps": 25,
         "guidance_scale": 7.5,
         "height": 512,
-        "width": 512
+        "width": 512,
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "generate_with_sdpa",

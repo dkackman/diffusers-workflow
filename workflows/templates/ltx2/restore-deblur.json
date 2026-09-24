@@ -17,7 +17,8 @@
         "height": 544,
         "num_frames": 121,
         "frame_rate": 24.0,
-        "lora_scale": 1.0
+        "lora_scale": 1.0,
+        "seed": 42
     },
     "variable_constraints": {
         "num_frames": {
@@ -27,7 +28,7 @@
             "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
         }
     },
-    "seed": 42,
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "restored",
@@ -165,7 +166,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24,
+                "fps": "variable:frame_rate",
                 "subfolder": "final"
             }
         }

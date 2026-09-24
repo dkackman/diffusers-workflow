@@ -354,6 +354,7 @@ def build_server(client):
         workspace: str | None = None,
         folder: str | None = None,
         version: int | None = None,
+        media: bool = False,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -378,8 +379,7 @@ def build_server(client):
         (manifest.json, workflow.json, job.json) as `runs`, each
         `{name, mtime}` - a run whose output was deleted before
         `delete_output` could remove it by name, or one that failed before
-        writing anything, invisible to a normal listing because it has no
-        file to show. `subfolder` does not apply in this mode. `name` is
+        writing anything. `subfolder` does not apply in this mode. `name` is
         exactly what `delete_output` accepts, so clearing the backlog is
         list, then delete each name. A run that wrote any file at
         all - a text-shape prompt, a utility's side output - is not listed;
@@ -389,7 +389,11 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one."""
+        here without leaving this one.
+
+        `media=True` adds `duration_seconds` to audio/video entries - two
+        takes sharing a basename are told apart by length, not size or
+        mtime."""
         return catalog.list_gallery(
             client,
             limit=limit,
@@ -398,6 +402,7 @@ def build_server(client):
             workspace=workspace,
             folder=folder,
             version=version,
+            media=media,
         )
 
     def get_gallery_metadata(
@@ -406,21 +411,22 @@ def build_server(client):
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it - the definition,
         not a summary, so a result can be reproduced or a failed run's
-        definition edited and re-run. For audio and video the `media`
-        block carries duration, sample rate, channels, fps, size and level
-        - the numbers to check a deliverable by, beside listening to it.
+        definition edited and re-run. Only an image embeds it; for audio
+        and video `metadata` is null and `next` names
+        `get_job_workflow(job_id)` when known, else a kept asset has no
+        provenance. `media` itself carries duration, sample rate,
+        channels, fps, size and level - the checks an agent that cannot
+        listen makes on a deliverable.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
-        track something is: whether a shot still sounds at its last frame,
-        how deep the hole at a seam goes, where a score goes quiet. Leave
-        it off unless the question is about a position - a long track is
-        a long list.
+        track something is: a shot's last frame, a seam's hole, where a
+        score goes quiet. Leave it off unless it's about position - a long
+        track is a long list.
 
         `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
         pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
         read - see `normalize_audio` under "Video Processing" in the tasks
-        guide. A mux emits only the second, so a peak between the two is
-        clean.
+        guide. A mux emits only the second.
 
         `name` may be an "asset:" reference instead of a gallery name, and
         then it describes that input asset - how many frames a shot is,
@@ -526,7 +532,21 @@ def build_server(client):
         excerpted. No downscale exists for audio - a whole clip too
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
-        says what was cut. To *see* a video, `get_output_frames`.
+        says what was cut. To *see* a video, `get_output_frames`. To
+        confirm the *words* an output speaks rather than hear it - a
+        text-only client can't consume the `AudioContent` block this
+        returns - `validate_workflow(name="templates/transcribe-audio",
+        arguments={"input_audio": "output:<name>"})` first (free; it takes
+        an audio file or a video's muxed soundtrack directly), then
+        `run_workflow(..., acknowledged_cost={"fingerprint": ...,
+        "minutes": ..., "downloads": [...]})` bound to that plan with
+        `wait_seconds=55`, then `get_output_text` on the result, and
+        `delete_output(job_id=...)` the scratch run afterward. This
+        workflow's plan comes back `basis: "unknown"` with `minutes: null`
+        - nothing is curated or observed for it - so quote what it actually
+        takes rather than the plan: seconds, not minutes (a few seconds per
+        clip in practice). Four calls and a short wait, not a GPU-spending
+        read tool - keep the normal queue rather than adding one.
 
         `workspace` pins this call to another workspace."""
         result = media.get_output_audio(
@@ -692,10 +712,16 @@ def build_server(client):
         for any file type, streams the body straight to disk rather than
         buffering it, and returns no content to the conversation - only
         where it was saved. `destination` may be a
-        full path, a directory, or omitted to save into the current
-        working directory under the output's own name; a '..' path segment
-        in it is refused. An existing file at the resolved path is left
-        alone unless `overwrite=True`.
+        full path or a directory; a '..' path segment in it is refused. An
+        existing file at the resolved path is left alone unless
+        `overwrite=True`. On the stdio `dw-mcp`, omitting `destination`
+        saves into the current working directory under the output's own
+        name. On a `dw.serve --mcp` endpoint the save happens on the server, and destination is required there -
+        an omitted one is refused rather than dropped loose in the
+        workspace root, where nothing can find or delete it later; use
+        the `url` list_gallery reports, get_output_image/get_output_audio/
+        get_output_frames for inline content, or keep_output to make it a
+        named asset instead.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -1231,15 +1257,20 @@ def build_server(client):
         what was copied. Returns the directory, a zip URL, the file list
         with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
-        The directory is on the machine running the server, not yours.
-        `open_url` is the zip: with `auth_required` false, fetch it and
-        unpack it into exports/ under the session's working directory - the
-        user's deliverable, not a temp file; it unpacks into a folder named
-        after the job id, so do not create that folder first. With it true
-        the zip needs a token you cannot attach, so hand `open_url` to the
-        person.
-        Refuses a job that is still running; refuses an existing export
-        unless overwrite=true."""
+        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
+
+        `auth_required` says whether opening the zip needs this server's
+        bearer token, a token you cannot attach to someone else's browser
+        or tooling. When it is false, fetch open_url yourself and unpack
+        it into exports/ under the session's working directory - it is
+        the user's deliverable, not a temp file; the archive already
+        unpacks into one folder named after the job id, so do not create that folder first.
+        When it is true, do NOT fetch it: hand open_url to the person and let them open it
+        (`next` says whether it is already absolute or needs the server's
+        address told to them). Individual results stay reachable inline
+        via get_output_image/get_output_audio/get_output_frames either
+        way. Refuses a job that is still running; refuses an existing
+        export unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
 
     tool(get_job, READ_ONLY)

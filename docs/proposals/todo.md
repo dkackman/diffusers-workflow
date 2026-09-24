@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374–#380, and #244 for `resume.md`), parked with Don. Its
+`feature` (#374 and #376–#380, and #244 for `resume.md`; #375 was declined), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -24,9 +24,6 @@ remaining deferred fix is recorded in
 2. **orphaned-run-directories.md** — real, recurring disk-usage annoyance
    (leftover manifests invisible to gallery/asset listings); the proposal
    already recommends the simple option (A). Moderate but bounded work.
-3. **workspace-folders.md** — one regex relax + a depth-2 listing walk + UI
-   grouping. Low complexity, meaningful convenience for the growing
-   series-episodes workflow.
 4. **mcp-context-cost-partial.md** — cheap and safe, but the remaining
    payoff is small (~1.1k tokens of connect cost), and recommendation 6 in
    `mcp-context-cost-complete.md` suggests the harness-level fix (deferred
@@ -56,6 +53,15 @@ remaining deferred fix is recorded in
 9. **maintenance-screen.md — the full UI page** — Phase 0 (WAL mode) shipped
    2026-09-20; the maintenance/observability page itself (orphan listing,
    disk usage, job pruning) is the remaining, much bigger ask.
+
+## Declined
+
+Kept in `declined/` with the reason at the top, so a revival starts from
+the analysis rather than repeating it.
+
+- **declined/workspace-folders.md** — grouped workspace names (`QA/EP1`).
+  Declined 2026-09-23 on #375: thin demonstrated value against a loosened
+  security boundary and a change that can't be taken back.
 
 ## Backlog ideas with no doc on file
 

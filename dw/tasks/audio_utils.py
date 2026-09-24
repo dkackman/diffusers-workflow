@@ -15,6 +15,7 @@ import soundfile
 import torch
 
 from ..events import emit_log, emit_warning
+from ..loudness import integrated_lufs
 from ..task_domains import as_number, check_arguments
 from ..security import (
     validate_file_extension,
@@ -1299,7 +1300,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     return _as_track(faded, sample_rate, "fade_audio")
 
 
-def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
+def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
     """Task command: scale a track so its loudest sample sits at a level.
 
     Generated music comes out at whatever level the model happened to land
@@ -1312,13 +1313,23 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
             soundtrack is taken), a video generated with a
             soundtrack, or a waveform (which needs sample_rate alongside it)
         peak_dbfs: The level the loudest sample is moved to, in dB below full
-            scale. 0 is full scale; -1 leaves a little headroom
+            scale. 0 is full scale; -1 leaves a little headroom. Still
+            applies as a ceiling when target_lufs is also given
+        target_lufs: Integrated loudness (BS.1770) to gain the track to, in
+            LUFS. Peak alone says nothing about how loud a track sounds - a
+            sparse voice-over and a dense score can share a peak and still
+            sit tens of dB apart to the ear (#361). When given, the gain
+            targets this loudness first; peak_dbfs still holds as a ceiling,
+            and if reaching target_lufs would cross it the gain stops at the
+            ceiling and a warning names the shortfall in LU. None (the
+            default) leaves behavior exactly as peak-only
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
         An AudioTrack holding the scaled waveform and its rate; a silent
         track is returned unchanged
     """
+    check_arguments("normalize_audio", sample_rate=sample_rate, target_lufs=target_lufs)
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "normalize_audio")
     if peak_dbfs > 0:
         raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")
@@ -1326,10 +1337,41 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
     if peak == 0.0:
         logger.warning("normalize_audio: the track is silent - left unchanged")
         return _as_track(waveform, sample_rate, "normalize_audio")
-    gain = 10 ** (peak_dbfs / 20) / peak
-    logger.debug(
-        f"normalize_audio: peak {peak:.3f}, gain {20 * numpy.log10(gain):+.1f} dB"
-    )
+
+    if target_lufs is None:
+        gain_db = peak_dbfs - 20 * numpy.log10(peak)
+    else:
+        peak_db = 20 * numpy.log10(peak)
+        ceiling_gain_db = peak_dbfs - peak_db
+        current_lufs = integrated_lufs(waveform.T, sample_rate)
+        if current_lufs is None:
+            emit_warning(
+                f"normalize_audio: target_lufs={target_lufs} was given, but the "
+                "track's loudness could not be measured (shorter than the 400 ms "
+                "gating block, or silent throughout) - falling back to peak_dbfs "
+                "alone.",
+                kind="target_lufs_unmeasurable",
+                command="normalize_audio",
+                target_lufs=target_lufs,
+            )
+            gain_db = ceiling_gain_db
+        else:
+            target_gain_db = target_lufs - current_lufs
+            gain_db = min(target_gain_db, ceiling_gain_db)
+            if gain_db < target_gain_db:
+                emit_warning(
+                    f"normalize_audio: target_lufs={target_lufs} would need "
+                    f"{target_gain_db:+.1f} dB of gain, but peak_dbfs={peak_dbfs} "
+                    f"caps it at {gain_db:+.1f} dB - "
+                    f"{target_gain_db - gain_db:.1f} LU short of the target.",
+                    kind="target_lufs_capped",
+                    command="normalize_audio",
+                    target_lufs=target_lufs,
+                    peak_dbfs=peak_dbfs,
+                    shortfall_lu=target_gain_db - gain_db,
+                )
+    gain = 10 ** (gain_db / 20)
+    logger.debug(f"normalize_audio: peak {peak:.3f}, gain {gain_db:+.1f} dB")
     return _as_track(
         (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"
     )

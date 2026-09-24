@@ -1238,8 +1238,8 @@
                     "type": "string"
                 },
                 "fps": {
-                    "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about.",
-                    "type": "integer",
+                    "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about. May be a 'variable:' or, inside a for_each step, an 'item:' reference, resolved the same way 'subfolder' is - the resolved value must be a positive whole number; a fractional rate is refused, since the video writer would silently truncate rather than honor it.",
+                    "type": ["integer", "number", "string"],
                     "default": 8
                 },
                 "sample_rate": {

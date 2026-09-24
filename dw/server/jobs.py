@@ -591,6 +591,7 @@ class Job:
                 event.get("repo_id"),
                 event.get("downloaded_bytes"),
                 event.get("bytes_per_second"),
+                event.get("seconds_since_bytes_changed"),
             )
         elif kind == "warning":
             # Both channels, on purpose: the event log keeps the moment it

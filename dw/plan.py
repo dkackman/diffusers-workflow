@@ -23,7 +23,7 @@ from huggingface_hub import get_hf_file_metadata, hf_hub_url
 from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
 
 from .elision import elide_definition
-from .hub_cache import scan_models
+from .hub_cache import repo_download_incomplete, scan_models
 from .realize import (
     BUILTIN_PREFIX,
     VARIABLE_PREFIX,
@@ -75,12 +75,15 @@ def build_plan(
             run's arguments and answering one - what the estimate quotes in
             preference to a curated figure (#154). None on a caller that has
             no history to offer, which is every caller but the server.
-        observed_for_child: A callable taking a composed child's local path
-            and its parsed definition, answering that child's own `observed`
-            block or None - so a composing workflow's estimate can roll up a
-            child's history instead of resetting to `unknown` when the
-            parent has no figure of its own (#268). None on a caller that
-            cannot resolve a child's catalog name to look history up by.
+        observed_for_child: A callable taking a composed child's local path,
+            its parsed definition, and the composing step's own `arguments`,
+            answering that child's own `observed` block or None - so a
+            composing workflow's estimate can roll up a child's history
+            instead of resetting to `unknown` when the parent has no figure
+            of its own (#268), bucketed against the value the composing step
+            actually passes rather than always the child's stored defaults
+            (#341). None on a caller that cannot resolve a child's catalog
+            name to look history up by.
     """
     definition = candidate.workflow_definition
     base_dir = (
@@ -212,8 +215,9 @@ def unseeded_cache_warnings(definition, arguments=None):
     return [
         "This workflow sets no 'seed', so the step cache is disabled and "
         "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed' to make a repeat run reuse "
-        "what it already produced"
+        "on every run. Set a top-level 'seed': 'variable:seed' with a "
+        "declared default in 'variables' to make a repeat run reuse what it "
+        "already produced"
     ]
 
 
@@ -499,7 +503,13 @@ def estimate(
             and child_definition is not None
         ):
             try:
-                child_observed = observed_for_child(path, child_definition)
+                # `step_arguments` are the composing step's own overrides -
+                # passed through so a child observed lookup buckets against
+                # the value this step actually runs with rather than always
+                # the child's stored defaults (#341)
+                child_observed = observed_for_child(
+                    path, child_definition, step_arguments
+                )
             except Exception:
                 child_observed = None
         child = _observed(child_observed, device)
@@ -731,25 +741,30 @@ MODEL_NAME_KEY = "model_name"
 # An adapter names its repo directly, not through from_pretrained_arguments
 LORAS_KEY = "loras"
 SINGLE_FILE_KEY = "from_single_file"
+VARIANT_KEY = "variant"
 
 
 def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
     """The hub repos and checkpoint URLs the run would fetch before its
     first step: every `model_name` in the expanded definition (and in each
-    composed child) that `scan_models` does not find, plus every
-    `from_single_file` that is a URL. Sizes come from the hub when asked
-    and are None whenever it does not answer - an offline box is a state,
-    not an error, so nothing here raises or logs above debug.
+    composed child) that `scan_models` does not find, plus every one it does
+    find but whose cached copy is left over from an interrupted pull
+    (#382) - a component the load needs is missing, or a blob is still
+    `.incomplete` - plus every `from_single_file` that is a URL. Sizes come
+    from the hub when asked and are None whenever it does not answer - an
+    offline box is a state, not an error, so nothing here raises or logs
+    above debug.
     """
     names = []
+    variants = {}
     urls = []
-    _collect_sources(expanded, names, urls)
+    _collect_sources(expanded, names, variants, urls)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
         if raw is None:
             continue
         try:
-            _collect_sources(json.loads(raw), names, urls)
+            _collect_sources(json.loads(raw), names, variants, urls)
         except ValueError:
             continue
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
@@ -758,7 +773,11 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         # A name not shaped like a hub id is a local checkout - decided by
         # shape, never by touching the disk: the name came from the request
         # body, and a free pre-flight must not be a directory-existence oracle
-        if name in present or not _is_repo_id(name):
+        if not _is_repo_id(name):
+            continue
+        if name in present and not repo_download_incomplete(
+            name, cache_dir, variant=variants.get(name)
+        ):
             continue
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
         if lookup_sizes:
@@ -777,8 +796,11 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     return required
 
 
-def _collect_sources(tree, names, urls):
+def _collect_sources(tree, names, variants, urls):
     """Every from_pretrained source in a tree, first-seen order, deduplicated.
+    `variants` collects each name's requested `variant` (first-seen), used to
+    tell a repo that is merely missing its fp16 files from one that is fully
+    cached without them.
 
     A `loras` entry counts too. It carries its repo under `model_name`
     directly rather than inside a `from_pretrained_arguments` block, so the
@@ -797,14 +819,17 @@ def _collect_sources(tree, names, urls):
             name = source.get(MODEL_NAME_KEY)
             if isinstance(name, str) and name not in names:
                 names.append(name)
+                variant = source.get(VARIANT_KEY)
+                if isinstance(variant, str):
+                    variants[name] = variant
             single = source.get(SINGLE_FILE_KEY)
             if isinstance(single, str) and _is_url(single) and single not in urls:
                 urls.append(single)
         for value in tree.values():
-            _collect_sources(value, names, urls)
+            _collect_sources(value, names, variants, urls)
     elif isinstance(tree, list):
         for value in tree:
-            _collect_sources(value, names, urls)
+            _collect_sources(value, names, variants, urls)
 
 
 def gate_warnings(downloads_required):

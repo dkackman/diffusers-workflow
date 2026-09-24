@@ -43,7 +43,8 @@
         "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
-        "lora_adapter_name": "turbo"
+        "lora_adapter_name": "turbo",
+        "seed": 42
     },
     "variable_constraints": {
         "num_frames": {
@@ -55,7 +56,7 @@
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
         }
     },
-    "seed": 42,
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "board_1_launch",

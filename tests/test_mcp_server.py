@@ -997,6 +997,32 @@ async def test_export_job_sends_the_zip_to_the_working_directory():
 
 
 @pytest.mark.asyncio
+async def test_export_job_description_is_auth_aware():
+    """#353: the served tool description, not just the runtime `next` hint,
+    has to tell the agent not to fetch an auth-gated zip on the person's
+    behalf - the description is what the agent plans from before it ever
+    calls the tool and sees `next`."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "auth_required" in description
+    assert "do NOT fetch it" in description
+    assert "hand open_url to the person" in description
+
+
+@pytest.mark.asyncio
+async def test_download_output_description_says_a_mounted_endpoint_requires_destination():
+    """#353: on a dw.serve --mcp endpoint an omitted destination used to
+    silently land in the workspace root; the tool description has to say
+    it's refused there instead, not just the stdio default."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["download_output"].description
+    assert "destination is required there" in description
+    assert "keep_output" in description
+
+
+@pytest.mark.asyncio
 async def test_rerun_job_refuses_without_acknowledgement_and_sends_nothing():
     seen = []
 

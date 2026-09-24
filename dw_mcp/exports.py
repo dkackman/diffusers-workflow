@@ -67,12 +67,11 @@ def export_job(client, job_id, overwrite=False):
             "are not repeated here; get_job_workflow and get_job serve them "
             "individually."
         )
-    return {
+    result = {
         "job_id": job_id,
         "where": f"{directory} on the machine running the MCP server",
         "directory": directory,
         "zip_url": zip_url,
-        "absolute_zip_url": absolute_zip_url,
         "auth_required": auth_required,
         "open_url": open_url,
         "files": body.get("files") or [],
@@ -80,3 +79,6 @@ def export_job(client, job_id, overwrite=False):
         "missing": body.get("missing") or [],
         "next": next_text,
     }
+    if absolute_zip_url is not None:
+        result["absolute_zip_url"] = absolute_zip_url
+    return result

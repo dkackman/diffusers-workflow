@@ -215,7 +215,11 @@ def seam_tiles(
 def _moment_to_index(moment, shape):
     total = shape["frame_count"]
     if isinstance(moment, str) and moment.startswith("frame:"):
-        index = int(moment[len("frame:") :])
+        raw = moment[len("frame:") :]
+        try:
+            index = int(raw)
+        except ValueError:
+            raise ValueError(f'"{moment}" - frame index must be a whole number')
         if index < 0:
             index += total
         if not 0 <= index < total:
@@ -235,11 +239,16 @@ def _moment_to_index(moment, shape):
         index += total
     if not 0 <= index < total:
         duration = total / fps
-        raise ValueError(
+        message = (
             f"{moment!r} s is past the end of a {duration:.2f} s "
-            f"({total}-frame) clip - bare numbers in 'at' are seconds; "
-            f'use "frame:{_format_moment(moment)}" for a frame index'
+            f"({total}-frame) clip - bare numbers in 'at' are seconds"
         )
+        # A fractional value is a seconds overshoot, not a frame index in
+        # disguise - the frame: hint only makes sense for a whole number
+        # that would itself be a valid frame index.
+        if seconds.is_integer() and 0 <= int(seconds) < total:
+            message += f'; use "frame:{_format_moment(moment)}" for a frame index'
+        raise ValueError(message)
     return index
 
 

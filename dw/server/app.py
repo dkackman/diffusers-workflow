@@ -1731,10 +1731,20 @@ def create_app(
                 detail="Workflow could not be constructed - the server log "
                 "has the detail",
             )
+        # `arguments` defaults to `{}` on the model (JobRequest is shared
+        # with run_workflow, which needs a dict), so an omitted field and an
+        # explicit `{}` are otherwise indistinguishable here - and the two
+        # mean different things: omitted is "check the document", explicit
+        # is "check a run with these arguments" (#364). model_fields_set
+        # tells them apart without changing the field's default for every
+        # other caller of validate_workflow.
+        caller_arguments = (
+            request.arguments if "arguments" in request.model_fields_set else None
+        )
         try:
             # The caller's list is the one a for_each expands over, so the
             # pre-flight checks the step set that will actually run
-            errors = candidate.validation_errors(arguments=request.arguments)
+            errors = candidate.validation_errors(arguments=caller_arguments)
         except Exception:
             # An error here is not the schema's verdict on the workflow -
             # validation_errors() reports that by returning it. It is the
@@ -1795,9 +1805,9 @@ def create_app(
             + candidate.adapter_warnings(request.arguments)
             # A required task argument fed by variable:name where name's
             # default is null - a fine document, but a run left as-is would
-            # fail; empty once request.arguments names anything, since that
+            # fail; empty once the caller names any arguments, since that
             # condition is a hard error above instead (#364)
-            + candidate.null_variable_argument_warnings(request.arguments)
+            + candidate.null_variable_argument_warnings(caller_arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
             + candidate.sub_workflow_warnings(),
@@ -1814,11 +1824,19 @@ def create_app(
 
             command = _probe_command_for(candidate, request, workspace, source_root)
 
-            def observed_for_child(path, child_definition):
+            def observed_for_child(path, child_definition, arguments=None):
                 """A composed child's own observed figure, keyed by the
                 catalog name it resolves to - so a parent with no figure of
                 its own can quote what this box's runs of the *child* took
-                rather than falling back to unknown (#268)."""
+                rather than falling back to unknown (#268).
+
+                `arguments` are the composing step's own overrides - the
+                same role `arguments` plays for the top-level `observed`
+                callback - so a child whose composing step shifted a
+                declared scalar `cost_driver` (#341) is bucketed against
+                *that* value rather than always the child's stored
+                defaults, which silently answered the default bucket's
+                history for every override."""
                 base_dir = (
                     os.path.dirname(os.path.abspath(candidate.file_spec))
                     if candidate.file_spec
@@ -1841,7 +1859,7 @@ def create_app(
                     workspace.name if child_root == workspace.workflows else None
                 )
                 return _observed_for_name(
-                    child_name, child_definition, workspace=child_workspace
+                    child_name, child_definition, arguments, workspace=child_workspace
                 )
 
             answer["plan"] = build_plan(
@@ -2964,7 +2982,11 @@ def create_app(
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one, plus - for audio and
         video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track.
+        which is how an agent that cannot listen checks a track. Only an
+        image embeds 'metadata' this way - it is always null for audio and
+        video, since neither format has a slot this writer uses; recover
+        the recipe from 'job' (GET /api/jobs/{id}/workflow) when one is
+        known, or from nothing when it isn't (a kept asset has no job).
 
         `envelope=true` adds the soundtrack's level second by second, which
         is what says *where* in a track something is - whether a shot is
@@ -4133,7 +4155,7 @@ def create_app(
         }
 
     @app.get("/api/server")
-    def server_info():
+    def server_info(ws: Workspace = Depends(selected_workspace)):
         """How this server is reachable, for the UI's Server page: what it
         is bound to, whether a token is needed, whether MCP is mounted, and
         the addresses another machine could name it by.
@@ -4142,6 +4164,12 @@ def create_app(
         and `mcp.path` - and the token itself is never reported in any
         form, only whether one is required. An interface enumeration
         failure is not a server failure: `addresses` comes back empty.
+
+        `directories` is scoped to the `?workspace=` a caller names (or the
+        session's own pin, via `_scoped`) - a mounted `download_output`
+        confines a write to *that* workspace's output tree, so reporting
+        the server's own default here regardless of the selector sent a
+        caller pinned elsewhere writing into `default` without any error (#389).
         """
         import socket
 
@@ -4174,17 +4202,18 @@ def create_app(
             # answers, e.g. whether bitsandbytes is even installed (#222)
             "runtime": runtime_info(),
             "directories": {
-                # The workspace the three below default to folders of; an
-                # individually overridden folder still reports its own path
-                "workspace": app.state.workspace,
-                "workflows": os.path.abspath(app.state.workflow_dir),
-                "assets": app.state.asset_dir,
-                "outputs": os.path.abspath(manager.output_dir),
-                "prompts": (
-                    os.path.abspath(app.state.prompt_dir)
-                    if app.state.prompt_dir
-                    else None
-                ),
+                # ws's properties are already absolute (Workspace and
+                # ConfiguredWorkspace both resolve at construction). This
+                # "workspace" is the root path a mounted download_output
+                # confines a write to (dw_mcp/media.py's _remote_root) -
+                # None for a default workspace configured from individual
+                # directory overrides with no --workspace root, same as
+                # before this route was workspace-aware
+                "workspace": ws.root,
+                "workflows": ws.workflows,
+                "assets": ws.assets,
+                "outputs": ws.outputs,
+                "prompts": ws.prompts,
             },
         }
 

@@ -36,12 +36,19 @@ key would let a different workflow (or the same one after an id rename, or
 a sub-workflow sharing a name with its parent) hit and republish the other
 workflow's file paths while writing none of its own.
 
-The cache is per-process and bounded (DEFAULT_MAX_ENTRIES, LRU): it holds
-realized media, so unbounded growth would work against the OOM avoidance
-release_unreferenced_results exists for. The bound is sized so a maximal
-for_each run (32 entries over two groups plus fixed steps, ~70 members)
-never evicts its own earlier members before it ends - a smaller cap would
-turn a long list-driven run into one that thrashes its own cache.
+The cache is per-process and bounded two ways, LRU either way: by entry
+count (DEFAULT_MAX_ENTRIES), sized so a maximal for_each run (32 entries
+over two groups plus fixed steps, ~70 members) never evicts its own earlier
+members before it ends - a smaller cap would turn a long list-driven run
+into one that thrashes its own cache - and by the approximate byte size of
+the retained media itself (DEFAULT_MAX_RETAINED_BYTES). A for_each group
+whose members are each a full decoded video (dialogue-short's `shot`, gathered
+by `episode`) is retained in full for every member - correctly, since the
+final step genuinely reads all of them - but nothing ever released that once
+the run finished, so a handful of members held several GB resident
+indefinitely (#368). The byte cap does not know which entries a future run
+would most want back; it just keeps the newest-used bytes under budget the
+same way the entry cap keeps the newest-used count under one, oldest first.
 """
 
 import copy
@@ -187,6 +194,47 @@ def deep_equal(a, b):
         return False
 
 
+def _approx_bytes(value, seen):
+    """Approximate resident size of a retained result item, in bytes.
+
+    Walks the same shapes a pipeline output actually takes - a dict/dataclass
+    of arrays wrapping frames and audio, nested lists of per-frame images -
+    rather than every Python object, so an unrecognized type (a bare string,
+    a plain number) costs nothing rather than raising. `seen` is shared
+    across one Result's whole result_list so an object two artifacts both
+    reference (get_artifact_list's fitted-in-place audio, say) is not
+    double-counted.
+    """
+    key = id(value)
+    if key in seen:
+        return 0
+    seen.add(key)
+    if isinstance(value, torch.Tensor):
+        return value.element_size() * value.nelement()
+    if isinstance(value, np.ndarray):
+        return value.nbytes
+    if isinstance(value, Image.Image):
+        bands = len(value.getbands()) or 1
+        return value.width * value.height * bands
+    if isinstance(value, (bytes, bytearray)):
+        return len(value)
+    if isinstance(value, dict):
+        return sum(_approx_bytes(v, seen) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(_approx_bytes(v, seen) for v in value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return sum(
+            _approx_bytes(getattr(value, f.name), seen)
+            for f in dataclasses.fields(value)
+        )
+    return 0
+
+
+def _result_bytes(result):
+    seen = set()
+    return sum(_approx_bytes(item, seen) for item in result.result_list)
+
+
 class StepCache:
     """Per-process cache of the last Result produced for each
     (workflow_id, step_name).
@@ -200,20 +248,32 @@ class StepCache:
     """
 
     DEFAULT_MAX_ENTRIES = 128
+    # 4 GiB: enough for several retained shot@ videos at once, small next to
+    # the VRAM/RAM a generation step itself needs, and never the only thing
+    # standing between a run and OOM - release_unreferenced_results and the
+    # entry cap both still apply
+    DEFAULT_MAX_RETAINED_BYTES = 4 * 1024**3
 
-    def __init__(self, max_entries=None):
+    def __init__(self, max_entries=None, max_retained_bytes=None):
         # (workflow_id, step_name) -> {"step_data", "step_seed", "result",
-        # "output_dir", "generation", "upstream_generations", "retained"},
-        # ordered least- to most-recently-used
+        # "output_dir", "generation", "upstream_generations", "retained",
+        # "size"}, ordered least- to most-recently-used
         self._entries = OrderedDict()
         self.max_entries = (
             self.DEFAULT_MAX_ENTRIES if max_entries is None else max_entries
         )
+        self.max_retained_bytes = (
+            self.DEFAULT_MAX_RETAINED_BYTES
+            if max_retained_bytes is None
+            else max_retained_bytes
+        )
+        self._retained_bytes = 0
 
     def clear(self):
         # The generation counter deliberately survives: it only has to be
         # monotonic, and restarting it could make a stale reference match
         self._entries.clear()
+        self._retained_bytes = 0
 
     def get(
         self, workflow_id, step_data, step_seed, hits_this_run, output_dir, needs_result
@@ -301,6 +361,10 @@ class StepCache:
         retain_result = retain_result and getattr(result, "retainable", True)
         name = step_data["name"]
         key = (workflow_id, name)
+        size = _result_bytes(result) if retain_result else 0
+        previous = self._entries.get(key)
+        if previous is not None:
+            self._retained_bytes -= previous["size"]
         self._entries[key] = {
             "step_data": step_data,
             "step_seed": step_seed,
@@ -309,10 +373,18 @@ class StepCache:
             "output_dir": output_dir,
             "generation": next(_generations),
             "upstream_generations": self._upstream_generations(workflow_id, step_data),
+            "size": size,
         }
+        self._retained_bytes += size
         self._entries.move_to_end(key)
-        while len(self._entries) > self.max_entries:
-            (evicted_workflow, evicted_step), _ = self._entries.popitem(last=False)
+        while len(self._entries) > 1 and (
+            len(self._entries) > self.max_entries
+            or self._retained_bytes > self.max_retained_bytes
+        ):
+            (evicted_workflow, evicted_step), evicted = self._entries.popitem(
+                last=False
+            )
+            self._retained_bytes -= evicted["size"]
             logger.debug(
                 "Step cache full - evicting least recently used "
                 f"'{evicted_workflow}/{evicted_step}'"

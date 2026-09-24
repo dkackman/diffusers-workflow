@@ -73,12 +73,17 @@ class RunContext:
         self._watchdog_thread = None
         self._watchdog_stop = threading.Event()
 
-    def emit(self, event_type, **data):
+    def emit(self, event_type, counts_as_progress=True, **data):
+        """Send one event to the sink. counts_as_progress=False is for a
+        status report that says nothing has moved - a download reporting
+        zero new bytes (#343): the caller should see it, but the stall
+        watchdog must still see the silence, so it bumps neither clock."""
         now = time.monotonic()
-        self._last_event_at = now
-        if not (event_type == "warning" and data.get("kind") == "phase_stall"):
-            self._last_progress_at = now
-            self._last_progress_kind = event_type
+        if counts_as_progress:
+            self._last_event_at = now
+            if not (event_type == "warning" and data.get("kind") == "phase_stall"):
+                self._last_progress_at = now
+                self._last_progress_kind = event_type
         if self._on_event is None:
             return
         try:

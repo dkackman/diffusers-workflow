@@ -9,10 +9,12 @@
         "guidance_scale": 2.0,
         "strength": 0.75,
         "width": 96,
-        "height": 96
+        "height": 96,
+        "seed": null
     },
     "id": "FluxImg2Img",
     "description": "Image-to-image with FLUX.1 dev - restyles an input image toward the prompt.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "main",
