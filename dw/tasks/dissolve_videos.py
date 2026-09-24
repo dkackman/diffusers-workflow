@@ -169,7 +169,13 @@ def _dissolve_shots(
     concat_videos' head trim), so an input that is itself an earlier join's
     output keeps its inner seams rather than collapsing to one record
     (#399). `overlap_frames` marks how much of the shot's own head - the
-    first inner one, when it nests - is blended with what came before.
+    first inner one, when it nests - is blended with what came before. The
+    same dissolve also eats into the *tail* of the video before it: a
+    non-nested video's shot already stops at frame_starts[index + 1] (the
+    frame the next video's overlap starts blending at), so its recorded
+    num_frames excludes the overlap; a nested video's last inner shot must
+    be trimmed by the same dissolve_frames to keep that convention, or its
+    num_frames runs past where the next shot's start_frame picks up (#405).
 
     Each shot's `start_sample` is *derived* from its frame offset
     (frames_to_samples), the same rule pair_audio's remeasured_shots uses,
@@ -179,7 +185,11 @@ def _dissolve_shots(
     disagreed by a sample on a shot whose frames never changed (#401). The
     crossfade itself still blends the real, measured audio - only the
     recorded seam position is derived, so it matches whatever a later
-    pair_audio recomputes for the same boundary.
+    pair_audio recomputes for the same boundary. A nested video's own inner
+    shots get the same treatment (`nested_shots(..., fps=fps)`) rather than
+    rescaling their already-rounded stored `start_sample`, which would
+    compound the rounding across every join an input has passed through
+    (#405).
     """
     total_samples = audio.shape[1] if audio is not None else None
     shots = []
@@ -197,9 +207,12 @@ def _dissolve_shots(
                 sample_offset,
                 getattr(video, "sample_rate", None),
                 sample_rate,
+                fps=fps,
             )
             if index and dissolve_frames and nested:
                 nested[0]["overlap_frames"] = dissolve_frames
+            if dissolve_frames and nested and index < len(videos) - 1:
+                nested[-1]["num_frames"] -= dissolve_frames
             shots.extend(nested)
         else:
             frame_end = (

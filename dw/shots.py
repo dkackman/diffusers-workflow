@@ -148,7 +148,9 @@ def trimmed_shots(shots, head_trim):
     return clipped
 
 
-def nested_shots(shots, frame_offset, sample_offset, native_rate, target_rate):
+def nested_shots(
+    shots, frame_offset, sample_offset, native_rate, target_rate, fps=None
+):
     """An input's own shots, offset onto where the whole input landed in a join.
 
     Frames are exact: a join only ever adds frames before an input, never
@@ -158,17 +160,32 @@ def nested_shots(shots, frame_offset, sample_offset, native_rate, target_rate):
     resampling a partial waveform inside the crossfaded region is not a
     measurement, so trimmed_shots already clears those before this runs.
     Otherwise the sample side is cleared, same as without_samples.
+
+    A caller that knows the joined track's frame rate (`fps`) can have the
+    sample side *derived* from each shot's new frame position
+    (frames_to_samples) instead of rescaled from its own already-rounded
+    `start_sample` - the same choice #401 made for the top-level seam
+    position, because rescaling a stored value compounds whatever rounding
+    an earlier join already did, drifting a sample or two off what a later
+    pair_audio would measure for the same boundary (#405). concat_videos
+    does not pass `fps` here: its sample_offset is a measurement of the
+    real, unevenly-spaced crossfades it drew, not a multiple of a frame
+    rate, so deriving from frame position would disagree with the track it
+    actually built.
     """
     rescale = (
         target_rate / native_rate
         if sample_offset is not None and native_rate and target_rate
         else None
     )
+    derive = fps and target_rate and sample_offset is not None
     offset = []
     for shot in shots:
         entry = {**shot, "start_frame": shot["start_frame"] + frame_offset}
         start_sample = shot.get("start_sample")
-        if rescale is not None and start_sample is not None:
+        if derive:
+            entry["start_sample"] = round(entry["start_frame"] / fps * target_rate)
+        elif rescale is not None and start_sample is not None:
             entry["start_sample"] = sample_offset + round(start_sample * rescale)
         else:
             entry["start_sample"] = None

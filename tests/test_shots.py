@@ -441,6 +441,97 @@ class TestDissolveVideosShots:
         assert result.shots[1]["overlap_frames"] == 3
         assert "overlap_frames" not in result.shots[2]
 
+    def test_a_nested_input_not_last_has_its_tail_shot_trimmed(self):
+        """#405: a non-nested video's shot already stops at
+        frame_starts[index + 1], excluding the frames the next video's
+        dissolve blends into - a nested video followed by another video must
+        get the same trim on its *last* inner shot, or that shot's
+        num_frames overlaps the next video's recorded start_frame. Only the
+        earlier test's case (nested video last) was covered before; this
+        pins the case where a nested video sits in the middle."""
+        fps, sample_rate, dissolve_frames = 24, 44100, 12
+        inner_shots = [
+            shot_record("shot@x", 0, 112, start_sample=0, num_samples=205800),
+            shot_record("shot@receipt", 112, 124, start_sample=205800, num_samples=227850),
+        ]
+        nested = AudioVideo(
+            frames(236),
+            numpy.full((2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        leading = AudioVideo(
+            frames(608),
+            numpy.full((2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+        )
+        trailing = AudioVideo(
+            frames(124),
+            numpy.full((2, frames_to_samples(124, fps, sample_rate)), 3.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+        )
+
+        result = dissolve_videos(
+            [leading, nested, trailing], dissolve_frames, fps=fps
+        )
+
+        by_name = {shot["name"]: shot for shot in result.shots}
+        # frame_starts[1] = 608 - 12 = 596; the nested video's own inner
+        # shots land at 596 and 596 + 112 = 708
+        assert by_name["shot@x"]["start_frame"] == 596
+        assert by_name["shot@x"]["num_frames"] == 112
+        assert by_name["shot@receipt"]["start_frame"] == 708
+        # the un-trimmed inner shot was 124 frames; the dissolve into the
+        # trailing video eats the last 12 of them
+        assert by_name["shot@receipt"]["num_frames"] == 112
+        # the next video's recorded start_frame picks up exactly where the
+        # trimmed shot ends - no overlap between the two records
+        frame_starts = [shot["start_frame"] for shot in result.shots]
+        assert frame_starts[-1] == by_name["shot@receipt"]["start_frame"] + 112
+
+    def test_a_nested_shots_sample_start_is_derived_not_rescaled(self):
+        """#405 secondary: an inner shot's start_sample used to be rescaled
+        from its own already-rounded stored value (native_rate ->
+        target_rate), which compounds rounding when the nested input was
+        itself the product of an earlier, already-rounded join. Passing fps
+        derives it from the shot's new frame position instead, the same
+        frames_to_samples rule dissolve_videos already uses for the
+        top-level seam (#401) - so a nested shot's recorded start_sample
+        always agrees with what pair_audio would independently measure for
+        the same frame boundary."""
+        fps, sample_rate, dissolve_frames = 24, 44100, 12
+        # An inner start_sample that is deliberately *not* what
+        # frames_to_samples would give for its native rate, simulating
+        # drift already compounded by an earlier join
+        inner_shots = [
+            shot_record("shot@a", 0, 112, start_sample=0, num_samples=205799),
+            shot_record("shot@b", 112, 124, start_sample=205799, num_samples=227851),
+        ]
+        nested = AudioVideo(
+            frames(236),
+            numpy.full((2, frames_to_samples(236, fps, sample_rate)), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        leading = AudioVideo(
+            frames(608),
+            numpy.full((2, frames_to_samples(608, fps, sample_rate)), 2.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+        )
+
+        result = dissolve_videos([leading, nested], dissolve_frames, fps=fps)
+
+        by_name = {shot["name"]: shot for shot in result.shots}
+        expected = frames_to_samples(
+            by_name["shot@b"]["start_frame"], fps, sample_rate
+        )
+        assert by_name["shot@b"]["start_sample"] == expected
+
     def test_seam_sample_start_matches_the_frame_to_sample_conversion(self):
         """#401: dissolve_videos' crossfade window used to floor its
         ms->sample conversion while every other tool that places a frame on
