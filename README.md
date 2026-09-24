@@ -122,6 +122,19 @@ and outputs — so two agents, or an agent and you in the browser, share the GPU
 without saving over each other. An agent calls `use_workspace` once and the
 rest of the session lands there.
 
+**Feedback from a session.** At the end of a working session, ask the agent
+what got in its way: bugs, gaps, misleading skill text, tools it reached for
+and couldn't find. Have it file each one as an issue on
+`dkackman/diffusers-workflow` with the `field-report` label, for example:
+
+> File each bug or gap you hit as an issue on dkackman/diffusers-workflow
+> with the label `field-report`.
+
+The label marks a report as coming from real use, not from the automated test
+loop. The agent loop (see [Agent Loop](docs/AGENT_LOOP.md)) picks the report up
+like any other issue. The label is also what feature planning reads as
+evidence of demand.
+
 The complete tool reference, client configuration for other MCP hosts, and the
 troubleshooting table: [MCP Server](docs/MCP.md). Workspaces in depth:
 [Workspaces](docs/WORKSPACES.md).
