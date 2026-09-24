@@ -174,6 +174,31 @@ def find_workflow(sources, name):
     return None, None
 
 
+def suggest_workflow_names(sources, name, limit=3):
+    """Catalog names an unresolved `name` might have meant, for an error
+    message rather than a second round trip.
+
+    The catalog is organised in directories (`templates/minimax/dialogue-short`)
+    and a caller - a skill, an earlier turn - often has only the trailing
+    name (`dialogue-short`). Preferred answer: every catalog entry `name` is
+    a unique path suffix of, since that is unambiguous; failing that, a
+    close spelling match (`difflib`), for a typo rather than a shortened
+    path. Empty when neither finds anything worth naming.
+    """
+    import difflib
+
+    stripped = name[: -len(".json")] if name.endswith(".json") else name
+    catalog_names = list(listing(sources).keys())
+    suffix_matches = [
+        candidate
+        for candidate in catalog_names
+        if candidate == stripped or candidate.endswith(f"/{stripped}")
+    ]
+    if suffix_matches:
+        return suffix_matches[:limit]
+    return difflib.get_close_matches(stripped, catalog_names, n=limit, cutoff=0.6)
+
+
 def listing(sources):
     """Every name the search path offers, each with the source it comes
     from - a name in an earlier source shadowing the same name later."""

@@ -17,6 +17,7 @@ from dw.workflow_sources import (
     resolve_in_source,
     resolve_sub_workflow,
     source_for_path,
+    suggest_workflow_names,
     workflow_names,
     workflow_sources,
     writable_source,
@@ -109,6 +110,37 @@ class TestResolution:
             sources, str(examples / "ltx2" / "Gyre.json")
         ).origin == (EXAMPLES_ORIGIN)
         assert source_for_path(sources, str(tmp_path / "elsewhere.json")) is None
+
+
+class TestSuggestions:
+    """#397: a caller who knows a catalog entry by its short name gets a
+    pointer to the real one rather than a bare 404."""
+
+    def test_a_unique_path_suffix_is_suggested(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "Gyre") == ["ltx2/Gyre"]
+
+    def test_a_typo_falls_back_to_a_close_spelling_match(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "Shered") == ["Shared"]
+
+    def test_nothing_close_suggests_nothing(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "zzz-completely-unrelated") == []
+
+    def test_the_real_catalog_suggests_the_full_template_path(self):
+        # #397's own repro: a skill or an earlier turn names a template by
+        # its short id, not its catalog path
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sources = workflow_sources(
+            os.path.join(repo_root, "workflows"), include_builtin=True
+        )
+        assert suggest_workflow_names(sources, "dialogue-short") == [
+            "templates/minimax/dialogue-short"
+        ]
 
 
 class TestSubWorkflowResolution:

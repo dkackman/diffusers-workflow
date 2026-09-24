@@ -536,6 +536,16 @@ def test_submit_rejects_a_traversal_shaped_name(server):
         assert client.app.state.job_manager.worker_manager.commands == []
 
 
+def test_submit_names_a_suggestion_for_a_short_workflow_path(server):
+    """#397: a workflow_path that's a catalog entry's trailing segment (the
+    name a skill or earlier turn is likely to say) points at the entry
+    rather than a bare 400."""
+    with server(success_script) as client:
+        response = client.post("/api/jobs", json={"workflow_path": "asic"})
+        assert response.status_code == 400
+        assert "did you mean Basic?" in response.json()["detail"]
+
+
 def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
     with server(success_script) as client:
         result = client.post("/api/validate", json={"workflow_path": "Basic"}).json()
@@ -681,6 +691,20 @@ def test_workflow_browsing_and_confinement(server):
 
         assert client.get("/api/workflows/../secret").status_code == 404
         assert client.get("/api/workflows/nope").status_code == 404
+
+        # #397: a name that is a catalog entry's trailing segment points at
+        # the entry it's short for, rather than a bare 404
+        client.put("/api/workflows/sub/Basic", json={"workflow": valid_workflow()})
+        missed = client.get("/api/workflows/nope2")
+        assert missed.status_code == 404
+        assert "did you mean" not in missed.json()["detail"]
+
+        short = client.get("/api/workflows/Basic")
+        assert short.status_code == 200  # the top-level name still shadows the nested one
+
+        suggested = client.get("/api/workflows/sub%2FBasik")
+        assert suggested.status_code == 404
+        assert "sub/Basic" in suggested.json()["detail"]
 
 
 def test_configures_resolves_against_the_listing(server):
