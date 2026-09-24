@@ -17,6 +17,10 @@ when a release ships.
 
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
+Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
+passing. It covers more than CI: ruff over the whole repo rather than
+`dw dw_mcp tests`, and the UI's Playwright e2e tests, which CI doesn't run.
+
 ```bash
 scripts/release.sh 0.38.0
 scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
