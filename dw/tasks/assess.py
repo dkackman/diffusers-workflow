@@ -29,6 +29,7 @@ import math
 import numpy
 
 from ..assessment_rules import HOLE_VOICED_DBFS, crosses, finding, rules_for
+from ..events import emit_warning
 
 logger = logging.getLogger("dw")
 
@@ -332,11 +333,37 @@ def _findings(probe, record, at, skip=()):
     return found
 
 
-def _answer(probe, measurements, findings, shots_source):
+def _answer(probe, measurements, findings, shots_source, shot_dependent=()):
+    """A probe's answer, with `rules_applied` cut down to the rules that
+    actually ran. `shot_dependent` names (or `True` for all of the probe's
+    rules) the ones that only mean anything measured shot against shot; with
+    no shot boundaries at all (`shots_source == "none"`) those are reported
+    as `rules_skipped` instead of `rules_applied`, and a run warning says why
+    - without this a shotless file (an asset kept before #393, an upload, a
+    cut joined outside dw) read as a clean pass with nothing measured (#394).
+    """
+    names = [rule["name"] for rule in rules_for(probe)]
+    dependent = set(names) if shot_dependent is True else set(shot_dependent)
+    applied, skipped = names, []
+    if shots_source == "none" and dependent:
+        applied = [name for name in names if name not in dependent]
+        skipped = [
+            {"rule": name, "reason": "no shot boundaries"}
+            for name in names
+            if name in dependent
+        ]
+        emit_warning(
+            f"{probe} found no shot boundaries for this file, so "
+            f"{', '.join(sorted(dependent))} could not be measured - pass "
+            "shots= to supply them",
+            kind="no_shot_boundaries",
+            probe=probe,
+        )
     return {
         **measurements,
         "findings": findings,
-        "rules_applied": [rule["name"] for rule in rules_for(probe)],
+        "rules_applied": applied,
+        "rules_skipped": skipped,
         "shots_source": shots_source,
     }
 
@@ -352,7 +379,7 @@ def analyze_shots(video, shots=None):
     Returns:
         {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
         high_dbfs, samples}], rms_range_db, findings, rules_applied,
-        shots_source}
+        rules_skipped, shots_source}
     """
     from .audio_utils import _spectral_balance
 
@@ -364,6 +391,7 @@ def analyze_shots(video, shots=None):
             {"shots": [], "rms_range_db": None, "has_audio": False},
             [],
             source,
+            shot_dependent={"shot_level_spread"},
         )
     records = records or [_whole_file_shot(media)]
 
@@ -407,6 +435,7 @@ def analyze_shots(video, shots=None):
         answer,
         _findings("analyze_shots", answer, at) if at else [],
         source,
+        shot_dependent={"shot_level_spread"},
     )
 
 
@@ -553,12 +582,12 @@ def analyze_seams(video, shots=None):
         before_shot_rms_dbfs, after_shot_rms_dbfs, floor_dbfs, click_db,
         spectral_shift, before_rms_dbfs, after_rms_dbfs,
         frame_delta, typical_delta, jump_ratio}], findings, rules_applied,
-        shots_source}
+        rules_skipped, shots_source}
     """
     media = media_from(video)
     records, source = resolve_shots(video, media, shots)
     if not records or len(records) < 2:
-        return _answer("analyze_seams", {"seams": []}, [], source)
+        return _answer("analyze_seams", {"seams": []}, [], source, shot_dependent=True)
 
     seams = []
     findings = []
@@ -619,7 +648,9 @@ def analyze_seams(video, shots=None):
                 skip,
             )
         )
-    return _answer("analyze_seams", {"seams": seams}, findings, source)
+    return _answer(
+        "analyze_seams", {"seams": seams}, findings, source, shot_dependent=True
+    )
 
 
 def analyze_sync_drift(video, shots=None):
@@ -633,7 +664,7 @@ def analyze_sync_drift(video, shots=None):
     Returns:
         {shots: [{name, start_offset_ms, end_offset_ms}], max_offset_ms,
         video_seconds, audio_seconds, length_delta_ms, findings,
-        rules_applied, shots_source}
+        rules_applied, rules_skipped, shots_source}
     """
     media = media_from(video)
     records, source = resolve_shots(video, media, shots)

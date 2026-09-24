@@ -451,6 +451,53 @@ class TestRealFile:
         json.dumps(seams_answer)
         json.dumps(drift_answer)
 
+    def test_shotless_file_reports_skipped_rules_not_a_clean_pass(
+        self, tmp_path, monkeypatch
+    ):
+        """#394: shots_source "none" used to report every rule as applied
+        with findings: [] - a false clean, since no seam or shot spread was
+        actually measured. It must say the rules were skipped instead, and
+        warn that shots= would supply the missing boundaries."""
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        import dw.tasks.assess as assess_module
+
+        warnings = []
+        monkeypatch.setattr(
+            assess_module,
+            "emit_warning",
+            lambda message, **data: warnings.append((message, data)),
+        )
+
+        path = tmp_path / "two-shots.mp4"
+        write_mp4(path, frames=48, fps=24, width=64, height=64, sample_rate=48000)
+
+        seams_answer = analyze_seams(str(path))
+        assert seams_answer["shots_source"] == "none"
+        assert seams_answer["rules_applied"] == []
+        assert seams_answer["rules_skipped"] == [
+            {"rule": name, "reason": "no shot boundaries"}
+            for name in (
+                "seam_level_step",
+                "seam_click",
+                "seam_hole",
+                "seam_frame_jump",
+            )
+        ]
+        assert any("no shot boundaries" in w[0].lower() for w in warnings)
+        assert any(w[1].get("kind") == "no_shot_boundaries" for w in warnings)
+        warnings.clear()
+
+        shots_answer = analyze_shots(str(path))
+        assert shots_answer["shots_source"] == "none"
+        assert "shot_level_spread" not in shots_answer["rules_applied"]
+        assert shots_answer["rules_skipped"] == [
+            {"rule": "shot_level_spread", "reason": "no shot boundaries"}
+        ]
+        assert any("no shot boundaries" in w[0].lower() for w in warnings)
+
+        json.dumps(seams_answer)
+        json.dumps(shots_answer)
+
 
 # ---------------------------------------------------------------------------
 # 8. shots_beside reads a manifest, and a probe reports shots_source manifest
