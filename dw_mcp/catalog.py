@@ -270,10 +270,20 @@ def list_gallery(
 
 
 def get_gallery_metadata(client, name, envelope=False, workspace=None):
-    """Metadata embedded in a saved file: the full workflow that made it,
-    plus the job that produced it when history remembers one, plus for
-    audio and video what the file holds - duration, sample rate, channels,
-    fps, size, peak and mean level in dBFS.
+    """Metadata embedded in a saved file: the full workflow that made it -
+    the exact workflow, arguments and seed, so a result can be reproduced
+    or a failed run's definition edited and re-run - plus the job that
+    produced it when history remembers one, plus for audio and video what
+    the file holds - duration, sample rate, channels, fps, size, peak and
+    mean level in dBFS.
+
+    Only an image (PNG/JPEG/WebP) carries embedded metadata; `metadata` is
+    always null for audio and video, since neither format has a slot this
+    writer uses. `job` is the fallback recipe when one is known - `next`
+    then names `get_job_workflow(job_id)`, which reads the run's realized
+    workflow instead. A kept asset (`source: "asset"`) has no job at all,
+    so nothing on the server remembers which run made it; `next` says so
+    rather than pretending a lookup exists.
 
     `name` is a gallery name - the `name` field `list_gallery` reports, not
     its `label` (a display-only basename that is not a valid reference) -
@@ -290,8 +300,24 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
         workspace=workspace,
     )
     media = body.get("media")
+    job = body.get("job")
+    hints = []
+    if body.get("metadata") is None:
+        if job:
+            hints.append(
+                "metadata is null because only an image (PNG/JPEG/WebP) "
+                "carries it embedded - this file's job is known, and "
+                f'get_job_workflow(job_id="{job["id"]}") returns the exact '
+                "workflow, arguments and seed that produced it."
+            )
+        elif body.get("source") == "asset":
+            hints.append(
+                "metadata is null and this is a kept asset, which carries "
+                "no provenance - nothing on the server remembers which job, "
+                "if any, produced the file it was kept from."
+            )
     if media and body.get("source") == "asset":
-        body["next"] = (
+        hints.append(
             "These are the numbers a workflow's arguments have to match "
             "before the run, not after: frame_count and fps decide a cut's "
             "'total_frames', sample_rate decides what its audio is mixed "
@@ -301,7 +327,7 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "make a longer bed with the 'loop_audio' task instead."
         )
     elif media and media.get("kind") in ("audio", "video"):
-        body["next"] = (
+        hints.append(
             "Check duration_seconds against what was asked for: a Music 3 "
             "track that lands within 0.2 s of its audio_duration ceiling was "
             "cut off, one well short of it finished naturally. peak_dbfs is "
@@ -314,4 +340,6 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
             "fixes it."
         )
+    if hints:
+        body["next"] = " ".join(hints)
     return body

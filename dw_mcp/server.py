@@ -411,21 +411,22 @@ def build_server(client):
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it - the definition,
         not a summary, so a result can be reproduced or a failed run's
-        definition edited and re-run. For audio and video the `media`
-        block carries duration, sample rate, channels, fps, size and level
-        - the checks an agent that cannot listen makes on a deliverable.
+        definition edited and re-run. Only an image embeds it; for audio
+        and video `metadata` is null and `next` names
+        `get_job_workflow(job_id)` when known, else a kept asset has no
+        provenance. `media` itself carries duration, sample rate,
+        channels, fps, size and level - the checks an agent that cannot
+        listen makes on a deliverable.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
-        track something is: whether a shot still sounds at its last frame,
-        how deep the hole at a seam goes, where a score goes quiet. Leave
-        it off unless the question is about a position - a long track is
-        a long list.
+        track something is: a shot's last frame, a seam's hole, where a
+        score goes quiet. Leave it off unless it's about position - a long
+        track is a long list.
 
         `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
         pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
         read - see `normalize_audio` under "Video Processing" in the tasks
-        guide. A mux emits only the second, so a peak between the two is
-        clean.
+        guide. A mux emits only the second.
 
         `name` may be an "asset:" reference instead of a gallery name, and
         then it describes that input asset - how many frames a shot is,

@@ -274,3 +274,45 @@ def test_gallery_metadata_reads_an_asset_and_says_the_numbers_are_inputs():
     assert result["media"]["duration_seconds"] == 3.3
     assert "loop_audio" in result["next"]
     assert "audio_duration" not in result["next"]
+
+
+def test_gallery_metadata_points_at_get_job_workflow_when_embedded_is_null():
+    """#384: a video output's 'metadata' is always null (only an image
+    embeds it), and the job that made it is known - the hint has to name
+    the actual recovery route rather than leave the caller with null."""
+    body = {
+        "name": "templates/minimax/dialogue-short/20260923-185419-650e12db/final/x.mp4",
+        "source": "output",
+        "metadata": None,
+        "job": {"id": "c68bc29607ec", "status": "succeeded"},
+        "media": {"kind": "video", "duration_seconds": 6.0},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/" + body["name"] + "/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, body["name"])
+
+    assert "get_job_workflow" in result["next"]
+    assert "c68bc29607ec" in result["next"]
+
+
+def test_gallery_metadata_says_a_kept_asset_has_no_provenance():
+    """#384: a kept asset has 'job: null' by construction - nothing traces
+    it back to the run that made it, and the hint has to say that rather
+    than staying silent about the null 'metadata'."""
+    body = {
+        "name": "asset:qa-cast/ep37-shot2-alibi.mp4",
+        "source": "asset",
+        "metadata": None,
+        "job": None,
+        "media": {"kind": "video", "duration_seconds": 4.2},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/asset:qa-cast/ep37-shot2-alibi.mp4/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, "asset:qa-cast/ep37-shot2-alibi.mp4")
+
+    assert "no provenance" in result["next"]
+    assert "get_job_workflow" not in result["next"]
