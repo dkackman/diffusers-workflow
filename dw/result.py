@@ -741,6 +741,13 @@ class Result:
                 )
             )
 
+        # The same refusal validation makes, for a definition that reached
+        # the writer without it. Imported here: content_types imports this
+        # module for AUDIO_FORMATS
+        from .content_types import refuse_active_content_type
+
+        refuse_active_content_type(content_type)
+
         # Get file extension for content type
         extension = guess_extension(content_type)
         logger.debug(

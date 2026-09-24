@@ -69,6 +69,19 @@ def client(tree, monkeypatch):
         yield test_client
 
 
+def _page(content_type):
+    return {
+        "id": "page",
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": [SCRIPT]}},
+                "result": {"content_type": content_type},
+            }
+        ],
+    }
+
+
 def _document_is_inert(response):
     """A response a browser will not execute as a same-origin document:
     not an active type, or forced to download, or sandboxed by CSP."""
@@ -86,46 +99,51 @@ def _document_is_inert(response):
 
 
 class TestActiveOutputs:
-    """A result's `content_type` is text/* permissive by design (dw/
-    content_types.py), so a workflow - which an MCP agent may author - can
-    write an .html or .xml output. /outputs needs no token and shares the
-    UI's origin."""
+    """A workflow - which an MCP agent may author - could write an .html or
+    .xml output, and /outputs needs no token and shares the UI's origin.
+    Validation and the writer refuse those two result types (dw/
+    content_types.py); a planted file still reaches /outputs, so it is
+    served sandboxed."""
 
     @pytest.mark.parametrize(
-        "content_type, extension", [("text/html", ".html"), ("text/xml", ".xml")]
+        "content_type", ["text/html", "text/xml", "Text/HTML; charset=utf-8"]
     )
-    def test_the_engine_writes_it(self, tmp_path, monkeypatch, content_type, extension):
-        """The precondition, pinned: this is a real path, not a planted file."""
+    def test_validation_refuses_it_at_its_path(self, monkeypatch, content_type):
         from dw.workflow import Workflow
 
         monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
-        definition = {
-            "id": "page",
-            "steps": [
-                {
-                    "name": "t",
-                    "task": {
-                        "command": "compose_text",
-                        "arguments": {"parts": [SCRIPT]},
-                    },
-                    "result": {"content_type": content_type},
-                }
-            ],
-        }
-        workflow = Workflow(definition, str(tmp_path / "out"), "")
-        assert workflow.validation_errors() == []
-        workflow.run({})
-        written = [p for p in (tmp_path / "out").rglob(f"*{extension}")]
-        assert len(written) == 1
-        assert SCRIPT in written[0].read_text()
+        errors = Workflow(_page(content_type), "", "").validation_errors()
+        assert [e["path"] for e in errors] == ["steps[0].result.content_type"]
+        assert content_type in errors[0]["message"]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="/outputs (no token) serves an active document type as-is on "
-        "the UI origin, with no attachment disposition or CSP sandbox - a "
-        "workflow writes .html/.xml itself (text/html, text/xml results); "
-        ".xhtml/.svg need a planted file - stored XSS that reads the token",
-    )
+    @pytest.mark.parametrize("content_type", ["text/plain", "application/json"])
+    def test_an_inert_text_type_still_validates(self, monkeypatch, content_type):
+        from dw.workflow import Workflow
+
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+        assert Workflow(_page(content_type), "", "").validation_errors() == []
+
+    @pytest.mark.parametrize("content_type", ["text/html", "text/xml"])
+    def test_the_writer_refuses_it_without_validation(
+        self, tmp_path, monkeypatch, content_type
+    ):
+        """A run that skipped validation still writes nothing active."""
+        from dw.security import InvalidInputError
+        from dw.workflow import Workflow
+
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+        workflow = Workflow(_page(content_type), str(tmp_path / "out"), "")
+        with pytest.raises(InvalidInputError, match=content_type):
+            workflow.run({})
+        assert not [
+            p for p in (tmp_path / "out").rglob("*") if p.suffix in (".html", ".xml")
+        ]
+
+    def test_the_api_refuses_to_queue_it(self, client):
+        response = client.post("/api/jobs", json={"workflow": _page("text/html")})
+        assert response.status_code == 400, response.text
+        assert "text/html" in response.text
+
     @pytest.mark.parametrize(
         "name", ["page.html", "page.xhtml", "page.xml", "page.svg"]
     )
@@ -134,6 +152,19 @@ class TestActiveOutputs:
         response = client.get(f"/outputs/{name}")
         assert response.status_code == 200
         assert _document_is_inert(response), response.headers
+
+    def test_the_sandbox_keeps_range_and_etag(self, client, tree):
+        (tree["root"] / "outputs" / "page.html").write_text(SCRIPT)
+        ranged = client.get("/outputs/page.html", headers={"Range": "bytes=0-3"})
+        assert ranged.status_code == 206
+        assert ranged.headers["content-security-policy"] == "sandbox"
+        etag = client.get("/outputs/page.html").headers["etag"]
+        cached = client.get("/outputs/page.html", headers={"If-None-Match": etag})
+        assert cached.status_code == 304
+
+    def test_an_inert_output_is_not_sandboxed(self, client):
+        for path in ("/outputs/run.png", "/outputs/note.txt"):
+            assert "content-security-policy" not in client.get(path).headers
 
     def test_a_text_output_is_served_as_plain_text(self, client):
         response = client.get("/outputs/note.txt")
@@ -146,12 +177,6 @@ class TestActiveOutputs:
         response = client.post(f"/api/uploads?filename={name}", content=SCRIPT.encode())
         assert response.status_code == 400
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="keep_output only checks the kept name's extension matches the "
-        "source's, so an .html output becomes an .html asset that /inputs "
-        "(no token) serves as text/html on the UI origin",
-    )
     def test_keep_output_cannot_carry_one_into_assets(self, client, tree):
         (tree["root"] / "outputs" / "page.html").write_text(SCRIPT)
         response = client.post(
@@ -177,8 +202,9 @@ UI_AND_MEDIA = ["/", "/index.html", "/outputs/run.png", "/outputs/note.txt"]
 class TestBrowserHeaders:
     @pytest.mark.xfail(
         strict=True,
-        reason="no Content-Security-Policy on the UI: nothing limits what a "
-        "script injected into the page may load or where it may send the token",
+        reason="deferred by #407: no Content-Security-Policy on the UI, so "
+        "nothing limits what a script injected into the page may load or "
+        "where it may send the token",
     )
     def test_the_ui_carries_a_content_security_policy(self, client):
         response = client.get("/")
@@ -187,21 +213,12 @@ class TestBrowserHeaders:
             "content-security-policy", ""
         ) or "default-src" in response.headers.get("content-security-policy", "")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no X-Frame-Options or CSP frame-ancestors: any site can frame "
-        "the UI (clickjacking the run/delete buttons)",
-    )
     def test_the_ui_cannot_be_framed(self, client):
         response = client.get("/")
         frame_options = response.headers.get("x-frame-options", "").upper()
         csp = response.headers.get("content-security-policy", "")
         assert frame_options in ("DENY", "SAMEORIGIN") or "frame-ancestors" in csp
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="no X-Content-Type-Options: nosniff on UI or media responses",
-    )
     @pytest.mark.parametrize("path", UI_AND_MEDIA)
     def test_nosniff(self, client, path):
         response = client.get(path)

@@ -109,27 +109,27 @@ test.beforeAll(async ({ request }) => {
   })
   expect(prompt.ok()).toBeTruthy()
 
-  // a job whose run wrote text/html - a content type the engine accepts
-  const job = await request.post(`/api/jobs?workspace=${WS}`, {
-    data: {
-      workflow: {
-        id: 'hostile-html',
-        steps: [
-          {
-            name: 'page',
-            task: {
-              command: 'compose_text',
-              arguments: {
-                parts: [
-                  `<script>document.title='stolen:'+localStorage.getItem('dw-api-token');${MARK('html-output')}</script>`,
-                ],
-              },
-            },
-            result: { content_type: 'text/html' },
-          },
-        ],
+  // a text/html result is refused before anything is queued (#407)
+  const script = `<script>document.title='stolen:'+localStorage.getItem('dw-api-token');${MARK('html-output')}</script>`
+  const page = (contentType: string) => ({
+    id: 'hostile-html',
+    steps: [
+      {
+        name: 'page',
+        task: { command: 'compose_text', arguments: { parts: [script] } },
+        result: { content_type: contentType },
       },
-    },
+    ],
+  })
+  const refused = await request.post(`/api/jobs?workspace=${WS}`, {
+    data: { workflow: page('text/html') },
+  })
+  expect(refused.status()).toBe(400)
+
+  // the same script as text, and then planted as .html beside it - a file
+  // that reaches /outputs without passing validation
+  const job = await request.post(`/api/jobs?workspace=${WS}`, {
+    data: { workflow: page('text/plain') },
   })
   expect(job.ok()).toBeTruthy()
   htmlJobId = (await job.json()).id
@@ -140,9 +140,13 @@ test.beforeAll(async ({ request }) => {
       recursive: true,
     })
     .map(String)
-    .find((name) => name.endsWith('.html'))
+    .find((name) => name.includes('hostile-html') && name.endsWith('.txt'))
   expect(written).toBeTruthy()
-  htmlOutput = written!
+  htmlOutput = written!.replace(/\.txt$/, '.html')
+  fs.copyFileSync(
+    path.join(outputsDir, written!),
+    path.join(outputsDir, htmlOutput),
+  )
 })
 
 test.afterAll(async ({ request }) => {
@@ -204,9 +208,7 @@ test('hostile content in the workflow editor stays text', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/edit/hostile`, /hostile/)
 })
 
-test('the job page lists the html output as an inert link', async ({
-  page,
-}) => {
+test('the job page lists the output as an inert link', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/jobs/${htmlJobId}`, /hostile-html/)
   await expect(page.locator('a.filelink').first()).toBeVisible()
 })
@@ -223,16 +225,7 @@ test('a gallery file with a hostile name opens inert', async ({ page }) => {
   ).toBeNull()
 })
 
-test.describe('a run that writes text/html', () => {
-  // test.fail: the strict-xfail of Playwright - it fails the suite if this
-  // starts passing, so a fix is noticed and the marker removed
-  test.fail(
-    true,
-    'finding: a workflow with result content_type "text/html" writes an ' +
-      '.html output that /outputs serves as text/html on the UI origin, ' +
-      'where its script reads the API token from localStorage',
-  )
-
+test.describe('an html file in outputs', () => {
   test('opening the output does not run it on the UI origin', async ({
     page,
   }) => {
