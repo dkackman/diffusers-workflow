@@ -113,10 +113,22 @@ class TestLoadTypeFromFullName:
 
     def test_in_ecosystem_dotted_type_works_untrusted(self, monkeypatch):
         _untrust(monkeypatch)
-        result = load_type_from_full_name("torch.nn.Linear", "component_type")
-        import torch
+        result = load_type_from_full_name(
+            "diffusers.EulerDiscreteScheduler", "scheduler_type"
+        )
+        import diffusers
 
-        assert result is torch.nn.Linear
+        assert result is diffusers.EulerDiscreteScheduler
+
+    def test_an_in_ecosystem_class_of_no_constructible_kind_is_refused(
+        self, monkeypatch
+    ):
+        # In 'torch', so the package allowlist passes it - but it is not a
+        # model, pipeline, config or other kind an untrusted workflow may
+        # construct (security.is_constructible_class)
+        _untrust(monkeypatch)
+        with pytest.raises(UntrustedWorkflowError):
+            load_type_from_full_name("torch.nn.Linear", "component_type")
 
     def test_a_dtype_resolves_untrusted_under_a_dtype_key(self, monkeypatch):
         _untrust(monkeypatch)

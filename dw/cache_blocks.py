@@ -120,7 +120,8 @@ def register_cache_blocks():
 
     for class_name, metadata in _load_registry().items():
         try:
-            block_class = load_type_from_name(class_name)
+            # A server-owned registry name, registered, never constructed
+            block_class = load_type_from_name(class_name, constructed=False)
         except (ImportError, AttributeError):
             # The installed diffusers predates this model - its blocks are not
             # missing from the registry, they do not exist

@@ -21,11 +21,13 @@ import importlib.abc
 import socket
 import sys
 import textwrap
+import types
 from unittest.mock import MagicMock
 
 import pytest
 
 from dw.security import (
+    CONSTRUCTIBLE_BASE_CLASSES,
     TRUST_WORKFLOWS_ENV_VAR,
     UntrustedWorkflowError,
     set_trust_workflows,
@@ -546,3 +548,370 @@ class TestHowAProcessBecomesTrusted:
         except SystemExit:
             pass
         assert workflows_are_trusted() is False
+
+
+# ------------------------------------------------------------ re-exports
+
+
+FAKE_MODULE = "torch._dw_test_fake"
+REEXPORTED = f"{FAKE_MODULE}.Launcher"
+SIDE_EFFECT = f"{FAKE_MODULE}.Handler"
+
+
+class _Outside:
+    """Stands in for a class defined outside every allowed package."""
+
+    __module__ = "dw_outside_probe_package"
+
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("an outside class was constructed")
+
+
+@pytest.fixture
+def fake_module(monkeypatch):
+    """A synthetic module under an allowed top-level package, holding the two
+    shapes the gate has to refuse: a re-export of a class defined elsewhere,
+    and a class defined right there whose constructor has side effects."""
+    import torch
+
+    module = types.ModuleType(FAKE_MODULE)
+    module.Launcher = _Outside
+    constructed = []
+
+    class Handler:
+        def __init__(self, *args, **kwargs):
+            constructed.append((args, kwargs))
+
+    Handler.__module__ = FAKE_MODULE
+    module.Handler = Handler
+    module.constructed = constructed
+    monkeypatch.setitem(sys.modules, FAKE_MODULE, module)
+    monkeypatch.setattr(torch, "_dw_test_fake", module, raising=False)
+    return module
+
+
+class TestAReExportIsNotAnAllowedClass:
+    """The allowlist names packages, but a module re-exports what it imported:
+    a name under an allowed package can resolve to a class defined anywhere.
+    What an untrusted name reaches must itself be defined in the ecosystem."""
+
+    def test_a_type_name_reaching_an_outside_class_is_refused(
+        self, untrusted, fake_module
+    ):
+        from dw.type_helpers import load_type_from_full_name
+
+        with pytest.raises(UntrustedWorkflowError, match="dw_outside_probe"):
+            load_type_from_full_name(REEXPORTED, "component_type")
+
+    def test_realize_args_refuses_it(self, untrusted, fake_module):
+        with pytest.raises(UntrustedWorkflowError, match="dw_outside_probe"):
+            _realize({"component_type": REEXPORTED})
+
+    def test_validation_reports_the_refusal(self, untrusted, fake_module):
+        from dw.introspection import _type_reference_error
+
+        error = _type_reference_error("component_type", REEXPORTED, "steps[0]")
+        assert error is not None and "dw_outside_probe" in error["message"]
+
+    def test_a_class_defined_in_the_ecosystem_still_loads(self, untrusted):
+        from dw.type_helpers import load_type_from_full_name, load_type_from_name
+
+        assert load_type_from_full_name("diffusers.FluxPipeline").__name__ == (
+            "FluxPipeline"
+        )
+        assert load_type_from_name("DiffusionPipeline").__name__ == (
+            "DiffusionPipeline"
+        )
+
+    def test_trusted_still_reaches_it(self, trusted, fake_module):
+        from dw.type_helpers import load_type_from_full_name
+
+        assert load_type_from_full_name(REEXPORTED) is _Outside
+
+    def test_a_constant_cannot_read_a_value_re_exported_from_outside(
+        self, untrusted, monkeypatch
+    ):
+        import os
+
+        import torch.nn
+
+        from dw.arguments import fetch_constant
+
+        monkeypatch.setenv("DW_API_TOKEN", "server-secret-probe")
+        monkeypatch.setattr(torch.nn, "environ", os.environ, raising=False)
+        with pytest.raises(UntrustedWorkflowError):
+            fetch_constant("constant:torch.nn.environ")
+
+    def test_trusted_a_constant_may_read_it(self, trusted, monkeypatch):
+        import os
+
+        import torch.nn
+
+        from dw.arguments import fetch_constant
+
+        monkeypatch.setattr(torch.nn, "environ", os.environ, raising=False)
+        assert fetch_constant("constant:torch.nn.environ") is os.environ
+
+    def test_an_in_ecosystem_constant_still_reads(self, untrusted):
+        from dw.arguments import fetch_constant
+
+        value = fetch_constant(
+            "constant:diffusers.pipelines.ltx2.utils."
+            "GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens"
+        )
+        assert isinstance(value, int)
+
+    def test_a_reference_type_is_not_imported_ungated(self, untrusted, probe):
+        from dw.reference_limits import _reference_class
+
+        assert _reference_class({"reference_type": f"{PROBE}.Thing"}) is None
+        assert_nothing_happened(probe)
+
+    def test_a_reference_type_re_export_resolves_to_nothing(
+        self, untrusted, fake_module
+    ):
+        from dw.reference_limits import _reference_class
+
+        assert _reference_class({"reference_type": REEXPORTED}) is None
+
+
+class TestOnlyConstructibleClassesUntrusted:
+    """A class defined inside an allowed package can still do anything in its
+    constructor. Untrusted, only the kinds security.is_constructible_class
+    names may be loaded as a type."""
+
+    def test_an_in_package_class_with_side_effects_is_refused(
+        self, untrusted, fake_module
+    ):
+        from dw.type_helpers import load_type_from_full_name
+
+        with pytest.raises(UntrustedWorkflowError, match="--trust-workflows"):
+            load_type_from_full_name(SIDE_EFFECT, "component_type")
+
+    def test_realize_args_never_constructs_it(self, untrusted, fake_module):
+        described = {
+            "conditions": [
+                {"condition_type": SIDE_EFFECT, "from_arguments": {"args": "x"}}
+            ]
+        }
+        with pytest.raises(UntrustedWorkflowError):
+            _realize(described)
+        assert fake_module.constructed == []
+
+    def test_validation_reports_it(self, untrusted, fake_module):
+        from dw.introspection import _type_reference_error
+
+        error = _type_reference_error("component_type", SIDE_EFFECT, "steps[0]")
+        assert error is not None and "--trust-workflows" in error["message"]
+
+    def test_trusted_lets_it_through(self, trusted, fake_module):
+        from dw.type_helpers import load_type_from_full_name
+
+        assert load_type_from_full_name(SIDE_EFFECT) is fake_module.Handler
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "FluxPipeline",
+            "ModularPipeline",
+            "AutoPipelineForText2Image",
+            "EulerDiscreteScheduler",
+            "ControlNetModel",
+            "BitsAndBytesConfig",
+            "TorchAoConfig",
+            "sdnq.SDNQConfig",
+            "torchao.quantization.Int4WeightOnlyConfig",
+            "transformers.AutoProcessor",
+            "transformers.Gemma4ForConditionalGeneration",
+            "diffusers.models.attention_processor.AttnProcessor2_0",
+            "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+            "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+            "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+            "dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
+            "GGUFQuantizationConfig",
+            "transformers.Mistral3ForConditionalGeneration",
+            "diffusers.pipelines.ltx2.latent_upsampler.LTX2LatentUpsamplerModel",
+            "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+            "diffusers.models.autoencoders.ltx2_diffusion_decoder."
+            "LTX2VideoVaeNeighborhoodNattenProcessor",
+        ],
+    )
+    def test_each_kind_the_catalog_uses_still_loads(self, untrusted, name):
+        from dw.type_helpers import load_type_from_name
+
+        assert isinstance(load_type_from_name(name, "component_type"), type)
+
+    @pytest.mark.parametrize(
+        "module_name, class_name",
+        CONSTRUCTIBLE_BASE_CLASSES,
+    )
+    def test_every_accepted_base_still_exists(self, module_name, class_name):
+        # The suite otherwise runs trusted, so a base that moved in an upgrade
+        # would silently accept nothing and refuse the catalog untrusted
+        pytest.importorskip(module_name.split(".", 1)[0])
+        module = importlib.import_module(module_name)
+        assert isinstance(getattr(module, class_name, None), type)
+
+    def test_a_registered_virtual_subclass_is_not_accepted(
+        self, untrusted, fake_module
+    ):
+        from dw.security import is_constructible_class
+        from torchao.core.config import AOBaseConfig
+
+        AOBaseConfig.register(fake_module.Handler)
+        assert not is_constructible_class(fake_module.Handler)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "torch.nn.Linear",
+            "torch.utils.data.DataLoader",
+            "diffusers.utils.outputs.BaseOutput",
+        ],
+    )
+    def test_an_in_package_class_of_no_accepted_kind_is_refused(self, untrusted, name):
+        from dw.type_helpers import load_type_from_full_name
+
+        with pytest.raises(UntrustedWorkflowError):
+            load_type_from_full_name(name, "component_type")
+
+
+# --------------------------------------------------- validate-time probes
+
+
+def _probe_recorder(monkeypatch, module, info):
+    calls = []
+
+    def fake(path):
+        calls.append(path)
+        return info
+
+    monkeypatch.setattr(module, "probe_media", fake)
+    return calls
+
+
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    """A workflow directory and a file outside every root it may read."""
+    base_dir = tmp_path / "workflow"
+    base_dir.mkdir()
+    (base_dir / "assets").mkdir()
+    monkeypatch.setenv("DW_ASSET_DIR", str(base_dir / "assets"))
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    for folder in (base_dir, outside):
+        (folder / "clip.mp4").write_bytes(b"\0")
+        (folder / "voice.wav").write_bytes(b"\0")
+    return base_dir, outside
+
+
+def _dissolve(videos):
+    return {
+        "steps": [
+            {
+                "name": "join",
+                "task": {
+                    "command": "dissolve_videos",
+                    "arguments": {"videos": videos, "dissolve_frames": 12},
+                },
+            }
+        ]
+    }
+
+
+def _slice(audio):
+    return {
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "slice_audio",
+                    "arguments": {"audio": audio, "duration_seconds": 10},
+                },
+            }
+        ]
+    }
+
+
+class TestValidateTimeProbesStayInsideTheRoots:
+    """A free validate_workflow must not report what a file the run would
+    refuse to read contains, or whether it exists."""
+
+    VIDEO = {"kind": "video", "frame_count": 7}
+    AUDIO = {"kind": "audio", "duration_seconds": 1.5}
+
+    def test_a_dissolve_input_outside_the_roots_is_not_probed(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.dissolve_frame_errors as module
+
+        base_dir, outside = roots
+        calls = _probe_recorder(monkeypatch, module, self.VIDEO)
+        videos = [str(outside / "clip.mp4"), str(outside / "clip.mp4")]
+        errors = module.dissolve_frame_errors(_dissolve(videos), base_dir=base_dir)
+        assert errors == []
+        assert calls == []
+
+    def test_a_dissolve_input_inside_the_roots_still_is(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.dissolve_frame_errors as module
+
+        base_dir, _ = roots
+        calls = _probe_recorder(monkeypatch, module, self.VIDEO)
+        errors = module.dissolve_frame_errors(
+            _dissolve(["clip.mp4", str(base_dir / "clip.mp4")]), base_dir=base_dir
+        )
+        assert errors and "7 frames" in errors[0]["message"]
+        assert calls and all(str(base_dir) in path for path in calls)
+
+    def test_a_slice_source_outside_the_roots_is_not_probed(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.slice_preflight as module
+
+        base_dir, outside = roots
+        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        warnings = module.slice_past_end_warnings(
+            _slice(str(outside / "voice.wav")), base_dir=base_dir
+        )
+        assert warnings == []
+        assert calls == []
+
+    def test_a_slice_source_inside_the_roots_still_is(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.slice_preflight as module
+
+        base_dir, _ = roots
+        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        warnings = module.slice_past_end_warnings(
+            _slice("voice.wav"), base_dir=base_dir
+        )
+        assert warnings and "1.50 s source" in warnings[0]
+        assert calls == [str(base_dir / "voice.wav")]
+
+    def test_a_relative_literal_resolves_against_the_workflow_not_the_cwd(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.slice_preflight as module
+
+        base_dir, outside = roots
+        monkeypatch.chdir(outside)
+        (base_dir / "voice.wav").unlink()
+        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        assert (
+            module.slice_past_end_warnings(_slice("voice.wav"), base_dir=base_dir) == []
+        )
+        assert calls == []
+
+    def test_trusted_lifts_containment_for_the_probe(self, trusted, roots, monkeypatch):
+        import dw.slice_preflight as module
+
+        base_dir, outside = roots
+        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        warnings = module.slice_past_end_warnings(
+            _slice(str(outside / "voice.wav")), base_dir=base_dir
+        )
+        assert warnings
+        assert calls == [str(outside / "voice.wav")]

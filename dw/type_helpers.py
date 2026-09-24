@@ -5,6 +5,7 @@ import types
 from .security import (
     TRUSTED_TOP_LEVEL_PACKAGES,
     UntrustedWorkflowError,
+    require_constructible_class,
     require_trusted_dotted_name,
     workflows_are_trusted,
 )
@@ -48,7 +49,7 @@ def _require_defined_inside(name, value, what):
     )
 
 
-def require_loadable_type(name, value, key=None):
+def require_loadable_type(name, value, key=None, constructed=True):
     """Refuse a type reference that resolved to something other than a class,
     unless the workflow is trusted.
 
@@ -59,17 +60,23 @@ def require_loadable_type(name, value, key=None):
     class, and is accepted there.
 
     A class must also be defined inside TRUSTED_TOP_LEVEL_PACKAGES, not
-    merely re-exported by a module there.
+    merely re-exported by a module there, and be one an untrusted workflow
+    may construct (security.is_constructible_class) - a class inside an
+    allowed package can still do anything in its constructor.
+    `constructed=False` skips only that last check, for a caller resolving a
+    server-owned name it never constructs (cache_blocks' registry).
 
     Raises:
         UntrustedWorkflowError: If untrusted and `value` is neither a class
             nor, under a dtype key, a torch.dtype, or is a class defined
-            outside the allowed packages
+            outside the allowed packages or not constructible untrusted
     """
     if workflows_are_trusted():
         return value
     if inspect.isclass(value):
         _require_defined_inside(name, value, key or "a type reference")
+        if constructed:
+            require_constructible_class(name, value, key or "a type reference")
         return value
     if _accepts_dtype(key):
         import torch
@@ -87,14 +94,16 @@ def require_loadable_type(name, value, key=None):
     )
 
 
-def load_type_from_name(type_name, key=None):
+def load_type_from_name(type_name, key=None, constructed=True):
     if "." in type_name:
-        return load_type_from_full_name(type_name, key)
+        return load_type_from_full_name(type_name, key, constructed)
 
-    return require_loadable_type(type_name, get_type("diffusers", type_name), key)
+    return require_loadable_type(
+        type_name, get_type("diffusers", type_name), key, constructed
+    )
 
 
-def load_type_from_full_name(full_name, key=None):
+def load_type_from_full_name(full_name, key=None, constructed=True):
     # A bare name resolves against diffusers regardless of trust; a dotted
     # name imports whatever module it names, which is the code-execution
     # surface an untrusted workflow is refused unless it stays in-ecosystem
@@ -107,7 +116,9 @@ def load_type_from_full_name(full_name, key=None):
     module = importlib.import_module(module_path)
 
     # Get the object from the module
-    return require_loadable_type(full_name, getattr(module, object_name), key)
+    return require_loadable_type(
+        full_name, getattr(module, object_name), key, constructed
+    )
 
 
 def has_method(o, name):
