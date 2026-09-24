@@ -802,6 +802,81 @@ workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
 that is not, since a driver bucketing on nothing looks exactly like a driver
 that works.
 
+## Assessing a run's output
+
+A cut joined from shots can succeed and still be wrong at a seam, and the
+whole-file numbers `get_gallery_metadata` reports cannot see inside a join.
+`assess_output(name)` (`GET /api/gallery/{name}/assess`) measures that
+file on the server. It decodes the file once, runs every assessment probe
+that applies to it (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`),
+and returns where to look. It queues nothing: the probes use only the CPU
+and run in the server process, beside whatever job holds the GPU. `name` is
+a gallery name, `output:` or `asset:`. The shot boundaries come from what
+the file's run recorded: the run manifest for an output, and the sidecar
+`keep_output` wrote for an asset.
+
+**Procedure.**
+
+1. After `wait_for_job`, call `assess_output` on the deliverable, which is
+   the file under `final/`. `get_gallery_metadata` points at the tool
+   whenever `media.shots` is set.
+2. Read `findings`. When the list is empty, no rule crossed its threshold,
+   which is a reason to listen less closely, not a pass.
+3. Drill into each finding at the place its `at` names. For a seam, use
+   `get_output_frames(name, seams=[n])` to see it and
+   `get_output_audio(name, start, duration)` to hear the second around it.
+   For a shot, look at that shot's span. Judge it against the request.
+4. Fix what you confirmed (see the table below), then assess the new cut.
+
+Pass `probe="analyze_seams"` (or either of the other two probe names) to
+get that one probe's full body: every seam's or shot's measurements, not
+just the ones that crossed a rule. `detail=true` adds every applicable
+probe's full body under `probes`. An unknown probe is refused before
+anything is read, and the error names the three probes.
+
+**The answer.**
+
+| Field | What it holds |
+| --- | --- |
+| `findings` | Every rule a measurement crossed, each `{rule, severity, at, value, threshold, says}`. `severity` is `warn` or `info`. `at` names the shot or seam. |
+| `rules_applied` | The rules that were checked, so an empty `findings` list says which checks came back clean. |
+| `rules_skipped` | `{probe, rule, reason}` for each rule that could not be measured on this file. |
+| `not_applicable` | `{probe: why}` for each probe that does not apply to this file. A still has no shots, seams or soundtrack. A mute file has no levels. A file with no recorded shots has no seams. |
+| `shots_source` | Where the boundaries came from: `manifest` (the run's manifest, or an asset's sidecar), or `none`. |
+
+The thresholds live in one table, `dw/assessment_rules.py`:
+
+| Rule | Probe | Fires when |
+| --- | --- | --- |
+| `shot_level_spread` | `analyze_shots` | the shots' RMS levels span 6 dB or more |
+| `seam_level_step` | `analyze_seams` | the shots either side of a seam differ by more than 3 dB |
+| `seam_click` | `analyze_seams` | the join peaks more than 12 dB above the audio either side |
+| `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
+| `seam_frame_jump` | `analyze_seams` | the picture changes more than 8x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
+| `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
+| `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
+
+**Authority.** A finding marks a place to look, not a verdict. Nothing in
+the engine acts on one, and no run fails because of one. A finding you have
+checked and accepted is simply left alone. A `seam_frame_jump` at a cut the
+story wanted is the cut working, and a level step into a quieter scene can
+be the scene. Tell the person what you confirmed, not what the probe
+reported.
+
+**Remediation.** A *recut* reruns only the join over the shots the run
+already made: each entry in `videos` is `output:` + the run's
+`intermediate/` shot file. That is cheap, and generates nothing new. A
+*regenerate* is a new run, so quote its `plan.estimate` first.
+
+| Finding | Fix | Kind |
+| --- | --- | --- |
+| `shot_level_spread`, `seam_level_step` | `match_levels: "rms"` (with `match_levels_dbfs` for the target) on the `concat_videos` / `dissolve_videos` step | recut |
+| `seam_click` | a longer `crossfade_ms` on the join | recut |
+| `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
+| `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
+| `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
+| `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
+
 ## Result Configuration
 
 ```json

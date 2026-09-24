@@ -400,6 +400,31 @@ def get_output_text(
     }
 
 
+ASSESSMENT_PROBES = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
+
+
+def assess_output(client, name, probe=None, detail=False, workspace=None):
+    """Measure a finished output or asset and say where to look (#388).
+
+    The server runs the assessment probes on one decode, beside any GPU
+    job rather than behind it. `probe` is checked against the whitelist
+    before anything else is read."""
+    if probe is not None and probe not in ASSESSMENT_PROBES:
+        raise DwApiError(
+            f"Unknown probe {probe!r} - one of {', '.join(ASSESSMENT_PROBES)}"
+        )
+    params = {}
+    if probe is not None:
+        params["probe"] = probe
+    if detail:
+        params["detail"] = "true"
+    return client.get_json(
+        api_path("api", "gallery", name, "assess"),
+        params=params or None,
+        workspace=workspace,
+    )
+
+
 def delete_output(client, name=None, workspace=None, job_id=None):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs.

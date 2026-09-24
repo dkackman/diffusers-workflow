@@ -94,7 +94,8 @@ def build_server(client):
             "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
             "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
             "`get_output_frames`, `get_output_audio` to look at and listen "
-            "to the result and judge it against the request. Tools that "
+            "to the result and judge it against the request; on a cut, "
+            "`assess_output` first says where to look. Tools that "
             "spend GPU time or disk, or delete for good, refuse until "
             "`acknowledged_cost` is set. A workflow you wrote has no "
             "measured cost: quote the `models/` entry that loads the same "
@@ -659,6 +660,21 @@ def build_server(client):
             client, name, max_characters=max_characters, workspace=workspace
         )
 
+    def assess_output(
+        name: str,
+        probe: str | None = None,
+        detail: bool = False,
+        workspace: str | None = None,
+    ) -> dict:
+        """Measure a finished cut - seams, shot levels, sync - on the
+        server, without queueing. Findings are places to look, not
+        verdicts: check each with get_output_frames/get_output_audio.
+        `probe` (analyze_shots, analyze_seams, analyze_sync_drift) returns
+        one probe's full body; `detail` adds every probe's. Takes `asset:`."""
+        return media.assess_output(
+            client, name, probe=probe, detail=detail, workspace=workspace
+        )
+
     def delete_output(
         name: str | None = None,
         workspace: str | None = None,
@@ -729,6 +745,7 @@ def build_server(client):
     tool(get_output_audio, READ_ONLY)
     tool(get_output_frames, READ_ONLY)
     tool(get_output_text, READ_ONLY)
+    tool(assess_output, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
 

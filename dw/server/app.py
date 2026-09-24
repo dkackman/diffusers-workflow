@@ -74,6 +74,7 @@ from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
+from .assess import assess, unknown_probe
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..media_audio import (
@@ -3077,6 +3078,46 @@ def create_app(
             "version": version,
             "media": media,
         }
+
+    @app.get("/api/gallery/{name:path}/assess")
+    def gallery_assess(
+        name: str,
+        probe: Optional[str] = None,
+        detail: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Measure a finished cut and say where to look (#388): every
+        assessment probe that applies to the file, run here in the server
+        process on one decode - a sync route, so it runs beside a GPU job
+        rather than queueing behind it. Findings are places to look, not
+        verdicts; nothing acts on one (dw/assessment_rules.py).
+
+        The default answer merges the probes' `findings`, `rules_applied`
+        and `rules_skipped`, and names each probe the file cannot feed in
+        `not_applicable` (a still, no soundtrack, no recorded shots);
+        `detail=true` adds each probe's full answer under `probes`.
+        `probe` names one - analyze_shots, analyze_seams or
+        analyze_sync_drift - and answers with its full body. It is checked
+        before the name is resolved. `name` may be an `asset:` reference,
+        and then the shots are the ones keep_output carried beside it."""
+        rejected = unknown_probe(probe)
+        if rejected:
+            raise HTTPException(status_code=400, detail=rejected)
+        name = _strip_output_prefix(name)
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+            source, shots = "asset", shots_beside(path)
+        else:
+            path = _output_file(name, ws.outputs)
+            source, shots = "output", recorded_shots(ws.outputs, name)
+        kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
+        try:
+            body = assess(path, kind, shots, probe=probe, detail=detail)
+        except (ValueError, OSError) as e:
+            raise HTTPException(
+                status_code=422, detail=f"{name} could not be read: {e}"
+            )
+        return {"name": name, "source": source, "kind": kind, **body}
 
     @app.get("/api/gallery/{name:path}/audio")
     def gallery_audio(

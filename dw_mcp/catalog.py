@@ -340,6 +340,13 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
             "fixes it."
         )
+    if media and media.get("shots"):
+        hints.append(
+            f"This is a cut of {len(media['shots'])} shots, and whole-file "
+            f'numbers cannot see inside a join: assess_output(name="{name}") '
+            "measures each seam, the shots' levels and sync, and says where "
+            "to look."
+        )
     if hints:
         body["next"] = " ".join(hints)
     return body
