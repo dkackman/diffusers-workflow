@@ -282,7 +282,7 @@ class TestRealizeArgs:
         args = {"scheduler_type": "DDPMScheduler"}
         realize_args(args)
 
-        mock_load_type.assert_called_once_with("DDPMScheduler")
+        mock_load_type.assert_called_once_with("DDPMScheduler", "scheduler_type")
         assert args["scheduler_type"] == mock_type
 
     def test_realize_escaped_type_reference(self):

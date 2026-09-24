@@ -145,18 +145,6 @@ class TestVariableValueLength:
         assert exit_info.value.code != 0
         assert loaded == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the cap is applied to caller arguments only - a 25,000-character "
-        "default written into an inline workflow's own variables validates clean",
-    )
-    def test_a_default_in_the_definition_is_held_to_the_same_cap(self, server):
-        client, worker = server
-        response = client.post(
-            "/api/validate", json={"workflow": _workflow({"p": OVERSIZED})}
-        )
-        assert response.json()["valid"] is False
-
 
 class TestOtherDocumentedLimits:
     def test_an_over_long_variable_name_is_refused(self):

@@ -183,7 +183,7 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
                     if is_escaped(v):
                         arg[k] = EscapedString(v.strip("{}"))
                     else:
-                        arg[k] = load_type_from_name(v)
+                        arg[k] = load_type_from_name(v, k)
                 elif isinstance(v, type):
                     # the value already a type
                     arg[k] = v

@@ -344,12 +344,6 @@ class TestTheAllowlistIsNotAnEscapeHatch:
     only safe if nothing reachable under those packages hands a workflow the
     code execution the gate exists to deny."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="config_type is called with workflow kwargs and 'torch' is "
-        "allowlisted, so torch.hub.load(repo_or_dir=..., trust_repo=True) "
-        "runs a GitHub repo's hubconf.py untrusted",
-    )
     def test_config_type_cannot_name_a_code_loader_in_an_allowed_package(
         self, untrusted, monkeypatch, no_network
     ):
@@ -374,12 +368,6 @@ class TestTheAllowlistIsNotAnEscapeHatch:
             pass
         loader.assert_not_called()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="load_constant_from_name walks attributes past the allowlisted "
-        "top-level module, so constant:torch.os.environ reads the server's "
-        "environment (DW_API_TOKEN, HF_TOKEN) untrusted",
-    )
     def test_a_constant_cannot_walk_out_of_an_allowed_package(
         self, untrusted, monkeypatch
     ):

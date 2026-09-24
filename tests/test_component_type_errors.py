@@ -97,6 +97,39 @@ class TestAllowlistedAbsentVsPresentButDisallowed:
         assert "does not exist" not in errors[0]["message"]
         assert "outside the ecosystem" in errors[0]["message"]
 
+    def test_a_code_loader_in_an_allowed_package_says_not_a_class(self, monkeypatch):
+        """#409: 'torch.hub.load' is in torch, so the top-level allowlist
+        passed it - but it is a function, and a '*_type' value is called
+        with the workflow's own arguments."""
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+        definition = {
+            "id": "ct",
+            "steps": [
+                pipeline_step(
+                    None,
+                    extra={"quantization_config": {"config_type": "torch.hub.load"}},
+                )
+            ],
+        }
+        errors = component_type_errors(definition)
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.quantization_config.config_type"
+        ]
+        assert "not a class" in errors[0]["message"]
+
+    def test_a_real_config_type_is_still_accepted_untrusted(self, monkeypatch):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+        definition = {
+            "id": "ct",
+            "steps": [
+                pipeline_step(
+                    None,
+                    extra={"quantization_config": {"config_type": "sdnq.SDNQConfig"}},
+                )
+            ],
+        }
+        assert component_type_errors(definition) == []
+
 
 class TestSchedulerAndQuantizationFields:
     def test_a_misspelled_scheduler_type_is_refused(self):

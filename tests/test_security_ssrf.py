@@ -346,11 +346,6 @@ class TestRedirects:
 
         assert "127.0.0.1" not in transport.hosts()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="validate_media_url checks urlparse's host (example.com, after "
-        "the backslash) while requests dials urllib3's (169.254.169.254)",
-    )
     def test_a_backslash_does_not_split_the_checked_host_from_the_dialed_one(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
@@ -429,6 +424,9 @@ def _encode(url, monkeypatch, routes=None):
             remote.remote_text_encoder(["a prompt"], url, "cpu")
         except RuntimeError:
             # a scripted non-200 at the end of a redirect chain
+            pass
+        except InvalidInputError:
+            # refused before anything was sent
             pass
     return transport
 
@@ -517,15 +515,7 @@ class TestHuggingFaceTokenScope:
         "url",
         [
             "https://huggingface.co@evil.example/encode",
-            pytest.param(
-                "https://evil.example\\@huggingface.co/encode",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="remote.py decides on urlparse's host (huggingface.co, "
-                    "after the backslash) but requests dials urllib3's "
-                    "(evil.example) - the token leaves with the request",
-                ),
-            ),
+            "https://evil.example\\@huggingface.co/encode",
             "https://evil.example%5c@huggingface.co/encode",
             "https://evil.example%40huggingface.co/encode",
         ],

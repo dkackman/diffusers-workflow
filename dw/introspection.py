@@ -794,7 +794,7 @@ def _type_reference_error(key, value, path):
     from .security import UntrustedWorkflowError
 
     try:
-        load_type_from_name(value)
+        load_type_from_name(value, key)
     except UntrustedWorkflowError as e:
         return {"path": path, "message": str(e)}
     except (ImportError, AttributeError, ValueError):
