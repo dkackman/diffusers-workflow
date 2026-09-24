@@ -590,8 +590,18 @@ class TestGainAudio:
         assert logs[0]["duration_seconds"] == pytest.approx(0.5)
         assert logs[0]["sample_rate"] == 100
 
+    def test_no_region_gains_the_whole_track(self):
+        # #395: validate_workflow let a region-less gain_audio step through
+        # clean and the run then failed - the fix is to gain everything,
+        # matching mix_audio's "no region means everything" reading
+        from dw.tasks.audio_utils import gain_audio
 
-class TestNormalizeAudio:
+        track = numpy.ones((1, 100), dtype=numpy.float32)
+
+        gained = samples(gain_audio(track, gain_db=-6.0, sample_rate=100))
+
+        assert numpy.allclose(gained, 10 ** (-6.0 / 20))
+
     def test_the_peak_lands_on_the_target(self):
         from dw.tasks.audio_utils import normalize_audio
 
