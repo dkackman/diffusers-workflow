@@ -50,6 +50,12 @@ families carry all the state — check both before acting:
     (engine behavior, breaking syntax). Neither agent touches a parked
     issue.
 
+  Outside filings — a `field-report` Issue filed by anyone other than the
+  repo owner — are parked this way automatically: relabelled `owner:don` +
+  `status:needs-approval` because the loop runs as one GitHub login and must
+  not act unattended on third-party text in a public repo. The maintainer
+  reviews these first and decides whether to hand them to the loop.
+
 Two built-in GitHub labels close a ticket without a fix:
 
 - **`wontfix`** — the implementer's call, with a reason in a comment; issue
