@@ -589,3 +589,93 @@ class TestShotsForFile:
     def test_no_shots_returns_none(self):
         assert shots_for_file(None, "solo.mp4", ["solo.mp4"]) is None
         assert shots_for_file([], "solo.mp4", ["solo.mp4"]) is None
+
+
+# 11. Workflow.run: the manifest entry and step_end carry the shots, named by
+# the `gather:shot` the step wrote
+
+
+class _ShotResult:
+    """Stands in for dw.result.Result: writes one file and, for the join,
+    reports the shots its video carried the way Result.save does."""
+
+    def __init__(self, shots=None):
+        self.result_list = []
+        self.saved_files = []
+        self.saved_shots = {}
+        self.selected = None
+        self._shots = shots
+
+    def save(self, output_dir, base_name):
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, f"{base_name}.mp4")
+        with open(path, "wb") as handle:
+            handle.write(b"")
+        self.saved_files = [path]
+        if self._shots:
+            self.saved_shots = {path: self._shots}
+        return self.saved_files
+
+
+def test_workflow_run_names_the_joined_shots_by_their_members(tmp_path):
+    """The real Workflow.run path: `gather:shot` expands to
+    `previous_result:shot@<key>` references, and the join's positional
+    shots are renamed from them in the manifest, manifest.json and
+    step_end - and read back by recorded_shots."""
+    from dw.events import RunContext
+    from dw.step import Step
+    from dw.step_cache import step_cache
+    from dw.workflow import Workflow
+
+    joined = [
+        shot_record("video 1", 0, 24, 0, 16000),
+        shot_record("video 2", 24, 30, 16000, 20267),
+    ]
+    definition = {
+        "id": "shots_round_trip",
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": [{"name": "wide"}, {"name": "close"}],
+                "task": {"command": "stabilize_video", "arguments": {"clip": "x"}},
+                "result": {"content_type": "video/mp4"},
+            },
+            {
+                "name": "cut",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {"videos": "gather:shot"},
+                },
+                "result": {"content_type": "video/mp4"},
+            },
+        ],
+    }
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return _ShotResult(joined if self.name == "cut" else None)
+
+    step_cache.clear()
+    events = []
+    workflow = Workflow(definition, str(tmp_path), str(tmp_path / "shots.json"))
+    with patch.object(Step, "run", fake_step_run):
+        workflow.run({}, context=RunContext(on_event=events.append))
+
+    (entry,) = [e for e in workflow.manifest if e["step"] == "cut"]
+    names = [shot["name"] for shot in entry["shots"]]
+    assert names == ["shot@wide", "shot@close"]
+    assert [shot["num_samples"] for shot in entry["shots"]] == [16000, 20267]
+
+    (step_end,) = [
+        e for e in events if e["event"] == "step_end" and e.get("step") == "cut"
+    ]
+    assert step_end["shots"] == entry["shots"]
+
+    with open(os.path.join(workflow._run_dir, "manifest.json")) as handle:
+        manifest = json.load(handle)
+    (written,) = [e for e in manifest["steps"] if e["step"] == "cut"]
+    assert written["shots"] == entry["shots"]
+
+    relative = os.path.relpath(
+        os.path.join(workflow._run_dir, written["files"][0]), str(tmp_path)
+    ).replace(os.sep, "/")
+    assert recorded_shots(str(tmp_path), relative) == entry["shots"]
