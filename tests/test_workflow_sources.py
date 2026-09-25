@@ -204,9 +204,7 @@ class TestSubWorkflowResolution:
         assert str(outside) in message  # the underlying PathTraversalError
         # already names the resolved (rejected) path
 
-    def test_an_absolute_path_outside_every_source_says_where_it_looked(
-        self, catalog
-    ):
+    def test_an_absolute_path_outside_every_source_says_where_it_looked(self, catalog):
         root, outside = catalog
         with pytest.raises(SecurityError) as exc_info:
             resolve_sub_workflow(str(outside), str(root / "templates"), str(root))
