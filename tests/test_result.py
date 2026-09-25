@@ -667,6 +667,33 @@ class TestSaveAudioVideo:
         assert artifact.shots[0]["num_samples"] == 1000
         assert artifact.shots[1]["num_samples"] == 1000
 
+    def test_shots_are_remeasured_against_the_written_file(self):
+        # #426 follow-up: the fit-based remeasurement above still only
+        # predicts what the mux will write - an AAC encode can trim or pad
+        # a few more samples off the *actual* decoded length (the #426
+        # repro lost 29-30 more samples than fitting alone accounted for).
+        # Once the file is probed post-write, the shots are remeasured
+        # again against the length that actually decodes from it.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            # The audio stream decoded 1970 samples, 30 short of the 2000
+            # the fit predicted - an encoder trimming its own
+            # priming/padding.
+            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+        ):
+            self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.shots[0]["num_samples"] == 1000
+        assert artifact.shots[1]["num_samples"] == 970
+
     def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
         # #197, 4th round: write-back (above) lands the fit on the AudioVideo
         # save() itself extracted - but a raw pipeline output (an object

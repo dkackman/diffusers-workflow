@@ -83,6 +83,14 @@ def probe_media(path, envelope=False):
         if audio is not None:
             info["sample_rate"] = int(audio.rate)
             info["channels"] = int(audio.channels)
+            # The audio *stream's* own reported duration, not the
+            # container's - assess.py's read_media() trims the decoded
+            # track to this figure (`_stream_seconds`), and a lossy mux can
+            # report the two slightly differently (#426), so a caller that
+            # needs to agree with what a probe will actually measure reads
+            # this rather than duration_seconds.
+            if audio.duration is not None and audio.time_base is not None:
+                info["audio_stream_seconds"] = float(audio.duration * audio.time_base)
 
         # Some muxers don't write a frame count up front (0 means "count
         # them"); a soundtrack always needs decoding to measure its level.
