@@ -345,15 +345,21 @@ def _span_overrun(media, shot):
         start_frame = shot.get("start_frame", 0)
         num_frames = shot.get("num_frames")
         if isinstance(start_frame, (int, float)) and not isinstance(start_frame, bool):
-            if isinstance(num_frames, (int, float)) and not isinstance(num_frames, bool):
+            if isinstance(num_frames, (int, float)) and not isinstance(
+                num_frames, bool
+            ):
                 end = int(start_frame) + int(num_frames)
                 if end > media.frame_count:
                     over_frames = end - media.frame_count
     over_samples = None
     if media.audio is not None:
         start_sample, num_samples = shot.get("start_sample"), shot.get("num_samples")
-        if isinstance(start_sample, (int, float)) and not isinstance(start_sample, bool):
-            if isinstance(num_samples, (int, float)) and not isinstance(num_samples, bool):
+        if isinstance(start_sample, (int, float)) and not isinstance(
+            start_sample, bool
+        ):
+            if isinstance(num_samples, (int, float)) and not isinstance(
+                num_samples, bool
+            ):
                 total = media.audio.shape[1]
                 end = int(start_sample) + int(num_samples)
                 if end > total:
