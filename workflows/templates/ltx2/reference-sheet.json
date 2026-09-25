@@ -10,7 +10,7 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "reference_sheet": "asset:reference_sheet.png",
+        "reference_sheet": "asset:reference_sheet.jpg",
         "prompt": "prompt:ltx2/reference_sheet_workshop",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 768,
