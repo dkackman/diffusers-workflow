@@ -101,6 +101,18 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
     of the track as written - with `fit: "video"` that is the fitted length.
     Without a frame rate there is no way to place a frame on the track, so the
     sample side is cleared rather than guessed.
+
+    This deliberately makes the last shot the one place `num_samples` can
+    disagree with `round(num_frames * sample_rate / fps)` (#423): every other
+    boundary is a frame position rounded onto the new rate, but the last one
+    is the track's actual end, whatever the audio chain that built it (a
+    resample, a mix, a normalize) landed on - usually the same figure, but a
+    sample or two off is rounding slop, not a dropped or invented sample.
+    `pair_audio` already warns separately (`audio_video_length_mismatch`,
+    `audio_padded_to_video`, `audio_trimmed_to_video`) when a track disagrees
+    with its video by more than a frame's worth, so a real overrun is never
+    silent; this is only ever the sub-frame remainder landing on the last
+    shot instead of being unaccounted for.
     """
     if not shots:
         return None

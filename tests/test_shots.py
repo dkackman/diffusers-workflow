@@ -692,6 +692,28 @@ class TestPairAudioShots:
         ]
         assert remeasured_shots(None, fps=5, sample_rate=10, total_samples=20) is None
 
+    def test_last_shot_absorbs_a_track_off_the_frame_grid(self):
+        """#423: the last shot's num_samples is allowed to disagree with
+        round(num_frames * sample_rate / fps) by whatever slop the track
+        pair_audio was handed carries - every earlier boundary must still
+        match the frame->sample formula exactly."""
+        fps, sample_rate = 24, 44100
+        shots = [
+            shot_record("a", 0, 1068),
+            shot_record("b", 1068, 124),
+        ]
+        frame_grid_end = round(1192 / fps * sample_rate)  # 2190300
+
+        remeasured = remeasured_shots(
+            shots, fps=fps, sample_rate=sample_rate, total_samples=frame_grid_end + 1
+        )
+
+        assert remeasured[0]["start_sample"] == round(0 / fps * sample_rate)
+        assert remeasured[1]["start_sample"] == round(1068 / fps * sample_rate)
+        last = remeasured[-1]
+        assert last["start_sample"] + last["num_samples"] == frame_grid_end + 1
+        assert last["num_samples"] != round(124 * sample_rate / fps)
+
 
 # ---------------------------------------------------------------------------
 # 7. slice_audio drops shots
