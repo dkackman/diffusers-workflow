@@ -658,12 +658,19 @@ def recorded_shots(output_root, relative_path):
     has no readable manifest, or no step recorded shots for it - a file that
     was not joined from shots, or one written before shots were recorded.
     """
+    from .security import SecurityError, validate_path
     from .shots import shots_for_file
 
     folder, run_id, _subfolder = split_run_path(relative_path)
     if not run_id:
         return None
-    run_dir = os.path.join(output_root, folder, run_id)
+    # Every route resolves the file itself through validate_path first, so
+    # this is contained already; checking the run directory too keeps that
+    # true for a caller that doesn't, and lets static analysis see it
+    try:
+        run_dir = validate_path(os.path.join(output_root, folder, run_id), output_root)
+    except SecurityError:
+        return None
     manifest = _read_manifest(run_dir)
     if manifest is None:
         return None

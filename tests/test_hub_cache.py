@@ -128,6 +128,22 @@ class TestRepoDownloadIncomplete:
         (snapshot / "model_index.json").write_text(json.dumps(index))
         assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
 
+    def test_a_component_key_that_leaves_the_snapshot_is_not_followed(self, tmp_path):
+        # model_index.json comes from whoever published the repo: a key that
+        # is absolute or climbs out would make the answer depend on whether
+        # some directory elsewhere on the box exists
+        repo = make_pipeline_repo(
+            tmp_path,
+            components={"unet": ["diffusion_pytorch_model.safetensors"]},
+        )
+        snapshot = repo / "snapshots" / "aaaa1111"
+        index = json.loads((snapshot / "model_index.json").read_text())
+        index[str(tmp_path / "elsewhere")] = ["diffusers", "AutoencoderKL"]
+        index["../../../../elsewhere"] = ["diffusers", "AutoencoderKL"]
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
+
     def test_a_component_with_only_config_files_is_complete_regardless_of_variant(
         self, tmp_path
     ):

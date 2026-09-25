@@ -19,6 +19,8 @@ import uuid
 from huggingface_hub import constants, scan_cache_dir
 from huggingface_hub.utils import CacheNotFound
 
+from .security import SecurityError, validate_path
+
 try:
     # Xet-backed downloads aggregate into two bars built from our tracker
     # class: reconstruction (file bytes written) and transfer (network
@@ -153,7 +155,14 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
     case, not enumerated.
     """
     resolved = _resolved_cache_dir(cache_dir)
-    repo_dir = os.path.join(resolved, _repo_folder_name(repo_id))
+    try:
+        # _is_repo_id has already held repo_id to Hub's one-segment shape;
+        # this keeps the cache folder inside the cache on its own terms
+        repo_dir = validate_path(
+            os.path.join(resolved, _repo_folder_name(repo_id)), resolved
+        )
+    except SecurityError:
+        return True
     if not os.path.isdir(repo_dir):
         return True
 
@@ -181,6 +190,12 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
 
     for key, value in index.items():
         if key.startswith("_") or not isinstance(value, list):
+            continue
+        # A component is a folder beside model_index.json. The file comes
+        # from whoever published the repo, so an absolute or '..' key would
+        # point this listdir anywhere and make validate_workflow's
+        # downloads_required a yes/no oracle for directories on the box
+        if os.path.basename(key) != key or key in (".", ".."):
             continue
         if _component_incomplete(os.path.join(snapshot, key), variant):
             return True

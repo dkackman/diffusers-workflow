@@ -37,14 +37,14 @@ private import semmle.python.dataflow.new.DataFlow
 private import semmle.python.security.dataflow.PathInjectionCustomizations
 
 /**
- * Holds if `name` is a `dw.security` function that returns a path confined
+ * Holds if `name` is a `dw.security` (or `dw.locations`) function that returns a path confined
  * to a base directory it was given.
  */
 private predicate pathValidatorName(string name) {
   name =
     [
       "validate_path", "validate_workflow_path", "validate_output_path",
-      "validate_prompt_path", "safe_join_path"
+      "validate_prompt_path", "safe_join_path", "validate_media_path"
     ]
 }
 

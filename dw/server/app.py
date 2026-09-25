@@ -3120,7 +3120,14 @@ def create_app(
             # sending the caller back to the listing
             folder, run_id, _subfolder = split_run_path(name)
             if run_id:
-                version = run_versions(os.path.join(ws.outputs, folder)).get(run_id)
+                try:
+                    identity_dir = validate_path(
+                        os.path.join(ws.outputs, folder), ws.outputs
+                    )
+                except SecurityError:
+                    identity_dir = None
+                if identity_dir:
+                    version = run_versions(identity_dir).get(run_id)
         metadata = read_embedded_metadata(path)
         extension = os.path.splitext(path)[1].lower()
         media = (
