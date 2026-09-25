@@ -155,14 +155,19 @@ def delete_workspace(client, name, acknowledged_cost=False):
     if not acknowledged_cost:
         # Unacknowledged, the server answers 409 with what it would remove -
         # which the client turns into the error text below, so the count
-        # reaches the caller rather than a bare refusal
+        # reaches the caller rather than a bare refusal. A name that fails
+        # for another reason (404 not found, 400 for the default workspace)
+        # never reaches that 409, and acknowledging cannot fix it - the
+        # acknowledgement sentence belongs only on the 409
         try:
             client.delete_json(api_path("api", "workspaces", name))
         except DwApiError as e:
-            raise DwApiError(
-                f"{e} Call delete_workspace again with acknowledged_cost=True "
-                f"to proceed."
-            )
+            if e.status_code == 409:
+                raise DwApiError(
+                    f"{e} Call delete_workspace again with "
+                    f"acknowledged_cost=True to proceed."
+                )
+            raise
         raise DwApiError(
             f"Deleting workspace '{name}' removes everything in it. Call "
             f"again with acknowledged_cost=True to proceed."
