@@ -190,6 +190,31 @@ class TestSubWorkflowResolution:
                 "../../Outside.json", str(root / "templates"), str(root)
             )
 
+    def test_a_climb_out_refusal_says_where_it_looked(self, catalog):
+        # #422: the refusal named only the rejected path, not the search
+        # path it was judged against
+        root, outside = catalog
+        with pytest.raises(SecurityError) as exc_info:
+            resolve_sub_workflow(
+                "../../Outside.json", str(root / "templates"), str(root)
+            )
+        message = str(exc_info.value)
+        assert "Looked in" in message
+        assert str(root) in message
+        assert str(outside) in message  # the underlying PathTraversalError
+        # already names the resolved (rejected) path
+
+    def test_an_absolute_path_outside_every_source_says_where_it_looked(
+        self, catalog
+    ):
+        root, outside = catalog
+        with pytest.raises(SecurityError) as exc_info:
+            resolve_sub_workflow(str(outside), str(root / "templates"), str(root))
+        message = str(exc_info.value)
+        assert str(outside) in message
+        assert "Looked in" in message
+        assert str(root) in message
+
     def test_an_unconfined_caller_still_confines_to_the_catalog(self, catalog):
         """No confine_to (a bare CLI run) confines to the catalog root the
         run itself would use - the nearest ancestor named 'workflows' - so
