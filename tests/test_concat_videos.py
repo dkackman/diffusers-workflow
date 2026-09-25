@@ -591,15 +591,11 @@ class TestWarningsReachTheCaller:
         events = []
         token = activate_context(RunContext(on_event=events.append))
         try:
-            concat_videos(
-                [audio_video(4, 0.1), near_silent], match_levels="rms"
-            )
+            concat_videos([audio_video(4, 0.1), near_silent], match_levels="rms")
         finally:
             deactivate_context(token)
 
-        warnings = [
-            e for e in events if e.get("kind") == "match_levels_near_silent"
-        ]
+        warnings = [e for e in events if e.get("kind") == "match_levels_near_silent"]
         assert len(warnings) == 1
         assert warnings[0]["command"] == "concat_videos"
         assert warnings[0]["index"] == 1
@@ -686,7 +682,9 @@ class TestJoinedAudioFitsTheFrameGrid:
         finally:
             deactivate_context(token)
 
-        warnings = [e for e in events if e.get("kind") == "joined_audio_padded_to_frames"]
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
         assert len(warnings) == 1
         assert warnings[0]["command"] == "concat_videos"
         assert warnings[0]["pad_samples"] == 10
