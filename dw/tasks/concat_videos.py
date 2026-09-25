@@ -204,21 +204,25 @@ def concat_videos(
         frames.extend(clip[head_trim:])
         inner = getattr(video, "shots", None)
         if inner:
-            shots.extend(
-                nested_shots(
-                    trimmed_shots(inner, head_trim),
-                    start_frame,
-                    start_sample if waveforms[index] is not None else None,
-                    getattr(video, "sample_rate", None),
-                    sample_rate,
-                )
+            video_shots = nested_shots(
+                trimmed_shots(inner, head_trim),
+                start_frame,
+                start_sample if waveforms[index] is not None else None,
+                getattr(video, "sample_rate", None),
+                sample_rate,
             )
         else:
-            shots.append(
+            video_shots = [
                 shot_record(
                     names[index], start_frame, len(frames) - start_frame, start_sample
                 )
-            )
+            ]
+        # Which input this shot came from - named_shots (dw/shots.py) uses
+        # it to place a step's override name on the right shot once an
+        # earlier input has nested more than one of its own (#432)
+        for shot in video_shots:
+            shot["source_index"] = index
+        shots.extend(video_shots)
 
         if waveforms[index] is None:
             continue

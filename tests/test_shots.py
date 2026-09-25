@@ -895,6 +895,71 @@ class TestRoundTrip:
             "shot2d",
         ]
 
+    def test_a_reference_still_renames_a_later_input_when_an_earlier_one_nests(
+        self, tmp_path
+    ):
+        """#432: a `previous_result:` reference naming the *last* of two
+        inputs stopped renaming anything once the *first* input carried its
+        own inner shots (a multi-shot dissolve, say) - the join's flattened
+        `shots` list then held more entries than the step's `videos` list did
+        references, and the old positional zip in named_shots refused to
+        rename any of them rather than just the ones it could not place. The
+        nested input's own shot names must survive untouched; only the
+        single-shot trailing input takes the step's override name."""
+        fps, sample_rate = 4, 100
+        inner_shots = [
+            shot_record("shot@accuse", 0, 4, start_sample=0, num_samples=100),
+            shot_record("shot@deflect", 4, 4, start_sample=100, num_samples=100),
+            shot_record("shot@resolve", 8, 4, start_sample=200, num_samples=100),
+        ]
+        nested = AudioVideo(
+            frames(12),
+            numpy.full((2, 300), 1.0, dtype=numpy.float32),
+            sample_rate,
+            fps=fps,
+            shots=inner_shots,
+        )
+        trailing = audio_video(4, 2, fps=fps, sample_rate=sample_rate)
+
+        joined = concat_videos([nested, trailing], fps=fps)
+
+        result = Result({"content_type": "video/mp4", "save": True})
+        result.add_result(joined)
+
+        run_dir = tmp_path / "cut-demo" / "20260925-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            saved_files = result.save(str(run_dir), "cut-demo-join.0")
+
+        manifest_shots = step_shots(
+            result.saved_shots,
+            saved_files,
+            references=["asset:ep63-episode.mp4", "previous_result:paired"],
+        )
+
+        assert [shot["name"] for shot in manifest_shots] == [
+            "shot@accuse",
+            "shot@deflect",
+            "shot@resolve",
+            "paired",
+        ]
+        # And the artifact a later previous_result: step would read is
+        # renamed the same way, not just the manifest's copy
+        artifact = result.get_artifacts()[0]
+        assert [shot["name"] for shot in artifact.shots] == [
+            "shot@accuse",
+            "shot@deflect",
+            "shot@resolve",
+            "paired",
+        ]
+        # The transient source_index tag never leaks onto a consumer surface
+        assert all("source_index" not in shot for shot in manifest_shots)
+        assert all("source_index" not in shot for shot in artifact.shots)
+
     def test_recorded_shots_is_none_outside_a_run_directory(self, tmp_path):
         # The flat layout - no run id segment - has no manifest to read shots from
         assert recorded_shots(str(tmp_path), "workflow/still.png") is None
