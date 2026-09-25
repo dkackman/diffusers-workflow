@@ -1600,7 +1600,14 @@ several joined files marks each shot with its `file`.
 The steps that keep the frames pass `shots` on. `stabilize` and the per-frame
 tasks keep them as they are. `interpolate_frames` rescales them to the new
 frame count and clears the samples. `pair_audio` measures the samples again
-against the new track. Everything else drops them: an audio task's track,
+against the new track - every shot but the last is `round(start_frame / fps *
+sample_rate)`, and the last one runs to the track's actual end, so its
+`num_samples` can be a sample or two off `round(num_frames * sample_rate /
+fps)` when the track pair_audio was handed did not land exactly on the frame
+grid (rounding in an earlier resample or mix, not a dropped sample - a real
+mismatch between the track and the video's length is its own warning,
+`audio_video_length_mismatch` or `audio_padded_to_video/audio_trimmed_to_video`
+with `fit: "video"`). Everything else drops them: an audio task's track,
 say, or a video read back from a file. `get_gallery_metadata` reports the
 recorded shots as `media.shots`, and `get_output_frames(seams=true)` uses them
 when you pass no `boundaries`.
