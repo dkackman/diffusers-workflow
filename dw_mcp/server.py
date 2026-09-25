@@ -1159,24 +1159,29 @@ def build_server(client):
         `save_workflow` is how it gets a name."""
         return diagnose.get_job_workflow(client, job_id)
 
-    def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
+    def get_job_events(
+        job_id: str,
+        after: int = -1,
+        limit: int = 200,
+        kinds: list[str] | None = None,
+    ) -> dict:
         """Get a page of a job's progress events - phase transitions, denoise
         steps, memory readings and log lines. `after` is exclusive: pass back
         the previous call's `last_seq` to continue. Each event's `at` is
         seconds since the job started, so where a step's time went is the
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
-        events.
+        events. `kinds` (e.g. `["log", "warning"]`) restricts the page to
+        those `event` values - `memory` events otherwise dominate the payload.
 
-        A `kind: "phase_stall"` entry is a watchdog notice, not progress -
-        it fires every ~30s a phase goes quiet and repeats on that cadence
-        for as long as the silence continues, so it is not evidence of a
-        hang by itself and a climbing event_count made of nothing else is
-        not liveness either. It carries `seconds_since_last_progress`
-        (climbs across repeats) and `seconds_since_phase_start`; some
-        models are silent for minutes at a time in normal operation - check the model's
-        skill/guide for what's expected before treating one as a fault."""
-        return diagnose.get_job_events(client, job_id, after=after, limit=limit)
+        A `kind: "phase_stall"` entry is a watchdog notice, not progress - it
+        fires every ~30s a phase goes quiet, not evidence of a hang by
+        itself. It carries `seconds_since_last_progress` and
+        `seconds_since_phase_start`; some models are silent for minutes
+        normally - check the model's guide before treating one as a fault."""
+        return diagnose.get_job_events(
+            client, job_id, after=after, limit=limit, kinds=kinds
+        )
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
         """Block until a job finishes, instead of polling get_job or

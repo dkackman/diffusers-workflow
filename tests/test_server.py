@@ -4148,6 +4148,43 @@ def test_event_log_pages_with_after_and_limit(server):
         assert rest["truncated"] is False
 
 
+def test_event_log_filters_by_kinds(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+        unfiltered = client.get(f"/api/jobs/{job_id}/event-log").json()["events"]
+        assert {event["event"] for event in unfiltered} >= {
+            "step_start",
+            "pipeline_step",
+        }, "test needs a job with more than one kind of event"
+
+        body = client.get(f"/api/jobs/{job_id}/event-log?kinds=step_start").json()
+
+        assert body["events"], "the requested kind should still be present"
+        assert {event["event"] for event in body["events"]} == {"step_start"}
+        assert len(body["events"]) < len(unfiltered)
+
+
+def test_event_log_filters_by_multiple_kinds(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+
+        body = client.get(
+            f"/api/jobs/{job_id}/event-log?kinds=step_start&kinds=step_end"
+        ).json()
+
+        assert body["events"]
+        assert {event["event"] for event in body["events"]} <= {
+            "step_start",
+            "step_end",
+        }
+
+
 def test_event_log_clamps_a_negative_after(server):
     with server(success_script) as client:
         job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
