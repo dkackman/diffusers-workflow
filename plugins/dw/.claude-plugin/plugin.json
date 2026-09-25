@@ -1,7 +1,7 @@
 {
     "name": "dw",
     "description": "Compose MiniMax H3 video, MiniMax Music 3 and LTX-2.5 workflows over a dw MCP server, and cut a multi-episode series from them: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides.",
-    "version": "0.4.0",
+    "version": "0.5.0-alpha.1",
     "author": {
         "name": "Don Kackman"
     },
