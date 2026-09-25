@@ -147,9 +147,7 @@ class TestFitToTheVideo:
         assert "has no soundtrack" not in padded[0]
         assert "15 samples" in padded[0]
 
-    def test_a_frame_scale_pad_still_names_the_cut_as_uncovered(
-        self, warnings_emitted
-    ):
+    def test_a_frame_scale_pad_still_names_the_cut_as_uncovered(self, warnings_emitted):
         """A pad at least a full video frame long is a real gap - the
         original wording, with its advice, still applies."""
         pair_audio(cut(744), song(30), sample_rate=SAMPLE_RATE, fit="video")
