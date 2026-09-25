@@ -969,6 +969,33 @@ class Result:
             # is a full audio+video decode and doubled the 'saving' phase's
             # wall clock for no second answer
             probed_info = _probe_written_media(output_path)
+            # The shot map (#426) was re-measured against the fitted
+            # in-memory track before this file was even encoded - a
+            # prediction, not the file's own ground truth. A lossy mux can
+            # still trim or pad past that (AAC's frame alignment cost the
+            # #426 repro 29-30 samples on top of what fitting alone
+            # accounted for), so once the file is probed the shots are
+            # re-measured again against what actually decodes from it - the
+            # same length assess.py's read_media() trims audio to
+            # (`audio_stream_seconds`, the audio *stream's* own reported
+            # duration - not the container's `duration_seconds`, which can
+            # disagree with it by a handful of samples on a lossy mux and
+            # would leave a residual overrun the probe still reports).
+            if (
+                content_type.startswith("video")
+                and getattr(artifact, "shots", None)
+                and probed_info
+                and probed_info.get("audio_stream_seconds") is not None
+                and probed_info.get("sample_rate")
+            ):
+                from .shots import measured_num_samples
+
+                written_samples = int(
+                    round(
+                        probed_info["audio_stream_seconds"] * probed_info["sample_rate"]
+                    )
+                )
+                measured_num_samples(artifact.shots, written_samples)
             written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
