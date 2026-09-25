@@ -316,7 +316,20 @@ default, so nothing existing changes - a spread of 6 dB or more across the
 tracks being joined is reported as a warning rather than passing in silence:
 on the job's `warnings` and as a `warning` event in its stream, not only in
 the server's log, since the caller who can act on it is the one who asked for
-the run. `dissolve_videos` takes the same pair.
+the run. The other end of the range warns too: a shot at or below -40 dBFS,
+or one that needs 20 dB or more of gain to reach the target, is noise floor
+rather than a quieter performance, and matching it up is reported as
+`match_levels_near_silent`. `dissolve_videos` takes the same pair.
+
+The joined soundtrack is fitted to the joined frames. A track that comes out
+short of the frame grid - rounding in an input's own track, which otherwise
+compounds join after join - is padded with silence to it and reported as
+`joined_audio_padded_to_frames`. The file's AAC encode can then trim it by a
+further handful of samples; when it does, the saved job carries
+`joined_audio_short_after_mux` naming the residual (typically 16-32 samples,
+under a millisecond), and the recorded shots are re-measured against the file
+as written, so `media.shots` stays accurate. Both apply to `dissolve_videos`
+the same way.
 
 ### dissolve_videos
 
@@ -457,8 +470,10 @@ returns frames without it, and this puts it back:
 `fit`'s guarantee is exact for the waveform handed to the encoder, not for
 the file the encoder writes: muxing is a lossy AAC encode, and it can still
 trim or pad the written track by a further handful of samples (#428
-measured up to ~30, under a millisecond) with no warning, because nothing
-separates that from ordinary codec rounding. `get_gallery_metadata`'s
+measured up to ~30, under a millisecond). On a video with recorded `shots`
+that residual is reported as `joined_audio_short_after_mux`; on one without,
+nothing separates it from ordinary codec rounding and it passes without a
+warning. `get_gallery_metadata`'s
 `media.shots` and `assess_output`'s `sync_length` are measured against the
 written file, not the pre-encode prediction, so they are the number to
 trust for the track's actual length.
@@ -467,15 +482,15 @@ When the video carries recorded `shots` (from an earlier `concat_videos`,
 `dissolve_videos` or chain step), `pair_audio` remeasures each one's sample
 fields against the track it was handed. Every shot but the last is
 `round(start_frame / fps * sample_rate)`; the last one runs to the track's
-actual end, so its `num_samples` can sit a sample or two off
-`round(num_frames * sample_rate / fps)` when the track did not land exactly
-on the frame grid - rounding left over from an earlier resample, mix or
-normalize, not a dropped sample. A real mismatch between the track and the
-video's length is a separate, thresholded warning
+actual end, and once the file is written it is measured again against what
+the file decodes to. So its `num_samples` can sit a few dozen samples off
+`round(num_frames * sample_rate / fps)`: the encoder's trim, which the saved
+job reports as `joined_audio_short_after_mux`. A real mismatch between the
+track and the video's length is a separate, thresholded warning
 (`audio_video_length_mismatch`, or `audio_padded_to_video` /
-`audio_trimmed_to_video` when `fit: "video"` corrected it), so a
-one-or-two-sample difference on the last shot with none of those warnings
-present is expected, not a bug. `get_gallery_metadata`'s `media.shots`
+`audio_trimmed_to_video` when `fit: "video"` corrected it), so a last shot
+short by less than a millisecond, with `joined_audio_short_after_mux` naming
+the gap, is expected, not a bug. `get_gallery_metadata`'s `media.shots`
 reports the remeasured fields.
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)

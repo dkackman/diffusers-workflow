@@ -188,7 +188,10 @@ def loop_frames(video, num_frames):
         `LTX2ReferenceCondition.frames` and its kin need: a raw ndarray
         reaches `VaeImageProcessor.preprocess` untouched, with no /255
         rescaling applied along the way, so a uint8 [0, 255] array read as
-        already-scaled data is 255x too bright (#444)
+        already-scaled data is 255x too bright (#444). Not for a
+        keyframe (`LTX2VideoCondition`): its ndarray path expects uint8
+        [0, 255] and refuses a float frame when `crf` is set -
+        `frames_as_array` is the shape for that
     """
     if isinstance(num_frames, str):
         try:
