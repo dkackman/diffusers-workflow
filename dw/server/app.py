@@ -3293,7 +3293,10 @@ def create_app(
         shots' names. Without `boundaries`, an output's seams are the shots
         its run's manifest recorded for it (a `concat_videos`,
         `dissolve_videos` or chained step), named as recorded unless `names`
-        is given; a file with none recorded still needs `boundaries`.
+        is given; a linked asset (`keep_output(shared=true)`) uses the same
+        shots `get_gallery_metadata`'s `media.shots` reports for it, from the
+        sidecar manifest kept beside it. A file with none recorded still
+        needs `boundaries`.
         Tiles are downscaled to `max_dimension` on their longest side.
         `crop` is `x,y,width,height` in the video's own source pixels
         (`video_shape`'s `width`/`height`) - resolved once and cut from
@@ -3368,11 +3371,15 @@ def create_app(
             else:
                 recorded = (
                     None
-                    if boundaries or is_asset_reference(name)
+                    if boundaries
+                    else shots_beside(path)
+                    if is_asset_reference(name)
                     else recorded_shots(ws.outputs, name)
                 )
                 if recorded:
-                    # The file's own seams, from its run's manifest
+                    # The file's own seams, from its run's manifest (or, for
+                    # a linked asset, the sidecar `record_kept_shots` wrote
+                    # beside it)
                     starts = [shot["start_frame"] for shot in recorded[1:]]
                     shot_names = (
                         [n.strip() for n in names.split(",")]
@@ -3383,8 +3390,8 @@ def create_app(
                     raise HTTPException(
                         status_code=400,
                         detail="`seams` needs `boundaries`: the frame index each "
-                        "shot after the first starts at, comma-separated - this "
-                        "file's run recorded no shots for it",
+                        "shot after the first starts at - this file's run "
+                        "recorded no shots for it",
                     )
                 else:
                     starts = [int(b) for b in boundaries.split(",") if b.strip()]

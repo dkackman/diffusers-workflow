@@ -1681,6 +1681,56 @@ def test_gallery_frames_seams_read_a_joined_outputs_recorded_shots(server, tmp_p
         assert "boundaries" in refused.json()["detail"]
 
 
+def test_gallery_frames_seams_read_a_linked_assets_recorded_shots(
+    asset_server, tmp_path
+):
+    """#430: `seams` without `boundaries` on a linked asset (`keep_output`'s
+    sidecar manifest, `record_kept_shots`) was refused with "this file's run
+    recorded no shots for it" even though `get_gallery_metadata`'s
+    `media.shots` had them - the route only ever checked the *output*
+    manifest (`recorded_shots`), never the asset sidecar (`shots_beside`)
+    that `get_gallery_metadata`/`assess_output` already read."""
+    import json
+
+    from tests.test_media_frames import write_ramp_mp4
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        assets.mkdir(parents=True, exist_ok=True)
+        write_ramp_mp4(assets / "cast.mp4", frames=24, fps=6, width=64, height=32)
+        shots = [
+            {
+                "name": "shot@wide",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@close",
+                "start_frame": 10,
+                "num_frames": 14,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        (assets / "manifest.json").write_text(
+            json.dumps(
+                {"steps": [{"step": "keep_output", "files": ["cast.mp4"], "shots": shots}]}
+            )
+        )
+
+        response = client.get(
+            "/api/gallery/asset:cast.mp4/frames", params={"seams": "true"}
+        )
+        assert response.status_code == 200, response.text
+        (tile,) = response.json()["tiles"]
+        assert tile["label"] == "seam 1: shot@wide | shot@close"
+
+        metadata = client.get("/api/gallery/asset:cast.mp4/metadata").json()
+        assert metadata["media"]["shots"] == shots
+
+
 def test_gallery_frames_crop_names_the_same_source_region_at_any_max_dimension(
     server, tmp_path
 ):
