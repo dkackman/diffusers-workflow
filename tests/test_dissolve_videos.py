@@ -223,7 +223,9 @@ class TestJoinedAudioFitsTheFrameGrid:
         finally:
             deactivate_context(token)
 
-        warnings = [e for e in events if e.get("kind") == "joined_audio_padded_to_frames"]
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
         assert len(warnings) == 1
         assert warnings[0]["command"] == "dissolve_videos"
         assert warnings[0]["pad_samples"] == 10
