@@ -19,7 +19,12 @@ def scripted(routes):
     def handler(request):
         key = (request.method, request.url.path)
         seen.append(
-            {"key": key, "body": request.read(), "params": dict(request.url.params)}
+            {
+                "key": key,
+                "body": request.read(),
+                "params": dict(request.url.params),
+                "url": str(request.url),
+            }
         )
         if key not in routes:
             return httpx.Response(404, json={"detail": f"unrouted {key}"})
@@ -159,6 +164,17 @@ def test_get_job_events_defaults_to_the_whole_log():
     diagnose.get_job_events(client, "job-1")
 
     assert seen[0]["params"]["after"] == "-1"
+    assert "kinds" not in seen[0]["params"]
+
+
+def test_get_job_events_forwards_kinds():
+    client, seen = scripted(
+        {("GET", "/api/jobs/job-1/event-log"): (200, {"events": [], "last_seq": -1})}
+    )
+
+    diagnose.get_job_events(client, "job-1", kinds=["log", "warning"])
+
+    assert "kinds=log" in seen[0]["url"] and "kinds=warning" in seen[0]["url"]
 
 
 def test_cancel_rerun_and_move_call_their_routes():
