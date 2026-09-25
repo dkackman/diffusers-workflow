@@ -217,6 +217,69 @@ class TestColdIsNotWarm:
         assert "minutes" not in observed and "median_minutes" not in observed
 
 
+class TestTaskOnlyHasNoWarmState:
+    def test_a_task_only_workflow_reports_cold_even_though_had_load_is_false(self):
+        """No pipeline step ever logs a 'loading' phase, so every run of a
+        task-only workflow arrives with had_load=False - and _observed
+        (dw/plan.py) only ever quotes cold_minutes, so a workflow like
+        templates/dissolve-between-shots could never earn basis: 'observed'
+        no matter how much history it had (#439)."""
+        definition = workflow(["shots"], shots=[1, 2, 3])
+        definition["steps"] = [
+            {"name": "world", "task": "loop_audio"},
+            {"name": "film", "task": "concat_videos"},
+        ]
+
+        observed = observed_for(
+            definition,
+            [run(12 * MINUTE, had_load=False) for _ in range(24)],
+        )
+
+        assert observed["cold_minutes"] == 12.0 and observed["cold_runs"] == 24
+        assert "warm_minutes" not in observed
+
+    def test_a_pipeline_step_keeps_the_ordinary_had_load_split(self):
+        """A workflow that does load a model is unaffected - the split still
+        comes from what the run actually logged."""
+        definition = workflow(["num_frames"], num_frames=124)
+        definition["steps"] = [{"name": "gen", "pipeline": {"class": "FluxPipeline"}}]
+
+        observed = observed_for(
+            definition,
+            [run(10 * MINUTE, had_load=True), run(2 * MINUTE, had_load=False)],
+        )
+
+        assert observed["cold_minutes"] == 10.0 and observed["cold_runs"] == 1
+        assert observed["warm_minutes"] == 2.0 and observed["warm_runs"] == 1
+
+    def test_a_composed_workflow_step_also_keeps_the_ordinary_split(self):
+        definition = workflow(["num_frames"], num_frames=124)
+        definition["steps"] = [
+            {"name": "shot", "workflow": {"path": "child.json"}},
+        ]
+
+        observed = observed_for(
+            definition,
+            [run(10 * MINUTE, had_load=True), run(2 * MINUTE, had_load=False)],
+        )
+
+        assert observed["cold_minutes"] == 10.0 and observed["cold_runs"] == 1
+        assert observed["warm_minutes"] == 2.0 and observed["warm_runs"] == 1
+
+    def test_missing_or_empty_steps_is_not_evidence_of_task_only(self):
+        """An inline or otherwise step-less definition (every test above this
+        class) must keep behaving exactly as it did before #439."""
+        definition = workflow(["num_frames"], num_frames=124)
+
+        observed = observed_for(
+            definition,
+            [run(10 * MINUTE, had_load=True), run(2 * MINUTE, had_load=False)],
+        )
+
+        assert observed["cold_minutes"] == 10.0 and observed["cold_runs"] == 1
+        assert observed["warm_minutes"] == 2.0 and observed["warm_runs"] == 1
+
+
 class TestACachedRunIsNotARun:
     def test_a_fully_reused_run_is_excluded(self):
         """It finished in seconds and wrote nothing; counting it collapses
