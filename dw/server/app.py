@@ -1881,7 +1881,12 @@ def create_app(
             # (an asset:/output: reference validate can already probe) and
             # whose requested slice reaches past it - zero-padded rather than
             # refused, but previously said only by the run itself (#402)
-            + candidate.slice_past_end_warnings(request.arguments),
+            + candidate.slice_past_end_warnings(request.arguments)
+            # An assessment probe's shots argument reaching past a
+            # statically-knowable video's real frame count - silently
+            # clipped rather than refused, but previously said only by the
+            # run itself (#425)
+            + candidate.shot_span_warnings(request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored

@@ -745,3 +745,80 @@ class TestStoredMediaInAWorkflow:
         answer = self.saved_answer(outputs / "probe-stored")
         assert answer["shots_source"] == "manifest"
         assert len(answer["seams"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 8. A shots= record reaching past the file's end is warned, not silently
+# clipped (#425)
+# ---------------------------------------------------------------------------
+
+
+class TestShotSpanOverrun:
+    def _overrunning_shots(self):
+        # Mirrors the issue's own repro: a 248-frame video, second shot
+        # declared 124..424 - 176 frames past the real end.
+        return [
+            shot_record("a", 0, 124, 0, 124 * 2000),
+            shot_record("b", 124, 300, 124 * 2000, 300 * 2000, hard_cut=True),
+        ]
+
+    def _video(self):
+        frames = make_frames(248, base_grey=120, noise=3.0)
+        audio = make_tone(248 * 2000, sample_rate=248 * 2000 * 24 // 248)
+        return AudioVideo(frames, audio, 2000 * 24, fps=24)
+
+    def _capture(self, monkeypatch):
+        import dw.tasks.assess as assess_module
+
+        warnings = []
+        monkeypatch.setattr(
+            assess_module,
+            "emit_warning",
+            lambda message, **data: warnings.append((message, data)),
+        )
+        return warnings
+
+    def test_analyze_seams_warns_and_reports_a_finding(self, monkeypatch):
+        warnings = self._capture(monkeypatch)
+        answer = analyze_seams(self._video(), shots=self._overrunning_shots())
+
+        overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
+        assert len(overrun) == 1
+        assert overrun[0]["at"] == {"shot": "b"}
+        assert overrun[0]["value"]["frames"] == 176
+
+        assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
+        assert any(w[1].get("shots") == ["b"] for w in warnings)
+        json.dumps(answer)
+
+    def test_analyze_shots_warns_and_reports_a_finding(self, monkeypatch):
+        warnings = self._capture(monkeypatch)
+        answer = analyze_shots(self._video(), shots=self._overrunning_shots())
+
+        overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
+        assert len(overrun) == 1
+        assert overrun[0]["at"] == {"shot": "b"}
+        assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
+        json.dumps(answer)
+
+    def test_analyze_sync_drift_warns_and_reports_a_finding(self, monkeypatch):
+        warnings = self._capture(monkeypatch)
+        answer = analyze_sync_drift(self._video(), shots=self._overrunning_shots())
+
+        overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
+        assert len(overrun) == 1
+        assert overrun[0]["at"] == {"shot": "b"}
+        assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
+        json.dumps(answer)
+
+    def test_shots_that_fit_report_no_overrun_finding(self, monkeypatch):
+        warnings = self._capture(monkeypatch)
+        fitting = [
+            shot_record("a", 0, 124, 0, 124 * 2000),
+            shot_record("b", 124, 124, 124 * 2000, 124 * 2000, hard_cut=True),
+        ]
+
+        answer = analyze_seams(self._video(), shots=fitting)
+
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
+        assert not any(w[1].get("kind") == "shot_span_overrun" for w in warnings)

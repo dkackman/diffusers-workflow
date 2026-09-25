@@ -333,6 +333,72 @@ def _findings(probe, record, at, skip=()):
     return found
 
 
+def _span_overrun(media, shot):
+    """How far past the file `shot`'s frames or samples reach, or None when
+    it fits. `_clip` silently clamps an out-of-range window to the file
+    (#425): a shot record with `start_frame + num_frames` past the video's
+    real length, or explicit `start_sample + num_samples` past the
+    soundtrack's, is measured over a window shorter than the caller asked
+    for and nothing says so unless this is checked first."""
+    over_frames = None
+    if media.thumbs is not None:
+        start_frame = shot.get("start_frame", 0)
+        num_frames = shot.get("num_frames")
+        if isinstance(start_frame, (int, float)) and not isinstance(start_frame, bool):
+            if isinstance(num_frames, (int, float)) and not isinstance(num_frames, bool):
+                end = int(start_frame) + int(num_frames)
+                if end > media.frame_count:
+                    over_frames = end - media.frame_count
+    over_samples = None
+    if media.audio is not None:
+        start_sample, num_samples = shot.get("start_sample"), shot.get("num_samples")
+        if isinstance(start_sample, (int, float)) and not isinstance(start_sample, bool):
+            if isinstance(num_samples, (int, float)) and not isinstance(num_samples, bool):
+                total = media.audio.shape[1]
+                end = int(start_sample) + int(num_samples)
+                if end > total:
+                    over_samples = end - total
+    if over_frames is None and over_samples is None:
+        return None
+    return {"frames": over_frames, "samples": over_samples}
+
+
+def _shot_span_findings(probe, records, media):
+    """Findings (and a run warning) for every shot record whose declared
+    span reaches past the file - clipped silently otherwise (#425)."""
+    findings = []
+    overrun_names = []
+    for shot in records or []:
+        overrun = _span_overrun(media, shot)
+        if overrun is None:
+            continue
+        detail = (
+            f"{overrun['frames']} frame(s)"
+            if overrun["frames"] is not None
+            else f"{overrun['samples']} sample(s)"
+        )
+        findings.append(
+            {
+                "rule": "shot_span_overrun",
+                "severity": "warning",
+                "at": {"shot": shot.get("name")},
+                "value": overrun,
+                "threshold": 0,
+                "says": f"shot {shot.get('name')!r} reaches {detail} past the file's end",
+            }
+        )
+        overrun_names.append(shot.get("name"))
+    if overrun_names:
+        emit_warning(
+            f"{probe}: shot record(s) {', '.join(str(name) for name in overrun_names)} "
+            "reach past the file's end and were silently clipped to it",
+            kind="shot_span_overrun",
+            probe=probe,
+            shots=overrun_names,
+        )
+    return findings
+
+
 def _answer(probe, measurements, findings, shots_source, shot_dependent=()):
     """A probe's answer, with `rules_applied` cut down to the rules that
     actually ran. `shot_dependent` names (or `True` for all of the probe's
@@ -393,11 +459,12 @@ def shots_answer(media, records, source):
         return _answer(
             "analyze_shots",
             {"shots": [], "rms_range_db": None, "has_audio": False},
-            [],
+            _shot_span_findings("analyze_shots", records, media),
             source,
             shot_dependent={"shot_level_spread"},
         )
     records = records or [_whole_file_shot(media)]
+    overrun_findings = _shot_span_findings("analyze_shots", records, media)
 
     measured = []
     for shot in records:
@@ -437,7 +504,7 @@ def shots_answer(media, records, source):
     return _answer(
         "analyze_shots",
         answer,
-        _findings("analyze_shots", answer, at) if at else [],
+        overrun_findings + (_findings("analyze_shots", answer, at) if at else []),
         source,
         shot_dependent={"shot_level_spread"},
     )
@@ -595,10 +662,16 @@ def analyze_seams(video, shots=None):
 def seams_answer(media, records, source):
     """`analyze_seams` over an already-read Media and resolved shots."""
     if not records or len(records) < 2:
-        return _answer("analyze_seams", {"seams": []}, [], source, shot_dependent=True)
+        return _answer(
+            "analyze_seams",
+            {"seams": []},
+            _shot_span_findings("analyze_seams", records, media),
+            source,
+            shot_dependent=True,
+        )
 
     seams = []
-    findings = []
+    findings = _shot_span_findings("analyze_seams", records, media)
     for index in range(1, len(records)):
         previous, shot = records[index - 1], records[index]
         fade = int(shot.get("overlap_frames") or 0)
@@ -681,7 +754,7 @@ def analyze_sync_drift(video, shots=None):
 def sync_drift_answer(media, records, source):
     """`analyze_sync_drift` over an already-read Media and resolved shots."""
     measured = []
-    findings = []
+    findings = _shot_span_findings("analyze_sync_drift", records, media)
     rate = media.sample_rate
     fps = media.fps
     for shot in records or []:

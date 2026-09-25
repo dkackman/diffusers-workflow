@@ -860,6 +860,16 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
 
+A `shots` record whose `start_frame`/`num_frames` already reaches past the
+file's own length is not measured against a threshold - it is clipped to the
+file before any of the above run, and that clip is itself a `shot_span_overrun`
+finding on all three probes (`analyze_shots`, `analyze_seams`,
+`analyze_sync_drift`), with `value` naming how far past the end it reached.
+`validate_workflow` catches the same mistake before the run for a `shots`
+argument and an `asset:`/literal video whose length is knowable ahead of
+time; it cannot for `previous_result:`/`output:` video not yet written, so
+that case is left to the finding above.
+
 **Authority.** A finding marks a place to look, not a verdict. Nothing in
 the engine acts on one, and no run fails because of one. A finding you have
 checked and accepted is simply left alone. A `seam_frame_jump` at a cut the

@@ -830,6 +830,29 @@ class Workflow:
         )
         return slice_past_end_warnings(expanded, source_indices, base_dir)
 
+    def shot_span_warnings(self, arguments=None):
+        """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
+        `analyze_sync_drift`) whose `shots` argument already reaches past a
+        statically-knowable video's real frame count - valid, silently
+        clipped to the file rather than refused, but worth saying before the
+        run rather than only after it (#425).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .shot_span_preflight import shot_span_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No shot_span warnings available", exc_info=True)
+            return []
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+        return shot_span_warnings(expanded, source_indices, base_dir)
+
     def null_variable_argument_warnings(self, arguments=None):
         """Every required task argument fed by `variable:name` where name's
         value is null - downgraded out of `validation_errors` when

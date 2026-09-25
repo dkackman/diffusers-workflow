@@ -987,6 +987,14 @@ quiet shots is not a hole, it's a pause the shots themselves hold), and
 `seam_frame_jump` is skipped at a seam whose incoming shot is marked
 `hard_cut: true` - a cut meant as a cut.
 
+A `shots` record reaching past the file's own length is a separate finding,
+`shot_span_overrun`, on all three probes - not a threshold crossing, since
+the engine clips the record to the file before any of the rules above run.
+`validate_workflow` reports the same mistake ahead of the run when the
+video's length is already knowable (a `shots` argument against an
+`asset:`/literal video); a `previous_result:`/`output:` video not yet
+written is left to the finding.
+
 `list_tasks` names the probes in their own `assessment` list, alongside
 `commands`, so a caller looking for a way to check a cut can find them
 without reading every command's schema.

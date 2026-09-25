@@ -833,6 +833,26 @@ def _slice(audio):
     }
 
 
+def _seams(video):
+    return {
+        "steps": [
+            {
+                "name": "check",
+                "task": {
+                    "command": "analyze_seams",
+                    "arguments": {
+                        "video": video,
+                        "shots": [
+                            {"name": "a", "start_frame": 0, "num_frames": 4},
+                            {"name": "b", "start_frame": 4, "num_frames": 10},
+                        ],
+                    },
+                },
+            }
+        ]
+    }
+
+
 class TestValidateTimeProbesStayInsideTheRoots:
     """A free validate_workflow must not report what a file the run would
     refuse to read contains, or whether it exists."""
@@ -915,3 +935,42 @@ class TestValidateTimeProbesStayInsideTheRoots:
         )
         assert warnings
         assert calls == [str(outside / "voice.wav")]
+
+    OVERRUN_VIDEO = {"kind": "video", "frame_count": 7}
+
+    def test_a_shot_span_source_outside_the_roots_is_not_probed(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.shot_span_preflight as module
+
+        base_dir, outside = roots
+        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
+        warnings = module.shot_span_warnings(
+            _seams(str(outside / "clip.mp4")), base_dir=base_dir
+        )
+        assert warnings == []
+        assert calls == []
+
+    def test_a_shot_span_source_inside_the_roots_still_is(
+        self, untrusted, roots, monkeypatch
+    ):
+        import dw.shot_span_preflight as module
+
+        base_dir, _ = roots
+        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
+        warnings = module.shot_span_warnings(_seams("clip.mp4"), base_dir=base_dir)
+        assert warnings and "7 frames" in warnings[0]
+        assert calls == [str(base_dir / "clip.mp4")]
+
+    def test_shot_span_trusted_lifts_containment_for_the_probe(
+        self, trusted, roots, monkeypatch
+    ):
+        import dw.shot_span_preflight as module
+
+        base_dir, outside = roots
+        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
+        warnings = module.shot_span_warnings(
+            _seams(str(outside / "clip.mp4")), base_dir=base_dir
+        )
+        assert warnings
+        assert calls == [str(outside / "clip.mp4")]
