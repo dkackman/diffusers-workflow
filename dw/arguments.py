@@ -1103,6 +1103,16 @@ def fetch_video(video_spec, base_dir=None):
     if video_spec is None:
         return None
 
+    # An explicit {"media_type": ..., "location": ...} reference says what the
+    # media is regardless of the argument it fills - a still handed to a
+    # 'video' argument this way loads as an image rather than hitting the
+    # extension gate below (#443). Checked ahead of the list/dict handling so
+    # it also applies per-item inside a list of mixed video/image references,
+    # which realize_args's own is_media_reference check never sees - a list
+    # is not itself a dict, so a 'video'-named list reaches fetch_video whole
+    if is_media_reference(video_spec):
+        return fetch_media(video_spec, base_dir)
+
     # Handle lists of videos (need to distinguish from video frames)
     # Check if it's a list of specifications (dicts/strings) rather than video frames
     if isinstance(video_spec, list) and len(video_spec) > 0:

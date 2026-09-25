@@ -373,6 +373,38 @@ class TestRealizeArgs:
 
         assert "media_type" in str(exc_info.value)
 
+    def test_media_type_image_on_a_video_argument_loads_as_a_still(self):
+        # #443: validate_workflow's own hint tells a caller to pass a still
+        # to a `video` argument this way - fetch_video must honor media_type
+        # rather than treating the still's extension as a video's
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "still.jpg"))
+
+            args = {
+                "video": {"media_type": "image", "location": "still.jpg"}
+            }
+            realize_args(args, base_dir=temp_dir)
+
+            assert isinstance(args["video"], Image.Image)
+
+    def test_media_type_image_inside_a_video_list_loads_as_stills(self):
+        # The list form is what realize_args's own is_media_reference check
+        # never sees - a list is not itself a dict - so it only worked once
+        # fetch_video applied the same check to each item it recurses into
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "a.jpg"))
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "b.png"))
+
+            args = {
+                "video": [
+                    {"media_type": "image", "location": "a.jpg"},
+                    {"media_type": "image", "location": "b.png"},
+                ]
+            }
+            realize_args(args, base_dir=temp_dir)
+
+            assert all(isinstance(item, Image.Image) for item in args["video"])
+
     def test_bare_location_dict_is_left_alone_under_other_keys(self):
         # Without media_type, a dict with a location key belongs to its consumer
         args = {"config": {"location": "somewhere", "other": 1}}
