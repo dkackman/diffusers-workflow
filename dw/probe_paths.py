@@ -11,10 +11,9 @@ refuses defers to the run, and `location_errors` reports the refusal.
 
 import os
 
-from .arguments import resolve_path_references
-from .assets import is_asset_reference
+from .assets import fetch_asset, is_asset_reference
 from .locations import is_http_url, validate_media_path
-from .runs import is_output_reference
+from .runs import fetch_output, is_output_reference
 
 # Left to the run-time check: not yet resolved to a real file at the point
 # validation walks the expanded definition.
@@ -36,7 +35,11 @@ def resolve_probe_path(value, base_dir, what="a media argument"):
         return None
     if is_asset_reference(value) or is_output_reference(value):
         try:
-            value = resolve_path_references(value, base_dir)
+            value = (
+                fetch_asset(value, base_dir=base_dir)
+                if is_asset_reference(value)
+                else fetch_output(value)
+            )
         except Exception:
             # Existence/traversal problems belong to reference_name_errors
             # and reference resolution at run time, not to this check
