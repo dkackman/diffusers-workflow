@@ -1483,10 +1483,19 @@ def create_app(
         )
 
     @app.get("/api/jobs/{job_id}/event-log")
-    def job_event_log(job_id: str, after: int = -1, limit: int = 200):
+    def job_event_log(
+        job_id: str,
+        after: int = -1,
+        limit: int = 200,
+        kinds: list[str] | None = Query(None),
+    ):
         """Job events as one JSON page rather than a stream, for clients that
         poll instead of holding a connection open (the MCP server). `after` is
-        exclusive, matching the SSE route's parameter of the same name."""
+        exclusive, matching the SSE route's parameter of the same name.
+        `kinds` restricts the page to the named `event` values (e.g.
+        `log`, `warning`) - a consumer confirming what a step applied wants
+        those two and not the `memory`/bookkeeping events that otherwise
+        dominate the payload."""
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -1502,6 +1511,9 @@ def create_app(
             status = job.status
             pending = job.events_after(after)
             note = None
+        if kinds:
+            allowed = set(kinds)
+            pending = [event for event in pending if event.get("event") in allowed]
         page = pending[:limit]
         return {
             "id": job_id,
@@ -2058,7 +2070,10 @@ def create_app(
 
         Answers what it would remove and refuses until `acknowledged=true`:
         this deletes generated work, and a count is what makes it an
-        informed choice rather than a surprise.
+        informed choice rather than a surprise. The unacknowledged message
+        names only what would be removed - how to proceed is left to the
+        caller, since the MCP surface tells its own callers to acknowledge
+        through a differently-named parameter (`acknowledged_cost`).
         """
         root = _workspace_root()
         if name == DEFAULT_WORKSPACE_NAME:
@@ -2075,8 +2090,8 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": f"Deleting workspace '{name}' removes these files "
-                    f"permanently. Repeat with acknowledged=true to proceed.",
+                    "message": f"Deleting workspace '{name}' removes these "
+                    f"files permanently.",
                     "contents": contents,
                 },
             )
