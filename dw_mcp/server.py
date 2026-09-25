@@ -1171,10 +1171,8 @@ def build_server(client):
         seconds since the job started, so where a step's time went is the
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
-        events. `kinds` (e.g. `["log", "warning"]`) restricts the page to
-        events whose `event` or `kind` is one of them, so `["phase_stall"]`
-        or `["audio_clipped"]` selects one warning type - `memory` events
-        otherwise dominate the payload.
+        events. `kinds` (e.g. `["log", "warning"]`, or a warning's `kind`)
+        filters the page - `memory` events otherwise dominate it.
 
         A `kind: "phase_stall"` entry is a watchdog notice, not progress - it
         fires every ~30s a phase goes quiet, not evidence of a hang by
