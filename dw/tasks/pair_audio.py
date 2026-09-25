@@ -154,7 +154,18 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             deliverable's audio ran twice as long as its picture with
             `succeeded` and no warnings (#142). Left unset the track is used
             as it is, and a length that disagrees with the frames' is
-            warned about rather than passing in silence
+            warned about rather than passing in silence. The exactness
+            `fit` guarantees is of the *waveform handed to the encoder*, not
+            of the file a lossy mux (AAC, the only container this saves
+            audio+video into) writes: encoding is downstream of this
+            function and can still trim or pad the written track by a
+            further handful of samples (#428 measured up to ~30, well under
+            a millisecond) while decoding as `succeeded` with no warning of
+            its own, because there is no threshold that separates that from
+            ordinary codec rounding. `get_gallery_metadata`'s `media.shots`
+            and `assess_output`'s `sync_length` are measured against the
+            file as written, not this prediction, so they are the ground
+            truth for exactly how long the saved track runs
 
     Returns:
         One AudioVideo holding the frames and the track, at the rate the

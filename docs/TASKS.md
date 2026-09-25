@@ -454,6 +454,15 @@ returns frames without it, and this puts it back:
 | `fps` | No | The rate the frames play at, only needed when they carry none of their own. Used solely to work out how long the video is - what `fit` and the length-mismatch check measure the track against - and is never written to the file; that's `result.fps`, which sets the rate the output plays at and defaults to 8 fps when the frames carry none |
 | `fit` | No | `"video"` cuts or pads the track with silence to the length of the frames, warning either way (`audio_padded_to_video` / `audio_trimmed_to_video`). Left unset (the default) the track is used as it is, and a length that disagrees with the frames' is warned about rather than corrected (`audio_video_length_mismatch`). Any other value is refused at run time, not by `validate_workflow` |
 
+`fit`'s guarantee is exact for the waveform handed to the encoder, not for
+the file the encoder writes: muxing is a lossy AAC encode, and it can still
+trim or pad the written track by a further handful of samples (#428
+measured up to ~30, under a millisecond) with no warning, because nothing
+separates that from ordinary codec rounding. `get_gallery_metadata`'s
+`media.shots` and `assess_output`'s `sync_length` are measured against the
+written file, not the pre-encode prediction, so they are the number to
+trust for the track's actual length.
+
 When the video carries recorded `shots` (from an earlier `concat_videos`,
 `dissolve_videos` or chain step), `pair_audio` remeasures each one's sample
 fields against the track it was handed. Every shot but the last is
