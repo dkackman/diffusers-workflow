@@ -1716,7 +1716,11 @@ def test_gallery_frames_seams_read_a_linked_assets_recorded_shots(
         ]
         (assets / "manifest.json").write_text(
             json.dumps(
-                {"steps": [{"step": "keep_output", "files": ["cast.mp4"], "shots": shots}]}
+                {
+                    "steps": [
+                        {"step": "keep_output", "files": ["cast.mp4"], "shots": shots}
+                    ]
+                }
             )
         )
 
