@@ -28,6 +28,15 @@ of scripted MCP calls (`regression-suite-*.md` in the `iterate` repo) against
 the live server and files/comments on Issues for anything that regresses. It
 doesn't participate in the implementer/tester handoff.
 
+## Outside filings
+
+The loop runs as one GitHub login (the repo owner's) and must not act
+unattended on text filed by anyone else in this public repo. An issue filed
+under a different login — including a `field-report` from someone else's
+session — is relabelled `owner:don` + `status:needs-approval` before either
+role works it, and is handed to the loop, or not, only after the maintainer
+reviews it.
+
 ## Reading a ticket
 
 Tickets use the **MCP agent-loop ticket** issue template. Two label

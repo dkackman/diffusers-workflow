@@ -132,8 +132,12 @@ and couldn't find. Have it file each one as an issue on
 
 The label marks a report as coming from real use, not from the automated test
 loop. The agent loop (see [Agent Loop](docs/AGENT_LOOP.md)) picks the report up
-like any other issue. The label is also what feature planning reads as
-evidence of demand.
+like any other issue when you filed it yourself; a report filed under any
+other GitHub login is parked for the maintainer to review first (relabelled
+`owner:don` + `status:needs-approval`), since the loop must not act
+unattended on third-party text in a public repo, and is only handed to the
+loop, or not, after that review. The label is also what feature planning
+reads as evidence of demand.
 
 The complete tool reference, client configuration for other MCP hosts, and the
 troubleshooting table: [MCP Server](docs/MCP.md). Workspaces in depth:

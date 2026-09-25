@@ -71,8 +71,8 @@ arguments; the prompt format is MiniMax's, from their text not here.
   its own audio, so write `non_diegetic_music: N/A` in every shot and lay one
   score under the concat afterwards: `templates/minimax/music` writes the
   track and `templates/assemble-and-score` shows the `pair_audio` step that
-  mixes it under the world sound (three shots; for more, author the concat
-  and score steps the same way). A character speaking in several shots keeps
+  mixes it under the world sound; `shots` is a list, so a six-shot reel is
+  one more entry, not a new file. A character speaking in several shots keeps
   one voice by passing the same clip as an audio reference each time (the
   `voice-timbre-reference` pattern) - a repeated description alone drifts.
   Each entry's `num_frames` paces the cut.
