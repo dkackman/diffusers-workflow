@@ -46,6 +46,28 @@ release body once the tag has published (`gh release edit v0.4.0
   `/inputs` are served with `Content-Security-Policy: sandbox`.
 - A validate-time probe reads only a literal media path that the run itself
   would be allowed to read.
+- A dict or list passed to a string-typed variable is refused (#433).
+  `templates/ltx2/keyframes` takes `first_image`/`last_image` as plain
+  strings, not `{"location": ...}` (#431/#433).
+- `loop_frames` returns float32 frames in [0, 1] instead of uint8, the shape
+  `LTX2ReferenceCondition` needs; a keyframe condition still wants
+  `frames_as_array`. `ltx2/reference-sheet`'s default asset is now
+  `asset:reference_sheet.jpg` (#444).
+- `validate_workflow` refuses a `components` name the pipeline doesn't
+  register; `duration_head` is gone from the in-context LTX-2 templates
+  (#442).
+- A `{"media_type": "image"}` reference on a video argument loads as a
+  one-frame still (#443).
+- `pair_audio fit: "video"` always fits, and warns on any nonzero gap
+  (#428/#429). `concat_videos` and `dissolve_videos` pad a short joined
+  track to the frame grid (`joined_audio_padded_to_frames`), and a residual
+  the AAC mux trims off is reported as `joined_audio_short_after_mux`;
+  `media.shots` is measured against the file as written (#426/#435).
+- New warnings: `match_levels_near_silent` (#434), and `shot_span_overrun`
+  from the probes plus a validate-time check (#425).
+- Error text changed: `delete_workspace` (#437/#438), the sub-workflow path
+  refusal names the places it looked (#422), and `/outputs/asset:...` misses
+  name the asset without server paths.
 
 **New**
 
@@ -79,6 +101,26 @@ release body once the tag has published (`gh release edit v0.4.0
   mistyped workflow name gets suggestions from the catalog (#397).
 - Host caches are released when each job ends (#368), and the skills point
   at `clear_memory`.
+- `get_job_events(kinds=...)` and `?kinds=` on the event-log route; a kind
+  matches an event's `event` or its `kind`, so `["phase_stall"]` selects
+  one warning type (#436).
+- `get_memory` reports the step cache's `entries` and `retained_bytes`
+  (#418).
+- `get_output_image` and `/outputs` resolve `asset:` references (#445), and
+  `get_output_frames(seams=true)` works on linked assets (#430).
+- Compact `assess_output` lists each finding once (#427). Shots are named by
+  their source when joined inputs already carry shots (#432).
+- A task-only workflow's run history counts, so its estimate can quote
+  `basis: observed` (#439). The Music 3 hint no longer shows on video
+  (#441).
+
+**Fixes**
+
+- The step cache's retained-byte count no longer only grows (#418).
+- `templates/ltx2/keyframes` (#431), `restore-decompression` (#442) and
+  `reference-sheet` (#444) run with their own defaults again.
+- Joined audio and shot maps stay on the frame grid through repeated joins
+  (#423, #426, #428, #435).
 
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
