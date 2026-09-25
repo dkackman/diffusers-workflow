@@ -275,6 +275,18 @@ class StepCache:
         self._entries.clear()
         self._retained_bytes = 0
 
+    def stats(self):
+        """A read-only snapshot for a caller that cannot see inside the
+        worker process otherwise (#418) - entries/retained_bytes are exactly
+        the eviction accounting above, so this is how a stale-drop or an
+        LRU-evict actually freeing bytes becomes externally observable."""
+        return {
+            "entries": len(self._entries),
+            "max_entries": self.max_entries,
+            "retained_bytes": self._retained_bytes,
+            "max_retained_bytes": self.max_retained_bytes,
+        }
+
     def get(
         self, workflow_id, step_data, step_seed, hits_this_run, output_dir, needs_result
     ):

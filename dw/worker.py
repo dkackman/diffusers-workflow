@@ -714,6 +714,11 @@ class WorkflowWorker:
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.debug(f"Could not access GPU: {e}")
 
+        # The step cache's own eviction accounting (#418) - otherwise a
+        # phantom-bytes regression in it has no symptom short of the cache
+        # collapsing to one entry, thousands of stale drops away
+        info["step_cache"] = step_cache.stats()
+
         return info
 
 
