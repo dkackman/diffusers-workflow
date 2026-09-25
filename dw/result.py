@@ -996,6 +996,30 @@ class Result:
                     )
                 )
                 measured_num_samples(artifact.shots, written_samples)
+                frame_count = len(getattr(artifact, "frames", []) or [])
+                video_fps = self.video_fps(artifact)
+                if frame_count and video_fps:
+                    expected_samples = int(
+                        round(frame_count / video_fps * probed_info["sample_rate"])
+                    )
+                    shortfall = expected_samples - written_samples
+                    if shortfall > 0:
+                        emit_warning(
+                            f"{os.path.basename(output_path)}'s soundtrack decodes "
+                            f"{shortfall} sample(s) short of its {frame_count}-frame "
+                            f"grid after muxing, even though it was padded to the "
+                            f"grid before encoding - the mux itself (commonly AAC's "
+                            f"frame alignment) trimmed it further. The shot map has "
+                            f"been re-measured against what the file actually "
+                            f"decodes to, so it stays accurate, but a consumer "
+                            f"reading exact sample counts should expect this small "
+                            f"residual gap.",
+                            kind="joined_audio_short_after_mux",
+                            file=os.path.basename(output_path),
+                            shortfall_samples=shortfall,
+                            written_samples=written_samples,
+                            expected_samples=expected_samples,
+                        )
             written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
