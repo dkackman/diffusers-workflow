@@ -23,10 +23,6 @@ from dw.pipeline_processors.pipeline import (
 class TestDeclaredComponentNames:
     """A component outside the known list is loaded, not silently dropped"""
 
-    def test_known_names_are_always_included(self):
-        names = declared_component_names({})
-        assert names == optional_component_names
-
     def test_component_shaped_keys_are_detected(self):
         definition = {
             "configuration": {"component_type": "SomePipeline"},

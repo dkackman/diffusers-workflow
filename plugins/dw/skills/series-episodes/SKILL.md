@@ -86,10 +86,19 @@ composes into, not something to re-derive:
 - **match_levels**: shots generated independently drift in loudness -
   `assemble-and-score`'s `match_levels` (`"rms"` or `"peak"`) evens them
   before the cut; leaving it null only warns on a wide spread instead of
-  fixing it.
+  fixing it. A shot whose voice-over the score buries is a different
+  problem, not fixed by `match_levels` or `world_gain` (which lifts the
+  whole world track, action sound included) - see `minimax-h3`'s ducking
+  recipe: `gain_audio` regions on the score, one per voice-over shot,
+  applied before the score is passed in.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS) so one episode is not
-  louder than the next.
+  louder than the next. A shared peak ceiling does not mean a shared
+  loudness - a sparse, dialogue-only episode and a dense, score-heavy one
+  can both sit at -3 dBFS peak and still read as very different volumes;
+  `normalize_audio`'s optional `target_lufs` gains to a measured loudness
+  first, with `peak_dbfs` still holding as a ceiling, when episodes need to
+  match by ear rather than by sample.
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
@@ -97,6 +106,9 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 `shots` list are its own.
 
 ## Run and judge
+
+Judge a finished episode with `assess_output(name)` before listening end
+to end: it measures every seam and the shots' levels, and says where to look.
 
 `output:` a shot straight from its generation run rather than downloading
 and re-uploading it as an asset - only the cast portraits from step 0 need
@@ -116,13 +128,23 @@ between shots, a portrait imposing its framing, a voice without affect):
 watch two episodes back to back and check the cast reads as the same
 people - the failure mode step 0 exists to prevent. `get_gallery_metadata`
 on each episode's final file for duration and loudness, so a level
-mismatch between episodes shows up before a viewer notices it.
+mismatch between episodes shows up before a viewer notices it - its
+`peak_dbfs` is a single sample and does not say how loud the episode reads
+as a whole; `integrated_lufs` (BS.1770, whole-track) is the field that
+answers that, and is what to compare across episodes. To confirm a
+line actually rendered rather than judging it by ear, `get_output_audio`
+returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
+arguments={"input_audio": "output:<name>"})` first (free; it takes the
+episode's muxed soundtrack directly), then `run_workflow(...,
+acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
+wait_seconds=55)`, then `get_output_text` on the result, and
+`delete_output(job_id=...)` the scratch run afterward. This workflow's
+plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
+minutes; it runs in a few seconds.
 
 ## Sources
 
 `workflows/templates/assemble-and-score.json`, `dw/tasks/audio_utils.py`
 (`loop_audio`, `match_levels`, `normalize_audio`), `dw/tasks/pair_audio.py`,
 `docs/WORKSPACES.md` (the shared asset library), the `minimax-h3` skill
-this composes into. Written from issue #217 (dkackman/diffusers-workflow),
-which named the drift as a recurring, undocumented failure across two
-hand-built episodes.
+this composes into.

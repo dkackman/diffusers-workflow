@@ -29,6 +29,7 @@ from .runs import (
     is_output_reference,
     output_root as default_output_root,
     resolve_output_reference,
+    version_selector,
 )
 from .security import SecurityError, validate_workflow_path
 from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
@@ -170,14 +171,19 @@ def _inline_prompt(reference, annotations, prompt_dir, base_dir):
 
 
 def _pin_output(reference, output_root):
-    """'output:<identity>/latest/<file>' rewritten to the run it resolved to.
+    """'output:<identity>/latest/<file>' - or '/v4/' - rewritten to the run it
+    resolved to.
 
-    An explicit run id is already pinned, so it is returned untouched without
-    touching the disk - realizing must not fail on a reference the run has
-    not reached yet.
+    A version is stable, but deleting the newest run frees its number for
+    reuse, so the realized copy names the run id either way. An explicit run
+    id is already pinned, so it is returned untouched without touching the
+    disk - realizing must not fail on a reference the run has not reached
+    yet.
     """
     name = reference.removeprefix(OUTPUT_PREFIX).strip()
-    if LATEST not in name.split("/"):
+    if not any(
+        part == LATEST or version_selector(part) is not None for part in name.split("/")
+    ):
         return reference
     root = output_root or default_output_root()
     try:

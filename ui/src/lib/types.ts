@@ -13,6 +13,12 @@ export interface JobSummary {
    * and any caller that sent nothing), a bare boolean, or one bound to the
    * plan a validate answered with. Absent on rows from older servers. */
   acknowledged?: 'none' | 'boolean' | 'bound'
+  /** The run this job opened - null until it opens one, and for a job
+   * recorded before runs were tracked. */
+  run_id?: string | null
+  /** That run's ordinal among the workflow's runs - the `v4` the gallery
+   * shows for its files. Null until the run opens, and for older rows. */
+  run_version?: number | null
 }
 
 export interface ManifestEntry {
@@ -262,6 +268,13 @@ export interface GalleryFile {
   /** What followed the run id in the file's path - the `final` /
    * `intermediate` a step's `result.subfolder` chose, `''` for none. */
   subfolder: string
+  /** The run that wrote the file, `''` under the flat layout. */
+  run_id: string
+  /** That run's ordinal among the workflow's runs - what the grid shows as
+   * `v4`. Two runs write the same `label`, so this is what tells them
+   * apart at a glance. Assigned when the run opens and never renumbered,
+   * so a deleted sibling leaves a gap. Null when there is no run. */
+  version: number | null
   url: string
   kind: 'image' | 'video' | 'audio'
   size: number

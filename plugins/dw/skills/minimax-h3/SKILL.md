@@ -1,22 +1,21 @@
 ---
 name: minimax-h3
-description: Use when a dw MCP server is connected and the user wants MiniMax H3 video - a clip with its own sound, dialogue or a speaking character, a music video, a multi-shot short with cuts, a longer take, or a subject or voice kept consistent from a reference. Picks the template for the shape, states the rules that bite, quotes cost, and points at MiniMax's own prompt guides.
+description: Use when a dw MCP server is connected and the user wants MiniMax H3 video - a clip with its own sound, dialogue or a speaking character, a music video, a multi-shot short with cuts, a longer take, or a subject/voice kept consistent from a reference. Picks the template, states the rules that bite, quotes cost, points at MiniMax's own prompt guides.
 ---
 
 # MiniMax H3 on a dw server
 
 H3 generates video and audio together: speech with lip sync, ambient sound,
-score. Every template here fits a 24 GB card. This skill chooses the template
-and the arguments; the prompt format is MiniMax's, from their text not here.
+score. Every template fits a 24 GB card. This skill chooses the template and
+arguments; the prompt format is MiniMax's, from their text not here.
 
 ## Before anything
 
-1. `get_server_info`: the device (H3 templates are CUDA; the quantized
-   configurations do not run on mps) and which workspace this session is in.
+1. `get_server_info`: the device (H3 is CUDA; quantized configurations do
+   not run on mps) and which workspace this session is in.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
-   `list_workflows(shape="audio")`: the family's templates by their current
-   names, with `summary`, `traits` and `cost`. Trust the listing over the
-   names quoted below.
+   `list_workflows(shape="audio")`: the family's templates by current name,
+   `summary`, `traits` and `cost`. Trust the listing over names quoted below.
 3. `get_workflow` on the one chosen, for its variables and their defaults.
 
 ## Which shape is the request
@@ -38,50 +37,56 @@ and the arguments; the prompt format is MiniMax's, from their text not here.
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
-  generation, which no concat of separate clips can match for continuous audio.
-  It is one beat with fixed cut points, not a building block; past one beat
-  with a recurring cast, use the cuts pattern below.
-- **Longer than 14.4 seconds**: decide first whether the seam is a cut or a
-  continuation. Chain when one action or line of speech crosses the seam; cut
-  when the scene changes, and treat each cut as its own generation. Six
-  distinct scenes are a cuts piece, not a chain.
-- **Longer than 14.4 seconds as one take**: a chain. `templates/minimax/chained-segments`
+  generation, which no concat can match. One beat with fixed cut points, not
+  a building block; past one beat with a recurring cast, use the cuts
+  pattern below.
+- **Longer than 14.4 seconds**: chain when one action or line of speech
+  crosses the seam, cut when the scene changes (each cut its own generation).
+  Six distinct scenes are a cuts piece, not a chain.
+- **As one take (a chain)**: `templates/minimax/chained-segments`
   (last-frame continuity), `templates/minimax/chain-video-continuity` (the
-  previous segment's tail rides along as a video reference - motion, camera and
+  previous segment's tail rides as a video reference - motion, camera and
   voice carry across the seam), `templates/minimax/chain-matched-to-audio` (a
-  supplied track sets the length and is muxed back seamless),
+  supplied track sets the length, muxed back seamless),
   `templates/minimax/chain-matched-and-aligned` (all of it, per-segment
-  prompts). Drift compounds per seam: reference the subject picture in every
+  prompts). Drift compounds per seam: reference the subject picture every
   segment, prefer `last_segment` continuity, use the longest segments memory
   allows.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry on one loaded model, `concat_videos` splices) and
   `templates/minimax/music-video` (a song, one slice and one lip-synced shot
-  per entry; its singer is the `singer_reference` argument - a `from_file`
-  reference uses a cast portrait that exists and elides the drawing).
+  per entry; its singer is `singer_reference` - a `from_file` reference uses
+  an existing cast portrait and elides the drawing).
   `shots` is one list argument: a dialogue entry is `name`, `prompt`,
   `references` (portraits and voices: `from_previous_result` for one drawn
   here, `from_file` for an `asset:` cast) and `num_frames`; a music-video
-  entry is `name`, `prompt` and `start_frame`.
-  A six-shot piece is one more entry, not another file. The listing's
+  entry is `name`, `prompt`, `start_frame`.
+  A six-shot piece is one more entry, not a new file. The listing's
   `lists` block says what an entry carries; its `cost` carries `per_entry`
   when one shot was measured: quote
   `minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N`
-  for N entries. Without `per_entry`, quote the total and say it is the
-  default list's.
+  for N entries. Without `per_entry`, quote the total for the default list.
   A cut erases drift: the last shot is as clean as the first. Each shot makes
-  its own audio, so write
-  `non_diegetic_music: N/A` in every shot and lay one score under the concat
-  afterwards: `templates/minimax/music` writes the track and
-  `templates/assemble-and-score` shows the `pair_audio` step that mixes it
-  under the world sound (it takes three shots; for more, author the concat
-  and score steps the same way). A character speaking in several shots keeps
-  one voice by passing the same clip as an audio reference in each (the
-  `voice-timbre-reference` pattern); a repeated description alone drifts.
-  That clip carries delivery as well as timbre, and Bark's presets are
-  conversational - for gravitas, `upload_asset` a read in that register.
-  Each entry's `num_frames` is its own, so pace the cut.
+  its own audio, so write `non_diegetic_music: N/A` in every shot and lay one
+  score under the concat afterwards: `templates/minimax/music` writes the
+  track and `templates/assemble-and-score` shows the `pair_audio` step that
+  mixes it under the world sound; `shots` is a list, so a six-shot reel is
+  one more entry, not a new file. A character speaking in several shots keeps
+  one voice by passing the same clip as an audio reference each time (the
+  `voice-timbre-reference` pattern) - a repeated description alone drifts.
+  Each entry's `num_frames` paces the cut.
+  A score burying voice-over is not a `world_gain` fix: the world track
+  carries narration and action together (narration ~24 dB over its own
+  ambience, score 6-15 dB over that), so raising it lifts both. Duck the
+  *score* instead, before passing it as `score`: one `gain_audio` (#187)
+  step per voice-over shot, chained, `start_frame` = running sum of
+  preceding shots' `num_frames`, `num_frames` that shot's length, `fps`
+  the cut's rate, negative `gain_db` (-6 to -10). `dissolve-between-shots`
+  eats `dissolve_frames` per seam, so its sum isn't plain.
+- **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
+  step per `shots` entry, no shared cast, no concat. `keep_output` each
+  clip, then `templates/assemble-and-score` cuts and scores.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
@@ -103,27 +108,25 @@ read the `workflows` guide's authoring section first.
   **6**/3, **alpha 128** - `video-with-audio-768p`; 768p Ref2VA turbo, shift
   12/3, alpha unset - every `ref2va` template. The two 768p LoRAs differ in
   shift; do not generalise.
-  Never put an FL2VA LoRA on a reference template: a `ref2va` step holds
-  `transformer_ref` alone and diffusers routes whatever it is handed there,
-  so it only degrades the output. `validate_workflow` refuses it and warns
-  on a `weight_name` naming neither path.
+  Never put an FL2VA LoRA on a reference template: `ref2va` holds
+  `transformer_ref` alone, so whatever is handed there only degrades the
+  output. `validate_workflow` refuses it and warns on a `weight_name`
+  naming neither path.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
-  terminal zero included, so `denoise_total_steps` reports 8. Expected; do not
-  read upstream's `--inference-steps 8` literally.
-- Nothing carries between generations except what is passed as a reference:
-  no latent memory and no extension mode, in the checkpoint, the API or
-  diffusers. Identity rides on a picture, voice on an audio clip, motion and
-  camera on a video tail (what a chain passes forward), and a score across
-  cuts is laid under the concat.
-- H3 is guidance-distilled: no `guidance_scale`, no negative prompt. Say what
-  is there, not what is not.
-- When deriving a variant, keep `release_pipeline` where the template puts it:
-  it frees the Z-Image boards before H3 loads. A run SIGKILLed near the end in
-  a warm worker but fine in a fresh one is host memory, not the prompt.
-- Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files;
-  audio can never be the only reference. References are labelled in order.
+  terminal zero included, so `denoise_total_steps` reports 8 - expected, not
+  upstream's `--inference-steps 8` read literally.
+- Nothing carries between generations except a passed reference: no latent
+  memory, no extension mode. Identity rides on a picture, voice on an audio
+  clip, motion/camera on a video tail (a chain's), score across cuts under
+  the concat.
+- H3 is guidance-distilled: no `guidance_scale`, no negative prompt.
+- Keep `release_pipeline` where the template puts it: frees Z-Image before H3
+  loads, and H3 itself on `shot` before a concat runs, or a warm worker can
+  SIGKILL near the end where a fresh one would not.
+- Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
+  never be the only reference. References are labelled in order.
 - Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  the song needs and trim with `templates/audio-trim-fade`.
+  needed and trim with `templates/audio-trim-fade`.
 - Write the prompt for the length generated: timestamps should span the
   duration, or a five-second script tells a five-second story whatever the
   frame count.
@@ -137,8 +140,7 @@ the rules come from MiniMax, not from paraphrasing one:
    https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
    say once that
    `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing` installs
-   it - only that skill; the repo's other eight are style packs - and go on
-   without it.
+   it - only that one; the rest are style packs - and go on without it.
 2. Else read the guides on the model card:
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
    for text and frame conditioning, and
@@ -148,12 +150,10 @@ the rules come from MiniMax, not from paraphrasing one:
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
-Whichever route: write the whole script before the first shot - the lines in
-order, read once, should carry the piece - then place them. Repeat a speaker's
-voice description verbatim across shots, and when a reference picture should
-fix identity but not framing, say so in the prompt itself, in the lines that
-define the subject and what each reference keeps - or every shot inherits the
-portrait's composition.
+Whichever route: write the whole script before the first shot, then place the
+lines. Repeat a speaker's voice description verbatim across shots, and when a
+reference picture should fix identity but not framing, say so in the prompt
+itself - or every shot inherits the portrait's composition.
 
 ## Run and judge
 
@@ -167,35 +167,36 @@ portrait's composition.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest. A cancelled H3 job runs
-   on to its next step boundary, minutes on this model. Silence is no hang:
-   `denoise_step` is null through the reference encode (~90 s; 629 s for one
-   5 s 960x544 video reference on a 3090), and the block cache makes later
-   steps uneven - two-minute gaps are healthy. Each entry carries
-   `subfolder`: `final` is the deliverable (`episode`, `music_video`,
-   `voyage`), `intermediate` the scratch; keep that split in anything you
-   compose.
+   on to its next step boundary. Silence is no hang: `denoise_step` is null
+   through the reference encode (~90 s; 629 s for one 5 s 960x544 video
+   reference on a 3090), and the block cache makes later steps uneven -
+   two-minute gaps are healthy. `phase_stall` in `get_job_events` narrates
+   it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
+   `final` is the deliverable (`episode`, `music_video`, `voyage`),
+   `intermediate` the scratch; keep that split in what you compose.
 4. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
-   `seams=true` (with each later shot's start frame) for a cut's joins - a character
-   that changes between shots (reference the same portraits everywhere), a
-   portrait imposing its framing on every shot - `at` late in a chain for drift
-   sharpening into noise, and `get_output_audio` for a voice-over without
-   affect (the reference's delivery came through). Then `get_job` for the
-   manifest and its warnings, `get_gallery_metadata` for duration and whether
-   audio is present, and hand the user the gallery `url` (`list_gallery`).
-   `get_output_image` works only on image steps - the Z-Image portraits and
-   boards of `dialogue-short`, `storyboard`, `generated-subject-reference` and
-   `music-video`. Also look for a storyboard skipped, every shot the same
-   length, one look word on every board softening all of them.
-5. After an inline run worth keeping, `get_job_workflow` and `save_workflow`
-   it, so the next run is by name rather than pasted JSON; `export_job` bundles
-   the run — workflow, manifest, job row and media — for git. It is on the
-   server: fetch its zip URL and unpack it into `exports/` under the session's
-   working directory, never a temp dir; the archive holds a job-id folder, so
-   do not make one first.
+   `seams=true` (each later shot's start frame) for a cut's joins - a
+   character that changes between shots (reference the same portraits
+   everywhere), a portrait imposing its framing on every shot - `at` late in
+   a chain for drift sharpening to noise, and `get_output_audio` for a
+   voice-over without affect. `get_output_audio` returns sound, not text; to
+   confirm a line rendered, use its docstring's transcription route
+   (`validate_workflow` on `templates/transcribe-audio`, `run_workflow` with
+   `acknowledged_cost` bound, `get_output_text`, `delete_output`) - `basis:
+   "unknown"`, quote seconds not minutes.
+   Then `get_gallery_metadata` for duration/audio presence,
+   and hand the user the gallery `url`
+   (`list_gallery`). `get_output_image` works only on image steps - the
+   Z-Image portraits and boards of `dialogue-short`, `storyboard`,
+   `generated-subject-reference` and `music-video`.
+5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
+   `export_job` bundles it on the server. `auth_required: false` - fetch
+   `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
+   to the person instead and keep using `get_output_image`/`_audio`/`_frames`.
 
 ## Sources
 
 MiniMax-H3 model card and prompt guides (huggingface.co/MiniMaxAI/MiniMax-H3),
-the `h3-prompt-writing` skill (github.com/MiniMax-AI/MiniMax-H3), the diffusers
-MiniMax-H3 modular pipeline, the `lightx2v/Minimax-h3-Turbo` LoRA notes; read
-2026-09-07; the audit is `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+`h3-prompt-writing` (github.com/MiniMax-AI/MiniMax-H3), the diffusers
+MiniMax-H3 modular pipeline, `lightx2v/Minimax-h3-Turbo` LoRA notes; read
+2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.

@@ -362,34 +362,6 @@ def test_release_models_evicts_task_models_after_step(release, expect_cached):
         clear_model_cache()
 
 
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("Testing Pipeline Caching Implementation")
-    print("=" * 60 + "\n")
-
-    try:
-        test_pipeline_caching()
-        test_pipeline_caching_different_steps()
-
-        print("\n" + "=" * 60)
-        print("✅ ALL TESTS PASSED!")
-        print("=" * 60)
-        print("\nModels will now persist in GPU memory across workflow runs!")
-        print(
-            "This significantly improves performance by avoiding repeated model loading."
-        )
-
-    except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
-
-
 def test_cache_hit_republishes_shared_components():
     """A warm sharing step must refill the fresh shared_components dict, or a
     later reusing step that missed the cache finds nothing."""
@@ -689,3 +661,137 @@ def test_superseded_release_is_reported_on_the_event_stream():
     assert len(released) == 1, f"expected one release event, got {events}"
     assert released[0]["step"] == "gen"
     assert released[0]["reason"] == "superseded"
+
+
+def test_release_pipeline_returns_host_caches_before_announcing_it():
+    """The release hands pinned/arena host memory back then, not at job end.
+
+    `pipeline_released` dropped the device memory but left ~10 GB of pinned
+    staging buffers and heap arenas in RSS through every later step of the
+    job, until the worker's between-run cleanup finally returned them (#368).
+    The host caches are emptied after the pipeline has left the cache, and
+    before the event, so the memory reading that follows it shows the drop.
+    """
+    from dw.events import RunContext
+
+    events = []
+    pipeline_cache = {}
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    at_release = []
+
+    def fake_release():
+        key = workflow._pipeline_keys_by_step.get("generate")
+        at_release.append(
+            {
+                "released_cached": key in pipeline_cache,
+                "announced": any(e["event"] == "pipeline_released" for e in events),
+            }
+        )
+        return 0.0
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            with patch("dw.workflow.empty_device_cache"):
+                with patch("dw.workflow.release_host_caches", fake_release):
+                    workflow.run(
+                        {},
+                        previous_pipelines=pipeline_cache,
+                        context=RunContext(on_event=events.append),
+                    )
+
+    assert at_release == [{"released_cached": False, "announced": False}]
+    # the step that did not ask for a release leaves its pipeline warm
+    assert workflow._pipeline_keys_by_step["keep"] in pipeline_cache
+
+
+def test_release_models_returns_host_caches():
+    """release_models is the task-model sibling of release_pipeline (#368)."""
+    workflow = Workflow(
+        _release_models_workflow_def(True), "/tmp/test_output", "test.json"
+    )
+    calls = []
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    cached_model(("text_generation", "some-model", "cuda"), MagicMock)
+    try:
+        with patch.object(Pipeline, "load", mock_pipeline_load):
+            with patch.object(
+                Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+            ):
+                with patch("dw.workflow.empty_device_cache"):
+                    with patch(
+                        "dw.workflow.release_host_caches",
+                        lambda: calls.append(bool(_model_cache)) or 0.0,
+                    ):
+                        workflow.run({}, previous_pipelines={})
+    finally:
+        clear_model_cache()
+
+    assert calls == [False], "emptied once, after the task models were dropped"
+
+
+def test_superseded_release_returns_host_caches():
+    """A redefined step's old pipeline hands its host memory back before the
+    new one loads, not once the job ends (#368)."""
+    from dw.workflow import pipeline_cache_key
+
+    old_def = {
+        "configuration": {"component_type": "{Mock}"},
+        "from_pretrained_arguments": {"model_name": "old-model"},
+        "arguments": {},
+    }
+    new_step = {
+        "name": "gen",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "new-model"},
+            "arguments": {},
+        },
+    }
+    old_key = pipeline_cache_key(old_def)
+    cache = {old_key: MagicMock()}
+    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow._prior_step_keys = {"gen": old_key}
+    order = []
+
+    def mock_load(self, shared_components):
+        order.append("load")
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_load):
+        with patch(
+            "dw.workflow.release_host_caches",
+            lambda: order.append(("release", old_key in cache)) or 0.0,
+        ):
+            workflow.create_step_action(new_step, {}, cache, 1, "cpu")
+
+    assert order == [("release", False), "load"]
+
+
+def test_release_host_caches_runs_for_real_on_the_release_path():
+    """The unmocked call is harmless where there is no CUDA or glibc."""
+    from dw.host_memory import release_host_caches
+
+    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            with patch(
+                "dw.workflow.release_host_caches",
+                wraps=release_host_caches,
+            ) as real:
+                workflow.run({}, previous_pipelines={})
+
+    assert real.call_count == 1

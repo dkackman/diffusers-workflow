@@ -1,12 +1,16 @@
+import io
 import os
 import copy
 import logging
+import tempfile
+from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
 from .runs import fetch_output, is_output_reference
 from diffusers.utils import load_image, load_video
+from PIL import Image
 from .security import (
     validate_path,
     validate_constant_name,
@@ -17,7 +21,7 @@ from .security import (
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_AUDIO_EXTENSIONS,
 )
-from .locations import validate_media_path, validate_media_url
+from .locations import safe_get, validate_media_path
 
 logger = logging.getLogger("dw")
 
@@ -96,7 +100,7 @@ MEDIA_KINDS = ("image", "video", "audio")
 
 
 # Helper functions for processing and loading workflow arguments
-def realize_args(arg, base_dir=None):
+def realize_args(arg, base_dir=None, apply_key_conventions=True):
     """
     Recursively processes workflow arguments to:
     1. Convert type references into actual Python types
@@ -108,6 +112,17 @@ def realize_args(arg, base_dir=None):
         arg: The arguments to process, modified in place
         base_dir: Directory relative file paths are resolved against - the
             workflow file's directory. Defaults to the process working directory
+        apply_key_conventions: Whether a bare value loads by what its key looks
+            like (an 'image'/'video'/'_type' name). Explicit references
+            (asset:, output:, constant:, prompt:, a {media_type, location}
+            dict) always resolve regardless of this flag - only the fallback
+            that guesses from the key name is gated. The top-level variables
+            dict is realized with this off (dw/workflow.py): a variable's own
+            name is not the argument it will end up filling, so 'image' guessed
+            a variable named that way into a PIL Image before the step that
+            actually names its argument 'video' ever saw the value (#365).
+            Nested structures still recurse with this at its default, since by
+            then a dict key is a real argument name again
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
@@ -132,15 +147,29 @@ def realize_args(arg, base_dir=None):
             elif is_media_reference(v):
                 arg[k] = fetch_media(v, base_dir)
             # Handle image loading for keys ending in '_image' or exactly 'image'
-            elif k.endswith("_image") or k == "image":
+            elif apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
-                arg[k] = fetch_image(v, base_dir)
+                arg[k] = _fetch_image_with_context(v, base_dir, k)
+            # get_frame/get_first_frame/get_last_frame only ever need one frame
+            # out of their 'video' - loading the ordinary way decodes the whole
+            # clip to throw all but one frame away, which is what OOM-killed a
+            # long clip (#367). Recognized by the sibling 'command' on this same
+            # task object, since that is the only place the command name and
+            # this argument meet before a task handler runs
+            elif (
+                apply_key_conventions
+                and k == "arguments"
+                and arg.get("command") in _LAZY_FRAME_COMMANDS
+            ):
+                _realize_lazy_frame_arguments(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
-            elif k.endswith("_video") or k == "video":
+            elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = fetch_video(v, base_dir)
+                arg[k] = _fetch_video_with_context(v, base_dir, k)
             # Handle type references, and the keys that only look like one
-            elif k.endswith("_type") or k.endswith("_dtype") or k == "dtype":
+            elif apply_key_conventions and (
+                k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
+            ):
                 if isinstance(v, EscapedString):
                     # An earlier pass already consumed this value's escape
                     continue
@@ -158,7 +187,7 @@ def realize_args(arg, base_dir=None):
                     if is_escaped(v):
                         arg[k] = EscapedString(v.strip("{}"))
                     else:
-                        arg[k] = load_type_from_name(v)
+                        arg[k] = load_type_from_name(v, k)
                 elif isinstance(v, type):
                     # the value already a type
                     arg[k] = v
@@ -191,7 +220,12 @@ def realize_args(arg, base_dir=None):
             if is_media_reference(item):
                 arg[i] = fetch_media(item, base_dir)
                 continue
-            realize_args(item, base_dir)
+            try:
+                realize_args(item, base_dir)
+            except ValueError as error:
+                if isinstance(item, dict) and "name" in item:
+                    raise ValueError(f"{error} (step '{item['name']}')") from error
+                raise
             arg[i] = realize_object(item, base_dir)
         # An optional entry whose media is null leaves the list rather than
         # reaching the pipeline as a reference with nothing in it
@@ -887,6 +921,44 @@ def resolve_relative_path(path, base_dir):
     return path
 
 
+def _describe_value_source(value):
+    """A short, human phrase for what a mistyped value already is - the
+    'source' half of an argument-mismatch error, since the type name alone
+    (PIL.Image.Image) doesn't say *how* it got there."""
+    if hasattr(value, "mode") and hasattr(value, "size"):
+        return "an already-loaded image"
+    if isinstance(value, tuple) and value and hasattr(value[0], "size"):
+        return "already-loaded video frames"
+    return f"a {type(value).__name__}"
+
+
+def _fetch_image_with_context(v, base_dir, key):
+    """fetch_image, with the argument key folded into a type-mismatch error -
+    a bare 'got <class ...>' names neither the argument nor what the value
+    already was (#365)."""
+    try:
+        return fetch_image(v, base_dir)
+    except ValueError as error:
+        raise ValueError(
+            f"{error} (argument '{key}' expected an image, got "
+            f"{_describe_value_source(v)} - check what variable or previous "
+            f"result feeds it)"
+        ) from error
+
+
+def _fetch_video_with_context(v, base_dir, key):
+    """fetch_video, with the same argument-key context as
+    _fetch_image_with_context."""
+    try:
+        return fetch_video(v, base_dir)
+    except ValueError as error:
+        raise ValueError(
+            f"{error} (argument '{key}' expected a video, got "
+            f"{_describe_value_source(v)} - check what variable or previous "
+            f"result feeds it)"
+        ) from error
+
+
 def fetch_image(img_spec, base_dir=None):
     """
     Load image from file path or URL with security validation.
@@ -939,8 +1011,11 @@ def fetch_image(img_spec, base_dir=None):
         if isinstance(img_spec, str) and (
             img_spec.startswith("http://") or img_spec.startswith("https://")
         ):
-            validated_url = validate_media_url(img_spec, "an image argument")
-            return load_image(validated_url)
+            # Fetched here rather than by load_image, which follows redirects
+            # without re-checking them; load_image still does the EXIF
+            # transpose and RGB conversion on the decoded result
+            response = safe_get(img_spec, "an image argument", timeout=60)
+            return load_image(Image.open(io.BytesIO(response.content)))
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
@@ -961,19 +1036,52 @@ def fetch_image(img_spec, base_dir=None):
 
 
 def _with_frame_rate(frames, location):
-    """The loaded frames carrying the rate their file declares.
+    """The loaded frames carrying the rate their file declares, and the
+    shot boundaries its run (or kept-asset sidecar) recorded for it.
 
-    `load_video` reads frames and drops the rate, so a step that paired a
-    24 fps file with a soundtrack wrote it back at 8 - three times long,
-    silently (#104). The rate is read from the container without decoding
-    anything, and a file that will not say stays a plain list.
+    `load_video` reads frames and drops both: a step that paired a 24 fps
+    file with a soundtrack wrote it back at 8 - three times long, silently
+    (#104) - and a video loaded from an `asset:`/`output:` path had no
+    `shots` to hand `pair_audio`, even when the server had them on file
+    for that exact video (#398). The rate is read from the container
+    without decoding anything; the shots come from `shots_beside`, which
+    only looks at a real local path, so a URL carries none. A file that
+    says neither stays a plain list.
     """
+    from .runs import shots_beside
     from .tasks.video_utils import FrameList, file_fps
 
     if not isinstance(frames, list):
         return frames
     fps = file_fps(location)
-    return FrameList(frames, fps) if fps else frames
+    shots = (
+        shots_beside(location)
+        if not (location.startswith("http://") or location.startswith("https://"))
+        else None
+    )
+    return FrameList(frames, fps, shots) if (fps or shots) else frames
+
+
+def _fetch_remote_video(url):
+    """A video URL's frames, fetched through `safe_get` and decoded from a
+    temporary file. `load_video` would fetch the URL itself and follow its
+    redirects unchecked; handed a path, it only decodes. The suffix comes
+    from the URL, as `load_video`'s own download names it, since a `.gif`
+    decodes differently."""
+    from .tasks.video_utils import FrameList, file_fps
+
+    response = safe_get(url, "a video argument", timeout=300)
+    suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
+    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        with handle:
+            handle.write(response.content)
+        frames = load_video(handle.name)
+        fps = file_fps(handle.name)
+    finally:
+        os.remove(handle.name)
+    # A URL has no run beside it, so it carries no shots
+    return FrameList(frames, fps, None) if fps else frames
 
 
 def fetch_video(video_spec, base_dir=None):
@@ -994,6 +1102,16 @@ def fetch_video(video_spec, base_dir=None):
     """
     if video_spec is None:
         return None
+
+    # An explicit {"media_type": ..., "location": ...} reference says what the
+    # media is regardless of the argument it fills - a still handed to a
+    # 'video' argument this way loads as an image rather than hitting the
+    # extension gate below (#443). Checked ahead of the list/dict handling so
+    # it also applies per-item inside a list of mixed video/image references,
+    # which realize_args's own is_media_reference check never sees - a list
+    # is not itself a dict, so a 'video'-named list reaches fetch_video whole
+    if is_media_reference(video_spec):
+        return fetch_media(video_spec, base_dir)
 
     # Handle lists of videos (need to distinguish from video frames)
     # Check if it's a list of specifications (dicts/strings) rather than video frames
@@ -1037,8 +1155,7 @@ def fetch_video(video_spec, base_dir=None):
         if isinstance(video_spec, str) and (
             video_spec.startswith("http://") or video_spec.startswith("https://")
         ):
-            validated_url = validate_media_url(video_spec, "a video argument")
-            return _with_frame_rate(load_video(validated_url), validated_url)
+            return _fetch_remote_video(video_spec)
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
@@ -1056,3 +1173,59 @@ def fetch_video(video_spec, base_dir=None):
     except Exception as e:
         logger.error(f"Failed to load video {video_spec}: {e}")
         raise
+
+
+# get_frame and its two fixed-index siblings, and the assessment probes
+# (dw/tasks/assess.py), which stream the file themselves - decoding it to a
+# frame list first dropped the soundtrack they measure and failed every probe
+# on an asset:/output: video (#387) - see _realize_lazy_frame_arguments
+_LAZY_FRAME_COMMANDS = frozenset(
+    {
+        "get_frame",
+        "get_first_frame",
+        "get_last_frame",
+        "analyze_shots",
+        "analyze_seams",
+        "analyze_sync_drift",
+    }
+)
+
+
+def _realize_lazy_frame_arguments(arguments, base_dir):
+    """Realize a get_frame/get_first_frame/get_last_frame or probe step's
+    arguments, reading a file-based 'video' by reference rather than decoding
+    it (#367, #387).
+
+    Everything but 'video' is realized the ordinary way. A 'video' naming a
+    real file or an asset/output path becomes a VideoFileReference the task
+    reads one frame out of by seeking, or a probe streams; a 'previous_result:'/'variable:'
+    reference is still deferred, and a URL still goes through the ordinary
+    eager fetch_video, since a seek needs a local, seekable file.
+    """
+    from .tasks.video_utils import VideoFileReference
+
+    if "video" in arguments:
+        video = arguments["video"]
+        if is_path_reference(video) or isinstance(video, (list, dict)):
+            video = resolve_path_references(video, base_dir)
+        deferred = isinstance(video, str) and (
+            video.startswith("previous_result:") or video.startswith("variable:")
+        )
+        url = isinstance(video, str) and (
+            video.startswith("http://") or video.startswith("https://")
+        )
+        if isinstance(video, str) and not deferred and not url:
+            validated_path = validate_media_path(video, base_dir, "a video argument")
+            ext = os.path.splitext(validated_path)[1].lower()
+            if ext not in ALLOWED_VIDEO_EXTENSIONS:
+                raise SecurityError(f"Video file extension not allowed: {ext}")
+            arguments["video"] = VideoFileReference(validated_path)
+        elif video is not None:
+            arguments["video"] = fetch_video(video, base_dir)
+
+    for k, v in list(arguments.items()):
+        if k == "video":
+            continue
+        single = {k: v}
+        realize_args(single, base_dir)
+        arguments[k] = single[k]

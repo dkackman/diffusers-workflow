@@ -17,6 +17,7 @@ from dw.workflow_sources import (
     resolve_in_source,
     resolve_sub_workflow,
     source_for_path,
+    suggest_workflow_names,
     workflow_names,
     workflow_sources,
     writable_source,
@@ -111,6 +112,49 @@ class TestResolution:
         assert source_for_path(sources, str(tmp_path / "elsewhere.json")) is None
 
 
+class TestSuggestions:
+    """#397: a caller who knows a catalog entry by its short name gets a
+    pointer to the real one rather than a bare 404."""
+
+    def test_a_unique_path_suffix_is_suggested(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "Gyre") == ["ltx2/Gyre"]
+
+    def test_a_typo_falls_back_to_a_close_spelling_match(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "Shered") == ["Shared"]
+
+    def test_nothing_close_suggests_nothing(self, roots):
+        workspace, examples = roots
+        sources = workflow_sources(str(workspace), [str(examples)])
+        assert suggest_workflow_names(sources, "zzz-completely-unrelated") == []
+
+    def test_the_real_catalog_suggests_the_full_template_path(self):
+        # #397's own repro: a skill or an earlier turn names a template by
+        # its short id, not its catalog path
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sources = workflow_sources(
+            os.path.join(repo_root, "workflows"), include_builtin=True
+        )
+        assert suggest_workflow_names(sources, "dialogue-short") == [
+            "templates/minimax/dialogue-short"
+        ]
+
+    def test_a_typo_on_a_short_name_still_finds_the_full_catalog_path(self):
+        # The tester's own follow-up: "dialog-short" scores 0.92 against the
+        # entry's own name but 0.55 against the full path, so comparing
+        # full paths missed a real typo entirely
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sources = workflow_sources(
+            os.path.join(repo_root, "workflows"), include_builtin=True
+        )
+        assert suggest_workflow_names(sources, "dialog-short") == [
+            "templates/minimax/dialogue-short"
+        ]
+
+
 class TestSubWorkflowResolution:
     """A composed step's relative path is confined to the root it is handed
     back with, so a name that climbs out of the catalog is never resolved -
@@ -145,6 +189,29 @@ class TestSubWorkflowResolution:
             resolve_sub_workflow(
                 "../../Outside.json", str(root / "templates"), str(root)
             )
+
+    def test_a_climb_out_refusal_says_where_it_looked(self, catalog):
+        # #422: the refusal named only the rejected path, not the search
+        # path it was judged against
+        root, outside = catalog
+        with pytest.raises(SecurityError) as exc_info:
+            resolve_sub_workflow(
+                "../../Outside.json", str(root / "templates"), str(root)
+            )
+        message = str(exc_info.value)
+        assert "Looked in" in message
+        assert str(root) in message
+        assert str(outside) in message  # the underlying PathTraversalError
+        # already names the resolved (rejected) path
+
+    def test_an_absolute_path_outside_every_source_says_where_it_looked(self, catalog):
+        root, outside = catalog
+        with pytest.raises(SecurityError) as exc_info:
+            resolve_sub_workflow(str(outside), str(root / "templates"), str(root))
+        message = str(exc_info.value)
+        assert str(outside) in message
+        assert "Looked in" in message
+        assert str(root) in message
 
     def test_an_unconfined_caller_still_confines_to_the_catalog(self, catalog):
         """No confine_to (a bare CLI run) confines to the catalog root the

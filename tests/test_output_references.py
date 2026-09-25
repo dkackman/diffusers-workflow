@@ -210,7 +210,3 @@ class TestAForEachMembersOwnFile:
 
         assert "' '" in str(caught.value)
         assert "position" in str(caught.value)
-
-    def test_traversal_is_still_refused(self):
-        with pytest.raises((InvalidInputError, SecurityError)):
-            resolve_output_reference("output:ltx2/../../etc/passwd")

@@ -7,15 +7,129 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
-- `get_output_audio` now reads `GET /api/gallery/{name}/audio`, extracts a
-  video's soundtrack, and takes `start`/`duration` (moved off the
-  `/outputs` mount, which used to refuse `video/mp4`).
-- New tool `get_output_frames` (route `GET /api/gallery/{name}/frames`):
-  a video seen as moments, a contact sheet, or seam pairs.
-- `get_output_frames` takes `hear` (soundtrack around each `at` moment) and
-  reports `difference` per seam pair.
+### 0.4.0
+
+The auto-generated notes for this range are a single merge line, since the
+work landed on `develop` without PRs. Paste this section into the GitHub
+release body once the tag has published (`gh release edit v0.4.0
+--notes-file ...`).
+
+**Breaking and behaviour changes**
+
+- `download_output` over a `dw.serve --mcp` endpoint refuses a call with no
+  `destination`. It used to write into the server's own directory (#353).
+- Untrusted workflows are refused in more cases (#409-#413):
+  - a `*_type` that doesn't resolve to a class, or that isn't a kind a
+    workflow constructs: a diffusers or transformers model, pipeline,
+    scheduler, tokenizer or processor, a quantization config, an auto
+    factory, a diffusers reference/condition type or an attention processor.
+    A plain `torch` class such as `torch.nn.Linear` is now refused;
+  - `constant:` walks through `_` names or out of the allowed packages;
+  - URLs with backslashes;
+  - `text/html` and `text/xml` result types;
+  - media hosts that aren't globally routable, including 100.64/10 (CGNAT,
+    and so Tailscale);
+  - more than 5 redirects;
+  - images over 50M pixels.
+
+  Listings and export zips drop symlinks that escape their root.
+  `--trust-workflows` lifts all of these.
+- `run_workflow` validates the caller's `arguments` when it queues the job
+  (#414/#415). `validate_workflow(arguments={})` checks a run with no values
+  supplied, not just the document (#364).
+- A fractional value for an int variable is refused (#338), and so is a
+  still image passed as a video argument (#347).
+- `templates/minimax/music` normalizes to -3 dBFS instead of -1, so its output
+  is quieter (#362).
+- Every response carries `X-Content-Type-Options: nosniff` and
+  `X-Frame-Options: DENY`. Active document types under `/outputs` and
+  `/inputs` are served with `Content-Security-Policy: sandbox`.
+- A validate-time probe reads only a literal media path that the run itself
+  would be allowed to read.
+- A dict or list passed to a string-typed variable is refused (#433).
+  `templates/ltx2/keyframes` takes `first_image`/`last_image` as plain
+  strings, not `{"location": ...}` (#431/#433).
+- `loop_frames` returns float32 frames in [0, 1] instead of uint8, the shape
+  `LTX2ReferenceCondition` needs; a keyframe condition still wants
+  `frames_as_array`. `ltx2/reference-sheet`'s default asset is now
+  `asset:reference_sheet.jpg` (#444).
+- `validate_workflow` refuses a `components` name the pipeline doesn't
+  register; `duration_head` is gone from the in-context LTX-2 templates
+  (#442).
+- A `{"media_type": "image"}` reference on a video argument loads as a
+  one-frame still (#443).
+- `pair_audio fit: "video"` always fits, and warns on any nonzero gap
+  (#428/#429). `concat_videos` and `dissolve_videos` pad a short joined
+  track to the frame grid, warning (`joined_audio_padded_to_frames`) only
+  when the pad is a frame or more; a residual the AAC mux trims off is
+  logged, or warned as `joined_audio_short_after_mux` from a frame up.
+  `media.shots` is measured against the file as written (#426/#435/#454).
+  Neither warns about resampling inputs that agree to a pinned
+  `sample_rate` (#453).
+- New warnings: `match_levels_near_silent` (#434), and `shot_span_overrun`
+  from the probes plus a validate-time check (#425).
+- Error text changed: `delete_workspace` (#437/#438), the sub-workflow path
+  refusal names the places it looked (#422), and `/outputs/asset:...` misses
+  name the asset without server paths.
+
+**New**
+
+- The `assess_output` tool and `GET /api/gallery/{name}/assess`, plus the
+  probe tasks `analyze_shots`, `analyze_seams` and `analyze_sync_drift`
+  (#387/#388).
+- A joined video records its shot boundaries (`media.shots`).
+  `get_output_frames(seams=true)` uses them, so it no longer needs
+  `boundaries` (#385).
+- Run versions (`v<N>`):
+  - `list_gallery` returns `run_id`/`version` and filters by `folder` and
+    `version`;
+  - `output:<wf>/v<N>/<file>` references;
+  - `wait_for_job` returns `run_version`;
+  - export zips download as `<wf>-vN-<job>.zip`.
+- `list_gallery(media=true)` adds durations, and `output:` names work in
+  gallery reads (#356).
+- `DW_PUBLIC_URL` adds absolute URLs to gallery and export responses.
+  `export_job` also returns `auth_required` and `open_url` (#353).
+- A `grade` task for images and video: exposure, contrast, saturation and
+  temperature/tint (#349).
+- The `templates/minimax/shots-batch` H3 template (#352).
+- Every generative template takes a `seed` argument (#351).
+- `normalize_audio(target_lufs)`, and `integrated_lufs` plus true peak in
+  media metadata (#361).
+- `gain_audio` with no region gains the whole track (#395).
+- `world_fade_out_ms` on `assemble-and-score` (#339).
+- Download progress shows in `phase_detail` (#343). `phase_stall` events
+  now read as informational (#357).
+- `workflow`, `inline_workflow` and `prompt` also accept a JSON string. A
+  mistyped workflow name gets suggestions from the catalog (#397).
+- Host caches are released when each job ends (#368), and the skills point
+  at `clear_memory`.
+- `get_job_events(kinds=...)` and `?kinds=` on the event-log route; a kind
+  matches an event's `event` or its `kind`, so `["phase_stall"]` selects
+  one warning type (#436).
+- `get_memory` reports the step cache's `entries` and `retained_bytes`
+  (#418).
+- `get_output_image` and `/outputs` resolve `asset:` references (#445), and
+  `get_output_frames(seams=true)` works on linked assets (#430).
+- Compact `assess_output` lists each finding once (#427). Shots are named by
+  their source when joined inputs already carry shots (#432).
+- A task-only workflow's run history counts, so its estimate can quote
+  `basis: observed` (#439). The Music 3 hint no longer shows on video
+  (#441).
+
+**Fixes**
+
+- The step cache's retained-byte count no longer only grows (#418).
+- `templates/ltx2/keyframes` (#431), `restore-decompression` (#442) and
+  `reference-sheet` (#444) run with their own defaults again.
+- Joined audio and shot maps stay on the frame grid through repeated joins
+  (#423, #426, #428, #435).
 
 Releases are cut by pushing a `v<semver>` tag. CI does the rest.
+
+Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
+passing. It covers more than CI: ruff over the whole repo rather than
+`dw dw_mcp tests`, and the UI's Playwright e2e tests, which CI doesn't run.
 
 ```bash
 scripts/release.sh 0.38.0

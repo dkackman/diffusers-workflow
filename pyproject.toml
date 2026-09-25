@@ -85,6 +85,8 @@ dependencies = [
     "av>=18.1.0",
     "soundfile>=0.14.0",
     "matplotlib>=3.11.1",
+    # BS.1770 integrated loudness / true-peak metering (dw/loudness.py, #361)
+    "pyloudnorm>=0.2.0",
     # speaker_embedding preprocessing arg for generate_speech: reduces a
     # reference clip to the x-vector a SpeechT5 model conditions its voice
     # on (spkrec-xvect-voxceleb). Imported lazily in speech_generation.py,

@@ -361,6 +361,100 @@ class TestLoadAudioVideo:
 
         assert paired.fps == 24
 
+    def test_a_loaded_video_argument_carries_the_run_s_shots(self, tmp_path):
+        """A video loaded by path (an asset:/output: reference, already
+        resolved to a local file by the time fetch_video sees it) carries
+        the shots its run's manifest recorded, the way it already carries
+        the file's fps - #398."""
+        import json
+
+        from dw.arguments import fetch_video
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.tasks.video_utils import FrameList
+
+        run_dir = tmp_path / "ep42" / "20260101-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        path = self.write_video(run_dir / "ep42-film.mp4", fps=24, num_frames=24)
+        shots = [
+            {
+                "name": "shot@accuse",
+                "start_frame": 0,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@deflect",
+                "start_frame": 12,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        manifest = {
+            "steps": [
+                {"step": "concat_videos", "files": ["ep42-film.mp4"], "shots": shots}
+            ]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+
+        frames = fetch_video(path)
+
+        assert isinstance(frames, FrameList)
+        assert [shot["name"] for shot in frames.shots] == [
+            "shot@accuse",
+            "shot@deflect",
+        ]
+
+    def test_pair_audio_remeasures_the_shots_a_loaded_video_carries(self, tmp_path):
+        """The other half of #398: pair_audio's own remeasuring, fed a
+        video loaded from a path rather than built by an earlier step in
+        the same workflow."""
+        import json
+
+        from dw.arguments import fetch_video
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.tasks.pair_audio import pair_audio
+
+        run_dir = tmp_path / "ep42" / "20260101-000000-abcdef01"
+        run_dir.mkdir(parents=True)
+        path = self.write_video(run_dir / "ep42-film.mp4", fps=24, num_frames=24)
+        shots = [
+            {
+                "name": "shot@accuse",
+                "start_frame": 0,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@deflect",
+                "start_frame": 12,
+                "num_frames": 12,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        manifest = {
+            "steps": [
+                {"step": "concat_videos", "files": ["ep42-film.mp4"], "shots": shots}
+            ]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+
+        paired = pair_audio(
+            video=fetch_video(path),
+            audio=numpy.zeros((2, 16000), dtype=numpy.float32),
+            sample_rate=16000,
+        )
+
+        assert [shot["name"] for shot in paired.shots] == [
+            "shot@accuse",
+            "shot@deflect",
+        ]
+        assert paired.shots[0]["start_sample"] == 0
+        assert paired.shots[1]["start_sample"] == round(12 / 24 * 16000)
+
     def test_audio_is_fitted_to_the_frames_own_duration(self, tmp_path):
         """The codec pads the last block; joined shot after shot that padding
         would walk the sound off the picture."""
@@ -397,6 +491,121 @@ class TestLoadAudioVideo:
 
         with pytest.raises(SecurityError):
             load_audio_video(str(payload))
+
+
+class TestVideoFileReference:
+    """#367. get_frame/get_first_frame/get_last_frame only need one frame; a
+    VideoFileReference lets get_frame seek to it with PyAV instead of
+    decoding the whole clip through fetch_video/load_video."""
+
+    def write_long_clip(self, path, num_frames=300, fps=30, marked=()):
+        """A clip whose frames are black except the given indexes, which are
+        pure red - a marker robust to a lossy codec's compression noise,
+        unlike a unique near-black shade per frame."""
+        from diffusers.utils.export_utils import encode_video
+
+        marked = set(marked)
+        frames = [
+            Image.new("RGB", (8, 8), (255, 0, 0) if index in marked else (0, 0, 0))
+            for index in range(num_frames)
+        ]
+        encode_video(frames, fps=fps, output_path=str(path))
+        return str(path)
+
+    def assert_is_red(self, frame):
+        r, g, b = frame.getpixel((0, 0))
+        assert r > 128 and r > g + 64 and r > b + 64
+
+    def assert_is_black(self, frame):
+        r, g, b = frame.getpixel((0, 0))
+        assert r < 96
+
+    def test_get_frame_seeks_rather_than_decoding_the_whole_clip(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[250])
+        ref = VideoFileReference(path)
+
+        self.assert_is_red(get_frame(ref, 250))
+        self.assert_is_black(get_frame(ref, 100))
+
+    def test_negative_indexes_count_from_the_end(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[299])
+        ref = VideoFileReference(path)
+
+        self.assert_is_red(get_frame(ref, -1))
+
+    def test_an_out_of_range_index_names_the_frame_count(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4")
+        ref = VideoFileReference(path)
+
+        with pytest.raises(ValueError, match="past the end of a 300-frame clip"):
+            get_frame(ref, 999999)
+
+    def test_process_video_dispatches_first_and_last_through_the_reference(
+        self, tmp_path
+    ):
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[0, 299])
+        ref = VideoFileReference(path)
+
+        first = process_video(ref, "get_first_frame", "cpu", {})
+        last = process_video(ref, "get_last_frame", "cpu", {})
+
+        self.assert_is_red(first)
+        self.assert_is_red(last)
+
+    def test_realize_args_builds_a_reference_without_calling_load_video(
+        self, tmp_path, monkeypatch
+    ):
+        """The whole point of #367: a get_frame step's 'video' must not go
+        through the eager, whole-clip fetch_video/load_video path."""
+        import dw.arguments as arguments_module
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = self.write_long_clip(tmp_path / "long.mp4", marked=[250])
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("load_video must not be called for get_frame (#367)")
+
+        monkeypatch.setattr(arguments_module, "load_video", _boom)
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": path, "frame_index": 250},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        video = task["arguments"]["video"]
+        assert isinstance(video, VideoFileReference)
+        self.assert_is_red(get_frame(video, 250))
+
+    def test_a_deferred_previous_result_reference_is_left_unchanged(self, tmp_path):
+        import dw.arguments as arguments_module
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": "previous_result:shot", "frame_index": 0},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        assert task["arguments"]["video"] == "previous_result:shot"
+
+    def test_a_variable_reference_is_left_unchanged(self, tmp_path):
+        import dw.arguments as arguments_module
+
+        task = {
+            "command": "get_frame",
+            "arguments": {"video": "variable:my_video"},
+        }
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+
+        assert task["arguments"]["video"] == "variable:my_video"
 
 
 class TestIsVideo:
@@ -437,6 +646,35 @@ class TestLoopFrames:
         assert looped.shape == (121, 4, 8, 3)
         assert (looped[0] == looped[120]).all()
 
+    def test_the_result_survives_diffusers_own_video_preprocessing(self):
+        """#444. loop_frames feeds LTX2ReferenceCondition.frames, which
+        diffusers' VaeImageProcessor.preprocess normalizes as `2 * x - 1`
+        with no /255 rescaling for a raw ndarray - so a uint8 [0, 255] array
+        (what frames_as_array itself returns) comes out at up to ~509
+        instead of [-1, 1], garbage into the VAE encoder. This runs the real
+        diffusers path rather than asserting the array's own range."""
+        from diffusers.video_processor import VideoProcessor
+
+        looped = loop_frames(Image.new("RGB", (64, 32), "red"), 4)
+
+        tensor = VideoProcessor(vae_scale_factor=8).preprocess_video(looped)
+
+        assert tensor.min().item() >= -1.0
+        assert tensor.max().item() <= 1.0
+
+    def test_the_result_is_float32_scaled_to_0_1(self):
+        """#444. A raw ndarray reaches diffusers' VaeImageProcessor untouched
+        - no /255 rescaling happens downstream - so loop_frames has to hand
+        back data already in the [0, 1] range its own reference-conditioning
+        caller (LTX2ReferenceCondition.frames) expects, not the uint8 [0, 255]
+        frames_as_array itself returns."""
+        looped = loop_frames(Image.new("RGB", (8, 4), "red"), 4)
+
+        assert looped.dtype == numpy.float32
+        assert looped.max() <= 1.0
+        assert looped.min() >= 0.0
+        assert numpy.isclose(looped[0, 0, 0, 0], 1.0)  # red's R channel is 255
+
     def test_a_short_clip_laps_round_and_the_last_lap_is_trimmed(self):
         frames = numpy.stack(
             [numpy.full((2, 2, 3), value, dtype=numpy.uint8) for value in (1, 2, 3)]
@@ -444,7 +682,10 @@ class TestLoopFrames:
 
         looped = loop_frames(frames, 7)
 
-        assert [int(frame[0][0][0]) for frame in looped] == [1, 2, 3, 1, 2, 3, 1]
+        assert numpy.allclose(
+            [float(frame[0][0][0]) for frame in looped],
+            [1 / 255, 2 / 255, 3 / 255, 1 / 255, 2 / 255, 3 / 255, 1 / 255],
+        )
 
     def test_a_clip_longer_than_the_request_is_trimmed(self):
         frames = numpy.zeros((10, 2, 2, 3), dtype=numpy.uint8)
@@ -571,6 +812,60 @@ class TestFrameGrid:
         from dw.tasks.video_utils import frame_grid
 
         assert frame_grid(clip, count="4", tile_width=32).size == (2 * 32, 2 * 16)
+
+    def test_a_list_of_stills_loaded_through_fetch_video_tiles(self):
+        # #443: the reported repro - two character portraits passed to
+        # frame_grid's `video` argument as {"media_type": "image", ...}
+        # references, the way validate_workflow's own hint tells a caller to
+        # - loaded through the real fetch_video path, not a mock of it
+        import os
+        import tempfile
+        from dw.arguments import fetch_video
+        from dw.tasks.video_utils import frame_grid
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (64, 32), "red").save(os.path.join(temp_dir, "a.jpg"))
+            Image.new("RGB", (64, 32), "blue").save(os.path.join(temp_dir, "b.jpg"))
+
+            video = fetch_video(
+                [
+                    {"media_type": "image", "location": "a.jpg"},
+                    {"media_type": "image", "location": "b.jpg"},
+                ],
+                base_dir=temp_dir,
+            )
+
+            grid = frame_grid(video, count=2, tile_width=64, label=False)
+
+            assert grid.size == (2 * 64, 1 * 32)
+
+
+class TestGetFrameOnAStill:
+    """#443's audit: get_frame shares fetch_video's loading path, so a still
+    handed to it through the same media_type reference must not raise."""
+
+    def test_get_frame_of_a_bare_still_returns_the_still(self):
+        from dw.tasks.video_utils import get_frame
+
+        still = Image.new("RGB", (8, 4), "green")
+
+        assert get_frame(still, 0) == still
+
+    def test_get_frame_of_a_still_loaded_through_fetch_video(self):
+        import os
+        import tempfile
+        from dw.arguments import fetch_video
+        from dw.tasks.video_utils import get_frame
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (8, 4), "green").save(os.path.join(temp_dir, "s.png"))
+
+            video = fetch_video(
+                {"media_type": "image", "location": "s.png"}, base_dir=temp_dir
+            )
+            frame = get_frame(video, 0)
+
+            assert frame.size == (8, 4)
 
 
 class TestFitAudioToFrames:

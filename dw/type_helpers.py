@@ -1,6 +1,14 @@
 import importlib
+import inspect
+import types
 
-from .security import require_trusted_dotted_name
+from .security import (
+    TRUSTED_TOP_LEVEL_PACKAGES,
+    UntrustedWorkflowError,
+    require_constructible_class,
+    require_trusted_dotted_name,
+    workflows_are_trusted,
+)
 
 
 def get_type(module_name, type_name):
@@ -8,14 +16,94 @@ def get_type(module_name, type_name):
     return getattr(module, type_name)
 
 
-def load_type_from_name(type_name):
+def _accepts_dtype(key):
+    return key is not None and (key == "dtype" or key.endswith("_dtype"))
+
+
+def _defining_package(value):
+    """The top-level package a class or function was defined in, or None."""
+    module = getattr(value, "__module__", None)
+    if not isinstance(module, str) or not module:
+        return None
+    return module.split(".", 1)[0]
+
+
+def _require_defined_inside(name, value, what):
+    """Refuse a class an untrusted name reached through a re-export.
+
+    The allowlist is checked on the name's top-level package, but a module
+    re-exports what it imported: a name under an allowed package can resolve
+    to a class defined anywhere. So the class itself must have been defined
+    in an allowed package, not just be reachable from one.
+    """
+    package = _defining_package(value)
+    if package in TRUSTED_TOP_LEVEL_PACKAGES:
+        return
+    raise UntrustedWorkflowError(
+        f"Refusing to load {what} '{name}': it resolves to "
+        f"'{getattr(value, '__module__', None)}."
+        f"{getattr(value, '__qualname__', type(value).__name__)}', defined "
+        f"outside the ecosystem ({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this "
+        f"workflow is allowed to reach untrusted. Pass --trust-workflows if "
+        f"you trust this workflow's source."
+    )
+
+
+def require_loadable_type(name, value, key=None, constructed=True):
+    """Refuse a type reference that resolved to something other than a class,
+    unless the workflow is trusted.
+
+    A '*_type' value is constructed with the workflow's own arguments, so an
+    allowlisted package is only safe if what the name reaches is a class:
+    'torch.hub.load' is in 'torch' and runs a GitHub repo's code when called.
+    A 'dtype' or '*_dtype' key names a torch.dtype, which is data, not a
+    class, and is accepted there.
+
+    A class must also be defined inside TRUSTED_TOP_LEVEL_PACKAGES, not
+    merely re-exported by a module there, and be one an untrusted workflow
+    may construct (security.is_constructible_class) - a class inside an
+    allowed package can still do anything in its constructor.
+    `constructed=False` skips only that last check, for a caller resolving a
+    server-owned name it never constructs (cache_blocks' registry).
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and `value` is neither a class
+            nor, under a dtype key, a torch.dtype, or is a class defined
+            outside the allowed packages or not constructible untrusted
+    """
+    if workflows_are_trusted():
+        return value
+    if inspect.isclass(value):
+        _require_defined_inside(name, value, key or "a type reference")
+        if constructed:
+            require_constructible_class(name, value, key or "a type reference")
+        return value
+    if _accepts_dtype(key):
+        import torch
+
+        if isinstance(value, torch.dtype):
+            return value
+
+    kind = "module" if isinstance(value, types.ModuleType) else type(value).__name__
+    allowed = "a class or a torch.dtype" if _accepts_dtype(key) else "a class"
+    raise UntrustedWorkflowError(
+        f"Refusing to load {key or 'a type reference'} '{name}': it is a {kind}, "
+        f"not a class. An untrusted workflow's type reference must name "
+        f"{allowed} - anything else could be called with the workflow's "
+        f"arguments. Pass --trust-workflows if you trust this workflow's source."
+    )
+
+
+def load_type_from_name(type_name, key=None, constructed=True):
     if "." in type_name:
-        return load_type_from_full_name(type_name)
+        return load_type_from_full_name(type_name, key, constructed)
 
-    return get_type("diffusers", type_name)
+    return require_loadable_type(
+        type_name, get_type("diffusers", type_name), key, constructed
+    )
 
 
-def load_type_from_full_name(full_name):
+def load_type_from_full_name(full_name, key=None, constructed=True):
     # A bare name resolves against diffusers regardless of trust; a dotted
     # name imports whatever module it names, which is the code-execution
     # surface an untrusted workflow is refused unless it stays in-ecosystem
@@ -28,11 +116,61 @@ def load_type_from_full_name(full_name):
     module = importlib.import_module(module_path)
 
     # Get the object from the module
-    return getattr(module, object_name)
+    return require_loadable_type(
+        full_name, getattr(module, object_name), key, constructed
+    )
 
 
 def has_method(o, name):
     return callable(getattr(o, name, None))
+
+
+def _require_walk_stays_inside(name, parts, value, index):
+    """Refuse a constant walk that leaves the allowed packages.
+
+    The allowlist is checked on the name's top-level package, but a module
+    re-exports what it imported: 'torch.os.environ' starts in torch and ends
+    in the server's environment. So every module the walk passes through must
+    itself be in an allowed package, and no segment may be private. The same
+    holds for what is not a module: a class or function must be defined in an
+    allowed package, and any other value must be an instance of a builtin
+    type or of one defined in an allowed package - a trusted module that ran
+    'from os import environ' would otherwise hand over the environment.
+    """
+    if parts[index].startswith("_"):
+        raise UntrustedWorkflowError(
+            f"Refusing the constant '{name}': '{parts[index]}' is a private "
+            f"name, and an untrusted workflow may only read public ones. "
+            f"Pass --trust-workflows if you trust this workflow's source."
+        )
+    if isinstance(value, types.ModuleType):
+        top_level = value.__name__.split(".", 1)[0]
+        if top_level not in TRUSTED_TOP_LEVEL_PACKAGES:
+            raise UntrustedWorkflowError(
+                f"Refusing the constant '{name}': "
+                f"'{'.'.join(parts[: index + 1])}' is the '{value.__name__}' "
+                f"module, which is outside the ecosystem "
+                f"({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this workflow is "
+                f"allowed to reach untrusted. Pass --trust-workflows if you "
+                f"trust this workflow's source."
+            )
+        return
+    if value is None:
+        return
+    if inspect.isclass(value) or inspect.isroutine(value):
+        _require_defined_inside(name, value, "the constant")
+        return
+    package = type(value).__module__.split(".", 1)[0]
+    if package != "builtins" and package not in TRUSTED_TOP_LEVEL_PACKAGES:
+        raise UntrustedWorkflowError(
+            f"Refusing the constant '{name}': "
+            f"'{'.'.join(parts[: index + 1])}' is a "
+            f"'{type(value).__module__}.{type(value).__qualname__}', a type "
+            f"defined outside the ecosystem "
+            f"({', '.join(TRUSTED_TOP_LEVEL_PACKAGES)}) this workflow is "
+            f"allowed to reach untrusted. Pass --trust-workflows if you "
+            f"trust this workflow's source."
+        )
 
 
 def load_constant_from_name(name):
@@ -44,6 +182,9 @@ def load_constant_from_name(name):
     declared at module scope. A bare name is read from diffusers, matching the way
     a bare type reference resolves.
 
+    Untrusted, the walk may not pass through a private name or a module outside
+    TRUSTED_TOP_LEVEL_PACKAGES.
+
     Args:
         name: Dotted name of the constant
 
@@ -53,19 +194,27 @@ def load_constant_from_name(name):
     Raises:
         ImportError: If no leading part of the name names a module
         AttributeError: If the module has no such attribute
+        UntrustedWorkflowError: If untrusted and the walk leaves the allowed
+            packages or reads a private name
     """
     # A dotted constant imports the module it names before anything reads
     # the attribute - the same code-execution surface as a dotted type
+    parts = name.split(".")
+    guarded = not workflows_are_trusted()
     if "." in name:
         require_trusted_dotted_name(name, "a constant: reference")
+    if guarded:
+        # Checked before anything imports: a private module's import runs
+        # its code whatever the walk would have read from it
+        for index, part in enumerate(parts):
+            if part.startswith("_"):
+                _require_walk_stays_inside(name, parts, None, index)
 
-    parts = name.split(".")
-
-    module, attributes = None, parts
+    module, attributes, start = None, parts, 0
     for i in range(len(parts) - 1, 0, -1):
         try:
             module = importlib.import_module(".".join(parts[:i]))
-            attributes = parts[i:]
+            attributes, start = parts[i:], i
             break
         except ImportError:
             continue
@@ -75,6 +224,8 @@ def load_constant_from_name(name):
         module = importlib.import_module("diffusers")
 
     value = module
-    for attribute in attributes:
+    for offset, attribute in enumerate(attributes):
         value = getattr(value, attribute)
+        if guarded:
+            _require_walk_stays_inside(name, parts, value, start + offset)
     return value

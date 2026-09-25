@@ -112,8 +112,3 @@ class TestSelectAsATask:
         )
 
         assert result == "b"
-
-    def test_command_registered(self):
-        from dw.tasks.task import _COMMAND_REGISTRY
-
-        assert "select" in _COMMAND_REGISTRY

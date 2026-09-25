@@ -117,7 +117,7 @@
         "voice_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
         "subject_reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
         "audio_bleed_ms": 1800,
-        "audio_bleed_gain_db": 0,
+        "audio_bleed_gain_db": 0.0,
         "seam_fade_ms": null,
         "match_levels": null,
         "width": 960,
@@ -130,7 +130,8 @@
         "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
-        "lora_adapter_name": "turbo"
+        "lora_adapter_name": "turbo",
+        "seed": 42
     },
     "variable_constraints": {
         "num_frames": {
@@ -142,7 +143,7 @@
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
         }
     },
-    "seed": 42,
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "draw_character_a",
@@ -202,6 +203,7 @@
         {
             "name": "shot",
             "for_each": "variable:shots",
+            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",

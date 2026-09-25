@@ -17,9 +17,11 @@ import uuid
 import logging
 import threading
 
+from ..download_watch import format_progress
 from ..repl_worker import WorkerManager
 from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
+from ..schema import format_validation_errors
 from ..variables import argument_errors
 from ..security import (
     SecurityError,
@@ -134,6 +136,11 @@ class JobHistory:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
             if "run_dir" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
+            # That run's ordinal among the workflow's runs - the 'v4' the
+            # gallery shows. NULL before the column, and for a job that
+            # never opened a run
+            if "run_version" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN run_version INTEGER")
             # Which form of cost acknowledgement queued the job. Rows before
             # the column are 'none' - nothing recorded is nothing recorded
             if "acknowledged" not in columns:
@@ -178,8 +185,8 @@ class JobHistory:
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " host_memory_job_peak_rss_mb, run_version) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -204,6 +211,7 @@ class JobHistory:
                     # itself allows
                     getattr(job, "host_memory_peak_rss_mb", None),
                     getattr(job, "host_memory_job_peak_rss_mb", None),
+                    getattr(job, "run_version", None),
                 ),
             )
 
@@ -219,7 +227,8 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name, run_id, acknowledged FROM jobs"
+            " workspace, workflow_name, run_id, acknowledged, run_version"
+            " FROM jobs"
         )
         params = []
         clauses = []
@@ -249,6 +258,7 @@ class JobHistory:
                 "workflow_name": row[7],
                 "run_id": row[8],
                 "acknowledged": row[9] or ACK_NONE,
+                "run_version": row[10],
                 "historical": True,
             }
             for row in rows
@@ -259,8 +269,8 @@ class JobHistory:
             row = connection.execute(
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir, acknowledged, events FROM jobs"
-                " WHERE id = ?",
+                " workflow_name, run_id, run_dir, acknowledged, events,"
+                " run_version FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -479,6 +489,7 @@ class JobHistory:
             "workflow_name": row[12],
             "run_id": row[13],
             "run_dir": row[14],
+            "run_version": row[17],
             "acknowledged": row[15] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
@@ -510,6 +521,7 @@ class Job:
         # never got that far
         self.run_id = None
         self.run_dir = None
+        self.run_version = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
         # The worker's own high-water mark for this run, from its final
@@ -571,6 +583,17 @@ class Job:
         elif kind == "pipeline_step":
             self.denoise_step = event.get("step")
             self.denoise_total_steps = event.get("total_steps")
+        elif kind == "download_progress":
+            # Folded into phase_detail rather than a field of its own - a
+            # poller already reads phase_detail for what the loading phase
+            # is waiting on, and the next "phase" event (loading ending)
+            # overwrites it same as any other detail (#343)
+            self.phase_detail = format_progress(
+                event.get("repo_id"),
+                event.get("downloaded_bytes"),
+                event.get("bytes_per_second"),
+                event.get("seconds_since_bytes_changed"),
+            )
         elif kind == "warning":
             # Both channels, on purpose: the event log keeps the moment it
             # happened, `warnings` keeps it where a caller who polled the
@@ -685,6 +708,9 @@ class Job:
             # so it defaults the same way history's column does
             "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
             "run_id": self.run_id,
+            # The run's ordinal - 'v4' - so the job that just ran can be
+            # named the way the gallery will name it
+            "run_version": self.run_version,
             "acknowledged": self.acknowledged,
         }
 
@@ -789,9 +815,15 @@ class JobManager:
 
         if workflow_path is not None:
             # Loads and schema-validates now - a bad path or file fails the
-            # request, not the queue
+            # request, not the queue. Checked against the caller's arguments,
+            # not the document alone - a bare validate() checks the document
+            # with no arguments and so could refuse a run _candidate_for had
+            # already accepted for the same call (#415, the run_workflow
+            # mirror of #414)
             loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
-            loaded.validate()
+            errors = loaded.validation_errors(arguments=arguments)
+            if errors:
+                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow_path": workflow_path,
                 "workflow_name": loaded.name,
@@ -804,7 +836,9 @@ class JobManager:
             loaded = workflow_from_definition(
                 copy.deepcopy(workflow), job_output_dir, base_dir, confinement
             )
-            loaded.validate()
+            errors = loaded.validation_errors(arguments=arguments)
+            if errors:
+                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow": workflow,
                 # Must match workflow_from_definition's fallback - the worker
@@ -1303,6 +1337,7 @@ class JobManager:
                 if event.get("event") == "run_start":
                     job.run_id = event.get("run_id")
                     job.run_dir = event.get("run_dir")
+                    job.run_version = event.get("version")
                 job.add_event(event)
             elif message_type in ("output", "workflow_loaded"):
                 text = message.get("message") or message.get("workflow_name", "")

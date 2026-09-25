@@ -61,6 +61,15 @@ workflow that has never run gets no frame at all rather than a grey
 placeholder (a fresh workspace would otherwise be a wall of empty plates).
 Within a folder, workflows that have produced something sort first.
 
+Stripping the run id is also what makes four runs of one workflow four
+identical captions, since a file's name is per step rather than per run.
+The gallery entry carries `version` - the run's ordinal, assigned by the
+engine and never renumbered - and the grid draws it as a `v4` chip ahead
+of the label, with the run id in the detail pane beside it. A job carries
+the same number as `run_version`, drawn as `v4` in the jobs list and on the
+job page (from the `run_start` event while the job runs). The UI reads the
+field only; nothing here computes or orders a version.
+
 Every picture in the app sits in the global `.frame` (app.css): the media
 fills it edge to edge, with no inner padding and no rounding of its own,
 which is what makes it read as a proof on a sheet rather than as another

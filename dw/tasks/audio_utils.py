@@ -15,6 +15,7 @@ import soundfile
 import torch
 
 from ..events import emit_log, emit_warning
+from ..loudness import integrated_lufs
 from ..task_domains import as_number, check_arguments
 from ..security import (
     validate_file_extension,
@@ -30,6 +31,13 @@ DECLICK_MS = 3.0
 # Padding shorter than this at the end of a slice is the rounding that
 # frame-aligned slicing produces, not a slice that overran its source
 SLICE_PAD_WARN_MS = 10.0
+
+# A dropped tail is only the "almost reached the end" signature this warning
+# exists for when it is both short next to the slice and short in absolute
+# terms - a deliberate excerpt out of a long recording drops most of the
+# source and should not warn
+SLICE_TRIM_WARN_SECONDS = 10.0
+SLICE_TRIM_WARN_FRACTION = 0.05
 
 
 def as_channels_samples(audio):
@@ -64,6 +72,66 @@ def as_channels_samples(audio):
 def frames_to_samples(frames, fps, sample_rate):
     """The number of audio samples spanning a run of video frames."""
     return int(round(frames / fps * sample_rate))
+
+
+def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
+    """Pad a joined track that falls short of its frame grid, and warn when
+    the gap is a frame or more.
+
+    concat_videos and dissolve_videos each build their joined track by
+    measuring and concatenating/crossfading the actual input waveforms, with
+    nothing reconciling a shortfall against total_frames - so an input that
+    is itself short of its own frame grid (#435 traced this to an
+    ltx2/keyframes clip short of its 121-frame bucket) propagates its
+    shortfall into the join, and the shortfall compounds across further
+    joins that each take the previous join's output as an input. The same
+    remedy #428 gave pair_audio's 'fit: video' for a shortfall, applied here
+    at the one place every join's audio passes through before its shot map
+    is measured.
+
+    A track *longer* than its frame grid is left alone: concat_videos has
+    measured such an overrun deliberately since #378 (its own shot keeps the
+    samples it actually took, not a count derived from frame/fps
+    arithmetic), and trimming it here would silently reverse that contract
+    for the whole joined track.
+    """
+    if audio is None or not total_frames or not fps or not sample_rate:
+        return audio
+
+    wanted = frames_to_samples(total_frames, fps, sample_rate)
+    have = audio.shape[1]
+    if have >= wanted:
+        return audio
+
+    audio_seconds = have / float(sample_rate)
+    video_seconds = total_frames / float(fps)
+    pad_samples = wanted - have
+    audio = numpy.pad(audio, ((0, 0), (0, pad_samples)))
+    if pad_samples < sample_rate / fps:
+        # Less than one frame is rounding between the rate and the frame
+        # grid, the gap pair_audio's own unfitted check leaves unwarned
+        # (LENGTH_WARN_MS): padded, and logged, but not a warning on every
+        # stock join (#454)
+        emit_log(
+            f"{command}: padded the joined track with {pad_samples} sample"
+            f"{'s' if pad_samples != 1 else ''} of silence to the frame grid",
+            command=command,
+            pad_samples=pad_samples,
+        )
+        return audio
+    emit_warning(
+        f"{command}: the joined track is {audio_seconds:.3f} s and the "
+        f"joined video is {video_seconds:.3f} s ({total_frames} frames at "
+        f"{fps:g} fps) - padded the track with {pad_samples} sample"
+        f"{'s' if pad_samples != 1 else ''} of silence to reach the frame "
+        "grid, so the shortfall does not carry into a later join.",
+        kind="joined_audio_padded_to_frames",
+        command=command,
+        audio_seconds=audio_seconds,
+        video_seconds=video_seconds,
+        pad_samples=pad_samples,
+    )
+    return audio
 
 
 def slice_samples(waveform, start, length):
@@ -288,24 +356,32 @@ def bleed_join(
     return numpy.concatenate([previous, following], axis=1)
 
 
-def crossfade_concat(waveforms, sample_rate, crossfade_ms):
+def crossfade_concat(waveforms, sample_rate, crossfade_ms, starts=None):
     """Concatenate waveforms, overlapping each seam by an equal-power crossfade.
 
     The classic crossfade: each seam overlaps the two waveforms by the fade
     window, so the result is shorter than the plain sum by one window per seam.
+
+    `starts`, when given a list, is filled with the sample each waveform
+    begins at in the result - where its crossfade opens - measured as the
+    result grows rather than worked out from the lengths (#378).
     """
     waveforms = [as_channels_samples(waveform) for waveform in waveforms]
     if not waveforms:
         raise ValueError("No waveforms to concatenate")
 
     result = waveforms[0]
+    if starts is not None:
+        starts.append(0)
     for following in waveforms[1:]:
         result, following = _matched_channels(result, following)
         window = min(
-            int(crossfade_ms / 1000.0 * sample_rate),
+            int(round(crossfade_ms / 1000.0 * sample_rate)),
             result.shape[1],
             following.shape[1],
         )
+        if starts is not None:
+            starts.append(result.shape[1] - window)
         if window == 0:
             result = _declick_join(result, following, sample_rate)
             continue
@@ -345,14 +421,10 @@ def load_audio(location, base_dir=None):
         return as_channels_samples(video.audio), video.sample_rate
 
     if location.startswith(("http://", "https://")):
-        import requests
+        from ..locations import safe_get
 
-        from ..locations import validate_media_url
-
-        validated_url = validate_media_url(location, "an audio argument")
-        logger.debug(f"Downloading audio from {validated_url}")
-        response = requests.get(validated_url, timeout=60)
-        response.raise_for_status()
+        logger.debug(f"Downloading audio from {location}")
+        response = safe_get(location, "an audio argument", timeout=60)
         data, sample_rate = soundfile.read(
             io.BytesIO(response.content), dtype="float32"
         )
@@ -500,6 +572,7 @@ def slice_audio(
         )
 
     _warn_on_slice_past_end(total, start, length, sample_rate)
+    _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
     # #309: a cut out of a source that was already near-silent (room tone,
     # a deliberate quiet bed) is not a defect the slice introduced - measure
     # the source before cutting it down, so save can tell the two apart from
@@ -531,11 +604,13 @@ def gain_audio(
     passed through unchanged, so ducking a scene under another is one step
     rather than the slice/gain/mix/rejoin/pair_audio chain that was
     previously the only way to apply a gain to part of a track rather than
-    all of it (#187). At least one of the two pairs is required - there is
-    no separate "whole track" mode - but the whole track is still one step:
-    give just start_seconds=0 (or start_frame=0 + fps) and leave
-    duration_seconds/num_frames unset, which runs to the end of the track
-    without the caller needing to already know how long that is.
+    all of it (#187). With no region given at all, the gain applies to the
+    whole track - the same "no region means everything" reading mix_audio's
+    gains use, and the obvious meaning of "duck this clip by 8 dB" (#395).
+    To gain everything from some point on, give just start_seconds=0 (or
+    start_frame=0 + fps) and leave duration_seconds/num_frames unset, which
+    runs to the end of the track without the caller needing to already know
+    how long that is.
 
     Unlike slice_audio, a region reaching past the end of the track is
     clipped to it rather than zero-padded: there is no silence there to
@@ -552,7 +627,8 @@ def gain_audio(
             soundtrack, or a waveform (which needs sample_rate alongside it)
         gain_db: Gain to apply within the region, in decibels - negative
             ducks it, positive boosts it
-        start_seconds: Start of the region, in seconds
+        start_seconds: Start of the region, in seconds. Omitted along with
+            every other region argument, the gain applies to the whole track
         duration_seconds: Length of the region, in seconds
         start_frame: Start of the region, in video frames
         num_frames: Length of the region, in video frames
@@ -605,10 +681,8 @@ def gain_audio(
             else frames_to_samples(num_frames, fps, sample_rate)
         )
     else:
-        raise ValueError(
-            "gain_audio needs either 'start_seconds'/'duration_seconds' or "
-            "'start_frame'/'num_frames'/'fps' to address the region to gain"
-        )
+        start = 0
+        length = total
 
     region_start = max(0, min(start, total))
     region_end = max(region_start, min(start + max(length, 0), total))
@@ -673,6 +747,50 @@ def _warn_on_slice_past_end(total, start, length, sample_rate):
         source_seconds=round(total / float(sample_rate), 3),
         requested_seconds=round(length / float(sample_rate), 3),
         padded_seconds=round(padded_seconds, 3),
+        sample_rate=sample_rate,
+    )
+
+
+def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
+    """Say when a slice left material behind that the caller likely wanted.
+
+    slice_audio is a slice, so most unused remainders are deliberate excerpts
+    and warning on every one would be noise. What #342 found is a narrower
+    signature: a cut landing a few seconds short of a source's natural end
+    (a frame-lattice total that cannot land exactly on the score's length)
+    silently drops the source's tail, including whatever is loudest there.
+    Only fires when the dropped remainder is both short in absolute terms
+    and small next to the slice itself, and only when that remainder is not
+    already silence - a track that legitimately ends in a fade should not
+    warn just because its last seconds are quiet.
+    """
+    if not sample_rate or length <= 0:
+        return
+    slice_end = start + length
+    remainder = total - slice_end
+    if remainder <= 0:
+        return
+    remainder_seconds = remainder / float(sample_rate)
+    if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
+        return
+    if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:
+        return
+    dropped = waveform[:, slice_end:total]
+    peak_dbfs = level_dbfs(dropped, "peak")
+    if peak_dbfs is None:
+        # No level at all is silence - nothing was lost
+        return
+    emit_warning(
+        f"slice_audio: the slice ends {remainder_seconds:.2f} s before the "
+        f"{total / float(sample_rate):.2f} s source does, dropping its tail "
+        f"(peak {peak_dbfs:.1f} dBFS in the dropped {remainder_seconds:.2f} s) "
+        f"- if the slice was meant to reach the source's end, adjust "
+        f"start/length to land there, or fade the source's own tail first",
+        kind="slice_trimmed_tail",
+        command="slice_audio",
+        source_seconds=round(total / float(sample_rate), 3),
+        dropped_seconds=round(remainder_seconds, 3),
+        dropped_peak_dbfs=round(peak_dbfs, 1),
         sample_rate=sample_rate,
     )
 
@@ -1033,15 +1151,21 @@ def loop_audio(
 
     window = min(int(crossfade_ms / 1000.0 * sample_rate), waveform.shape[1] // 2)
     bed = waveform
+    laps = 1
     # Each lap after the first overlaps the one before it by the crossfade, so
     # a lap adds (source - window) samples rather than a whole source
     while bed.shape[1] < length:
         bed = crossfade_concat(
             [bed, waveform], sample_rate, window / sample_rate * 1000.0
         )
-    logger.debug(
-        f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped to "
-        f"{length} ({bed.shape[1]} before trimming)"
+        laps += 1
+    emit_log(
+        f"loop_audio: {waveform.shape[1]} samples at {sample_rate}Hz looped "
+        f"{laps}x to {length} samples ({length / sample_rate:.2f} s)",
+        command="loop_audio",
+        laps=laps,
+        output_samples=length,
+        output_seconds=round(length / sample_rate, 2),
     )
     return _as_track(bed[:, :length], sample_rate, "loop_audio")
 
@@ -1058,6 +1182,13 @@ DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
 # than squaring off its transients
 MATCH_CEILING_DBFS = -0.5
 LEVEL_SPREAD_WARN_DB = 6.0
+# Mirrors result.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
+# own near-silent check treats as having no real content. Gaining an input
+# already this quiet up to the target raises a noise floor rather than
+# leveling a performance, and #434 found a +29.9 dB case that only reached
+# the log, never job.warnings
+MATCH_NEAR_SILENT_DBFS = -40.0
+MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
 def level_dbfs(waveform, measure="peak"):
@@ -1135,6 +1266,22 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
                 shortfall_db=round(shortfall_db, 1),
                 ceiling_dbfs=MATCH_CEILING_DBFS,
             )
+        elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
+            # The other end of the range `held` covers (#434): an input this
+            # quiet is noise floor, not a performance at a lower level, and
+            # matching it up to the target passes that noise off as content -
+            # a consumer reading job.warnings sees nothing was wrong
+            emit_warning(
+                f"{command}: video {index + 1} {measure} {level:.1f} dBFS is "
+                f"near-silent - matched up to the target with a {gain_db:+.1f} dB "
+                "gain, raising its noise floor rather than leveling content",
+                kind="match_levels_near_silent",
+                command=command,
+                index=index,
+                measure_dbfs=round(level, 1),
+                target_dbfs=target_dbfs,
+                gain_db=round(gain_db, 1),
+            )
         emit_log(
             f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
             f"gain {gain_db:+.1f} dB{' (held)' if held else ''}",
@@ -1164,8 +1311,10 @@ def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
         # the one who can act on it (#82)
         emit_warning(
             f"{command}: the tracks being joined span {spread:.1f} dB "
-            f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - the cut "
-            f"will be audible as a level jump. Pass match_levels to even them out",
+            f"({measure} {min(levels):.1f} to {max(levels):.1f} dBFS) - "
+            "audible as a level jump unless the difference is intended (a "
+            "shot written silent against the score). If it is not, pass "
+            "match_levels to even them out",
             kind="level_spread",
             command=command,
             spread_db=round(spread, 1),
@@ -1245,7 +1394,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     return _as_track(faded, sample_rate, "fade_audio")
 
 
-def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
+def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
     """Task command: scale a track so its loudest sample sits at a level.
 
     Generated music comes out at whatever level the model happened to land
@@ -1258,13 +1407,23 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
             soundtrack is taken), a video generated with a
             soundtrack, or a waveform (which needs sample_rate alongside it)
         peak_dbfs: The level the loudest sample is moved to, in dB below full
-            scale. 0 is full scale; -1 leaves a little headroom
+            scale. 0 is full scale; -1 leaves a little headroom. Still
+            applies as a ceiling when target_lufs is also given
+        target_lufs: Integrated loudness (BS.1770) to gain the track to, in
+            LUFS. Peak alone says nothing about how loud a track sounds - a
+            sparse voice-over and a dense score can share a peak and still
+            sit tens of dB apart to the ear (#361). When given, the gain
+            targets this loudness first; peak_dbfs still holds as a ceiling,
+            and if reaching target_lufs would cross it the gain stops at the
+            ceiling and a warning names the shortfall in LU. None (the
+            default) leaves behavior exactly as peak-only
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
         An AudioTrack holding the scaled waveform and its rate; a silent
         track is returned unchanged
     """
+    check_arguments("normalize_audio", sample_rate=sample_rate, target_lufs=target_lufs)
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "normalize_audio")
     if peak_dbfs > 0:
         raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")
@@ -1272,9 +1431,54 @@ def normalize_audio(audio, peak_dbfs=-1.0, sample_rate=None):
     if peak == 0.0:
         logger.warning("normalize_audio: the track is silent - left unchanged")
         return _as_track(waveform, sample_rate, "normalize_audio")
-    gain = 10 ** (peak_dbfs / 20) / peak
-    logger.debug(
-        f"normalize_audio: peak {peak:.3f}, gain {20 * numpy.log10(gain):+.1f} dB"
+
+    peak_db = 20 * numpy.log10(peak)
+    measured_lufs = None
+    if target_lufs is None:
+        constraint = "peak_dbfs"
+        gain_db = peak_dbfs - peak_db
+    else:
+        ceiling_gain_db = peak_dbfs - peak_db
+        current_lufs = integrated_lufs(waveform.T, sample_rate)
+        measured_lufs = current_lufs
+        if current_lufs is None:
+            emit_warning(
+                f"normalize_audio: target_lufs={target_lufs} was given, but the "
+                "track's loudness could not be measured (shorter than the 400 ms "
+                "gating block, or silent throughout) - falling back to peak_dbfs "
+                "alone.",
+                kind="target_lufs_unmeasurable",
+                command="normalize_audio",
+                target_lufs=target_lufs,
+            )
+            gain_db = ceiling_gain_db
+            constraint = "peak_ceiling"
+        else:
+            target_gain_db = target_lufs - current_lufs
+            gain_db = min(target_gain_db, ceiling_gain_db)
+            constraint = "peak_ceiling" if gain_db < target_gain_db else "target_lufs"
+            if gain_db < target_gain_db:
+                emit_warning(
+                    f"normalize_audio: target_lufs={target_lufs} would need "
+                    f"{target_gain_db:+.1f} dB of gain, but peak_dbfs={peak_dbfs} "
+                    f"caps it at {gain_db:+.1f} dB - "
+                    f"{target_gain_db - gain_db:.1f} LU short of the target.",
+                    kind="target_lufs_capped",
+                    command="normalize_audio",
+                    target_lufs=target_lufs,
+                    peak_dbfs=peak_dbfs,
+                    shortfall_lu=target_gain_db - gain_db,
+                )
+    gain = 10 ** (gain_db / 20)
+    emit_log(
+        f"normalize_audio: measured {peak_db:.1f} dBFS peak"
+        + ("" if measured_lufs is None else f", {measured_lufs:.1f} LUFS")
+        + f" -> gain {gain_db:+.1f} dB, set by {constraint}",
+        command="normalize_audio",
+        measured_peak_dbfs=round(peak_db, 1),
+        measured_lufs=round(measured_lufs, 1) if measured_lufs is not None else None,
+        gain_db=round(gain_db, 1),
+        constraint=constraint,
     )
     return _as_track(
         (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"

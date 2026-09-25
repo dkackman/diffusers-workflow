@@ -25,6 +25,31 @@ def is_loopback_url(url):
     return (urlparse(url).hostname or "").lower() in LOOPBACK_HOSTS
 
 
+def coerce_json_object(value, param_name):
+    """A tool argument typed as an object can still arrive as a JSON-encoded
+    string (a caller that serialized it before handing it over, or a client
+    that couldn't parse a malformed document and passed the raw text
+    through). Accept that case rather than letting it reach the server as a
+    string, where the schema rejection names the wrong problem - not "this
+    isn't an object" but a bare pydantic `type=dict_type, input_type=str`,
+    which reads as if the field itself were misdeclared."""
+    if value is None or isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        raise DwApiError(
+            f"`{param_name}` must be a JSON object, not {type(value).__name__}."
+        )
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise DwApiError(f"`{param_name}` is not valid JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise DwApiError(
+            f"`{param_name}` must be a JSON object, not {type(parsed).__name__}."
+        )
+    return parsed
+
+
 def path_segment(name):
     """Percent-encode a name for interpolation into a request path,
     including its '/' characters.
@@ -71,7 +96,16 @@ def api_path(*segments):
 
 class DwApiError(Exception):
     """A request to dw.serve failed. The message is meant to be read by the
-    person driving the MCP client, not by a developer with a stack trace."""
+    person driving the MCP client, not by a developer with a stack trace.
+
+    `status_code` is the HTTP status that produced it when it came from a
+    response (`None` for a connection failure or timeout, raised before any
+    status exists) - a caller that reacts differently to a 404 than to a 409
+    needs that without parsing the message text."""
+
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def resolve_token(explicit=None):
@@ -355,10 +389,11 @@ class DwClient:
                 # The API writes these for humans already - 400s carry
                 # validation messages, 404s and 409s carry the reason
                 formatted_detail = self._format_detail(detail)
-                raise DwApiError(formatted_detail)
+                raise DwApiError(formatted_detail, status_code=response.status_code)
         raise DwApiError(
             f"{path} failed with HTTP {response.status_code}: "
-            f"{response.text[:200] or 'no body'}"
+            f"{response.text[:200] or 'no body'}",
+            status_code=response.status_code,
         )
 
     def _format_detail(self, detail):

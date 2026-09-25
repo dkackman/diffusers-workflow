@@ -14,6 +14,7 @@ import zipfile
 import tempfile
 import copy
 import json
+import re
 import uuid
 import asyncio
 import logging
@@ -32,6 +33,8 @@ from starlette.routing import Match, Route
 from starlette.background import BackgroundTask
 
 from ..security import (
+    MAX_DECODE_PIXELS,
+    contained,
     validate_asset_reference,
     validate_path,
     validate_output_path,
@@ -53,6 +56,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
+from ..events import select_kinds
 from ..for_each import entry_field_warnings
 from ..schema import (
     load_schema,
@@ -73,6 +77,7 @@ from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
+from .assess import assess, unknown_probe
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
 from ..media_audio import (
@@ -95,10 +100,16 @@ from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
+    OUTPUT_PREFIX,
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
+    record_kept_shots,
+    record_run_versions,
     resolve_output_reference,
+    run_versions,
+    recorded_shots,
+    shots_beside,
     split_run_path,
 )
 from ..workspace import (
@@ -127,6 +138,7 @@ from ..workflow_sources import (
     resolve_in_source,
     resolve_sub_workflow,
     source_for_path,
+    suggest_workflow_names,
     workflow_names,
     workflow_sources,
     writable_source,
@@ -148,6 +160,7 @@ from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
 from . import guides
 from .guides import GuideError
+from .. import settings
 
 logger = logging.getLogger("dw")
 
@@ -441,6 +454,21 @@ def _write_bytes(path, data):
         f.write(data)
 
 
+def _unknown_workflow_detail(sources, name):
+    """'Unknown workflow: x', with a '- did you mean ...?' pointer when the
+    catalog holds something `name` could be short for or a typo of (#397) -
+    otherwise a caller has to spend a list_workflows call and guess the
+    right shape/traits to find the entry it already knows by its short
+    name."""
+    detail = f"Unknown workflow: {name}"
+    suggestions = suggest_workflow_names(sources, name)
+    if len(suggestions) == 1:
+        detail += f" - did you mean {suggestions[0]}?"
+    elif suggestions:
+        detail += f" - did you mean one of: {', '.join(suggestions)}?"
+    return detail
+
+
 def resolve_readable_workflow(sources, name):
     """The path a name has anywhere on the search path, and its source.
 
@@ -450,7 +478,9 @@ def resolve_readable_workflow(sources, name):
     """
     path, source = find_workflow(sources, name)
     if path is None:
-        raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
+        raise HTTPException(
+            status_code=404, detail=_unknown_workflow_detail(sources, name)
+        )
     return path, source
 
 
@@ -513,11 +543,13 @@ def resolve_workflow_reference(workflow_path, sources):
             confined = None
         if confined is not None and os.path.isfile(confined):
             return confined, source
-    raise HTTPException(
-        status_code=400,
-        detail=f"workflow_path must name a workflow the server can reach: "
-        f"{workflow_path}",
-    )
+    detail = f"workflow_path must name a workflow the server can reach: {workflow_path}"
+    suggestions = suggest_workflow_names(sources, workflow_path)
+    if len(suggestions) == 1:
+        detail += f" - did you mean {suggestions[0]}?"
+    elif suggestions:
+        detail += f" - did you mean one of: {', '.join(suggestions)}?"
+    raise HTTPException(status_code=400, detail=detail)
 
 
 # What each prompt says about itself, for listing cards - cached by mtime
@@ -656,6 +688,18 @@ WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 # at the bottom of create_app) - the Server page quotes it in the command
 # it tells you to run on the other machine
 MCP_PATH = "/mcp"
+
+# Types a browser renders as a document, where script runs: /outputs and
+# /inputs serve these under a CSP sandbox (_sandbox_active_content)
+ACTIVE_DOCUMENT_TYPES = frozenset(
+    {
+        "text/html",
+        "application/xhtml+xml",
+        "text/xml",
+        "application/xml",
+        "image/svg+xml",
+    }
+)
 
 
 def query_token_ok(fn):
@@ -845,7 +889,16 @@ def create_app(
         forwards Host unchanged while the browser's Origin is https."""
         origin = request.headers.get("origin")
         if origin:
-            origin_host = (urlparse(origin).hostname or "").lower()
+            try:
+                origin_host = (urlparse(origin).hostname or "").lower()
+            except ValueError:
+                # urlparse raises on a bracketed host that is not IPv6
+                # ('http://[::1].evil.example'): refused like any other
+                # foreign Origin rather than escaping as a 500
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin requests are not allowed"},
+                )
             request_host = (request.url.hostname or "").lower()
             # origin_host must be non-empty for the same-origin clause:
             # `Origin: null` (a sandboxed iframe, a file:// page) parses to
@@ -923,6 +976,18 @@ def create_app(
                 content={"detail": "Missing or invalid bearer token"},
             )
         return await call_next(request)
+
+    # Added last, so it is the outermost middleware and its headers land on
+    # every response - including the 400/401/403 answers the checks above
+    # return without reaching a route. nosniff stops a browser reading an
+    # output as a type other than the one it was served as; DENY stops any
+    # other site framing the UI to click its buttons (#407)
+    @app.middleware("http")
+    async def browser_headers(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
 
     # -------------------------------------------------------- workspace lookup
 
@@ -1057,8 +1122,15 @@ def create_app(
             candidate = workflow_from_definition(
                 copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
             )
-        candidate.validate()
-        problems = argument_errors(candidate.workflow_definition, arguments)
+        # Checked against the caller's arguments, not the document alone -
+        # validate_workflow's candidate.validation_errors(arguments=...) is
+        # what catches a content_type (or reference_name, video_extension,
+        # ...) that only becomes active once a 'variable:' resolves; a bare
+        # candidate.validate() checked the document with no arguments and so
+        # queued a job validate_workflow had already refused for the same
+        # call (#414)
+        problems = candidate.validation_errors(arguments=arguments)
+        problems += argument_errors(candidate.workflow_definition, arguments)
         # A value outside a rule the workflow declares, refused before the
         # job id rather than after the weights are loaded (#96)
         problems += constraint_errors(
@@ -1325,7 +1397,16 @@ def create_app(
                 raise HTTPException(status_code=404, detail=message)
             raise HTTPException(status_code=409, detail=message)
         body = summary.as_dict()
-        body["zip_url"] = _served_url(f"/exports/{quote(job_id)}.zip", ws)
+        zip_path = f"/exports/{quote(job_id)}.zip"
+        body["zip_url"] = _served_url(zip_path, ws)
+        absolute_zip_url = _absolute_served_url(zip_path, ws)
+        if absolute_zip_url is not None:
+            body["absolute_zip_url"] = absolute_zip_url
+        # Same rule get_server_info's field states (#353): whether the zip
+        # URL above needs a bearer token an MCP-only agent has no way to
+        # attach itself, which is what tells the caller whether to fetch it
+        # or hand it to the person.
+        body["auth_required"] = bool(token)
         for key, name in (
             ("workflow", "workflow.json"),
             ("manifest", "manifest.json"),
@@ -1403,10 +1484,19 @@ def create_app(
         )
 
     @app.get("/api/jobs/{job_id}/event-log")
-    def job_event_log(job_id: str, after: int = -1, limit: int = 200):
+    def job_event_log(
+        job_id: str,
+        after: int = -1,
+        limit: int = 200,
+        kinds: list[str] | None = Query(None),
+    ):
         """Job events as one JSON page rather than a stream, for clients that
         poll instead of holding a connection open (the MCP server). `after` is
-        exclusive, matching the SSE route's parameter of the same name."""
+        exclusive, matching the SSE route's parameter of the same name.
+        `kinds` restricts the page to events whose `event` or `kind` is one
+        of the named values (e.g. `log`, `warning`, `phase_stall`) - a consumer confirming what a step applied wants
+        those two and not the `memory`/bookkeeping events that otherwise
+        dominate the payload."""
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -1422,6 +1512,7 @@ def create_app(
             status = job.status
             pending = job.events_after(after)
             note = None
+        pending = select_kinds(pending, kinds)
         page = pending[:limit]
         return {
             "id": job_id,
@@ -1717,10 +1808,20 @@ def create_app(
                 detail="Workflow could not be constructed - the server log "
                 "has the detail",
             )
+        # `arguments` defaults to `{}` on the model (JobRequest is shared
+        # with run_workflow, which needs a dict), so an omitted field and an
+        # explicit `{}` are otherwise indistinguishable here - and the two
+        # mean different things: omitted is "check the document", explicit
+        # is "check a run with these arguments" (#364). model_fields_set
+        # tells them apart without changing the field's default for every
+        # other caller of validate_workflow.
+        caller_arguments = (
+            request.arguments if "arguments" in request.model_fields_set else None
+        )
         try:
             # The caller's list is the one a for_each expands over, so the
             # pre-flight checks the step set that will actually run
-            errors = candidate.validation_errors(arguments=request.arguments)
+            errors = candidate.validation_errors(arguments=caller_arguments)
         except Exception:
             # An error here is not the schema's verdict on the workflow -
             # validation_errors() reports that by returning it. It is the
@@ -1779,9 +1880,24 @@ def create_app(
             # future checkpoint cannot be predicted, but nothing at run time
             # would say it loaded onto the wrong one (#155)
             + candidate.adapter_warnings(request.arguments)
+            # A required task argument fed by variable:name where name's
+            # default is null - a fine document, but a run left as-is would
+            # fail; empty once the caller names any arguments, since that
+            # condition is a hard error above instead (#364)
+            + candidate.null_variable_argument_warnings(caller_arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
-            + candidate.sub_workflow_warnings(),
+            + candidate.sub_workflow_warnings()
+            # A slice_audio source whose real duration is already knowable
+            # (an asset:/output: reference validate can already probe) and
+            # whose requested slice reaches past it - zero-padded rather than
+            # refused, but previously said only by the run itself (#402)
+            + candidate.slice_past_end_warnings(request.arguments)
+            # An assessment probe's shots argument reaching past a
+            # statically-knowable video's real frame count - silently
+            # clipped rather than refused, but previously said only by the
+            # run itself (#425)
+            + candidate.shot_span_warnings(request.arguments),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
@@ -1795,11 +1911,19 @@ def create_app(
 
             command = _probe_command_for(candidate, request, workspace, source_root)
 
-            def observed_for_child(path, child_definition):
+            def observed_for_child(path, child_definition, arguments=None):
                 """A composed child's own observed figure, keyed by the
                 catalog name it resolves to - so a parent with no figure of
                 its own can quote what this box's runs of the *child* took
-                rather than falling back to unknown (#268)."""
+                rather than falling back to unknown (#268).
+
+                `arguments` are the composing step's own overrides - the
+                same role `arguments` plays for the top-level `observed`
+                callback - so a child whose composing step shifted a
+                declared scalar `cost_driver` (#341) is bucketed against
+                *that* value rather than always the child's stored
+                defaults, which silently answered the default bucket's
+                history for every override."""
                 base_dir = (
                     os.path.dirname(os.path.abspath(candidate.file_spec))
                     if candidate.file_spec
@@ -1822,7 +1946,7 @@ def create_app(
                     workspace.name if child_root == workspace.workflows else None
                 )
                 return _observed_for_name(
-                    child_name, child_definition, workspace=child_workspace
+                    child_name, child_definition, arguments, workspace=child_workspace
                 )
 
             answer["plan"] = build_plan(
@@ -1945,7 +2069,10 @@ def create_app(
 
         Answers what it would remove and refuses until `acknowledged=true`:
         this deletes generated work, and a count is what makes it an
-        informed choice rather than a surprise.
+        informed choice rather than a surprise. The unacknowledged message
+        names only what would be removed - how to proceed is left to the
+        caller, since the MCP surface tells its own callers to acknowledge
+        through a differently-named parameter (`acknowledged_cost`).
         """
         root = _workspace_root()
         if name == DEFAULT_WORKSPACE_NAME:
@@ -1962,8 +2089,8 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": f"Deleting workspace '{name}' removes these files "
-                    f"permanently. Repeat with acknowledged=true to proceed.",
+                    "message": f"Deleting workspace '{name}' removes these "
+                    f"files permanently.",
                     "contents": contents,
                 },
             )
@@ -2093,6 +2220,7 @@ def create_app(
         # to shape-first discovery
         metadata = derive_catalog_metadata(request.workflow)
         warnings = list(workflow_argument_warnings(request.workflow))
+        warnings += candidate.null_variable_argument_warnings()
         if not metadata["summary"]:
             warnings.append(
                 "No summary: add a 'description' (its first sentence becomes "
@@ -2498,10 +2626,30 @@ def create_app(
     # Longest side of an on-demand gallery thumbnail, in pixels
     GALLERY_THUMBNAIL_MAX_DIM = 320
 
+    def _strip_output_prefix(name):
+        """A gallery name, accepting the way a workflow argument would
+        reference it ('output:<name>', #356) as well as the bare form
+        every gallery listing reports. `asset:` already gets this courtesy
+        on this same endpoint family (`is_asset_reference` below); a caller
+        who spelled a name by copying an `output:` reference used to be met
+        with a wrong-looking "path does not exist" instead, because the
+        prefix was joined straight into the path rather than stripped first.
+
+        Applied once, at the top of every route that takes a gallery
+        `name`, so the rest of that route - job lookups, run-path parsing,
+        the file it echoes back - sees the same bare name `_output_file`
+        resolves, rather than resolving the file correctly while a sibling
+        lookup keyed on the untouched string quietly misses.
+        """
+        if is_output_reference(name):
+            return name.removeprefix(OUTPUT_PREFIX).strip()
+        return name
+
     def _output_file(name, root=None):
         """A file inside a workspace's output directory, or a 404 - never
         outside it."""
         root = root or manager.output_dir
+        name = _strip_output_prefix(name)
         try:
             path = validate_path(
                 os.path.join(root, name),
@@ -2672,6 +2820,19 @@ def create_app(
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}v={version}"
 
+    def _absolute_served_url(path, ws, version=None):
+        """The same URL, made openable by a client with no other way to
+        learn this server's origin (#353) - an MCP-only agent, which is
+        never told a request's Host and must not guess one. `None` unless
+        an operator has configured `public_url` (or `DW_PUBLIC_URL`):
+        deriving an origin from request/forwarded headers would trust
+        whatever the caller claims to be, so a caller gets nothing rather
+        than a guess."""
+        origin = os.environ.get("DW_PUBLIC_URL") or settings.public_url
+        if not origin:
+            return None
+        return f"{origin.rstrip('/')}{_served_url(path, ws, version)}"
+
     def _iter_gallery_files(root, group_runs=True):
         """Every media file under a directory tree. Yields (relative_name,
         folder, subfolder, kind, path) - relative_name always uses '/' so
@@ -2690,7 +2851,11 @@ def create_app(
         whole directory is the folder, as it always was.
 
         Without it (the asset library's use, which has no run ids to strip):
-        folder is just the plain relative directory and subfolder is ''."""
+        folder is just the plain relative directory and subfolder is ''.
+
+        A file symlink resolving outside root is skipped: os.walk lists it
+        among the names, and the entry would carry the target's size and
+        mtime. A linked directory is never descended (os.walk's default)."""
         for current, _dirs, names in os.walk(root):
             rel_root = os.path.relpath(current, root)
             directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
@@ -2699,17 +2864,21 @@ def create_app(
                 kind = MEDIA_KINDS.get(extension)
                 if kind is None:
                     continue
+                path = os.path.join(current, name)
+                if not contained(path, root):
+                    continue
                 relative_name = name if not directory else f"{directory}/{name}"
                 if group_runs:
-                    folder, _run_id, subfolder = split_run_path(relative_name)
+                    folder, run_id, subfolder = split_run_path(relative_name)
                 else:
-                    folder, subfolder = directory, ""
+                    folder, subfolder, run_id = directory, "", ""
                 yield (
                     relative_name,
                     folder,
                     subfolder,
+                    run_id,
                     kind,
-                    os.path.join(current, name),
+                    path,
                 )
 
     def _gallery_entries(root, ws):
@@ -2718,7 +2887,19 @@ def create_app(
             files = list(_iter_gallery_files(root))
         except OSError:
             files = []
-        for relative_name, folder, subfolder, kind, path in files:
+        # One read of each workflow's run ordinals per listing, not per file:
+        # a run of fifty files would otherwise re-read the same manifests
+        # fifty times
+        versions_by_folder = {}
+
+        def _version(folder, run_id):
+            if not run_id:
+                return None
+            if folder not in versions_by_folder:
+                versions_by_folder[folder] = run_versions(os.path.join(root, folder))
+            return versions_by_folder[folder].get(run_id)
+
+        for relative_name, folder, subfolder, run_id, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
@@ -2731,27 +2912,36 @@ def create_app(
             # and a step that writes more than one kind of file (e.g. a still
             # plus a video) would lose the extension that tells them apart
             label = os.path.basename(relative_name)
-            entries.append(
-                {
-                    "name": relative_name,
-                    "folder": folder,
-                    "subfolder": subfolder,
-                    # Quoted (slashes kept literal): a name carrying '#', '?'
-                    # or '%' would otherwise break the src the gallery
-                    # renders it into. The mtime still rides along for cache
-                    # busting when a file's content changes without its name
-                    # changing (e.g. a manual overwrite outside the engine) -
-                    # normal reruns get a fresh name instead, see
-                    # dw/result.py's output_file_path
-                    "url": _served_url(
-                        f"/outputs/{quote(relative_name)}", ws, int(stat.st_mtime)
-                    ),
-                    "kind": kind,
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime,
-                    "label": label,
-                }
-            )
+            output_path = f"/outputs/{quote(relative_name)}"
+            entry = {
+                "name": relative_name,
+                "folder": folder,
+                "subfolder": subfolder,
+                # Which run wrote it, and that run's ordinal among this
+                # workflow's runs - the 'v4' a person sees in the grid
+                # and an agent says out loud. Two runs write the same
+                # basename, so `label` cannot tell them apart and
+                # `name` is too long to quote. None under the flat
+                # layout, which has no runs to number
+                "run_id": run_id,
+                "version": _version(folder, run_id),
+                # Quoted (slashes kept literal): a name carrying '#', '?'
+                # or '%' would otherwise break the src the gallery
+                # renders it into. The mtime still rides along for cache
+                # busting when a file's content changes without its name
+                # changing (e.g. a manual overwrite outside the engine) -
+                # normal reruns get a fresh name instead, see
+                # dw/result.py's output_file_path
+                "url": _served_url(output_path, ws, int(stat.st_mtime)),
+                "kind": kind,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "label": label,
+            }
+            absolute_url = _absolute_served_url(output_path, ws, int(stat.st_mtime))
+            if absolute_url is not None:
+                entry["absolute_url"] = absolute_url
+            entries.append(entry)
         entries.sort(key=lambda e: e["mtime"], reverse=True)
         return entries
 
@@ -2801,6 +2991,8 @@ def create_app(
         folder: Optional[str] = None,
         subfolder: Optional[str] = None,
         only_orphans: bool = False,
+        version: Optional[int] = None,
+        media: bool = False,
         ws: Workspace = Depends(selected_workspace),
     ):
         """A page of media files in the output directory, newest first.
@@ -2815,6 +3007,8 @@ def create_app(
         way: the in-run subfolders steps wrote into ('final',
         'intermediate'), '' for files at a run's root. `folder` and
         `subfolder` filter independently and intersect when both are given.
+        `version` narrows to the runs holding that ordinal - with `folder`,
+        the one run "v4" names; without it, that run of every workflow.
 
         `only_orphans=true` inverts the whole call: instead of media files,
         it returns run directories holding nothing but their own
@@ -2825,7 +3019,15 @@ def create_app(
         do not apply in this mode, since an orphan run has no file to
         carry either. `name` is exactly what `DELETE /api/gallery/{name}`
         accepts, so listing and deleting an orphan is a two-call round
-        trip (#170)."""
+        trip (#170).
+
+        `media=true` adds `duration_seconds` to each audio/video entry,
+        probed the same way `get_gallery_metadata` reports it - which two
+        takes of the same workflow otherwise have no way to be told apart
+        by, since size and mtime are misleading proxies for length (#356).
+        Off by default and bounded by `limit`: only the page actually
+        returned is probed, not the whole listing, so the cost of asking
+        stays proportional to the page size rather than the library size."""
         if only_orphans:
             entries = _orphan_entries(ws.outputs)
             offset = max(0, offset)
@@ -2845,9 +3047,18 @@ def create_app(
             entries = [e for e in entries if e["folder"] == folder]
         if subfolder is not None:
             entries = [e for e in entries if e["subfolder"] == subfolder]
+        if version is not None:
+            entries = [e for e in entries if e["version"] == version]
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
+        if media:
+            for entry in page:
+                if entry["kind"] not in ("audio", "video"):
+                    continue
+                probed = probe_media(os.path.join(ws.outputs, entry["name"]))
+                if probed is not None:
+                    entry["duration_seconds"] = probed.get("duration_seconds")
         return {
             "files": page,
             "total": len(entries),
@@ -2868,7 +3079,11 @@ def create_app(
         it is the full definition the editor can reopen), plus the job that
         produced the file when history remembers one, plus - for audio and
         video - what the file itself holds: duration, format and level,
-        which is how an agent that cannot listen checks a track.
+        which is how an agent that cannot listen checks a track. Only an
+        image embeds 'metadata' this way - it is always null for audio and
+        video, since neither format has a slot this writer uses; recover
+        the recipe from 'job' (GET /api/jobs/{id}/workflow) when one is
+        known, or from nothing when it isn't (a kept asset has no job).
 
         `envelope=true` adds the soundtrack's level second by second, which
         is what says *where* in a track something is - whether a shot is
@@ -2884,6 +3099,8 @@ def create_app(
         the only way to read a wav's length was to run a job that copied it
         into the output directory. `job` is null for an asset (nothing here
         produced it) and `source` says which of the two roots answered."""
+        run_id, version = "", None
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
             source, job = "asset", None
@@ -2897,6 +3114,20 @@ def create_app(
                 job = manager.history.job_for_file(name, workspace=ws.name)
             except Exception:
                 job = None
+            # Which run wrote it, and that run's ordinal - the same 'v4' the
+            # listing reports. After "look at version 3" this is the next
+            # call, so it confirms the right file was reached rather than
+            # sending the caller back to the listing
+            folder, run_id, _subfolder = split_run_path(name)
+            if run_id:
+                try:
+                    identity_dir = validate_path(
+                        os.path.join(ws.outputs, folder), ws.outputs
+                    )
+                except SecurityError:
+                    identity_dir = None
+                if identity_dir:
+                    version = run_versions(identity_dir).get(run_id)
         metadata = read_embedded_metadata(path)
         extension = os.path.splitext(path)[1].lower()
         media = (
@@ -2904,13 +3135,64 @@ def create_app(
             if MEDIA_KINDS.get(extension) in ("audio", "video")
             else None
         )
+        if media is not None and source == "output":
+            # Where each shot of a joined video sits, as the run that wrote
+            # it recorded (dw/shots.py) - null for a file not joined from shots
+            media["shots"] = recorded_shots(ws.outputs, name)
+        elif media is not None and source == "asset":
+            # keep_output carries the source run's shots into a sidecar
+            # manifest beside the asset (#393); a file kept before that fix,
+            # or never joined from shots, has none
+            media["shots"] = shots_beside(path)
         return {
             "name": name,
             "source": source,
             "metadata": metadata,
             "job": job,
+            "run_id": run_id,
+            "version": version,
             "media": media,
         }
+
+    @app.get("/api/gallery/{name:path}/assess")
+    def gallery_assess(
+        name: str,
+        probe: Optional[str] = None,
+        detail: bool = False,
+        ws: Workspace = Depends(selected_workspace),
+    ):
+        """Measure a finished cut and say where to look (#388): every
+        assessment probe that applies to the file, run here in the server
+        process on one decode - a sync route, so it runs beside a GPU job
+        rather than queueing behind it. Findings are places to look, not
+        verdicts; nothing acts on one (dw/assessment_rules.py).
+
+        The default answer merges the probes' `findings`, `rules_applied`
+        and `rules_skipped`, and names each probe the file cannot feed in
+        `not_applicable` (a still, no soundtrack, no recorded shots);
+        `detail=true` adds each probe's full answer under `probes`.
+        `probe` names one - analyze_shots, analyze_seams or
+        analyze_sync_drift - and answers with its full body. It is checked
+        before the name is resolved. `name` may be an `asset:` reference,
+        and then the shots are the ones keep_output carried beside it."""
+        rejected = unknown_probe(probe)
+        if rejected:
+            raise HTTPException(status_code=400, detail=rejected)
+        name = _strip_output_prefix(name)
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+            source, shots = "asset", shots_beside(path)
+        else:
+            path = _output_file(name, ws.outputs)
+            source, shots = "output", recorded_shots(ws.outputs, name)
+        kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
+        try:
+            body = assess(path, kind, shots, probe=probe, detail=detail)
+        except (ValueError, OSError) as e:
+            raise HTTPException(
+                status_code=422, detail=f"{name} could not be read: {e}"
+            )
+        return {"name": name, "source": source, "kind": kind, **body}
 
     @app.get("/api/gallery/{name:path}/audio")
     def gallery_audio(
@@ -2930,6 +3212,7 @@ def create_app(
         An audio-only file asked for whole is served as its own bytes in its
         own encoding - there is nothing to extract, and a transcode would
         change what the agent hears."""
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
         else:
@@ -3028,14 +3311,20 @@ def create_app(
         numbers) for the last frame before and first frame after each
         boundary, side by side. `boundaries` is the comma list of frame
         indexes each shot after the first starts at, and `names` the
-        shots' names; both are required with `seams` until a joined file
-        carries its own (stage 2 of docs/proposals/output-assessment.md).
+        shots' names. Without `boundaries`, an output's seams are the shots
+        its run's manifest recorded for it (a `concat_videos`,
+        `dissolve_videos` or chained step), named as recorded unless `names`
+        is given; a linked asset (`keep_output(shared=true)`) uses the same
+        shots `get_gallery_metadata`'s `media.shots` reports for it, from the
+        sidecar manifest kept beside it. A file with none recorded still
+        needs `boundaries`.
         Tiles are downscaled to `max_dimension` on their longest side.
         `crop` is `x,y,width,height` in the video's own source pixels
         (`video_shape`'s `width`/`height`) - resolved once and cut from
         every sampled frame before any stamping, fitting or composing, so
         it names the same region whatever `max_dimension` downscales the
         result to."""
+        name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
         else:
@@ -3101,15 +3390,35 @@ def create_app(
                     )
                 ]
             else:
-                if not boundaries:
+                recorded = (
+                    None
+                    if boundaries
+                    else shots_beside(path)
+                    if is_asset_reference(name)
+                    else recorded_shots(ws.outputs, name)
+                )
+                if recorded:
+                    # The file's own seams, from its run's manifest (or, for
+                    # a linked asset, the sidecar `record_kept_shots` wrote
+                    # beside it)
+                    starts = [shot["start_frame"] for shot in recorded[1:]]
+                    shot_names = (
+                        [n.strip() for n in names.split(",")]
+                        if names
+                        else [shot["name"] for shot in recorded]
+                    )
+                elif not boundaries:
                     raise HTTPException(
                         status_code=400,
                         detail="`seams` needs `boundaries`: the frame index each "
-                        "shot after the first starts at, comma-separated - this "
-                        "file carries none of its own",
+                        "shot after the first starts at - this file's run "
+                        "recorded no shots for it",
                     )
-                starts = [int(b) for b in boundaries.split(",") if b.strip()]
-                shot_names = [n.strip() for n in names.split(",")] if names else None
+                else:
+                    starts = [int(b) for b in boundaries.split(",") if b.strip()]
+                    shot_names = (
+                        [n.strip() for n in names.split(",")] if names else None
+                    )
                 wanted = (
                     None
                     if seams.lower() == "true"
@@ -3200,6 +3509,13 @@ def create_app(
             from PIL import Image
 
             with Image.open(path) as image:
+                if image.width * image.height > MAX_DECODE_PIXELS:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"{name} is {image.width}x{image.height}, more "
+                        f"than the {MAX_DECODE_PIXELS:,} pixels a thumbnail "
+                        "is decoded from",
+                    )
                 # shrink first (JPEGs decode at reduced size via draft), then
                 # convert - converting a full-resolution image only to
                 # discard most of it is the expensive order
@@ -3210,6 +3526,9 @@ def create_app(
                 image = image.convert("RGB")
                 buffer = io.BytesIO()
                 image.save(buffer, format="JPEG", quality=80)
+        except Image.DecompressionBombError as e:
+            # Pillow's own refusal, on open, of a header past twice its limit
+            raise HTTPException(status_code=413, detail=str(e))
         except (OSError, ValueError) as e:
             # what PIL raises for an unreadable or corrupt file
             raise HTTPException(
@@ -3248,6 +3567,10 @@ def create_app(
             with handle:
                 with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as archive:
                     for arcname, path in entries:
+                        # ZipFile.write follows a symlink and archives the
+                        # target's bytes; nothing the server writes is one
+                        if os.path.islink(path):
+                            continue
                         extension = os.path.splitext(path)[1].lower()
                         # A file in MEDIA_KINDS but not RAW_MEDIA_EXTENSIONS
                         # is an already-compressed container - deflating it
@@ -3309,7 +3632,8 @@ def create_app(
         # selection fails the request instead of yielding a partial zip
         # the gallery-relative name is the entry name, so a workflow's output
         # subfolders stay intact inside the download
-        paths = [(name, _output_file(name, ws.outputs)) for name in request.names]
+        names = [_strip_output_prefix(name) for name in request.names]
+        paths = [(name, _output_file(name, ws.outputs)) for name in names]
 
         return _archive_selection(paths, "output")
 
@@ -3355,6 +3679,9 @@ def create_app(
                     continue
                 return None
 
+        # Pin the siblings' numbers first: a run that predates versions is
+        # ranked, and removing one ahead of it would renumber it
+        record_run_versions(os.path.dirname(run_dir))
         shutil.rmtree(run_dir, ignore_errors=True)
         # And the identity folders above it, while they are empty - a swept
         # workspace should not keep one directory per workflow it once ran
@@ -3395,8 +3722,12 @@ def create_app(
         (`<identity>/<run id>`), which removes the whole run - the only handle
         on a run that failed before it wrote any media (#134).
         """
+        name = _strip_output_prefix(name)
         run_dir = _run_directory(name, ws.outputs)
         if run_dir is not None:
+            # As in _prune_empty_run_directory: pin the siblings' numbers
+            # before one of them goes
+            record_run_versions(os.path.dirname(run_dir))
             shutil.rmtree(run_dir, ignore_errors=True)
             parent = os.path.dirname(run_dir)
             while os.path.normpath(parent) != os.path.normpath(ws.outputs):
@@ -3527,15 +3858,25 @@ def create_app(
         await run_in_threadpool(_write_bytes, dest, body)
         logger.info(f"Saved upload {filename!r} -> {dest}")
         if shared or ws.assets:
-            return {
+            path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
+            result = {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
-                "url": _served_url(f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+                "url": _served_url(path, ws),
                 "shared": shared,
             }
-        return {
+            absolute_url = _absolute_served_url(path, ws)
+            if absolute_url is not None:
+                result["absolute_url"] = absolute_url
+            return result
+        path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
+        result = {
             "path": dest,
-            "url": _served_url(f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}", ws),
+            "url": _served_url(path, ws),
         }
+        absolute_url = _absolute_served_url(path, ws)
+        if absolute_url is not None:
+            result["absolute_url"] = absolute_url
+        return result
 
     def _asset_origin(ws, root):
         """Which library an asset came from: this workspace's own, the one
@@ -3597,7 +3938,7 @@ def create_app(
             except OSError:
                 files = []
             origin = _asset_origin(ws, root)
-            for relative, folder, _subfolder, kind, path in files:
+            for relative, folder, _subfolder, _run_id, kind, path in files:
                 try:
                     stat = os.stat(path)
                 except OSError:
@@ -3619,20 +3960,23 @@ def create_app(
                     )
                     continue
                 seen[relative] = origin
-                assets.append(
-                    {
-                        "name": relative,
-                        "reference": f"asset:{relative}",
-                        "folder": folder,
-                        "kind": kind,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                        "origin": origin,
-                        # For the editor's own preview - fetchable the same
-                        # way an upload's URL is
-                        "url": _served_url(f"/inputs/{quote(relative)}", ws),
-                    }
-                )
+                asset_path = f"/inputs/{quote(relative)}"
+                asset_entry = {
+                    "name": relative,
+                    "reference": f"asset:{relative}",
+                    "folder": folder,
+                    "kind": kind,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                    "origin": origin,
+                    # For the editor's own preview - fetchable the same
+                    # way an upload's URL is
+                    "url": _served_url(asset_path, ws),
+                }
+                absolute_url = _absolute_served_url(asset_path, ws)
+                if absolute_url is not None:
+                    asset_entry["absolute_url"] = absolute_url
+                assets.append(asset_entry)
         assets.sort(key=lambda entry: entry["mtime"], reverse=True)
         return {
             # The workspace's own library, unchanged: where an upload lands
@@ -3692,15 +4036,16 @@ def create_app(
                 ),
             )
 
-        source = _output_file(request.name, ws.outputs)
-        asset_name = request.asset_name or os.path.basename(request.name)
+        kept_name = _strip_output_prefix(request.name)
+        source = _output_file(kept_name, ws.outputs)
+        asset_name = request.asset_name or os.path.basename(kept_name)
         # The kept file's own extension when the name carries none, and a
         # refusal when it carries a contradicting one - exactly what the
         # upload route does with its `asset_name`. Without this a kept asset
         # could be written under an extensionless name, which the library
         # listing (which reads by kind) never shows again: the call reported
         # success and the asset was invisible (T014)
-        extension = os.path.splitext(os.path.basename(request.name))[1].lower()
+        extension = os.path.splitext(os.path.basename(kept_name))[1].lower()
         if not os.path.splitext(asset_name)[1]:
             asset_name = f"{asset_name}{extension}"
         elif os.path.splitext(asset_name)[1].lower() != extension:
@@ -3735,6 +4080,15 @@ def create_app(
         except OSError:
             shutil.copy2(source, destination)
             linked = False
+
+        # The source run's shot boundaries - carrying bytes without them left
+        # a kept multi-shot cut looking like one shot to every probe, with no
+        # sign anything was missing (#393)
+        record_kept_shots(
+            os.path.dirname(destination),
+            os.path.basename(destination),
+            recorded_shots(ws.outputs, kept_name),
+        )
 
         logger.info(f"Kept output {request.name} as asset:{asset_name}")
         return {
@@ -4002,7 +4356,7 @@ def create_app(
         }
 
     @app.get("/api/server")
-    def server_info():
+    def server_info(ws: Workspace = Depends(selected_workspace)):
         """How this server is reachable, for the UI's Server page: what it
         is bound to, whether a token is needed, whether MCP is mounted, and
         the addresses another machine could name it by.
@@ -4011,6 +4365,12 @@ def create_app(
         and `mcp.path` - and the token itself is never reported in any
         form, only whether one is required. An interface enumeration
         failure is not a server failure: `addresses` comes back empty.
+
+        `directories` is scoped to the `?workspace=` a caller names (or the
+        session's own pin, via `_scoped`) - a mounted `download_output`
+        confines a write to *that* workspace's output tree, so reporting
+        the server's own default here regardless of the selector sent a
+        caller pinned elsewhere writing into `default` without any error (#389).
         """
         import socket
 
@@ -4043,17 +4403,18 @@ def create_app(
             # answers, e.g. whether bitsandbytes is even installed (#222)
             "runtime": runtime_info(),
             "directories": {
-                # The workspace the three below default to folders of; an
-                # individually overridden folder still reports its own path
-                "workspace": app.state.workspace,
-                "workflows": os.path.abspath(app.state.workflow_dir),
-                "assets": app.state.asset_dir,
-                "outputs": os.path.abspath(manager.output_dir),
-                "prompts": (
-                    os.path.abspath(app.state.prompt_dir)
-                    if app.state.prompt_dir
-                    else None
-                ),
+                # ws's properties are already absolute (Workspace and
+                # ConfiguredWorkspace both resolve at construction). This
+                # "workspace" is the root path a mounted download_output
+                # confines a write to (dw_mcp/media.py's _remote_root) -
+                # None for a default workspace configured from individual
+                # directory overrides with no --workspace root, same as
+                # before this route was workspace-aware
+                "workspace": ws.root,
+                "workflows": ws.workflows,
+                "assets": ws.assets,
+                "outputs": ws.outputs,
+                "prompts": ws.prompts,
             },
         }
 
@@ -4094,13 +4455,55 @@ def create_app(
     # /assets/, and serving the library there shadows them - the page loads
     # and then renders nothing, because its script and stylesheet 404. The
     # name is also the symmetric one, next to /outputs
+    def _sandbox_active_content(response):
+        """Serve a document type under `Content-Security-Policy: sandbox`.
+
+        /outputs and /inputs share the UI's origin and need no token, so an
+        .html, .xhtml, .xml or .svg file served as-is is a page whose script
+        reads the token the UI keeps in localStorage. Validation refuses a
+        workflow writing one (dw/content_types.py), but a planted file or a
+        kept asset never passes through there. sandbox gives the document an
+        opaque origin and no script, and still lets an image or a .txt show
+        in the tab, which an attachment disposition would not. Set on the
+        Response StaticFiles built, so its ETag/304 and Range/206 stand"""
+        media_type = (
+            response.headers.get("content-type", "").split(";")[0].strip().lower()
+        )
+        if media_type in ACTIVE_DOCUMENT_TYPES:
+            response.headers["Content-Security-Policy"] = "sandbox"
+        return response
+
     @app.get("/outputs/{name:path}")
     async def output_file(
         name: str, request: Request, ws: Workspace = Depends(selected_workspace)
     ):
-        """One generated file, from the workspace that made it."""
-        files = _static_files_for(ws.outputs)
-        return await files.get_response(name, request.scope)
+        """One generated file, from the workspace that made it - or, by an
+        'asset:' reference, one file from its asset library (#445): every
+        other route in this family (`get_gallery_metadata`, `/frames`,
+        `/audio`, `/assess`) already accepts one, and this route answering a
+        bare StaticFiles 404 for the same name gave no hint why."""
+        name = _strip_output_prefix(name)
+        if is_asset_reference(name):
+            # This route is outside the token gate (the auth middleware
+            # covers /api/ and /mcp only), so a miss must not carry
+            # _asset_file's detail, which names every root searched by its
+            # absolute server path. Keep the hint #445 added, without them.
+            try:
+                path = _asset_file(name, ws)
+            except HTTPException as e:
+                if e.status_code != 404:
+                    raise
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Unknown asset {name!r}: not in this workspace's "
+                    "asset library (list_assets shows what is)",
+                ) from None
+            files = _static_files_for(os.path.dirname(path))
+            response = await files.get_response(os.path.basename(path), request.scope)
+        else:
+            files = _static_files_for(ws.outputs)
+            response = await files.get_response(name, request.scope)
+        return _sandbox_active_content(response)
 
     @app.get("/inputs/{name:path}")
     async def input_file(
@@ -4120,11 +4523,34 @@ def create_app(
                 continue
             if os.path.isfile(candidate):
                 files = _static_files_for(root)
-                return await files.get_response(name, request.scope)
+                return _sandbox_active_content(
+                    await files.get_response(name, request.scope)
+                )
         # Nothing has it: let the workspace's own library answer, so the
         # 404 (and its headers) come from StaticFiles as they always did
         files = _static_files_for(roots[0])
         return await files.get_response(name, request.scope)
+
+    def _export_download_name(directory, job_id):
+        """'<workflow>-v4-<job id>.zip' when the exported manifest says which
+        run it was, else '<job id>.zip'. Only the saved file's name: the
+        URL and the entries inside keep the job id, so nothing that already
+        names an export changes."""
+        try:
+            with open(os.path.join(directory, MANIFEST_FILE_NAME)) as file:
+                manifest = json.load(file)
+        except (OSError, ValueError):
+            return f"{job_id}.zip"
+        if not isinstance(manifest, dict):
+            return f"{job_id}.zip"
+        version = manifest.get("version")
+        identity = (manifest.get("workflow") or {}).get("identity")
+        if not isinstance(version, int) or isinstance(version, bool):
+            return f"{job_id}.zip"
+        if not isinstance(identity, str) or not identity:
+            return f"v{version}-{job_id}.zip"
+        slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", identity).strip("-.")
+        return f"{slug}-v{version}-{job_id}.zip" if slug else f"v{version}-{job_id}.zip"
 
     # Ungated for the same reason the two above are: a download link cannot
     # attach an Authorization header either
@@ -4147,7 +4573,7 @@ def create_app(
                 path = os.path.join(current, name)
                 entry = os.path.relpath(path, directory).replace(os.sep, "/")
                 entries.append((f"{job_id}/{entry}", path))
-        return _zip_download(entries, f"{job_id}.zip")
+        return _zip_download(entries, _export_download_name(directory, job_id))
 
     # ---------------------------------------------------------------- the UI
 

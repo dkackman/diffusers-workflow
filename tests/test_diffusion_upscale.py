@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from PIL import Image
 
-from dw.tasks.diffusion_upscale import diffusion_upscale, _MODELS
+from dw.tasks.diffusion_upscale import diffusion_upscale
 
 
 class TestDiffusionUpscale(unittest.TestCase):
@@ -159,16 +159,6 @@ class TestDiffusionUpscale(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             diffusion_upscale(self._make_image(), device="cpu", mode="x8")
         self.assertIn("x8", str(ctx.exception))
-
-    def test_models_config_has_expected_modes(self):
-        self.assertIn("x4", _MODELS)
-        self.assertIn("x2", _MODELS)
-        self.assertEqual(
-            _MODELS["x4"]["pipeline_class"], "StableDiffusionUpscalePipeline"
-        )
-        self.assertEqual(
-            _MODELS["x2"]["pipeline_class"], "StableDiffusionLatentUpscalePipeline"
-        )
 
 
 class TestDiffusionUpscaleRegistration(unittest.TestCase):

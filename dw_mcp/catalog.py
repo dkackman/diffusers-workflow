@@ -213,10 +213,21 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     return answer
 
 
-def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace=None):
+def list_gallery(
+    client,
+    limit=50,
+    subfolder=None,
+    only_orphans=False,
+    workspace=None,
+    folder=None,
+    version=None,
+    media=False,
+):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
-    at a run's root); None means every file.
+    at a run's root); None means every file. `folder` narrows to one
+    workflow and `version` to one run's ordinal, so the two together list
+    the run a person calls "v4".
 
     `only_orphans=True` inverts the call: instead of files, it returns run
     directories holding nothing but their own bookkeeping (manifest.json,
@@ -230,20 +241,49 @@ def list_gallery(client, limit=50, subfolder=None, only_orphans=False, workspace
     Each file entry also carries `label`, a bare display basename for a UI
     grid - it is not a valid reference on its own (two runs can write the
     same basename) and is not accepted by `get_gallery_metadata` or
-    `delete_output`. Pass `name` to those, not `label`."""
+    `delete_output`. Pass `name` to those, not `label`.
+
+    `version` is that run's ordinal among the workflow's runs, and `run_id`
+    the run it came from. The version is what to quote to a person - the web
+    UI labels the same file `v5` - and is stable: it is assigned when the
+    run opens and a deleted sibling leaves a gap rather than renumbering
+    what is left - as does a run that failed, or reused every step from
+    the cache, and so wrote nothing to list. Null under the flat output
+    layout, which has no runs.
+
+    `media=True` adds `duration_seconds` to each audio/video entry in the
+    page returned, probed the way `get_gallery_metadata` measures a file -
+    enough to pick between two takes without one metadata call per
+    candidate. Off by default; a plain call carries no `duration_seconds`."""
     params = {"limit": limit}
     if subfolder is not None:
         params["subfolder"] = subfolder
+    if folder is not None:
+        params["folder"] = folder
+    if version is not None:
+        params["version"] = version
     if only_orphans:
         params["only_orphans"] = "true"
+    if media:
+        params["media"] = "true"
     return client.get_json("/api/gallery", params=params, workspace=workspace)
 
 
 def get_gallery_metadata(client, name, envelope=False, workspace=None):
-    """Metadata embedded in a saved file: the full workflow that made it,
-    plus the job that produced it when history remembers one, plus for
-    audio and video what the file holds - duration, sample rate, channels,
-    fps, size, peak and mean level in dBFS.
+    """Metadata embedded in a saved file: the full workflow that made it -
+    the exact workflow, arguments and seed, so a result can be reproduced
+    or a failed run's definition edited and re-run - plus the job that
+    produced it when history remembers one, plus for audio and video what
+    the file holds - duration, sample rate, channels, fps, size, peak and
+    mean level in dBFS.
+
+    Only an image (PNG/JPEG/WebP) carries embedded metadata; `metadata` is
+    always null for audio and video, since neither format has a slot this
+    writer uses. `job` is the fallback recipe when one is known - `next`
+    then names `get_job_workflow(job_id)`, which reads the run's realized
+    workflow instead. A kept asset (`source: "asset"`) has no job at all,
+    so nothing on the server remembers which run made it; `next` says so
+    rather than pretending a lookup exists.
 
     `name` is a gallery name - the `name` field `list_gallery` reports, not
     its `label` (a display-only basename that is not a valid reference) -
@@ -260,8 +300,24 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
         workspace=workspace,
     )
     media = body.get("media")
+    job = body.get("job")
+    hints = []
+    if body.get("metadata") is None:
+        if job:
+            hints.append(
+                "metadata is null because only an image (PNG/JPEG/WebP) "
+                "carries it embedded - this file's job is known, and "
+                f'get_job_workflow(job_id="{job["id"]}") returns the exact '
+                "workflow, arguments and seed that produced it."
+            )
+        elif body.get("source") == "asset":
+            hints.append(
+                "metadata is null and this is a kept asset, which carries "
+                "no provenance - nothing on the server remembers which job, "
+                "if any, produced the file it was kept from."
+            )
     if media and body.get("source") == "asset":
-        body["next"] = (
+        hints.append(
             "These are the numbers a workflow's arguments have to match "
             "before the run, not after: frame_count and fps decide a cut's "
             "'total_frames', sample_rate decides what its audio is mixed "
@@ -270,17 +326,35 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "cut is padded with digital silence rather than refused, so "
             "make a longer bed with the 'loop_audio' task instead."
         )
-    elif media and media.get("kind") in ("audio", "video"):
-        body["next"] = (
+    elif media and media.get("kind") == "audio":
+        hints.append(
             "Check duration_seconds against what was asked for: a Music 3 "
             "track that lands within 0.2 s of its audio_duration ceiling was "
             "cut off, one well short of it finished naturally. peak_dbfs is "
             "the level normalize_audio would be given, and the range has two "
             "ends: mean_dbfs below -40 on a track that should be full is a "
             "near-silent render, and peak_dbfs at or above 0 is a deliverable "
-            "at or over full scale - a decoded lossy file overshoots by a few "
-            "tenths legitimately, but a figure of +1 or more is a mix with no "
-            "headroom, and 'normalize_audio' (peak_dbfs: -1) before the saving "
-            "step is what fixes it."
+            "at or over full scale - a decoded lossy file overshoots by up to "
+            "a couple dB legitimately (0.59-1.56 dB measured on Music 3 "
+            "mp3s), but a figure of +1 or more is a mix with no headroom, and "
+            "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
+            "fixes it."
         )
+    elif media and media.get("kind") == "video":
+        hints.append(
+            "peak_dbfs is the level normalize_audio would be given, and the "
+            "range has two ends: mean_dbfs below -40 on a track that should "
+            "be full is a near-silent render, and peak_dbfs at or above 0 is "
+            "a deliverable at or over full scale - 'normalize_audio' "
+            "(peak_dbfs: -3) before the saving step is what fixes it."
+        )
+    if media and media.get("shots"):
+        hints.append(
+            f"This is a cut of {len(media['shots'])} shots, and whole-file "
+            f'numbers cannot see inside a join: assess_output(name="{name}") '
+            "measures each seam, the shots' levels and sync, and says where "
+            "to look."
+        )
+    if hints:
+        body["next"] = " ".join(hints)
     return body

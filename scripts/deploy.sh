@@ -4,7 +4,7 @@
 #   scripts/deploy.sh [branch] [--force]
 #
 # Run ON the server box (lem), from anywhere:
-#   ssh lem ~/diffusers-workflow/scripts/deploy.sh develop
+#   ssh lem '~/diffusers-workflow/scripts/deploy.sh develop'
 #
 # What it does, in order, stopping at the first failure:
 #   1. fetch; check out <branch> (default: the current branch); fast-forward
@@ -30,7 +30,9 @@
 #
 # Environment overrides, all optional:
 #   DW_DIR (checkout, default ~/diffusers-workflow), DW_TOKEN (default xyz),
-#   DW_PORT (8765), DW_WORKSPACE (~/diffusers-workspace), DW_HOST (0.0.0.0).
+#   DW_PORT (8765), DW_WORKSPACE (~/diffusers-workspace), DW_HOST (0.0.0.0),
+#   DW_NODE_BIN (the directory holding npm, when it is not on a
+#   non-interactive PATH and not in one of the places find_npm looks).
 set -euo pipefail
 
 DW_DIR="${DW_DIR:-$HOME/diffusers-workflow}"
@@ -57,6 +59,31 @@ say() { echo "[deploy $(ts)] $*"; }
 health() { curl -s -m 5 -H "Authorization: Bearer $DW_TOKEN" "$HEALTH" 2>/dev/null; }
 server_pids() { pgrep -f 'python -m dw\.serve' || true; }
 
+# `ssh lem deploy.sh` runs a non-interactive shell, and a per-user node
+# install is usually put on PATH by ~/.bashrc *after* its "not interactive,
+# stop here" guard - so npm that works at a prompt is missing here. Look in
+# the usual per-user places rather than depend on the caller's shell
+find_npm() {
+  command -v npm >/dev/null 2>&1 && return 0
+  local dir
+  for dir in "${DW_NODE_BIN:-}" "$HOME/.local/node/bin" "$HOME/.volta/bin" \
+             "$HOME/.local/share/fnm/aliases/default/bin" "$HOME/.local/bin" /usr/local/bin; do
+    if [ -n "$dir" ] && [ -x "$dir/npm" ]; then
+      PATH="$dir:$PATH"; export PATH
+      say "npm not on PATH; using $dir"
+      return 0
+    fi
+  done
+  # nvm is a shell function, not a directory on PATH
+  if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+    # shellcheck disable=SC1091
+    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 \
+      && { say "npm from nvm: $(command -v npm)"; return 0; }
+  fi
+  say "npm not found (PATH=$PATH); set DW_NODE_BIN to the directory holding npm"
+  exit 1
+}
+
 cd "$DW_DIR"
 [ -z "$branch" ] && branch="$(git branch --show-current)"
 
@@ -80,6 +107,7 @@ if echo "$changed" | grep -qx 'pyproject.toml'; then
   venv/bin/pip install -q -e .
 fi
 if echo "$changed" | grep -q '^ui/' || [ ! -d ui/dist ]; then
+  find_npm
   if echo "$changed" | grep -qx 'ui/package-lock.json' || [ ! -d ui/node_modules ]; then
     say "ui/package-lock.json changed; npm ci"
     (cd ui && npm ci --silent --no-audit --no-fund)

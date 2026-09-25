@@ -15,6 +15,7 @@ from diffusers.utils import (
 from collections.abc import Mapping
 from .events import emit_log, emit_phase, emit_warning
 from .security import (
+    MAX_DECODE_PIXELS,
     SecurityError,
     validate_file_base_name,
     validate_output_path,
@@ -253,6 +254,11 @@ def warn_if_written_above_full_scale(
 # warnings: [] (#261)
 NEAR_SILENT_WARN_DBFS = -40.0
 
+# Above this, a peak means "quiet but not empty" rather than "check for a
+# defect" - s02's -18.5 dBFS peaks (an ambience-only shot) clear it, #261's
+# -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize do not (#358)
+NEAR_SILENT_QUIET_NOT_EMPTY_DBFS = -30.0
+
 
 def warn_if_written_near_silent(
     output_path, already_warned=False, info=_UNPROBED, source_already_quiet=False
@@ -276,6 +282,15 @@ def warn_if_written_near_silent(
     ("check the step that generated it... an unintended near-zero gain
     upstream") is aimed at a step that could plausibly have caused the
     level, which a plain cut out of an already-quiet recording did not (#309).
+
+    The trigger stays mean-only (#358): a wordless, ambience-only shot (paws,
+    husks scraping, water) reads a low mean with real peaks - -54 dBFS mean,
+    -18 to -31 dBFS peaks - and split perfectly with dialogue presence, not
+    with silence, costing an investigation every run. The fix is the message,
+    not the gate: a peak above `NEAR_SILENT_QUIET_NOT_EMPTY_DBFS` says so
+    plainly rather than reusing the "check the step that generated it"
+    wording aimed at a genuinely empty render (#261's -68.7 dBFS, S-F077's
+    -60 dBFS).
     """
     if already_warned or source_already_quiet:
         return None
@@ -287,16 +302,26 @@ def warn_if_written_near_silent(
     if mean is None or mean >= NEAR_SILENT_WARN_DBFS:
         return mean
     name = os.path.basename(output_path)
-    emit_warning(
-        f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
-        f"for a deliverable meant to be heard. Check the step that "
-        f"generated it: an empty or malformed prompt, a source model that "
-        f"produced no meaningful audio for this input, or an unintended "
-        f"near-zero gain upstream ('normalize_audio' or 'match_levels').",
-        kind="audio_near_silent",
-        file=name,
-        mean_dbfs=round(mean, 2),
-    )
+    peak = info.get("peak_dbfs")
+    if peak is not None and peak >= NEAR_SILENT_QUIET_NOT_EMPTY_DBFS:
+        message = (
+            f"{name} decodes at a mean level of {mean:+.2f} dBFS but peaks "
+            f"at {peak:+.2f} dBFS: quiet overall, not empty. Expected for "
+            f"an ambience-only shot; a concern only if this was meant to "
+            f"carry speech or music."
+        )
+    else:
+        message = (
+            f"{name} decodes at a mean level of {mean:+.2f} dBFS - near-silent "
+            f"for a deliverable meant to be heard. Check the step that "
+            f"generated it: an empty or malformed prompt, a source model that "
+            f"produced no meaningful audio for this input, or an unintended "
+            f"near-zero gain upstream ('normalize_audio' or 'match_levels')."
+        )
+    fields = {"kind": "audio_near_silent", "file": name, "mean_dbfs": round(mean, 2)}
+    if peak is not None:
+        fields["peak_dbfs"] = round(peak, 2)
+    emit_warning(message, **fields)
     return mean
 
 
@@ -437,7 +462,7 @@ class AudioVideo:
     the result mux them into one file instead of dropping the audio on the floor.
     """
 
-    def __init__(self, frames, audio, sample_rate, fps=None):
+    def __init__(self, frames, audio, sample_rate, fps=None, shots=None):
         """
         Args:
             frames: The video, as PIL images or an array of frames
@@ -450,11 +475,16 @@ class AudioVideo:
                 joins 24 fps shots writing them at 8 is three times slow with
                 its audio still the right length (#84). A declared
                 `result.fps` still wins over this
+            shots: Where each input landed, for a video a step joined from
+                several - a list of shot records (dw/shots.py), or None for a
+                video that is one shot. Carried into the step's manifest
+                entry when the video is saved (#378)
         """
         self.frames = frames
         self.audio = audio
         self.sample_rate = sample_rate
         self.fps = fps
+        self.shots = shots
 
 
 class AudioTrack:
@@ -513,6 +543,10 @@ class Result:
         self.result_list = []
         self.metadata = None
         self.saved_files = []
+        # The shots (dw/shots.py) of each saved file whose artifact carried
+        # any, keyed by the path in saved_files - plain data, so a step cache
+        # hit's stripped copy still reports them (#378)
+        self.saved_shots = {}
         # Set when a select step's Selected wrapper flows through
         # add_result - the winning position/score, replayable in the
         # manifest and step_end alongside the unwrapped value (#119)
@@ -691,6 +725,7 @@ class Result:
         if not self.result_definition.get("save", True) or content_type is None:
             logger.debug("Skipping save - disabled or no content type specified")
             self.saved_files = []
+            self.saved_shots = {}
             return self.saved_files
 
         # Determine base filename with validation. A file_base_name *replaces*
@@ -707,6 +742,13 @@ class Result:
                 )
             )
 
+        # The same refusal validation makes, for a definition that reached
+        # the writer without it. Imported here: content_types imports this
+        # module for AUDIO_FORMATS
+        from .content_types import refuse_active_content_type
+
+        refuse_active_content_type(content_type)
+
         # Get file extension for content type
         extension = guess_extension(content_type)
         logger.debug(
@@ -719,6 +761,7 @@ class Result:
 
         # Save each result, collecting the paths written as the step's manifest
         saved_files = []
+        saved_shots = {}
         for i, result in enumerate(self.result_list):
             if content_type.endswith("json"):
                 # Handle JSON content type
@@ -732,16 +775,19 @@ class Result:
             else:
                 # Handle other content types
                 for j, artifact in enumerate(self._artifacts_for(result)):
-                    saved_files.extend(
-                        self.save_artifact(
-                            validated_output_dir,
-                            artifact,
-                            f"{file_base_name}-{i}.{j}",
-                            content_type,
-                            extension,
-                        )
+                    paths = self.save_artifact(
+                        validated_output_dir,
+                        artifact,
+                        f"{file_base_name}-{i}.{j}",
+                        content_type,
+                        extension,
                     )
+                    shots = getattr(artifact, "shots", None)
+                    if shots:
+                        saved_shots.update((path, shots) for path in paths)
+                    saved_files.extend(paths)
         self.saved_files = saved_files
+        self.saved_shots = saved_shots
         return saved_files
 
     def save_artifact(
@@ -923,6 +969,77 @@ class Result:
             # is a full audio+video decode and doubled the 'saving' phase's
             # wall clock for no second answer
             probed_info = _probe_written_media(output_path)
+            # The shot map (#426) was re-measured against the fitted
+            # in-memory track before this file was even encoded - a
+            # prediction, not the file's own ground truth. A lossy mux can
+            # still trim or pad past that (AAC's frame alignment cost the
+            # #426 repro 29-30 samples on top of what fitting alone
+            # accounted for), so once the file is probed the shots are
+            # re-measured again against what actually decodes from it - the
+            # same length assess.py's read_media() trims audio to
+            # (`audio_stream_seconds`, the audio *stream's* own reported
+            # duration - not the container's `duration_seconds`, which can
+            # disagree with it by a handful of samples on a lossy mux and
+            # would leave a residual overrun the probe still reports).
+            if (
+                content_type.startswith("video")
+                and getattr(artifact, "shots", None)
+                and probed_info
+                and probed_info.get("audio_stream_seconds") is not None
+                and probed_info.get("sample_rate")
+            ):
+                from .shots import measured_num_samples
+
+                written_samples = int(
+                    round(
+                        probed_info["audio_stream_seconds"] * probed_info["sample_rate"]
+                    )
+                )
+                measured_num_samples(artifact.shots, written_samples)
+                frame_count = len(getattr(artifact, "frames", []) or [])
+                video_fps = self.video_fps(artifact)
+                if frame_count and video_fps:
+                    expected_samples = int(
+                        round(frame_count / video_fps * probed_info["sample_rate"])
+                    )
+                    shortfall = expected_samples - written_samples
+                    # Only a residual the save-time fit (_fit_audio_to_frames)
+                    # would have padded: past its tolerance the track was
+                    # left at its own length, audio_video_length_mismatch
+                    # already names that gap, and "the mux trimmed it" would
+                    # misexplain it.
+                    from .tasks.video_utils import AUDIO_FIT_TOLERANCE_SECONDS
+
+                    tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
+                    if 0 < shortfall < probed_info["sample_rate"] / video_fps:
+                        # Under a frame: the encoder's alignment on every
+                        # joined deliverable, not something a caller can act
+                        # on - logged, with the shots already re-measured
+                        emit_log(
+                            f"{os.path.basename(output_path)}'s soundtrack "
+                            f"decodes {shortfall} sample(s) short of its "
+                            f"{frame_count}-frame grid after muxing; the shot "
+                            "map is measured against what it decodes to",
+                            file=os.path.basename(output_path),
+                            shortfall_samples=shortfall,
+                        )
+                    elif 0 < shortfall <= tolerance:
+                        emit_warning(
+                            f"{os.path.basename(output_path)}'s soundtrack decodes "
+                            f"{shortfall} sample(s) short of its {frame_count}-frame "
+                            f"grid after muxing, even though it was padded to the "
+                            f"grid before encoding - the mux itself (commonly AAC's "
+                            f"frame alignment) trimmed it further. The shot map has "
+                            f"been re-measured against what the file actually "
+                            f"decodes to, so it stays accurate, but a consumer "
+                            f"reading exact sample counts should expect this small "
+                            f"residual gap.",
+                            kind="joined_audio_short_after_mux",
+                            file=os.path.basename(output_path),
+                            shortfall_samples=shortfall,
+                            written_samples=written_samples,
+                            expected_samples=expected_samples,
+                        )
             written_peak = warn_if_written_above_full_scale(
                 output_path,
                 already_warned=(
@@ -1056,9 +1173,23 @@ class Result:
             and fps
             and not hasattr(artifact.frames, "cleanup")
         ):
-            from .tasks.video_utils import _fit_audio_to_frames
+            from .tasks.video_utils import _fit_audio_to_frames, _sample_axis
 
-            audio = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            fitted = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            axis = _sample_axis(audio)
+            if (
+                axis is not None
+                and fitted.shape[axis] != audio.shape[axis]
+                and artifact.shots
+            ):
+                # The fit trims or pads to the frames' own duration - a shot
+                # map measured against the pre-fit track (#426) now overruns
+                # or falls short of what actually gets written, so it is
+                # re-measured against the same length the mux will see
+                from .shots import measured_num_samples
+
+                measured_num_samples(artifact.shots, fitted.shape[axis])
+            audio = fitted
             artifact.audio = audio
 
         # Segment-backed frames (a chained step with save_segments) replay from
@@ -1202,7 +1333,11 @@ def read_embedded_metadata(path):
         from PIL import Image
 
         with Image.open(path) as image:
-            text = getattr(image, "text", {}).get("parameters")
+            # image.text would load() the whole image to reach chunks after
+            # IDAT; the writer puts its chunk before IDAT, where info holds it
+            if image.width * image.height > MAX_DECODE_PIXELS:
+                return None
+            text = image.info.get("parameters")
             if text is None and "exif" in getattr(image, "info", {}):
                 import piexif
                 import piexif.helper

@@ -135,6 +135,61 @@ def test_silence_is_clamped_not_minus_infinity(tmp_path):
     assert not math.isinf(info["mean_dbfs"])
 
 
+class TestLoudness:
+    """integrated_lufs and true_peak_dbfs, #361 - a level measured over the
+    whole track rather than a single sample."""
+
+    def test_a_known_tone_reads_within_half_a_lu_of_its_reference(self, tmp_path):
+        # The known reference is pyloudnorm's own measurement of the exact
+        # waveform write_wav encodes - probe_media's answer, reached through
+        # a full decode of the file it wrote, must agree with a direct
+        # measurement of the source samples to within codec/quantization
+        # noise (the wav here is lossless, so this is tight).
+        import pyloudnorm
+
+        seconds, rate, amplitude = 2.0, 8000, 0.5
+        write_wav(
+            tmp_path / "tone.wav",
+            seconds=seconds,
+            sample_rate=rate,
+            amplitude=amplitude,
+        )
+        t = numpy.arange(int(seconds * rate)) / rate
+        tone = numpy.sin(2 * numpy.pi * 220 * t) * amplitude
+        reference = pyloudnorm.Meter(rate).integrated_loudness(
+            numpy.stack([tone, tone], axis=1)
+        )
+
+        info = probe_media(str(tmp_path / "tone.wav"))
+
+        assert info["integrated_lufs"] == pytest.approx(reference, abs=0.5)
+
+    def test_silence_reports_lufs_as_none_not_minus_infinity(self, tmp_path):
+        write_wav(tmp_path / "quiet.wav", amplitude=0.0)
+
+        info = probe_media(str(tmp_path / "quiet.wav"))
+
+        assert info["integrated_lufs"] is None
+        assert info["true_peak_dbfs"] == -120.0
+
+    def test_a_clip_shorter_than_the_gating_block_reports_lufs_as_none(self, tmp_path):
+        write_wav(tmp_path / "short.wav", seconds=0.1, sample_rate=8000, amplitude=0.5)
+
+        info = probe_media(str(tmp_path / "short.wav"))
+
+        assert info["integrated_lufs"] is None
+        # true peak is still a single-sample-independent measurement, and is
+        # defined for any nonempty track regardless of length
+        assert info["true_peak_dbfs"] < 0.0
+
+    def test_true_peak_is_reported_alongside_sample_peak(self, tmp_path):
+        write_wav(tmp_path / "score.wav", seconds=2.0, sample_rate=8000, amplitude=0.5)
+
+        info = probe_media(str(tmp_path / "score.wav"))
+
+        assert info["true_peak_dbfs"] == pytest.approx(-6.0, abs=0.5)
+
+
 def test_a_file_that_is_not_media_answers_none(tmp_path):
     (tmp_path / "notes.txt").write_text("not media")
 

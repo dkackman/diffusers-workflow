@@ -17,11 +17,14 @@ import logging
 import numpy
 from PIL import Image
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..result import AudioVideo
+from ..shots import measured_num_samples, nested_shots, shot_record
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
+    fit_audio_to_frames,
+    frames_to_samples,
     match_levels as match_track_levels,
     resample_waveform,
     warn_on_level_spread,
@@ -98,7 +101,10 @@ def dissolve_videos(
             )
 
     joined = clips[0]
+    # Where each clip's first frame landed - the start of its dissolve
+    frame_starts = [0]
     for clip in clips[1:]:
+        frame_starts.append(len(joined) - dissolve_frames)
         joined = _dissolve_join(joined, clip, dissolve_frames)
 
     if fade_in_frames or fade_out_frames:
@@ -116,18 +122,124 @@ def dissolve_videos(
             )
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
+    written_fps = fps or next(
+        (v.fps for v in loaded if getattr(v, "fps", None)),
+        None,
+    )
     audio, sample_rate = _dissolve_audio(
-        loaded, dissolve_frames, fps, match_levels, match_levels_dbfs, sample_rate
+        loaded,
+        dissolve_frames,
+        fps,
+        match_levels,
+        match_levels_dbfs,
+        sample_rate,
+        len(frames),
+        written_fps,
+    )
+    shots = _dissolve_shots(
+        loaded,
+        video_names(videos),
+        frame_starts,
+        len(frames),
+        written_fps,
+        audio,
+        sample_rate,
+        dissolve_frames,
     )
     logger.info(
         f"Dissolved {len(clips)} videos into {len(frames)} frames "
         f"({dissolve_frames}-frame seams)"
     )
-    written_fps = fps or next(
-        (v.fps for v in loaded if getattr(v, "fps", None)),
-        None,
-    )
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _dissolve_shots(
+    videos,
+    names,
+    frame_starts,
+    total_frames,
+    fps,
+    audio,
+    sample_rate,
+    dissolve_frames,
+):
+    """One shot per video - or, for one that already carries its own, one per
+    inner shot - partitioning the dissolved picture and track.
+
+    A dissolve belongs to the shot coming in: each video's own frames map
+    onto the joined picture by the exact offset frame_starts[index] gives (a
+    dissolve blends in place rather than dropping frames, unlike
+    concat_videos' head trim), so an input that is itself an earlier join's
+    output keeps its inner seams rather than collapsing to one record
+    (#399). `overlap_frames` marks how much of the shot's own head - the
+    first inner one, when it nests - is blended with what came before. The
+    same dissolve also eats into the *tail* of the video before it: a
+    non-nested video's shot already stops at frame_starts[index + 1] (the
+    frame the next video's overlap starts blending at), so its recorded
+    num_frames excludes the overlap; a nested video's last inner shot must
+    be trimmed by the same dissolve_frames to keep that convention, or its
+    num_frames runs past where the next shot's start_frame picks up (#405).
+
+    Each shot's `start_sample` is *derived* from its frame offset
+    (frames_to_samples), the same rule pair_audio's remeasured_shots uses,
+    rather than read off where the crossfade actually landed: summing the
+    individually-rounded per-clip lengths a real dissolve measures does not
+    equal rounding the cumulative frame count in one step, so the two tools
+    disagreed by a sample on a shot whose frames never changed (#401). The
+    crossfade itself still blends the real, measured audio - only the
+    recorded seam position is derived, so it matches whatever a later
+    pair_audio recomputes for the same boundary. A nested video's own inner
+    shots get the same treatment (`nested_shots(..., fps=fps)`) rather than
+    rescaling their already-rounded stored `start_sample`, which would
+    compound the rounding across every join an input has passed through
+    (#405).
+    """
+    total_samples = audio.shape[1] if audio is not None else None
+    shots = []
+    for index, (video, name) in enumerate(zip(videos, names)):
+        inner = getattr(video, "shots", None)
+        sample_offset = (
+            min(frames_to_samples(frame_starts[index], fps, sample_rate), total_samples)
+            if audio is not None and fps
+            else None
+        )
+        if inner:
+            nested = nested_shots(
+                inner,
+                frame_starts[index],
+                sample_offset,
+                getattr(video, "sample_rate", None),
+                sample_rate,
+                fps=fps,
+            )
+            if index and dissolve_frames and nested:
+                nested[0]["overlap_frames"] = dissolve_frames
+            if dissolve_frames and nested and index < len(videos) - 1:
+                nested[-1]["num_frames"] -= dissolve_frames
+            # Which input this shot came from - named_shots (dw/shots.py)
+            # uses it to place a step's override name on the right shot once
+            # an earlier input has nested more than one of its own (#432)
+            for shot in nested:
+                shot["source_index"] = index
+            shots.extend(nested)
+        else:
+            frame_end = (
+                frame_starts[index + 1]
+                if index + 1 < len(frame_starts)
+                else total_frames
+            )
+            shot = shot_record(
+                name,
+                frame_starts[index],
+                frame_end - frame_starts[index],
+                sample_offset,
+            )
+            if index and dissolve_frames:
+                shot["overlap_frames"] = dissolve_frames
+            shot["source_index"] = index
+            shots.append(shot)
+    measured_num_samples(shots, total_samples)
+    return shots
 
 
 def _dissolve_join(previous, following, overlap):
@@ -159,6 +271,8 @@ def _dissolve_audio(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
+    total_frames=None,
+    written_fps=None,
 ):
     """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
@@ -184,7 +298,16 @@ def _dissolve_audio(
     rates = {v.sample_rate for v in tracks}
     sample_rate = sample_rate or max(rates)
     waveforms = [as_channels_samples(v.audio) for v in tracks]
-    if len(rates) != 1 or any(v.sample_rate != sample_rate for v in tracks):
+    if len(rates) == 1 and next(iter(rates)) != sample_rate:
+        # The inputs agree and the caller pinned another rate: converting
+        # to what was asked for is not a decision made on its behalf (#453)
+        emit_log(
+            f"dissolve_videos: resampling every track from {next(iter(rates))} Hz "
+            f"to the requested {sample_rate} Hz",
+            command="dissolve_videos",
+            sample_rate=sample_rate,
+        )
+    elif len(rates) != 1:
         per_track = {name: v.sample_rate for name, v in zip(track_names, tracks)}
         emit_warning(
             "dissolve_videos: videos carry audio at different sample rates ("
@@ -197,14 +320,14 @@ def _dissolve_audio(
             sample_rate=sample_rate,
             sample_rates=per_track,
         )
-        waveforms = [
-            (
-                waveform
-                if video.sample_rate == sample_rate
-                else resample_waveform(waveform, video.sample_rate, sample_rate)
-            )
-            for video, waveform in zip(tracks, waveforms)
-        ]
+    waveforms = [
+        (
+            waveform
+            if video.sample_rate == sample_rate
+            else resample_waveform(waveform, video.sample_rate, sample_rate)
+        )
+        for video, waveform in zip(tracks, waveforms)
+    ]
     crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     if match_levels:
         waveforms = match_track_levels(
@@ -212,4 +335,8 @@ def _dissolve_audio(
         )
     else:
         warn_on_level_spread(waveforms, "dissolve_videos")
-    return crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate
+    joined = crossfade_concat(waveforms, sample_rate, crossfade_ms)
+    joined = fit_audio_to_frames(
+        joined, sample_rate, total_frames, written_fps, "dissolve_videos"
+    )
+    return joined, sample_rate

@@ -11,13 +11,17 @@ import logging
 
 from ..events import emit_warning
 from ..result import AudioVideo
+from ..shots import remeasured_shots
 from .audio_utils import as_channels_samples
 
 logger = logging.getLogger("dw")
 
-# A track and a cut are frame-aligned by construction here, so a difference
-# smaller than this is rounding rather than a decision anyone can act on -
-# one video frame at 24 fps is 41 ms
+# Only gates the unfitted mismatch warning (no 'fit' given): a track and a
+# cut are frame-aligned by construction here, so a difference smaller than
+# this is rounding rather than a decision anyone can act on - one video frame
+# at 24 fps is 41 ms. An explicit 'fit': 'video' always fits and warns on any
+# nonzero difference - the caller asked for exactness, not a guess at whether
+# the gap matters
 LENGTH_WARN_MS = 100.0
 
 
@@ -69,12 +73,12 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
 
     wanted = frames_to_samples(count, fps, rate)
     have = waveform.shape[1]
-    if abs(have - wanted) / float(rate) * 1000.0 < LENGTH_WARN_MS:
-        return waveform
-
     video_seconds = count / float(fps)
     audio_seconds = have / float(rate)
+
     if fit != "video":
+        if abs(have - wanted) / float(rate) * 1000.0 < LENGTH_WARN_MS:
+            return waveform
         emit_warning(
             f"pair_audio: the track is {audio_seconds:.2f} s and the video it "
             f"is laid over is {video_seconds:.2f} s ({count} frames at "
@@ -88,32 +92,85 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
         )
         return waveform
 
+    if have == wanted:
+        # Already exact - nothing to pad, trim or warn about
+        return waveform
+
     fitted = slice_samples(waveform, 0, wanted)
+    # A gap smaller than one video frame cannot line up with anything the cut
+    # does - the two rates just don't divide evenly - so it is reported as
+    # what it is (a sample count) rather than as a claim on the picture
+    # ("the last part of the cut has no soundtrack") that a 1-sample pad does
+    # not support. At 24 fps a frame is 41.67 ms; formatting a sub-frame gap
+    # to two decimal places of a second is what produced "0.00 s of silence
+    # ... has no soundtrack" (#429) - self-contradictory and, followed as
+    # written, unfixable, since the gap is smaller than either 'a longer
+    # track' or 'fewer frames' can address.
+    frame_seconds = 1.0 / float(fps)
     if wanted > have:
-        emit_warning(
-            f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
-            f"{(wanted - have) / float(rate):.2f} s of silence to reach the "
-            f"{video_seconds:.2f} s of video it is laid over - the last part "
-            f"of the cut has no soundtrack. A longer track, or fewer frames, "
-            f"is what covers it.",
-            kind="audio_padded_to_video",
-            command="pair_audio",
-            audio_seconds=audio_seconds,
-            video_seconds=video_seconds,
-        )
+        pad_samples = wanted - have
+        pad_seconds = pad_samples / float(rate)
+        if pad_seconds < frame_seconds:
+            emit_warning(
+                f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
+                f"{pad_samples} sample{'s' if pad_samples != 1 else ''} "
+                f"({pad_seconds * 1000:.2f} ms) of silence to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - under one "
+                f"video frame ({frame_seconds * 1000:.1f} ms), most likely "
+                f"ordinary rounding between the track's sample rate and the "
+                f"video's frame rate rather than a real gap.",
+                kind="audio_padded_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                pad_samples=pad_samples,
+            )
+        else:
+            emit_warning(
+                f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
+                f"{pad_seconds:.2f} s of silence to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - the last part "
+                f"of the cut has no soundtrack. A longer track, or fewer frames, "
+                f"is what covers it.",
+                kind="audio_padded_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                pad_samples=pad_samples,
+            )
     else:
-        emit_warning(
-            f"pair_audio: 'fit' trimmed {(have - wanted) / float(rate):.2f} s "
-            f"off the {audio_seconds:.2f} s track to reach the "
-            f"{video_seconds:.2f} s of video it is laid over - that part of "
-            f"the track, whatever it held, is gone from the deliverable. A "
-            f"shorter track, or more frames, is what keeps it.",
-            kind="audio_trimmed_to_video",
-            command="pair_audio",
-            audio_seconds=audio_seconds,
-            video_seconds=video_seconds,
-            trimmed_seconds=(have - wanted) / float(rate),
-        )
+        trimmed_samples = have - wanted
+        trimmed_seconds = trimmed_samples / float(rate)
+        if trimmed_seconds < frame_seconds:
+            emit_warning(
+                f"pair_audio: 'fit' trimmed {trimmed_samples} sample"
+                f"{'s' if trimmed_samples != 1 else ''} "
+                f"({trimmed_seconds * 1000:.2f} ms) off the {audio_seconds:.2f} s "
+                f"track to reach the {video_seconds:.2f} s of video it is laid "
+                f"over - under one video frame ({frame_seconds * 1000:.1f} ms), "
+                f"most likely ordinary rounding between the track's sample rate "
+                f"and the video's frame rate rather than lost content.",
+                kind="audio_trimmed_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                trimmed_seconds=trimmed_seconds,
+                trimmed_samples=trimmed_samples,
+            )
+        else:
+            emit_warning(
+                f"pair_audio: 'fit' trimmed {trimmed_seconds:.2f} s "
+                f"off the {audio_seconds:.2f} s track to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - that part of "
+                f"the track, whatever it held, is gone from the deliverable. A "
+                f"shorter track, or more frames, is what keeps it.",
+                kind="audio_trimmed_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                trimmed_seconds=trimmed_seconds,
+                trimmed_samples=trimmed_samples,
+            )
     return fitted
 
 
@@ -136,8 +193,9 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             reported wrong
         fps: The rate the frames play at, when the frames do not carry one -
             only used to work out how long the video is, never written
-        fit: "video" cuts the track to the length of the frames, or pads it
-            with silence and warns when it is shorter than they are. This is
+        fit: "video" cuts or pads the track with silence to the length of the
+            frames, warning either way (`audio_padded_to_video` when it pads,
+            `audio_trimmed_to_video` when it cuts). This is
             how a soundtrack follows a cut whose length is an argument
             rather than a constant: nothing in a workflow can multiply a
             list's length by a frame count, so a slice written to fit four
@@ -145,7 +203,18 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             deliverable's audio ran twice as long as its picture with
             `succeeded` and no warnings (#142). Left unset the track is used
             as it is, and a length that disagrees with the frames' is
-            warned about rather than passing in silence
+            warned about rather than passing in silence. The exactness
+            `fit` guarantees is of the *waveform handed to the encoder*, not
+            of the file a lossy mux (AAC, the only container this saves
+            audio+video into) writes: encoding is downstream of this
+            function and can still trim or pad the written track by a
+            further handful of samples (#428 measured up to ~30, well under
+            a millisecond). The save logs that residual; on a video with
+            recorded shots it warns (`joined_audio_short_after_mux`, #435)
+            only once it reaches a frame. `get_gallery_metadata`'s `media.shots`
+            and `assess_output`'s `sync_length` are measured against the
+            file as written, not this prediction, so they are the ground
+            truth for exactly how long the saved track runs
 
     Returns:
         One AudioVideo holding the frames and the track, at the rate the
@@ -186,4 +255,14 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     waveform = _fit_to_video(
         as_channels_samples(waveform), rate, frames, frame_rate, fit
     )
-    return AudioVideo(frames, waveform, rate, fps=getattr(video, "fps", None))
+    # The picture's shots survive; their samples are re-measured on the new
+    # track, which was laid under whole rather than built shot by shot
+    return AudioVideo(
+        frames,
+        waveform,
+        rate,
+        fps=getattr(video, "fps", None),
+        shots=remeasured_shots(
+            getattr(video, "shots", None), frame_rate, rate, waveform.shape[1]
+        ),
+    )

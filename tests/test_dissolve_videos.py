@@ -133,6 +133,27 @@ class TestDissolveVideos:
         assert warnings[0]["sample_rate"] == 200
         assert warnings[0]["sample_rates"] == {"video 1": 100, "video 2": 200}
 
+    def test_agreeing_rates_resampled_to_a_pinned_rate_draw_no_warning(self):
+        """#453: every input at 32 kHz and the template pinning 44.1 kHz
+        warned that the videos 'carry audio at different sample rates' -
+        they didn't, and converting to the rate asked for is not a decision
+        made on the caller's behalf."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        first = audio_video(8, 0, 1.0, sample_rate=100)
+        second = audio_video(8, 0, 1.0, sample_rate=100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = dissolve_videos([first, second], 2, fps=4, sample_rate=200)
+        finally:
+            deactivate_context(token)
+
+        assert result.sample_rate == 200
+        assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
+        assert any(e["event"] == "log" and "200 Hz" in e["message"] for e in events)
+
     def test_matching_rates_are_left_alone(self, caplog):
         first = audio_video(8, 0, 1.0, sample_rate=100)
         second = audio_video(8, 0, 1.0, sample_rate=100)
@@ -168,6 +189,78 @@ class TestLevelMatching:
 
         assert abs(result.audio[0][-1]) == pytest.approx(0.05)
         assert "level jump" in caplog.text
+
+
+class TestJoinedAudioFitsTheFrameGrid:
+    """#435: the dissolved track was only ever as long as its crossfaded
+    inputs measured, with nothing reconciling it against the frame count -
+    so an input already short of its own frame grid (an ltx2/keyframes clip,
+    in the reported repro) carried its shortfall into the join, and a
+    further join built on that output compounded it. See #428 for the same
+    remedy on pair_audio's single-track case."""
+
+    def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = dissolve_videos(
+            [short, audio_video(8, 0, 0.5)], dissolve_frames=0, fps=4
+        )
+
+        expected = frames_to_samples(16, 4, 100)
+        assert result.audio.shape[1] == expected
+        assert "padded" in caplog.text
+
+    def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(8, 0), numpy.full((2, 190), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = dissolve_videos(
+            [short, audio_video(8, 0, 0.5)], dissolve_frames=0, fps=4
+        )
+
+        expected = frames_to_samples(16, 4, 100)
+        assert result.shots[-1]["start_sample"] + result.shots[-1]["num_samples"] == (
+            expected
+        )
+
+    def test_padding_is_emitted_as_a_warning_event(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            dissolve_videos([short, audio_video(8, 0, 0.5)], dissolve_frames=0, fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "dissolve_videos"
+        assert warnings[0]["pad_samples"] == 30
+
+    def test_a_track_already_on_the_grid_draws_no_warning(self, caplog):
+        result = dissolve_videos(
+            [audio_video(8, 0, 0.5), audio_video(8, 0, 0.5)],
+            dissolve_frames=0,
+            fps=4,
+        )
+
+        assert "padded" not in caplog.text
+        assert "trimmed" not in caplog.text
+        assert result.audio.shape[1] == 400
 
 
 class TestFrameRateTravelsWithTheDissolve:

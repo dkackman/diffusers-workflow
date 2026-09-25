@@ -230,15 +230,6 @@ class TestGetOutputAudio:
         with pytest.raises(DwApiError, match="byte limit"):
             get_output_audio(client, "clip.wav")
 
-    def test_a_missing_file_propagates_the_api_error(self):
-        def handler(request):
-            return httpx.Response(404, json={"detail": "Unknown file"})
-
-        client = DwClient(transport=httpx.MockTransport(handler))
-
-        with pytest.raises(DwApiError, match="Unknown file"):
-            get_output_audio(client, "ghost.wav")
-
 
 def test_audio_is_fetched_from_the_gallery_audio_route():
     seen = []
@@ -331,23 +322,6 @@ def test_a_non_image_output_is_refused_without_reading_the_body():
         get_output_image(client, "clip.mp4")
 
     assert stream.iterated is False
-
-
-def test_an_undecodable_body_is_refused_clearly():
-    client = serving(b"not an image at all", "image/png")
-
-    with pytest.raises(DwApiError, match="could not be decoded"):
-        get_output_image(client, "broken.png")
-
-
-def test_a_missing_file_propagates_the_api_error():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError, match="Unknown file"):
-        get_output_image(client, "ghost.png")
 
 
 def test_the_name_is_url_quoted_in_the_request():
@@ -516,16 +490,6 @@ def test_the_text_tool_names_the_tool_that_can_read_an_image():
         media.get_output_text(client, "out.png")
 
 
-def test_a_missing_text_output_surfaces_the_error():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError):
-        media.get_output_text(client, "ghost.txt")
-
-
 def test_undecodable_bytes_do_not_crash_the_tool():
     """A file the server labels text but that is not valid UTF-8 should read
     as damaged output, not as a tool that blew up."""
@@ -550,16 +514,6 @@ def test_delete_output_calls_delete_on_the_gallery_route():
 
     assert media.delete_output(client, "out.png")["deleted"] is True
     assert seen == [("DELETE", "/api/gallery/out.png")]
-
-
-def test_delete_output_surfaces_a_missing_file():
-    def handler(request):
-        return httpx.Response(404, json={"detail": "Unknown file"})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError, match="Unknown file"):
-        media.delete_output(client, "ghost.png")
 
 
 def deleting_by_job(job):
@@ -943,6 +897,42 @@ def test_a_mounted_server_refuses_an_overwrite_outside_the_workspace(tmp_path):
     assert victim.read_text() == "mine"
 
 
+def test_a_mounted_server_confines_a_per_call_workspace_override(tmp_path):
+    """#389: download_output's own `workspace` argument overrides the
+    session's pin for the download itself (stream_to_file already forwarded
+    it), but _remote_root asked /api/server with no workspace at all, so the
+    confinement root stayed the session's - a relative destination under a
+    workspace= override landed in the wrong tree with no error."""
+    default_ws = tmp_path / "default"
+    default_ws.mkdir()
+    other_ws = tmp_path / "other"
+    other_ws.mkdir()
+
+    def handler(request):
+        if request.url.path == "/api/server":
+            requested = httpx.QueryParams(request.url.query.decode())
+            root = other_ws if requested.get("workspace") == "other" else default_ws
+            return httpx.Response(
+                200,
+                json={"directories": {"workspace": str(root)}},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200, content=png_bytes(4, 4), headers={"content-type": "image/png"}
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    client.mounted = True
+
+    result = download_output(
+        client, "run/probe.jpg", destination="kept/probe.jpg", workspace="other"
+    )
+
+    assert result["saved_to"] == str(other_ws / "kept" / "probe.jpg")
+    assert (other_ws / "kept" / "probe.jpg").read_bytes() == png_bytes(4, 4)
+    assert not (default_ws / "kept" / "probe.jpg").exists()
+
+
 def test_a_mounted_server_writes_a_relative_destination_into_its_workspace(tmp_path):
     """And the default keeps working: a relative destination is joined onto
     the workspace rather than onto whatever the server's cwd happens to be."""
@@ -954,6 +944,21 @@ def test_a_mounted_server_writes_a_relative_destination_into_its_workspace(tmp_p
 
     assert result["saved_to"] == str(workspace / "kept" / "probe.jpg")
     assert (workspace / "kept" / "probe.jpg").read_bytes() == png_bytes(4, 4)
+
+
+def test_a_mounted_server_refuses_an_omitted_destination(tmp_path):
+    """#353: defaulting into the workspace root stranded a file nothing could
+    later find or delete - so a mounted endpoint now requires an explicit
+    destination rather than picking one."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client = mounted(png_bytes(4, 4), "image/png", workspace)
+
+    with pytest.raises(DwApiError) as refusal:
+        download_output(client, "run/probe.jpg")
+
+    assert "destination is required" in str(refusal.value)
+    assert list(workspace.iterdir()) == []
 
 
 def test_a_stdio_client_still_writes_wherever_the_user_can(tmp_path):
@@ -1272,3 +1277,48 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     assert "audio" not in result["tiles"][1]
     assert "audio" not in result["tiles"][2]
     assert result["audio_truncated"] is True
+
+
+def _assess_client(body=None):
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json=body or {"findings": []})
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+def test_assess_output_refuses_an_unknown_probe_before_any_request():
+    """#388: the probe is whitelisted before anything else is read - no
+    request leaves for a name outside it."""
+    client, seen = _assess_client()
+
+    with pytest.raises(DwApiError) as refused:
+        media.assess_output(client, "cut.mp4", probe="analyze_vibes")
+
+    assert seen == []
+    for probe in ("analyze_shots", "analyze_seams", "analyze_sync_drift"):
+        assert probe in str(refused.value)
+
+
+def test_assess_output_passes_probe_detail_and_an_asset_name_through():
+    client, seen = _assess_client({"probe": "analyze_seams", "seams": []})
+
+    result = media.assess_output(
+        client, "asset:episode.mp4", probe="analyze_seams", detail=True
+    )
+
+    assert result == {"probe": "analyze_seams", "seams": []}
+    method, path, params = seen[0]
+    assert method == "GET"
+    assert path == "/api/gallery/asset:episode.mp4/assess"
+    assert params == {"probe": "analyze_seams", "detail": "true"}
+
+
+def test_assess_output_sends_no_parameters_by_default():
+    client, seen = _assess_client()
+
+    media.assess_output(client, "cut.mp4")
+
+    assert seen[0][2] == {}

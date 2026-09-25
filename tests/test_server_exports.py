@@ -4,6 +4,7 @@ same tree as a zip."""
 import io
 import json
 import os
+import time
 import zipfile
 
 import pytest
@@ -56,8 +57,10 @@ def exporting_script(command):
         json.dump(
             {
                 "run_id": RUN_ID,
+                "version": 4,
                 "status": "completed",
                 "seed": 7,
+                "workflow": {"identity": "server_test"},
                 "steps": [{"step": "gen", "files": ["still.png"]}],
             },
             file,
@@ -66,6 +69,7 @@ def exporting_script(command):
         "type": "progress",
         "event": "run_start",
         "run_id": RUN_ID,
+        "version": 4,
         "identity": "server_test",
         "run_dir": RUN_DIR,
     }
@@ -282,6 +286,8 @@ class TestExportDirectory:
         assert job_id in readme
         assert "python -m dw.run workflow.json" in readme
         assert "Git LFS" in readme
+        # which run, in the form the gallery labels it
+        assert f"`{RUN_ID}` - version 4" in readme
 
     def test_the_job_s_own_asset_dir_is_used_not_the_export_s_workspace(
         self, server, workspace_root
@@ -347,6 +353,69 @@ class TestExportDirectory:
             forced = client.post(f"/api/jobs/{job_id}/export?overwrite=true")
             assert forced.status_code == 201
 
+    def test_auth_required_reflects_whether_a_token_is_configured(
+        self, workspace_root, tmp_path
+    ):
+        # #353: an MCP-only agent has no way to attach a bearer token to a
+        # fetch on the person's behalf, so export_job's `next` hint branches
+        # on this field rather than assuming the zip is open to fetch.
+        manager = JobManager(
+            workspace_root.outputs,
+            worker_manager=ScriptedWorkerManager(exporting_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=workspace_root.workflows,
+        )
+        app = create_app(
+            workflow_dir=workspace_root.workflows,
+            output_dir=workspace_root.outputs,
+            job_manager=manager,
+            prompt_dir=workspace_root.prompts,
+            asset_dir=workspace_root.assets,
+            workspace=workspace_root.root,
+            token="s3cr3t",
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            headers = {"Authorization": "Bearer s3cr3t"}
+            submitted = client.post(
+                "/api/jobs",
+                json={"workflow": valid_workflow(), "arguments": {}},
+                headers=headers,
+            ).json()
+            deadline = time.time() + 5.0
+            detail = None
+            while time.time() < deadline:
+                detail = client.get(
+                    f"/api/jobs/{submitted['id']}", headers=headers
+                ).json()
+                if detail["status"] in TERMINAL_STATES:
+                    break
+                time.sleep(0.02)
+            assert detail["status"] in TERMINAL_STATES
+            body = client.post(
+                f"/api/jobs/{submitted['id']}/export", headers=headers
+            ).json()
+
+        assert body["auth_required"] is True
+
+    def test_an_absolute_zip_url_is_added_when_a_public_url_is_configured(
+        self, server, monkeypatch
+    ):
+        monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
+        with server() as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        assert (
+            body["absolute_zip_url"] == f"https://dw.example.com/exports/{job_id}.zip"
+        )
+
+    def test_no_absolute_zip_url_when_no_public_url_is_configured(self, server):
+        with server() as client:
+            job_id = finished(client)
+            body = client.post(f"/api/jobs/{job_id}/export").json()
+
+        assert "absolute_zip_url" not in body
+
 
 class TestExportWithoutAWorkspace:
     def test_a_server_with_no_workspace_root_answers_409_not_a_crash(
@@ -376,6 +445,10 @@ class TestExportZip:
             response = client.get(f"/exports/{job_id}.zip")
 
         assert response.status_code == 200
+        # the saved file says which run it is; the URL and the entries
+        # inside keep the job id
+        disposition = response.headers["content-disposition"]
+        assert f"server_test-v4-{job_id}.zip" in disposition
         archive = zipfile.ZipFile(io.BytesIO(response.content))
         assert sorted(archive.namelist()) == sorted(
             f"{job_id}/{entry['path']}" for entry in body["files"]

@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 from ..result import AudioVideo
+from ..shots import carried_shots
 from .video_utils import frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -117,5 +118,12 @@ def stabilize_video(clip, smooth=0):
         )
 
     if isinstance(clip, AudioVideo):
-        return AudioVideo(held, clip.audio, clip.sample_rate, fps=clip.fps)
+        # Same frames, one for one, so every shot boundary still holds
+        return AudioVideo(
+            held,
+            clip.audio,
+            clip.sample_rate,
+            fps=clip.fps,
+            shots=carried_shots(clip),
+        )
     return held

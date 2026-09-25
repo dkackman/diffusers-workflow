@@ -13,7 +13,7 @@
     "negative_prompt": null,
     "mode": "x2",
     "num_inference_steps": 25,
-    "guidance_scale": 9,
+    "guidance_scale": 9.0,
     "noise_level": 20,
     "device": "cuda"
   },

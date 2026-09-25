@@ -11,7 +11,7 @@ reference - re-checking either here would only give the two a chance to
 disagree.
 """
 
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
 ENHANCE_COST_REFUSAL = (
     "Enhancing a prompt loads a language model and queues a real job on the "
@@ -56,6 +56,7 @@ def get_prompt_schema(client):
 def save_prompt(client, name, prompt):
     """Write a prompt into the library, overwriting any prompt of that name.
     The server validates before it writes."""
+    prompt = coerce_json_object(prompt, "prompt")
     return client.put_json(api_path("api", "prompts", name), {"prompt": prompt})
 
 

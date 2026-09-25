@@ -3,7 +3,8 @@
         "prompt": "a single ceramic coffee mug on a plain wooden table, soft window light, photograph",
         "first_edit": "make the mug red",
         "second_edit": "make the mug blue",
-        "third_edit": "make the mug green"
+        "third_edit": "make the mug green",
+        "seed": null
     },
     "id": "ConsistentSet",
     "shape": "image-set",
@@ -16,6 +17,7 @@
             "minutes": 11.5
         }
     ],
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "base",

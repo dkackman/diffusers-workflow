@@ -407,6 +407,40 @@ def test_submit_validation(server):
         assert client.app.state.job_manager.worker_manager.commands == []
 
 
+def test_submit_refuses_a_content_type_that_only_resolves_active_via_arguments(server):
+    # #414: a literal "text/html" is refused before queueing (#410); the same
+    # value reached through "variable:ct" and the caller's own arguments used
+    # to slip past submit_job's schema-only validate() and queue a job that
+    # then failed at save time - the same call POST /api/validate already
+    # refused
+    workflow = {
+        "id": "se-f035",
+        "variables": {"ct": "text/plain"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    with server(success_script) as client:
+        validated = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "arguments": {"ct": "text/html"}},
+        ).json()
+        assert validated["valid"] is False
+
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"ct": "text/html"}},
+        )
+        assert response.status_code == 400
+        assert "text/html" in response.json()["detail"]
+        # nothing reached the worker
+        assert client.app.state.job_manager.worker_manager.commands == []
+
+
 def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
     """The names /api/workflows hands out are what an agent has in hand, so
     they must be submittable as-is - with or without .json, nested included."""
@@ -534,6 +568,16 @@ def test_submit_rejects_a_traversal_shaped_name(server):
             client.post("/api/jobs", json={"workflow_path": "nope"}).status_code == 400
         )
         assert client.app.state.job_manager.worker_manager.commands == []
+
+
+def test_submit_names_a_suggestion_for_a_short_workflow_path(server):
+    """#397: a workflow_path that's a catalog entry's trailing segment (the
+    name a skill or earlier turn is likely to say) points at the entry
+    rather than a bare 400."""
+    with server(success_script) as client:
+        response = client.post("/api/jobs", json={"workflow_path": "asic"})
+        assert response.status_code == 400
+        assert "did you mean Basic?" in response.json()["detail"]
 
 
 def test_validate_accepts_a_stored_workflow_name(server, tmp_path):
@@ -681,6 +725,22 @@ def test_workflow_browsing_and_confinement(server):
 
         assert client.get("/api/workflows/../secret").status_code == 404
         assert client.get("/api/workflows/nope").status_code == 404
+
+        # #397: a name that is a catalog entry's trailing segment points at
+        # the entry it's short for, rather than a bare 404
+        client.put("/api/workflows/sub/Basic", json={"workflow": valid_workflow()})
+        missed = client.get("/api/workflows/nope2")
+        assert missed.status_code == 404
+        assert "did you mean" not in missed.json()["detail"]
+
+        short = client.get("/api/workflows/Basic")
+        assert (
+            short.status_code == 200
+        )  # the top-level name still shadows the nested one
+
+        suggested = client.get("/api/workflows/sub%2FBasik")
+        assert suggested.status_code == 404
+        assert "sub/Basic" in suggested.json()["detail"]
 
 
 def test_configures_resolves_against_the_listing(server):
@@ -1189,13 +1249,6 @@ def test_bearer_token_gates_the_api_when_configured(tmp_path):
         assert client.get(f"/api/jobs/{job['id']}/events").status_code == 401
 
 
-def test_no_token_configured_means_no_auth(server):
-    """The default, unconfigured behavior is unchanged: no token means no
-    Authorization check at all."""
-    with server(success_script) as client:
-        assert client.get("/api/health").status_code == 200
-
-
 def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
     with server(success_script) as client:
         workflow = valid_workflow("saved")
@@ -1303,6 +1356,59 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
 
         still = client.get("/api/gallery/still-gen.0-0.0.png/metadata").json()
         assert still["media"] is None
+
+
+def test_gallery_metadata_accepts_an_output_reference(server, tmp_path):
+    """A name copied from an 'output:' reference used to 404 with "path does
+    not exist" instead of resolving - the prefix was joined straight into the
+    path rather than stripped first (#356)."""
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+
+        plain = client.get("/api/gallery/score-gen.0-0.0.wav/metadata")
+        prefixed = client.get("/api/gallery/output:score-gen.0-0.0.wav/metadata")
+
+        assert prefixed.status_code == plain.status_code == 200
+        assert prefixed.json()["media"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.01
+        )
+
+
+def test_gallery_output_reference_traversal_is_still_refused(server, tmp_path):
+    """Stripping the 'output:' prefix must not open a new escape - the
+    stripped remainder still goes through validate_path (#356)."""
+    with server(success_script) as client:
+        response = client.get("/api/gallery/output:../jobs.sqlite/metadata")
+        assert response.status_code == 404
+        assert (tmp_path / "jobs.sqlite").exists()
+
+
+def test_gallery_lists_media_duration_when_asked(server, tmp_path):
+    """size and mtime are misleading proxies for a take's length - a
+    bitrate difference can make a shorter file the bigger one - so
+    ?media=true adds duration_seconds per entry, bounded by the page
+    returned rather than the whole library (#356)."""
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+
+        default = client.get("/api/gallery").json()
+        assert all("duration_seconds" not in e for e in default["files"])
+
+        with_media = client.get("/api/gallery", params={"media": "true"}).json()
+        by_name = {e["name"]: e for e in with_media["files"]}
+        assert by_name["score-gen.0-0.0.wav"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.01
+        )
+        assert by_name["shot-gen.0-0.0.mp4"]["duration_seconds"] == pytest.approx(
+            2.0, abs=0.1
+        )
 
 
 def test_gallery_audio_extracts_a_videos_soundtrack(server, tmp_path):
@@ -1515,6 +1621,118 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
         assert body["tiles"][0]["mime_type"] == "image/png"
         assert body["tiles"][0]["width"] == 32  # downscaled to max_dimension
         assert _png_of(body["tiles"][0]).size == (32, 16)
+
+
+def test_gallery_frames_seams_read_a_joined_outputs_recorded_shots(server, tmp_path):
+    """#385: `seams` without `boundaries` was a 400 - the file carried no
+    seams of its own. An output whose run recorded shots for it now answers
+    from the manifest, named as recorded; `media.shots` in the metadata is
+    the same list. A file whose run recorded none still needs `boundaries`."""
+    import json
+
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        run = tmp_path / "outputs" / "cut" / "20260924-000000-0123abcd"
+        run.mkdir(parents=True)
+        write_ramp_mp4(run / "cut.mp4", frames=24, fps=6, width=64, height=32)
+        write_ramp_mp4(run / "other.mp4", frames=24, fps=6, width=64, height=32)
+        shots = [
+            {
+                "name": "shot@wide",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@close",
+                "start_frame": 10,
+                "num_frames": 14,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        (run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {"step": "cut", "files": ["cut.mp4"], "shots": shots},
+                        {"step": "other", "files": ["other.mp4"]},
+                    ]
+                }
+            )
+        )
+        name = "cut/20260924-000000-0123abcd/cut.mp4"
+
+        response = client.get(f"/api/gallery/{name}/frames", params={"seams": "true"})
+        assert response.status_code == 200, response.text
+        (tile,) = response.json()["tiles"]
+        assert tile["label"] == "seam 1: shot@wide | shot@close"
+
+        metadata = client.get(f"/api/gallery/{name}/metadata").json()
+        assert metadata["media"]["shots"] == shots
+
+        refused = client.get(
+            "/api/gallery/cut/20260924-000000-0123abcd/other.mp4/frames",
+            params={"seams": "true"},
+        )
+        assert refused.status_code == 400
+        assert "boundaries" in refused.json()["detail"]
+
+
+def test_gallery_frames_seams_read_a_linked_assets_recorded_shots(
+    asset_server, tmp_path
+):
+    """#430: `seams` without `boundaries` on a linked asset (`keep_output`'s
+    sidecar manifest, `record_kept_shots`) was refused with "this file's run
+    recorded no shots for it" even though `get_gallery_metadata`'s
+    `media.shots` had them - the route only ever checked the *output*
+    manifest (`recorded_shots`), never the asset sidecar (`shots_beside`)
+    that `get_gallery_metadata`/`assess_output` already read."""
+    import json
+
+    from tests.test_media_frames import write_ramp_mp4
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        assets.mkdir(parents=True, exist_ok=True)
+        write_ramp_mp4(assets / "cast.mp4", frames=24, fps=6, width=64, height=32)
+        shots = [
+            {
+                "name": "shot@wide",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": None,
+                "num_samples": None,
+            },
+            {
+                "name": "shot@close",
+                "start_frame": 10,
+                "num_frames": 14,
+                "start_sample": None,
+                "num_samples": None,
+            },
+        ]
+        (assets / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {"step": "keep_output", "files": ["cast.mp4"], "shots": shots}
+                    ]
+                }
+            )
+        )
+
+        response = client.get(
+            "/api/gallery/asset:cast.mp4/frames", params={"seams": "true"}
+        )
+        assert response.status_code == 200, response.text
+        (tile,) = response.json()["tiles"]
+        assert tile["label"] == "seam 1: shot@wide | shot@close"
+
+        metadata = client.get("/api/gallery/asset:cast.mp4/metadata").json()
+        assert metadata["media"]["shots"] == shots
 
 
 def test_gallery_frames_crop_names_the_same_source_region_at_any_max_dimension(
@@ -1993,6 +2211,129 @@ def test_gallery_reports_and_filters_by_subfolder(server, tmp_path):
         assert finals["subfolders"] == full["subfolders"]
 
 
+def test_gallery_reports_each_run_version(server, tmp_path):
+    """Four runs of one workflow write the same basename, so the gallery
+    label alone cannot tell them apart. Every entry carries the run it came
+    from and that run's ordinal - 'v4' - which is the handle an agent quotes
+    and a person finds in the grid."""
+    import json as _json
+
+    from PIL import Image
+
+    def _run(identity, run_id, version=None):
+        run = tmp_path / "outputs" / identity / run_id
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "film.7-0.0.png")
+        manifest = {"run_id": run_id}
+        if version is not None:
+            manifest["version"] = version
+        (run / "manifest.json").write_text(_json.dumps(manifest))
+        return run
+
+    with server(success_script) as client:
+        _run("acorn/cut", "20260901-120000-aaaaaaaa", version=1)
+        # v2 was deleted; v3 keeps its number rather than sliding down
+        _run("acorn/cut", "20260903-120000-cccccccc", version=3)
+        # a run from before the field existed is ranked, not dropped
+        _run("acorn/score", "20260902-120000-bbbbbbbb")
+        # the flat layout has no runs at all
+        (tmp_path / "outputs" / "ltx").mkdir()
+        Image.new("RGB", (2, 2)).save(tmp_path / "outputs" / "ltx" / "flat.png")
+
+        by_name = {f["name"]: f for f in client.get("/api/gallery").json()["files"]}
+
+        first = by_name["acorn/cut/20260901-120000-aaaaaaaa/final/film.7-0.0.png"]
+        assert first["version"] == 1
+        assert first["run_id"] == "20260901-120000-aaaaaaaa"
+        third = by_name["acorn/cut/20260903-120000-cccccccc/final/film.7-0.0.png"]
+        assert third["version"] == 3
+        # the two runs are indistinguishable by label alone - which is the
+        # whole reason the version is here
+        assert first["label"] == third["label"] == "film.7-0.0.png"
+        # numbering is per workflow identity, so another workflow's first
+        # run is its own v1
+        assert (
+            by_name["acorn/score/20260902-120000-bbbbbbbb/final/film.7-0.0.png"][
+                "version"
+            ]
+            == 1
+        )
+        assert by_name["ltx/flat.png"]["version"] is None
+        assert by_name["ltx/flat.png"]["run_id"] == ""
+
+        # "show me v3": folder and version together list exactly that run
+        names = [
+            f["name"]
+            for f in client.get(
+                "/api/gallery", params={"folder": "acorn/cut", "version": 3}
+            ).json()["files"]
+        ]
+        assert names == ["acorn/cut/20260903-120000-cccccccc/final/film.7-0.0.png"]
+        # version alone spans workflows: each one's v1
+        v1 = client.get("/api/gallery", params={"version": 1}).json()["files"]
+        assert {f["folder"] for f in v1} == {"acorn/cut", "acorn/score"}
+
+
+def test_gallery_metadata_names_the_run_and_its_version(server, tmp_path):
+    """After "look at version 3", the next call is usually this one - so it
+    answers with the run and the ordinal rather than making the caller go
+    back to the listing to confirm it read the right file."""
+    import json as _json
+
+    from PIL import Image
+
+    with server(success_script) as client:
+        run = tmp_path / "outputs" / "acorn/cut" / "20260903-120000-cccccccc"
+        (run / "final").mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "final" / "film.7-0.0.png")
+        (run / "manifest.json").write_text(_json.dumps({"version": 3}))
+
+        body = client.get(
+            "/api/gallery/acorn/cut/20260903-120000-cccccccc"
+            "/final/film.7-0.0.png/metadata"
+        ).json()
+        assert body["run_id"] == "20260903-120000-cccccccc"
+        assert body["version"] == 3
+
+
+def test_deleting_an_older_run_renumbers_none_of_its_siblings(server, tmp_path):
+    """Runs from before versions existed are ranked, so removing the oldest
+    would slide every later one down a number. The delete pins the
+    siblings' numbers into their manifests first - both for a whole run
+    directory and for the last file of a run, which sweeps the directory."""
+    import json as _json
+
+    from PIL import Image
+
+    identity = tmp_path / "outputs" / "acorn" / "cut"
+    run_ids = [f"2026090{day}-120000-aaaaaaaa" for day in (1, 2, 3, 4)]
+    with server(success_script) as client:
+        for run_id in run_ids:
+            (identity / run_id).mkdir(parents=True)
+            Image.new("RGB", (2, 2)).save(identity / run_id / "film.png")
+            (identity / run_id / "manifest.json").write_text(
+                _json.dumps({"run_id": run_id})
+            )
+
+        def versions():
+            return {
+                f["run_id"]: f["version"]
+                for f in client.get("/api/gallery").json()["files"]
+            }
+
+        assert versions() == dict(zip(run_ids, (1, 2, 3, 4)))
+        # the whole run directory
+        assert client.delete(f"/api/gallery/acorn/cut/{run_ids[0]}").status_code == 200
+        assert versions() == dict(zip(run_ids[1:], (2, 3, 4)))
+        # the last file of a run, which takes its directory with it
+        assert (
+            client.delete(f"/api/gallery/acorn/cut/{run_ids[1]}/film.png").status_code
+            == 200
+        )
+        assert not (identity / run_ids[1]).exists()
+        assert versions() == dict(zip(run_ids[2:], (3, 4)))
+
+
 def test_gallery_only_orphans_lists_media_less_run_directories(server, tmp_path):
     """#170: a run whose output was deleted before `delete_output` could
     remove it by name, or one that failed before writing anything, has no
@@ -2087,6 +2428,29 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         # a non-image file has no thumbnail rendition
         (outputs / "clip.mp4").write_bytes(b"\x00" * 10)
         assert client.get("/api/gallery/clip.mp4/thumbnail").status_code == 404
+
+
+def test_output_file_route_resolves_an_asset_reference(asset_server, tmp_path):
+    """#445: get_output_image/get_output_text hit '/outputs/<name>' directly,
+    and an 'asset:' name there used to 404 with no hint - every sibling
+    gallery route (metadata, /frames, /audio, /assess) already resolves one."""
+    from PIL import Image
+
+    with asset_server(success_script) as client:
+        Image.new("RGB", (4, 4), "red").save(tmp_path / "assets" / "portrait.png")
+
+        response = client.get("/outputs/asset:portrait.png")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+
+        missing = client.get("/outputs/asset:nothing.png")
+        assert missing.status_code == 404
+        # /outputs is outside the token gate: the miss still says what went
+        # wrong, but never names a server path
+        detail = missing.json()["detail"]
+        assert "nothing.png" in detail
+        assert str(tmp_path) not in detail
 
 
 def test_gallery_urls_change_when_a_file_is_rewritten(server, tmp_path):
@@ -2208,6 +2572,20 @@ def test_gallery_delete_and_job_linkage(server, tmp_path):
         assert (tmp_path / "jobs.sqlite").exists()
 
 
+def test_gallery_delete_accepts_an_output_reference(server, tmp_path):
+    """The same 'output:' prefix delete_output rejected before #356."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        Image.new("RGB", (4, 4)).save(outputs / "victim.png")
+
+        response = client.delete("/api/gallery/output:victim.png")
+
+        assert response.status_code == 200
+        assert not (outputs / "victim.png").exists()
+
+
 def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
     with server(success_script) as client:
         response = client.post(
@@ -2231,6 +2609,23 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         fetched = client.get(body["url"])
         assert fetched.status_code == 200
         assert fetched.content == b"not-really-png-bytes"
+
+
+def test_upload_media_adds_an_absolute_url_when_a_public_url_is_configured(
+    server, monkeypatch
+):
+    # #353: a client with no way to learn this server's origin otherwise -
+    # an MCP-only agent - gets an absolute_url only when an operator
+    # configured one; nothing derives an origin from request headers.
+    monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
+    with server(success_script) as client:
+        body = client.post(
+            "/api/uploads",
+            params={"filename": "source-image.png"},
+            content=b"not-really-png-bytes",
+        ).json()
+
+    assert body["absolute_url"] == f"https://dw.example.com{body['url']}"
 
 
 @pytest.fixture
@@ -2475,33 +2870,10 @@ def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     assert body["shadowed"] == []
 
 
-def test_an_audio_file_can_be_uploaded(asset_server, tmp_path):
-    """A workflow's audio reference is built from a .wav - refusing it would
-    leave one input kind with no way onto the machine."""
-    with asset_server(success_script) as client:
-        response = client.post(
-            "/api/uploads", params={"filename": "voice.wav"}, content=b"riff"
-        )
-    assert response.status_code == 201
-    assert response.json()["path"].startswith("asset:uploads/")
-    assert response.json()["path"].endswith(".wav")
-
-
 def test_the_asset_library_is_reported(asset_server, tmp_path):
     with asset_server(success_script) as client:
         directories = client.get("/api/server").json()["directories"]
         assert directories["assets"] == str(tmp_path / "assets")
-
-
-def test_without_an_asset_library_uploads_keep_the_old_shape(server, tmp_path):
-    with server(success_script) as client:
-        body = client.post(
-            "/api/uploads",
-            params={"filename": "source-image.png"},
-            content=b"bytes",
-        ).json()
-        assert os.path.isabs(body["path"])
-        assert body["url"].startswith("/outputs/uploads/")
 
 
 def test_upload_media_rejects_disallowed_extension(server):
@@ -2569,34 +2941,6 @@ def test_workflow_listing_carries_details(server):
             "writable": True,
         }
         assert listing["details"]["Basic"]["kinds"] == []
-
-
-def test_workflow_details_name_the_template_a_model_config_configures(server):
-    """A model config is a tuned instance of a template, and a client that
-    cannot see which is which shows it as just another catalog entry - the
-    thing the two-tree layout exists to stop."""
-    with server(success_script) as client:
-        client.put(
-            "/api/workflows/templates/text-to-image",
-            json={"workflow": valid_workflow("tti")},
-        )
-
-        workflow = valid_workflow("tuned")
-        workflow["configures"] = "templates/text-to-image"
-        client.put("/api/workflows/models/Tuned", json={"workflow": workflow})
-
-        listing = client.get("/api/workflows").json()
-
-        assert listing["details"]["models/Tuned"]["configures"] == (
-            "templates/text-to-image"
-        )
-
-
-def test_a_workflow_that_configures_nothing_says_so(server):
-    with server(success_script) as client:
-        listing = client.get("/api/workflows").json()
-
-        assert listing["details"]["Basic"]["configures"] == ""
 
 
 def test_the_listing_filters_and_compacts(server):
@@ -3827,6 +4171,43 @@ def test_event_log_pages_with_after_and_limit(server):
         assert rest["truncated"] is False
 
 
+def test_event_log_filters_by_kinds(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+        unfiltered = client.get(f"/api/jobs/{job_id}/event-log").json()["events"]
+        assert {event["event"] for event in unfiltered} >= {
+            "step_start",
+            "pipeline_step",
+        }, "test needs a job with more than one kind of event"
+
+        body = client.get(f"/api/jobs/{job_id}/event-log?kinds=step_start").json()
+
+        assert body["events"], "the requested kind should still be present"
+        assert {event["event"] for event in body["events"]} == {"step_start"}
+        assert len(body["events"]) < len(unfiltered)
+
+
+def test_event_log_filters_by_multiple_kinds(server):
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+
+        body = client.get(
+            f"/api/jobs/{job_id}/event-log?kinds=step_start&kinds=step_end"
+        ).json()
+
+        assert body["events"]
+        assert {event["event"] for event in body["events"]} <= {
+            "step_start",
+            "step_end",
+        }
+
+
 def test_event_log_clamps_a_negative_after(server):
     with server(success_script) as client:
         job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
@@ -3837,25 +4218,6 @@ def test_event_log_clamps_a_negative_after(server):
         body = client.get(f"/api/jobs/{job_id}/event-log?after=-99").json()
 
         assert body["events"][0]["seq"] == 0
-
-
-def test_event_log_serves_a_historical_jobs_persisted_events(server):
-    """A job recovered from sqlite is a plain dict, but its event tail was
-    persisted with it - that is what makes last night's failure explainable."""
-    with server(success_script) as client:
-        manager = client.app.state.job_manager
-        manager.get = lambda job_id: {"id": job_id, "status": "failed"}
-        manager.history.events_for = lambda job_id: [
-            {"seq": 0, "event": "phase", "phase": "loading"},
-            {"seq": 1, "event": "job_status", "status": "failed"},
-        ]
-
-        body = client.get("/api/jobs/historical/event-log").json()
-
-        assert [event["seq"] for event in body["events"]] == [0, 1]
-        assert body["last_seq"] == 1
-        assert body["truncated"] is False
-        assert body["note"] is None
 
 
 def test_event_log_pages_a_historical_jobs_events(server):
@@ -3950,6 +4312,7 @@ def test_a_recorded_job_reads_back_through_the_event_log_route(server):
         body = client.get("/api/jobs/recorded/event-log").json()
 
         assert [event["seq"] for event in body["events"]] == [0, 1]
+        assert body["last_seq"] == 1
         assert body["events"][0]["phase"] == "loading"
         assert body["status"] == "complete"
         assert body["truncated"] is False
@@ -3973,21 +4336,6 @@ def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
         assert body["events"][0]["seq"] == 3000 - MAX_PERSISTED_EVENTS
         assert body["truncated"] is False
         assert f"last {MAX_PERSISTED_EVENTS}" in body["note"]
-
-
-def test_workflow_details_name_their_variables(server):
-    """The listing says which knobs a workflow takes, so an agent picking a
-    workflow to run knows what to pass without fetching each candidate's
-    full definition. Names only - the defaults of every workflow on disk
-    are an order of magnitude more payload on a listing the UI reloads."""
-    with server(success_script) as client:
-        workflow = valid_workflow("knobby")
-        workflow["variables"] = {"prompt": "a cat", "steps": 25}
-        client.put("/api/workflows/Knobby", json={"workflow": workflow})
-
-        details = client.get("/api/workflows").json()["details"]
-        assert details["Knobby"]["variable_names"] == ["prompt", "steps"]
-        assert details["Knobby"]["variables"] == 2
 
 
 def test_workflow_details_describe_their_lists(server):

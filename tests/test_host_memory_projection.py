@@ -1,4 +1,4 @@
-"""Host-RAM projection for a list-driven or composed run (#243).
+"""Host-RAM projection for a list-driven or composed run (#243, #348).
 
 Warn, not refuse: this module never fails a run, only says the caller's own
 history projects past what this machine's RAM can hold. Each rule below is a
@@ -24,11 +24,19 @@ def for_each_workflow(release=False):
     step = {
         "name": "shot",
         "for_each": "variable:shots",
-        "task": "noop",
+        "pipeline": {"pipeline_type": "TestPipeline"},
     }
     if release:
         step["release_pipeline"] = True
     return {"id": "w", "variables": {"shots": []}, "steps": [step]}
+
+
+def task_only_workflow():
+    return {
+        "id": "w",
+        "variables": {"shots": []},
+        "steps": [{"name": "shot", "for_each": "variable:shots", "task": "noop"}],
+    }
 
 
 class TestReleaseDetection:
@@ -60,19 +68,47 @@ class TestProjection:
         warnings = host_memory_warnings(definition, {"shots": 12}, rows, 10_000 * MB)
         assert warnings == []
 
-    def test_resident_pipeline_projects_per_entry_times_requested_count(self):
+    def test_task_only_workflow_warns_nothing(self):
+        # #348: a task-only utility loads no model to accumulate across
+        # entries - the failure mode this module projects for doesn't apply
+        definition = task_only_workflow()
+        rows = [row(9000 * MB, {"shots": [1, 2, 3]})]
+        warnings = host_memory_warnings(definition, {"shots": 12}, rows, 8_000 * MB)
+        assert warnings == []
+
+    def test_single_list_length_in_history_projects_flat(self):
+        # #348: with history at only one list length, there is nothing to
+        # fit a growth rate from - the measured peak is projected flat
+        # rather than divided per-entry and multiplied back out, which used
+        # to inflate a 12-entry projection to twelve times a 3-entry peak
         definition = for_each_workflow(release=False)
-        # 3-entry runs each peaked at 3000 MB -> 1000 MB/entry; 12 entries
-        # projects to 12000 MB, over an 8000 MB ceiling
         rows = [row(3000 * MB, {"shots": [1, 2, 3]}) for _ in range(3)]
         warnings = host_memory_warnings(definition, {"shots": 12}, rows, 8_000 * MB)
-        assert len(warnings) == 1
-        assert "12000" in warnings[0] or "12,000" in warnings[0]
+        assert warnings == []
 
-    def test_resident_pipeline_under_the_ceiling_warns_nothing(self):
+    def test_two_list_lengths_fit_base_plus_marginal_growth(self):
+        # #348 (DW-17): a fixed model load plus a small per-entry marginal,
+        # fit through the smallest and largest observed counts. 1 entry
+        # peaked at 31000 MB, 5 entries at 62000 MB -> a 6-entry request
+        # should project roughly 70000 MB, not 31000 * 6 = 186000 MB
         definition = for_each_workflow(release=False)
-        rows = [row(3000 * MB, {"shots": [1, 2, 3]}) for _ in range(3)]
-        warnings = host_memory_warnings(definition, {"shots": 4}, rows, 8_000 * MB)
+        rows = [
+            row(31000 * MB, {"shots": [1]}),
+            row(62000 * MB, {"shots": [1, 2, 3, 4, 5]}),
+        ]
+        warnings = host_memory_warnings(definition, {"shots": 6}, rows, 8_000 * MB)
+        assert len(warnings) == 1
+        assert "69750" in warnings[0] or "69,750" in warnings[0]
+        assert "186000" not in warnings[0]
+        assert "held resident together" not in warnings[0]
+
+    def test_growth_fit_under_the_ceiling_warns_nothing(self):
+        definition = for_each_workflow(release=False)
+        rows = [
+            row(31000 * MB, {"shots": [1]}),
+            row(62000 * MB, {"shots": [1, 2, 3, 4, 5]}),
+        ]
+        warnings = host_memory_warnings(definition, {"shots": 2}, rows, 100_000 * MB)
         assert warnings == []
 
     def test_released_pipeline_projects_the_largest_single_iteration(self):
@@ -118,5 +154,6 @@ class TestProjection:
         definition = for_each_workflow(release=False)
         definition["variables"]["shots"] = [1, 2]
         rows = [row(2000 * MB, arguments={}) for _ in range(3)]
-        warnings = host_memory_warnings(definition, {"shots": 32}, rows, 8_000 * MB)
+        rows.append(row(3200 * MB, {"shots": list(range(16))}))
+        warnings = host_memory_warnings(definition, {"shots": 32}, rows, 3_000 * MB)
         assert len(warnings) == 1

@@ -17,7 +17,9 @@ it('formats gigabyte sizes to two decimals at and above 1 GB', () => {
   expect(formatBytes(1024 ** 3 * 2.5)).toBe('2.50 GB')
 })
 
-it('renders a unix timestamp as a locale date/time string', () => {
-  const mtime = 1700000000
-  expect(formatMtime(mtime)).toBe(new Date(mtime * 1000).toLocaleString())
+it('reads mtime as unix seconds, not milliseconds', () => {
+  // 1700000000 s is 2023-11-14T22:13:20Z; read as ms it would land in January 1970
+  const rendered = formatMtime(1700000000)
+  expect(rendered).toBe(new Date('2023-11-14T22:13:20Z').toLocaleString())
+  expect(rendered).not.toBe(new Date(1700000000).toLocaleString())
 })

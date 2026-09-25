@@ -316,7 +316,22 @@ default, so nothing existing changes - a spread of 6 dB or more across the
 tracks being joined is reported as a warning rather than passing in silence:
 on the job's `warnings` and as a `warning` event in its stream, not only in
 the server's log, since the caller who can act on it is the one who asked for
-the run. `dissolve_videos` takes the same pair.
+the run. The other end of the range warns too: a shot at or below -40 dBFS,
+or one that needs 20 dB or more of gain to reach the target, is noise floor
+rather than a quieter performance, and matching it up is reported as
+`match_levels_near_silent`. `dissolve_videos` takes the same pair.
+
+The joined soundtrack is fitted to the joined frames. A track that comes out
+short of the frame grid - rounding in an input's own track, which otherwise
+compounds join after join - is padded with silence to it. A pad of a frame
+or more is a warning (`joined_audio_padded_to_frames`); less than a frame is
+rounding, and only logged. The file's AAC encode can then trim the track by a
+further handful of samples (typically 16-32, under a millisecond), which is
+logged the same way, or warned as `joined_audio_short_after_mux` if it
+reaches a frame. Either way the recorded shots are re-measured against the
+file as written, so `media.shots` stays accurate. Both apply to
+`dissolve_videos` the same way, and neither task warns about resampling
+inputs that already agree to a `sample_rate` the caller pinned.
 
 ### dissolve_videos
 
@@ -451,6 +466,32 @@ returns frames without it, and this puts it back:
 | `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it (frames that carry none are written at 8 fps) |
 | `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
+| `fps` | No | The rate the frames play at, only needed when they carry none of their own. Used solely to work out how long the video is - what `fit` and the length-mismatch check measure the track against - and is never written to the file; that's `result.fps`, which sets the rate the output plays at and defaults to 8 fps when the frames carry none |
+| `fit` | No | `"video"` cuts or pads the track with silence to the length of the frames, warning either way (`audio_padded_to_video` / `audio_trimmed_to_video`). Left unset (the default) the track is used as it is, and a length that disagrees with the frames' is warned about rather than corrected (`audio_video_length_mismatch`). Any other value is refused at run time, not by `validate_workflow` |
+
+`fit`'s guarantee is exact for the waveform handed to the encoder, not for
+the file the encoder writes: muxing is a lossy AAC encode, and it can still
+trim or pad the written track by a further handful of samples (#428
+measured up to ~30, under a millisecond). That residual is logged, not
+warned; on a video with recorded `shots` it becomes a
+`joined_audio_short_after_mux` warning only if it reaches a frame. `get_gallery_metadata`'s
+`media.shots` and `assess_output`'s `sync_length` are measured against the
+written file, not the pre-encode prediction, so they are the number to
+trust for the track's actual length.
+
+When the video carries recorded `shots` (from an earlier `concat_videos`,
+`dissolve_videos` or chain step), `pair_audio` remeasures each one's sample
+fields against the track it was handed. Every shot but the last is
+`round(start_frame / fps * sample_rate)`; the last one runs to the track's
+actual end, and once the file is written it is measured again against what
+the file decodes to. So its `num_samples` can sit a few dozen samples off
+`round(num_frames * sample_rate / fps)`: the encoder's trim, which the job's
+event log records. A real mismatch between the
+track and the video's length is a separate, thresholded warning
+(`audio_video_length_mismatch`, or `audio_padded_to_video` /
+`audio_trimmed_to_video` when `fit: "video"` corrected it), so a last shot
+short by less than a millisecond is expected, not a bug. `get_gallery_metadata`'s `media.shots`
+reports the remeasured fields.
 
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
@@ -523,15 +564,16 @@ material:
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `gain_db` | Yes | Gain to apply within the region, in decibels - negative ducks it, positive boosts it |
-| `start_seconds` / `duration_seconds` | One pair | The region in seconds; either may be omitted |
-| `start_frame` / `num_frames` / `fps` | One pair | The region in video frames; `fps` is required, start and count may be omitted |
+| `start_seconds` / `duration_seconds` | No | The region in seconds; either may be omitted |
+| `start_frame` / `num_frames` / `fps` | No | The region in video frames; `fps` is required if either is given, start and count may be omitted |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
-One pair is required — there is no separate "whole track" mode — but the
-whole track is still one step: give just `start_seconds: 0` and leave
-`duration_seconds` unset (or `start_frame: 0` + `fps` and leave `num_frames`
-unset), which runs to the end of the track without needing to already know
-how long that is.
+No region argument is required: with every one of them omitted, the gain
+applies to the whole track (#395) - the same "no region means everything"
+reading `mix_audio`'s gains use. To gain everything from some point on
+instead, give just `start_seconds: 0` and leave `duration_seconds` unset (or
+`start_frame: 0` + `fps` and leave `num_frames` unset), which runs to the
+end of the track without needing to already know how long that is.
 
 ### crossfade_audio
 
@@ -856,6 +898,130 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `rms_dbfs` rather than tens of dB under it - comparable to `compress_audio`'s
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
+
+## Assessment Probes
+
+Three read-only commands measure a finished cut and say where to look -
+`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each takes a video
+(a stored file - `asset:`, `output:` or a path, read straight from disk
+rather than decoded first - or the video an earlier step returned; not a
+URL, whose download is a bare frame list with no soundtrack) and answers one JSON
+document: every measurement it took, plus `findings` (the measurements that
+crossed a rule in the table below), `rules_applied` (the rule names the probe
+checked) and `shots_source` (where the shot list came from). A probe reads
+the file streaming - a 64x36 grey thumbnail per frame and the soundtrack,
+never a full frame list - so it runs on a cut of any length.
+
+Findings are places to look, not verdicts: nothing in the engine acts on
+one, no run fails for one, and a finding someone has looked at and accepted
+is simply left alone.
+
+A probe's `result` must save as JSON:
+
+```json
+{
+    "task": {
+        "command": "analyze_seams",
+        "arguments": {
+            "video": "output:<identity>/latest/final/cut.mp4"
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+Any other `content_type` (or none) fails validation - a JSON document can
+only be saved whole under `application/json`; every other content type
+would explode it key by key or die trying to write a number.
+
+Shot boundaries come, in order: the step's own `shots` argument, the shots
+carried by the video an earlier step returned, the run manifest beside the
+file, and otherwise the whole file is treated as one shot. `shots_source`
+reports which - `argument`, `artifact`, `manifest`, or `none`.
+
+### analyze_shots
+
+Each shot's level and spectral balance, and how far apart the shots sit:
+
+| Field | Meaning |
+| ----- | ------- |
+| `shots[].name` | The shot's name |
+| `shots[].start_frame` / `num_frames` | The shot's frame range, as the shot record gave it |
+| `shots[].peak_dbfs` | Peak level within the shot |
+| `shots[].rms_dbfs` | RMS level within the shot |
+| `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
+| `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
+| `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
+| `rms_range_db` | The spread between the loudest and quietest voiced shot |
+| `has_audio` | Whether the file carries a soundtrack at all |
+
+### analyze_seams
+
+Every seam between shots, audio and picture:
+
+| Field | Meaning |
+| ----- | ------- |
+| `seams[].seam` | The seam's index (1-based) |
+| `seams[].between` | `[previous shot name, next shot name]` |
+| `seams[].seconds` | Where the seam sits in the file |
+| `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
+| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
+| `seams[].before_shot_rms_dbfs` / `after_shot_rms_dbfs` | RMS level of the whole shot either side of the seam |
+| `seams[].level_step_db` | The absolute difference between those two shot levels. Shot against shot, not the audio at the seam's edges: a take's own tail and head can sit 20 dB apart, which is not a step the cut made |
+| `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level of the 0.25 s either side of the seam - what `seam_hole`'s both-sides-voiced guard reads |
+| `seams[].floor_dbfs` | RMS level of the join itself (the fade, or a short window centred on a cut) |
+| `seams[].click_db` | How far a spike at the join peaks above its immediate neighbours |
+| `seams[].spectral_shift` | How much the low/mid/high balance shifts across the seam (0-1) |
+| `seams[].frame_delta` | The largest single-frame picture change across the seam |
+| `seams[].typical_delta` | The larger shot's own typical frame-to-frame change, floored |
+| `seams[].jump_ratio` | `frame_delta` divided by `typical_delta` |
+
+### analyze_sync_drift
+
+How far the soundtrack sits from the picture, shot by shot and over the
+whole file:
+
+| Field | Meaning |
+| ----- | ------- |
+| `shots[].name` | The shot's name |
+| `shots[].start_offset_ms` | How far the audio sits from the picture at the shot's start |
+| `shots[].end_offset_ms` | How far the audio sits from the picture at the shot's end |
+| `max_offset_ms` | The largest `end_offset_ms` across all shots, by magnitude |
+| `video_seconds` / `audio_seconds` | Each stream's own duration |
+| `length_delta_ms` | `audio_seconds` minus `video_seconds` |
+
+### Rules
+
+Each rule names the probe and field it reads, how the value is compared to
+its threshold, and the severity of a crossing:
+
+| Rule | Probe | Field | Threshold | Severity |
+| ---- | ----- | ----- | --------- | -------- |
+| `shot_level_spread` | `analyze_shots` | `rms_range_db` | >= 6.0 dB | warn |
+| `seam_level_step` | `analyze_seams` | `level_step_db` | > 3.0 dB | warn |
+| `seam_click` | `analyze_seams` | `click_db` | > 12.0 dB | warn |
+| `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
+| `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 25.0 | info |
+| `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
+| `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
+
+Two rules carry a guard beyond the threshold: `seam_hole` only fires while
+both sides of the seam are voiced above -30 dBFS (a quiet join between two
+quiet shots is not a hole, it's a pause the shots themselves hold), and
+`seam_frame_jump` is skipped at a seam whose incoming shot is marked
+`hard_cut: true` - a cut meant as a cut.
+
+A `shots` record reaching past the file's own length is a separate finding,
+`shot_span_overrun`, on all three probes - not a threshold crossing, since
+the engine clips the record to the file before any of the rules above run.
+`validate_workflow` reports the same mistake ahead of the run when the
+video's length is already knowable (a `shots` argument against an
+`asset:`/literal video); a `previous_result:`/`output:` video not yet
+written is left to the finding.
+
+`list_tasks` names the probes in their own `assessment` list, alongside
+`commands`, so a caller looking for a way to check a cut can find them
+without reading every command's schema.
 
 ## Data Gathering
 

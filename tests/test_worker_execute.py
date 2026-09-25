@@ -22,7 +22,7 @@ class StubWorkflow:
         self.behavior = behavior
         self.manifest = [{"step": "s", "files": ["/out/a.png"]}]
 
-    def validate(self):
+    def validate(self, arguments=None):
         pass
 
     def run(
@@ -146,6 +146,7 @@ def test_shutdown_during_run_cancels_then_flags_shutdown():
 
 class StubResult:
     saved_files = []
+    result_list = []
 
 
 def test_full_cleanup_clears_step_cache():
@@ -392,3 +393,75 @@ def test_a_workflow_switch_forgets_the_prior_keys():
         command={"workflow_path": "other.json", "arguments": {}, "output_dir": "/tmp"},
     )
     assert worker.prior_step_keys == {}
+
+
+def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_path):
+    """#415: a document-default 'text/html' content_type that the caller's
+    own argument overrides to 'text/plain' must actually run, not just queue.
+
+    JobManager.submit() (fixed for #415's first bounce) checks the caller's
+    arguments before handing the command to the worker, but _handle_execute
+    itself called workflow.validate() with none - so the job queued, then
+    failed at execution against the unsubstituted default. This drives a
+    real Workflow (not StubWorkflow, which stubs validate() to a no-op)
+    through the actual worker path, the one StubWorkflow-based tests above
+    cannot catch."""
+    from dw.workflow import workflow_from_definition
+
+    worker = _make_worker()
+    definition = {
+        "id": "se-415",
+        "variables": {"ct": "text/html"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["<b>x</b>"]},
+                },
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    with patch(
+        "dw.worker.workflow_from_definition",
+        lambda data, out, base_dir=None, workflow_dir=None: workflow_from_definition(
+            data, out, base_dir, workflow_dir
+        ),
+    ):
+        worker._handle_execute(
+            {
+                "workflow": definition,
+                "arguments": {"ct": "text/plain"},
+                "output_dir": str(tmp_path),
+            }
+        )
+    messages = _drain(worker.result_queue)
+    types = [m["type"] for m in messages]
+    assert "success" in types, messages
+    success = next(m for m in messages if m["type"] == "success")
+    files = success["manifest"][0]["files"]
+    assert len(files) == 1
+    assert (tmp_path / files[0]).read_text() == "<b>x</b>"
+
+
+def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
+    """#368: a job's own cleanup left ~10GB resident that only clear_memory
+    reclaimed - the pinned-host staging buffers of group_offload and the
+    glibc arenas a released pipeline's weights were read into. Neither is
+    touched by gc.collect()/empty_device_cache() alone, so the light,
+    every-job cleanup must also call release_host_caches() - and must keep
+    loaded_pipelines/shared_components warm while doing it, since those
+    exist for exactly this (inter-run) cleanup to leave alone.
+    """
+    worker = _make_worker()
+    worker.loaded_pipelines["warm-key"] = object()
+    worker.shared_components["warm-component"] = object()
+
+    with patch("dw.worker.release_host_caches", return_value=512.0) as released:
+        worker._cleanup_between_runs()
+
+    released.assert_called_once()
+    # the whole point: still-warm state for the next run survives this call
+    assert "warm-key" in worker.loaded_pipelines
+    assert "warm-component" in worker.shared_components

@@ -3,10 +3,12 @@
         "prompt": "recolor this person's hair blonde",
         "input_image": {
             "location": "https://pbs.twimg.com/media/HNi-N_eWIAAJfTZ?format=jpg&name=900x900"
-        }
+        },
+        "seed": null
     },
     "id": "FluxKontextEdit",
     "description": "Edits an input picture toward a written instruction rather than regenerating it from scratch. FLUX.1 Kontext holds everything the instruction does not name - subject, framing, light - and changes only what it does. A diffusers pipeline, so it runs without --trust-workflows.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "edit",

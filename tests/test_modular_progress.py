@@ -274,9 +274,25 @@ def test_the_block_dispatch_is_handed_back_unpatched():
     assert FakeSequentialBlocks.__call__ is original
 
 
+class FakePipelineWithoutBlocks:
+    """No step callback and no `_blocks` tree - the bar is the pipeline's
+    own, the way a classic pipeline that predates the callback holds it."""
+
+    def progress_bar(self, iterable=None, total=None):
+        return tqdm(total=total, disable=True)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        with self.progress_bar(total=3) as bar:
+            for _ in range(3):
+                bar.update()
+        return FakeOutput()
+
+
 def test_a_pipeline_with_no_blocks_still_runs():
-    """Not every pipeline without a step callback is modular."""
-    assert _steps(_events(FakeModularPipeline())) == [(1, 3), (2, 3), (3, 3)]
+    """Not every pipeline without a step callback is modular: with no
+    `_blocks` there is nothing to narrate, and its own bar still reports."""
+    assert not hasattr(FakePipelineWithoutBlocks(), "_blocks")
+    assert _steps(_events(FakePipelineWithoutBlocks())) == [(1, 3), (2, 3), (3, 3)]
 
 
 class FakeConditionalBlocks:

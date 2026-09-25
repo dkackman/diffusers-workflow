@@ -1,9 +1,11 @@
 {
     "variables": {
-        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg"
+        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg",
+        "seed": null
     },
     "id": "sd15-controlnet",
     "description": "Estimates a depth map from an input image, then generates with SD 1.5 guided by a depth ControlNet.",
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "depth",

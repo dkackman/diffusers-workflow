@@ -32,7 +32,12 @@ from .locations import location_errors
 from .reference_limits import reference_limit_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
-from .introspection import task_signature_errors
+from .introspection import (
+    task_signature_errors,
+    component_type_errors,
+    component_name_errors,
+)
+from .dissolve_frame_errors import dissolve_frame_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
@@ -41,8 +46,11 @@ from .variable_constraints import (
     constraint_reference_errors,
     resolve_constraint_references,
 )
+from .result_fps import fps_errors
+from .shots import step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
+from .video_extensions import video_extension_errors
 from .content_types import content_type_errors
 from .scalar_result_validation import scalar_result_errors
 from .kernel_availability import kernel_availability_errors
@@ -58,6 +66,7 @@ from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
     activate_output_root,
+    assign_run_version,
     deactivate_output_root,
     workflow_identity,
     manifest_relative_files,
@@ -83,6 +92,7 @@ from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
 from . import get_device, empty_device_cache, device_memory_stats
+from .host_memory import release_host_caches
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -249,6 +259,30 @@ def _allocated_mb():
     return stats["allocated_mb"] if stats["available"] else None
 
 
+def _release_host_caches(step_name):
+    """Hand the host memory a release freed back to the OS, not at job end.
+
+    `release_host_caches` only touches blocks nothing is using, so anything
+    still loaded is undisturbed. A cleanup is never worth failing a run for.
+    """
+    try:
+        released = release_host_caches()
+    except Exception as e:
+        logger.debug(f"Could not release host caches after {step_name}: {e}")
+        return
+    if released:
+        logger.info(f"Release after {step_name} returned {released:.0f} MB to the OS")
+
+
+def _relative_shots(entry, run_dir):
+    """A manifest entry's `shots`, each `file` made relative as `files` is."""
+    shots = entry.get("shots")
+    if not shots or not any("file" in shot for shot in shots):
+        return {}
+    files = manifest_relative_files([shot["file"] for shot in shots], run_dir)
+    return {"shots": [{**shot, "file": f} for shot, f in zip(shots, files)]}
+
+
 def selected_field(step_data, selected):
     """The manifest/step_end 'selected' block for a step's Result.selected.
 
@@ -315,6 +349,11 @@ class Workflow:
     # leaves no manifest of its own, since its steps are already rolled up
     # into the parent's
     _run_dir_inherited = False
+    # That directory's ordinal among this workflow's runs - what the gallery
+    # shows as 'v4'. None in the flat layout, for a sub-workflow (which is
+    # part of the parent's run, not a run of its own), and before a run
+    # starts
+    _run_version = None
     # Where the parent step that delegated to this workflow sits in the
     # run the caller queued: {"step", "index", "total_steps"}. A child
     # counts its own steps from zero, so without this a composed run
@@ -490,7 +529,10 @@ class Workflow:
                 or "\\" in builtin_name
             ):
                 raise InvalidInputError(
-                    f"Invalid builtin workflow name: {builtin_name}"
+                    f"Invalid builtin workflow name: {builtin_name}. It must "
+                    "be a bare '<name>.json' filename with no path segments - "
+                    f"'builtin:' only looks in the packaged workflows root: "
+                    f"{builtin_root()}"
                 )
             confine_to = builtin_root()
             resolved = os.path.join(confine_to, builtin_name)
@@ -631,14 +673,36 @@ class Workflow:
         base_dir = (
             os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
         )
+        task_errors = task_signature_errors(
+            expanded, source_indices, self.workflow_definition
+        )
+        if arguments is None:
+            # A step that feeds a required argument from `variable:name` and
+            # a variable whose default is null is a fine document - the
+            # variable just hasn't been given a value yet, which is exactly
+            # what no-arguments means here (save_workflow, or
+            # validate_workflow called to check the document rather than a
+            # specific run). Downgraded to a warning
+            # (null_variable_argument_warnings) rather than dropped outright,
+            # since it is still true a run left as-is would fail (#364).
+            # Anything else task_signature_errors reports - a genuinely
+            # missing or unknown argument - stays a hard error regardless
+            task_errors = [e for e in task_errors if "variable" not in e]
         return (
             previous_result_reference_errors(expanded, source_indices)
             + subfolder_errors(expanded, source_indices)
+            + fps_errors(expanded, source_indices)
             # A reference name no workspace could ever resolve - the '@' a
             # for_each member's own file carries, rejected after the queue
             # by a message that named a valid form and not the objection
             # (dw/reference_names.py, #162)
             + reference_name_errors(expanded, source_indices)
+            # A still image handed to a 'video' argument by path or asset:/
+            # output: reference validated clean and then died inside
+            # fetch_video's extension gate in the first seconds of the run -
+            # refused here for the cases the extension is already knowable
+            # (dw/video_extensions.py, #347)
+            + video_extension_errors(expanded, source_indices)
             # A result content_type no writer will accept - a bare word like
             # "video" validated clean and then died inside the writer with a
             # traceback naming neither the field nor the value
@@ -672,6 +736,13 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # A dissolve_videos overlap wider than a statically-resolvable
+            # input's real frame count decoded clean past the queue and
+            # failed only after every upstream step had already generated -
+            # refused here for a literal dissolve_frames against an asset:/
+            # output:/literal-path video, the cases the frame count is
+            # already knowable (dw/dissolve_frame_errors.py, #400)
+            + dissolve_frame_errors(expanded, source_indices, base_dir)
             # A select step whose rule is misspelled, or whose
             # threshold/index does not match its rule, validated clean and
             # died on select's own run-time ValueError after the fan-out
@@ -681,8 +752,25 @@ class Workflow:
             # A required task argument left unset validated as `valid: true`
             # and then failed the job on Python's own signature error, which
             # is the one mistake a free pre-flight most obviously exists for
-            # (dw/introspection.py, #141)
-            + task_signature_errors(expanded, source_indices)
+            # (dw/introspection.py, #141). When the step supplies it by
+            # `variable:name` and only the variable's value is null, the
+            # error carries a `variable` key (#364) so a caller checking the
+            # document itself - no arguments of its own - can tell "the
+            # variable needs a value at run time" apart from "the step is
+            # broken", and downgrade the former below
+            + task_errors
+            # A step's pipeline names a component_type/scheduler_type/
+            # config_type that does not exist (or is outside the trusted
+            # ecosystem entirely) - validated clean and died 3s into the run
+            # after a checkpoint the plan had already quoted for downloading
+            # (dw/introspection.py, #345)
+            + component_type_errors(expanded, source_indices)
+            # A step's pipeline configures a component (`configuration.
+            # components`) its component_type does not register - validated
+            # clean and died 3s into the run's `loading` phase, after a
+            # checkpoint (and for an IC-LoRA step, LoRA weights) the plan had
+            # already quoted for downloading (dw/introspection.py, #442)
+            + component_name_errors(expanded, source_indices)
             # A value outside a rule the workflow declares - the bound that
             # cost 138 s of loading to discover, refused for free at the
             # path the value sits at (dw/variable_constraints.py, #96)
@@ -730,6 +818,82 @@ class Workflow:
             supplied=set(arguments or {}),
         )
 
+    def slice_past_end_warnings(self, arguments=None):
+        """Every `slice_audio` step whose source's real duration is already
+        knowable and whose requested slice reaches past it - valid, padded
+        with silence rather than refused, but worth saying before the run
+        rather than only after it (#402).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .slice_preflight import slice_past_end_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No slice_past_end warnings available", exc_info=True)
+            return []
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+        return slice_past_end_warnings(expanded, source_indices, base_dir)
+
+    def shot_span_warnings(self, arguments=None):
+        """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
+        `analyze_sync_drift`) whose `shots` argument already reaches past a
+        statically-knowable video's real frame count - valid, silently
+        clipped to the file rather than refused, but worth saying before the
+        run rather than only after it (#425).
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        from .shot_span_preflight import shot_span_warnings
+
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No shot_span warnings available", exc_info=True)
+            return []
+        base_dir = (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+        return shot_span_warnings(expanded, source_indices, base_dir)
+
+    def null_variable_argument_warnings(self, arguments=None):
+        """Every required task argument fed by `variable:name` where name's
+        value is null - downgraded out of `validation_errors` when
+        `arguments` is None (#364), surfaced here so a caller checking the
+        document without arguments of its own (save_workflow,
+        validate_workflow with no `arguments`) still sees it, just not as a
+        reason the document is invalid.
+
+        Empty once `arguments` is given: at that point the same condition is
+        a hard error in `validation_errors`, since a real run or a validate
+        call naming its own arguments needed the variable to hold something.
+
+        Best effort: a definition the schema or the expander refuses has its
+        own errors to report and none of them are this one.
+        """
+        if arguments is not None:
+            return []
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No null-variable-argument warnings available", exc_info=True)
+            return []
+        return [
+            f"{entry['path']}: {entry['message']}"
+            for entry in task_signature_errors(
+                expanded, source_indices, self.workflow_definition
+            )
+            if "variable" in entry
+        ]
+
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.
 
@@ -767,15 +931,18 @@ class Workflow:
             for path, name in undeclared_variable_references(definition)
         ]
 
-    def validate(self):
+    def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
 
         Every violation is reported, one per line, so the CLI, the REPL
         and an agent iterating on a draft fix them in one pass rather than
-        one per round trip.
+        one per round trip. ``arguments``, when given, are folded in before
+        checking - a caller's override (e.g. a content_type-driving variable)
+        must be judged as it will actually run, not against the document's
+        unsubstituted defaults.
         """
         logger.debug(f"Validating workflow: {self.name}")
-        errors = self.validation_errors()
+        errors = self.validation_errors(arguments=arguments)
         if errors:
             # message already carries the 'Validation error' prefix
             message = format_validation_errors(errors)
@@ -828,8 +995,15 @@ class Workflow:
             # than starting a job the decode step was always going to OOM
             # on (dw/vram_estimate.py, #265)
             apply_vram_estimate(workflow_def, variables)
-            # realize the variables, initializing downloads of images etc
-            realize_args(variables, base_dir)
+            # realize the variables - explicit references only (asset:,
+            # output:, constant:, prompt:, a {media_type, location} dict).
+            # Key-name conventions (an 'image'/'video'/'_type' argument) are
+            # left off here: a variable's own name is not the argument it
+            # will end up filling, so a variable named 'image' fed to a step's
+            # 'video' argument was pre-loaded as a PIL Image before that step
+            # was ever substituted in (#365). The step-level realize_args
+            # passes below apply the conventions under the real argument key
+            realize_args(variables, base_dir, apply_key_conventions=False)
             ## then replace any variable references in the workflow definition with the actual values
             # replace_variables returns a new structure rather than mutating in
             # place, so the result must be captured here
@@ -1113,7 +1287,18 @@ class Workflow:
                     self._run_dir = run_directory(
                         self.output_dir, self.file_spec, workflow_id, run_id
                     )
-                    logger.debug(f"Run directory: {self._run_dir}")
+                    # The run's ordinal among this workflow's runs, taken
+                    # once here and carried into the manifest. Assigning it
+                    # at run time rather than deriving it when the gallery
+                    # asks is what lets a sibling be deleted without
+                    # renumbering the runs that outlive it
+                    self._run_version = assign_run_version(
+                        self.output_dir,
+                        workflow_identity(self.file_spec, workflow_id),
+                    )
+                    logger.debug(
+                        f"Run directory: {self._run_dir} (v{self._run_version})"
+                    )
 
             # The record of what actually ran, written before the first step
             # so a crash or a cancel still leaves it. A sub-workflow inherits
@@ -1135,12 +1320,27 @@ class Workflow:
                     # Never fatal: the record is worth less than the run
                     logger.warning(f"Could not realize workflow {workflow_id}: {e}")
 
+                # A manifest now, rewritten in full when the run ends: the
+                # version held only in memory until then was lost to a hard
+                # kill, and a second process opening a run of this workflow
+                # meanwhile could not see it and took the same number
+                self._write_run_manifest(
+                    run_id,
+                    "running",
+                    started_at,
+                    arguments,
+                    resolved_seed,
+                    realized_name,
+                    annotations,
+                )
+
                 # Which run this is, so a server job can find the directory
                 # it wrote. Emitted even when the realized file did not land:
                 # the manifest is still there, and so are the files
                 run_context.emit(
                     "run_start",
                     run_id=run_id,
+                    version=self._run_version,
                     identity=workflow_identity(self.file_spec, workflow_id),
                     run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(
                         os.sep, "/"
@@ -1313,6 +1513,13 @@ class Workflow:
                     step_action = None
                     gc.collect()
                     empty_device_cache()
+                    # The device cache is not the only one the release fills:
+                    # the pinned-host staging buffers the pipeline offloaded
+                    # through and the heap arenas its weights were read into
+                    # stay in this process's RSS until they are handed back,
+                    # which otherwise waits for the end of the job - ~10 GB
+                    # held through every step after the release (#368)
+                    _release_host_caches(step.name)
                     # Say so on the event stream. The release is otherwise
                     # invisible to a consumer: it sits inside the sub-second
                     # window between a step's generation and its files
@@ -1365,6 +1572,15 @@ class Workflow:
                     manifest_entry["reused"] = True
                 if selected is not None:
                     manifest_entry["selected"] = selected
+                # Where each joined shot sits in the file, named by the
+                # step's own `videos` references (dw/shots.py)
+                shots = step_shots(
+                    getattr(result, "saved_shots", None),
+                    saved_files,
+                    step_data.get("task", {}).get("arguments", {}).get("videos"),
+                )
+                if shots:
+                    manifest_entry["shots"] = shots
                 # No entry at all for a step the parent saves for: the
                 # parent's own entry names the same files, under the step
                 # name the caller wrote (#92)
@@ -1378,6 +1594,8 @@ class Workflow:
                     step_end_data["reused"] = True
                 if selected is not None:
                     step_end_data["selected"] = selected
+                if shots:
+                    step_end_data["shots"] = shots
                 run_context.emit(
                     "step_end",
                     workflow=workflow_id,
@@ -1407,6 +1625,8 @@ class Workflow:
                 if step_data.get("release_models", False):
                     logger.info(f"Releasing task models for step: {step.name}")
                     clear_model_cache()
+                    gc.collect()
+                    _release_host_caches(step.name)
 
                 # Cleanup between steps (but keep pipelines loaded). Returning
                 # cached blocks to the device lets the next step's differently
@@ -1483,9 +1703,17 @@ class Workflow:
             self._run_dir,
             {
                 "run_id": run_id,
+                # This run's ordinal among the workflow's runs - 'v4' in the
+                # gallery. Recorded, never recomputed
+                "version": self._run_version,
                 "status": status,
                 "started_at": started_at,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                # None on the manifest written as the run opens
+                "finished_at": (
+                    None
+                    if status == "running"
+                    else datetime.now(timezone.utc).isoformat()
+                ),
                 "dw_version": __version__,
                 "device": str(get_device()),
                 "workflow": {
@@ -1513,6 +1741,7 @@ class Workflow:
                         "files": manifest_relative_files(
                             entry.get("files"), self._run_dir
                         ),
+                        **_relative_shots(entry, self._run_dir),
                     }
                     for entry in self.manifest
                 ],
@@ -1625,6 +1854,7 @@ class Workflow:
                 previous_pipelines.pop(prior_key, None)
                 gc.collect()
                 empty_device_cache()
+                _release_host_caches(step_name)
                 # Say so on the event stream, for the same reason the explicit
                 # release does: without it a reload-on-top-of-a-resident-model
                 # is indistinguishable from a cold load, and the difference is
@@ -1701,7 +1931,10 @@ class Workflow:
                         or "\\" in builtin_name
                     ):
                         raise InvalidInputError(
-                            f"Invalid builtin workflow name: {builtin_name}"
+                            f"Invalid builtin workflow name: {builtin_name}. "
+                            "It must be a bare '<name>.json' filename with no "
+                            "path segments - 'builtin:' only looks in the "
+                            f"packaged workflows root: {builtin_root()}"
                         )
                     # Builtins ship inside the package, outside any
                     # workflow_dir - confine them to their own directory

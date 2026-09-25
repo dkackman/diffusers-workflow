@@ -441,7 +441,8 @@ The editor's forms come from these; they are just as usable from scripts:
   gallery entry carries `folder` (the workflow identity, the run id dropped)
   and `subfolder` (what followed the run id - the `final`/`intermediate` a
   step's `result.subfolder` chose, `''` when it chose none); `?folder=` and
-  `?subfolder=` filter independently, and the reply's `folders` and
+  `?subfolder=` filter independently (`?version=` too - with `?folder=`,
+  the one run the gallery labels `v4`), and the reply's `folders` and
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
@@ -586,6 +587,19 @@ network:
   attacker's page carries its own `Origin` while `Host` is whatever
   resolved. Scheme and port are ignored, so a TLS-terminating proxy that
   forwards `Host` unchanged needs no configuration.
+  An `Origin` that cannot be parsed is refused the same way (403), not
+  answered with a 500.
+- Every response carries `X-Content-Type-Options: nosniff` and
+  `X-Frame-Options: DENY`: a browser renders nothing as a type the server
+  did not declare, and no page elsewhere can frame the UI. The UI itself
+  carries no Content-Security-Policy yet.
+- `/outputs` and `/inputs` share the UI's origin, where the API token lives
+  in localStorage, so a file served as an active document type
+  (`text/html`, `application/xhtml+xml`, `text/xml`, `application/xml`,
+  `image/svg+xml`) carries `Content-Security-Policy: sandbox`: it opens
+  under an opaque origin with no script. Range and ETag answers are
+  unchanged. The engine does not write `text/html` or `text/xml` results
+  at all (below), so such a file is one planted on disk.
 - Requests carrying a `Host` header that names neither a loopback address
   nor the configured `--host` are rejected (400). A wildcard bind
   (`--host 0.0.0.0` or `::`) skips this check - clients reach such a
@@ -632,7 +646,8 @@ When a token is configured, every `/api/*` request must carry
 `Authorization: Bearer <token>` or gets a 401. The UI's own static files and
 `/outputs` (generated media) stay reachable without it - the page has to
 load far enough for a user to enter the token, and an `<img>`/`<script>`
-tag cannot attach a header anyway. A few GET API routes additionally accept the
+tag cannot attach a header anyway. That is why an active document served
+from `/outputs` or `/inputs` is sandboxed (Security model, above). A few GET API routes additionally accept the
 token as a `?token=...` query parameter, because the browser loads them
 without being able to set headers: the SSE stream,
 `GET /api/jobs/{id}/events` (`EventSource`), and the gallery grid's

@@ -38,7 +38,39 @@ def process_video(video, processor, device, kwargs):
     raise Exception(f"Unknown video processor type: {processor}")
 
 
+class VideoFileReference:
+    """A 'video' argument realized to a file on disk rather than an in-memory
+    clip - built by dw/arguments.py's _realize_lazy_frame_arguments so
+    get_frame can seek to the one frame it needs instead of decoding the
+    whole file (#367), and so an assessment probe streams the file, soundtrack
+    and all (#387). Not a public shape; nothing else constructs or consumes
+    one."""
+
+    __slots__ = ("path",)
+
+    def __init__(self, path):
+        self.path = path
+
+
 def get_frame(video, frame_index=0):
+    """Pull one frame out of a video as a PIL image.
+
+    Args:
+        video: List of PIL images, numpy array or torch tensor of frames, an
+            AudioVideo, a one-video batch wrapping any of those, or a
+            VideoFileReference naming a file this call reads by seeking
+            rather than decoding in full
+        frame_index: Frame to extract, 0-based; negative indexes count from
+            the end (-1 is the last frame). Past either end of the clip
+            raises an error naming the clip's frame count
+
+    Returns:
+        The frame as a PIL image
+    """
+    if isinstance(video, VideoFileReference):
+        from ..media_frames import frames_at
+
+        return frames_at(video.path, [f"frame:{frame_index}"])[0]["image"]
     return extract_frame(video, frame_index)
 
 
@@ -142,12 +174,24 @@ def loop_frames(video, num_frames):
     not a defect and blending two frames of a reference sheet would be.
 
     Args:
-        video: A still image, or frames in any shape a result carries
+        video: Frames in any shape a result carries, or a still image - but
+            the `video` argument loads *video files* by convention (#347), so
+            a still on disk has to be passed as
+            `{"media_type": "image", "location": "asset:x.png"}` rather than
+            a bare path or `asset:`/`output:` reference; a still made earlier
+            in the same workflow is `previous_result:<image step>`
         num_frames: How many frames to hand back, one or more
 
     Returns:
-        A (num_frames, height, width, channels) uint8 array - one artifact,
-        the shape an argument that takes frames wants
+        A (num_frames, height, width, channels) float32 array scaled to
+        [0, 1] - diffusers' own np frame convention, and what
+        `LTX2ReferenceCondition.frames` and its kin need: a raw ndarray
+        reaches `VaeImageProcessor.preprocess` untouched, with no /255
+        rescaling applied along the way, so a uint8 [0, 255] array read as
+        already-scaled data is 255x too bright (#444). Not for a
+        keyframe (`LTX2VideoCondition`): its ndarray path expects uint8
+        [0, 255] and refuses a float frame when `crf` is set -
+        `frames_as_array` is the shape for that
     """
     if isinstance(num_frames, str):
         try:
@@ -171,7 +215,8 @@ def loop_frames(video, num_frames):
     if len(frames) == 0:
         raise ValueError("loop_frames was given no frames to repeat")
     laps = -(-num_frames // len(frames))  # ceiling, so the last lap is trimmed
-    return numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+    looped = numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+    return (looped.astype(numpy.float32) / 255.0).clip(0.0, 1.0)
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
@@ -311,6 +356,12 @@ def _frames_of(video):
     if isinstance(video, AudioVideo):
         return _frames_of(video.frames)
 
+    # A bare still - e.g. a {"media_type": "image", ...} reference fetch_video
+    # now loads as a plain PIL image (#443) - is a one-frame video, the same
+    # accommodation loop_frames already made for itself with _is_frame
+    if isinstance(video, Image.Image):
+        return [video]
+
     if isinstance(video, list):
         # A one-video batch - [[frame, ...]] or [ndarray] - unwraps to the video;
         # a single-frame video - [frame] - is already the frames
@@ -374,7 +425,8 @@ def _to_pil(frame):
 
 
 class FrameList(list):
-    """The frames of a video file, carrying the rate the file plays at.
+    """The frames of a video file, carrying the rate the file plays at and
+    the shot boundaries its run recorded, if any.
 
     `load_video` answers a plain list of images, which is what every
     pipeline argument and every task wants - and which says nothing about
@@ -385,11 +437,18 @@ class FrameList(list):
     every consumer working unchanged while `getattr(video, "fps", None)` -
     the question AudioVideo, concat_videos and interpolate_frames already
     ask - gets a real answer.
+
+    `shots` is the same idea for the boundaries `dw.runs.shots_beside`
+    finds beside the file: a video loaded from an `asset:`/`output:` path
+    carried no way to answer `getattr(video, "shots", None)`, so
+    `pair_audio` had nothing to remeasure even though the file's own
+    manifest (or its kept-asset sidecar) already held them (#398).
     """
 
-    def __init__(self, frames, fps=None):
+    def __init__(self, frames, fps=None, shots=None):
         super().__init__(frames)
         self.fps = fps
+        self.shots = shots
 
 
 def file_fps(path):
@@ -425,31 +484,34 @@ def load_audio_video(location, base_dir=None):
     Returns:
         An AudioVideo holding the frames as PIL images and, when the file
         carries an audio stream, its waveform as a (channels, samples) float32
-        array with the stream's sample rate
+        array with the stream's sample rate. A local file also carries the
+        shots its own run manifest recorded for it (`shots_beside`), so a
+        join of a file that is itself an earlier join's output can see the
+        seams inside it (#399); a URL carries none.
     """
     from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
-    from ..locations import validate_media_path, validate_media_url
+    from ..locations import safe_get, validate_media_path
 
     if _URL_SCHEME.match(location):
         import io
-        import requests
 
         # Any other scheme - ftp:, file:, data: - is refused here rather than
         # falling through to be read as a relative path that happens to
         # contain a colon. An http(s) one still has to name a host outside
-        # this deployment (dw/locations.py)
-        validated_url = validate_media_url(location, "a video argument")
-        logger.debug(f"Downloading video from {validated_url}")
-        response = requests.get(validated_url, timeout=300)
-        response.raise_for_status()
+        # this deployment (dw/locations.py), and so does every redirect
+        logger.debug(f"Downloading video from {location}")
+        response = safe_get(location, "a video argument", timeout=300)
         handle = io.BytesIO(response.content)
-    else:
-        validated_path = validate_media_path(location, base_dir, "a video argument")
-        validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
-        logger.debug(f"Reading video from {validated_path}")
-        handle = validated_path
+        return _decode_audio_video(handle)
 
-    return _decode_audio_video(handle)
+    validated_path = validate_media_path(location, base_dir, "a video argument")
+    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    logger.debug(f"Reading video from {validated_path}")
+    video = _decode_audio_video(validated_path)
+    from ..runs import shots_beside
+
+    video.shots = shots_beside(validated_path)
+    return video
 
 
 def _decode_audio_video(handle):
@@ -491,7 +553,9 @@ def _decode_audio_video(handle):
         f"{audio.shape[1] if audio is not None else 0} audio samples"
     )
     # The file's own rate travels with it: a step that joins videos read
-    # from disk knows what to write them back at without being told (#84)
+    # from disk knows what to write them back at without being told (#84).
+    # A file carries no shots - the manifest that recorded them is the run's,
+    # not the file's
     return AudioVideo(
         frames, audio, sample_rate if audio is not None else None, fps=frame_rate
     )

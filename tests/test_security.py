@@ -63,10 +63,7 @@ def test_url_validation():
     )
     assert validate_url("http://localhost:8080/api") == "http://localhost:8080/api"
 
-    # Invalid schemes should fail
-    with pytest.raises(InvalidInputError):
-        validate_url("file:///etc/passwd")
-
+    # Invalid schemes should fail (file:// is in TestValidateUrl)
     with pytest.raises(InvalidInputError):
         validate_url("ftp://example.com/file")
 
@@ -118,29 +115,6 @@ def test_string_input_validation():
     # Strings with invalid control characters should fail (not tab/newline/CR)
     with pytest.raises(InvalidInputError):
         validate_string_input("hello\x01world")
-
-
-def test_command_sanitization():
-    """Test command argument sanitization"""
-    # Normal arguments should work
-    args = ["python", "-m", "dw.run", "workflow.json"]
-    sanitized = sanitize_command_args(args)
-    assert len(sanitized) == len(args)
-    assert (
-        sanitized == args
-    )  # With shell=False, arguments pass through after validation
-
-    # Arguments with semicolons should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["rm", "-rf", "; rm -rf /"])
-
-    # Arguments with $ should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["echo", "$(malicious_command)"])
-
-    # Arguments with pipes should fail
-    with pytest.raises(InvalidInputError):
-        sanitize_command_args(["cat", "/etc/passwd | grep root"])
 
 
 class TestValidatePathRejections:
@@ -432,6 +406,11 @@ class TestSafeJoinPath:
 
 
 class TestSanitizeCommandArgs:
+    def test_ordinary_arguments_pass_through_unchanged(self):
+        # shell=False does the quoting, so a clean argument is returned verbatim
+        args = ["python", "-m", "dw.run", "workflow.json"]
+        assert sanitize_command_args(args) == args
+
     def test_non_string_arguments_are_coerced(self):
         assert sanitize_command_args(["--steps", 25, 1.5]) == ["--steps", "25", "1.5"]
 

@@ -1,6 +1,6 @@
 {
     "id": "assemble-and-score",
-    "description": "Cuts existing shots into one scored film. It is the pass you re-run while cutting, when re-generating the footage each time would cost GPU hours to change a fade. The shots go straight into concat_videos as hard cuts - nothing is stabilized or rescaled on the way, so a deliberate camera move survives the edit; they must already share one size and frame rate, and the task refuses a set that does not. 'shots' is a list, so a diptych is two entries and a reel is however many the cut needs. The shots' own recorded sound is carried up to the score's sample rate and mixed underneath it, so the room tone of each world survives the edit instead of being replaced by music. Supply the shots and the score as asset: references - 'shot_1.mp4' and friends, uploaded with upload_asset or promoted from a generated run with keep_output. Shots generated independently also drift in loudness - 10 dB between two shots of one scene is ordinary - and no seam control can hide a level jump, because it is either side of the cut rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. 'match_levels_dbfs' sets the level match_levels moves every shot to, below its own default; a shot whose gain to that level would clip is held short of it instead, and the run says so rather than leaving the shots still apart after a match. 'audio_bleed_gain_db' ducks 'audio_bleed_ms'' full-scale bleed, left at 0 for no change. 'total_frames' is the length of the cut in frames and 'score' is a separate asset with its own length: the score is sliced to 'total_frames' from 'score_start_frame', and a score that does not reach that far is padded to it with digital silence, which leaves the rest of the film unscored under the shots' own sound (the run says so as a 'slice_past_end' warning, but the film itself sounds plausible). A score must therefore be at least as long as the cut; to stretch a short bed to reach, make a longer one with the 'loop_audio' task first and pass that as 'score'.",
+    "description": "Cuts existing shots into one scored film. It is the pass you re-run while cutting, when re-generating the footage each time would cost GPU hours to change a fade. The shots go straight into concat_videos as hard cuts - nothing is stabilized or rescaled on the way, so a deliberate camera move survives the edit; they must already share one size and frame rate, and the task refuses a set that does not. 'shots' is a list, so a diptych is two entries and a reel is however many the cut needs. The shots' own recorded sound is carried up to the score's sample rate and mixed underneath it, so the room tone of each world survives the edit instead of being replaced by music. Supply the shots and the score as asset: references - 'shot_1.mp4' and friends, uploaded with upload_asset or promoted from a generated run with keep_output. Shots generated independently also drift in loudness - 10 dB between two shots of one scene is ordinary - and no seam control can hide a level jump, because it is either side of the cut rather than at it; 'match_levels' ('rms' for perceived level, 'peak' for the loudest sample) evens the shots out before they are joined, and left null, as it is by default, a wide spread is warned about in the log rather than passing in silence. 'match_levels_dbfs' sets the level match_levels moves every shot to, below its own default; a shot whose gain to that level would clip is held short of it instead, and the run says so rather than leaving the shots still apart after a match. 'audio_bleed_gain_db' ducks 'audio_bleed_ms'' full-scale bleed, left at 0 for no change. 'total_frames' is the length of the cut in frames and 'score' is a separate asset with its own length: the score is sliced to 'total_frames' from 'score_start_frame', and a score that does not reach that far is padded to it with digital silence, which leaves the rest of the film unscored under the shots' own sound (the run says so as a 'slice_past_end' warning, but the film itself sounds plausible). A score must therefore be at least as long as the cut; to stretch a short bed to reach, make a longer one with the 'loop_audio' task first and pass that as 'score'. The world track runs at a constant level through the score's own ending, so a score that decays into silence can sit 20+ dB under it there and be inaudible even though the mix's peak looks healthy; 'world_fade_out_ms', 0 by default, fades the world track out over its last N ms so the score's written ending is what is heard.",
     "cost": [
         {
             "device": "cuda",
@@ -22,14 +22,15 @@
         "sample_rate": 44100,
         "fps": 24,
         "audio_bleed_ms": 0,
-        "audio_bleed_gain_db": 0,
+        "audio_bleed_gain_db": 0.0,
         "seam_fade_ms": null,
         "match_levels": null,
         "match_levels_dbfs": null,
         "score_start_frame": 0,
         "total_frames": 360,
         "score_gain": 1.0,
-        "world_gain": 1.8
+        "world_gain": 1.8,
+        "world_fade_out_ms": 0
     },
     "steps": [
         {
@@ -54,6 +55,17 @@
                 "arguments": {
                     "audio": "previous_result:edit",
                     "target_sample_rate": "variable:sample_rate"
+                }
+            }
+        },
+        {
+            "name": "world_faded",
+            "task": {
+                "command": "fade_audio",
+                "arguments": {
+                    "audio": "previous_result:world",
+                    "fade_out_ms": "variable:world_fade_out_ms",
+                    "sample_rate": "variable:sample_rate"
                 }
             }
         },
@@ -86,7 +98,7 @@
                 "arguments": {
                     "audios": [
                         "previous_result:soundtrack_resampled",
-                        "previous_result:world"
+                        "previous_result:world_faded"
                     ],
                     "gains": [
                         "variable:score_gain",
@@ -119,7 +131,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24,
+                "fps": "variable:fps",
                 "subfolder": "final"
             }
         }

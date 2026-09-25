@@ -3,10 +3,12 @@ Unit tests for arguments module
 Tests argument realization, image/video fetching, and type loading
 """
 
+import io
 import pytest
 import os
 import tempfile
 from dataclasses import dataclass
+from types import SimpleNamespace
 from PIL import Image
 from unittest.mock import patch
 from dw.arguments import (
@@ -62,19 +64,20 @@ class TestFetchImage:
             assert isinstance(loaded_image, Image.Image)
             assert loaded_image.size == (100, 100)
 
-    @patch("dw.arguments.load_image")
-    @patch("dw.arguments.validate_media_url")
-    def test_fetch_image_from_url(self, mock_validate_url, mock_load_image):
-        mock_validate_url.return_value = "https://example.com/image.jpg"
-        mock_image = Image.new("RGB", (100, 100))
-        mock_load_image.return_value = mock_image
+    @patch("dw.arguments.safe_get")
+    def test_fetch_image_from_url(self, mock_safe_get):
+        # The URL goes through safe_get, which re-checks each redirect, and
+        # the image is decoded from the bytes it answered with
+        buffer = io.BytesIO()
+        Image.new("RGBA", (100, 100)).save(buffer, format="PNG")
+        mock_safe_get.return_value = SimpleNamespace(content=buffer.getvalue())
 
         result = fetch_image("https://example.com/image.jpg")
 
-        mock_validate_url.assert_called_once()
-        assert mock_validate_url.call_args[0][0] == "https://example.com/image.jpg"
-        mock_load_image.assert_called_once_with("https://example.com/image.jpg")
-        assert result == mock_image
+        mock_safe_get.assert_called_once()
+        assert mock_safe_get.call_args[0][0] == "https://example.com/image.jpg"
+        assert result.size == (100, 100)
+        assert result.mode == "RGB"
 
     def test_fetch_image_invalid_extension(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -161,13 +164,11 @@ class TestFetchVideo:
 
     def test_fetch_video_dict_format(self):
         """Test that video can be specified as dict with 'location' key"""
-        with patch("dw.arguments.load_video") as mock_load:
-            with patch("dw.arguments.validate_media_url") as mock_validate:
-                mock_validate.return_value = "https://example.com/video.mp4"
-                mock_load.return_value = ["frame1", "frame2"]
+        with patch("dw.arguments._fetch_remote_video") as mock_fetch:
+            mock_fetch.return_value = ["frame1", "frame2"]
 
-                result = fetch_video({"location": "https://example.com/video.mp4"})
-                assert result == ["frame1", "frame2"]
+            result = fetch_video({"location": "https://example.com/video.mp4"})
+            assert result == ["frame1", "frame2"]
 
     def test_fetch_video_dict_missing_location(self):
         """Test that dict without 'location' key raises error"""
@@ -176,17 +177,29 @@ class TestFetchVideo:
         assert "location" in str(exc_info.value).lower()
 
     @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_media_url")
-    def test_fetch_video_from_url(self, mock_validate_url, mock_load_video):
-        mock_validate_url.return_value = "https://example.com/video.mp4"
+    @patch("dw.arguments.safe_get")
+    def test_fetch_video_from_url(self, mock_safe_get, mock_load_video):
+        # load_video is handed the downloaded file, never the URL - its own
+        # fetch would follow redirects unchecked
+        mock_safe_get.return_value = SimpleNamespace(content=b"video bytes")
         mock_frames = ["frame1", "frame2"]
-        mock_load_video.return_value = mock_frames
+        seen = {}
+
+        def load(path):
+            seen["path"] = path
+            with open(path, "rb") as handle:
+                seen["content"] = handle.read()
+            return mock_frames
+
+        mock_load_video.side_effect = load
 
         result = fetch_video("https://example.com/video.mp4")
 
-        mock_validate_url.assert_called_once()
-        assert mock_validate_url.call_args[0][0] == "https://example.com/video.mp4"
-        mock_load_video.assert_called_once_with("https://example.com/video.mp4")
+        mock_safe_get.assert_called_once()
+        assert mock_safe_get.call_args[0][0] == "https://example.com/video.mp4"
+        assert seen["path"].endswith(".mp4")
+        assert seen["content"] == b"video bytes"
+        assert not os.path.exists(seen["path"])
         assert result == mock_frames
 
     def test_fetch_video_invalid_extension(self):
@@ -200,11 +213,9 @@ class TestFetchVideo:
                 fetch_video(invalid_file)
             assert "extension not allowed" in str(exc_info.value)
 
-    @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_media_url")
-    def test_fetch_video_list(self, mock_validate_url, mock_load_video):
+    @patch("dw.arguments._fetch_remote_video")
+    def test_fetch_video_list(self, mock_load_video):
         """Test that fetch_video can handle a list of video specifications"""
-        mock_validate_url.side_effect = lambda url, what=None: url
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
         result = fetch_video(
@@ -216,11 +227,9 @@ class TestFetchVideo:
         assert result[0] == ["frames1"]
         assert result[1] == ["frames2"]
 
-    @patch("dw.arguments.load_video")
-    @patch("dw.arguments.validate_media_url")
-    def test_fetch_video_list_with_dicts(self, mock_validate_url, mock_load_video):
+    @patch("dw.arguments._fetch_remote_video")
+    def test_fetch_video_list_with_dicts(self, mock_load_video):
         """Test that fetch_video can handle a list of dict specifications"""
-        mock_validate_url.side_effect = lambda url, what=None: url
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
 
         result = fetch_video(
@@ -282,7 +291,7 @@ class TestRealizeArgs:
         args = {"scheduler_type": "DDPMScheduler"}
         realize_args(args)
 
-        mock_load_type.assert_called_once_with("DDPMScheduler")
+        mock_load_type.assert_called_once_with("DDPMScheduler", "scheduler_type")
         assert args["scheduler_type"] == mock_type
 
     def test_realize_escaped_type_reference(self):
@@ -314,8 +323,11 @@ class TestRealizeArgs:
         assert steps["arguments"]["weights_dtype"] == "int4"
 
     def test_realize_escaped_offload_type_survives_second_pass(self):
+        # The previously mandatory {} escape keeps working after the key
+        # was excluded from type conversion, and stays unescaped on a rerealize
         args = {"group_offload": {"offload_type": "{leaf_level}"}}
         realize_args(args)
+        assert args["group_offload"]["offload_type"] == "leaf_level"
         realize_args(args)
 
         assert args["group_offload"]["offload_type"] == "leaf_level"
@@ -330,14 +342,6 @@ class TestRealizeArgs:
     def test_realize_offload_type_not_converted(self):
         # offload_type names a group offloading strategy, not a python type
         args = {"group_offload": {"offload_type": "leaf_level"}}
-        realize_args(args)
-
-        assert args["group_offload"]["offload_type"] == "leaf_level"
-
-    def test_realize_escaped_offload_type_is_unescaped(self):
-        # The previously mandatory {} escape keeps working after the key
-        # was excluded from type conversion
-        args = {"group_offload": {"offload_type": "{leaf_level}"}}
         realize_args(args)
 
         assert args["group_offload"]["offload_type"] == "leaf_level"
@@ -368,6 +372,36 @@ class TestRealizeArgs:
             realize_args(args)
 
         assert "media_type" in str(exc_info.value)
+
+    def test_media_type_image_on_a_video_argument_loads_as_a_still(self):
+        # #443: validate_workflow's own hint tells a caller to pass a still
+        # to a `video` argument this way - fetch_video must honor media_type
+        # rather than treating the still's extension as a video's
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "still.jpg"))
+
+            args = {"video": {"media_type": "image", "location": "still.jpg"}}
+            realize_args(args, base_dir=temp_dir)
+
+            assert isinstance(args["video"], Image.Image)
+
+    def test_media_type_image_inside_a_video_list_loads_as_stills(self):
+        # The list form is what realize_args's own is_media_reference check
+        # never sees - a list is not itself a dict - so it only worked once
+        # fetch_video applied the same check to each item it recurses into
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "a.jpg"))
+            Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "b.png"))
+
+            args = {
+                "video": [
+                    {"media_type": "image", "location": "a.jpg"},
+                    {"media_type": "image", "location": "b.png"},
+                ]
+            }
+            realize_args(args, base_dir=temp_dir)
+
+            assert all(isinstance(item, Image.Image) for item in args["video"])
 
     def test_bare_location_dict_is_left_alone_under_other_keys(self):
         # Without media_type, a dict with a location key belongs to its consumer
@@ -420,6 +454,78 @@ class TestRealizeArgs:
 
         assert args["scheduler_type"] == mock_type
 
+    def test_variables_dict_skips_key_conventions(self):
+        # A variable named 'image', with apply_key_conventions off, is left
+        # as the plain path it was declared with - the value only loads once
+        # the argument that actually consumes it is realized (#365)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "clip.mp4")
+            with open(video_path, "wb") as f:
+                f.write(b"not a real video, just a placeholder")
+
+            variables = {"image": video_path}
+            realize_args(variables, apply_key_conventions=False)
+
+            assert variables["image"] == video_path
+
+    def test_variable_named_image_feeds_video_argument(self):
+        # The exact #365 shape: a variable named 'image' is substituted into
+        # a step's 'video' argument. Realizing the variables dict without key
+        # conventions, then the step with them, loads it as a video rather
+        # than pre-loading it as an image and handing fetch_video a PIL Image
+        with patch("dw.arguments._fetch_remote_video") as mock_load:
+            mock_load.return_value = ["frame1", "frame2"]
+
+            variables = {"image": "https://example.com/clip.mp4"}
+            realize_args(variables, apply_key_conventions=False)
+
+            # simulate substitution of the variable into the step's argument
+            steps = {"video": variables["image"]}
+            realize_args(steps)
+
+            assert steps["video"] == ["frame1", "frame2"]
+
+    def test_star_image_variable_still_loads_as_image_under_image_argument(self):
+        # Regression check: a variable named like a media convention (e.g.
+        # 'input_image') still loads correctly once substituted into a
+        # matching argument - only the variable-stage guess is removed
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_image = Image.new("RGB", (50, 50), color="purple")
+            image_path = os.path.join(temp_dir, "subject.png")
+            test_image.save(image_path)
+
+            variables = {"input_image": image_path}
+            realize_args(variables, apply_key_conventions=False)
+            assert variables["input_image"] == image_path
+
+            steps = {"image": variables["input_image"]}
+            realize_args(steps, base_dir=temp_dir)
+
+            assert isinstance(steps["image"], Image.Image)
+
+    def test_reference_type_variable_stays_a_string(self):
+        # A '_type'-suffixed variable holding a plain category string must
+        # not be run through load_type_from_name at the variable stage
+        variables = {"reference_type": "character"}
+        realize_args(variables, apply_key_conventions=False)
+
+        assert variables["reference_type"] == "character"
+
+    def test_image_variable_fed_to_video_argument_error_names_argument(self):
+        # If a value still reaches the wrong loader, the error names the
+        # argument and describes the value's source rather than a raw
+        # '<class ...>' message
+        img = Image.new("RGB", (10, 10))
+        steps = {"video": img}
+
+        with pytest.raises(ValueError) as exc_info:
+            realize_args(steps)
+
+        message = str(exc_info.value)
+        assert "must be a string" in message
+        assert "'video'" in message
+        assert "already-loaded image" in message
+
 
 class Reference:
     """Stands in for a pipeline argument built from a file, e.g. MiniMaxH3ImageReference"""
@@ -462,10 +568,8 @@ class TestRealizeObject:
 
             assert args["reference"].arguments == {"fps": 30.0}
 
-    @patch("dw.arguments.validate_media_url")
-    def test_object_is_constructed_from_a_url(self, mock_validate_url):
+    def test_object_is_constructed_from_a_url(self):
         url = "https://example.com/subject.jpg"
-        mock_validate_url.return_value = url
 
         args = {"reference": self.reference_argument(url)}
         realize_args(args)

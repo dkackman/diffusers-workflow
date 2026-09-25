@@ -89,6 +89,9 @@ def test_progress_event_sequence():
 
     names = [event["event"] for event in events]
     assert names[0] == "run_start"
+    # the run's ordinal, so a job can name its run the way the gallery will
+    # (the output root here is shared, so only its shape is fixed)
+    assert isinstance(events[0]["version"], int) and events[0]["version"] >= 1
     assert names[1] == "workflow_start"
     assert names[-1] == "workflow_end"
     assert "step_start" in names and "step_end" in names
@@ -322,14 +325,34 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
     assert current_context() is None, "context must deactivate after the run"
 
 
-def _fast_watchdog():
+def _fast_watchdog(threshold=0.05, interval=0.02):
     """Patches the watchdog's timing constants down to something a test can
     wait out in real time, without touching the production defaults."""
     return patch.multiple(
         events_module,
-        PHASE_STALL_THRESHOLD_SECONDS=0.05,
-        PHASE_STALL_CHECK_INTERVAL_SECONDS=0.02,
+        PHASE_STALL_THRESHOLD_SECONDS=threshold,
+        PHASE_STALL_CHECK_INTERVAL_SECONDS=interval,
     )
+
+
+# Production checks six times per threshold (30s / 5s). A test that asserts
+# something does *not* happen within a window keeps that ratio, so the margin
+# between the window and the threshold is several check intervals wide rather
+# than a scheduler hiccup wide.
+_RATIO_THRESHOLD = 0.6
+_RATIO_INTERVAL = 0.1
+
+
+def _stalls(events):
+    return [e for e in events if e.get("kind") == "phase_stall"]
+
+
+def _wait_for_stall(events, deadline_seconds=5.0):
+    """Poll until the watchdog has reported at least one stall."""
+    deadline = time.monotonic() + deadline_seconds
+    while not _stalls(events):
+        assert time.monotonic() < deadline, "watchdog never reported a stall"
+        time.sleep(0.005)
 
 
 def test_watchdog_fires_after_threshold_with_no_events():
@@ -352,16 +375,18 @@ def test_watchdog_fires_after_threshold_with_no_events():
 def test_watchdog_does_not_fire_before_threshold():
     events = []
     context = RunContext(on_event=events.append)
-    with _fast_watchdog():
+    with _fast_watchdog(_RATIO_THRESHOLD, _RATIO_INTERVAL):
         context.enter_run()
         try:
             context.note_phase("generating")
-            time.sleep(0.03)
+            # Two check intervals, so the watchdog has really looked (a
+            # watchdog that ignored the threshold would fire here), and well
+            # short of the threshold
+            time.sleep(2.5 * _RATIO_INTERVAL)
         finally:
             context.exit_run()
 
-    stalls = [e for e in events if e.get("kind") == "phase_stall"]
-    assert not stalls
+    assert not _stalls(events)
 
 
 def test_watchdog_repeats_while_the_stall_continues():
@@ -387,26 +412,28 @@ def test_watchdog_repeats_while_the_stall_continues():
 
 
 def test_watchdog_stops_once_a_new_event_arrives():
+    # The stall report bumps the silence clock itself, so it repeats one
+    # threshold after the last report. A progress event part-way through that
+    # wait must restart the clock: the window below runs past when the repeat
+    # would have come without the reset, and ends well before one threshold
+    # after the progress event.
+    threshold = _RATIO_THRESHOLD
     events = []
     context = RunContext(on_event=events.append)
-    with _fast_watchdog():
+    with _fast_watchdog(threshold, _RATIO_INTERVAL):
         context.enter_run()
         try:
             context.note_phase("generating")
-            time.sleep(0.06)
+            _wait_for_stall(events)
+            stalls_before_progress = len(_stalls(events))
+            time.sleep(0.6 * threshold)
             context.emit("pipeline_step", step=1)
-            time.sleep(0.01)
-            count_after_progress = len(
-                [e for e in events if e.get("kind") == "phase_stall"]
-            )
-            time.sleep(0.01)
-            count_soon_after = len(
-                [e for e in events if e.get("kind") == "phase_stall"]
-            )
+            time.sleep(0.65 * threshold)
+            stalls_after_progress = _stalls(events)[stalls_before_progress:]
         finally:
             context.exit_run()
 
-    assert count_soon_after == count_after_progress, (
+    assert stalls_after_progress == [], (
         "a fresh event must reset the silence clock, not just a fresh phase"
     )
 
@@ -460,4 +487,101 @@ def test_watchdog_event_carries_the_required_fields():
     assert stall["event"] == "warning"
     assert stall["phase"] == "saving"
     assert isinstance(stall["seconds_since_phase_start"], (int, float))
+    assert isinstance(stall["seconds_since_last_progress"], (int, float))
     assert "message" in stall
+
+
+def test_watchdog_reports_last_progress_kind_and_does_not_reset_on_repeat():
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            context.note_phase("generating")
+            context.emit("pipeline_step", step=1)
+            time.sleep(0.3)
+        finally:
+            context.exit_run()
+
+    stalls = [e for e in events if e.get("kind") == "phase_stall"]
+    assert len(stalls) >= 2
+    assert "pipeline_step" in stalls[0]["message"]
+    # seconds_since_last_progress climbs across repeats rather than
+    # resetting each time the watchdog itself emits (#357)
+    assert (
+        stalls[-1]["seconds_since_last_progress"]
+        > stalls[0]["seconds_since_last_progress"]
+    )
+
+
+def test_each_run_records_its_own_version(tmp_path):
+    """Consecutive runs of one workflow number themselves 1, 2, 3 - the
+    ordinal the gallery shows as 'v2' and an agent quotes."""
+
+    def mock_load(self, shared_components):
+        self.pipeline = FakePipeline()
+
+    versions = []
+    for _ in range(3):
+        workflow_def = _workflow_def()
+        workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
+        workflow = Workflow(workflow_def, str(tmp_path), "test.json")
+        with patch.object(Pipeline, "load", mock_load):
+            with patch("dw.workflow.empty_device_cache"):
+                workflow.run({}, previous_pipelines={})
+        # The run's own directory, not the one its files came from: a
+        # cached step reports the earlier run's files while still being a
+        # run of its own with its own number
+        run_dir = pathlib.Path(workflow._run_dir)
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        versions.append(manifest["version"])
+
+    assert versions == [1, 2, 3]
+
+
+def test_the_version_is_on_disk_before_the_first_step_runs(tmp_path):
+    """A run killed mid-step - which is how a stuck server gets restarted -
+    never reaches the closing manifest, so the number has to land when the
+    run opens. Also what lets a second process opening a run of the same
+    workflow see this one's number rather than taking it too."""
+    seen = {}
+
+    def mock_load(self, shared_components):
+        manifest_path = pathlib.Path(workflow._run_dir) / "manifest.json"
+        seen.update(json.loads(manifest_path.read_text()))
+        self.pipeline = FakePipeline()
+
+    workflow_def = _workflow_def()
+    workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
+    with patch.object(Pipeline, "load", mock_load):
+        with patch("dw.workflow.empty_device_cache"):
+            workflow.run({}, previous_pipelines={})
+
+    assert seen["version"] == 1
+    assert seen["status"] == "running"
+    assert seen["finished_at"] is None
+    closing = json.loads(
+        (pathlib.Path(workflow._run_dir) / "manifest.json").read_text()
+    )
+    assert closing["status"] == "completed"
+    assert closing["version"] == 1
+    assert closing["finished_at"] is not None
+
+
+def test_select_kinds_matches_a_warnings_kind_as_well_as_event():
+    """#436: `kinds` matched `event` only, so a warning type such as
+    phase_stall (event "warning", kind "phase_stall") selected nothing."""
+    from dw.events import select_kinds
+
+    events = [
+        {"seq": 0, "event": "memory"},
+        {"seq": 1, "event": "log", "message": "gain applied"},
+        {"seq": 2, "event": "warning", "kind": "phase_stall"},
+        {"seq": 3, "event": "warning", "kind": "audio_clipped"},
+    ]
+
+    assert [e["seq"] for e in select_kinds(events, ["phase_stall"])] == [2]
+    assert [e["seq"] for e in select_kinds(events, ["log", "warning"])] == [1, 2, 3]
+    assert [e["seq"] for e in select_kinds(events, None)] == [0, 1, 2, 3]
+    assert select_kinds(events, ["nothing"]) == []

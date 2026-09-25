@@ -31,6 +31,11 @@ MIN_DIMENSION = 64
 # a job that logged its way to a megabyte would otherwise arrive whole.
 MAX_RETURNED_CHARACTERS = 20000
 
+# The most pixels an image is decoded at, checked before the decode - a PNG
+# header can claim any size. dw.security.MAX_DECODE_PIXELS's value, kept here
+# because dw_mcp cannot import dw; a test pins the two equal.
+MAX_DECODE_PIXELS = 50_000_000
+
 
 def get_output_image(client, name, max_dimension=768, workspace=None, crop=None):
     """One image from the output directory, downscaled, as base64 plus the
@@ -54,6 +59,14 @@ def get_output_image(client, name, max_dimension=768, workspace=None, crop=None)
         )
     try:
         image = Image.open(io.BytesIO(body))
+    except Exception:
+        raise DwApiError(f"{name} could not be decoded as an image.")
+    if image.width * image.height > MAX_DECODE_PIXELS:
+        raise DwApiError(
+            f"{name} is {image.width}x{image.height}, more than the "
+            f"{MAX_DECODE_PIXELS:,} pixels this tool decodes."
+        )
+    try:
         image.load()
     except Exception:
         raise DwApiError(f"{name} could not be decoded as an image.")
@@ -231,8 +244,9 @@ def get_output_frames(
     the last frame before and the first frame after each boundary, side by
     side). `boundaries` is the list of frame indexes each shot after the
     first starts at - the running sum of the shots' `frame_count` from
-    `get_gallery_metadata` on their own files - `names` the shots' names -
-    both needed with `seams` until a joined file carries its own.
+    `get_gallery_metadata` on their own files - `names` the shots' names.
+    Without `boundaries`, an output joined from shots uses the boundaries
+    its run recorded (`get_gallery_metadata`'s `media.shots`).
 
     `crop` is `[x, y, width, height]` in the video's own source pixels -
     the same convention `get_output_image` uses - resolved once against
@@ -399,6 +413,31 @@ def get_output_text(
     }
 
 
+ASSESSMENT_PROBES = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
+
+
+def assess_output(client, name, probe=None, detail=False, workspace=None):
+    """Measure a finished output or asset and say where to look (#388).
+
+    The server runs the assessment probes on one decode, beside any GPU
+    job rather than behind it. `probe` is checked against the whitelist
+    before anything else is read."""
+    if probe is not None and probe not in ASSESSMENT_PROBES:
+        raise DwApiError(
+            f"Unknown probe {probe!r} - one of {', '.join(ASSESSMENT_PROBES)}"
+        )
+    params = {}
+    if probe is not None:
+        params["probe"] = probe
+    if detail:
+        params["detail"] = "true"
+    return client.get_json(
+        api_path("api", "gallery", name, "assess"),
+        params=params or None,
+        workspace=workspace,
+    )
+
+
 def delete_output(client, name=None, workspace=None, job_id=None):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs.
@@ -442,18 +481,24 @@ def delete_output(client, name=None, workspace=None, job_id=None):
     return {**deleted, "job_id": job_id, "run_dir": run_dir}
 
 
-def _remote_root(client):
+def _remote_root(client, workspace=None):
     """The workspace a remote write is confined to, or None when local.
 
     Only the mounted MCP surface is remote: there the tool runs inside
     dw.serve, so the path a caller names is a path on the operator's box
     rather than on its own machine. A stdio `dw-mcp` returns None and keeps
     writing wherever the user can.
+
+    `workspace` is an explicit per-call override (download_output's own
+    `workspace` argument); when omitted, `client.get_json`'s `_scoped`
+    already falls back to the session's own pin (#389).
     """
     if not getattr(client, "mounted", False):
         return None
 
-    directories = (client.get_json("/api/server").get("directories")) or {}
+    directories = (
+        client.get_json("/api/server", workspace=workspace).get("directories")
+    ) or {}
     root = directories.get("workspace")
     if not root:
         raise DwApiError(
@@ -516,10 +561,26 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     Over a `dw.serve --mcp` endpoint the file lands on the *server*, not on
     the calling agent's machine, so there the destination is confined to that
     workspace: an absolute or '~' path outside it is refused rather than
-    written (#113). A stdio `dw-mcp` keeps writing anywhere the user can,
+    written (#113). An omitted `destination` is refused outright there
+    rather than defaulting into the workspace root - a file dropped loose in
+    the root has no run to delete it with and nothing names it back as an
+    output (#353); pass an explicit destination inside the workspace to save
+    one anyway. A stdio `dw-mcp` keeps writing anywhere the user can, and an
+    omitted `destination` keeps defaulting to the current working directory,
     because there "local disk" is genuinely their own.
     """
+    root = _remote_root(client, workspace=workspace)
     if destination is None:
+        if root:
+            raise DwApiError(
+                "destination is required over a dw.serve --mcp endpoint - "
+                "omitting it would drop the file loose in the workspace "
+                "root, where nothing can find or delete it later. Pass an "
+                "explicit destination inside the workspace, or use the url "
+                "list_gallery reports, get_output_image / get_output_audio / "
+                "get_output_frames for inline content, or keep_output to "
+                "make it a named asset instead."
+            )
         destination = os.path.basename(name)
     destination = os.path.expanduser(destination)
     if ".." in pathlib.PurePath(destination).parts:
@@ -533,7 +594,6 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     # this transport: the caller's own working directory for stdio, the
     # server's workspace when the tool runs inside dw.serve - where the
     # process's cwd is an implementation detail the caller never chose
-    root = _remote_root(client)
     destination = (
         os.path.abspath(os.path.join(root, destination))
         if root and not os.path.isabs(destination)

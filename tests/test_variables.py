@@ -275,6 +275,25 @@ def test_set_variables_string_too_long_raises():
         set_variables(values, variables)
 
 
+def test_set_variables_dict_override_of_a_string_default_raises():
+    """A media variable that used to be declared as {'location': ...} and is
+    now a plain string (templates/ltx2/keyframes' first_image/last_image,
+    #433) must refuse a caller still passing the old dict shape rather than
+    silently stringifying it - str({'location': 'x'}) never raises, so the
+    dict's repr would otherwise reach the workflow as a bogus path."""
+    variables = {"first_image": "https://example/x.png"}
+
+    with pytest.raises(ValueError, match="takes a plain string"):
+        set_variables({"first_image": {"location": "asset:x.png"}}, variables)
+
+
+def test_set_variables_list_override_of_a_string_default_raises():
+    variables = {"prompt": "a cat"}
+
+    with pytest.raises(ValueError, match="takes a plain string"):
+        set_variables({"prompt": ["a", "b"]}, variables)
+
+
 def test_set_variables_list_entry_too_long_raises_the_same_error():
     """A string nested inside a list-valued argument (a for_each entry's
     prompt, say) is exactly as reachable as a top-level one, and must be
@@ -295,7 +314,21 @@ def test_set_variables_list_with_ordinary_strings_passes_unchanged():
 
     set_variables(values, variables)
 
-    assert variables["shots"] == [{"name": "a", "prompt": "a cat"}, {"name": "b"}]
+
+def test_set_variables_already_realized_object_passes_through_a_string_default():
+    """A sub-workflow argument built from 'previous_result:<step>' is already
+    a live object (an AudioTrack, here) by the time it reaches set_variables -
+    coercing it through the declared variable's own type (a string
+    'asset:...' default) called str() on the object and produced its Python
+    repr, which a downstream task then tried to read as a file path (#404)."""
+    from dw.result import AudioTrack
+
+    track = AudioTrack(audio=[0.0, 0.1, 0.2], sample_rate=44100)
+    variables = {"score": "asset:score.wav"}
+
+    set_variables({"score": track}, variables)
+
+    assert variables["score"] is track
 
 
 def test_argument_errors_reports_a_too_long_entry_under_the_list_argument():
@@ -313,6 +346,22 @@ def test_argument_errors_reports_a_too_long_entry_under_the_list_argument():
 
     assert [error["path"] for error in errors] == ["arguments.shots"]
     assert "too long" in errors[0]["message"]
+
+
+def test_argument_errors_reports_a_dict_passed_for_a_string_variable():
+    """The #433 shape: validate_workflow must flag a dict passed for a
+    variable whose default is a plain string, the same class of error as
+    a too-long string or a fractional int override - not pass it through
+    to fail at run time with a path built from the dict's repr."""
+    definition = {
+        "variables": {"first_image": "https://example/x.png"},
+    }
+    arguments = {"first_image": {"location": "asset:qa-cast/priya-portrait.jpg"}}
+
+    errors = argument_errors(definition, arguments)
+
+    assert [error["path"] for error in errors] == ["arguments.first_image"]
+    assert "takes a plain string" in errors[0]["message"]
 
 
 class TestResolveVariableValues:

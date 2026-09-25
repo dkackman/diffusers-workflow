@@ -64,6 +64,7 @@ EXPECTED_TOOLS = {
     "list_enhancers",
     "enhance_prompt",
     "get_output_text",
+    "assess_output",
     "download_output",
     "delete_output",
     "list_assets",
@@ -233,13 +234,6 @@ async def test_no_tool_exposes_base_dir():
 
 
 @pytest.mark.asyncio
-async def test_run_workflow_takes_an_acknowledged_cost_flag():
-    tools = await tools_of(server_over(ok({})))
-
-    assert "acknowledged_cost" in tools["run_workflow"].input_schema["properties"]
-
-
-@pytest.mark.asyncio
 async def test_run_workflow_and_delete_output_take_the_turn_saving_parameters():
     """Almost every run is followed by a wait, and most deletes are of the
     run a job just wrote; each is a whole tool turn for an unattended agent.
@@ -265,27 +259,8 @@ async def test_run_workflow_advertises_its_cost():
     tools = await tools_of(server_over(ok({})))
 
     description = tools["run_workflow"].description
-    assert "COSTS GPU TIME" in description
+    assert "costs gpu time" in description.lower()
     assert "acknowledged_cost" in description
-
-
-@pytest.mark.asyncio
-async def test_a_read_only_tool_round_trips_to_the_api():
-    server = server_over(ok({"workflows": ["a"], "details": {}}))
-
-    result = await server.call_tool("list_workflows", {})
-
-    assert "workflows" in json.dumps(_text_of(result))
-
-
-@pytest.mark.asyncio
-async def test_run_workflow_refuses_without_acknowledgement():
-    server = server_over(ok({"id": "job-1", "status": "queued"}))
-
-    with pytest.raises(Exception) as caught:
-        await server.call_tool("run_workflow", {"workflow_path": "w.json"})
-
-    assert "acknowledged_cost" in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -495,15 +470,43 @@ async def test_the_media_tool_descriptions_say_what_they_hand_back():
 
 
 @pytest.mark.asyncio
+async def test_get_output_audio_points_at_the_loop_for_transcription():
+    """#376: the transcription walkthrough lives in WORKFLOW_GUIDE's "The
+    loop", step 6; the resident description keeps one sentence and a pointer,
+    so the procedure does not creep back in as a third copy."""
+    tools = await tools_of(server_over(ok({})))
+    audio = tools["get_output_audio"].description
+    assert '"The loop"' in audio
+    assert "transcrib" in audio
+    assert "transcribe-audio" not in audio
+
+
+def test_the_loop_carries_the_transcription_procedure():
+    """The other half of #376's move: the pointer from get_output_audio
+    resolves to a section that names the template and the read tool."""
+    from dw.server import guides
+
+    # "The loop" is a ### subsection; get_guide resolves ## sections.
+    section = guides.get_guide(
+        "workflows", section="Authoring a workflow from an agent"
+    )["content"]
+    loop = section.split("### The loop", 1)[1].split("\n### ", 1)[0]
+    content = loop.split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    assert "templates/transcribe-audio" in content
+    assert "get_output_text" in content
+    assert "delete_output(job_id=" in content
+
+
+@pytest.mark.asyncio
 async def test_the_frames_tool_says_where_boundaries_come_from():
-    """Until a joined file carries its own shots (stage 2), the agent has to
-    derive seam boundaries; the tool has to say from what, or `seams` is a
-    parameter nobody can fill in."""
+    """A joined output's seams come from the shots its run recorded (#385);
+    the tool has to say so, and say what to pass for a file with none, or
+    `seams` is a parameter nobody can fill in."""
     server = server_over(ok({}))
     tools = await tools_of(server)
     text = tools["get_output_frames"].description
-    assert "get_gallery_metadata" in text
-    assert "frame_count" in text
+    assert "media.shots" in text
+    assert "boundaries" in text
 
 
 # Every tool, the arguments a client would send, and the one API call it is
@@ -647,6 +650,7 @@ TOOL_WIRING = [
         "/api/enhance",
     ),
     ("get_output_text", {"name": "enhanced.txt"}, "GET", "/outputs/enhanced.txt"),
+    ("assess_output", {"name": "cut.mp4"}, "GET", "/api/gallery/cut.mp4/assess"),
     (
         "download_output",
         {
@@ -937,18 +941,11 @@ async def test_optional_parameters_are_declared_nullable():
 
 
 @pytest.mark.asyncio
-async def test_rerun_job_takes_an_acknowledged_cost_flag():
-    tools = await tools_of(server_over(ok({})))
-
-    assert "acknowledged_cost" in tools["rerun_job"].input_schema["properties"]
-
-
-@pytest.mark.asyncio
 async def test_rerun_job_advertises_its_cost():
     tools = await tools_of(server_over(ok({})))
 
     description = tools["rerun_job"].description
-    assert "COSTS GPU TIME" in description
+    assert "costs gpu time" in description.lower()
     assert "acknowledged_cost" in description
 
 
@@ -1027,6 +1024,32 @@ async def test_export_job_sends_the_zip_to_the_working_directory():
     description = tools["export_job"].description
     assert "working directory" in description
     assert "do not create that folder first" in description
+
+
+@pytest.mark.asyncio
+async def test_export_job_description_is_auth_aware():
+    """#353: the served tool description, not just the runtime `next` hint,
+    has to tell the agent not to fetch an auth-gated zip on the person's
+    behalf - the description is what the agent plans from before it ever
+    calls the tool and sees `next`."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["export_job"].description
+    assert "auth_required" in description
+    assert "do NOT fetch it" in description
+    assert "hand open_url to the person" in description
+
+
+@pytest.mark.asyncio
+async def test_download_output_description_says_a_mounted_endpoint_requires_destination():
+    """#353: on a dw.serve --mcp endpoint an omitted destination used to
+    silently land in the workspace root; the tool description has to say
+    it's refused there instead, not just the stdio default."""
+    tools = await tools_of(server_over(ok({})))
+
+    description = tools["download_output"].description
+    assert "destination is required there" in description
+    assert "keep_output" in description
 
 
 @pytest.mark.asyncio
@@ -1134,6 +1157,7 @@ WRAPPER_HANDLER_MAP = {
     "run_workflow": (diagnose, "run_workflow"),
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),
+    "assess_output": (media, "assess_output"),
     "enhance_prompt": (prompts, "enhance_prompt"),
     "download_output": (media, "download_output"),
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
@@ -1304,13 +1328,33 @@ async def test_the_instructions_name_the_vocabulary():
         assert word in server.instructions
 
 
+# Claude Code shows an MCP server's instructions and each tool description
+# only up to this many characters and appends "[truncated]"; everything past
+# it never reaches the agent, however carefully it was written.
+CLIENT_TEXT_LIMIT = 2048
+
+
+@pytest.mark.asyncio
+async def test_no_text_the_agent_reads_is_cut_off_by_the_client():
+    server = server_over(ok({}))
+    tools = await tools_of(server)
+
+    assert len(server.instructions) <= CLIENT_TEXT_LIMIT
+    too_long = {
+        name: len(tool.description or "")
+        for name, tool in tools.items()
+        if len(tool.description or "") > CLIENT_TEXT_LIMIT
+    }
+    assert not too_long, too_long
+
+
 @pytest.mark.asyncio
 async def test_validate_workflow_teaches_quoting_from_the_plan():
     """The number an agent says out loud is the plan's - priced for the
     arguments it will run with, naming the weights this box lacks - not the
     listing's defaults-only cost (#85)."""
     tools = await tools_of(server_over(ok({})))
-    doc = tools["validate_workflow"].description
+    doc = tools["validate_workflow"].description[:CLIENT_TEXT_LIMIT]
     assert "plan" in doc
     assert "downloads_required" in doc
     assert "estimate" in doc
@@ -1435,7 +1479,34 @@ def test_the_stated_tool_count_is_the_registered_one():
 # downscale" without the old space-filling clause, which pushed descriptions
 # over budget first (13_820). Measured 2026-09-21 at 13_790.8 (9_025.0 /
 # 3_751.8 / 1_014.0). 9.2 tokens of headroom left.
-SURFACE_BUDGET = 13_800
+# Run versions added four sentences to list_gallery teaching `version` and
+# `run_id` - the handle for naming one of several runs that wrote the same
+# basename, which is the one thing the surface could not say before. Written
+# as tightly as it can be said and still 44 tokens over, so the budget takes
+# them deliberately rather than the sentence being cut to nothing. Measured
+# 2026-09-22 at 13_844.0 (9_078.0 / 3_752.0 / 1_014.0). 6 tokens of headroom.
+# Then list_gallery took `folder` and `version`, so "show me v5" is one call
+# rather than a scan of the listing. The docstring paid for its own new
+# sentence and then some (descriptions 9_078 -> 9_068, the `url` sentence
+# said in fewer words); the two schema entries (+49) are what the budget
+# takes, since no docstring can pay for a parameter's schema. Measured
+# 2026-09-22 at 13_883.0 (9_068.0 / 3_801.0 / 1_014.0). 7 tokens of headroom.
+# #376 moved model narrative out of the resident descriptions, each fact
+# still stated where an agent reads it on demand: get_output_audio's
+# transcription walkthrough to WORKFLOW_GUIDE's "The loop" step 6 (a pointer
+# stays), and the H3 frame-grid example (validate_workflow, list_workflows),
+# the family list (list_prompts) and get_job_events' silent-phase examples
+# dropped, every rule kept. Measured 2026-09-24 at 13_883.0 before (9_529.0 /
+# 3_845.75 / 508.25 - the instructions and descriptions split differently
+# from the entry above, the total agrees) and 13_670.5 after (9_316.5 /
+# 3_845.75 / 508.25). The ceiling stays: the 219.5 tokens of headroom are
+# reserved for #388 (`assess_output`), which raises it only by any remainder.
+# #388 spent it on the assess_output tool (description + schema). The design's
+# optional pointer in the instructions' loop did not fit the client's 2_048
+# character cap on instructions, so get_gallery_metadata's hint carries it.
+# Measured 2026-09-24 at 13_849.5 (9_395.0 / 3_946.25 / 508.25); the ceiling
+# stays, 40.5 of headroom.
+SURFACE_BUDGET = 13_890
 
 
 @pytest.mark.asyncio

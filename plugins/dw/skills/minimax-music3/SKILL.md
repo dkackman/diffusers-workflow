@@ -25,9 +25,11 @@ shapes; do not author a new workflow until the shape decision below fails.
    is cached from another moment - it reads low while a job is loading a model,
    so ask again once the server is idle rather than trusting it. A non-trivial
    idle figure is what an earlier run left behind, and it comes off the ~22 GB
-   these templates need. Nothing over
-   MCP clears it, so say so and ask the operator to restart the worker rather
-   than retrying into it - a failed attempt is itself what leaves weight
+   these templates need. With the server idle, `clear_memory` clears it
+   (refused while a job is queued or running) - it also drops the step cache,
+   so the next run, including a seeded rerun, is cold and regenerates. Re-read
+   `get_memory` afterwards to confirm. Don't retry into a failed attempt
+   without clearing first - a failed attempt is itself what leaves weight
    resident, so an immediate retry starts from less than the attempt that just
    failed had.
 
@@ -44,7 +46,10 @@ shapes; do not author a new workflow until the shape decision below fails.
   ceiling comfortably longer than the cut, trimmed and faded with
   `templates/audio-trim-fade`, then mixed under the picture the way
   `templates/assemble-and-score` does with `pair_audio`. Each H3 shot should
-  have written `non_diegetic_music: N/A` so the two scores do not fight.
+  have written `non_diegetic_music: N/A` so the two scores do not fight. A
+  score that buries a shot's voice-over is not a `world_gain` fix - see the
+  `minimax-h3` skill's ducking recipe: `gain_audio` regions on the score
+  itself, one per voice-over shot, applied before it is passed as `score`.
 - **A music video**: `templates/minimax/music-video`. The song is written
   first, `slice_audio` deals frame-exact pieces to lip-synced H3 shots, and
   `pair_audio` lays the unbroken track back over the edit. The ceiling must
@@ -146,25 +151,31 @@ Control" section.
    deliverables. Keep the convention in anything you compose from a template:
    the step whose output the user will be shown is `final`, every other
    saving step `intermediate`.
-4. You cannot listen: no tool returns audio inline. Hand the user the gallery
-   `url` (`list_gallery`, or the manifest's file name) and check what you can
-   yourself - `get_gallery_metadata` for the file's duration against the
-   ceiling: `media.duration_seconds` within 0.2 s of `audio_duration` means
-   the ceiling cut the track (raise it and rerun); well short of it means the
-   song finished on its own. Also check the sample rate. Ask the user to
-   listen for the family's failure
-   modes: a song that went instrumental (name the vocals in the caption), an
-   ending cut mid-note (raise the ceiling, then trim), a structure that ignored
-   the tags (fewer sections, plainer directions).
+4. Judge it yourself. `get_gallery_metadata` for duration and sample rate:
+   `media.duration_seconds` within 0.2 s of `audio_duration` means the
+   ceiling cut the track (raise it and rerun); well short of it means the
+   song finished on its own. Its `peak_dbfs` is a single sample and does not
+   say how loud the song reads end to end - `integrated_lufs` (BS.1770,
+   whole-track) is the field for that, and what `normalize_audio`'s optional
+   `target_lufs` targets when a score or a music-video mix needs to match
+   another track by ear rather than by peak alone. Then listen with
+   `get_output_audio` (a long
+   track in `start`/`duration` excerpts) for the family's failure modes: a
+   song that went instrumental (name the vocals in the caption), an ending
+   cut mid-note (raise the ceiling, then trim), a structure that ignored the
+   tags (fewer sections, plainer directions). Hand the user the gallery
+   `url` (`list_gallery`, or the manifest's file name).
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
 6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
    so the next run is by name rather than by pasting JSON; `export_job` bundles
-   the run — workflow, manifest, job row and media — for git. The bundle is on
-   the server: fetch its zip URL and unpack it into `exports/` under the
-   session's working directory, never a temp directory, and do not make a
-   folder named after the job id first, since the archive already unpacks
-   into one.
+   the run — workflow, manifest, job row and media — for git, on the server.
+   If `auth_required` is false, fetch `open_url` and unpack it into
+   `exports/` under the session's working directory, never a temp directory
+   (the archive already unpacks into a job-id folder, don't make one first).
+   If true, this agent can't attach the token itself - hand `open_url` to
+   the person, and keep working via
+   `get_output_image`/`get_output_audio`/`get_output_frames`.
 
 ## Sources
 

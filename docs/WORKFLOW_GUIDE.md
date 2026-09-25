@@ -124,7 +124,9 @@ Run utility operations (image processing, QR codes, data gathering):
 ```
 
 A task can take `inputs` (a plain array) instead of `arguments`. Each array item becomes
-its own iteration, the same way multiple `previous_result` values do:
+its own iteration, the same way multiple `previous_result` values do. An item that is a
+`previous_result:` reference becomes one iteration per result it names, and an object item
+expands the way an `arguments` object would:
 
 ```json
 {
@@ -289,7 +291,8 @@ for existence.
   to the same file.
 - `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
   run wrote, under the output root and confined to it. `latest` in the run-id position
-  picks the newest run that holds that file. A run id is not stable against
+  picks the newest run that holds that file; `v<N>` picks the run the gallery labels
+  `v<N>` (`list_gallery`'s `version`), and only that run. A run id is not stable against
   pruning: to depend on a generated file, promote it with `keep_output` and
   reference the `asset:` name instead.
 - `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
@@ -639,6 +642,23 @@ the entry an item needs.
    like it does.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
+   `get_output_frames` looks at a video and `get_output_audio` listens to a
+   soundtrack.
+
+   To confirm the words a clip speaks - a text-only client can't consume the
+   `AudioContent` block `get_output_audio` returns - transcribe it instead.
+   `validate_workflow(name="templates/transcribe-audio",
+   arguments={"input_audio": "output:<name>"})` first (free; it takes an
+   audio file or a video's muxed soundtrack directly), then
+   `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
+   "downloads": [...]})` bound to that plan with `wait_seconds=55`, then
+   `get_output_text` on the result, and `delete_output(job_id=...)` the
+   scratch run afterward. This workflow's plan comes back
+   `basis: "unknown"` with `minutes: null` - nothing is curated or observed
+   for it - so quote what it actually takes rather than the plan: seconds,
+   not minutes (a few seconds per clip in practice). Four calls and a short
+   wait, not a GPU-spending read tool - keep the normal queue rather than
+   adding one.
 7. Getting the files to the user's machine. `download_output` and `export_job`
    write on the machine running `dw.serve`, which over a remote `--mcp`
    endpoint is the GPU box. The last mile of every deliverable is the `url`
@@ -782,6 +802,95 @@ workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
 that is not, since a driver bucketing on nothing looks exactly like a driver
 that works.
 
+## Assessing a run's output
+
+A cut joined from shots can succeed and still be wrong at a seam, and the
+whole-file numbers `get_gallery_metadata` reports cannot see inside a join.
+`assess_output(name)` (`GET /api/gallery/{name}/assess`) measures that
+file on the server. It decodes the file once, runs every assessment probe
+that applies to it (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`),
+and returns where to look. It queues nothing: the probes use only the CPU
+and run in the server process, beside whatever job holds the GPU. `name` is
+a gallery name, `output:` or `asset:`. The shot boundaries come from what
+the file's run recorded: the run manifest for an output, and the sidecar
+`keep_output` wrote for an asset.
+
+A last shot's `num_samples` a few dozen samples off `round(num_frames *
+sample_rate / fps)` is expected, not a finding - see `pair_audio` in the tasks guide's
+Video Processing section for why.
+
+**Procedure.**
+
+1. After `wait_for_job`, call `assess_output` on the deliverable, which is
+   the file under `final/`. `get_gallery_metadata` points at the tool
+   whenever `media.shots` is set.
+2. Read `findings`. When the list is empty, no rule crossed its threshold,
+   which is a reason to listen less closely, not a pass.
+3. Drill into each finding at the place its `at` names. For a seam, use
+   `get_output_frames(name, seams=[n])` to see it and
+   `get_output_audio(name, start, duration)` to hear the second around it.
+   For a shot, look at that shot's span. Judge it against the request.
+4. Fix what you confirmed (see the table below), then assess the new cut.
+
+Pass `probe="analyze_seams"` (or either of the other two probe names) to
+get that one probe's full body: every seam's or shot's measurements, not
+just the ones that crossed a rule. `detail=true` adds every applicable
+probe's full body under `probes`. An unknown probe is refused before
+anything is read, and the error names the three probes.
+
+**The answer.**
+
+| Field | What it holds |
+| --- | --- |
+| `findings` | Every rule a measurement crossed, each `{rule, severity, at, value, threshold, says}`. `severity` is `warn` or `info`. `at` names the shot or seam. |
+| `rules_applied` | The rules that were checked, so an empty `findings` list says which checks came back clean. |
+| `rules_skipped` | `{probe, rule, reason}` for each rule that could not be measured on this file. |
+| `not_applicable` | `{probe: why}` for each probe that does not apply to this file. A still has no shots, seams or soundtrack. A mute file has no levels. A file with no recorded shots has no seams. |
+| `shots_source` | Where the boundaries came from: `manifest` (the run's manifest, or an asset's sidecar), or `none`. |
+
+The thresholds live in one table, `dw/assessment_rules.py`:
+
+| Rule | Probe | Fires when |
+| --- | --- | --- |
+| `shot_level_spread` | `analyze_shots` | the shots' RMS levels span 6 dB or more |
+| `seam_level_step` | `analyze_seams` | the shots either side of a seam differ by more than 3 dB |
+| `seam_click` | `analyze_seams` | the join peaks more than 12 dB above the audio either side |
+| `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
+| `seam_frame_jump` | `analyze_seams` | the picture changes more than 25x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
+| `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
+| `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
+
+A `shots` record whose `start_frame`/`num_frames` already reaches past the
+file's own length is not measured against a threshold - it is clipped to the
+file before any of the above run, and that clip is itself a `shot_span_overrun`
+finding on all three probes (`analyze_shots`, `analyze_seams`,
+`analyze_sync_drift`), with `value` naming how far past the end it reached.
+`validate_workflow` catches the same mistake before the run for a `shots`
+argument and an `asset:`/literal video whose length is knowable ahead of
+time; it cannot for `previous_result:`/`output:` video not yet written, so
+that case is left to the finding above.
+
+**Authority.** A finding marks a place to look, not a verdict. Nothing in
+the engine acts on one, and no run fails because of one. A finding you have
+checked and accepted is simply left alone. A `seam_frame_jump` at a cut the
+story wanted is the cut working, and a level step into a quieter scene can
+be the scene. Tell the person what you confirmed, not what the probe
+reported.
+
+**Remediation.** A *recut* reruns only the join over the shots the run
+already made: each entry in `videos` is `output:` + the run's
+`intermediate/` shot file. That is cheap, and generates nothing new. A
+*regenerate* is a new run, so quote its `plan.estimate` first.
+
+| Finding | Fix | Kind |
+| --- | --- | --- |
+| `shot_level_spread`, `seam_level_step` | `match_levels: "rms"` (with `match_levels_dbfs` for the target) on the `concat_videos` / `dissolve_videos` step | recut |
+| `seam_click` | a longer `crossfade_ms` on the join | recut |
+| `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
+| `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
+| `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
+| `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
+
 ## Result Configuration
 
 ```json
@@ -794,6 +903,15 @@ that works.
 ```
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
+
+A task command's implementation declares what it hands back - most answer an
+`artifact` (a file `result` saves in one of the media content types above),
+some (`judge`) answer a bare `scalar` that cannot be saved at all, and some
+(the assessment probes in [TASKS.md](TASKS.md)) answer a `json` document -
+every measurement taken, in one dict. A step on a `json` command must set
+`content_type` to `application/json`, which saves it as one document; a step on a `scalar` command
+may not carry a `result` at all. Both are checked in validation, by the
+command's own declared kind rather than a name match.
 
 `subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` is the base name the step's files are written under, replacing the name derived from the workflow and step; it may not contain a path separator.
 
@@ -1459,12 +1577,55 @@ Beside that manifest the run also writes `workflow.json` — the *realized*
 workflow, meaning the one that actually ran. Every mutable input is pinned into
 it: the caller's `arguments` folded into the `variables` defaults, the seed the
 run used, each `prompt:` reference replaced by the stored text, and each
-`output:<identity>/latest/<file>` rewritten to the run id it resolved to.
+`output:<identity>/latest/<file>` (or `/v<N>/`) rewritten to the run id it resolved to.
 `asset:`, `constant:`, `previous_result:` and `builtin:` are kept as written —
 each already names something pinned by the asset library or by the manifest's
 `dw_version` — and a sub-workflow named by local path is kept with its file's
 SHA-256 recorded in the manifest. The manifest also lists which stored prompts
 were inlined, since inlining loses the name.
+
+A step that joins shots (`concat_videos`, `dissolve_videos`, or a pipeline
+step with a `chain`) also records where each one landed, as `shots` on its
+manifest entry (and on its `step_end` event):
+
+```json
+{
+  "step": "cut",
+  "files": ["final/film.mp4"],
+  "subfolder": "final",
+  "shots": [
+    {"name": "shot@a", "start_frame": 0,   "num_frames": 121, "start_sample": 0,      "num_samples": 242267},
+    {"name": "shot@b", "start_frame": 121, "num_frames": 97,  "start_sample": 242267, "num_samples": 194000}
+  ]
+}
+```
+
+The shots partition the file's frames: the `num_frames` add up to the frame
+count. The sample fields are *measured* off the track the join built, not
+worked out from the frames. That means a shot whose track ran long shows it
+here: the first shot above is 267 samples longer than 121 frames at 24 fps.
+They are null when the video has no track, and for a chain that uses
+`match_audio`. A shot is named `shot@<key>` when the step's `videos` entry was
+a `previous_result:shot@<key>` reference, else by its input's position
+(`video N`, a chain's `segment N`). A dissolve's shots after the first carry
+`overlap_frames`, the head they share with the shot before. A step that wrote
+several joined files marks each shot with its `file`.
+
+The steps that keep the frames pass `shots` on. `stabilize` and the per-frame
+tasks keep them as they are. `interpolate_frames` rescales them to the new
+frame count and clears the samples. `pair_audio` measures the samples again
+against the new track - every shot but the last is `round(start_frame / fps *
+sample_rate)`, and the last one runs to the track's actual end - measured
+again, once the file is written, against what it decodes to. So its
+`num_samples` can be a few dozen samples off `round(num_frames * sample_rate
+/ fps)`: the AAC encode's trim, recorded in the job's event log
+(not a dropped sample - a real
+mismatch between the track and the video's length is its own warning,
+`audio_video_length_mismatch` or `audio_padded_to_video/audio_trimmed_to_video`
+with `fit: "video"`). Everything else drops them: an audio task's track,
+say, or a video read back from a file. `get_gallery_metadata` reports the
+recorded shots as `media.shots`, and `get_output_frames(seams=true)` uses them
+when you pass no `boundaries`.
 
 The file is a valid workflow, and running it again is `python -m dw.run
 workflow.json` or handing its contents to `run_workflow` as `inline_workflow`
@@ -1657,8 +1818,12 @@ second-stage workflow name the first stage's product without being edited after 
 run - and keeps working when the newest run failed part way, or reused every step from
 the cache and so wrote nothing of its own but a manifest. Runs sort by their id, which
 starts with a UTC timestamp, so "newest" needs no file timestamps and survives a
-directory being copied. `latest` only selects a run where run directories are; a
-workflow or file that happens to be called `latest` is still named as itself.
+directory being copied. `v<N>` in the same position names the run whose version is N -
+the `v4` the gallery labels its files with - so the number a person was told is a name
+a workflow can take. Unlike `latest` it picks exactly one run: `v4` not holding the file
+is an error, not a reason to try `v3`. `latest` and `v<N>` only select a run where run
+directories are; a workflow or file that happens to be called either is still named as
+itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
 it works under `image`, `video`, a `from_file`, or a list of them. The audio tasks take

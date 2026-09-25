@@ -19,6 +19,7 @@ import json
 import logging
 
 from .for_each import FOR_EACH_KEY
+from .plan import _has_seedable_step
 
 logger = logging.getLogger("dw")
 
@@ -101,6 +102,52 @@ def _row_count(row, list_entries, variables):
     return max(counts) if counts else None
 
 
+def _peak_by_count(rows, list_entries, variables):
+    """This workflow's history grouped by list length, each count's peak
+    reduced to its median - the input a fixed+marginal fit reads."""
+    by_count = {}
+    for row in rows:
+        peak = row.get("host_memory_job_peak_rss_mb")
+        count = _row_count(row, list_entries, variables)
+        if isinstance(peak, (int, float)) and count:
+            by_count.setdefault(count, []).append(peak)
+    medians = {}
+    for count, peaks in by_count.items():
+        peaks.sort()
+        medians[count] = peaks[len(peaks) // 2]
+    return medians
+
+
+def _fit_peak_model(medians):
+    """A run's peak as fixed (one model load) plus marginal (per extra
+    entry), fit from this workflow's own history rather than assumed.
+
+    A single model load dominates a resident run's peak - dividing the
+    whole observed figure by the entry count and multiplying back out
+    (the old per-entry model) counted that load once per entry instead of
+    once per run, projecting a 12-entry batch at roughly five times its
+    measured peak (#348). With history at two or more distinct list
+    lengths, the base and the marginal are fit through the smallest and
+    largest observed counts - the same "two extremes" a least-squares fit
+    would reduce to with only two points, and cheaper than one with more.
+    With history at only one list length, there is nothing to fit a slope
+    from: the measured peak is projected flat, which is the conservative
+    reading of "the measured behavior" the run has actually shown, rather
+    than guessing a growth rate with a single data point.
+
+    Returns `(base_mb, slope_mb_per_entry, low_count, high_count)`.
+    """
+    counts = sorted(medians)
+    if len(counts) == 1:
+        only = counts[0]
+        return medians[only], 0.0, only, only
+    low, high = counts[0], counts[-1]
+    slope = (medians[high] - medians[low]) / (high - low)
+    slope = max(slope, 0.0)
+    base = medians[low] - slope * low
+    return base, slope, low, high
+
+
 def _already_survived(rows, list_entries, requested, projected_mb, variables):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
@@ -139,6 +186,10 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     requested = _requested_count(list_entries)
     if requested is None or not rows or not ceiling_mb:
         return []
+    if not _has_seedable_step(definition):
+        # A task-only workflow loads no model to accumulate across entries -
+        # the failure mode this module projects for doesn't apply to it
+        return []
     variables = definition.get("variables") or {}
     peaks = [row["host_memory_job_peak_rss_mb"] for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]
@@ -148,28 +199,32 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         return []
     if releases_between_iterations(definition):
         projected_mb = max(peaks)
-        shape = "the largest single iteration observed"
+        shape = f"~{round(projected_mb)} MB, the largest single iteration observed"
     else:
-        per_entry = []
-        for row in rows:
-            peak = row["host_memory_job_peak_rss_mb"]
-            count = _row_count(row, list_entries, variables)
-            if isinstance(peak, (int, float)) and count:
-                per_entry.append(peak / count)
-        if not per_entry:
+        medians = _peak_by_count(rows, list_entries, variables)
+        if not medians:
             return []
-        per_entry.sort()
-        median_per_entry = per_entry[len(per_entry) // 2]
-        projected_mb = median_per_entry * requested
-        shape = f"{requested} entries held resident together"
+        base, slope, low_count, high_count = _fit_peak_model(medians)
+        projected_mb = base + slope * requested
+        if low_count == high_count:
+            shape = (
+                f"~{round(projected_mb)} MB at {requested} entries, based on "
+                f"this workflow's own {low_count}-entry runs with no larger "
+                "history yet to project growth from"
+            )
+        else:
+            shape = (
+                f"~{round(projected_mb)} MB at {requested} entries, "
+                f"extrapolated from runs of {low_count} and {high_count} entries"
+            )
     if projected_mb <= ceiling_mb:
         return []
     if _already_survived(rows, list_entries, requested, projected_mb, variables):
         return []
     return [
-        "Projected host memory for this run (~"
-        f"{round(projected_mb)} MB, {shape}) exceeds this machine's usable RAM "
-        f"(~{round(ceiling_mb)} MB) - based on {len(rows)} run(s) of this "
-        "workflow's own history on this machine, not a curated figure. The "
-        "run is not blocked, but it may be killed by the OS partway through."
+        f"Projected host memory for this run ({shape}) exceeds this "
+        f"machine's usable RAM (~{round(ceiling_mb)} MB) - based on "
+        f"{len(rows)} run(s) of this workflow's own history on this "
+        "machine, not a curated figure. The run is not blocked, but it "
+        "may be killed by the OS partway through."
     ]

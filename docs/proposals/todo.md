@@ -9,40 +9,27 @@ benefit vs. added complexity/risk, highest ROI first. Updated 2026-09-20
 original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
+Since 2026-09-23 every open item below is also a GitHub issue labeled
+`feature` (#374, #377, #379, #380, and #244 for `resume.md`; #375 was declined, #376 and #378 shipped), parked with Don. Its
+`priority:N` label mirrors the tier here. Work starts from the issue.
+
 ## Tier 1 — do these first (small, scoped, clear payoff)
 
-1. **h3-video-mux-headroom-warning-partial.md** — fixes (1)-(4) shipped
-   2026-09-20 (`bbe4adb`); item 5 (updating the M-F008 regression case
-   wording against the external suite) is still owed, and fix (2) (a
-   `normalize_audio` gain stage on the H3 video templates) stays deferred
-   pending a real clipped-in-practice case.
+None open. The last item, the H3 video mux headroom warning, shipped. Its
+remaining deferred fix is recorded in
+`complete/h3-video-mux-headroom-warning-complete.md`.
 
 ## Tier 2 — solid ROI, moderate scope
 
 2. **orphaned-run-directories.md** — real, recurring disk-usage annoyance
    (leftover manifests invisible to gallery/asset listings); the proposal
    already recommends the simple option (A). Moderate but bounded work.
-3. **workspace-folders.md** — one regex relax + a depth-2 listing walk + UI
-   grouping. Low complexity, meaningful convenience for the growing
-   series-episodes workflow.
-4. **mcp-context-cost-partial.md** — cheap and safe, but the remaining
-   payoff is small (~1.1k tokens of connect cost), and recommendation 6 in
-   `mcp-context-cost-complete.md` suggests the harness-level fix (deferred
-   MCP schemas) may already make this moot — worth confirming that before
-   spending effort here.
 5. **mcp-job-notifications.md** — improves reliability of the wait/poll loop
    (cursor-based, `failure_kind`), but there's no reported live pain forcing
    this yet; medium complexity touching the event/job-record schema.
 
 ## Tier 3 — high benefit, but big lifts (stage carefully, don't take all at once)
 
-6. **output-assessment-partial.md (stages 2-4)** — the highest-value item on
-   the list; it's the actual fix for the motivating problem (#193's
-   undetected 33ms drift). But it's a multi-stage engine feature (boundary
-   persistence, 5 new probe tasks, a rules table, new routes, a new skill).
-   `output-assessment-complete.md` already stages it into 4
-   independently-landable pieces — treat each as its own decision rather
-   than one big yes/no.
 7. **resume.md** — meaningful for expensive multi-step runs that crash, but
    rehydrating the step cache from disk manifests is a correctness-sensitive
    engine change (step identity matching, partial-state edge cases). High
@@ -54,6 +41,21 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 9. **maintenance-screen.md — the full UI page** — Phase 0 (WAL mode) shipped
    2026-09-20; the maintenance/observability page itself (orphan listing,
    disk usage, job pruning) is the remaining, much bigger ask.
+
+## Shipped since the ranking
+
+- **Closing the xfail security tests** (#407, stages #409-#413), shipped
+  2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
+  Playwright in CI): `complete/xfail-security-tests-complete.md`.
+
+## Declined
+
+Kept in `declined/` with the reason at the top, so a revival starts from
+the analysis rather than repeating it.
+
+- **declined/workspace-folders.md** — grouped workspace names (`QA/EP1`).
+  Declined 2026-09-23 on #375: thin demonstrated value against a loosened
+  security boundary and a change that can't be taken back.
 
 ## Backlog ideas with no doc on file
 

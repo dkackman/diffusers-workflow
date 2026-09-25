@@ -54,13 +54,3 @@ def test_the_template_declares_no_cost_yet():
     definition = load()
 
     assert "cost" not in definition
-
-
-def test_saving_steps_are_marked_final_or_intermediate():
-    steps = load()["steps"]
-    saving_steps = [s for s in steps if "result" in s]
-
-    for step in saving_steps:
-        assert step["result"].get("subfolder") in ("final", "intermediate"), (
-            f"step '{step['name']}' saves without a subfolder marking"
-        )

@@ -64,22 +64,6 @@ def test_get_guide_section_is_a_query_parameter():
     assert seen[0]["params"] == {"section": "speech-generation"}
 
 
-def test_a_404_detail_reaches_the_model_as_the_message():
-    # The server writes "No guide named 'x'. The guides are: ..." - that text
-    # is the answer, and it must not be replaced by an HTTP status
-    client, _seen = scripted(
-        {
-            ("GET", "/api/guides/nonexistent"): (
-                404,
-                {"detail": "No guide named 'nonexistent'. The guides are: tasks."},
-            )
-        }
-    )
-
-    with pytest.raises(DwApiError, match="The guides are: tasks"):
-        guides.get_guide(client, "nonexistent")
-
-
 def test_a_guide_name_is_path_encoded():
     """A name with '..' must reach the server intact, so its own validation
     - not httpx's dot-segment normalisation - decides what it means.

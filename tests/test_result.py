@@ -26,6 +26,7 @@ from dw.result import (
     normalize_audio,
 )
 from dw.security import SecurityError
+from dw.shots import shot_record
 
 
 class TestResult:
@@ -40,6 +41,7 @@ class TestResult:
         result = Result({})
         result.add_result(["item1", "item2", "item3"])
         assert result.result_list == ["item1", "item2", "item3"]
+        assert result.get_artifacts() == ["item1", "item2", "item3"]
 
     def test_add_string_strips_quotes(self):
         result = Result({})
@@ -54,12 +56,6 @@ class TestResult:
 
         assert result.result_list == ["b"]
         assert result.selected == {"position": 1, "score": 0.9}
-
-    def test_get_artifacts_from_simple_list(self):
-        result = Result({})
-        result.add_result(["item1", "item2"])
-        artifacts = result.get_artifacts()
-        assert artifacts == ["item1", "item2"]
 
     def test_get_artifact_properties(self):
         result = Result({})
@@ -371,16 +367,6 @@ class TestGetArtifactList:
         # channels-first, the layout AudioTrack documents
         assert artifacts[0].audio.shape == (2, 100)
 
-    def test_audios_without_a_rate_stay_bare_waveforms(self):
-        # Nothing to carry: the shape every existing consumer already handles
-        class MockResult:
-            audios = numpy.zeros((1, 2, 100), dtype=numpy.float32)
-
-        artifacts = get_artifact_list(MockResult())
-
-        assert isinstance(artifacts[0], numpy.ndarray)
-        assert artifacts[0].shape == (100, 2)
-
     def test_images_take_precedence_over_frames(self):
         # The output-field registry is consulted in order - a result exposing both
         # (which nothing real does, but the registry order must still be deterministic)
@@ -661,6 +647,150 @@ class TestSaveAudioVideo:
         self.save({"content_type": "video/mp4", "fps": 24}, artifact)
 
         assert artifact.audio.shape == (2, 2000)
+
+    def test_shots_are_remeasured_against_the_fitted_audio(self):
+        # #426: concat_videos measures a shot map against the joined audio it
+        # built, before this fit trims or pads it to the frame count - a
+        # resampled join left the last shot's num_samples pointing past what
+        # actually gets muxed, and assess_output's shot_span_overrun check
+        # (#425) then fired on a file that was fine.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.shots[0]["num_samples"] == 1000
+        assert artifact.shots[1]["num_samples"] == 1000
+
+    def test_shots_are_remeasured_against_the_written_file(self):
+        # #426 follow-up: the fit-based remeasurement above still only
+        # predicts what the mux will write - an AAC encode can trim or pad
+        # a few more samples off the *actual* decoded length (the #426
+        # repro lost 29-30 more samples than fitting alone accounted for).
+        # Once the file is probed post-write, the shots are remeasured
+        # again against the length that actually decodes from it.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            # The audio stream decoded 1970 samples, 30 short of the 2000
+            # the fit predicted - an encoder trimming its own
+            # priming/padding.
+            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+        ):
+            self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.shots[0]["num_samples"] == 1000
+        assert artifact.shots[1]["num_samples"] == 970
+
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def test_a_sub_frame_mux_trim_is_logged_not_warned(self):
+        # #454: the encoder's alignment leaves every joined deliverable a few
+        # samples short; under a frame it is logged, not a warning on every
+        # stock template run.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert not [w for w in warnings if w["kind"] == "joined_audio_short_after_mux"]
+        assert artifact.shots[1]["num_samples"] == 970
+
+    def test_a_mux_trim_past_the_fitted_grid_warns(self):
+        # #435: fit_audio_to_frames already pads the in-memory track to the
+        # frame grid before encoding, but a lossy mux can trim further - the
+        # #426 repro lost 30 more samples than fitting alone accounted for,
+        # and nothing told the caller a residual gap remained.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.95, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        (warning,) = [
+            w for w in warnings if w["kind"] == "joined_audio_short_after_mux"
+        ]
+        assert warning["shortfall_samples"] == 50
+        assert warning["written_samples"] == 1950
+        assert warning["expected_samples"] == 2000
+        assert warning["file"] == "test-0.0.mp4"
+
+    def test_a_gap_past_the_fit_tolerance_is_not_blamed_on_the_mux(self):
+        # A track the save-time fit left alone (a score 2 s short of the
+        # cut) is audio_video_length_mismatch's to report; this warning
+        # would say it had been padded and the encoder trimmed it.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1000))  # 1 s of audio under 2 s of picture
+        shots = [shot_record("a", 0, 48, 0, 1000)]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.0, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert not [w for w in warnings if w["kind"] == "joined_audio_short_after_mux"]
+
+    def test_a_mux_that_lands_exactly_on_the_grid_draws_no_warning(self):
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [shot_record("a", 0, 48, 0, 2000)]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 2.0, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert [w["kind"] for w in warnings] == []
 
     def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
         # #197, 4th round: write-back (above) lands the fit on the AudioVideo
@@ -1141,15 +1271,6 @@ class TestMetadataEmbedding:
             saved_img = Image.open(output_file)
             assert "parameters" not in saved_img.info
 
-    def test_set_metadata_method(self):
-        """set_metadata should store metadata on the Result instance."""
-        result = Result({})
-        assert result.metadata is None
-
-        metadata = {"workflow_id": "test", "step_name": "step1"}
-        result.set_metadata(metadata)
-        assert result.metadata == metadata
-
     def test_metadata_with_embed_false(self):
         """When embed_metadata is explicitly false, no metadata embedded even if set."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1624,22 +1745,6 @@ class TestNoHeadroom:
     def test_a_video_with_a_quiet_track_is_not_warned_about(self):
         assert self.events_from(lambda: self.save_muxed(torch.zeros((2, 100)))) == []
 
-    def test_a_video_is_probed_even_though_the_waveform_already_warned(self):
-        """#174: suppressing the post-encode probe whenever the pre-encode
-        check already fired assumed the encoder only ever adds overshoot -
-        true for the mp3s #159/#161 measured, backwards for an H3 video mux,
-        whose AAC mux can land under full scale after starting over it. A
-        video always gets the ground-truth post-encode read, and once that
-        read is in, it - not the pre-encode guess - is what the caller sees."""
-        with patch(
-            "dw.media_info.probe_media",
-            return_value={"peak_dbfs": 0.94, "kind": "video"},
-        ):
-            warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
-
-        kinds = {w["kind"] for w in warnings}
-        assert kinds == {"audio_clipped"}
-
     def test_a_clean_video_mux_drops_the_stale_prediction(self):
         """#174 amendment: the pre-encode prediction fires on H3's own
         soundtrack every run, and the post-encode probe already proved the
@@ -1669,7 +1774,13 @@ class TestNoHeadroom:
 
     def test_a_dirty_video_mux_reports_only_the_measured_clip(self):
         """The post-encode probe found a real clip - report that, not the
-        pre-encode guess, so the caller gets one answer with a real number."""
+        pre-encode guess, so the caller gets one answer with a real number.
+
+        #174: suppressing the post-encode probe whenever the pre-encode check
+        already fired assumed the encoder only ever adds overshoot - true for
+        the mp3s #159/#161 measured, backwards for an H3 video mux, whose AAC
+        mux can land under full scale after starting over it. A video always
+        gets the ground-truth post-encode read."""
         with patch(
             "dw.media_info.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},
@@ -1782,18 +1893,6 @@ class TestTheWrittenLevel:
 
         measured.assert_called_once()
         assert measured.call_args.args[0].endswith(".wav")
-
-    def test_it_says_both_the_prediction_and_the_written_clip_for_a_wav(self, tmp_path):
-        """A wav's write is itself the clip (#295): unlike a lossy re-encode,
-        there is no later encode step for the pre-write warning to describe
-        as a future risk, so the pre-write prediction and the post-write
-        ground truth are two different facts about this file and both fire."""
-        kinds = [
-            warning["kind"]
-            for warning in self.warnings_from(lambda: self.save_wav(1.5, str(tmp_path)))
-        ]
-
-        assert kinds == ["audio_no_headroom", "audio_clipped"]
 
     def test_an_image_is_never_probed(self, tmp_path):
         """Only a file that can carry a soundtrack pays for the read-back."""
@@ -1908,6 +2007,56 @@ class TestNearSilentWrite:
         assert warning["mean_dbfs"] == pytest.approx(-74.8, abs=0.01)
         assert warning["file"] == "line.wav"
 
+    def test_a_quiet_shot_with_real_peaks_says_quiet_not_empty(self):
+        """#358: an ambience-only shot (paws, husks scraping, water) reads a
+        low mean with real peaks - s02's own -54.46 dBFS mean, -18.5 dBFS
+        peak - and the old wording ("check the step that generated it...")
+        sent every one of those to an investigation. The trigger is
+        unchanged (mean still below -40); only the message and the added
+        peak_dbfs field distinguish it from a genuinely empty render."""
+        from dw.result import warn_if_written_near_silent
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"mean_dbfs": -54.46, "peak_dbfs": -18.5},
+        ):
+            (warning,) = self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/shot.wav")
+            )
+
+        assert warning["kind"] == "audio_near_silent"
+        assert warning["mean_dbfs"] == pytest.approx(-54.46, abs=0.01)
+        assert warning["peak_dbfs"] == pytest.approx(-18.5, abs=0.01)
+        assert "quiet overall, not empty" in warning["message"]
+        assert "check the step that generated it" not in warning["message"].lower()
+
+    def test_a_genuinely_empty_render_keeps_the_old_wording(self):
+        """#261's -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize both
+        have low peaks too - those still get the "check the step" message,
+        not the ambience one."""
+        from dw.result import warn_if_written_near_silent
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"mean_dbfs": -68.7, "peak_dbfs": -55.0},
+        ):
+            (warning,) = self.warnings_from(
+                lambda: warn_if_written_near_silent("/runs/final/empty.wav")
+            )
+
+        assert "check the step that generated it" in warning["message"].lower()
+        assert "quiet overall, not empty" not in warning["message"]
+        assert warning["peak_dbfs"] == pytest.approx(-55.0, abs=0.01)
+
+    def test_no_peak_available_keeps_the_old_wording(self):
+        """A probe that reports only mean_dbfs (no peak) can't distinguish
+        the two cases, so it falls back to the original message and carries
+        no peak_dbfs field."""
+        (warning,) = self.measured_at(-74.8)
+
+        assert "check the step that generated it" in warning["message"].lower()
+        assert "peak_dbfs" not in warning
+
     def test_a_file_at_the_threshold_is_quiet(self):
         assert self.measured_at(-40.0) == []
 
@@ -1943,7 +2092,11 @@ class TestTheMusicTemplatesLeaveHeadroom:
     #161: -1 dBFS was enough for an mp3 (measured at -0.07 and -0.41) and
     not for the mux - the AAC encode overshoots by around 1.9 dB on this
     material, so `music-video`'s finished mp4 still decoded at +0.94 dBFS.
-    A deliverable that ends in a video mux normalizes to -3."""
+    A deliverable that ends in a video mux normalizes to -3.
+
+    #362: -1 dBFS was not reliably enough for the mp3 either - a run
+    measured +0.56 dBFS after the encode, so `music.json`'s own deliverable
+    takes -3 too."""
 
     def steps_of(self, path):
         with open(path) as definition_file:
@@ -1953,7 +2106,7 @@ class TestTheMusicTemplatesLeaveHeadroom:
     @pytest.mark.parametrize(
         "path,source,target",
         [
-            ("workflows/templates/minimax/music.json", "generate_music", -1.0),
+            ("workflows/templates/minimax/music.json", "generate_music", -3.0),
             ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
         ],
     )

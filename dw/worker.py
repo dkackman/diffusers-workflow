@@ -229,7 +229,7 @@ class WorkflowWorker:
             set_log_level(log_level)
 
             workflow, identity = self._load_workflow(command, output_dir)
-            workflow.validate()
+            workflow.validate(arguments=arguments)
 
             # Switching to a different workflow frees the old one's models
             # before the new one loads - on one accelerator, holding both is
@@ -540,6 +540,21 @@ class WorkflowWorker:
         except Exception as e:
             logger.warning(f"Could not clean GPU cache: {e}")
 
+        # release_host_caches() only touches blocks nothing is using - the
+        # pinned-host staging buffers of a step's group_offload and the
+        # glibc arenas a released pipeline's weights were read into - so it
+        # is safe here even though loaded_pipelines/shared_components are
+        # still warm for the next run. Without it those two caches are the
+        # gap between what a job's own cleanup releases and what an explicit
+        # clear_memory does (#368): a released pipeline's GPU memory drops at
+        # `release_pipeline`, but the host arenas it staged through, plus any
+        # SDNQ/group_offload residue from steps that never released at all
+        # because the job ended first, stay resident until something calls
+        # this.
+        released = release_host_caches()
+        if released:
+            logger.info(f"Inter-run cleanup returned {released:.0f} MB to the OS")
+
         # Check for memory growth
         current_memory = self._get_gpu_memory_mb()
         if current_memory > 0:
@@ -698,6 +713,11 @@ class WorkflowWorker:
                 info["gpu_memory_total_mb"] = stats["total_mb"]
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.debug(f"Could not access GPU: {e}")
+
+        # The step cache's own eviction accounting (#418) - otherwise a
+        # phantom-bytes regression in it has no symptom short of the cache
+        # collapsing to one entry, thousands of stale drops away
+        info["step_cache"] = step_cache.stats()
 
         return info
 

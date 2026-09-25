@@ -136,6 +136,21 @@ class TestOutputReferences:
             f"output:ltx2/Gyre/{run_id}/still.png"
         )
 
+    def test_a_version_is_pinned_to_the_run_it_named(self, output_root):
+        # A version is stable, but deleting the newest run frees its number,
+        # so the realized copy names the run id as it does for 'latest'
+        root, run_id = output_root
+        source = definition()
+        source["steps"][0]["pipeline"]["arguments"]["image"] = (
+            "output:ltx2/Gyre/v1/still.png"
+        )
+
+        realized, _ = realize_workflow(source, {}, 7, output_root=root)
+
+        assert realized["steps"][0]["pipeline"]["arguments"]["image"] == (
+            f"output:ltx2/Gyre/{run_id}/still.png"
+        )
+
     def test_an_explicit_run_id_is_kept_as_written(self, output_root):
         root, run_id = output_root
         written = f"output:ltx2/Gyre/{run_id}/still.png"
@@ -264,18 +279,6 @@ class TestUnpinnedOutputs:
         )
         assert realized["variables"]["prompt"] == "a harbour at dusk"
         assert annotations["prompts"] == ["scenic/dusk"]
-
-    def test_the_default_still_pins(self, output_root):
-        root, run_id = output_root
-        spec = definition()
-        spec["steps"][0]["pipeline"]["arguments"]["image"] = (
-            "output:ltx2/Gyre/latest/still.png"
-        )
-        realized, _ = realize_workflow(spec, {}, 7, output_root=root)
-        assert (
-            realized["steps"][0]["pipeline"]["arguments"]["image"]
-            == f"output:ltx2/Gyre/{run_id}/still.png"
-        )
 
 
 class TestReadSubWorkflow:

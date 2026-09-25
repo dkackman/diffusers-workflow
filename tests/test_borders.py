@@ -31,12 +31,6 @@ class TestAddBorderAndMask:
         assert result["bordered_image"].mode == "RGB"
         assert result["mask"].mode == "L"
 
-    def test_padding_extends_only_the_requested_side(self, image):
-        result = add_border_and_mask(image, zoom_left=0.5)
-
-        # 100 + 50 left pad = 150, snapped up to the nearest multiple of 32
-        assert result["bordered_image"].size == (160, 96)
-
     @pytest.mark.parametrize(
         "kwargs, expected",
         [

@@ -546,7 +546,7 @@
     <span>/</span>
   {/if}
   <input class="savename" bind:value={saveName} placeholder="MyPrompt" />
-  <span>.json in {promptDir}</span>
+  <span class="dirhint">.json in {promptDir}</span>
   <span class="flex"></span>
   {#if savePath()}
     <code class="refhint" title="use the stored prompt from any workflow"
@@ -791,6 +791,12 @@
   }
   .newfolder {
     max-width: 140px;
+  }
+  /* a directory is one unbroken token, so let it wrap anywhere rather than
+     push the bar past a phone-width viewport */
+  .dirhint {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .refhint {
     font-size: 0.8rem;

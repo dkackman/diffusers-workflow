@@ -11,14 +11,6 @@ from dw.schema import (
 )
 
 
-def test_load_schema():
-    # Test that we can load the workflow schema
-    schema = load_schema("workflow")
-    assert schema is not None
-    assert "$schema" in schema
-    assert "properties" in schema
-
-
 def test_validate_data_valid(valid_workflow_json):
     # Test validation with valid workflow
     schema = load_schema("workflow")

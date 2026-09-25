@@ -67,88 +67,47 @@ def build_server(client):
     server = MCPServer(
         "diffusers-workflow",
         instructions=(
-            "Generate images and video on a real GPU: author, run and "
-            "diagnose diffusers-workflow jobs against a running dw.serve. "
-            "A workflow is a JSON document of named steps, each a "
+            "Generate images, video and audio on a real GPU: author, run "
+            "and diagnose diffusers-workflow jobs against a running "
+            "dw.serve. A workflow is a JSON document of named steps, each a "
             "diffusers pipeline or a utility task; the engine runs one job "
             "at a time.\n"
             "\n"
-            "Start from `list_workflows(shape=...)`: the server keeps a "
-            "large catalog, and its compact listing carries each "
-            "workflow's summary, shape, traits, cost, variable names and, "
-            "for a list-driven workflow, `lists` - what an entry of each "
-            "list carries; a list-driven workflow's `cost` may also carry "
-            "a measured `per_entry` (neither template does yet) - "
-            "run what is already there, with `arguments` overriding its "
-            "variables, rather than authoring a new workflow for a "
-            "request an existing one covers. Shapes: image, image-set, "
-            "image-edit, shot, sequence, audio, text, utility. Traits: "
-            "has-audio, chained, image-conditioned, identity-referenced, "
-            "needs-input-media, composes-workflows.\n"
+            "Start from `list_workflows(shape=...)` and run what the catalog "
+            "already holds, with `arguments` overriding its variables. "
+            "Shapes: image, image-set, image-edit, shot, sequence, audio, "
+            "text, utility. Traits: has-audio, chained, image-conditioned, "
+            "identity-referenced, needs-input-media, composes-workflows. An "
+            "open-ended request names a subject, not a shape - decide the "
+            "deliverable's shape first. `list_guides` indexes the docs by "
+            "section and `list_tasks` is what a shape is composed from; "
+            "author new JSON only when neither the catalog nor a "
+            "composition covers the request.\n"
             "\n"
-            "When a request is open-ended - a subject rather than a shape "
-            '("a lego movie trailer set in the marvel universe") - no '
-            "catalog entry will name it, because entries are written in "
-            "shapes: a single image, an image set, one shot, a multi-shot "
-            "cut sequence, video with speech. Decide which shape the "
-            "deliverable is first, then call `list_workflows` with it; "
-            "`list_guides` indexes the documentation by section so a shape "
-            "can be looked up rather than guessed at, and `list_tasks` is "
-            "what a shape is composed from when no single workflow covers "
-            "it. Author new JSON only once neither does, and say what it "
-            "will cost before spending it.\n"
-            "\n"
-            "The engine that answers is one machine: `get_server_info` "
-            "reports its accelerator, its directories and which workspace "
-            "this session works in, and what a workflow can ask for "
-            "follows from that - a CUDA-only choice is not available on an "
+            "`get_server_info` reports the accelerator, directories and this "
+            "session's workspace; a CUDA-only choice is unavailable on an "
             "mps or cpu server.\n"
             "\n"
-            "The loop for anything that generates: `get_guide` "
-            '("workflows", section "Authoring a workflow from an agent") '
-            "before writing or repairing any JSON, since the reference "
-            "conventions below are engine-specific and a draft that guesses "
-            "them validates and then fails at run time -> `validate_workflow` "
-            "(free, catches schema errors and arguments the pipeline does "
-            "not accept; repeat until it is clean, since fixing one layer "
-            "exposes the next) -> `run_workflow` -> `wait_for_job` rather than a "
-            "polling loop -> `get_job` for the manifest -> "
-            "`get_output_image`, `get_output_frames` and `get_output_audio` to "
-            "actually look at and listen to what was made and say whether "
-            "it answers the request. Tools that cost GPU minutes, "
-            "disk or unrecoverable deletion refuse until "
-            "`acknowledged_cost=true`: tell the user what it will cost (a "
-            "workflow you wrote or copied has no `cost`; quote the figure "
-            "from the `models/` entry that loads the same pipeline, found "
-            "with `list_workflows(include_models=true)`, times the number "
-            "of images), get their go-ahead, then call again.\n"
+            'The loop: `get_guide("workflows", section="Authoring a '
+            'workflow from an agent")` before writing or repairing JSON -> '
+            "`validate_workflow` (free; repeat until clean) -> quote its "
+            "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
+            "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
+            "`get_output_frames`, `get_output_audio` to look at and listen "
+            "to the result and judge it against the request. Tools that "
+            "spend GPU time or disk, or delete for good, refuse until "
+            "`acknowledged_cost` is set. A workflow you wrote has no "
+            "measured cost: quote the `models/` entry that loads the same "
+            "pipeline (`list_workflows(include_models=true)`) times the "
+            "number of images.\n"
             "\n"
-            "Workflow arguments carry references rather than literals, "
-            "which is what makes multi-stage work composable: "
-            '"variable:name" (an override), '
-            '"previous_result:step" (an earlier step in the same run), '
-            '"prompt:name" or "prompt:folder/name" (the stored prompt '
-            "library - `list_prompts`, `get_prompt_schema`), "
-            '"asset:name.ext" (input media on the server - `list_assets`, '
-            "`upload_asset` to push a local file, `keep_output` to promote "
-            "a generated file into a stable input), and "
-            '"output:workflow/run-id/file.png" (a file an earlier run '
-            'wrote, with "latest" in the run-id position picking the '
-            "newest run holding it). Prefer an asset: or output: reference "
-            "over a filesystem path: a path on this machine usually means "
-            "nothing to the server.\n"
-            "\n"
-            "Each run writes its own directory, "
-            "<workflow>/<run id>/, with a manifest beside its files; "
-            "`list_gallery` and a job's manifest name files the way "
-            "`get_output_image`, `download_output` and `keep_output` "
-            "expect them.\n"
-            "\n"
-            "The server can hold several workspaces - separate workflows, "
-            "assets and outputs, one shared prompt library: "
-            "`list_workspaces` shows them and `use_workspace` picks one "
-            "for the rest of the session, which is how to keep your work "
-            "out of another agent's namespace."
+            "Arguments carry references rather than literals: `variable:`, "
+            "`previous_result:`, `prompt:` (the stored prompt library), "
+            "`asset:` (input media on the server - `upload_asset`, "
+            "`keep_output`) and `output:` (an earlier run's file). The "
+            "guide's References section defines each; prefer them to a "
+            "local path, which means nothing to the server. "
+            "`use_workspace` picks the workspace this session works in."
         ),
     )
 
@@ -180,10 +139,9 @@ def build_server(client):
         image-conditioned, identity-referenced, needs-input-media,
         composes-workflows. Each entry carries a one-line `summary`, its
         `shape` and `traits` (what it needs supplied), `cost` (curated:
-        figures a maintainer measured once on the devices named and wrote
-        into the workflow, never derived from this server's job history -
-        so null means nobody wrote one down, not that the run is cheap;
-        the answer's `cost_basis` says as much. It is also the mark of an
+        measured once by a maintainer on the devices named, never derived
+        from this server's history - null means nobody wrote one down, not
+        that the run is cheap. It is also the mark of an
         entry that has been run through on a real device: one without a
         `cost` has only been authored, and its first run is the one that
         finds what the description could not verify. `observed_minutes` and
@@ -191,16 +149,15 @@ def build_server(client):
         of that workflow - the cold median, model load included, and how
         many runs are behind it. Prefer it when quoting a price for this
         machine, fall back to `cost`, and say "unknown" only when neither
-        is there; say which one you used, since a figure a maintainer
-        measured on their card and one this box averaged last week are
-        different claims), output kinds and variable names. `lists`, present for a
+        is there; say which one you used - a maintainer's card and this
+        box's average are different claims), output kinds and variable names. `lists`, present for a
         list-driven workflow, names per list variable the fields an entry
         takes, the steps run over it and the default's length; there
         `cost[].per_entry`, when present, is the measured cost of one
         entry (`{variable, minutes, entries}`), so a run over a
         different-length list can be priced from it. `constraints`, present
         for a workflow that bounds a variable, is the rule each bounded one
-        has to satisfy, terse (`17*n+5, 124-345, rounds up`) - pass an
+        has to satisfy, terse - pass an
         `arguments` value outside it and `validate_workflow` refuses it for
         free, instead of the run failing after the weights are loaded.
         Templates only by default; `configures=<template>` lists the checkpoint configs
@@ -326,7 +283,10 @@ def build_server(client):
         and `age_seconds` how old it is. A cached reading is not this
         moment's: one taken while a job is loading a model understates what
         is resident by however much has loaded since, so ask again when the
-        server is idle rather than comparing it against a live figure."""
+        server is idle rather than comparing it against a live figure.
+
+        `info.step_cache` is the step cache's own accounting: `entries`,
+        `retained_bytes` against `max_retained_bytes`."""
         return catalog.get_memory(client)
 
     def clear_memory() -> dict:
@@ -395,6 +355,9 @@ def build_server(client):
         subfolder: str | None = None,
         only_orphans: bool = False,
         workspace: str | None = None,
+        folder: str | None = None,
+        version: int | None = None,
+        media: bool = False,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -406,19 +369,22 @@ def build_server(client):
         by convention `final` is the deliverable and `intermediate` the
         scratch work, '' when the step chose none); `subfolder=` filters on
         the latter, so `subfolder="final"` is "what did these runs
-        deliver". Each entry also carries a ready-made `url` for viewing the
-        file over HTTP, already scoped to the right workspace; use it as
-        given rather than composing one from the name.
+        deliver". Each entry's `url` is already scoped to its workspace;
+        use it as given rather than composing one from the name.
+
+        Entries also carry `run_id` and `version`, the run's stable ordinal
+        (the web UI shows `v5`) - quote the version to a person. `folder=`
+        plus `version=` lists that run; "output:<folder>/v5/<file>" names
+        it. Other tools take `name`.
 
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping
         (manifest.json, workflow.json, job.json) as `runs`, each
         `{name, mtime}` - a run whose output was deleted before
         `delete_output` could remove it by name, or one that failed before
-        writing anything, invisible to a normal listing because it has no
-        file to show. `subfolder` does not apply in this mode. `name` is
+        writing anything. `subfolder` does not apply in this mode. `name` is
         exactly what `delete_output` accepts, so clearing the backlog is
-        list, then delete each name (#170). A run that wrote any file at
+        list, then delete each name. A run that wrote any file at
         all - a text-shape prompt, a utility's side output - is not listed;
         this call only lists, so deciding whether a listed entry is actually
         junk before calling `delete_output` on it is still yours to make.
@@ -426,13 +392,20 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one.
+
+        `media=True` adds `duration_seconds` to audio/video entries - two
+        takes sharing a basename are told apart by length, not size or
+        mtime."""
         return catalog.list_gallery(
             client,
             limit=limit,
             subfolder=subfolder,
             only_orphans=only_orphans,
             workspace=workspace,
+            folder=folder,
+            version=version,
+            media=media,
         )
 
     def get_gallery_metadata(
@@ -441,21 +414,23 @@ def build_server(client):
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it - the definition,
         not a summary, so a result can be reproduced or a failed run's
-        definition edited and re-run. For audio and video the `media`
-        block carries duration, sample rate, channels, fps, size and level
-        - the checks an agent that cannot listen makes on a deliverable.
+        definition edited and re-run. Only an image embeds it; for audio
+        and video `metadata` is null and `next` names
+        `get_job_workflow(job_id)` when known, else a kept asset has no
+        provenance. `media` itself carries duration, sample rate,
+        channels, fps, size and level - the checks an agent that cannot
+        listen makes on a deliverable; `media.shots` places a joined
+        video's shots.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
-        track something is: whether a shot still sounds at its last frame,
-        how deep the hole at a seam goes, where a score goes quiet. Leave
-        it off unless the question is about a position - a long track is
-        a long list.
+        track something is: a shot's last frame, a seam's hole, where a
+        score goes quiet. Leave it off unless it's about position - a long
+        track is a long list.
 
         `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
         pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
         read - see `normalize_audio` under "Video Processing" in the tasks
-        guide. A mux emits only the second, so a peak between the two is
-        clean.
+        guide. A mux emits only the second.
 
         `name` may be an "asset:" reference instead of a gallery name, and
         then it describes that input asset - how many frames a shot is,
@@ -464,7 +439,7 @@ def build_server(client):
         and rates are arguments the caller supplies, and a wrong one is a
         failed job or, worse, silence padded onto the end of a track.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         return catalog.get_gallery_metadata(
             client, name, envelope=envelope, workspace=workspace
         )
@@ -530,7 +505,7 @@ def build_server(client):
         `crop` is `[x, y, width, height]` in the original's pixels,
         cut before the downscale.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_image(
             client, name, max_dimension=max_dimension, workspace=workspace, crop=crop
         )
@@ -561,9 +536,13 @@ def build_server(client):
         excerpted. No downscale exists for audio - a whole clip too
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
-        says what was cut. To *see* a video, `get_output_frames`.
+        says what was cut. To *see* a video, `get_output_frames`. A
+        text-only client confirms the *words* an output speaks by
+        transcribing it instead: WORKFLOW_GUIDE's "The loop", step 6, in
+        `get_guide("workflows", section="Authoring a workflow from an
+        agent")`.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_audio(
             client, name, start=start, duration=duration, workspace=workspace
         )
@@ -594,15 +573,14 @@ def build_server(client):
         """See a generated video as frames - no video content type exists
         over MCP. One selector: `count` (contact sheet), `at` (seconds or
         "frame:N"), or `seams` (true, or seam numbers from 1) for each
-        join's frame pair. `seams` needs `boundaries` - each later shot's
-        first frame, running sum of `get_gallery_metadata`'s `frame_count`;
-        `names` names the shots. Over budget, tiles shrink together.
+        join's frame pair, at a joined output's `media.shots`; else
+        `boundaries` (each later shot's first frame) and `names`. Over budget, tiles shrink together.
         `hear=N` adds N seconds of soundtrack around each `at`.
         `crop` is `[x, y, width, height]` in the video's own source
         pixels, cut from every frame before any downscale, like
         `get_output_image`'s.
 
-        `workspace` pins this call to another workspace (#99)."""
+        `workspace` pins this call to another workspace."""
         result = media.get_output_frames(
             client,
             name,
@@ -679,9 +657,24 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return media.get_output_text(
             client, name, max_characters=max_characters, workspace=workspace
+        )
+
+    def assess_output(
+        name: str,
+        probe: str | None = None,
+        detail: bool = False,
+        workspace: str | None = None,
+    ) -> dict:
+        """Measure a finished cut - seams, shot levels, sync - on the
+        server, without queueing. Findings are places to look, not
+        verdicts: check each with get_output_frames/get_output_audio.
+        `probe` (analyze_shots, analyze_seams, analyze_sync_drift) returns
+        one probe's full body; `detail` adds every probe's. Takes `asset:`."""
+        return media.assess_output(
+            client, name, probe=probe, detail=detail, workspace=workspace
         )
 
     def delete_output(
@@ -702,7 +695,7 @@ def build_server(client):
         directory, or unknown, is an error.
 
         `workspace` pins this call to another workspace without switching
-        the session (#99); a `job_id` delete with no `workspace` goes to
+        the session; a `job_id` delete with no `workspace` goes to
         the workspace the job ran in."""
         return media.delete_output(client, name, workspace=workspace, job_id=job_id)
 
@@ -720,22 +713,28 @@ def build_server(client):
         get_output_text for inline content, or the `url` that
         `list_gallery` reports for each entry, which already carries the
         workspace selector - do not build an /outputs URL by hand). This is
-        also NOT how a generated file becomes an input for a later
+        also not how a generated file becomes an input for a later
         workflow: use `keep_output`, which links it inside the workspace
         under an "asset:" name, rather than writing into the server's asset
         directory behind the API's back. Unlike the inline tools, this works
         for any file type, streams the body straight to disk rather than
         buffering it, and returns no content to the conversation - only
         where it was saved. `destination` may be a
-        full path, a directory, or omitted to save into the current
-        working directory under the output's own name; a '..' path segment
-        in it is refused. An existing file at the resolved path is left
-        alone unless `overwrite=True`.
+        full path or a directory; a '..' path segment in it is refused. An
+        existing file at the resolved path is left alone unless
+        `overwrite=True`. On the stdio `dw-mcp`, omitting `destination`
+        saves into the current working directory under the output's own
+        name. On a `dw.serve --mcp` endpoint the save happens on the server, and destination is required there -
+        an omitted one is refused rather than dropped loose in the
+        workspace root, where nothing can find or delete it later; use
+        the `url` list_gallery reports, get_output_image/get_output_audio/
+        get_output_frames for inline content, or keep_output to make it a
+        named asset instead.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return media.download_output(
             client,
             name,
@@ -748,6 +747,7 @@ def build_server(client):
     tool(get_output_audio, READ_ONLY)
     tool(get_output_frames, READ_ONLY)
     tool(get_output_text, READ_ONLY)
+    tool(assess_output, READ_ONLY)
     tool(download_output, OVERWRITES)
     tool(delete_output, DELETES)
 
@@ -829,7 +829,7 @@ def build_server(client):
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
         takes, so a job run into another workspace is reachable from
-        here without leaving this one (#99)."""
+        here without leaving this one."""
         return assets.keep_output(
             client,
             name,
@@ -899,62 +899,44 @@ def build_server(client):
     # ----------------------------------------------------------- authoring
 
     def validate_workflow(
-        workflow: dict | None = None,
+        workflow: dict | str | None = None,
         name: str | None = None,
-        inline_workflow: dict | None = None,
+        inline_workflow: dict | str | None = None,
         workflow_path: str | None = None,
         workspace: str | None = None,
         arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and against real pipeline
-        signatures. Free and instant - always run this before run_workflow.
-        Give exactly one of `workflow` or `name` - `name` being a stored
-        workflow as `list_workflows` reports it. `run_workflow` calls these
-        same two concepts `inline_workflow` and `workflow_path`; both tools
-        accept both spellings, so a definition or a name checked here can be
-        handed straight to `run_workflow` without renaming a key. Every
-        schema error comes back at once, each with its JSON path.
-        `workspace` names the workspace for this one call without switching
-        the session to it - use it to pin a job whose `output:` or `asset:`
-        references live in a workspace other than the session's.
-
-        Pass the same `arguments` you will pass to `run_workflow` and they
-        are checked too: a name the workflow no longer declares, a value
-        that will not coerce to the declared type, and an `asset:`,
-        `prompt:` or `output:` reference that names nothing this workspace
-        can reach - each with `arguments.<name>` as its path.
-        `checked_arguments` lists what was checked, so a valid answer says
-        whether it covered your values or only the stored defaults.
-
-        A value outside a bound the workflow declares for that variable is
-        an error here rather than a failed run: H3's frame count has to be
-        `17 * n + 5` between 124 and 345, and 61 used to validate and then
-        fail 138 s into the run, after the weights were loaded. A value the
-        workflow rounds up instead of refusing comes back as a warning
-        naming what it becomes, so a frame count the run changes is known
-        before the run. `get_workflow(variables_only=true)` and
-        `list_workflows` report the bound beside the default.
-
-        A `result.subfolder` or `file_base_name` that cannot be written (a
-        `..`, a backslash, a separator in `file_base_name`) is reported here
-        at its JSON path, after `for_each` expansion.
-
-        A sub-workflow step is resolved too: a `workflow.path` that names
-        nothing this server can reach is an error at
-        `steps[N].workflow.path` (the message lists where it looked), the
-        workflow it names is validated in turn under that path, a
-        composition cycle is refused, and an argument passed down that the
-        composed workflow declares no variable for comes back as a
-        warning.
+        signatures. Free and instant - run it before run_workflow.
+        Give exactly one of `workflow` or `name` (a stored workflow as
+        `list_workflows` reports it); `run_workflow`'s `inline_workflow`
+        and `workflow_path` spellings are accepted here too. `workflow` may
+        be a JSON-encoded string. Every error comes back at once, each with
+        its JSON path. `workspace` pins this one call to another workspace
+        without switching the session.
 
         A valid answer carries `plan`: what will execute for these
         arguments - `estimate.minutes` and its `basis` (`observed`,
         `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
-        what each means and how to quote it is WORKFLOW_GUIDE's "The loop",
-        step 4), each `downloads_required` entry as its own cost line, and
-        `steps`/`list_entries` for how many members the list actually
-        produced. `plan` is null when it could not be built; the verdict
-        stands."""
+        how to quote each is WORKFLOW_GUIDE's "The loop", step 4), each
+        `downloads_required` entry as its own cost line, and
+        `steps`/`list_entries` for how many members the list produced.
+        `plan` is null when it could not be built; the verdict stands.
+
+        Pass the same `arguments` you will pass to `run_workflow` and they
+        are checked too: an undeclared name, a value that will not coerce,
+        and an `asset:`/`prompt:`/`output:` reference naming nothing this
+        workspace can reach, each at `arguments.<name>`.
+        `checked_arguments` says whether your values or only the stored
+        defaults were checked. A value outside a bound the workflow
+        declares is an error here rather than a failed run; one the workflow rounds up
+        comes back as a warning naming what it becomes.
+
+        Also checked: an unwritable `result.subfolder` or `file_base_name`,
+        after `for_each` expansion; and each sub-workflow step - an
+        unreachable `workflow.path`, the composed workflow in turn, a
+        composition cycle, and (as a warning) an argument passed down that
+        it declares no variable for."""
         return authoring.validate_workflow(
             client,
             workflow=workflow,
@@ -1021,9 +1003,8 @@ def build_server(client):
         `get_prompt` returns the text itself. This is where the caption a
         model was trained on is already written out, so read the exemplar
         for the family you are about to run rather than inventing the
-        format: `intended_model` narrows to one family (`minimax-h3`,
-        `minimax-music3`, `ltx-2.5`, `z-image`, `flux`) and `tag` to one
-        label. `include_text=true` returns every body, which for the whole
+        format: `intended_model` narrows to one family, as the listing
+        reports it, and `tag` to one label. `include_text=true` returns every body, which for the whole
         library is more than a client will accept - filter first."""
         return prompts.list_prompts(
             client,
@@ -1043,12 +1024,14 @@ def build_server(client):
         before writing one, as you would get_schema before a workflow."""
         return prompts.get_prompt_schema(client)
 
-    def save_prompt(name: str, prompt: dict) -> dict:
+    def save_prompt(name: str, prompt: dict | str) -> dict:
         """Save a prompt to the library, overwriting any prompt of that
         name. Its `text` may not itself begin with a reference prefix
         (variable:, previous_result:, constant:, asset:, output:, prompt:)
         - the server refuses that to prevent a reference resolving twice.
-        The library is shared by every workspace on this server."""
+        The library is shared by every workspace on this server. `prompt`
+        may also be a JSON-encoded string; a parse failure is reported as
+        invalid JSON, not a type mismatch."""
         return prompts.save_prompt(client, name, prompt)
 
     def delete_prompt(name: str) -> dict:
@@ -1070,7 +1053,7 @@ def build_server(client):
         acknowledged_cost: bool = False,
     ) -> dict:
         """Expand a short idea into a full prompt with a language model.
-        THIS COSTS TIME ON THE ENGINE: it queues a real job, and the engine
+        This costs time on the engine: it queues a real job, and the engine
         runs one at a time, so a generation waiting behind it is delayed.
         Tell the user what will be enhanced and get their go-ahead, then
         pass acknowledged_cost=true. Returns as soon as the job is queued;
@@ -1094,18 +1077,18 @@ def build_server(client):
 
     def run_workflow(
         workflow_path: str | None = None,
-        inline_workflow: dict | None = None,
-        workflow: dict | None = None,
+        inline_workflow: dict | str | None = None,
+        workflow: dict | str | None = None,
         name: str | None = None,
         arguments: dict | None = None,
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
         wait_seconds: int = 0,
     ) -> dict:
-        """Queue a workflow for generation. THIS COSTS GPU TIME: a run
+        """Queue a workflow for generation. This costs GPU time: a run
         occupies the machine for minutes and the engine runs one job at a
         time. Tell the user what will run and get their go-ahead, then pass
-        acknowledged_cost=true. Returns as soon as the job is queued;
+        acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
         fold that first wait in with `wait_seconds` above 0, which waits on
         the job exactly as `wait_for_job(job_id,
@@ -1113,12 +1096,14 @@ def build_server(client):
         its fields to the result (`still_running`, `waited_seconds`,
         `timeout_*`, the slim `job`). If the cap covers the job's
         runtime one call is enough; on `still_running: true` call
-        `wait_for_job` as before. Give exactly one of `workflow_path` - a
+        `wait_for_job` again. Give exactly one of `workflow_path` - a
         catalog name from `list_workflows`, with or without .json, or a
         path on the server - or `inline_workflow`, a full definition
         nothing stored covers; `validate_workflow` calls these `name` and
-        `workflow`, and both tools accept both spellings. `arguments`
-        overrides the workflow's variables by name. `workspace` pins this
+        `workflow`, and both tools accept both spellings.
+        `inline_workflow`/`workflow` may also be a JSON-encoded string; a
+        parse failure is reported as invalid JSON, not a type mismatch.
+        `arguments` overrides the workflow's variables by name. `workspace` pins this
         call to another workspace without switching the session (where its
         `output:`/`asset:` references live).
 
@@ -1174,15 +1159,29 @@ def build_server(client):
         `save_workflow` is how it gets a name."""
         return diagnose.get_job_workflow(client, job_id)
 
-    def get_job_events(job_id: str, after: int = -1, limit: int = 200) -> dict:
+    def get_job_events(
+        job_id: str,
+        after: int = -1,
+        limit: int = 200,
+        kinds: list[str] | None = None,
+    ) -> dict:
         """Get a page of a job's progress events - phase transitions, denoise
         steps, memory readings and log lines. `after` is exclusive: pass back
         the previous call's `last_seq` to continue. Each event's `at` is
         seconds since the job started, so where a step's time went is the
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
-        events."""
-        return diagnose.get_job_events(client, job_id, after=after, limit=limit)
+        events. `kinds` (e.g. `["log", "warning"]`, or a warning's `kind`)
+        filters the page - `memory` events otherwise dominate it.
+
+        A `kind: "phase_stall"` entry is a watchdog notice, not progress - it
+        fires every ~30s a phase goes quiet, not evidence of a hang by
+        itself. It carries `seconds_since_last_progress` and
+        `seconds_since_phase_start`; some models are silent for minutes
+        normally - check the model's guide before treating one as a fault."""
+        return diagnose.get_job_events(
+            client, job_id, after=after, limit=limit, kinds=kinds
+        )
 
     def wait_for_job(job_id: str, timeout_seconds: int = 20) -> dict:
         """Block until a job finishes, instead of polling get_job or
@@ -1207,8 +1206,13 @@ def build_server(client):
         `denoise_step` has moved since a poll minutes ago, not by silence:
         a video reference's lead-in can run many minutes emitting nothing,
         and denoise gaps are uneven under a transformer block cache - both
-        normal. Full diagnosis, and why `denoise_total_steps` can read one
-        less than asked, in WORKFLOW_GUIDE's "The loop", step 5."""
+        normal. If you're also reading get_job_events, a `phase_stall`
+        entry there is the same silence being narrated, not a fault or a
+        sign of progress - it repeats every ~30s the phase stays quiet, so
+        neither seeing one nor watching its event_count climb tells you
+        anything `denoise_step` doesn't already say better. Full diagnosis,
+        and why `denoise_total_steps` can read one less than asked, in
+        WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(client, job_id, timeout_seconds=timeout_seconds)
 
     # The cap is a number a caller paces against, so the description states
@@ -1227,10 +1231,10 @@ def build_server(client):
     def rerun_job(
         job_id: str, acknowledged_cost: bool | dict = False, new_seed: bool = False
     ) -> dict:
-        """Queue a fresh job from a previous job's stored specification. THIS
-        COSTS GPU TIME: a rerun is a run - it occupies the machine for
+        """Queue a fresh job from a previous job's stored specification. This
+        costs GPU time: a rerun is a run - it occupies the machine for
         minutes and the engine runs one job at a time. Tell the user what
-        will run and get their go-ahead, then pass acknowledged_cost=true.
+        will run and get their go-ahead, then pass acknowledged_cost.
 
         Pass new_seed=true for a different image: a workflow that pins its
         seed reruns to the same pixels, and the step cache serves that whole
@@ -1264,13 +1268,20 @@ def build_server(client):
         what was copied. Returns the directory, a zip URL, the file list
         with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
-        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours. To
-        give the user the files, fetch the zip URL and unpack it into
-        exports/ under the session's working directory - it is the user's
-        deliverable, not a temp file; the archive already unpacks into one
-        folder named after the job id, so do not create that folder first.
-        Refuses a job that is still running; refuses an existing export
-        unless overwrite=true."""
+        THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
+
+        `auth_required` says whether opening the zip needs this server's
+        bearer token, a token you cannot attach to someone else's browser
+        or tooling. When it is false, fetch open_url yourself and unpack
+        it into exports/ under the session's working directory - it is
+        the user's deliverable, not a temp file; the archive already
+        unpacks into one folder named after the job id, so do not create that folder first.
+        When it is true, do NOT fetch it: hand open_url to the person and let them open it
+        (`next` says whether it is already absolute or needs the server's
+        address told to them). Individual results stay reachable inline
+        via get_output_image/get_output_audio/get_output_frames either
+        way. Refuses a job that is still running; refuses an existing
+        export unless overwrite=true."""
         return exports.export_job(client, job_id, overwrite=overwrite)
 
     tool(get_job, READ_ONLY)
@@ -1283,8 +1294,8 @@ def build_server(client):
     # -------------------------------------------------------------- models
 
     def download_model(repo_id: str, acknowledged_cost: bool = False) -> dict:
-        """Fetch a model repo into the Hugging Face cache. THIS COSTS DISK
-        AND BANDWIDTH: a model repo is commonly tens of gigabytes. Check
+        """Fetch a model repo into the Hugging Face cache. This costs disk
+        and bandwidth: a model repo is commonly tens of gigabytes. Check
         list_models first - it may already be cached. Tell the user what you
         are about to fetch and get their go-ahead, then pass
         acknowledged_cost=true. Returns as soon as the download starts; poll
@@ -1303,8 +1314,8 @@ def build_server(client):
         return models.cancel_download(client, download_id)
 
     def delete_model(repo: str, acknowledged_cost: bool = False) -> dict:
-        """Delete every cached revision of one model repo. THIS IS NOT
-        RECOVERABLE: getting the model back means downloading it again. Tell
+        """Delete every cached revision of one model repo. This is not
+        recoverable: getting the model back means downloading it again. Tell
         the user which repo and how much it frees, get their go-ahead, then
         pass acknowledged_cost=true. Refused while a job or download is
         active."""
@@ -1315,7 +1326,7 @@ def build_server(client):
         return models.get_diffusers_state(client)
 
     def update_diffusers(acknowledged_cost: bool = False) -> dict:
-        """Upgrade diffusers to GitHub HEAD. THIS CAN BREAK THE INSTALL: it
+        """Upgrade diffusers to GitHub HEAD. This can break the install: it
         installs an untagged development build that workflows running today
         may not survive, and this tool cannot undo it. Report the current
         version, explain why the update is worth it, get the user's

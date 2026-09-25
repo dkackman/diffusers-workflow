@@ -10,7 +10,7 @@ progress is polled from the event log.
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
@@ -105,6 +105,8 @@ def run_workflow(
         raise DwApiError(
             "`workflow_path` and `name` are the same thing - provide only one."
         )
+    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
+    workflow = coerce_json_object(workflow, "workflow")
     if inline_workflow is not None and workflow is not None:
         raise DwApiError(
             "`inline_workflow` and `workflow` are the same thing - provide only one."
@@ -136,6 +138,7 @@ def run_workflow(
         "job_id": job.get("id"),
         "status": job.get("status"),
         "queue_position": job.get("queue_position"),
+        "workspace": job.get("workspace"),
         "next": "Poll get_job_events(job_id) for progress, then get_job(job_id) "
         "for the manifest or the error.",
     }
@@ -180,12 +183,20 @@ def get_job_workflow(client, job_id):
     }
 
 
-def get_job_events(client, job_id, after=-1, limit=200):
+def get_job_events(client, job_id, after=-1, limit=200, kinds=None):
     """One page of a job's progress events. `after` is exclusive - pass back
-    the previous call's `last_seq` to continue."""
+    the previous call's `last_seq` to continue. `kinds` (e.g.
+    `["log", "warning"]`) restricts the page to events whose `event` or
+    `kind` is one of those values -
+    without it, bookkeeping events (`memory`, `step_start`, `phase`, ...)
+    dominate the payload; `kinds=["log", "warning"]` is what confirms a
+    chain's applied values (resample/mix/normalize gains) cheaply."""
+    params = {"after": after, "limit": limit}
+    if kinds:
+        params["kinds"] = list(kinds)
     return client.get_json(
         api_path("api", "jobs", job_id, "event-log"),
-        params={"after": after, "limit": limit},
+        params=params,
     )
 
 
@@ -198,6 +209,9 @@ _SLIM_KEYS = (
     "finished_at",
     "workspace",
     "run_id",
+    # The run's ordinal - the 'v5' the gallery labels its files with - so
+    # the caller can name the run it just waited on without another call
+    "run_version",
     "queue_position",
     "warnings",
     "error",
@@ -252,8 +266,8 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     named in `phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
     `denoise_step`/`denoise_total_steps`, which are null until the denoise
     loop starts. `denoise_total_steps` is the schedule that actually runs,
-    which is not always the `num_inference_steps` asked for - MiniMax H3
-    runs N-1 evaluations for N (#110). Two calls with the same phase and a growing
+    which is not always the `num_inference_steps` asked for (#110). Two
+    calls with the same phase and a growing
     `seconds_in_phase` but a moving `denoise_step` is a slow run; one where
     `denoise_step` is a number that does not move while
     `seconds_since_event` climbs is a stuck one.
@@ -261,17 +275,16 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     `denoise_step: null` under `generating` is neither: it is the lead-in
     the pipeline runs before the loop - encoding the prompt and every
     reference - which emits nothing and is well over a minute on a large
-    video model. Its length follows what it has to encode: ~90 s on
-    MiniMax H3 for a prompt with an image or audio reference, ~10 min once
-    a *video* reference is among them (measured 629 s for one 5 s 960x544
-    clip on an RTX 3090). Silence there is expected, and `get_job_events`
+    video model. Its length follows what it has to encode, and a *video*
+    reference makes it much longer; the measured figures are the model
+    skill's (`minimax-h3` for H3). Silence there is expected, and `get_job_events`
     says which block it is inside while it lasts - one `log` line per
     top-level block of a modular pipeline. `seconds_since_event` only says
     something once `denoise_step` is a number, or in any other phase.
 
     Even then it is coarse: where a transformer block cache is configured
     the denoise steps are uneven - several cheap ones, then a full one -
-    so on H3 a 140 s gap between steps is a healthy run. Read liveness as
+    so a long gap between steps can be a healthy run. Read liveness as
     `denoise_step` having moved between polls minutes apart rather than as
     silence under a fixed threshold."""
     requested = max(0.0, float(timeout_seconds))

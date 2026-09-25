@@ -205,3 +205,33 @@ emitting nothing when it's clean — scoped to `content_type.startswith("video")
 only, audio-only saves unaffected. Fix (2) (a `normalize_audio` gain step on
 the fifteen H3 video templates) remains held, unchanged from the original
 decision — no run on record has an H3 video mux actually clipping.
+
+## Resolution (2026-09-20)
+
+Approved and implemented in `bbe4adb`, fixes (1)-(4):
+
+1. For a video mux (`content_type.startswith("video")`), the pre-encode
+   `warn_without_headroom` result is held rather than emitted immediately.
+2. The post-encode `warn_if_written_above_full_scale` probe runs as before.
+3. The held warning is dropped if the written file measures clean, and
+   upgraded to `audio_clipped` with the measured value if the file is genuinely
+   over.
+4. Audio-only saves are unaffected (unconditional, unheld).
+
+The regression cases were updated to match: S-F031 and M-F008 in the external
+suite (#323). A video mux now carries at most one headroom warning, and it
+is the post-encode one.
+
+**Fix (2) is still deferred, and no decision is needed yet.** It would add a
+`normalize_audio` gain stage to the fifteen H3 video templates. No run on
+record has an H3 video mux actually clipping. Wait for a real
+clipped-in-practice case to size the gain against, the way #158 gave #159 one.
+The undershoot record this rests on:
+
+| Run | Template / mux | Predicted (pre-encode) | Written (post-encode) | Delta |
+|---|---|---|---|---|
+| #161's `music-video` case | AAC, different song | — | — | +1.94 dB (the one positive measurement on record, a different template family) |
+| `M-F012.jsonl` #1 | H3 video mux | target | measured | -0.92 dB |
+| `M-F012.jsonl` #2 | H3 video mux | target | measured | -1.11 dB |
+| M-F008 original report | `video-with-audio-768p` | -0.14 dBFS | -1.1158 dBFS | -0.98 dB |
+| Tester's 2026-09-16 re-verify | `video-with-audio-768p` | -0.14 dBFS | -1.1158844… dBFS | -0.97 dB |

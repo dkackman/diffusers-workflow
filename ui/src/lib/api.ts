@@ -344,6 +344,7 @@ export const api = {
       commands: string[]
       image_processors: string[]
       video_processors: string[]
+      assessment: string[]
     }>('/api/tasks'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),

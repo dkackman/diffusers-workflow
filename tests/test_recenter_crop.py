@@ -15,10 +15,16 @@ def _marked(size=200, mark=(20, 180), colour="red"):
 
 class TestRecenterCrop:
     def test_the_chosen_point_lands_at_the_centre(self):
+        # A window wholly inside the source, so no fill is involved
+        image = _marked(mark=(70, 130))
         out = recenter_crop(
-            _marked(), center_x=0.5, center_y=0.5, crop=0.5, width=100, height=100
+            image, center_x=0.35, center_y=0.65, crop=0.5, width=100, height=100
         )
         assert out.size == (100, 100)
+        assert out.getpixel((50, 50)) == (255, 0, 0)
+        # and only there - the rest of the window is the navy field
+        assert out.getpixel((5, 5)) == (0, 0, 128)
+        assert out.getpixel((95, 95)) == (0, 0, 128)
 
     def test_a_corner_feature_is_brought_to_the_centre(self):
         image = _marked(mark=(20, 180))

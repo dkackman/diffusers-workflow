@@ -2,6 +2,7 @@ import logging
 from typing import Callable, Dict
 
 from .. import resolve_device
+from ..events import emit_log
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -38,6 +39,8 @@ def register_command(
     provided=(),
     consumes_device=False,
     returns="artifact",
+    summary=None,
+    parameter_descriptions=None,
 ):
     """
     Decorator to register a command handler function.
@@ -64,6 +67,20 @@ def register_command(
             `validation_errors` (dw/scalar_result_validation.py, #212) rather
             than reaching `save_artifact` at run time, where a float has
             nothing left identifying which command produced it
+            - or "json" for a command answering a JSON-safe dict of
+            measurements (the assessment probes, `dw/tasks/assess.py`): its
+            `result` may only be `application/json`, since any other content
+            type would explode the dict key by key into files
+        summary: Overrides the command's `get_task` summary, which otherwise
+            reads the implementation function's docstring. For a command
+            whose handler dispatches its implementation per video frame
+            (`_per_frame`), that docstring describes the single-frame
+            function rather than the command a caller invokes - same reason
+            `_VIDEO_PROCESSOR_INFO` overrides `get_first_frame`/
+            `get_last_frame` (#366, #383)
+        parameter_descriptions: Overrides one or more of the implementation's
+            per-parameter `get_task` descriptions by name, for the same
+            single-frame-vs-command reason as `summary`
 
     Returns:
         Decorator function
@@ -80,12 +97,17 @@ def register_command(
                 return _func(task, arguments, previous_pipelines)
 
         _COMMAND_REGISTRY[command_name] = handler
-        _COMMAND_INFO[command_name] = {
+        info = {
             "kind": "command",
             "implementation": implementation,
             "provided": tuple(provided),
             "returns": returns,
         }
+        if summary:
+            info["summary"] = summary
+        if parameter_descriptions:
+            info["parameter_descriptions"] = dict(parameter_descriptions)
+        _COMMAND_INFO[command_name] = info
         logger.debug(f"Registered command handler: {command_name}")
         return func
 
@@ -318,6 +340,38 @@ def _handle_analyze_audio(task, arguments, previous_pipelines):
     return analyze_audio(**arguments)
 
 
+@register_command(
+    "analyze_shots", implementation="dw.tasks.assess.analyze_shots", returns="json"
+)
+def _handle_analyze_shots(task, arguments, previous_pipelines):
+    """Measure each shot of a cut's soundtrack and how far apart they sit"""
+    from .assess import analyze_shots
+
+    return analyze_shots(**arguments)
+
+
+@register_command(
+    "analyze_seams", implementation="dw.tasks.assess.analyze_seams", returns="json"
+)
+def _handle_analyze_seams(task, arguments, previous_pipelines):
+    """Measure every seam of a cut - level step, hole, click, frame jump"""
+    from .assess import analyze_seams
+
+    return analyze_seams(**arguments)
+
+
+@register_command(
+    "analyze_sync_drift",
+    implementation="dw.tasks.assess.analyze_sync_drift",
+    returns="json",
+)
+def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
+    """Measure how far a cut's soundtrack sits from its picture"""
+    from .assess import analyze_sync_drift
+
+    return analyze_sync_drift(**arguments)
+
+
 @register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
 def _handle_compose_text(task, arguments, previous_pipelines):
     """Join parts written once into one block of text"""
@@ -363,6 +417,7 @@ def _per_frame(image, process):
     carried through untouched. A single image is processed as itself.
     """
     from ..result import AudioVideo
+    from ..shots import carried_shots
     from .video_utils import frames_as_pil_list, is_video
 
     if not is_video(image):
@@ -370,7 +425,14 @@ def _per_frame(image, process):
     frames = [process(frame) for frame in frames_as_pil_list(image)]
     audio = getattr(image, "audio", None)
     sample_rate = getattr(image, "sample_rate", None)
-    return AudioVideo(frames, audio, sample_rate, fps=getattr(image, "fps", None))
+    # One frame out per frame in, so the shot boundaries carry through too
+    return AudioVideo(
+        frames,
+        audio,
+        sample_rate,
+        fps=getattr(image, "fps", None),
+        shots=carried_shots(image),
+    )
 
 
 @register_command(
@@ -424,6 +486,63 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
         image,
         lambda frame: restore_faces(frame, model_name, device=device, **arguments),
     )
+
+
+@register_command(
+    "grade",
+    implementation="dw.tasks.grade.grade_image",
+    summary=(
+        "Adjust exposure, contrast, saturation and white balance of an "
+        "image or a video."
+    ),
+    parameter_descriptions={
+        "media": (
+            "Image or video to grade. An image is a PIL Image; a video is a "
+            "file path or an asset:/output: reference, read with its audio "
+            "and graded frame by frame, keeping its frame rate and audio "
+            "unchanged."
+        ),
+    },
+)
+def _handle_grade(task, arguments, previous_pipelines):
+    """Adjust exposure, contrast, saturation and white balance of an image or a video"""
+    logger.debug("Grading media")
+    media = arguments.pop("media")
+    from .grade import grade_image
+
+    if isinstance(media, str):
+        import os
+
+        from ..security import ALLOWED_VIDEO_EXTENSIONS
+        from .video_utils import load_audio_video
+
+        if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
+            media = load_audio_video(media)
+        else:
+            from ..arguments import fetch_image
+
+            media = fetch_image(media)
+
+    defaults = {
+        "exposure": 0.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "temperature": 0.0,
+        "tint": 0.0,
+    }
+    applied = {
+        name: arguments.get(name, default)
+        for name, default in defaults.items()
+        if arguments.get(name, default) != default
+    }
+    emit_log(
+        f"grade: applied {applied}"
+        if applied
+        else "grade: no adjustment (all identity)",
+        command="grade",
+        **applied,
+    )
+    return _per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
 @register_command(
@@ -591,7 +710,9 @@ def _handle_video_processing(task, arguments, previous_pipelines):
 # Command names process_video (video_utils.py) accepts, with the function
 # whose signature carries their arguments. video_utils dispatches via a plain
 # if-chain, so keep this in sync with the branches in process_video().
-# get_first/last_frame pin frame_index themselves, so it is 'provided'.
+# get_first/last_frame pin frame_index themselves, so it is 'provided'; they
+# share get_frame's implementation and so would share its generic docstring
+# summary too (#366) - 'summary' overrides that per command.
 _VIDEO_PROCESSOR_INFO = {
     "get_frame": {
         "kind": "video_processor",
@@ -602,11 +723,13 @@ _VIDEO_PROCESSOR_INFO = {
         "kind": "video_processor",
         "implementation": "dw.tasks.video_utils.get_frame",
         "provided": ("frame_index",),
+        "summary": "The first frame of a video, as a PIL image.",
     },
     "get_last_frame": {
         "kind": "video_processor",
         "implementation": "dw.tasks.video_utils.get_frame",
         "provided": ("frame_index",),
+        "summary": "The last frame of a video, as a PIL image.",
     },
 }
 _VIDEO_PROCESSOR_COMMANDS = sorted(_VIDEO_PROCESSOR_INFO)

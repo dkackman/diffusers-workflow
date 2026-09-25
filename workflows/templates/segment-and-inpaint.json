@@ -4,8 +4,10 @@
     "variables": {
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grounding_dino_example_input.png",
         "segment_prompt": "cat",
-        "inpaint_prompt": "a golden retriever puppy sitting on the grass"
+        "inpaint_prompt": "a golden retriever puppy sitting on the grass",
+        "seed": null
     },
+    "seed": "variable:seed",
     "steps": [
         {
             "name": "load_image",

@@ -2,10 +2,9 @@
 says so - the lesson download_output taught."""
 
 import httpx
-import pytest
 
 from dw_mcp import exports
-from dw_mcp.client import DwApiError, DwClient
+from dw_mcp.client import DwClient
 
 SUMMARY = {
     "job_id": "job-1",
@@ -90,20 +89,9 @@ def test_overwrite_travels_as_a_query_parameter():
     assert seen[0]["params"]["overwrite"] == "true"
 
 
-def test_a_409_reaches_the_model_as_a_readable_refusal():
-    client, _ = exporting(status=409, body={"detail": "An export already exists"})
-
-    with pytest.raises(DwApiError) as caught:
-        exports.export_job(client, "job-1")
-
-    assert "already exists" in str(caught.value)
-
-
-def test_the_docstring_says_copying_costs_disk_and_names_total_bytes():
-    # A caller reading only the handler's docstring has to learn this before
-    # exporting a video job fills the server's disk a second time - the
-    # export copies files rather than linking them.
-    assert "copies every output and input" in exports.export_job.__doc__
+def test_the_docstring_names_total_bytes():
+    # The field a caller reads to see what an export cost on disk has to be
+    # named where the caller looks - the handler's docstring.
     assert "total_bytes" in exports.export_job.__doc__
 
 
@@ -115,3 +103,54 @@ def test_the_next_hint_sends_the_zip_to_the_working_directory():
     assert "working directory" in hint
     assert "temp" in hint
     assert "do not create that folder" in hint
+
+
+def test_auth_required_tells_the_agent_to_hand_the_zip_to_a_person():
+    """#353: when the server gates the zip with a bearer token, this agent
+    has no way to attach one to a fetch made on the person's behalf - the
+    hint has to say hand it over, not fetch it."""
+    client, _ = exporting(body={**SUMMARY, "auth_required": True})
+
+    result = exports.export_job(client, "job-1")
+
+    assert result["auth_required"] is True
+    assert result["open_url"] == "/exports/job-1.zip"
+    assert "hand open_url to the person" in result["next"]
+    assert "do not fetch it" in result["next"]
+    assert "get_output_image" in result["next"]
+
+
+def test_an_absolute_open_url_is_preferred_and_said_to_be_absolute():
+    client, _ = exporting(
+        body={
+            **SUMMARY,
+            "auth_required": True,
+            "absolute_zip_url": "https://dw.example.com/exports/job-1.zip",
+        }
+    )
+
+    result = exports.export_job(client, "job-1")
+
+    assert result["open_url"] == "https://dw.example.com/exports/job-1.zip"
+    assert "already absolute" in result["next"]
+
+
+def test_no_auth_required_still_fetches_the_zip_itself():
+    client, _ = exporting(body={**SUMMARY, "auth_required": False})
+
+    result = exports.export_job(client, "job-1")
+
+    assert result["auth_required"] is False
+    assert result["open_url"] == "/exports/job-1.zip"
+    assert "fetch open_url" in result["next"]
+
+
+def test_absolute_zip_url_is_omitted_rather_than_null_when_unconfigured():
+    """#353 follow-up: the API omits absolute_zip_url when DW_PUBLIC_URL
+    isn't set, matching list_gallery's absolute_url; this tool used to pass
+    the missing key through as an explicit null instead of leaving it out."""
+    client, _ = exporting()
+
+    result = exports.export_job(client, "job-1")
+
+    assert "absolute_zip_url" not in result

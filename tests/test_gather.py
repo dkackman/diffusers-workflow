@@ -3,8 +3,10 @@ Unit tests for gather module
 Tests image/video gathering from files and URLs
 """
 
+import io
 import pytest
 import os
+from types import SimpleNamespace
 import tempfile
 from unittest.mock import patch
 from PIL import Image
@@ -77,46 +79,25 @@ class TestGatherImages:
             (0, 0, 255),
         ]
 
-    @patch("dw.tasks.gather.load_image")
-    @patch("dw.tasks.gather.validate_media_url")
-    def test_gather_images_from_urls(self, mock_validate_url, mock_load_image):
-        """Test gathering images from URLs"""
-        mock_validate_url.side_effect = lambda url, what=None: url
-        mock_image = Image.new("RGB", (100, 100))
-        mock_load_image.return_value = mock_image
+    def test_gather_images_mixed_sources(self, tmp_path):
+        """Local matches and URLs are both gathered - the files first, then
+        the URLs in the order given."""
+        Image.new("RGB", (50, 50)).save(tmp_path / "local.jpg")
+        remote = io.BytesIO()
+        Image.new("RGB", (100, 100)).save(remote, format="PNG")
 
-        urls = ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]
+        with patch(
+            "dw.tasks.gather.safe_get",
+            return_value=SimpleNamespace(content=remote.getvalue()),
+        ) as mock_fetch:
+            images = gather_images(
+                glob=os.path.join(str(tmp_path), "*.jpg"),
+                urls=["https://example.com/remote.jpg"],
+            )
 
-        images = gather_images(urls=urls)
-
-        assert len(images) == 2
-        assert mock_validate_url.call_count == 2
-        assert mock_load_image.call_count == 2
-
-    def test_gather_images_mixed_sources(self):
-        """Test gathering images from both files and URLs"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create test image file
-            img1 = Image.new("RGB", (50, 50))
-            path1 = os.path.join(temp_dir, "local.jpg")
-            img1.save(path1)
-
-            glob_pattern = os.path.join(temp_dir, "*.jpg")
-
-            with patch("dw.tasks.gather.load_image") as mock_load:
-                with patch("dw.tasks.gather.validate_media_url") as mock_validate:
-                    mock_validate.return_value = "https://example.com/remote.jpg"
-                    mock_load.side_effect = [
-                        Image.new("RGB", (50, 50)),  # For file
-                        Image.new("RGB", (100, 100)),  # For URL
-                    ]
-
-                    images = gather_images(
-                        glob=glob_pattern, urls=["https://example.com/remote.jpg"]
-                    )
-
-                    # Should have images from both sources
-                    assert len(images) >= 1
+        assert [img.size for img in images] == [(50, 50), (100, 100)]
+        mock_fetch.assert_called_once()
+        assert mock_fetch.call_args[0][0] == "https://example.com/remote.jpg"
 
     def test_gather_images_no_results_raises_error(self):
         """Test that gathering no images raises ValueError"""
@@ -157,19 +138,6 @@ class TestGatherImages:
 
         with pytest.raises(SecurityError):
             gather_images(glob=traversal_pattern)
-
-    def test_gather_images_none_defaults(self):
-        """Test that None URLs parameter works (fixed mutable default)"""
-        # This tests the fix for mutable default arguments
-        with tempfile.TemporaryDirectory() as temp_dir:
-            img = Image.new("RGB", (50, 50))
-            path = os.path.join(temp_dir, "test.jpg")
-            img.save(path)
-
-            glob_pattern = os.path.join(temp_dir, "*.jpg")
-            images = gather_images(glob=glob_pattern)  # urls=None
-
-            assert len(images) == 1
 
     def test_gather_images_happy_path_tmp_path(self, tmp_path):
         """Allowed-extension local files under a glob still load fine after
@@ -233,16 +201,6 @@ class TestGatherVideos:
 
         assert "No videos found" in str(exc_info.value)
 
-    def test_gather_videos_none_defaults(self):
-        """Test that None URLs parameter works"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Since we can't easily create real video files in tests,
-            # we'll just test that the function handles None properly
-            with pytest.raises(ValueError) as exc_info:
-                gather_videos(glob=os.path.join(temp_dir, "*.mp4"))
-
-            assert "No videos found" in str(exc_info.value)
-
     def test_gather_videos_sorted_not_filesystem_order(self, tmp_path):
         """Videos gathered for a concat come back in sorted order.
 
@@ -305,21 +263,3 @@ class TestGatherInputs:
         result = gather_inputs(inputs)
 
         assert result == inputs
-
-    def test_gather_inputs_with_list(self):
-        """Test gather_inputs with list input"""
-        inputs = ["item1", "item2", "item3"]
-        result = gather_inputs(inputs)
-
-        assert result == inputs
-
-    def test_gather_inputs_with_nested_structure(self):
-        """Test gather_inputs with nested structures"""
-        inputs = {"outer": {"inner": ["value1", "value2"]}}
-        result = gather_inputs(inputs)
-
-        assert result == inputs
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

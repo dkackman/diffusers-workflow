@@ -1,6 +1,5 @@
 import copy
 import logging
-import PIL
 from .arguments import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
@@ -304,6 +303,22 @@ def get_value(v, desired_type, name=None):
         logger.debug("Variable has no declared type, using the value as given")
         return v
 
+    # A value already realized by an earlier step (an AudioTrack, an
+    # AudioVideo, a PIL.Image, ...) is a live object, not a JSON literal -
+    # 'previous_result:' resolves it to this before set_variables ever sees
+    # it, so a sibling step's task argument receives it unchanged. A
+    # sub-workflow's declared variable must too, rather than being coerced
+    # through the type of the variable's own default (usually a string
+    # 'asset:'/'output:' reference): desired_type(v) on one of these called
+    # str() on an AudioTrack and got its Python repr, which then reached
+    # slice_audio looking like a bogus path (#404)
+    if not isinstance(v, (str, int, float, bool, list, dict)):
+        logger.debug(
+            f"Value for variable '{name}' is an already-realized {type(v).__name__}; "
+            "using it as given"
+        )
+        return v
+
     # Special handling for boolean string values - bool("0") and bool("no") are
     # both truthy in Python, which would silently invert the user's intent, so
     # only a known set of true/false spellings is accepted here
@@ -323,9 +338,20 @@ def get_value(v, desired_type, name=None):
     if isinstance(v, str) and desired_type is list:
         return [item.strip() for item in v.split(",")]
 
-    # special handling for images that have already been realized
-    if isinstance(v, PIL.Image.Image):
-        return v
+    # A variable typed int by its default (e.g. `"score_gain": 1`) silently
+    # truncates a fractional override - int(0.3) == 0, with no error - which
+    # reads as a valid, if small, argument rather than the wrong type. Refuse
+    # it instead of truncating; the fix is to declare the default as a float
+    # (`1.0`) if the variable is meant to accept fractions
+    if desired_type is int and isinstance(v, float) and not v.is_integer():
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"{var_label} {v!r} would be realized as {int(v)}: this variable "
+            f"is typed integer by its default; declare its default as a float "
+            f"(e.g. {float(int(v))!r}) to accept fractional values"
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     # A string cannot be coerced into a dict or a None - dict('/a/b.png') is
     # nonsense, NoneType('x') a TypeError. Those defaults are how media
@@ -334,6 +360,22 @@ def get_value(v, desired_type, name=None):
     # resolves later, so it passes through as written
     if isinstance(v, str) and desired_type in (dict, type(None)):
         return v
+
+    # A dict or list cannot be coerced into a string - str({...}) never
+    # raises, it just stringifies the Python repr, so a caller passing the
+    # old {"location": ...} object for a variable now declared as a plain
+    # string (e.g. templates/ltx2/keyframes' first_image/last_image, #433)
+    # sailed through validation and only failed at run time with a path
+    # built from the dict's repr
+    if isinstance(v, (dict, list)) and desired_type is str:
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type str: "
+            f"this variable takes a plain string (a URL, or an 'asset:'/"
+            f"'output:' reference), not an object"
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     # Attempt type conversion. A failure here is surfaced immediately with a clear,
     # named error instead of silently passing the unconverted value through - letting

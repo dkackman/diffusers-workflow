@@ -269,6 +269,28 @@ class TestGetIterations:
         iterations = get_iterations(template, previous_results)
         assert iterations == template
 
+    def test_a_reference_entry_in_a_list_template_expands_to_its_results(self):
+        """An 'inputs' list is one iteration per entry, so a reference entry
+        is one iteration per result it names - not the literal string the
+        static check already accepts as a reference."""
+        step1 = Result({})
+        step1.add_result(["a", "b"])
+
+        iterations = get_iterations(
+            ["first", "previous_result:step1", "last"], {"step1": step1}
+        )
+        assert iterations == ["first", "a", "b", "last"]
+
+    def test_a_reference_inside_a_list_templates_object_resolves(self):
+        step1 = Result({})
+        step1.add_result(["a", "b"])
+
+        iterations = get_iterations(
+            [{"value": "previous_result:step1"}, {"value": "plain"}],
+            {"step1": step1},
+        )
+        assert iterations == [{"value": "a"}, {"value": "b"}, {"value": "plain"}]
+
     def test_three_way_cartesian_product(self):
         """Test with 3 dimensions: 2x2x2 = 8 combinations"""
         result1 = Result({})
@@ -421,19 +443,6 @@ class TestNestedReferences:
         # first iteration's image
         assert template["references"][0] is description
         assert description["from_previous_result"] == "draw"
-
-    def test_siblings_are_shared_rather_than_copied(self):
-        result = Result({})
-        result.add_result(["first", "second"])
-
-        frames = [object()]
-        template = {"video": frames, "prompt": "previous_result:write"}
-        iterations = get_iterations(template, {"write": result})
-
-        # Only the containers on the path to the substitution are copied - a
-        # deep copy would duplicate the media the iterations mean to share
-        assert iterations[0]["video"] is frames
-        assert iterations[1]["video"] is frames
 
 
 if __name__ == "__main__":

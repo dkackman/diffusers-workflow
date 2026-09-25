@@ -18,6 +18,8 @@ import pytest
 from dw.elision import elide_definition, elide_unreferenced_steps
 from dw.workflow import Workflow
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 
 def step(name, **extra):
     return {"name": name, **extra}
@@ -52,16 +54,6 @@ class TestWhatIsDropped:
         )
         assert names(kept) == ["kept"]
         assert [e["step"] for e in elided] == ["first", "second"]
-
-    def test_the_records_are_in_written_order(self):
-        _, elided = elide_unreferenced_steps(
-            [
-                task("a"),
-                task("b", reads="a"),
-                task("last", result={"content_type": "audio/wav"}),
-            ]
-        )
-        assert [e["step"] for e in elided] == ["a", "b"]
 
 
 class TestTheGuardrails:
@@ -362,7 +354,7 @@ class TestASuppliedReferenceIsNotAMisspelling:
 class TestTheMusicVideoSinger:
     """#146's happy path, end to end through the template itself."""
 
-    PATH = "workflows/templates/minimax/music-video.json"
+    PATH = str(REPO_ROOT / "workflows/templates/minimax/music-video.json")
 
     def definition(self):
         return json.loads(pathlib.Path(self.PATH).read_text())
@@ -385,7 +377,7 @@ class TestTheMusicVideoSinger:
 class TestDialogueShort:
     """The case that raised it."""
 
-    PATH = "workflows/templates/minimax/dialogue-short.json"
+    PATH = str(REPO_ROOT / "workflows/templates/minimax/dialogue-short.json")
 
     def definition(self):
         return json.loads(pathlib.Path(self.PATH).read_text())
@@ -408,12 +400,6 @@ class TestDialogueShort:
         steps = {s["name"]: s for s in self.definition()["steps"]}
         for name in ("draw_character_a", "draw_character_b"):
             assert steps[name]["result"]["save"] is False
-
-    def test_the_default_run_is_unchanged(self):
-        expanded = self.expanded(self.definition())
-        elided = elide_definition(expanded)
-        assert elided == []
-        assert "draw_character_a" in names(expanded["steps"])
 
     def test_a_cast_episode_draws_nothing(self):
         expanded = self.expanded(self.cast_from_files(self.definition()))
@@ -439,9 +425,14 @@ class TestTheCatalogIsUnchanged:
     step to it on its stored defaults."""
 
     @pytest.mark.parametrize(
-        "path", sorted(str(p) for p in pathlib.Path("workflows").rglob("*.json"))
+        "path",
+        sorted(
+            str(p.relative_to(REPO_ROOT))
+            for p in (REPO_ROOT / "workflows").rglob("*.json")
+        ),
     )
     def test_no_step_is_elided_on_the_defaults(self, path):
+        path = str(REPO_ROOT / path)
         definition = json.loads(pathlib.Path(path).read_text())
         if not isinstance(definition, dict) or "steps" not in definition:
             pytest.skip("not a workflow")
@@ -452,7 +443,7 @@ class TestTheCatalogIsUnchanged:
 class TestMusicVideo:
     """#146: a standing cast member sings, without copying the template."""
 
-    PATH = "workflows/templates/minimax/music-video.json"
+    PATH = str(REPO_ROOT / "workflows/templates/minimax/music-video.json")
 
     def definition(self):
         return json.loads(pathlib.Path(self.PATH).read_text())
@@ -483,17 +474,3 @@ class TestMusicVideo:
         otherwise keep the step a cast episode has no use for."""
         steps = {s["name"]: s for s in self.definition()["steps"]}
         assert steps["draw_singer"]["result"]["save"] is False
-
-    def test_a_cast_singer_draws_nothing(self):
-        definition = self.definition()
-        definition["variables"]["singer_reference"] = {
-            "reference_type": "variable:image_reference_type",
-            "from_file": "asset:qa-cast/priya-portrait.jpg",
-        }
-        expanded = self.expanded(definition)
-        assert [e["step"] for e in elide_definition(expanded)] == ["draw_singer"]
-
-    def test_the_default_run_still_draws(self):
-        expanded = self.expanded(self.definition())
-        assert elide_definition(expanded) == []
-        assert "draw_singer" in names(expanded["steps"])

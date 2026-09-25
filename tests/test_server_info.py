@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.server import netinfo
+from dw.workspace import Workspace, create_workspace
 
 from tests.test_server import ScriptedWorkerManager, success_script
 
@@ -99,9 +100,54 @@ def test_prompt_dir_may_be_absent(tmp_path):
         assert c.get("/api/server").json()["directories"]["prompts"] is None
 
 
+def test_directories_are_scoped_to_the_requested_workspace(tmp_path):
+    """#389: a mounted download_output confines a write against
+    directories.workspace, so this route has to answer per the ?workspace=
+    a caller (or the client's session pin) actually names, not the server's
+    own default - a caller pinned to a named workspace was writing into the
+    default workspace's tree with no error."""
+    root = Workspace(tmp_path / "studio", "flag").ensure()
+    named = create_workspace(root, "session-a")
+    manager = JobManager(
+        root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=root.workflows,
+    )
+    app = create_app(
+        workflow_dir=root.workflows,
+        output_dir=root.outputs,
+        prompt_dir=root.prompts,
+        asset_dir=root.assets,
+        job_manager=manager,
+        workspace=root.root,
+    )
+    with TestClient(app, base_url="http://localhost") as c:
+        default_directories = c.get("/api/server").json()["directories"]
+        scoped_directories = c.get("/api/server?workspace=session-a").json()[
+            "directories"
+        ]
+
+    assert default_directories["workspace"] == root.root
+    assert default_directories["workflows"] == root.workflows
+    assert default_directories["assets"] == root.assets
+    assert default_directories["outputs"] == root.outputs
+    assert default_directories["prompts"] == root.prompts
+
+    assert scoped_directories["workspace"] == named.root
+    assert scoped_directories["workflows"] == named.workflows
+    assert scoped_directories["assets"] == named.assets
+    assert scoped_directories["outputs"] == named.outputs
+    assert scoped_directories["prompts"] == named.prompts
+
+    assert scoped_directories["workspace"] != default_directories["workspace"]
+
+
 def test_auth_required_and_token_never_disclosed(tmp_path):
     token = "s3cr3t-token-value"
     with client(tmp_path, token=token) as c:
+        # gated like every other API route
+        assert c.get("/api/server").status_code == 401
         response = c.get("/api/server", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     body = response.json()
@@ -125,15 +171,6 @@ def test_auth_required_and_token_never_disclosed(tmp_path):
         return []
 
     assert len(token) not in numbers(body)
-
-
-def test_requires_the_token_like_every_other_api_route(tmp_path):
-    with client(tmp_path, token="abc123") as c:
-        assert c.get("/api/server").status_code == 401
-        assert (
-            c.get("/api/server", headers={"Authorization": "Bearer abc123"}).status_code
-            == 200
-        )
 
 
 def test_mcp_mounted_reported(tmp_path):
@@ -175,12 +212,24 @@ def test_netinfo_falls_back_to_stdlib_without_psutil(monkeypatch):
     def no_psutil():
         raise ImportError("no psutil")
 
+    import socket
+
+    def fake_getaddrinfo(host, port):
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("2001:db8::5%eth0", 0, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.50", 0)),
+        ]
+
     monkeypatch.setattr(netinfo, "_psutil_addresses", no_psutil)
-    entries = netinfo.local_addresses()
-    assert isinstance(entries, list)
-    for entry in entries:
-        assert entry["interface"] is None
-        assert entry["family"] in ("IPv4", "IPv6")
+    monkeypatch.setattr(netinfo.socket, "getaddrinfo", fake_getaddrinfo)
+    # the outbound probe finds an address getaddrinfo already had: reported once
+    monkeypatch.setattr(netinfo, "_outbound_address", lambda: "192.168.1.50")
+
+    assert netinfo.local_addresses() == [
+        {"address": "192.168.1.50", "family": "IPv4", "interface": None},
+        {"address": "2001:db8::5", "family": "IPv6", "interface": None},
+    ]
 
 
 def test_usable_filters(monkeypatch):

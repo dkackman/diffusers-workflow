@@ -17,6 +17,8 @@ import pytest
 from dw.result import AudioVideo
 from dw.tasks.pair_audio import pair_audio
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 SAMPLE_RATE = 44100
 FPS = 24
 
@@ -53,11 +55,6 @@ def warnings_emitted():
 
 
 class TestFitToTheVideo:
-    def test_the_reported_case_is_cut_to_the_two_shot_edit(self):
-        """248 frames at 24 fps is 10.33 s, from a 30 s song."""
-        result = pair_audio(cut(248), song(30), sample_rate=SAMPLE_RATE, fit="video")
-        assert samples(result) == round(248 / FPS * SAMPLE_RATE)
-
     def test_the_default_four_shot_length_is_unchanged(self):
         """496 frames - what the hardcoded slice used to produce."""
         result = pair_audio(cut(496), song(30), sample_rate=SAMPLE_RATE, fit="video")
@@ -72,7 +69,9 @@ class TestFitToTheVideo:
 
     def test_trimming_the_track_warns_with_the_seconds_cut(self, warnings_emitted):
         """The pad direction cannot lose content; the trim direction always
-        can, so it is the one that most needs saying out loud (#246)."""
+        can, so it is the one that most needs saying out loud (#246). This is
+        also #142's reported case: 248 frames at 24 fps is 10.33 s, from a
+        30 s song."""
         result = pair_audio(cut(248), song(30), sample_rate=SAMPLE_RATE, fit="video")
         assert samples(result) == round(248 / FPS * SAMPLE_RATE)
         trimmed = [w for w in warnings_emitted if "trimmed" in w]
@@ -84,6 +83,77 @@ class TestFitToTheVideo:
         result = pair_audio(cut(248), exact, sample_rate=SAMPLE_RATE, fit="video")
         assert samples(result) == exact.shape[1]
         assert warnings_emitted == []
+
+    def test_a_sub_frame_shortfall_still_pads_and_warns(self, warnings_emitted):
+        """A track a handful of samples short of the target used to be waved
+        through unfitted and unwarned - the mismatch was well inside
+        LENGTH_WARN_MS, a tolerance meant only for the no-'fit' mismatch
+        warning. An explicit 'fit': 'video' promises an exact length
+        regardless of how small the gap is (#428)."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        assert any("padded" in w for w in warnings_emitted)
+
+    def test_a_sub_frame_excess_still_trims_and_warns(self, warnings_emitted):
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        long = numpy.zeros((2, wanted + 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), long, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        assert any("trimmed" in w for w in warnings_emitted)
+
+    def test_a_one_sample_pad_does_not_claim_the_cut_has_no_soundtrack(
+        self, warnings_emitted
+    ):
+        """A 1-sample pad from ordinary rate rounding (32 kHz doubled from a
+        16 kHz source, 248 f @ 24 fps) used to format as '0.00 s of silence
+        ... has no soundtrack' - self-contradictory, and the advice to use a
+        longer track or fewer frames cannot fix a 1-sample gap (#429)."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 1), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "0.00 s" not in padded[0]
+        assert "has no soundtrack" not in padded[0]
+        assert "1 sample" in padded[0]
+
+    def test_a_one_sample_trim_does_not_claim_content_is_gone(self, warnings_emitted):
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        long = numpy.zeros((2, wanted + 1), dtype=numpy.float32)
+        result = pair_audio(cut(248), long, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        trimmed = [w for w in warnings_emitted if "trimmed" in w]
+        assert len(trimmed) == 1
+        assert "0.00 s" not in trimmed[0]
+        assert "is gone from the deliverable" not in trimmed[0]
+        assert "1 sample" in trimmed[0]
+
+    def test_a_sub_frame_but_multi_sample_pad_still_omits_the_soundtrack_claim(
+        self, warnings_emitted
+    ):
+        """The existing 15-sample (#428) case is also well under one video
+        frame (41.67 ms at 24 fps) - it should get the same rounding-aware
+        wording as the 1-sample case, not the frame-scale 'no soundtrack'
+        claim."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "has no soundtrack" not in padded[0]
+        assert "15 samples" in padded[0]
+
+    def test_a_frame_scale_pad_still_names_the_cut_as_uncovered(self, warnings_emitted):
+        """A pad at least a full video frame long is a real gap - the
+        original wording, with its advice, still applies."""
+        pair_audio(cut(744), song(30), sample_rate=SAMPLE_RATE, fit="video")
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "has no soundtrack" in padded[0]
 
     def test_fps_may_be_given_when_the_frames_carry_none(self):
         result = pair_audio(
@@ -115,7 +185,7 @@ class TestWithoutFit:
 class TestTheTemplateItself:
     def test_music_video_derives_its_soundtrack(self):
         definition = json.loads(
-            pathlib.Path("workflows/templates/minimax/music-video.json").read_text()
+            (REPO_ROOT / "workflows/templates/minimax/music-video.json").read_text()
         )
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
@@ -131,7 +201,7 @@ class TestTheTemplateItself:
         """Every `slice_audio` in the catalog whose count is a literal is one
         a list cannot resize out from under - so the literal must not be the
         length of a whole cut."""
-        for path in pathlib.Path("workflows").rglob("*.json"):
+        for path in (REPO_ROOT / "workflows").rglob("*.json"):
             definition = json.loads(path.read_text())
             if not isinstance(definition, dict):
                 continue

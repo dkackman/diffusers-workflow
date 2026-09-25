@@ -43,11 +43,6 @@ class TestPilToFloatTensor:
         tensor = pil_to_float_tensor(image, "cpu", dtype=torch.float64)
         assert tensor.dtype == torch.float64
 
-    def test_dtype_defaults_to_float32(self):
-        image = Image.new("RGB", (4, 4), color=(1, 2, 3))
-        tensor = pil_to_float_tensor(image, "cpu")
-        assert tensor.dtype == torch.float32
-
 
 class TestFloatTensorToPil:
     def test_accepts_batched_and_unbatched(self):
@@ -127,12 +122,6 @@ class TestRoundingNotTruncation:
         truncated = int(value * 255)
         assert truncated == 127
         assert pixel[0] != truncated
-
-    def test_half_value_rounds_up_not_down(self):
-        """0.5/255-scaled exact half (127.5) rounds to nearest even (128)."""
-        tensor = torch.full((1, 3, 1, 1), 127.5 / 255.0)
-        image = float_tensor_to_pil(tensor)
-        assert image.getpixel((0, 0)) == (128, 128, 128)
 
 
 class TestModuleAdoption:

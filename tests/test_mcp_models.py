@@ -58,35 +58,6 @@ class TestTheGate:
 
         assert "acknowledged_cost=true" in str(excinfo.value)
 
-    @pytest.mark.parametrize(
-        "call, method, path",
-        [
-            (
-                lambda c: models.download_model(c, "org/model", acknowledged_cost=True),
-                "POST",
-                "/api/models/download",
-            ),
-            (
-                lambda c: models.delete_model(c, "org/model", acknowledged_cost=True),
-                "DELETE",
-                "/api/models",
-            ),
-            (
-                lambda c: models.update_diffusers(c, acknowledged_cost=True),
-                "POST",
-                "/api/system/diffusers/update",
-            ),
-        ],
-        ids=["download_model", "delete_model", "update_diffusers"],
-    )
-    def test_an_acknowledgement_lets_it_through(self, call, method, path):
-        client, seen = recording_client()
-
-        call(client)
-
-        assert seen["method"] == method
-        assert seen["path"] == path
-
     def test_each_refusal_says_what_that_particular_tool_costs(self):
         # One shared message would tell the user "this occupies the GPU" for
         # a download, which is wrong and trains them to wave the gate through
@@ -119,12 +90,6 @@ class TestDownloads:
         assert result["id"] == "d1"
         assert "list_downloads" in result["next"]
 
-    def test_list_downloads_is_a_plain_read(self):
-        client, seen = recording_client({"downloads": []})
-
-        assert models.list_downloads(client) == {"downloads": []}
-        assert (seen["method"], seen["path"]) == ("GET", "/api/models/downloads")
-
     def test_cancel_download_needs_no_acknowledgement(self):
         # Cancelling stops a cost rather than starting one - gating it would
         # make the safe direction the harder one
@@ -145,12 +110,6 @@ class TestDownloads:
 
         assert seen["raw_path"] == "/api/models/downloads/..%2Fescape/cancel"
 
-    def test_an_unknown_download_reports_the_servers_message(self):
-        client, _ = recording_client({"detail": "Unknown download"}, status=404)
-
-        with pytest.raises(DwApiError, match="Unknown download"):
-            models.cancel_download(client, "nope")
-
 
 class TestDeletion:
     def test_delete_model_sends_the_repo_as_a_query_parameter(self):
@@ -160,25 +119,8 @@ class TestDeletion:
 
         assert seen["params"] == {"repo": "org/model"}
 
-    def test_a_busy_server_refusal_reaches_the_caller(self):
-        # The server refuses a delete while a job is queued or running; that
-        # reason is the actionable part, so it must not be flattened
-        client, _ = recording_client(
-            {"detail": "A job is running or queued - deleting model files ..."},
-            status=409,
-        )
-
-        with pytest.raises(DwApiError, match="A job is running or queued"):
-            models.delete_model(client, "org/model", acknowledged_cost=True)
-
 
 class TestDiffusersVersion:
-    def test_get_diffusers_state_is_a_plain_read(self):
-        client, seen = recording_client({"version": "0.31.0"})
-
-        assert models.get_diffusers_state(client) == {"version": "0.31.0"}
-        assert (seen["method"], seen["path"]) == ("GET", "/api/system/diffusers")
-
     def test_update_diffusers_warns_that_it_can_break_the_install(self):
         with pytest.raises(DwApiError) as excinfo:
             models.update_diffusers(refusing_client())

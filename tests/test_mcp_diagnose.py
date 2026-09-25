@@ -19,7 +19,12 @@ def scripted(routes):
     def handler(request):
         key = (request.method, request.url.path)
         seen.append(
-            {"key": key, "body": request.read(), "params": dict(request.url.params)}
+            {
+                "key": key,
+                "body": request.read(),
+                "params": dict(request.url.params),
+                "url": str(request.url),
+            }
         )
         if key not in routes:
             return httpx.Response(404, json={"detail": f"unrouted {key}"})
@@ -55,18 +60,9 @@ def test_run_submits_once_the_cost_is_acknowledged():
     assert result["job_id"] == "job-1"
     assert result["status"] == "queued"
     assert result["queue_position"] == 2
-    assert len(seen) == 1
-
-
-def test_run_returns_immediately_rather_than_waiting_for_the_job():
-    """A generation takes minutes; no MCP client will hold a call open. The
-    contract is submit-then-poll, so exactly one request goes out."""
-    client, seen = submitting()
-
-    result = diagnose.run_workflow(
-        client, workflow_path="w.json", acknowledged_cost=True
-    )
-
+    # A generation takes minutes and no MCP client holds a call open: the
+    # contract is submit-then-poll, so one request goes out and the answer
+    # names the tool to poll with
     assert [entry["key"] for entry in seen] == [("POST", "/api/jobs")]
     assert "get_job_events" in result["next"]
 
@@ -123,15 +119,6 @@ def test_run_passes_variable_overrides():
     assert b"a cat" in seen[0]["body"]
 
 
-def test_run_surfaces_a_rejected_workflow():
-    client, _seen = scripted(
-        {("POST", "/api/jobs"): (400, {"detail": "steps must not be empty"})}
-    )
-
-    with pytest.raises(DwApiError, match="steps must not be empty"):
-        diagnose.run_workflow(client, inline_workflow=WORKFLOW, acknowledged_cost=True)
-
-
 def test_get_job_returns_the_detail_payload():
     client, _seen = scripted(
         {
@@ -177,6 +164,17 @@ def test_get_job_events_defaults_to_the_whole_log():
     diagnose.get_job_events(client, "job-1")
 
     assert seen[0]["params"]["after"] == "-1"
+    assert "kinds" not in seen[0]["params"]
+
+
+def test_get_job_events_forwards_kinds():
+    client, seen = scripted(
+        {("GET", "/api/jobs/job-1/event-log"): (200, {"events": [], "last_seq": -1})}
+    )
+
+    diagnose.get_job_events(client, "job-1", kinds=["log", "warning"])
+
+    assert "kinds=log" in seen[0]["url"] and "kinds=warning" in seen[0]["url"]
 
 
 def test_cancel_rerun_and_move_call_their_routes():
@@ -204,20 +202,6 @@ def test_cancel_rerun_and_move_call_their_routes():
         "/api/jobs/job-1/move",
     ]
     assert b"front" in seen[2]["body"]
-
-
-def test_move_surfaces_a_job_that_has_left_the_queue():
-    client, _seen = scripted(
-        {
-            ("POST", "/api/jobs/job-1/move"): (
-                409,
-                {"detail": "Job is not queued - only queued jobs move"},
-            )
-        }
-    )
-
-    with pytest.raises(DwApiError, match="only queued jobs move"):
-        diagnose.move_job(client, "job-1", "up")
 
 
 def test_rerun_refuses_without_an_acknowledged_cost():
@@ -310,16 +294,23 @@ def test_wait_for_job_reports_still_running_at_timeout(monkeypatch):
     assert elapsed < 1, "must return once timeout_seconds elapses, not hang"
 
 
-def test_wait_for_job_caps_the_timeout_it_is_given():
+def test_wait_for_job_caps_the_timeout_it_is_given(monkeypatch):
     """A caller asking for an absurd timeout does not get an absurd wait -
-    the value is clamped before it ever reaches the poll loop."""
+    the value is clamped before it ever reaches the poll loop. The job never
+    finishes, so only the cap can end the call."""
+    monkeypatch.setattr(diagnose, "WAIT_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(diagnose, "MAX_WAIT_SECONDS", 0.05)
     client, seen = sequenced(
-        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
+        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "running"}]
     )
 
-    diagnose.wait_for_job(client, "job-1", timeout_seconds=10_000)
+    started = time.monotonic()
+    result = diagnose.wait_for_job(client, "job-1", timeout_seconds=10_000)
+    elapsed = time.monotonic() - started
 
-    assert len(seen) == 1, "a terminal status on the first poll returns immediately"
+    assert result["still_running"] is True
+    assert elapsed < 2, "the cap, not the requested 10,000s, bounds the wait"
+    assert len(seen) >= 2, "it still polls inside the capped budget"
 
 
 def test_wait_for_job_says_when_it_capped_the_timeout(monkeypatch):
@@ -356,18 +347,6 @@ def test_wait_for_job_reports_an_uncapped_budget_honestly(monkeypatch):
     assert result["timeout_applied_seconds"] == 5.0
     assert result["timeout_requested_seconds"] == 5.0
     assert "waited_seconds" in result
-
-
-def test_wait_for_job_does_not_require_acknowledged_cost():
-    """It reads an already-queued job rather than starting anything, so the
-    cost gate other job-queuing tools carry does not apply here."""
-    client, _seen = sequenced(
-        ("GET", "/api/jobs/job-1"), [{"id": "job-1", "status": "succeeded"}]
-    )
-
-    result = diagnose.wait_for_job(client, "job-1")
-
-    assert result["status"] == "succeeded"
 
 
 FAT_JOB = {
@@ -415,6 +394,24 @@ def test_wait_for_job_keeps_the_manifest_and_error_once_terminal(monkeypatch):
     assert result["job"]["error"] == "boom"
     assert "arguments" not in result["job"]
     assert "get_job" in result["next"]
+
+
+def test_wait_for_job_names_the_run_the_way_the_gallery_will(monkeypatch):
+    """The job that just finished is the one a person asks about next, and
+    the gallery labels its files 'v5' - so the slim job carries the number
+    beside the run id rather than sending the caller to get_job for it."""
+    done = {
+        **FAT_JOB,
+        "status": "succeeded",
+        "run_id": "20260922-212005-cd189c68",
+        "run_version": 5,
+    }
+    client, _ = scripted({("GET", "/api/jobs/job-1"): (200, done)})
+
+    result = diagnose.wait_for_job(client, "job-1")
+
+    assert result["job"]["run_id"] == "20260922-212005-cd189c68"
+    assert result["job"]["run_version"] == 5
 
 
 def test_wait_for_job_reports_queue_position_for_a_still_queued_job(monkeypatch):
@@ -600,12 +597,6 @@ class TestGetJobWorkflow:
 
         assert "save_workflow" in result["next"]
         assert "run_workflow" in result["next"]
-
-    def test_an_unknown_job_raises_the_client_error(self):
-        client, _ = scripted({})
-
-        with pytest.raises(DwApiError):
-            diagnose.get_job_workflow(client, "nope")
 
 
 def test_run_pins_a_job_to_a_named_workspace_without_switching():

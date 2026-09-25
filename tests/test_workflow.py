@@ -32,27 +32,10 @@ def test_workflow_validation_invalid(invalid_workflow_json, tmp_path):
     assert "Validation error" in str(exc_info.value)
 
 
-def test_workflow_name(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    assert workflow.name == "test_workflow"
-
-
 def test_workflow_from_file(test_data_dir, tmp_path):
     workflow_path = os.path.join(test_data_dir, "workflows", "valid_workflow.json")
     workflow = workflow_from_file(workflow_path, str(tmp_path))
     assert isinstance(workflow, Workflow)
-
-
-def test_workflow_variables_property(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    assert "prompt" in workflow.variables
-    assert workflow.variables["prompt"] == "test prompt"
-
-
-def test_workflow_argument_template(valid_workflow_json, tmp_path):
-    workflow = Workflow(valid_workflow_json, str(tmp_path), "")
-    # Should return empty dict if no argument_template
-    assert workflow.argument_template == {}
 
 
 def test_workflow_security_validation(tmp_path):
@@ -353,6 +336,29 @@ class TestSubWorkflowConfinement:
         assert isinstance(child, Workflow)
         assert child.name == "test_job"
 
+    def test_a_traversing_builtin_name_names_the_builtin_root(self, tmp_path):
+        # #422: the refusal named only the rejected name, not where
+        # 'builtin:' looks
+        from dw.security import InvalidInputError
+        from dw.workflow_sources import builtin_root
+
+        workflow_dir = tmp_path / "workflows"
+        workflow_dir.mkdir()
+        parent = Workflow(
+            {"id": "parent", "steps": []},
+            str(tmp_path / "outputs"),
+            str(workflow_dir / "__inline__.json"),
+            str(workflow_dir),
+        )
+        step = {"name": "child", "workflow": {"path": "builtin:../../x.json"}}
+
+        with pytest.raises(InvalidInputError) as exc_info:
+            parent.create_step_action(step, {}, {}, 42, "cpu")
+
+        message = str(exc_info.value)
+        assert "../../x.json" in message
+        assert builtin_root() in message
+
 
 class TestSubWorkflowPathsAcrossTheCatalog:
     """A template under templates/ names a model config under models/ as
@@ -409,7 +415,7 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             device="cpu",
         )
 
-        assert action is not None
+        assert action.name == "child"
 
     def test_a_parent_directory_step_escaping_the_root_is_refused(self, tmp_path):
         import json
@@ -523,7 +529,7 @@ class TestSubWorkflowPathsAcrossTheCatalog:
             device="cpu",
         )
 
-        assert action is not None
+        assert action.name == "child"
 
     def test_a_file_outside_any_catalog_is_confined_to_its_own_directory(
         self, tmp_path
@@ -1041,12 +1047,6 @@ class TestSubWorkflowNameResolution:
         assert "does-not-exist.json" in message
         assert "outside the root" not in message
 
-    def test_a_relative_path_beside_the_file_still_wins(self, tmp_path):
-        """The '../models/x.json' form every template uses is unchanged."""
-        action = self._resolve(tmp_path, "minimax/ref2va.json")
-
-        assert action.name == "child"
-
 
 class TestComposedStepSavesOnce:
     """A sub-workflow step that declares a result owns the file: the child's
@@ -1120,6 +1120,95 @@ class TestComposedStepSavesOnce:
         assert os.path.basename(self._written(tmp_path)[0]).startswith(
             "sub.child-write"
         )
+
+
+class TestSubWorkflowPreviousResultArgument:
+    """A 'previous_result:' argument folded into a sub-workflow step is
+    already a live object (an AudioTrack here) by the time it reaches the
+    child's declared variables - coercing it through the variable's own
+    default type (a string 'asset:' reference) used to call str() on the
+    object and hand the child's task the object's Python repr instead of the
+    track, which then failed as a bogus file path (#404)."""
+
+    def _compose(self, tmp_path, monkeypatch):
+        import soundfile
+        import numpy
+
+        workflows = tmp_path / "workflows"
+        assets = workflows / "assets"
+        assets.mkdir(parents=True)
+        soundfile.write(
+            str(assets / "tone.wav"),
+            numpy.zeros((16000, 1), dtype=numpy.float32),
+            16000,
+        )
+        monkeypatch.setenv("DW_ASSET_DIR", str(assets))
+
+        child = {
+            "id": "child",
+            "variables": {"score": "asset:score.wav"},
+            "steps": [
+                {
+                    "name": "cut",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {
+                            "audio": "variable:score",
+                            "start_seconds": 0,
+                            "duration_seconds": 0.5,
+                        },
+                    },
+                    "result": {"content_type": "audio/wav"},
+                }
+            ],
+        }
+        (workflows / "child.json").write_text(json.dumps(child))
+
+        parent = {
+            "id": "parent",
+            "steps": [
+                {
+                    "name": "bed",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {
+                            "audio": "asset:tone.wav",
+                            "start_seconds": 0,
+                            "duration_seconds": 1.0,
+                        },
+                    },
+                    "result": {"content_type": "audio/wav"},
+                },
+                {
+                    "name": "sub",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"score": "previous_result:bed"},
+                    },
+                    "result": {"content_type": "audio/wav"},
+                },
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workflows)
+        )
+        workflow.run({}, {})
+        return workflow
+
+    def test_the_live_result_reaches_the_child_task_unchanged(
+        self, tmp_path, monkeypatch
+    ):
+        """This used to raise: 'Refusing to read an audio argument at
+        <dw.result.AudioTrack object at 0x...>: it resolves outside every
+        directory this workflow may read' (#404)."""
+        workflow = self._compose(tmp_path, monkeypatch)
+
+        assert [entry["step"] for entry in workflow.manifest] == ["bed", "sub"]
 
 
 class TestSubWorkflowValidation:

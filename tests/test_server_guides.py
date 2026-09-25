@@ -193,6 +193,23 @@ class TestTheRealDocs:
 
         assert "Speech Generation" in tasks["sections"]
 
+    def test_the_assessment_section_states_the_procedure_and_authority(self):
+        """#388: assess_output's guide section - procedure, findings shape,
+        the authority rule and the remediation table - is reachable by name,
+        and names every rule the table in dw/assessment_rules.py holds."""
+        from dw.assessment_rules import RULES
+
+        guide = guides.get_guide("workflows", section="Assessing a run's output")
+        content = guide["content"]
+
+        assert guide["section"] == "Assessing a run's output"
+        for word in ("`assess_output`", "not a verdict", "recut", "regenerate"):
+            assert word in content, word
+        for field in ("rule", "severity", "at", "value", "threshold", "says"):
+            assert field in content, field
+        for rule in RULES:
+            assert f"`{rule['name']}`" in content, rule["name"]
+
     def test_the_authoring_section_is_reachable_by_name(self):
         guide = guides.get_guide(
             "workflows", section="authoring-a-workflow-from-an-agent"

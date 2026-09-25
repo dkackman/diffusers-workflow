@@ -484,6 +484,17 @@ class TestLevelMatching:
 
         assert "level jump" not in caplog.text
 
+    def test_gaining_a_near_silent_shot_up_to_target_warns(self, caplog):
+        # #434: -46 dBFS is well below the -40 dBFS a job's own near-silent
+        # check treats as having no real content, and matching it to the
+        # default -20 dBFS rms target asks for +26 dB - a noise floor raised
+        # to dialogue level with only a log line to show for it
+        near_silent = audio_video(4, 10 ** (-46.0 / 20))
+
+        concat_videos([audio_video(4, 0.1), near_silent], match_levels="rms")
+
+        assert "near-silent" in caplog.text
+
 
 class TestWarningsReachTheCaller:
     """A warning that only reaches the server's log does not exist from
@@ -546,6 +557,23 @@ class TestWarningsReachTheCaller:
         assert "resampling them all to 200 Hz" in warnings[0]["message"]
         assert "resample_audio" in warnings[0]["message"]
 
+    def test_agreeing_rates_resampled_to_a_pinned_rate_draw_no_warning(self):
+        """#453: inputs that agree, converted to the rate the caller pinned,
+        are not 'videos at different sample rates'."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = concat_videos(
+                [audio_video(8, 0.5), audio_video(8, 0.5)], sample_rate=200
+            )
+        finally:
+            deactivate_context(token)
+
+        assert result.sample_rate == 200
+        assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
+
     def test_the_clip_hold_is_emitted_as_a_warning_event(self):
         """#214: match_levels applied silently - a shot held short of the
         target only ever reached the server's log."""
@@ -568,6 +596,28 @@ class TestWarningsReachTheCaller:
         assert warnings[0]["index"] == 0
         assert warnings[0]["shortfall_db"] > 0
         assert "held to" in warnings[0]["message"]
+
+    def test_the_near_silent_gain_is_emitted_as_a_warning_event(self):
+        """#434: a near-silent input gained up to the target only ever
+        reached the server's log, so job.warnings looked clean while the
+        noise floor was raised 26 dB toward dialogue level."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        near_silent = audio_video(4, 10 ** (-46.0 / 20))
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.1), near_silent], match_levels="rms")
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "match_levels_near_silent"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["index"] == 1
+        assert warnings[0]["gain_db"] > 20
+        assert "near-silent" in warnings[0]["message"]
 
     def test_per_shot_gain_is_emitted_as_a_log_event(self):
         """#214: neither shot's applied gain reached the caller at all."""
@@ -598,6 +648,99 @@ class TestWarningsReachTheCaller:
             deactivate_context(token)
 
         assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
+
+
+class TestJoinedAudioFitsTheFrameGrid:
+    """#435: a joined track was only ever as long as its inputs measured,
+    with nothing reconciling it against the frame count - so an input
+    already short of its own frame grid (an ltx2/keyframes clip, in the
+    reported repro) carried its shortfall into the join, and a further join
+    built on that output compounded it. See #428 for the same remedy on
+    pair_audio's single-track case."""
+
+    def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], fps=4)
+
+        expected = frames_to_samples(8, 4, 100)
+        assert result.audio.shape[1] == expected
+        assert "joined_audio_padded_to_frames" in caplog.text or "padded" in caplog.text
+
+    def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], fps=4)
+
+        expected = frames_to_samples(8, 4, 100)
+        assert result.shots[-1]["start_sample"] + result.shots[-1]["num_samples"] == (
+            expected
+        )
+
+    def test_padding_is_emitted_as_a_warning_event(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([short, audio_video(4, 0.5)], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["pad_samples"] == 30
+
+    def test_a_sub_frame_pad_is_logged_not_warned(self):
+        """#454: a pad under one frame is rounding between the rate and the
+        grid, and warned on every stock assemble-and-score run."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = concat_videos([short, audio_video(4, 0.5)], fps=4)
+        finally:
+            deactivate_context(token)
+
+        assert result.audio.shape[1] == 200
+        assert [e for e in events if e["event"] == "warning"] == []
+        assert any(e["event"] == "log" and e.get("pad_samples") == 10 for e in events)
+
+    def test_a_track_already_on_the_grid_draws_no_warning(self, caplog):
+        result = concat_videos([audio_video(4, 0.5), audio_video(4, 0.5)], fps=4)
+
+        assert "padded" not in caplog.text
+        assert "trimmed" not in caplog.text
+        assert result.audio.shape[1] == 200
+
+    def test_no_fps_leaves_the_track_alone(self):
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], crossfade_ms=0)
+
+        assert result.audio.shape[1] == 90 + 100
 
 
 class TestFrameRateTravelsWithTheJoin:

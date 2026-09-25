@@ -58,6 +58,13 @@ class RunContext:
         # measured in elapsed time, not affected by clock adjustments.
         self._last_event_at = time.monotonic()
         self._phase_started_at = time.monotonic()
+        # Last *real* event - anything but the watchdog's own phase_stall
+        # report - and what kind it was. Tracked separately from
+        # _last_event_at (which the stall report itself also bumps, to drive
+        # its own repeat cadence) so "how long has it actually been quiet"
+        # doesn't reset every time the watchdog speaks.
+        self._last_progress_at = self._last_event_at
+        self._last_progress_kind = None
         # Reference-counted: a sub-workflow runs inside its parent's
         # RunContext (Workflow.run reuses the ambient one), so the watchdog
         # starts on the outermost run() and stops on the outermost's exit,
@@ -66,8 +73,17 @@ class RunContext:
         self._watchdog_thread = None
         self._watchdog_stop = threading.Event()
 
-    def emit(self, event_type, **data):
-        self._last_event_at = time.monotonic()
+    def emit(self, event_type, counts_as_progress=True, **data):
+        """Send one event to the sink. counts_as_progress=False is for a
+        status report that says nothing has moved - a download reporting
+        zero new bytes (#343): the caller should see it, but the stall
+        watchdog must still see the silence, so it bumps neither clock."""
+        now = time.monotonic()
+        if counts_as_progress:
+            self._last_event_at = now
+            if not (event_type == "warning" and data.get("kind") == "phase_stall"):
+                self._last_progress_at = now
+                self._last_progress_kind = event_type
         if self._on_event is None:
             return
         try:
@@ -108,9 +124,15 @@ class RunContext:
         since any event' and 'what phase are we in', never at what a
         particular pipeline does inside a phase (see
         docs/proposals/step-callback-lead-in-instrumentation.md, Option A).
-        A stall report is itself an event, so it naturally repeats on
-        PHASE_STALL_THRESHOLD_SECONDS while the silence continues and stops
-        the moment a real progress event arrives.
+        A stall report is itself an event, so it bumps _last_event_at and
+        naturally repeats on PHASE_STALL_THRESHOLD_SECONDS while the silence
+        continues and stops the moment a real progress event arrives -
+        but it deliberately does not bump _last_progress_at, so the
+        seconds_since_last_progress it reports keeps climbing across
+        repeats rather than resetting itself every 30s (#357). It is a
+        watchdog notice, not progress: a caller polling events should not
+        read a run of these, or a climbing event_count made of them, as
+        liveness.
         """
         while not self._watchdog_stop.wait(PHASE_STALL_CHECK_INTERVAL_SECONDS):
             phase = self._current_phase
@@ -120,9 +142,15 @@ class RunContext:
             if now - self._last_event_at < PHASE_STALL_THRESHOLD_SECONDS:
                 continue
             seconds_since_phase_start = round(now - self._phase_started_at, 1)
+            seconds_since_last_progress = round(now - self._last_progress_at, 1)
+            last_kind = self._last_progress_kind or "phase start"
+            last_offset = round(
+                max(0.0, self._last_progress_at - self._phase_started_at), 1
+            )
             message = (
-                f"still in phase '{phase}', {seconds_since_phase_start:.1f}s "
-                "since it started with no progress event"
+                f"no progress event for {seconds_since_last_progress:.1f}s in phase "
+                f"'{phase}' (last: {last_kind} at +{last_offset:.1f}s) - informational; "
+                "long silent stretches are normal for some models, see the model's skill"
             )
             logger.warning(message)
             self.emit(
@@ -131,6 +159,7 @@ class RunContext:
                 kind="phase_stall",
                 phase=phase,
                 seconds_since_phase_start=seconds_since_phase_start,
+                seconds_since_last_progress=seconds_since_last_progress,
             )
 
     def cancel(self):
@@ -184,6 +213,20 @@ PHASES = ("loading", "cached", "generating", "decoding", "saving", "task")
 # call or a task handler consults the cancel flag, so a cancel requested
 # during one of these can only take effect once the phase finishes on its own
 NON_INTERRUPTIBLE_PHASES = ("loading", "task")
+
+
+def select_kinds(events, kinds):
+    """The events whose `event` or `kind` is one of `kinds`, in order.
+
+    Both, because a consumer names what it sees: the bookkeeping events are
+    told apart by `event` (`log`, `warning`, `memory`), but a warning's
+    own type - `phase_stall`, `audio_clipped` - is its `kind`, and matching
+    `event` alone quietly returned an empty page for those. No `kinds`
+    means no filter."""
+    if not kinds:
+        return list(events)
+    allowed = set(kinds)
+    return [e for e in events if e.get("event") in allowed or e.get("kind") in allowed]
 
 
 def emit_warning(message, **data):

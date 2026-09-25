@@ -133,7 +133,6 @@ class TestMiniMaxH3Skill:
         assert modular_pipeline.MINIMAX_H3_FPS == 24 and "24 fps" in text
         # 124 and 345 are the smallest and largest 17n + 5 inside 5 to 15 seconds at 24 fps
         assert "124" in text and "345" in text
-        assert 124 == 17 * 7 + 5 and 345 == 17 * 20 + 5
         # min_duration/max_duration are instance properties on MiniMaxH3ModularPipeline, so
         # the window is pinned by the check that reads them rather than by their values
         assert (
@@ -184,10 +183,7 @@ class TestMiniMaxH3Skill:
     def test_the_reference_and_audio_limits_are_the_pipeline_s(self):
         import inspect
 
-        from diffusers.modular_pipelines.minimax_h3 import (
-            before_encoder,
-            modular_pipeline,
-        )
+        from diffusers.modular_pipelines.minimax_h3 import modular_pipeline
         from diffusers.modular_pipelines.minimax_h3.before_encoder import (
             MiniMaxH3Ref2VASetupStep,
         )
@@ -204,7 +200,6 @@ class TestMiniMaxH3Skill:
             modular_pipeline.MINIMAX_H3_AUDIO_CHANNELS == 2 and "32 kHz stereo" in text
         )
         assert "audio can" in text and "never be the only reference" in text
-        assert before_encoder is not None
 
     def test_the_checkpoint_coupling_is_stated(self):
         """A checkpoint comes with its canvas, its shift and its alpha.

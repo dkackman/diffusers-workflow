@@ -83,7 +83,7 @@ once; without it the run fails partway through with a 401/403 from the Hub.
 
 ## Drive it from an agent
 
-Then just ask. The agent has 58 tools covering the whole surface — the
+Then just ask. The agent has 59 tools covering the whole surface — the
 workflow catalog, the real diffusers pipeline signatures, the job queue, the
 gallery, the model cache:
 
@@ -121,6 +121,23 @@ One server holds several **workspaces** — each with its own workflows, assets
 and outputs — so two agents, or an agent and you in the browser, share the GPU
 without saving over each other. An agent calls `use_workspace` once and the
 rest of the session lands there.
+
+**Feedback from a session.** At the end of a working session, ask the agent
+what got in its way: bugs, gaps, misleading skill text, tools it reached for
+and couldn't find. Have it file each one as an issue on
+`dkackman/diffusers-workflow` with the `field-report` label, for example:
+
+> File each bug or gap you hit as an issue on dkackman/diffusers-workflow
+> with the label `field-report`.
+
+The label marks a report as coming from real use, not from the automated test
+loop. The agent loop (see [Agent Loop](docs/AGENT_LOOP.md)) picks the report up
+like any other issue when you filed it yourself; a report filed under any
+other GitHub login is parked for the maintainer to review first (relabelled
+`owner:don` + `status:needs-approval`), since the loop must not act
+unattended on third-party text in a public repo, and is only handed to the
+loop, or not, after that review. The label is also what feature planning
+reads as evidence of demand.
 
 The complete tool reference, client configuration for other MCP hosts, and the
 troubleshooting table: [MCP Server](docs/MCP.md). Workspaces in depth:

@@ -9,13 +9,16 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 """
 
 import logging
+import os
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..result import AudioVideo
+from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from .audio_utils import (
     as_channels_samples,
     bleed_join,
     equal_power_crossfade_join,
+    fit_audio_to_frames,
     frames_to_samples,
     match_levels as match_track_levels,
     resample_waveform,
@@ -32,10 +35,16 @@ def video_names(videos):
     A caller passes a path, or a previous step's result; only the path says
     anything by itself, so the rest are named by position - which is what a
     six-entry `shots` list needs to be actionable ("24000 then 32000" does
-    not say which entry to fix).
+    not say which entry to fix). By the time this runs, an `asset:`/`output:`
+    reference has already been resolved to its absolute path on this server
+    (#390) - naming a shot by that path leaked server layout onto a consumer
+    surface, so a path is trimmed to its file name, the one part that means
+    anything off this box.
     """
     return [
-        original if isinstance(original, str) else f"video {index + 1}"
+        os.path.basename(original)
+        if isinstance(original, str)
+        else f"video {index + 1}"
         for index, original in enumerate(videos)
     ]
 
@@ -144,7 +153,16 @@ def concat_videos(
         if waveform is not None and video.sample_rate
     ]
     sample_rate = sample_rate or (max(rates) if rates else None)
-    if rates and any(rate != sample_rate for rate in rates):
+    if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
+        # The inputs agree and the caller pinned another rate: converting
+        # to what was asked for is not a decision made on its behalf (#453)
+        emit_log(
+            f"concat_videos: resampling every track from {rates[0]} Hz to the "
+            f"requested {sample_rate} Hz",
+            command="concat_videos",
+            sample_rate=sample_rate,
+        )
+    elif rates and any(rate != sample_rate for rate in rates):
         # emit_warning rather than logger.warning, for the reason the level
         # spread below is emitted: resampling every track is an audio
         # decision made on the caller's behalf, and a caller reading the job
@@ -167,14 +185,16 @@ def concat_videos(
             sample_rate=sample_rate,
             sample_rates=per_video,
         )
-        waveforms = [
-            (
-                waveform
-                if waveform is None or video.sample_rate == sample_rate
-                else resample_waveform(waveform, video.sample_rate, sample_rate)
-            )
-            for video, waveform in zip(videos, waveforms)
-        ]
+    waveforms = [
+        (
+            waveform
+            if waveform is None
+            or not video.sample_rate
+            or video.sample_rate == sample_rate
+            else resample_waveform(waveform, video.sample_rate, sample_rate)
+        )
+        for video, waveform in zip(videos, waveforms)
+    ]
 
     if match_levels:
         waveforms = match_track_levels(waveforms, match_levels, match_levels_dbfs)
@@ -184,10 +204,37 @@ def concat_videos(
     frames = []
     audio = None
     audio_native_rate = None
+    # Where each video landed, measured on the joined picture and track as
+    # they grow - never derived from the frame count, so a track that runs
+    # long shows up here as the samples it actually took (#378)
+    shots = []
 
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
+        start_frame = len(frames)
+        start_sample = audio.shape[1] if audio is not None else 0
         frames.extend(clip[head_trim:])
+        inner = getattr(video, "shots", None)
+        if inner:
+            video_shots = nested_shots(
+                trimmed_shots(inner, head_trim),
+                start_frame,
+                start_sample if waveforms[index] is not None else None,
+                getattr(video, "sample_rate", None),
+                sample_rate,
+            )
+        else:
+            video_shots = [
+                shot_record(
+                    names[index], start_frame, len(frames) - start_frame, start_sample
+                )
+            ]
+        # Which input this shot came from - named_shots (dw/shots.py) uses
+        # it to place a step's override name on the right shot once an
+        # earlier input has nested more than one of its own (#432)
+        for shot in video_shots:
+            shot["source_index"] = index
+        shots.extend(video_shots)
 
         if waveforms[index] is None:
             continue
@@ -227,11 +274,27 @@ def concat_videos(
             )
         audio_native_rate = video.sample_rate
 
-    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     # The rate the caller declared, else the rate the first input carries -
     # either beats the result's 8 fps default (#84)
     written_fps = fps or next(
         (v.fps for v in videos if getattr(v, "fps", None)),
         None,
     )
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps)
+    # Reconciled against the frame grid before shots are measured (#435), so
+    # an input already short of its own grid does not carry its shortfall
+    # into this join's shot map and compound in a later one
+    audio = fit_audio_to_frames(
+        audio, sample_rate, len(frames), written_fps, "concat_videos"
+    )
+
+    # A seam's crossfade leaves the samples before it where they were, so a
+    # shot's track is everything up to where the next measured one began
+    measured_num_samples(shots, _length(audio) if audio is not None else None)
+
+    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _length(audio):
+    """How many samples a joined track holds, 0 for none."""
+    return 0 if audio is None else audio.shape[1]

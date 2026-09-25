@@ -131,6 +131,13 @@
         <span class="chip {job.status}">{job.status}</span>
         <span class="name">
           {job.workflow}
+          {#if job.run_version}
+            <span
+              class="wschip muted"
+              title="version {job.run_version} of this workflow - the gallery labels its files the same way"
+              >v{job.run_version}</span
+            >
+          {/if}
           {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}

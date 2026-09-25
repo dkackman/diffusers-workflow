@@ -6,6 +6,8 @@ visible at all.
 """
 
 import builtins
+import os
+import sys
 
 import pytest
 
@@ -50,17 +52,27 @@ def test_a_failing_method_does_not_raise(monkeypatch):
 def test_the_stdlib_fallback_covers_a_machine_without_psutil(monkeypatch):
     """psutil is opportunistic here, not a declared dependency."""
     real_import = builtins.__import__
+    refused = []
 
     def no_psutil(name, *args, **kwargs):
         if name == "psutil":
+            refused.append(name)
             raise ImportError("no psutil")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_psutil)
     stats = host_memory.host_memory_stats()
     monkeypatch.undo()
+    # the psutil path was taken and refused, and the call still answered
+    assert refused
+    assert set(stats) == {"rss_mb", "peak_rss_mb", "total_mb", "available_mb"}
     # The peak comes from resource(2), which needs neither psutil nor /proc
-    assert stats["peak_rss_mb"] is None or stats["peak_rss_mb"] > 1.0
+    if os.name == "posix":
+        assert stats["peak_rss_mb"] > 1.0
+    # /proc answers the rest on Linux
+    if sys.platform.startswith("linux"):
+        assert stats["rss_mb"] > 1.0
+        assert stats["total_mb"] > 1.0
 
 
 def test_the_worker_reports_host_fields_beside_the_gpu_ones():

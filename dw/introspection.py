@@ -14,6 +14,7 @@ any module on the system.
 import re
 import inspect
 import logging
+import difflib
 from .variables import undeclared_variable_references
 
 logger = logging.getLogger("dw")
@@ -368,15 +369,54 @@ def unknown_call_arguments(name, argument_names):
     return sorted(set(argument_names) - known)
 
 
+def unknown_pipeline_components(name, component_names):
+    """The given component names a pipeline's constructor does not register.
+
+    A dotted name ('text_encoder.model') is checked by its first segment -
+    the component itself is what the constructor registers; what a dotted
+    path reaches inside it is not this check's business.
+
+    Empty when the constructor takes **kwargs (no name can be proven wrong)
+    or when the class cannot be resolved or inspected - this feeds warnings,
+    and a warning must never be wrong.
+    """
+    try:
+        cls = load_pipeline_class(name)
+        signature = inspect.signature(cls.__init__)
+    except (ValueError, TypeError):
+        return []
+    parameters = [p for p in signature.parameters.values() if p.name != "self"]
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return []
+    known = {p.name for p in parameters}
+    return sorted({name for name in component_names if name.split(".")[0] not in known})
+
+
 def list_tasks():
-    """Every task command a workflow's task step can name."""
-    from .tasks.task import _COMMAND_REGISTRY, _VIDEO_PROCESSOR_COMMANDS
+    """Every task command a workflow's task step can name.
+
+    `assessment` names the probes among the commands (#387) - the ones that
+    answer a JSON document of measurements about a finished file rather than
+    make one - so a caller looking for a way to check a cut finds them
+    without reading every command's schema. They stay in `commands` too,
+    since a step still names one as its `command`.
+    """
+    from .tasks.task import (
+        _COMMAND_INFO,
+        _COMMAND_REGISTRY,
+        _VIDEO_PROCESSOR_COMMANDS,
+    )
     from .tasks.image_utils import available_processors
 
     return {
         "commands": sorted(_COMMAND_REGISTRY.keys()),
         "image_processors": sorted(available_processors()),
         "video_processors": list(_VIDEO_PROCESSOR_COMMANDS),
+        "assessment": sorted(
+            name
+            for name, info in _COMMAND_INFO.items()
+            if info.get("returns") == "json"
+        ),
     }
 
 
@@ -412,20 +452,39 @@ def describe_task(command):
     }
 
     if info["kind"] == "image_processor":
+        from .tasks.image_utils import image_processor_target
+
+        target = image_processor_target(command)
+        image_parameter = {
+            "name": "image",
+            "required": True,
+            "default": None,
+            "annotation": None,
+            "description": "The image to process",
+        }
+        if target is None:
+            return {
+                "name": command,
+                "summary": f"'{command}' image processor (ControlNet preprocessor)",
+                "accepts_kwargs": True,
+                "parameters": [image_parameter, device_parameter],
+            }
+
+        # target is a plain (image, **kwargs) function - introspect it directly
+        # rather than reporting the generic (image, device) shape every other
+        # image processor shares (#350). Its first positional parameter is
+        # the image (named "image" or "img" across these functions), dropped
+        # in favor of the uniform image_parameter above.
+        parameters, accepts_kwargs = _callable_parameters(target)
+        parameters = [image_parameter] + parameters[1:]
+        if not any(p["name"] == "device" for p in parameters):
+            parameters.append(device_parameter)
+        summary = _first_paragraph(inspect.getdoc(target))
         return {
             "name": command,
-            "summary": f"'{command}' image processor (ControlNet preprocessor)",
-            "accepts_kwargs": True,
-            "parameters": [
-                {
-                    "name": "image",
-                    "required": True,
-                    "default": None,
-                    "annotation": None,
-                    "description": "The image to process",
-                },
-                device_parameter,
-            ],
+            "summary": summary,
+            "accepts_kwargs": accepts_kwargs,
+            "parameters": parameters,
         }
 
     if info["implementation"] is None:
@@ -459,7 +518,15 @@ def describe_task(command):
         if domain is not None:
             parameter["domain"] = domain
 
-    summary = _first_paragraph(inspect.getdoc(implementation))
+    parameter_descriptions = info.get("parameter_descriptions") or {}
+    for parameter in parameters:
+        description = parameter_descriptions.get(parameter["name"])
+        if description:
+            parameter["description"] = description
+
+    summary = info.get("summary")
+    if not summary:
+        summary = _first_paragraph(inspect.getdoc(implementation))
     if not summary:
         from .tasks.task import _COMMAND_REGISTRY
 
@@ -537,7 +604,51 @@ def missing_task_argument_message(command, missing):
     )
 
 
-def task_signature_errors(workflow_definition, source_indices=None):
+def null_variable_task_argument_message(command, missing_arg, variable_name):
+    """The wording for a required argument the step *does* supply, by
+    `variable:<variable_name>`, but the variable's value is null (#364).
+
+    `missing_task_argument_message` says "the step does not supply" it,
+    which is false here - the step names the variable, the variable just
+    hasn't been given a real value yet. That is a caller's job to do at
+    run time, not a defect in the document.
+    """
+    return (
+        f"'{missing_arg}' is fed by variable '{variable_name}', which is "
+        f"null - task '{command}' requires a real value for it. Pass "
+        f"arguments={{'{variable_name}': ...}} when running or validating, "
+        f"or give '{variable_name}' a non-null default"
+    )
+
+
+def _null_fed_variable(written_steps, source_index, key, declared_variables):
+    """The variable name, if the argument at `key` was written as
+    `variable:<name>` naming a declared variable - the shape that makes a
+    "missing" required argument actually a null-variable one (#364). None
+    otherwise, including when `written_steps` can't be indexed (a for_each
+    template step, whose members are checked by `item:`/`gather:` instead).
+    """
+    if not isinstance(source_index, int) or source_index >= len(written_steps):
+        return None
+    step = written_steps[source_index]
+    if not isinstance(step, dict):
+        return None
+    task = step.get("task")
+    if not isinstance(task, dict):
+        return None
+    arguments = task.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+    value = arguments.get(key)
+    if not isinstance(value, str) or not value.startswith("variable:"):
+        return None
+    name = value[len("variable:") :]
+    return name if name in declared_variables else None
+
+
+def task_signature_errors(
+    workflow_definition, source_indices=None, written_definition=None
+):
     """Every task step whose arguments its command's signature refuses, as
     [{path, message}] - a required argument left unset, and an argument the
     command does not take - plus a step naming a command that is not
@@ -565,6 +676,16 @@ def task_signature_errors(workflow_definition, source_indices=None):
     The definition handed here has already been substituted and expanded, so
     a for_each member is checked as it will run; `source_indices` maps each
     expanded step back to the step the author wrote.
+
+    `written_definition`, when given, is that step *as the author wrote it* -
+    before substitution - plus the declared `variables` block. A required
+    argument reported missing whose written form is `variable:<name>` naming
+    a declared variable is not a step that "does not supply" it (#364): the
+    step does name it, the variable's value just resolved to null (the only
+    way substitution drops a `variable:` reference, per #209). That error
+    carries a `variable` key naming it, so a caller checking a document with
+    no arguments of its own can treat it as caller input rather than a
+    defect in the document.
     """
     from .for_each import MEMBER_SEPARATOR, render_path
     from .tasks.task import task_command_info
@@ -572,6 +693,17 @@ def task_signature_errors(workflow_definition, source_indices=None):
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
         return []
+
+    written_steps = (
+        (written_definition or {}).get("steps") or []
+        if isinstance(written_definition, dict)
+        else []
+    )
+    declared_variables = (
+        (written_definition or {}).get("variables") or {}
+        if isinstance(written_definition, dict)
+        else {}
+    )
 
     errors = []
     for index, step in enumerate(steps):
@@ -620,18 +752,299 @@ def task_signature_errors(workflow_definition, source_indices=None):
         if not missing and not unknown:
             continue
 
-        def report(key, message):
-            errors.append(
-                {
-                    "path": render_path(("steps", source, "task", "arguments", key)),
-                    "message": f"{message}{where}.",
-                }
-            )
+        def report(key, message, variable=None):
+            entry = {
+                "path": render_path(("steps", source, "task", "arguments", key)),
+                "message": f"{message}{where}.",
+            }
+            if variable is not None:
+                entry["variable"] = variable
+            errors.append(entry)
 
         if missing:
-            report(missing[0], missing_task_argument_message(command, missing))
+            key = missing[0]
+            variable = _null_fed_variable(
+                written_steps, source, key, declared_variables
+            )
+            if variable is not None:
+                report(
+                    key,
+                    null_variable_task_argument_message(command, key, variable),
+                    variable=variable,
+                )
+            else:
+                report(key, missing_task_argument_message(command, missing))
         for key in unknown:
             report(key, unknown_task_argument_message(command, key))
+    return errors
+
+
+_TYPE_REFERENCE_KEYS = ("component_type", "scheduler_type", "config_type")
+
+# A class-name-shaped string, bare or dotted - excludes a {}-escaped literal
+# and a variable:/constant:/asset:/... reference, which use ':' or braces
+# and are checked elsewhere
+_DOTTED_NAME_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+
+
+def _type_reference_candidates(key):
+    """Names to suggest a close match from, keyed by which field was wrong."""
+    if key == "component_type":
+        return list_pipelines() + list_classes("models")
+    if key == "scheduler_type":
+        return list_classes("schedulers")
+    return list_classes("quantization")
+
+
+def _type_reference_error(key, value, path):
+    """One component_type/scheduler_type/config_type value, checked against
+    the resolver the run itself uses for a '*_type' value
+    (type_helpers.load_type_from_name) - not load_allowed_class's narrower
+    ALLOWED_MODULES, which would refuse names the catalog already relies on
+    (e.g. 'transformers.AutoProcessor', 'dw.community_pipelines...') that
+    TRUSTED_TOP_LEVEL_PACKAGES lets the run itself load. Using the real
+    resolver is what makes #345's own invariant hold: this can never refuse
+    a name that would in fact have run.
+
+    Returns an error dict ({path, message}), or None if `value` would resolve.
+    """
+    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+        return None
+
+    from .type_helpers import load_type_from_name
+    from .security import UntrustedWorkflowError
+
+    try:
+        load_type_from_name(value, key)
+    except UntrustedWorkflowError as e:
+        return {"path": path, "message": str(e)}
+    except (ImportError, AttributeError, ValueError):
+        class_name = value.rsplit(".", 1)[-1]
+        suggestions = difflib.get_close_matches(
+            class_name, _type_reference_candidates(key), n=3, cutoff=0.6
+        )
+        message = f"{key} {value!r} does not exist"
+        if suggestions:
+            message += f" (closest matches: {', '.join(suggestions)})"
+        return {"path": path, "message": message}
+    return None
+
+
+def _is_type_key(key):
+    """Whether realize_args loads this key's value as a type - the same test
+    it applies at run time, so validation refuses only what the run would."""
+    from .arguments import NON_TYPE_KEYS
+
+    return (
+        isinstance(key, str)
+        and key not in NON_TYPE_KEYS
+        and (key.endswith("_type") or key.endswith("_dtype") or key == "dtype")
+    )
+
+
+def _loose_type_reference_error(key, value, path):
+    """Any other '*_type' / '*_dtype' / 'dtype' value the run loads as a type
+    (a pipeline's torch_dtype, say), put to the same untrusted gate. Only the
+    gate's refusal is reported: a name that merely fails to resolve is left
+    to the run, since realize_args reads some of these keys as something
+    other than a type."""
+    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+        return None
+
+    from .type_helpers import load_type_from_name
+    from .security import UntrustedWorkflowError
+
+    try:
+        load_type_from_name(value, key)
+    except UntrustedWorkflowError as e:
+        return {"path": path, "message": str(e)}
+    except (ImportError, AttributeError, ValueError):
+        pass
+    return None
+
+
+def _constant_reference_error(value, path):
+    """One literal 'constant:' value, resolved the way the run resolves it
+    (arguments.fetch_constant) - so the untrusted walk rules, a callable and
+    a name that does not exist are each refused here rather than after the
+    job is queued. A 'variables' default is resolved earlier, by
+    expanded_definition, and reported at 'variables.<name>'."""
+    from .arguments import fetch_constant, is_constant_reference
+    from .security import InvalidInputError, UntrustedWorkflowError
+
+    if not is_constant_reference(value):
+        return None
+    try:
+        fetch_constant(value)
+    except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+        return {"path": path, "message": str(e)}
+    return None
+
+
+def _walk_type_references(node, path, errors):
+    from .arguments import is_media_reference
+
+    # A {media_type, location} dict is loaded as media, and its media_type
+    # names a kind rather than a type - realize_args never reads it as one
+    if isinstance(node, dict) and not is_media_reference(node):
+        for k, v in node.items():
+            if k in _TYPE_REFERENCE_KEYS:
+                error = _type_reference_error(k, v, path + (k,))
+            elif _is_type_key(k):
+                error = _loose_type_reference_error(k, v, path + (k,))
+            else:
+                error = _constant_reference_error(v, path + (k,))
+            if error is not None:
+                errors.append(error)
+            else:
+                _walk_type_references(v, path + (k,), errors)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            error = _constant_reference_error(item, path + (i,))
+            if error is not None:
+                errors.append(error)
+            else:
+                _walk_type_references(item, path + (i,), errors)
+
+
+def component_type_errors(workflow_definition, source_indices=None):
+    """Every component_type/scheduler_type/config_type in a step's pipeline
+    naming a class the run itself could not load, as [{path, message}] - a
+    misspelled class used to validate clean and only die ~3s into the run,
+    after the worker had already loaded a checkpoint the plan's
+    downloads_required quoted for a pipeline that could never exist (#345).
+    Every other key the run loads as a type ('torch_dtype', any '*_type')
+    and every literal 'constant:' value in the step are checked the same way,
+    so the untrusted gate refuses them here rather than after the queue
+    (#409).
+
+    A class outside the trusted ecosystem entirely (UntrustedWorkflowError,
+    see _type_reference_error) is reported with a distinct message from one
+    that is merely spelled wrong - "not allowed" is not "does not exist".
+
+    The definition handed here has already been substituted and expanded,
+    matching task_signature_errors; source_indices maps each expanded step
+    back to the step the author wrote.
+    """
+    from .for_each import MEMBER_SEPARATOR, render_path
+
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+        found = []
+        # The whole step, since realize_args loads a type or a constant
+        # wherever one sits in it - a task's arguments as much as a pipeline
+        _walk_type_references(step, (), found)
+        for error in found:
+            full_message = f"{error['message']}{where}"
+            if not full_message.endswith("."):
+                full_message += "."
+            errors.append(
+                {
+                    "path": render_path(("steps", source) + error["path"]),
+                    "message": full_message,
+                }
+            )
+    return errors
+
+
+def component_name_errors(workflow_definition, source_indices=None):
+    """Every name under a step's `pipeline.configuration.components` that
+    the named component_type's constructor does not register, as
+    [{path, message}] - a component name it does not have was previously
+    caught only ~3s into the run's `loading` phase, after a checkpoint (and
+    for an IC-LoRA step, the LoRA weights) the plan had already quoted for
+    downloading (#442). Checked the same way `workflow_argument_warnings`
+    checks a `__call__` argument: against the class's own constructor
+    signature, so the rule can never refuse a name that would in fact have
+    worked, and only for a bare, loadable component_type - escaped and
+    dotted ones are left alone.
+
+    `reused_components` names are excluded: those are configured by the step
+    that shared them, not loaded here, so a name only valid because it was
+    reused is not a mistake.
+
+    The definition handed here has already been substituted and expanded,
+    matching component_type_errors; source_indices maps each expanded step
+    back to the step the author wrote.
+    """
+    from .for_each import MEMBER_SEPARATOR, render_path
+
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        pipeline = step.get("pipeline")
+        if not isinstance(pipeline, dict):
+            continue
+        configuration = pipeline.get("configuration")
+        if not isinstance(configuration, dict):
+            continue
+        component_type = configuration.get("component_type")
+        if not isinstance(component_type, str) or not _NAME_PATTERN.match(
+            component_type
+        ):
+            continue
+        components = configuration.get("components")
+        if not isinstance(components, dict):
+            continue
+        reused = set(configuration.get("reused_components") or [])
+        component_names = [name for name in components if name not in reused]
+        unknown = unknown_pipeline_components(component_type, component_names)
+        if not unknown:
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+        for component_name in unknown:
+            errors.append(
+                {
+                    "path": render_path(
+                        (
+                            "steps",
+                            source,
+                            "pipeline",
+                            "configuration",
+                            "components",
+                            component_name,
+                        )
+                    ),
+                    "message": (
+                        f"Step '{step.get('name')}': {component_type} has no "
+                        f"component '{component_name}'{where}."
+                    ),
+                }
+            )
     return errors
 
 

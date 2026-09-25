@@ -336,14 +336,5 @@ class TestTextGenerationLoadDevice(unittest.TestCase):
         self.assertNotIn("device", kwargs)
 
 
-class TestTextGenerationRegistration(unittest.TestCase):
-    """Test that text_generation is registered as a task command."""
-
-    def test_command_registered(self):
-        from dw.tasks.task import _COMMAND_REGISTRY
-
-        self.assertIn("text_generation", _COMMAND_REGISTRY)
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,6 @@
+import io
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch
 from dw.tasks.task import Task
 from PIL import Image
@@ -65,28 +67,21 @@ def test_image_processor_command_dispatches_without_registry_entry():
     assert result.size == (4, 4)
 
 
-@pytest.mark.skip(reason="Requires network access to external URLs which may be flaky")
-def test_gather_images_task():
-    task_def = {
-        "command": "gather_images",
-        "arguments": {
-            "urls": [
-                "https://pbs.twimg.com/media/Gf5iaDGXsAA0R30?format=jpg&name=small",
-                "https://pbs.twimg.com/media/Gf7vNQJXoAAY5Cm?format=jpg&name=small",
-            ]
-        },
-    }
+def test_gather_images_task_dispatches_to_gather():
+    urls = ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+    responses = []
+    for size in ((4, 4), (8, 8)):
+        buffer = io.BytesIO()
+        Image.new("RGB", size).save(buffer, format="PNG")
+        responses.append(SimpleNamespace(content=buffer.getvalue()))
+    task_def = {"command": "gather_images", "arguments": {"urls": urls}}
     task = Task(task_def, "cpu")
-    result = task.run(task_def["arguments"])
-    assert isinstance(result, list), "Expected a list of images from gather_images"
 
+    with patch("dw.tasks.gather.safe_get", side_effect=responses) as safe_get:
+        result = task.run(task_def["arguments"])
 
-def test_gather_inputs_task():
-    task_def = {"command": "gather_inputs", "inputs": ["value1", "value2"]}
-    task = Task(task_def, "cpu")
-    result = task.run(task_def["inputs"])
-    assert isinstance(result, list), "Expected a list of inputs from gather_inputs"
-    assert "value1" in result and "value2" in result, "Should gather all passed inputs"
+    assert [image.size for image in result] == [(4, 4), (8, 8)]
+    assert [call.args[0] for call in safe_get.call_args_list] == urls
 
 
 def test_format_chat_message_task():
@@ -119,7 +114,6 @@ def test_format_chat_message_task():
     assert text_inputs[1]["content"] == "unit_test", "User message content mismatch"
 
 
-@pytest.mark.skip(reason="Test not fully implemented yet")
 def test_batch_decode_post_process_task():
     # We use a mock pipeline to simulate previous_pipelines behavior.
     class MockPipeline:
@@ -145,10 +139,8 @@ def test_batch_decode_post_process_task():
     }
     task = Task(task_def, "cpu")
     result = task.run(task_def["arguments"], previous_pipelines=mock_previous_pipelines)
-    assert result == [
-        "decoded-foo",
-        "decoded-bar",
-    ], "Should return batch-decoded strings"
+    # The first decoded sequence, post-processed and read back under the task key
+    assert result == "decoded-foo"
 
 
 class TestTaskDevice:

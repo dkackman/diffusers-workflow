@@ -20,7 +20,7 @@ writable source, which is what "open an example, change it, save" should do.
 import logging
 import os
 
-from .security import SecurityError, validate_path
+from .security import PathTraversalError, SecurityError, contained, validate_path
 
 logger = logging.getLogger("dw")
 
@@ -88,14 +88,20 @@ class WorkflowSource:
 
 
 def workflow_names(root):
-    """Workflow names under a root, as relative paths without .json."""
+    """Workflow names under a root, as relative paths without .json.
+
+    A file symlink resolving outside the root is not a name here: a listing
+    opens every file it names, and reads by name already refuse the link."""
     names = []
     if not os.path.isdir(root):
         return names
     for directory, _dirs, files in os.walk(root):
         for file_name in files:
             if file_name.endswith(".json"):
-                relative = os.path.relpath(os.path.join(directory, file_name), root)
+                path = os.path.join(directory, file_name)
+                if not contained(path, root):
+                    continue
+                relative = os.path.relpath(path, root)
                 names.append(relative[: -len(".json")].replace(os.sep, "/"))
     return sorted(names)
 
@@ -174,6 +180,50 @@ def find_workflow(sources, name):
     return None, None
 
 
+def suggest_workflow_names(sources, name, limit=3):
+    """Catalog names an unresolved `name` might have meant, for an error
+    message rather than a second round trip.
+
+    The catalog is organised in directories (`templates/minimax/dialogue-short`)
+    and a caller - a skill, an earlier turn - often has only the trailing
+    name (`dialogue-short`). Preferred answer: every catalog entry `name` is
+    a unique path suffix of, since that is unambiguous; failing that, a
+    close spelling match (`difflib`), for a typo rather than a shortened
+    path. Empty when neither finds anything worth naming.
+    """
+    import difflib
+
+    stripped = name[: -len(".json")] if name.endswith(".json") else name
+    catalog_names = list(listing(sources).keys())
+    suffix_matches = [
+        candidate
+        for candidate in catalog_names
+        if candidate == stripped or candidate.endswith(f"/{stripped}")
+    ]
+    if suffix_matches:
+        return suffix_matches[:limit]
+
+    # A typo is measured against the catalog entry's own name, not against
+    # its directory prefix - "dialog-short" scores 0.92 against
+    # "dialogue-short" and 0.55 against "templates/minimax/dialogue-short",
+    # so comparing full paths lets a real typo miss the cutoff (#397). The
+    # query's own prefix is stripped the same way, so "sub/Basik" is
+    # measured as "Basik" against "Basic" rather than against "sub/Basic".
+    query_basename = stripped.rsplit("/", 1)[-1]
+    by_basename = {}
+    for candidate in catalog_names:
+        by_basename.setdefault(candidate.rsplit("/", 1)[-1], []).append(candidate)
+    close_bases = difflib.get_close_matches(
+        query_basename, list(by_basename.keys()), n=limit, cutoff=0.6
+    )
+    matches = []
+    for base in close_bases:
+        for candidate in by_basename[base]:
+            if candidate not in matches:
+                matches.append(candidate)
+    return matches[:limit]
+
+
 def listing(sources):
     """Every name the search path offers, each with the source it comes
     from - a name in an earlier source shadowing the same name later."""
@@ -224,6 +274,12 @@ class SubWorkflowNotFound(Exception):
         )
 
 
+def _describe_roots(roots):
+    """Roots this resolution consulted, for a refusal message - never empty
+    text, since a run with none configured still owes an answer."""
+    return ", ".join(roots) if roots else "(no workflow sources configured)"
+
+
 def resolve_sub_workflow(path, base_dir, confine_to):
     """Where a sub-workflow step's `path` resolves to, and the root the
     child is confined to, as (path, root).
@@ -262,8 +318,20 @@ def resolve_sub_workflow(path, base_dir, confine_to):
             source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
             if source.contains(candidate) and os.path.isfile(candidate):
                 return candidate, root
-        # No root holds it - hand it back confined as it was, so the
-        # security layer writes the refusal it always did
+        if confine_to:
+            # A real confinement boundary was named and nothing on the
+            # search path holds this candidate - refuse here, naming every
+            # root this resolution consulted, rather than handing an
+            # unqualified path back to validate_workflow_path for a refusal
+            # that names only the rejected path and not where it looked
+            # (#422)
+            raise PathTraversalError(
+                f"Path outside every workflow source: {candidate}. Looked in: "
+                + _describe_roots(roots)
+            )
+        # Unconfined (a bare CLI run naming no workflow_dir) - hand it back
+        # as before and let validate_workflow_path's base=None passthrough
+        # decide, since there is no boundary to report roots for
         return candidate, confine_to
 
     if base_dir:
@@ -277,16 +345,24 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         # absent, the distinction the search path below keeps: the
         # PathTraversalError propagates to the caller
         root = confine_to or catalog_root(base_dir)
+        search_roots = [root] + [r for r in roots if r != root]
         for name in _candidate_names(path):
             # normpath first: validate_path refuses a '..' outright, so a
             # climb that stays inside the root has to be collapsed before it
             # is judged. Its return value is what gets stat'ed - and being
             # the validator's own, it is contained by construction
-            candidate = validate_path(
-                os.path.normpath(os.path.join(base_dir, name)),
-                root,
-                allow_create=True,
-            )
+            try:
+                candidate = validate_path(
+                    os.path.normpath(os.path.join(base_dir, name)),
+                    root,
+                    allow_create=True,
+                )
+            except PathTraversalError as e:
+                # Same refusal, naming the search path rather than only the
+                # resolved (rejected) path (#422)
+                raise PathTraversalError(
+                    f"{e} Looked in: {_describe_roots(search_roots)}"
+                ) from e
             tried.append(candidate)
             if os.path.isfile(candidate):
                 return candidate, confine_to

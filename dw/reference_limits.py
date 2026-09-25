@@ -90,19 +90,24 @@ def _limits(family):
 def _reference_class(value):
     """The class a reference entry's '*_type' names, or None.
 
-    Anything that does not resolve is left alone: realize_args reports a type
-    it cannot load, with a better message than this pass could give.
+    Anything that does not resolve, or that the untrusted gate refuses, is
+    left alone: realize_args reports a type it cannot load, and the type
+    reference check a refused one, with a better message than this pass
+    could give.
     """
     if not isinstance(value, dict):
         return None
     name = value.get(REFERENCE_TYPE_KEY)
     if not isinstance(name, str) or name.startswith(_UNRESOLVED_PREFIXES):
         return None
-    module_name, _, class_name = name.rpartition(".")
-    if not module_name:
+    if "." not in name:
         return None
+    # Through the run's own resolver, so an untrusted workflow's name meets
+    # the same trust gate here, at validate time, before anything imports
+    from .type_helpers import load_type_from_full_name
+
     try:
-        return getattr(importlib.import_module(module_name), class_name)
+        return load_type_from_full_name(name, REFERENCE_TYPE_KEY)
     except Exception:
         return None
 

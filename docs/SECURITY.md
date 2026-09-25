@@ -16,9 +16,9 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 ### Input Validation
 
 - `validate_variable_name()` — Alphanumeric, underscore, hyphen only (pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`), max 100 chars
-- `validate_string_input()` — Max length (default 1000 chars), no null bytes, no control characters other than tab/newline/CR
+- `validate_string_input()` — Max length, no null bytes, no control characters other than tab/newline/CR. Every caller that checks a caller-supplied variable value (`dw/variables.py`, `dw/run.py`, the REPL) passes `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters; file names and paths pass their own, shorter caps, so the function's bare default of 1000 is not the limit anything is held to. A variable's *default*, written in the definition, is not capped separately: the author controls the file, and the whole file is capped at 50MB
 - `validate_json_size()` — Limits JSON files to 50MB
-- `validate_url()` — Scheme must be `http` or `https`; must have a non-empty domain (`netloc`)
+- `validate_url()` — Scheme must be `http` or `https`; must have a non-empty domain (`netloc`); may not contain a backslash. `urllib.parse` and the HTTP client disagree on which host `http://169.254.169.254\@example.com/` names, so the host the check approved need not be the one dialed; a `\` that belongs in a path is written `%5C`
 - `validate_constant_name()` — Guards `constant:` references before import: dotted-name pattern only, module must already be importable, and anything callable is refused
 - `safe_join_path()` — Joins path components after rejecting any that contain `..`, `/`, or `\\`. Defined in `security.py` but not currently called elsewhere in `dw/`.
 
@@ -76,11 +76,38 @@ stay inside this set and load untrusted; a
 workflow that needs to reach outside it - a community pipeline module from
 somewhere else, a custom scheduler package - needs `--trust-workflows`.
 
-A dotted `constant:` reference is gated the same way
-(`dw/type_helpers.load_constant_from_name`): the module it names is
-imported before `fetch_constant` gets to refuse a callable, so the import
-itself is what the gate has to stop. A bare name (`constant:SOME_NAME`)
-reads from `diffusers` and is always allowed.
+The package is not the whole check, because an allowed package holds
+things other than classes and re-exports modules outside itself. Untrusted,
+two more rules apply (`dw/type_helpers.py`):
+
+- **A type reference must resolve to a class.** A `*_type`/`config_type`
+  value is constructed with the workflow's own arguments, so
+  `"torch.hub.load"` - in `torch`, and a function that fetches and runs a
+  GitHub repo's code - is refused as "not a class", as is a module or any
+  other object. Under a `dtype` or `*_dtype` key a `torch.dtype`
+  (`"torch.bfloat16"`) is accepted too, since that is data rather than
+  something called. A bare name (`"FluxPipeline"`) resolves against
+  `diffusers` and is held to the same rule. `validate_workflow` reports the
+  refusal at the key's path, for every key the run loads as a type
+  (`from_pretrained_arguments.torch_dtype` as much as `config_type`).
+- **A `constant:` walk stays inside the package.** A dotted `constant:`
+  reference is gated like a type (the module it names is imported before
+  `fetch_constant` gets to refuse a callable, so the import itself is what
+  the gate has to stop), and then every step of the walk is checked: no
+  segment may start with `_`, checked before anything imports, and no module
+  the walk passes through may sit outside the allowed packages -
+  `constant:torch.os.environ` starts in `torch` and ends in the server's
+  environment, and is refused at `torch.os`. Reading a field off a value
+  declared in an allowed module still works
+  (`...ltx2.utils.GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens`). A bare
+  name (`constant:SOME_NAME`) reads from `diffusers`. `validate_workflow`
+  resolves every literal `constant:` in a step the way the run does and
+  reports a refusal at its path (a variable's default at `variables.<name>`),
+  so nothing is queued to find out.
+
+Every `*_type` and `constant:` in the bundled catalog satisfies both rules,
+pinned by `tests/test_workflow_trust.py`'s catalog sweep. `--trust-workflows`
+lifts both, as it lifts the package check.
 
 Two `from_pretrained_arguments` keys are refused untrusted as well, for
 every component and pipeline: `trust_remote_code` (runs the model repo's
@@ -120,7 +147,20 @@ One policy now answers all of it, untrusted:
   cannot carry the expansion out.
 - **An `http(s)` URL** must not resolve to an address inside the deployment -
   loopback, link-local (`169.254.0.0/16`, the cloud metadata address),
-  private ranges. Checked after DNS resolution, not on the literal string.
+  private ranges, and anything else that is not globally routable
+  (`is_global`). Checked after DNS resolution, not on the literal string.
+  That last rule covers `100.64.0.0/10`, the shared address space, which is
+  **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
+  that fetches media from another machine on your tailnet is refused unless
+  it runs under `--trust-workflows`.
+- **Every redirect is re-checked.** A media fetch (`safe_get`) never lets the
+  HTTP client follow a redirect on its own: it follows at most 5 hops
+  (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
+  host policy before it is dialed. A public URL answering `302` to
+  `http://127.0.0.1:8765/api/server` is refused with the target named, and
+  nothing is fetched from it. Images are decoded from the fetched bytes and
+  still go through diffusers' `load_image`, so EXIF orientation and RGB
+  conversion are unchanged.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.
@@ -213,10 +253,17 @@ SecurityError
 - **Path traversal** — Cannot access files outside allowed directories
 - **Command injection** — No shell interpretation is used anywhere in `dw/`; `sanitize_command_args()` is available as a guard should a subprocess call be added
 - **Resource exhaustion** — File size limits prevent memory exhaustion
+- **Decompression bombs** — an image a caller names is decoded at no more than `MAX_DECODE_PIXELS` (50M; an 8K frame is 33M), checked after `Image.open` and before any decode: `get_output_image` (crops included) refuses it, the gallery thumbnail answers 413, and embedded metadata is read from the PNG header chunks without decoding. Video and audio decode are not limited
 - **Malicious URLs** — Only http/https schemes allowed, and an untrusted
   workflow may not name a host inside the deployment (SSRF)
 - **Arbitrary file read through a media argument** — a location a workflow
   supplies is confined to the roots it may read (`dw/locations.py`)
+- **Script on the UI's origin through an output** — a step's
+  `result.content_type` may not be `text/html` or `text/xml` (compared
+  without case or parameters): validation refuses it at
+  `steps[i].result.content_type` and the writer refuses it again
+  (`dw/content_types.py`). A file of an active type that reaches `/outputs`
+  or `/inputs` anyway is served with `Content-Security-Policy: sandbox`
 
 ## Testing
 

@@ -2,6 +2,7 @@
 root, each with its own workflows, assets and outputs, all sharing the one
 prompt library."""
 
+import json
 import os
 
 import pytest
@@ -251,10 +252,6 @@ class TestConfinement:
             )
         assert response.status_code == 200
 
-    def test_an_unknown_workspace_query_param_is_a_404(self, server):
-        with server() as client:
-            assert client.get("/api/workflows?workspace=nope").status_code == 404
-
     def test_a_traversal_attempt_as_a_workspace_name_is_a_400(self, server):
         with server() as client:
             response = client.get("/api/workflows", params={"workspace": "../x"})
@@ -393,14 +390,16 @@ class TestServingFiles:
         assert fetched.status_code == 200
         assert fetched.content == b"iris"
 
-    def test_get_workflow_reports_its_origin_and_writability(
-        self, server, workspace_root
-    ):
+    def test_get_workflow_reports_its_origin_and_writability(self, server):
+        # a named workspace's own library is as writable as the default's -
+        # the headers follow the workspace the route was scoped to
         with server() as client:
+            client.post("/api/workspaces", json={"name": "shots"})
             client.put(
-                "/api/workflows/Basic", json={"workflow": valid_workflow("mine")}
+                "/api/workflows/Basic?workspace=shots",
+                json={"workflow": valid_workflow("mine")},
             )
-            response = client.get("/api/workflows/Basic")
+            response = client.get("/api/workflows/Basic?workspace=shots")
         assert response.status_code == 200
         assert response.headers["x-workflow-origin"] == "workspace"
         assert response.headers["x-workflow-writable"] == "true"
@@ -448,8 +447,28 @@ class TestKeepingOutputs:
                 "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
             ).json()
         assert body["reference"] == "asset:clip.mp4"
-        if body["linked"]:
-            assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+        # outputs and assets share one temporary filesystem, so a link is
+        # always possible here
+        assert body["linked"] is True
+        assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+
+    def test_it_copies_when_it_cannot_link(self, server, workspace_root, monkeypatch):
+        """A different filesystem, or one with no links, still keeps the
+        output - as a separate copy of the same bytes."""
+        source = self.written(workspace_root.outputs, "Gyre/run/clip.mp4", b"clip")
+
+        def no_links(*args, **kwargs):
+            raise OSError("cross-device link")
+
+        monkeypatch.setattr(os, "link", no_links)
+        with server() as client:
+            body = client.post(
+                "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
+            ).json()
+        assert body["linked"] is False
+        assert os.stat(source).st_ino != os.stat(body["path"]).st_ino
+        with open(body["path"], "rb") as kept:
+            assert kept.read() == b"clip"
 
     def test_the_name_defaults_to_the_files_own(self, server, workspace_root):
         self.written(workspace_root.outputs, "Gyre/run/still.png")
@@ -497,6 +516,58 @@ class TestKeepingOutputs:
                 json={"name": "Gyre/run/still.png", "asset_name": asset_name},
             )
         assert response.status_code == 400
+
+    def test_a_kept_outputs_shots_survive_and_report_through_the_gallery(
+        self, server, workspace_root
+    ):
+        """#393: keeping a cut copied only its bytes, so a joined video's shot
+        boundaries were unreachable from the asset it became - the gallery
+        metadata for a kept asset carried no `shots` at all, where the same
+        file's metadata as an output did. keep_output now carries the run's
+        recorded shots into a manifest sidecar beside the asset, which is the
+        same convention `shots_beside` (and so every assessment probe) already
+        reads."""
+        from .test_media_info import write_mp4
+
+        run_dir = os.path.join(workspace_root.outputs, "Gyre/20260905-101500-aaaaaaaa")
+        os.makedirs(run_dir, exist_ok=True)
+        write_mp4(os.path.join(run_dir, "cut.mp4"), frames=18, fps=6)
+        shots = [
+            {
+                "name": "a",
+                "start_frame": 0,
+                "num_frames": 10,
+                "start_sample": 0,
+                "num_samples": 100,
+            },
+            {
+                "name": "b",
+                "start_frame": 10,
+                "num_frames": 8,
+                "start_sample": 100,
+                "num_samples": 80,
+            },
+        ]
+        manifest = {"steps": [{"step": "concat", "files": ["cut.mp4"], "shots": shots}]}
+        with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
+            json.dump(manifest, handle)
+
+        with server() as client:
+            kept = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "Gyre/20260905-101500-aaaaaaaa/cut.mp4",
+                    "asset_name": "qa-cast/cut.mp4",
+                },
+            )
+            assert kept.status_code == 201
+
+            metadata = client.get("/api/gallery/asset:qa-cast/cut.mp4/metadata").json()
+        assert metadata["source"] == "asset"
+        assert metadata["media"]["shots"] == shots
+
+        sidecar = os.path.join(workspace_root.assets, "qa-cast", "manifest.json")
+        assert os.path.isfile(sidecar)
 
     def test_keeping_stays_inside_the_workspace(self, server, workspace_root):
         """The source is read from the named workspace's outputs and the copy
@@ -642,23 +713,6 @@ class TestDeletingAssets:
 
 
 class TestRunning:
-    def test_a_job_runs_in_the_workspace_it_named(self, server, workspace_root):
-        with server() as client:
-            client.post("/api/workspaces", json={"name": "shots"})
-            client.put(
-                "/api/workflows/Mine?workspace=shots",
-                json={"workflow": valid_workflow("mine")},
-            )
-            response = client.post(
-                "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
-            )
-            assert response.status_code == 201
-            detail = wait_for_status(
-                client, response.json()["id"], {"succeeded", "failed"}
-            )
-
-        assert detail["status"] == "succeeded"
-
     def test_enhance_runs_in_the_selected_workspace(self, server):
         """The enhance job used to be submitted unscoped, so its text landed
         in the default workspace's outputs while the editor read it back
@@ -710,10 +764,14 @@ class TestRunning:
                 "/api/workflows/Mine?workspace=shots",
                 json={"workflow": valid_workflow("mine")},
             )
-            original = client.post(
+            submitted = client.post(
                 "/api/jobs", json={"workflow_path": "Mine", "workspace": "shots"}
-            ).json()
-            wait_for_status(client, original["id"], {"succeeded", "failed"})
+            )
+            # a stored workflow found only in the named workspace runs there
+            assert submitted.status_code == 201
+            original = submitted.json()
+            detail = wait_for_status(client, original["id"], {"succeeded", "failed"})
+            assert detail["status"] == "succeeded"
 
             rerun = client.post(f"/api/jobs/{original['id']}/rerun")
             assert rerun.status_code == 201

@@ -153,7 +153,9 @@ references) are documented above in *Workflow sources* and *Type System*.
   `"output:ltx2/Gyre/latest/still.png"`. The name is `<workflow identity>/<run id>/<file>`
   under the output root, and `latest` in the run-id position picks the newest run that
   holds the file (run ids sort by their UTC timestamp; a failed or fully-cached run holds
-  only a manifest and is skipped). Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
+  only a manifest and is skipped), and `v<N>` there picks the run whose version is N
+  (below) - exactly that run, with no fallback to an older one. Either is a selector only
+  where run directories are, and the realized workflow pins both to the run id. Resolved in `realize_args` beside `asset:` (`dw/runs.py`),
   against the output root `Workflow.run` activates, and confined to it
 - A generated file becomes a stable input with `POST /api/assets/keep` (gallery "Keep as
   asset", MCP `keep_output`): it is hard-linked, else copied, from the workspace's outputs
@@ -368,6 +370,45 @@ same reason - default setup cannot load a pack.
   `JobManager.realized` finds the file. `exports` is a reserved workspace name:
   `POST /api/jobs/{id}/export` gathers one finished job into
   `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
+- **A run has a number, and it is not derived from the listing** - a file's name
+  is per *step*, so four runs of one workflow write four files called
+  `AcornWarsCutAndScore-film.7-0.0.mp4` and the gallery drew four identical
+  captions: the run id told them apart but is not something anyone says out
+  loud, so an agent had no way to name one of them to a person. Every run now
+  takes an ordinal, `assign_run_version` (`dw/runs.py`) at the moment
+  `Workflow.run` opens the run directory, recorded as `version` in
+  `manifest.json` and read back by `run_versions`. Assigned once and never
+  recomputed, which is the point: deleting a middle run leaves a gap rather
+  than sliding every later number down, so "version 5" still means the same
+  run tomorrow. Assignment is `max(recorded) + 1` over *every* sibling
+  manifest, not one past the newest - run ids are chronological only to the
+  second, and within one second the spec digest decides the sort, which is
+  exactly what three quick reruns hit. The number is on disk from the moment
+  the run opens - a `status: "running"` manifest is written before the first
+  step and rewritten in full at the end - so a hard kill does not lose it and
+  a second process opening a run of the same workflow sees it. A run with no
+  recorded number (made before the field, or killed before even that first
+  manifest) is ranked: the unrecorded runs older than every recorded one take
+  the numbers beneath the lowest, later ones continue from the highest before
+  them. A ranked number would move when an older sibling is deleted, so
+  `record_run_versions` writes it into the manifest on the two write paths -
+  a run opening and a run directory being deleted; the listing never writes,
+  and a run with no manifest at all is left ranked. A gap in the numbers is
+  not only a deletion: a failed run or a fully cached rerun takes a number
+  and may have no media for the gallery to show under it. `GET
+  /api/gallery` and the metadata route carry `version` and `run_id`
+  (`run_versions` read once per identity per listing, not per file), and
+  `?folder=&version=` lists one run's files. The number is also a name:
+  `output:<identity>/v4/<file>`. The `run_start` event carries it, the job
+  records it (`run_version`, a `jobs.sqlite` column) and the export README and
+  zip download name (`<identity>-v4-<job id>.zip`) carry it too. MCP
+  `list_gallery` teaches the vocabulary and takes `folder`/`version`, and the
+  web UI reads the field only - a `v4` chip on the gallery card, the jobs list
+  and the job page, the run id in the gallery's detail pane. Nothing on disk is
+  renamed, so `output:` references, the step cache and `keep_output` are
+  untouched. Two limits taken deliberately: deleting the *newest* run frees
+  its number for reuse (the high-water mark lived in the manifest that went
+  with it), and the flat layout has no runs, so `version` is null there.
 - **Result subfolders**: a step's `result.subfolder` (`dw/subfolders.py`) puts its files
   in a subfolder of the run directory - `<run>/final/x.mp4` - by convention `final` or
   `intermediate`; the engine treats no name specially and there is no default.
@@ -552,9 +593,45 @@ same reason - default setup cannot load a pack.
   name into the JSON. An entry violation is reported at
   `arguments.shots[0].num_frames`, and the rule is reported beside the field in
   the catalog's `lists` block as well as in `constraints`
+- **A joined video records its shots, measured** — `concat_videos`,
+  `dissolve_videos` and both `run_chain` returns set `AudioVideo.shots`
+  (`dw/shots.py`): one `{name, start_frame, num_frames, start_sample,
+  num_samples}` per input. The frames are partitioned, and the samples are
+  read off the waveform the join built, never derived from the frames, so a
+  shot's overrun stays visible (#385). Every other `AudioVideo` constructor
+  carries, rescales (`interpolate_frames`), re-measures (`pair_audio`) or
+  drops them, and `tests/test_shots.py` enumerates the constructor sites with
+  `ast`, so a new one fails until someone decides for it. `Result.save`
+  keeps them as plain data in `saved_shots` (path -> shots), which survives
+  the step cache's stripped copy. The manifest entry and `step_end` carry
+  `shots`, renamed `shot@<key>` from the step's `videos` references (as
+  `selected_field` does). `recorded_shots` (`dw/runs.py`) reads them back for
+  `get_gallery_metadata`'s `media.shots` and for `get_output_frames(seams=true)`
+  without `boundaries`. The mp4 itself carries nothing yet
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
+- **Assessment probes measure a finished file and say where to look, and
+  decide nothing** (`dw/tasks/assess.py`, #387) - `analyze_shots`,
+  `analyze_seams` and `analyze_sync_drift` each read a video streaming
+  (thumbnails only, never the full frame list, so a long cut is cheap) and
+  answer a JSON dict of measurements plus `findings`, the ones that crossed a
+  threshold in `dw/assessment_rules.py`'s table; nothing in the engine acts
+  on a finding. These are the `returns: "json"` task kind, listed separately
+  in `list_tasks`' `assessment` (probes stay in `commands` too), and a step
+  on one must save `"result": {"content_type": "application/json"}` -
+  anything else fails validation. Shot boundaries resolve in order: the step's `shots` argument,
+  the video's own carried shots, the run manifest beside the file, else the
+  whole file as one shot (`shots_source` says which). A shot's `hard_cut:
+  true` field suppresses the `seam_frame_jump` rule at the seam it opens - a
+  cut meant as a cut. `tests/test_assessment_rules.py` pins the rules table
+  to real probe fields, so a rename cannot leave a rule reading nothing. `GET /api/gallery/{name}/assess` (MCP `assess_output`, #388,
+  `dw/server/assess.py`) runs the applicable probes in the server process on
+  one decode - a sync route, so it answers beside a GPU job rather than
+  queueing - with the shots the run's manifest (or an asset's keep sidecar)
+  recorded, merging `findings`/`rules_applied`/`rules_skipped` and naming
+  each inapplicable probe in `not_applicable`; `probe=` returns one probe's
+  full body and is whitelisted before the name is read.
 
 ## JSON Workflow Structure
 

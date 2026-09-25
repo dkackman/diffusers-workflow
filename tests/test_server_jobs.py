@@ -28,6 +28,7 @@ def tracked_script(command):
         "run_id": RUN_ID,
         "identity": "server_test",
         "run_dir": RUN_DIR,
+        "version": 4,
     }
     yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
 
@@ -53,12 +54,41 @@ def finished_job(manager):
     return job
 
 
+def test_submit_checks_content_type_against_the_callers_arguments(manager):
+    """A document-default 'text/html' content_type that the caller's own
+    argument overrides to 'text/plain' must queue - JobManager.submit used
+    to validate the unsubstituted document (loaded.validate(), no
+    arguments), refusing a run that validate_workflow had already accepted
+    for the same call (#415, the run_workflow mirror of #414)."""
+    definition = {
+        "id": "se-415",
+        "variables": {"ct": "text/html"},
+        "steps": [
+            {
+                "name": "t",
+                "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
+                "result": {"content_type": "variable:ct"},
+            }
+        ],
+    }
+    job = manager.submit(
+        workflow=definition, arguments={"ct": "text/plain"}, base_dir=None
+    )
+    deadline = time.time() + 5
+    while job.status not in TERMINAL_STATES and time.time() < deadline:
+        time.sleep(0.01)
+    assert job.status == "succeeded", job.error
+
+
 def test_run_start_populates_the_job(manager):
     job = finished_job(manager)
     assert job.run_id == RUN_ID
     assert job.run_dir == RUN_DIR
     assert job.summary()["run_id"] == RUN_ID
     assert job.detail()["run_dir"] == RUN_DIR
+    # the ordinal the gallery shows for this run's files
+    assert job.run_version == 4
+    assert job.summary()["run_version"] == 4
 
 
 def test_both_persist_and_read_back(manager):
@@ -66,6 +96,10 @@ def test_both_persist_and_read_back(manager):
     historical = manager.history.get(job.id)
     assert historical["run_id"] == RUN_ID
     assert historical["run_dir"] == RUN_DIR
+    assert historical["run_version"] == 4
+    # and in the polled list, not only the detail
+    (summary,) = manager.history.recent_summaries()
+    assert summary["run_version"] == 4
 
 
 def test_realized_reads_the_file_the_run_wrote(manager, tmp_path):
@@ -167,8 +201,8 @@ def for_each_script(command):
         command.get("workflow_dir"),
     )
     # Mirrors dw/worker.py's _handle_execute: validated against the
-    # defaults first, then run() substitutes and expands the real arguments.
-    workflow.validate()
+    # caller's own arguments (#415), which run() then substitutes and expands.
+    workflow.validate(arguments=command["arguments"])
     workflow.run(command["arguments"], {})
     yield {
         "type": "success",

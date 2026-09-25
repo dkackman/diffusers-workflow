@@ -2,6 +2,7 @@
 
 from dw.introspection import (
     describe_pipeline,
+    describe_task,
     unknown_call_arguments,
     workflow_argument_warnings,
     load_pipeline_class,
@@ -19,6 +20,44 @@ def test_describe_merges_signature_and_docstring():
     assert "description" in parameters["prompt"]
     # self and *args/**kwargs never appear as parameters
     assert "self" not in parameters
+
+
+def test_describe_task_reports_an_image_processors_real_parameters():
+    # #350 - recenter_crop has real keyword arguments, not the generic
+    # (image, device) shape every other image processor used to report.
+    description = describe_task("recenter_crop")
+    parameters = {p["name"]: p for p in description["parameters"]}
+    assert description["accepts_kwargs"] is False
+    assert "image" in parameters
+    assert "device" in parameters
+    for name in ("center_x", "center_y", "crop", "width", "height", "fill"):
+        assert name in parameters, name
+    assert description["summary"]
+
+
+def test_describe_task_falls_back_for_a_detector_backed_processor():
+    # canny has no plain backing function to introspect (controlnet_aux) -
+    # it keeps the old generic (image, device) shape.
+    description = describe_task("canny")
+    assert description["accepts_kwargs"] is True
+    names = {p["name"] for p in description["parameters"]}
+    assert names == {"image", "device"}
+
+
+def test_describe_task_gives_get_first_and_last_frame_their_own_summary():
+    # #366 - get_first_frame/get_last_frame share get_frame's implementation
+    # and used to share its generic docstring summary too.
+    first = describe_task("get_first_frame")
+    last = describe_task("get_last_frame")
+    frame = describe_task("get_frame")
+    assert first["summary"] != frame["summary"]
+    assert last["summary"] != frame["summary"]
+    assert first["summary"] != last["summary"]
+    assert "first" in first["summary"].lower()
+    assert "last" in last["summary"].lower()
+    # frame_index is pinned by these two, not a caller-supplied argument
+    assert "frame_index" not in {p["name"] for p in first["parameters"]}
+    assert "frame_index" not in {p["name"] for p in last["parameters"]}
 
 
 def test_load_pipeline_class_rejects_non_bare_names():

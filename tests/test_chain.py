@@ -89,6 +89,18 @@ def modular_output(arguments, index, fps=4, sample_rate=100):
     return {"videos": [frames], "audio": audio, "sampling_rate": sample_rate}
 
 
+def short_audio_output(arguments, index, fps=4, sample_rate=100, shortfall=3):
+    """Like modular_output, but each segment's own audio runs a few samples
+    short of its frame count - the codec-padding gap #408 found a chain
+    never corrected, unlike a decoded file or a previous_result shot."""
+    num_frames = arguments.get("num_frames", 8)
+    color = (50 * index % 256, 100, 150)
+    frames = [solid_frame(color) for _ in range(num_frames)]
+    samples = int(num_frames / fps * sample_rate) - shortfall
+    audio = torch.full((1, 2, samples), float(index + 1))
+    return {"videos": [frames], "audio": audio, "sampling_rate": sample_rate}
+
+
 class TestSegmentsMode:
     def test_chains_the_requested_number_of_segments(self):
         pipeline = FakePipeline(video_output)
@@ -223,6 +235,19 @@ class TestGeneratedAudioJoining:
 
         # default trim of 1: 8 + 7 frames -> the audio spans the same 15/4 s
         assert result.audio.shape[1] == int(15 / 4 * 100)
+
+    def test_a_per_segment_codec_padding_shortfall_is_fitted_before_joining(self):
+        pipeline = FakePipeline(short_audio_output)
+        chain = {"segments": 3, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        result = run_chain(pipeline, chain, {"num_frames": 8})
+
+        # video: 8 + 6 + 6 frames. Each segment's own shortfall is padded
+        # back to that segment's own frame count before it is trimmed and
+        # joined, so the final track still spans exactly the same time
+        # instead of compounding a gap once per segment (#408).
+        assert len(result.frames) == 20
+        assert result.audio.shape == (2, int(20 / 4 * 100))
 
 
 class TestMatchAudioMode:
