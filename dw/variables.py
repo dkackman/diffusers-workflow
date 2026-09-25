@@ -361,6 +361,22 @@ def get_value(v, desired_type, name=None):
     if isinstance(v, str) and desired_type in (dict, type(None)):
         return v
 
+    # A dict or list cannot be coerced into a string - str({...}) never
+    # raises, it just stringifies the Python repr, so a caller passing the
+    # old {"location": ...} object for a variable now declared as a plain
+    # string (e.g. templates/ltx2/keyframes' first_image/last_image, #433)
+    # sailed through validation and only failed at run time with a path
+    # built from the dict's repr
+    if isinstance(v, (dict, list)) and desired_type is str:
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type str: "
+            f"this variable takes a plain string (a URL, or an 'asset:'/"
+            f"'output:' reference), not an object"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
     # Attempt type conversion. A failure here is surfaced immediately with a clear,
     # named error instead of silently passing the unconverted value through - letting
     # it through would fail several layers later inside diffusers/torch with a
