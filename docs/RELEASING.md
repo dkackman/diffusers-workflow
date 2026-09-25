@@ -134,6 +134,7 @@ passing. It covers more than CI: ruff over the whole repo rather than
 ```bash
 scripts/release.sh 0.38.0
 scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
+scripts/release.sh 0.38.0 --next 0.39.0-alpha.1     # and reopen develop
 ```
 
 The script bumps `pyproject.toml` (the single source of the version —
@@ -144,6 +145,17 @@ master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
 a malformed version, a branch other than master, an existing tag, or a
 dirty index (unstaged changes elsewhere are fine — the release commit
 is path-limited to those two files).
+
+`--next <version>` finishes the release on the other branch: it merges
+`master` back into `develop` (a fast-forward when nothing landed there
+since the release PR), sets `<version>` in the same two files, commits
+`chore: open <version> on develop`, pushes `develop`, and leaves it checked
+out. Without it, do that by hand, or `develop` goes on reporting the
+previous pre-release.
+
+CI runs on every push to `develop` as well as `master` - the agent loop
+pushes `develop` directly, with no PR - so a failure shows up against the
+commit that caused it, not first on the release PR.
 
 By hand, the equivalent is:
 

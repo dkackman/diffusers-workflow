@@ -24,6 +24,9 @@ run_step() {
 run_step "ruff format" ruff format .
 run_step "ruff check" ruff check . --fix
 run_step "pytest" python -m pytest
+# e2e starts the fixture server on the same interpreter pytest just used,
+# wherever its venv lives (a worktree, .venv) - see ui/playwright.config.ts
+export DW_E2E_PYTHON="${DW_E2E_PYTHON:-$(command -v python)}"
 run_step "ui preflight" bash -c 'cd ui && npm run preflight'
 
 echo
