@@ -484,6 +484,17 @@ class TestLevelMatching:
 
         assert "level jump" not in caplog.text
 
+    def test_gaining_a_near_silent_shot_up_to_target_warns(self, caplog):
+        # #434: -46 dBFS is well below the -40 dBFS a job's own near-silent
+        # check treats as having no real content, and matching it to the
+        # default -20 dBFS rms target asks for +26 dB - a noise floor raised
+        # to dialogue level with only a log line to show for it
+        near_silent = audio_video(4, 10 ** (-46.0 / 20))
+
+        concat_videos([audio_video(4, 0.1), near_silent], match_levels="rms")
+
+        assert "near-silent" in caplog.text
+
 
 class TestWarningsReachTheCaller:
     """A warning that only reaches the server's log does not exist from
@@ -568,6 +579,32 @@ class TestWarningsReachTheCaller:
         assert warnings[0]["index"] == 0
         assert warnings[0]["shortfall_db"] > 0
         assert "held to" in warnings[0]["message"]
+
+    def test_the_near_silent_gain_is_emitted_as_a_warning_event(self):
+        """#434: a near-silent input gained up to the target only ever
+        reached the server's log, so job.warnings looked clean while the
+        noise floor was raised 26 dB toward dialogue level."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        near_silent = audio_video(4, 10 ** (-46.0 / 20))
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.1), near_silent], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        warnings = [
+            e for e in events if e.get("kind") == "match_levels_near_silent"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["index"] == 1
+        assert warnings[0]["gain_db"] > 20
+        assert "near-silent" in warnings[0]["message"]
 
     def test_per_shot_gain_is_emitted_as_a_log_event(self):
         """#214: neither shot's applied gain reached the caller at all."""

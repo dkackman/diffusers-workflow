@@ -1169,6 +1169,13 @@ DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
 # than squaring off its transients
 MATCH_CEILING_DBFS = -0.5
 LEVEL_SPREAD_WARN_DB = 6.0
+# Mirrors result.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
+# own near-silent check treats as having no real content. Gaining an input
+# already this quiet up to the target raises a noise floor rather than
+# leveling a performance, and #434 found a +29.9 dB case that only reached
+# the log, never job.warnings
+MATCH_NEAR_SILENT_DBFS = -40.0
+MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
 def level_dbfs(waveform, measure="peak"):
@@ -1245,6 +1252,22 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
                 gain_db=round(gain_db, 1),
                 shortfall_db=round(shortfall_db, 1),
                 ceiling_dbfs=MATCH_CEILING_DBFS,
+            )
+        elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
+            # The other end of the range `held` covers (#434): an input this
+            # quiet is noise floor, not a performance at a lower level, and
+            # matching it up to the target passes that noise off as content -
+            # a consumer reading job.warnings sees nothing was wrong
+            emit_warning(
+                f"{command}: video {index + 1} {measure} {level:.1f} dBFS is "
+                f"near-silent - matched up to the target with a {gain_db:+.1f} dB "
+                "gain, raising its noise floor rather than leveling content",
+                kind="match_levels_near_silent",
+                command=command,
+                index=index,
+                measure_dbfs=round(level, 1),
+                target_dbfs=target_dbfs,
+                gain_db=round(gain_db, 1),
             )
         emit_log(
             f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
