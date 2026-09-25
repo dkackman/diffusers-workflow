@@ -600,6 +600,77 @@ class TestWarningsReachTheCaller:
         assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
 
 
+class TestJoinedAudioFitsTheFrameGrid:
+    """#435: a joined track was only ever as long as its inputs measured,
+    with nothing reconciling it against the frame count - so an input
+    already short of its own frame grid (an ltx2/keyframes clip, in the
+    reported repro) carried its shortfall into the join, and a further join
+    built on that output compounded it. See #428 for the same remedy on
+    pair_audio's single-track case."""
+
+    def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], fps=4)
+
+        expected = frames_to_samples(8, 4, 100)
+        assert result.audio.shape[1] == expected
+        assert "joined_audio_padded_to_frames" in caplog.text or "padded" in caplog.text
+
+    def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], fps=4)
+
+        expected = frames_to_samples(8, 4, 100)
+        assert result.shots[-1]["start_sample"] + result.shots[-1]["num_samples"] == (
+            expected
+        )
+
+    def test_padding_is_emitted_as_a_warning_event(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([short, audio_video(4, 0.5)], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "joined_audio_padded_to_frames"]
+        assert len(warnings) == 1
+        assert warnings[0]["command"] == "concat_videos"
+        assert warnings[0]["pad_samples"] == 10
+
+    def test_a_track_already_on_the_grid_draws_no_warning(self, caplog):
+        result = concat_videos([audio_video(4, 0.5), audio_video(4, 0.5)], fps=4)
+
+        assert "padded" not in caplog.text
+        assert "trimmed" not in caplog.text
+        assert result.audio.shape[1] == 200
+
+    def test_no_fps_leaves_the_track_alone(self):
+        short = AudioVideo(
+            frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([short, audio_video(4, 0.5)], crossfade_ms=0)
+
+        assert result.audio.shape[1] == 90 + 100
+
+
 class TestFrameRateTravelsWithTheJoin:
     """result.fps defaults to 8, so a 24 fps cut that says nothing there
     used to be written three times slow against audio of the right length -

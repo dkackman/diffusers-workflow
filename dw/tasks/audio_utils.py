@@ -74,6 +74,53 @@ def frames_to_samples(frames, fps, sample_rate):
     return int(round(frames / fps * sample_rate))
 
 
+def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
+    """Pad a joined track that falls short of its frame grid, and warn.
+
+    concat_videos and dissolve_videos each build their joined track by
+    measuring and concatenating/crossfading the actual input waveforms, with
+    nothing reconciling a shortfall against total_frames - so an input that
+    is itself short of its own frame grid (#435 traced this to an
+    ltx2/keyframes clip short of its 121-frame bucket) propagates its
+    shortfall into the join, and the shortfall compounds across further
+    joins that each take the previous join's output as an input. The same
+    remedy #428 gave pair_audio's 'fit: video' for a shortfall, applied here
+    at the one place every join's audio passes through before its shot map
+    is measured.
+
+    A track *longer* than its frame grid is left alone: concat_videos has
+    measured such an overrun deliberately since #378 (its own shot keeps the
+    samples it actually took, not a count derived from frame/fps
+    arithmetic), and trimming it here would silently reverse that contract
+    for the whole joined track.
+    """
+    if audio is None or not total_frames or not fps or not sample_rate:
+        return audio
+
+    wanted = frames_to_samples(total_frames, fps, sample_rate)
+    have = audio.shape[1]
+    if have >= wanted:
+        return audio
+
+    audio_seconds = have / float(sample_rate)
+    video_seconds = total_frames / float(fps)
+    pad_samples = wanted - have
+    audio = numpy.pad(audio, ((0, 0), (0, pad_samples)))
+    emit_warning(
+        f"{command}: the joined track is {audio_seconds:.3f} s and the "
+        f"joined video is {video_seconds:.3f} s ({total_frames} frames at "
+        f"{fps:g} fps) - padded the track with {pad_samples} sample"
+        f"{'s' if pad_samples != 1 else ''} of silence to reach the frame "
+        "grid, so the shortfall does not carry into a later join.",
+        kind="joined_audio_padded_to_frames",
+        command=command,
+        audio_seconds=audio_seconds,
+        video_seconds=video_seconds,
+        pad_samples=pad_samples,
+    )
+    return audio
+
+
 def slice_samples(waveform, start, length):
     """Cut length samples out of a (channels, samples) waveform from start.
 

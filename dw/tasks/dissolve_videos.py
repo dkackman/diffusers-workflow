@@ -23,6 +23,7 @@ from ..shots import measured_num_samples, nested_shots, shot_record
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
+    fit_audio_to_frames,
     frames_to_samples,
     match_levels as match_track_levels,
     resample_waveform,
@@ -132,6 +133,8 @@ def dissolve_videos(
         match_levels,
         match_levels_dbfs,
         sample_rate,
+        len(frames),
+        written_fps,
     )
     shots = _dissolve_shots(
         loaded,
@@ -268,6 +271,8 @@ def _dissolve_audio(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
+    total_frames=None,
+    written_fps=None,
 ):
     """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
@@ -321,7 +326,8 @@ def _dissolve_audio(
         )
     else:
         warn_on_level_spread(waveforms, "dissolve_videos")
-    return (
-        crossfade_concat(waveforms, sample_rate, crossfade_ms),
-        sample_rate,
+    joined = crossfade_concat(waveforms, sample_rate, crossfade_ms)
+    joined = fit_audio_to_frames(
+        joined, sample_rate, total_frames, written_fps, "dissolve_videos"
     )
+    return joined, sample_rate
