@@ -133,6 +133,27 @@ class TestDissolveVideos:
         assert warnings[0]["sample_rate"] == 200
         assert warnings[0]["sample_rates"] == {"video 1": 100, "video 2": 200}
 
+    def test_agreeing_rates_resampled_to_a_pinned_rate_draw_no_warning(self):
+        """#453: every input at 32 kHz and the template pinning 44.1 kHz
+        warned that the videos 'carry audio at different sample rates' -
+        they didn't, and converting to the rate asked for is not a decision
+        made on the caller's behalf."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        first = audio_video(8, 0, 1.0, sample_rate=100)
+        second = audio_video(8, 0, 1.0, sample_rate=100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = dissolve_videos([first, second], 2, fps=4, sample_rate=200)
+        finally:
+            deactivate_context(token)
+
+        assert result.sample_rate == 200
+        assert [e for e in events if e.get("kind") == "sample_rate_mismatch"] == []
+        assert any(e["event"] == "log" and "200 Hz" in e["message"] for e in events)
+
     def test_matching_rates_are_left_alone(self, caplog):
         first = audio_video(8, 0, 1.0, sample_rate=100)
         second = audio_video(8, 0, 1.0, sample_rate=100)
@@ -182,7 +203,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         from dw.tasks.audio_utils import frames_to_samples
 
         short = AudioVideo(
-            frames(8, 0), numpy.full((2, 190), 0.5, dtype=numpy.float32), 100
+            frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
         )
 
         result = dissolve_videos(
@@ -213,7 +234,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         from dw.events import RunContext, activate_context, deactivate_context
 
         short = AudioVideo(
-            frames(8, 0), numpy.full((2, 190), 0.5, dtype=numpy.float32), 100
+            frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
         )
 
         events = []
@@ -228,7 +249,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         ]
         assert len(warnings) == 1
         assert warnings[0]["command"] == "dissolve_videos"
-        assert warnings[0]["pad_samples"] == 10
+        assert warnings[0]["pad_samples"] == 30
 
     def test_a_track_already_on_the_grid_draws_no_warning(self, caplog):
         result = dissolve_videos(

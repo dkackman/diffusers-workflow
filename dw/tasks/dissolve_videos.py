@@ -17,7 +17,7 @@ import logging
 import numpy
 from PIL import Image
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..result import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
 from .audio_utils import (
@@ -298,7 +298,16 @@ def _dissolve_audio(
     rates = {v.sample_rate for v in tracks}
     sample_rate = sample_rate or max(rates)
     waveforms = [as_channels_samples(v.audio) for v in tracks]
-    if len(rates) != 1 or any(v.sample_rate != sample_rate for v in tracks):
+    if len(rates) == 1 and next(iter(rates)) != sample_rate:
+        # The inputs agree and the caller pinned another rate: converting
+        # to what was asked for is not a decision made on its behalf (#453)
+        emit_log(
+            f"dissolve_videos: resampling every track from {next(iter(rates))} Hz "
+            f"to the requested {sample_rate} Hz",
+            command="dissolve_videos",
+            sample_rate=sample_rate,
+        )
+    elif len(rates) != 1:
         per_track = {name: v.sample_rate for name, v in zip(track_names, tracks)}
         emit_warning(
             "dissolve_videos: videos carry audio at different sample rates ("
@@ -311,14 +320,14 @@ def _dissolve_audio(
             sample_rate=sample_rate,
             sample_rates=per_track,
         )
-        waveforms = [
-            (
-                waveform
-                if video.sample_rate == sample_rate
-                else resample_waveform(waveform, video.sample_rate, sample_rate)
-            )
-            for video, waveform in zip(tracks, waveforms)
-        ]
+    waveforms = [
+        (
+            waveform
+            if video.sample_rate == sample_rate
+            else resample_waveform(waveform, video.sample_rate, sample_rate)
+        )
+        for video, waveform in zip(tracks, waveforms)
+    ]
     crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     if match_levels:
         waveforms = match_track_levels(

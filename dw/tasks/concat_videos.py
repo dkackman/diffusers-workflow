@@ -11,7 +11,7 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 import logging
 import os
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..result import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from .audio_utils import (
@@ -153,7 +153,16 @@ def concat_videos(
         if waveform is not None and video.sample_rate
     ]
     sample_rate = sample_rate or (max(rates) if rates else None)
-    if rates and any(rate != sample_rate for rate in rates):
+    if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
+        # The inputs agree and the caller pinned another rate: converting
+        # to what was asked for is not a decision made on its behalf (#453)
+        emit_log(
+            f"concat_videos: resampling every track from {rates[0]} Hz to the "
+            f"requested {sample_rate} Hz",
+            command="concat_videos",
+            sample_rate=sample_rate,
+        )
+    elif rates and any(rate != sample_rate for rate in rates):
         # emit_warning rather than logger.warning, for the reason the level
         # spread below is emitted: resampling every track is an audio
         # decision made on the caller's behalf, and a caller reading the job
@@ -176,14 +185,16 @@ def concat_videos(
             sample_rate=sample_rate,
             sample_rates=per_video,
         )
-        waveforms = [
-            (
-                waveform
-                if waveform is None or video.sample_rate == sample_rate
-                else resample_waveform(waveform, video.sample_rate, sample_rate)
-            )
-            for video, waveform in zip(videos, waveforms)
-        ]
+    waveforms = [
+        (
+            waveform
+            if waveform is None
+            or not video.sample_rate
+            or video.sample_rate == sample_rate
+            else resample_waveform(waveform, video.sample_rate, sample_rate)
+        )
+        for video, waveform in zip(videos, waveforms)
+    ]
 
     if match_levels:
         waveforms = match_track_levels(waveforms, match_levels, match_levels_dbfs)

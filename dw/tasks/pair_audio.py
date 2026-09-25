@@ -209,10 +209,9 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             audio+video into) writes: encoding is downstream of this
             function and can still trim or pad the written track by a
             further handful of samples (#428 measured up to ~30, well under
-            a millisecond). On a video with recorded shots the save reports
-            that residual as `joined_audio_short_after_mux` (#435); without
-            shots nothing separates it from ordinary codec rounding, and it
-            passes with no warning. `get_gallery_metadata`'s `media.shots`
+            a millisecond). The save logs that residual; on a video with
+            recorded shots it warns (`joined_audio_short_after_mux`, #435)
+            only once it reaches a frame. `get_gallery_metadata`'s `media.shots`
             and `assess_output`'s `sync_length` are measured against the
             file as written, not this prediction, so they are the ground
             truth for exactly how long the saved track runs

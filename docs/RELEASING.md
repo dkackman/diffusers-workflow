@@ -60,9 +60,12 @@ release body once the tag has published (`gh release edit v0.4.0
   one-frame still (#443).
 - `pair_audio fit: "video"` always fits, and warns on any nonzero gap
   (#428/#429). `concat_videos` and `dissolve_videos` pad a short joined
-  track to the frame grid (`joined_audio_padded_to_frames`), and a residual
-  the AAC mux trims off is reported as `joined_audio_short_after_mux`;
-  `media.shots` is measured against the file as written (#426/#435).
+  track to the frame grid, warning (`joined_audio_padded_to_frames`) only
+  when the pad is a frame or more; a residual the AAC mux trims off is
+  logged, or warned as `joined_audio_short_after_mux` from a frame up.
+  `media.shots` is measured against the file as written (#426/#435/#454).
+  Neither warns about resampling inputs that agree to a pinned
+  `sample_rate` (#453).
 - New warnings: `match_levels_near_silent` (#434), and `shot_span_overrun`
   from the probes plus a validate-time check (#425).
 - Error text changed: `delete_workspace` (#437/#438), the sub-workflow path

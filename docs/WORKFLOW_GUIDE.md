@@ -816,8 +816,7 @@ the file's run recorded: the run manifest for an output, and the sidecar
 `keep_output` wrote for an asset.
 
 A last shot's `num_samples` a few dozen samples off `round(num_frames *
-sample_rate / fps)`, with a `joined_audio_short_after_mux` warning naming
-the gap, is expected, not a finding - see `pair_audio` in the tasks guide's
+sample_rate / fps)` is expected, not a finding - see `pair_audio` in the tasks guide's
 Video Processing section for why.
 
 **Procedure.**
@@ -1619,7 +1618,7 @@ against the new track - every shot but the last is `round(start_frame / fps *
 sample_rate)`, and the last one runs to the track's actual end - measured
 again, once the file is written, against what it decodes to. So its
 `num_samples` can be a few dozen samples off `round(num_frames * sample_rate
-/ fps)`: the AAC encode's trim, reported as `joined_audio_short_after_mux`
+/ fps)`: the AAC encode's trim, recorded in the job's event log
 (not a dropped sample - a real
 mismatch between the track and the video's length is its own warning,
 `audio_video_length_mismatch` or `audio_padded_to_video/audio_trimmed_to_video`

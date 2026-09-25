@@ -705,6 +705,29 @@ class TestSaveAudioVideo:
             deactivate_context(token)
         return [e for e in captured if e["event"] == "warning"]
 
+    def test_a_sub_frame_mux_trim_is_logged_not_warned(self):
+        # #454: the encoder's alignment leaves every joined deliverable a few
+        # samples short; under a frame it is logged, not a warning on every
+        # stock template run.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert not [w for w in warnings if w["kind"] == "joined_audio_short_after_mux"]
+        assert artifact.shots[1]["num_samples"] == 970
+
     def test_a_mux_trim_past_the_fitted_grid_warns(self):
         # #435: fit_audio_to_frames already pads the in-memory track to the
         # frame grid before encoding, but a lossy mux can trim further - the
@@ -720,7 +743,7 @@ class TestSaveAudioVideo:
 
         with patch(
             "dw.media_info.probe_media",
-            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+            return_value={"audio_stream_seconds": 1.95, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
                 lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
@@ -729,8 +752,8 @@ class TestSaveAudioVideo:
         (warning,) = [
             w for w in warnings if w["kind"] == "joined_audio_short_after_mux"
         ]
-        assert warning["shortfall_samples"] == 30
-        assert warning["written_samples"] == 1970
+        assert warning["shortfall_samples"] == 50
+        assert warning["written_samples"] == 1950
         assert warning["expected_samples"] == 2000
         assert warning["file"] == "test-0.0.mp4"
 

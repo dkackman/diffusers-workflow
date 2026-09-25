@@ -1011,7 +1011,19 @@ class Result:
                     from .tasks.video_utils import AUDIO_FIT_TOLERANCE_SECONDS
 
                     tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
-                    if 0 < shortfall <= tolerance:
+                    if 0 < shortfall < probed_info["sample_rate"] / video_fps:
+                        # Under a frame: the encoder's alignment on every
+                        # joined deliverable, not something a caller can act
+                        # on - logged, with the shots already re-measured
+                        emit_log(
+                            f"{os.path.basename(output_path)}'s soundtrack "
+                            f"decodes {shortfall} sample(s) short of its "
+                            f"{frame_count}-frame grid after muxing; the shot "
+                            "map is measured against what it decodes to",
+                            file=os.path.basename(output_path),
+                            shortfall_samples=shortfall,
+                        )
+                    elif 0 < shortfall <= tolerance:
                         emit_warning(
                             f"{os.path.basename(output_path)}'s soundtrack decodes "
                             f"{shortfall} sample(s) short of its {frame_count}-frame "

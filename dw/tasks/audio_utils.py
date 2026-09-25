@@ -75,7 +75,8 @@ def frames_to_samples(frames, fps, sample_rate):
 
 
 def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
-    """Pad a joined track that falls short of its frame grid, and warn.
+    """Pad a joined track that falls short of its frame grid, and warn when
+    the gap is a frame or more.
 
     concat_videos and dissolve_videos each build their joined track by
     measuring and concatenating/crossfading the actual input waveforms, with
@@ -106,6 +107,18 @@ def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
     video_seconds = total_frames / float(fps)
     pad_samples = wanted - have
     audio = numpy.pad(audio, ((0, 0), (0, pad_samples)))
+    if pad_samples < sample_rate / fps:
+        # Less than one frame is rounding between the rate and the frame
+        # grid, the gap pair_audio's own unfitted check leaves unwarned
+        # (LENGTH_WARN_MS): padded, and logged, but not a warning on every
+        # stock join (#454)
+        emit_log(
+            f"{command}: padded the joined track with {pad_samples} sample"
+            f"{'s' if pad_samples != 1 else ''} of silence to the frame grid",
+            command=command,
+            pad_samples=pad_samples,
+        )
+        return audio
     emit_warning(
         f"{command}: the joined track is {audio_seconds:.3f} s and the "
         f"joined video is {video_seconds:.3f} s ({total_frames} frames at "
