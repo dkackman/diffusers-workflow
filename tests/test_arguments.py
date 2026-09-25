@@ -380,9 +380,7 @@ class TestRealizeArgs:
         with tempfile.TemporaryDirectory() as temp_dir:
             Image.new("RGB", (50, 50)).save(os.path.join(temp_dir, "still.jpg"))
 
-            args = {
-                "video": {"media_type": "image", "location": "still.jpg"}
-            }
+            args = {"video": {"media_type": "image", "location": "still.jpg"}}
             realize_args(args, base_dir=temp_dir)
 
             assert isinstance(args["video"], Image.Image)
