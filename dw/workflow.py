@@ -32,7 +32,11 @@ from .locations import location_errors
 from .reference_limits import reference_limit_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
-from .introspection import task_signature_errors, component_type_errors
+from .introspection import (
+    task_signature_errors,
+    component_type_errors,
+    component_name_errors,
+)
 from .dissolve_frame_errors import dissolve_frame_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
@@ -761,6 +765,12 @@ class Workflow:
             # after a checkpoint the plan had already quoted for downloading
             # (dw/introspection.py, #345)
             + component_type_errors(expanded, source_indices)
+            # A step's pipeline configures a component (`configuration.
+            # components`) its component_type does not register - validated
+            # clean and died 3s into the run's `loading` phase, after a
+            # checkpoint (and for an IC-LoRA step, LoRA weights) the plan had
+            # already quoted for downloading (dw/introspection.py, #442)
+            + component_name_errors(expanded, source_indices)
             # A value outside a rule the workflow declares - the bound that
             # cost 138 s of loading to discover, refused for free at the
             # path the value sits at (dw/variable_constraints.py, #96)

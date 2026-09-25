@@ -369,6 +369,29 @@ def unknown_call_arguments(name, argument_names):
     return sorted(set(argument_names) - known)
 
 
+def unknown_pipeline_components(name, component_names):
+    """The given component names a pipeline's constructor does not register.
+
+    A dotted name ('text_encoder.model') is checked by its first segment -
+    the component itself is what the constructor registers; what a dotted
+    path reaches inside it is not this check's business.
+
+    Empty when the constructor takes **kwargs (no name can be proven wrong)
+    or when the class cannot be resolved or inspected - this feeds warnings,
+    and a warning must never be wrong.
+    """
+    try:
+        cls = load_pipeline_class(name)
+        signature = inspect.signature(cls.__init__)
+    except (ValueError, TypeError):
+        return []
+    parameters = [p for p in signature.parameters.values() if p.name != "self"]
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return []
+    known = {p.name for p in parameters}
+    return sorted({name for name in component_names if name.split(".")[0] not in known})
+
+
 def list_tasks():
     """Every task command a workflow's task step can name.
 
@@ -938,6 +961,88 @@ def component_type_errors(workflow_definition, source_indices=None):
                 {
                     "path": render_path(("steps", source) + error["path"]),
                     "message": full_message,
+                }
+            )
+    return errors
+
+
+def component_name_errors(workflow_definition, source_indices=None):
+    """Every name under a step's `pipeline.configuration.components` that
+    the named component_type's constructor does not register, as
+    [{path, message}] - a component name it does not have was previously
+    caught only ~3s into the run's `loading` phase, after a checkpoint (and
+    for an IC-LoRA step, the LoRA weights) the plan had already quoted for
+    downloading (#442). Checked the same way `workflow_argument_warnings`
+    checks a `__call__` argument: against the class's own constructor
+    signature, so the rule can never refuse a name that would in fact have
+    worked, and only for a bare, loadable component_type - escaped and
+    dotted ones are left alone.
+
+    `reused_components` names are excluded: those are configured by the step
+    that shared them, not loaded here, so a name only valid because it was
+    reused is not a mistake.
+
+    The definition handed here has already been substituted and expanded,
+    matching component_type_errors; source_indices maps each expanded step
+    back to the step the author wrote.
+    """
+    from .for_each import MEMBER_SEPARATOR, render_path
+
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        pipeline = step.get("pipeline")
+        if not isinstance(pipeline, dict):
+            continue
+        configuration = pipeline.get("configuration")
+        if not isinstance(configuration, dict):
+            continue
+        component_type = configuration.get("component_type")
+        if not isinstance(component_type, str) or not _NAME_PATTERN.match(
+            component_type
+        ):
+            continue
+        components = configuration.get("components")
+        if not isinstance(components, dict):
+            continue
+        reused = set(configuration.get("reused_components") or [])
+        component_names = [name for name in components if name not in reused]
+        unknown = unknown_pipeline_components(component_type, component_names)
+        if not unknown:
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+        for component_name in unknown:
+            errors.append(
+                {
+                    "path": render_path(
+                        (
+                            "steps",
+                            source,
+                            "pipeline",
+                            "configuration",
+                            "components",
+                            component_name,
+                        )
+                    ),
+                    "message": (
+                        f"Step '{step.get('name')}': {component_type} has no "
+                        f"component '{component_name}'{where}."
+                    ),
                 }
             )
     return errors

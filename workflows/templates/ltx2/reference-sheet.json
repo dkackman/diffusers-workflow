@@ -84,9 +84,6 @@
                         },
                         "vocoder": {
                             "device": "cuda"
-                        },
-                        "duration_head": {
-                            "device": "cuda"
                         }
                     },
                     "vae": {
