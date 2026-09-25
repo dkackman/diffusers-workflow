@@ -525,7 +525,10 @@ class Workflow:
                 or "\\" in builtin_name
             ):
                 raise InvalidInputError(
-                    f"Invalid builtin workflow name: {builtin_name}"
+                    f"Invalid builtin workflow name: {builtin_name}. It must "
+                    "be a bare '<name>.json' filename with no path segments - "
+                    f"'builtin:' only looks in the packaged workflows root: "
+                    f"{builtin_root()}"
                 )
             confine_to = builtin_root()
             resolved = os.path.join(confine_to, builtin_name)
@@ -1895,7 +1898,10 @@ class Workflow:
                         or "\\" in builtin_name
                     ):
                         raise InvalidInputError(
-                            f"Invalid builtin workflow name: {builtin_name}"
+                            f"Invalid builtin workflow name: {builtin_name}. "
+                            "It must be a bare '<name>.json' filename with no "
+                            "path segments - 'builtin:' only looks in the "
+                            f"packaged workflows root: {builtin_root()}"
                         )
                     # Builtins ship inside the package, outside any
                     # workflow_dir - confine them to their own directory

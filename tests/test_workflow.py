@@ -336,6 +336,29 @@ class TestSubWorkflowConfinement:
         assert isinstance(child, Workflow)
         assert child.name == "test_job"
 
+    def test_a_traversing_builtin_name_names_the_builtin_root(self, tmp_path):
+        # #422: the refusal named only the rejected name, not where
+        # 'builtin:' looks
+        from dw.security import InvalidInputError
+        from dw.workflow_sources import builtin_root
+
+        workflow_dir = tmp_path / "workflows"
+        workflow_dir.mkdir()
+        parent = Workflow(
+            {"id": "parent", "steps": []},
+            str(tmp_path / "outputs"),
+            str(workflow_dir / "__inline__.json"),
+            str(workflow_dir),
+        )
+        step = {"name": "child", "workflow": {"path": "builtin:../../x.json"}}
+
+        with pytest.raises(InvalidInputError) as exc_info:
+            parent.create_step_action(step, {}, {}, 42, "cpu")
+
+        message = str(exc_info.value)
+        assert "../../x.json" in message
+        assert builtin_root() in message
+
 
 class TestSubWorkflowPathsAcrossTheCatalog:
     """A template under templates/ names a model config under models/ as

@@ -20,7 +20,7 @@ writable source, which is what "open an example, change it, save" should do.
 import logging
 import os
 
-from .security import SecurityError, contained, validate_path
+from .security import PathTraversalError, SecurityError, contained, validate_path
 
 logger = logging.getLogger("dw")
 
@@ -274,6 +274,12 @@ class SubWorkflowNotFound(Exception):
         )
 
 
+def _describe_roots(roots):
+    """Roots this resolution consulted, for a refusal message - never empty
+    text, since a run with none configured still owes an answer."""
+    return ", ".join(roots) if roots else "(no workflow sources configured)"
+
+
 def resolve_sub_workflow(path, base_dir, confine_to):
     """Where a sub-workflow step's `path` resolves to, and the root the
     child is confined to, as (path, root).
@@ -312,8 +318,20 @@ def resolve_sub_workflow(path, base_dir, confine_to):
             source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
             if source.contains(candidate) and os.path.isfile(candidate):
                 return candidate, root
-        # No root holds it - hand it back confined as it was, so the
-        # security layer writes the refusal it always did
+        if confine_to:
+            # A real confinement boundary was named and nothing on the
+            # search path holds this candidate - refuse here, naming every
+            # root this resolution consulted, rather than handing an
+            # unqualified path back to validate_workflow_path for a refusal
+            # that names only the rejected path and not where it looked
+            # (#422)
+            raise PathTraversalError(
+                f"Path outside every workflow source: {candidate}. Looked in: "
+                + _describe_roots(roots)
+            )
+        # Unconfined (a bare CLI run naming no workflow_dir) - hand it back
+        # as before and let validate_workflow_path's base=None passthrough
+        # decide, since there is no boundary to report roots for
         return candidate, confine_to
 
     if base_dir:
@@ -327,16 +345,24 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         # absent, the distinction the search path below keeps: the
         # PathTraversalError propagates to the caller
         root = confine_to or catalog_root(base_dir)
+        search_roots = [root] + [r for r in roots if r != root]
         for name in _candidate_names(path):
             # normpath first: validate_path refuses a '..' outright, so a
             # climb that stays inside the root has to be collapsed before it
             # is judged. Its return value is what gets stat'ed - and being
             # the validator's own, it is contained by construction
-            candidate = validate_path(
-                os.path.normpath(os.path.join(base_dir, name)),
-                root,
-                allow_create=True,
-            )
+            try:
+                candidate = validate_path(
+                    os.path.normpath(os.path.join(base_dir, name)),
+                    root,
+                    allow_create=True,
+                )
+            except PathTraversalError as e:
+                # Same refusal, naming the search path rather than only the
+                # resolved (rejected) path (#422)
+                raise PathTraversalError(
+                    f"{e} Looked in: {_describe_roots(search_roots)}"
+                ) from e
             tried.append(candidate)
             if os.path.isfile(candidate):
                 return candidate, confine_to
