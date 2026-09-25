@@ -139,9 +139,7 @@ class TestLifecycle:
         # A 404 can never be fixed by acknowledging - the workspace does not
         # exist to delete - so the "call again with acknowledged_cost=True"
         # sentence must not be appended to it (#438)
-        client, seen = recording(
-            {"detail": "No such workspace: ghost"}, status=404
-        )
+        client, seen = recording({"detail": "No such workspace: ghost"}, status=404)
         with pytest.raises(DwApiError) as refusal:
             delete_workspace(client, "ghost")
         message = str(refusal.value)
@@ -149,7 +147,9 @@ class TestLifecycle:
         assert "acknowledged_cost" not in message
         assert seen[-1].url.params.get("acknowledged") is None
 
-    def test_deleting_the_default_workspace_carries_no_acknowledgement_instruction(self):
+    def test_deleting_the_default_workspace_carries_no_acknowledgement_instruction(
+        self,
+    ):
         # The server refuses this with 400, not 409 - also not something
         # acknowledging can fix
         client, _seen = recording(
