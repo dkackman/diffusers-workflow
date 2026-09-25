@@ -2446,6 +2446,11 @@ def test_output_file_route_resolves_an_asset_reference(asset_server, tmp_path):
 
         missing = client.get("/outputs/asset:nothing.png")
         assert missing.status_code == 404
+        # /outputs is outside the token gate: the miss still says what went
+        # wrong, but never names a server path
+        detail = missing.json()["detail"]
+        assert "nothing.png" in detail
+        assert str(tmp_path) not in detail
 
 
 def test_gallery_urls_change_when_a_file_is_rewritten(server, tmp_path):

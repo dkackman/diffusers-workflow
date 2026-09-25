@@ -4478,7 +4478,20 @@ def create_app(
         bare StaticFiles 404 for the same name gave no hint why."""
         name = _strip_output_prefix(name)
         if is_asset_reference(name):
-            path = _asset_file(name, ws)
+            # This route is outside the token gate (the auth middleware
+            # covers /api/ and /mcp only), so a miss must not carry
+            # _asset_file's detail, which names every root searched by its
+            # absolute server path. Keep the hint #445 added, without them.
+            try:
+                path = _asset_file(name, ws)
+            except HTTPException as e:
+                if e.status_code != 404:
+                    raise
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Unknown asset {name!r}: not in this workspace's "
+                    "asset library (list_assets shows what is)",
+                ) from None
             files = _static_files_for(os.path.dirname(path))
             response = await files.get_response(os.path.basename(path), request.scope)
         else:
