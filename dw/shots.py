@@ -263,16 +263,45 @@ def shot_reference_names(references):
 
 
 def named_shots(shots, names):
-    """The shots with each positional one renamed where the step named it."""
-    if not shots or not names or len(names) != len(shots):
+    """The shots with each renamed where the step named its source input.
+
+    `names` is one name per input the join was given (`shot_reference_names`
+    over the step's `videos` argument); a flattened shot is matched to it by
+    the `source_index` the join stamped on it - not by position in `shots`,
+    which is a different length from `names` as soon as one input nests more
+    than one shot of its own (#432: the old positional zip then silently
+    skipped every rename past that input, since the length guard refused the
+    whole list rather than the one entry it could not place). Only an input
+    that contributed exactly one shot takes the override; one that nested
+    keeps the names its own inner shots already carry - renaming all of them
+    to the same one name would collide them. A shot with no `source_index` (a
+    flat list built by hand rather than by concat_videos/dissolve_videos, as
+    a for_each join's `gather:` result is) falls back to its position in
+    `shots`, which is exactly what `source_index` means for a list with no
+    nesting.
+    """
+    if not shots:
         return shots
-    return [
-        {**shot, "name": name} if name else shot for shot, name in zip(shots, names)
+    indices = [
+        shot["source_index"] if "source_index" in shot else position
+        for position, shot in enumerate(shots)
     ]
+    counts = {}
+    for index in indices:
+        counts[index] = counts.get(index, 0) + 1
+    renamed = []
+    for shot, index in zip(shots, indices):
+        entry = {key: value for key, value in shot.items() if key != "source_index"}
+        name = names[index] if names and index < len(names) else None
+        if name and counts.get(index) == 1:
+            entry["name"] = name
+        renamed.append(entry)
+    return renamed
 
 
 def _rename_in_place(shots, names):
-    """Write the step-named `name`s back onto the shot dicts themselves.
+    """Write the step-named `name`s back onto the shot dicts themselves, and
+    drop the transient `source_index` tag named_shots placed them by.
 
     `Result.save` stores `saved_shots[path]` as the artifact's own `.shots`
     list, not a copy (`self._artifacts_for` / `getattr(artifact, "shots")`),
@@ -284,8 +313,8 @@ def _rename_in_place(shots, names):
     both.
     """
     for shot, named in zip(shots, named_shots(shots, names)):
-        if named is not shot:
-            shot["name"] = named["name"]
+        shot["name"] = named["name"]
+        shot.pop("source_index", None)
 
 
 def step_shots(saved_shots, saved_files, references=None):

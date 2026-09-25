@@ -213,6 +213,11 @@ def _dissolve_shots(
                 nested[0]["overlap_frames"] = dissolve_frames
             if dissolve_frames and nested and index < len(videos) - 1:
                 nested[-1]["num_frames"] -= dissolve_frames
+            # Which input this shot came from - named_shots (dw/shots.py)
+            # uses it to place a step's override name on the right shot once
+            # an earlier input has nested more than one of its own (#432)
+            for shot in nested:
+                shot["source_index"] = index
             shots.extend(nested)
         else:
             frame_end = (
@@ -228,6 +233,7 @@ def _dissolve_shots(
             )
             if index and dissolve_frames:
                 shot["overlap_frames"] = dissolve_frames
+            shot["source_index"] = index
             shots.append(shot)
     measured_num_samples(shots, total_samples)
     return shots
