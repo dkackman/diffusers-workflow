@@ -135,6 +135,32 @@ class TestLifecycle:
         assert "acknowledged=true" not in message
         assert seen[-1].url.params.get("acknowledged") is None
 
+    def test_deleting_a_nonexistent_one_carries_no_acknowledgement_instruction(self):
+        # A 404 can never be fixed by acknowledging - the workspace does not
+        # exist to delete - so the "call again with acknowledged_cost=True"
+        # sentence must not be appended to it (#438)
+        client, seen = recording(
+            {"detail": "No such workspace: ghost"}, status=404
+        )
+        with pytest.raises(DwApiError) as refusal:
+            delete_workspace(client, "ghost")
+        message = str(refusal.value)
+        assert "No such workspace: ghost" in message
+        assert "acknowledged_cost" not in message
+        assert seen[-1].url.params.get("acknowledged") is None
+
+    def test_deleting_the_default_workspace_carries_no_acknowledgement_instruction(self):
+        # The server refuses this with 400, not 409 - also not something
+        # acknowledging can fix
+        client, _seen = recording(
+            {"detail": "The default workspace cannot be deleted"}, status=400
+        )
+        with pytest.raises(DwApiError) as refusal:
+            delete_workspace(client, "default")
+        message = str(refusal.value)
+        assert "cannot be deleted" in message
+        assert "acknowledged_cost" not in message
+
     def test_deleting_the_current_one_falls_back_to_the_default(self):
         client, seen = recording(listing("default", "shots"))
         use_workspace(client, "shots")
