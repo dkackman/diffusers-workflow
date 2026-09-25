@@ -348,6 +348,12 @@ def _frames_of(video):
     if isinstance(video, AudioVideo):
         return _frames_of(video.frames)
 
+    # A bare still - e.g. a {"media_type": "image", ...} reference fetch_video
+    # now loads as a plain PIL image (#443) - is a one-frame video, the same
+    # accommodation loop_frames already made for itself with _is_frame
+    if isinstance(video, Image.Image):
+        return [video]
+
     if isinstance(video, list):
         # A one-video batch - [[frame, ...]] or [ndarray] - unwraps to the video;
         # a single-frame video - [frame] - is already the frames

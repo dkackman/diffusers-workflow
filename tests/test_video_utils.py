@@ -781,6 +781,60 @@ class TestFrameGrid:
 
         assert frame_grid(clip, count="4", tile_width=32).size == (2 * 32, 2 * 16)
 
+    def test_a_list_of_stills_loaded_through_fetch_video_tiles(self):
+        # #443: the reported repro - two character portraits passed to
+        # frame_grid's `video` argument as {"media_type": "image", ...}
+        # references, the way validate_workflow's own hint tells a caller to
+        # - loaded through the real fetch_video path, not a mock of it
+        import os
+        import tempfile
+        from dw.arguments import fetch_video
+        from dw.tasks.video_utils import frame_grid
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (64, 32), "red").save(os.path.join(temp_dir, "a.jpg"))
+            Image.new("RGB", (64, 32), "blue").save(os.path.join(temp_dir, "b.jpg"))
+
+            video = fetch_video(
+                [
+                    {"media_type": "image", "location": "a.jpg"},
+                    {"media_type": "image", "location": "b.jpg"},
+                ],
+                base_dir=temp_dir,
+            )
+
+            grid = frame_grid(video, count=2, tile_width=64, label=False)
+
+            assert grid.size == (2 * 64, 1 * 32)
+
+
+class TestGetFrameOnAStill:
+    """#443's audit: get_frame shares fetch_video's loading path, so a still
+    handed to it through the same media_type reference must not raise."""
+
+    def test_get_frame_of_a_bare_still_returns_the_still(self):
+        from dw.tasks.video_utils import get_frame
+
+        still = Image.new("RGB", (8, 4), "green")
+
+        assert get_frame(still, 0) == still
+
+    def test_get_frame_of_a_still_loaded_through_fetch_video(self):
+        import os
+        import tempfile
+        from dw.arguments import fetch_video
+        from dw.tasks.video_utils import get_frame
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Image.new("RGB", (8, 4), "green").save(os.path.join(temp_dir, "s.png"))
+
+            video = fetch_video(
+                {"media_type": "image", "location": "s.png"}, base_dir=temp_dir
+            )
+            frame = get_frame(video, 0)
+
+            assert frame.size == (8, 4)
+
 
 class TestFitAudioToFrames:
     """Codec padding trimmed off a generated track, in whatever layout the
