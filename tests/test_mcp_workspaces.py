@@ -114,6 +114,27 @@ class TestLifecycle:
         assert "acknowledged_cost=True" in str(refusal.value)
         assert seen[-1].url.params.get("acknowledged") is None
 
+    def test_refusal_names_only_the_mcp_acknowledgement_param(self):
+        # The server's own 409 names its HTTP query param (`acknowledged=true`,
+        # dw/server/app.py); an MCP caller has no such parameter and must not
+        # be told to use it - only `acknowledged_cost=True` should appear (#437)
+        client, seen = recording(
+            {
+                "detail": {
+                    "message": "Deleting workspace 'shots' removes these "
+                    "files permanently.",
+                    "contents": {"outputs": {"files": 12, "bytes": 400}},
+                }
+            },
+            status=409,
+        )
+        with pytest.raises(DwApiError) as refusal:
+            delete_workspace(client, "shots")
+        message = str(refusal.value)
+        assert "acknowledged_cost=True" in message
+        assert "acknowledged=true" not in message
+        assert seen[-1].url.params.get("acknowledged") is None
+
     def test_deleting_the_current_one_falls_back_to_the_default(self):
         client, seen = recording(listing("default", "shots"))
         use_workspace(client, "shots")
