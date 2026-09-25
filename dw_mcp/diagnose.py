@@ -186,7 +186,8 @@ def get_job_workflow(client, job_id):
 def get_job_events(client, job_id, after=-1, limit=200, kinds=None):
     """One page of a job's progress events. `after` is exclusive - pass back
     the previous call's `last_seq` to continue. `kinds` (e.g.
-    `["log", "warning"]`) restricts the page to those `event` values -
+    `["log", "warning"]`) restricts the page to events whose `event` or
+    `kind` is one of those values -
     without it, bookkeeping events (`memory`, `step_start`, `phase`, ...)
     dominate the payload; `kinds=["log", "warning"]` is what confirms a
     chain's applied values (resample/mix/normalize gains) cheaply."""

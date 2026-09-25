@@ -734,6 +734,25 @@ class TestSaveAudioVideo:
         assert warning["expected_samples"] == 2000
         assert warning["file"] == "test-0.0.mp4"
 
+    def test_a_gap_past_the_fit_tolerance_is_not_blamed_on_the_mux(self):
+        # A track the save-time fit left alone (a score 2 s short of the
+        # cut) is audio_video_length_mismatch's to report; this warning
+        # would say it had been padded and the encoder trimmed it.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1000))  # 1 s of audio under 2 s of picture
+        shots = [shot_record("a", 0, 48, 0, 1000)]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.0, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert not [w for w in warnings if w["kind"] == "joined_audio_short_after_mux"]
+
     def test_a_mux_that_lands_exactly_on_the_grid_draws_no_warning(self):
         frames = ["frame"] * 48
         audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000

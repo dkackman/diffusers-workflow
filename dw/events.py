@@ -215,6 +215,20 @@ PHASES = ("loading", "cached", "generating", "decoding", "saving", "task")
 NON_INTERRUPTIBLE_PHASES = ("loading", "task")
 
 
+def select_kinds(events, kinds):
+    """The events whose `event` or `kind` is one of `kinds`, in order.
+
+    Both, because a consumer names what it sees: the bookkeeping events are
+    told apart by `event` (`log`, `warning`, `memory`), but a warning's
+    own type - `phase_stall`, `audio_clipped` - is its `kind`, and matching
+    `event` alone quietly returned an empty page for those. No `kinds`
+    means no filter."""
+    if not kinds:
+        return list(events)
+    allowed = set(kinds)
+    return [e for e in events if e.get("event") in allowed or e.get("kind") in allowed]
+
+
 def emit_warning(message, **data):
     """Report something the run's result carries but its status will not.
 

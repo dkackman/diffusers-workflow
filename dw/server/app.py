@@ -56,6 +56,7 @@ from ..introspection import (
     describe_task,
     workflow_argument_warnings,
 )
+from ..events import select_kinds
 from ..for_each import entry_field_warnings
 from ..schema import (
     load_schema,
@@ -1492,8 +1493,8 @@ def create_app(
         """Job events as one JSON page rather than a stream, for clients that
         poll instead of holding a connection open (the MCP server). `after` is
         exclusive, matching the SSE route's parameter of the same name.
-        `kinds` restricts the page to the named `event` values (e.g.
-        `log`, `warning`) - a consumer confirming what a step applied wants
+        `kinds` restricts the page to events whose `event` or `kind` is one
+        of the named values (e.g. `log`, `warning`, `phase_stall`) - a consumer confirming what a step applied wants
         those two and not the `memory`/bookkeeping events that otherwise
         dominate the payload."""
         job = manager.get(job_id)
@@ -1511,9 +1512,7 @@ def create_app(
             status = job.status
             pending = job.events_after(after)
             note = None
-        if kinds:
-            allowed = set(kinds)
-            pending = [event for event in pending if event.get("event") in allowed]
+        pending = select_kinds(pending, kinds)
         page = pending[:limit]
         return {
             "id": job_id,

@@ -1003,7 +1003,15 @@ class Result:
                         round(frame_count / video_fps * probed_info["sample_rate"])
                     )
                     shortfall = expected_samples - written_samples
-                    if shortfall > 0:
+                    # Only a residual the save-time fit (_fit_audio_to_frames)
+                    # would have padded: past its tolerance the track was
+                    # left at its own length, audio_video_length_mismatch
+                    # already names that gap, and "the mux trimmed it" would
+                    # misexplain it.
+                    from .tasks.video_utils import AUDIO_FIT_TOLERANCE_SECONDS
+
+                    tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
+                    if 0 < shortfall <= tolerance:
                         emit_warning(
                             f"{os.path.basename(output_path)}'s soundtrack decodes "
                             f"{shortfall} sample(s) short of its {frame_count}-frame "

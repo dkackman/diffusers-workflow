@@ -567,3 +567,21 @@ def test_the_version_is_on_disk_before_the_first_step_runs(tmp_path):
     assert closing["status"] == "completed"
     assert closing["version"] == 1
     assert closing["finished_at"] is not None
+
+
+def test_select_kinds_matches_a_warnings_kind_as_well_as_event():
+    """#436: `kinds` matched `event` only, so a warning type such as
+    phase_stall (event "warning", kind "phase_stall") selected nothing."""
+    from dw.events import select_kinds
+
+    events = [
+        {"seq": 0, "event": "memory"},
+        {"seq": 1, "event": "log", "message": "gain applied"},
+        {"seq": 2, "event": "warning", "kind": "phase_stall"},
+        {"seq": 3, "event": "warning", "kind": "audio_clipped"},
+    ]
+
+    assert [e["seq"] for e in select_kinds(events, ["phase_stall"])] == [2]
+    assert [e["seq"] for e in select_kinds(events, ["log", "warning"])] == [1, 2, 3]
+    assert [e["seq"] for e in select_kinds(events, None)] == [0, 1, 2, 3]
+    assert select_kinds(events, ["nothing"]) == []
