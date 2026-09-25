@@ -161,6 +161,26 @@ def test_step_cache_miss_when_a_saved_file_was_deleted(tmp_path):
     assert cache.get("w", step_data, 42, set(), "/out", True) is None
 
 
+def test_stale_entry_eviction_subtracts_its_size(tmp_path):
+    """#418: dropping a stale entry (its saved_files no longer exist) must
+    free its bytes the same as a replace or an LRU eviction does - otherwise
+    the phantom bytes only ever grow, and once they pass max_retained_bytes
+    every put() evicts down to one entry."""
+    cache = StepCache()
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    gone = tmp_path / "gone.png"
+    gone.write_bytes(b"x")
+    result = FakeResult("first", [str(gone)], result_list=[{"videos": _frames(5)}])
+    cache.put("w", step_data, 42, result, "/out", True)
+    size_before = cache._retained_bytes
+    assert size_before > 0
+
+    gone.unlink()
+
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
+    assert cache._retained_bytes == 0
+
+
 def test_deep_equal_compares_array_values_by_content_rather_than_raising():
     """A realized step argument can hold a numpy array (or a tensor), whose
     == yields an array, not a bool - that must not abort the run with 'truth

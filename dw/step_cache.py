@@ -336,7 +336,9 @@ class StepCache:
                 f"Cached result for step '{name}' names a file that no longer "
                 "exists - treating as a miss"
             )
-            self._entries.pop(key, None)
+            stale = self._entries.pop(key, None)
+            if stale is not None:
+                self._retained_bytes -= stale["size"]
             return None
 
         self._entries.move_to_end(key)
