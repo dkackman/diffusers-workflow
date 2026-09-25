@@ -149,8 +149,8 @@ is path-limited to those two files).
 `--next <version>` finishes the release on the other branch: it merges
 `master` back into `develop` (a fast-forward when nothing landed there
 since the release PR), sets `<version>` in the same two files, commits
-`chore: open <version> on develop`, pushes `develop`, and leaves it checked
-out. Without it, do that by hand, or `develop` goes on reporting the
+`chore: open <version> on develop` and pushes `develop`, all in a temporary
+worktree, so it works while `develop` is checked out elsewhere. Without it, do that by hand, or `develop` goes on reporting the
 previous pre-release.
 
 CI runs on every push to `develop` as well as `master` - the agent loop

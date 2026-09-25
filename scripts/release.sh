@@ -12,8 +12,10 @@
 # --next <version> also does the step after a release: merge master back
 # into develop and open <version> there, so the two branches don't diverge
 # on the bump (the 0.4.0 release did this by hand, and beta.7 never did it
-# at all - develop still said beta.6 afterwards). It leaves develop checked
-# out.
+# at all - develop still said beta.6 afterwards). It works in a temporary
+# detached worktree and pushes HEAD:develop, so nothing is checked out: git
+# refuses to check develop out here while another worktree (the agent
+# loop's checkout, say) already has it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -150,14 +152,18 @@ echo "  https://github.com/dkackman/diffusers-workflow/actions"
 if [ -n "$next" ]; then
     echo
     git fetch origin develop
-    git checkout develop
-    git merge --ff-only origin/develop
-    # A fast-forward when nothing landed on develop since the release branch
-    # was cut (the usual case under a freeze); a merge commit otherwise
-    git merge --no-edit master
-    set_version "$next"
-    git commit -m "chore: open $next on develop" -- pyproject.toml "$plugin_path"
-    git push origin develop
+    reopen=$(mktemp -d "${TMPDIR:-/tmp}/dw-release-next.XXXXXX")
+    git worktree add --detach "$reopen" origin/develop
+    (
+        cd "$reopen"
+        # A fast-forward when nothing landed on develop since the release PR
+        # (the usual case under a freeze); a merge commit otherwise
+        git merge --no-edit master
+        set_version "$next"
+        git commit -m "chore: open $next on develop" -- pyproject.toml "$plugin_path"
+        git push origin HEAD:develop
+    )
+    git worktree remove --force "$reopen"
     echo
-    echo "develop merged master and opened $next (now checked out)"
+    echo "develop merged master and opened $next"
 fi
