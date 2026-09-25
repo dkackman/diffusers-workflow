@@ -137,8 +137,9 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             reported wrong
         fps: The rate the frames play at, when the frames do not carry one -
             only used to work out how long the video is, never written
-        fit: "video" cuts the track to the length of the frames, or pads it
-            with silence and warns when it is shorter than they are. This is
+        fit: "video" cuts or pads the track with silence to the length of the
+            frames, warning either way (`audio_padded_to_video` when it pads,
+            `audio_trimmed_to_video` when it cuts). This is
             how a soundtrack follows a cut whose length is an argument
             rather than a constant: nothing in a workflow can multiply a
             list's length by a frame count, so a slice written to fit four
