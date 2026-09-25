@@ -103,6 +103,60 @@ class TestFitToTheVideo:
         assert samples(result) == wanted
         assert any("trimmed" in w for w in warnings_emitted)
 
+    def test_a_one_sample_pad_does_not_claim_the_cut_has_no_soundtrack(
+        self, warnings_emitted
+    ):
+        """A 1-sample pad from ordinary rate rounding (32 kHz doubled from a
+        16 kHz source, 248 f @ 24 fps) used to format as '0.00 s of silence
+        ... has no soundtrack' - self-contradictory, and the advice to use a
+        longer track or fewer frames cannot fix a 1-sample gap (#429)."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 1), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "0.00 s" not in padded[0]
+        assert "has no soundtrack" not in padded[0]
+        assert "1 sample" in padded[0]
+
+    def test_a_one_sample_trim_does_not_claim_content_is_gone(self, warnings_emitted):
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        long = numpy.zeros((2, wanted + 1), dtype=numpy.float32)
+        result = pair_audio(cut(248), long, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        trimmed = [w for w in warnings_emitted if "trimmed" in w]
+        assert len(trimmed) == 1
+        assert "0.00 s" not in trimmed[0]
+        assert "is gone from the deliverable" not in trimmed[0]
+        assert "1 sample" in trimmed[0]
+
+    def test_a_sub_frame_but_multi_sample_pad_still_omits_the_soundtrack_claim(
+        self, warnings_emitted
+    ):
+        """The existing 15-sample (#428) case is also well under one video
+        frame (41.67 ms at 24 fps) - it should get the same rounding-aware
+        wording as the 1-sample case, not the frame-scale 'no soundtrack'
+        claim."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "has no soundtrack" not in padded[0]
+        assert "15 samples" in padded[0]
+
+    def test_a_frame_scale_pad_still_names_the_cut_as_uncovered(
+        self, warnings_emitted
+    ):
+        """A pad at least a full video frame long is a real gap - the
+        original wording, with its advice, still applies."""
+        pair_audio(cut(744), song(30), sample_rate=SAMPLE_RATE, fit="video")
+        padded = [w for w in warnings_emitted if "padded" in w]
+        assert len(padded) == 1
+        assert "has no soundtrack" in padded[0]
+
     def test_fps_may_be_given_when_the_frames_carry_none(self):
         result = pair_audio(
             [object()] * 248, song(30), sample_rate=SAMPLE_RATE, fps=FPS, fit="video"

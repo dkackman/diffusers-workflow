@@ -97,31 +97,80 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
         return waveform
 
     fitted = slice_samples(waveform, 0, wanted)
+    # A gap smaller than one video frame cannot line up with anything the cut
+    # does - the two rates just don't divide evenly - so it is reported as
+    # what it is (a sample count) rather than as a claim on the picture
+    # ("the last part of the cut has no soundtrack") that a 1-sample pad does
+    # not support. At 24 fps a frame is 41.67 ms; formatting a sub-frame gap
+    # to two decimal places of a second is what produced "0.00 s of silence
+    # ... has no soundtrack" (#429) - self-contradictory and, followed as
+    # written, unfixable, since the gap is smaller than either 'a longer
+    # track' or 'fewer frames' can address.
+    frame_seconds = 1.0 / float(fps)
     if wanted > have:
-        emit_warning(
-            f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
-            f"{(wanted - have) / float(rate):.2f} s of silence to reach the "
-            f"{video_seconds:.2f} s of video it is laid over - the last part "
-            f"of the cut has no soundtrack. A longer track, or fewer frames, "
-            f"is what covers it.",
-            kind="audio_padded_to_video",
-            command="pair_audio",
-            audio_seconds=audio_seconds,
-            video_seconds=video_seconds,
-        )
+        pad_samples = wanted - have
+        pad_seconds = pad_samples / float(rate)
+        if pad_seconds < frame_seconds:
+            emit_warning(
+                f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
+                f"{pad_samples} sample{'s' if pad_samples != 1 else ''} "
+                f"({pad_seconds * 1000:.2f} ms) of silence to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - under one "
+                f"video frame ({frame_seconds * 1000:.1f} ms), most likely "
+                f"ordinary rounding between the track's sample rate and the "
+                f"video's frame rate rather than a real gap.",
+                kind="audio_padded_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                pad_samples=pad_samples,
+            )
+        else:
+            emit_warning(
+                f"pair_audio: 'fit' padded the {audio_seconds:.2f} s track with "
+                f"{pad_seconds:.2f} s of silence to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - the last part "
+                f"of the cut has no soundtrack. A longer track, or fewer frames, "
+                f"is what covers it.",
+                kind="audio_padded_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                pad_samples=pad_samples,
+            )
     else:
-        emit_warning(
-            f"pair_audio: 'fit' trimmed {(have - wanted) / float(rate):.2f} s "
-            f"off the {audio_seconds:.2f} s track to reach the "
-            f"{video_seconds:.2f} s of video it is laid over - that part of "
-            f"the track, whatever it held, is gone from the deliverable. A "
-            f"shorter track, or more frames, is what keeps it.",
-            kind="audio_trimmed_to_video",
-            command="pair_audio",
-            audio_seconds=audio_seconds,
-            video_seconds=video_seconds,
-            trimmed_seconds=(have - wanted) / float(rate),
-        )
+        trimmed_samples = have - wanted
+        trimmed_seconds = trimmed_samples / float(rate)
+        if trimmed_seconds < frame_seconds:
+            emit_warning(
+                f"pair_audio: 'fit' trimmed {trimmed_samples} sample"
+                f"{'s' if trimmed_samples != 1 else ''} "
+                f"({trimmed_seconds * 1000:.2f} ms) off the {audio_seconds:.2f} s "
+                f"track to reach the {video_seconds:.2f} s of video it is laid "
+                f"over - under one video frame ({frame_seconds * 1000:.1f} ms), "
+                f"most likely ordinary rounding between the track's sample rate "
+                f"and the video's frame rate rather than lost content.",
+                kind="audio_trimmed_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                trimmed_seconds=trimmed_seconds,
+                trimmed_samples=trimmed_samples,
+            )
+        else:
+            emit_warning(
+                f"pair_audio: 'fit' trimmed {trimmed_seconds:.2f} s "
+                f"off the {audio_seconds:.2f} s track to reach the "
+                f"{video_seconds:.2f} s of video it is laid over - that part of "
+                f"the track, whatever it held, is gone from the deliverable. A "
+                f"shorter track, or more frames, is what keeps it.",
+                kind="audio_trimmed_to_video",
+                command="pair_audio",
+                audio_seconds=audio_seconds,
+                video_seconds=video_seconds,
+                trimmed_seconds=trimmed_seconds,
+                trimmed_samples=trimmed_samples,
+            )
     return fitted
 
 
