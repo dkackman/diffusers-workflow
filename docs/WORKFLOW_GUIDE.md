@@ -815,6 +815,10 @@ a gallery name, `output:` or `asset:`. The shot boundaries come from what
 the file's run recorded: the run manifest for an output, and the sidecar
 `keep_output` wrote for an asset.
 
+A last shot's `num_samples` a sample or two off `round(num_frames *
+sample_rate / fps)` is expected, not a finding - see `pair_audio` in the
+tasks guide's Video Processing section for why.
+
 **Procedure.**
 
 1. After `wait_for_job`, call `assess_output` on the deliverable, which is

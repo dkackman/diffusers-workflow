@@ -452,6 +452,21 @@ returns frames without it, and this puts it back:
 | `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
 
+When the video carries recorded `shots` (from an earlier `concat_videos`,
+`dissolve_videos` or chain step), `pair_audio` remeasures each one's sample
+fields against the track it was handed. Every shot but the last is
+`round(start_frame / fps * sample_rate)`; the last one runs to the track's
+actual end, so its `num_samples` can sit a sample or two off
+`round(num_frames * sample_rate / fps)` when the track did not land exactly
+on the frame grid - rounding left over from an earlier resample, mix or
+normalize, not a dropped sample. A real mismatch between the track and the
+video's length is a separate, thresholded warning
+(`audio_video_length_mismatch`, or `audio_padded_to_video` /
+`audio_trimmed_to_video` when `fit: "video"` corrected it), so a
+one-or-two-sample difference on the last shot with none of those warnings
+present is expected, not a bug. `get_gallery_metadata`'s `media.shots`
+reports the remeasured fields.
+
 **Example:** [assemble-and-score.json](../workflows/templates/assemble-and-score.json)
 
 ### slice_audio
