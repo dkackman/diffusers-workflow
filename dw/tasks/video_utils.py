@@ -183,8 +183,12 @@ def loop_frames(video, num_frames):
         num_frames: How many frames to hand back, one or more
 
     Returns:
-        A (num_frames, height, width, channels) uint8 array - one artifact,
-        the shape an argument that takes frames wants
+        A (num_frames, height, width, channels) float32 array scaled to
+        [0, 1] - diffusers' own np frame convention, and what
+        `LTX2ReferenceCondition.frames` and its kin need: a raw ndarray
+        reaches `VaeImageProcessor.preprocess` untouched, with no /255
+        rescaling applied along the way, so a uint8 [0, 255] array read as
+        already-scaled data is 255x too bright (#444)
     """
     if isinstance(num_frames, str):
         try:
@@ -208,7 +212,8 @@ def loop_frames(video, num_frames):
     if len(frames) == 0:
         raise ValueError("loop_frames was given no frames to repeat")
     laps = -(-num_frames // len(frames))  # ceiling, so the last lap is trimmed
-    return numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+    looped = numpy.concatenate([frames] * laps, axis=0)[:num_frames]
+    return (looped.astype(numpy.float32) / 255.0).clip(0.0, 1.0)
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):

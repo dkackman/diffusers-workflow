@@ -646,6 +646,35 @@ class TestLoopFrames:
         assert looped.shape == (121, 4, 8, 3)
         assert (looped[0] == looped[120]).all()
 
+    def test_the_result_survives_diffusers_own_video_preprocessing(self):
+        """#444. loop_frames feeds LTX2ReferenceCondition.frames, which
+        diffusers' VaeImageProcessor.preprocess normalizes as `2 * x - 1`
+        with no /255 rescaling for a raw ndarray - so a uint8 [0, 255] array
+        (what frames_as_array itself returns) comes out at up to ~509
+        instead of [-1, 1], garbage into the VAE encoder. This runs the real
+        diffusers path rather than asserting the array's own range."""
+        from diffusers.video_processor import VideoProcessor
+
+        looped = loop_frames(Image.new("RGB", (64, 32), "red"), 4)
+
+        tensor = VideoProcessor(vae_scale_factor=8).preprocess_video(looped)
+
+        assert tensor.min().item() >= -1.0
+        assert tensor.max().item() <= 1.0
+
+    def test_the_result_is_float32_scaled_to_0_1(self):
+        """#444. A raw ndarray reaches diffusers' VaeImageProcessor untouched
+        - no /255 rescaling happens downstream - so loop_frames has to hand
+        back data already in the [0, 1] range its own reference-conditioning
+        caller (LTX2ReferenceCondition.frames) expects, not the uint8 [0, 255]
+        frames_as_array itself returns."""
+        looped = loop_frames(Image.new("RGB", (8, 4), "red"), 4)
+
+        assert looped.dtype == numpy.float32
+        assert looped.max() <= 1.0
+        assert looped.min() >= 0.0
+        assert numpy.isclose(looped[0, 0, 0, 0], 1.0)  # red's R channel is 255
+
     def test_a_short_clip_laps_round_and_the_last_lap_is_trimmed(self):
         frames = numpy.stack(
             [numpy.full((2, 2, 3), value, dtype=numpy.uint8) for value in (1, 2, 3)]
@@ -653,7 +682,10 @@ class TestLoopFrames:
 
         looped = loop_frames(frames, 7)
 
-        assert [int(frame[0][0][0]) for frame in looped] == [1, 2, 3, 1, 2, 3, 1]
+        assert numpy.allclose(
+            [float(frame[0][0][0]) for frame in looped],
+            [1 / 255, 2 / 255, 3 / 255, 1 / 255, 2 / 255, 3 / 255, 1 / 255],
+        )
 
     def test_a_clip_longer_than_the_request_is_trimmed(self):
         frames = numpy.zeros((10, 2, 2, 3), dtype=numpy.uint8)
