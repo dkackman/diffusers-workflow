@@ -26,6 +26,7 @@ from dw.result import (
     normalize_audio,
 )
 from dw.security import SecurityError
+from dw.shots import shot_record
 
 
 class TestResult:
@@ -646,6 +647,25 @@ class TestSaveAudioVideo:
         self.save({"content_type": "video/mp4", "fps": 24}, artifact)
 
         assert artifact.audio.shape == (2, 2000)
+
+    def test_shots_are_remeasured_against_the_fitted_audio(self):
+        # #426: concat_videos measures a shot map against the joined audio it
+        # built, before this fit trims or pads it to the frame count - a
+        # resampled join left the last shot's num_samples pointing past what
+        # actually gets muxed, and assess_output's shot_span_overrun check
+        # (#425) then fired on a file that was fine.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+
+        assert artifact.shots[0]["num_samples"] == 1000
+        assert artifact.shots[1]["num_samples"] == 1000
 
     def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
         # #197, 4th round: write-back (above) lands the fit on the AudioVideo

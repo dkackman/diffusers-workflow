@@ -1102,9 +1102,23 @@ class Result:
             and fps
             and not hasattr(artifact.frames, "cleanup")
         ):
-            from .tasks.video_utils import _fit_audio_to_frames
+            from .tasks.video_utils import _fit_audio_to_frames, _sample_axis
 
-            audio = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            fitted = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
+            axis = _sample_axis(audio)
+            if (
+                axis is not None
+                and fitted.shape[axis] != audio.shape[axis]
+                and artifact.shots
+            ):
+                # The fit trims or pads to the frames' own duration - a shot
+                # map measured against the pre-fit track (#426) now overruns
+                # or falls short of what actually gets written, so it is
+                # re-measured against the same length the mux will see
+                from .shots import measured_num_samples
+
+                measured_num_samples(artifact.shots, fitted.shape[axis])
+            audio = fitted
             artifact.audio = audio
 
         # Segment-backed frames (a chained step with save_segments) replay from
