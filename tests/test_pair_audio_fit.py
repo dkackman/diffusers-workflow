@@ -84,6 +84,25 @@ class TestFitToTheVideo:
         assert samples(result) == exact.shape[1]
         assert warnings_emitted == []
 
+    def test_a_sub_frame_shortfall_still_pads_and_warns(self, warnings_emitted):
+        """A track a handful of samples short of the target used to be waved
+        through unfitted and unwarned - the mismatch was well inside
+        LENGTH_WARN_MS, a tolerance meant only for the no-'fit' mismatch
+        warning. An explicit 'fit': 'video' promises an exact length
+        regardless of how small the gap is (#428)."""
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        short = numpy.zeros((2, wanted - 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), short, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        assert any("padded" in w for w in warnings_emitted)
+
+    def test_a_sub_frame_excess_still_trims_and_warns(self, warnings_emitted):
+        wanted = round(248 / FPS * SAMPLE_RATE)
+        long = numpy.zeros((2, wanted + 15), dtype=numpy.float32)
+        result = pair_audio(cut(248), long, sample_rate=SAMPLE_RATE, fit="video")
+        assert samples(result) == wanted
+        assert any("trimmed" in w for w in warnings_emitted)
+
     def test_fps_may_be_given_when_the_frames_carry_none(self):
         result = pair_audio(
             [object()] * 248, song(30), sample_rate=SAMPLE_RATE, fps=FPS, fit="video"

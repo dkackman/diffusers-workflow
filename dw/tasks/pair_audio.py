@@ -16,9 +16,12 @@ from .audio_utils import as_channels_samples
 
 logger = logging.getLogger("dw")
 
-# A track and a cut are frame-aligned by construction here, so a difference
-# smaller than this is rounding rather than a decision anyone can act on -
-# one video frame at 24 fps is 41 ms
+# Only gates the unfitted mismatch warning (no 'fit' given): a track and a
+# cut are frame-aligned by construction here, so a difference smaller than
+# this is rounding rather than a decision anyone can act on - one video frame
+# at 24 fps is 41 ms. An explicit 'fit': 'video' always fits and warns on any
+# nonzero difference - the caller asked for exactness, not a guess at whether
+# the gap matters
 LENGTH_WARN_MS = 100.0
 
 
@@ -70,12 +73,12 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
 
     wanted = frames_to_samples(count, fps, rate)
     have = waveform.shape[1]
-    if abs(have - wanted) / float(rate) * 1000.0 < LENGTH_WARN_MS:
-        return waveform
-
     video_seconds = count / float(fps)
     audio_seconds = have / float(rate)
+
     if fit != "video":
+        if abs(have - wanted) / float(rate) * 1000.0 < LENGTH_WARN_MS:
+            return waveform
         emit_warning(
             f"pair_audio: the track is {audio_seconds:.2f} s and the video it "
             f"is laid over is {video_seconds:.2f} s ({count} frames at "
@@ -87,6 +90,10 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
             audio_seconds=audio_seconds,
             video_seconds=video_seconds,
         )
+        return waveform
+
+    if have == wanted:
+        # Already exact - nothing to pad, trim or warn about
         return waveform
 
     fitted = slice_samples(waveform, 0, wanted)
