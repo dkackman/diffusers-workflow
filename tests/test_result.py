@@ -694,6 +694,62 @@ class TestSaveAudioVideo:
         assert artifact.shots[0]["num_samples"] == 1000
         assert artifact.shots[1]["num_samples"] == 970
 
+    def warnings_from(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        captured = []
+        token = activate_context(RunContext(on_event=captured.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [e for e in captured if e["event"] == "warning"]
+
+    def test_a_mux_trim_past_the_fitted_grid_warns(self):
+        # #435: fit_audio_to_frames already pads the in-memory track to the
+        # frame grid before encoding, but a lossy mux can trim further - the
+        # #426 repro lost 30 more samples than fitting alone accounted for,
+        # and nothing told the caller a residual gap remained.
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [
+            shot_record("a", 0, 24, 0, 1000),
+            shot_record("b", 24, 24, 1000, 900),
+        ]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        (warning,) = [
+            w for w in warnings if w["kind"] == "joined_audio_short_after_mux"
+        ]
+        assert warning["shortfall_samples"] == 30
+        assert warning["written_samples"] == 1970
+        assert warning["expected_samples"] == 2000
+        assert warning["file"] == "test-0.0.mp4"
+
+    def test_a_mux_that_lands_exactly_on_the_grid_draws_no_warning(self):
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        shots = [shot_record("a", 0, 48, 0, 2000)]
+        artifact = AudioVideo(frames, audio, 1000, shots=shots)
+
+        with patch(
+            "dw.media_info.probe_media",
+            return_value={"audio_stream_seconds": 2.0, "sample_rate": 1000},
+        ):
+            warnings = self.warnings_from(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+
+        assert [w["kind"] for w in warnings] == []
+
     def test_fit_survives_a_second_extraction_of_a_raw_pipeline_output(self):
         # #197, 4th round: write-back (above) lands the fit on the AudioVideo
         # save() itself extracted - but a raw pipeline output (an object
