@@ -18,6 +18,7 @@ from .audio_utils import (
     as_channels_samples,
     bleed_join,
     equal_power_crossfade_join,
+    fit_audio_to_frames,
     frames_to_samples,
     match_levels as match_track_levels,
     resample_waveform,
@@ -262,17 +263,24 @@ def concat_videos(
             )
         audio_native_rate = video.sample_rate
 
-    # A seam's crossfade leaves the samples before it where they were, so a
-    # shot's track is everything up to where the next measured one began
-    measured_num_samples(shots, _length(audio) if audio is not None else None)
-
-    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     # The rate the caller declared, else the rate the first input carries -
     # either beats the result's 8 fps default (#84)
     written_fps = fps or next(
         (v.fps for v in videos if getattr(v, "fps", None)),
         None,
     )
+    # Reconciled against the frame grid before shots are measured (#435), so
+    # an input already short of its own grid does not carry its shortfall
+    # into this join's shot map and compound in a later one
+    audio = fit_audio_to_frames(
+        audio, sample_rate, len(frames), written_fps, "concat_videos"
+    )
+
+    # A seam's crossfade leaves the samples before it where they were, so a
+    # shot's track is everything up to where the next measured one began
+    measured_num_samples(shots, _length(audio) if audio is not None else None)
+
+    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
 
 

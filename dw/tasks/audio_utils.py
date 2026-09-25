@@ -74,6 +74,53 @@ def frames_to_samples(frames, fps, sample_rate):
     return int(round(frames / fps * sample_rate))
 
 
+def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
+    """Pad a joined track that falls short of its frame grid, and warn.
+
+    concat_videos and dissolve_videos each build their joined track by
+    measuring and concatenating/crossfading the actual input waveforms, with
+    nothing reconciling a shortfall against total_frames - so an input that
+    is itself short of its own frame grid (#435 traced this to an
+    ltx2/keyframes clip short of its 121-frame bucket) propagates its
+    shortfall into the join, and the shortfall compounds across further
+    joins that each take the previous join's output as an input. The same
+    remedy #428 gave pair_audio's 'fit: video' for a shortfall, applied here
+    at the one place every join's audio passes through before its shot map
+    is measured.
+
+    A track *longer* than its frame grid is left alone: concat_videos has
+    measured such an overrun deliberately since #378 (its own shot keeps the
+    samples it actually took, not a count derived from frame/fps
+    arithmetic), and trimming it here would silently reverse that contract
+    for the whole joined track.
+    """
+    if audio is None or not total_frames or not fps or not sample_rate:
+        return audio
+
+    wanted = frames_to_samples(total_frames, fps, sample_rate)
+    have = audio.shape[1]
+    if have >= wanted:
+        return audio
+
+    audio_seconds = have / float(sample_rate)
+    video_seconds = total_frames / float(fps)
+    pad_samples = wanted - have
+    audio = numpy.pad(audio, ((0, 0), (0, pad_samples)))
+    emit_warning(
+        f"{command}: the joined track is {audio_seconds:.3f} s and the "
+        f"joined video is {video_seconds:.3f} s ({total_frames} frames at "
+        f"{fps:g} fps) - padded the track with {pad_samples} sample"
+        f"{'s' if pad_samples != 1 else ''} of silence to reach the frame "
+        "grid, so the shortfall does not carry into a later join.",
+        kind="joined_audio_padded_to_frames",
+        command=command,
+        audio_seconds=audio_seconds,
+        video_seconds=video_seconds,
+        pad_samples=pad_samples,
+    )
+    return audio
+
+
 def slice_samples(waveform, start, length):
     """Cut length samples out of a (channels, samples) waveform from start.
 
@@ -1122,6 +1169,13 @@ DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
 # than squaring off its transients
 MATCH_CEILING_DBFS = -0.5
 LEVEL_SPREAD_WARN_DB = 6.0
+# Mirrors result.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
+# own near-silent check treats as having no real content. Gaining an input
+# already this quiet up to the target raises a noise floor rather than
+# leveling a performance, and #434 found a +29.9 dB case that only reached
+# the log, never job.warnings
+MATCH_NEAR_SILENT_DBFS = -40.0
+MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
 def level_dbfs(waveform, measure="peak"):
@@ -1198,6 +1252,22 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
                 gain_db=round(gain_db, 1),
                 shortfall_db=round(shortfall_db, 1),
                 ceiling_dbfs=MATCH_CEILING_DBFS,
+            )
+        elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
+            # The other end of the range `held` covers (#434): an input this
+            # quiet is noise floor, not a performance at a lower level, and
+            # matching it up to the target passes that noise off as content -
+            # a consumer reading job.warnings sees nothing was wrong
+            emit_warning(
+                f"{command}: video {index + 1} {measure} {level:.1f} dBFS is "
+                f"near-silent - matched up to the target with a {gain_db:+.1f} dB "
+                "gain, raising its noise floor rather than leveling content",
+                kind="match_levels_near_silent",
+                command=command,
+                index=index,
+                measure_dbfs=round(level, 1),
+                target_dbfs=target_dbfs,
+                gain_db=round(gain_db, 1),
             )
         emit_log(
             f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
