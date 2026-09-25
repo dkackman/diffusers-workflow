@@ -283,7 +283,10 @@ def build_server(client):
         and `age_seconds` how old it is. A cached reading is not this
         moment's: one taken while a job is loading a model understates what
         is resident by however much has loaded since, so ask again when the
-        server is idle rather than comparing it against a live figure."""
+        server is idle rather than comparing it against a live figure.
+
+        `info.step_cache` is the step cache's own accounting: `entries`,
+        `retained_bytes` against `max_retained_bytes`."""
         return catalog.get_memory(client)
 
     def clear_memory() -> dict:

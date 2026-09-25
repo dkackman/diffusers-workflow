@@ -181,6 +181,40 @@ def test_stale_entry_eviction_subtracts_its_size(tmp_path):
     assert cache._retained_bytes == 0
 
 
+def test_stats_reports_the_stale_drop_that_freed_its_bytes(tmp_path):
+    """#418 follow-up: stats() is the read-only view of the same accounting
+    the stale-drop test above exercises directly - entries/retained_bytes
+    must go back down through this surface too, since it's the one a caller
+    outside the process (get_memory) actually reads."""
+    cache = StepCache()
+    assert cache.stats() == {
+        "entries": 0,
+        "max_entries": cache.max_entries,
+        "retained_bytes": 0,
+        "max_retained_bytes": cache.max_retained_bytes,
+    }
+
+    step_data = {"name": "gen", "pipeline": {"arguments": {"prompt": "a cat"}}}
+    gone = tmp_path / "gone.png"
+    gone.write_bytes(b"x")
+    result = FakeResult("first", [str(gone)], result_list=[{"videos": _frames(5)}])
+    cache.put("w", step_data, 42, result, "/out", True)
+
+    stats = cache.stats()
+    assert stats["entries"] == 1
+    assert stats["retained_bytes"] > 0
+
+    gone.unlink()
+    assert cache.get("w", step_data, 42, set(), "/out", True) is None
+
+    assert cache.stats() == {
+        "entries": 0,
+        "max_entries": cache.max_entries,
+        "retained_bytes": 0,
+        "max_retained_bytes": cache.max_retained_bytes,
+    }
+
+
 def test_deep_equal_compares_array_values_by_content_rather_than_raising():
     """A realized step argument can hold a numpy array (or a tensor), whose
     == yields an array, not a bool - that must not abort the run with 'truth

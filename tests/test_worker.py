@@ -135,6 +135,12 @@ def test_worker_memory_status(worker_process):
         assert "gpu_device_name" in info
         assert "gpu_memory_allocated_mb" in info
         assert "gpu_memory_reserved_mb" in info
+    assert info["step_cache"] == {
+        "entries": 0,
+        "max_entries": 128,
+        "retained_bytes": 0,
+        "max_retained_bytes": 4 * 1024**3,
+    }
 
 
 def test_worker_clear_memory(worker_process):
