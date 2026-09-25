@@ -15,6 +15,8 @@ What comes back are places to look, not verdicts; nothing acts on a
 finding (`dw/assessment_rules.py`).
 """
 
+import json
+
 from ..tasks.assess import (
     read_media,
     seams_answer,
@@ -34,6 +36,25 @@ def unknown_probe(probe):
     if probe is None or probe in PROBES:
         return None
     return f"Unknown probe {probe!r} - one of {', '.join(PROBES)}"
+
+
+def _dedupe_findings(findings):
+    """Findings with exact duplicates dropped, order preserved.
+
+    `_shot_span_findings` (`dw/tasks/assess.py`) is shared by all three
+    probes and raises the identical finding from each one that ran, so a
+    file with a span overrun listed it three times in the compact merge
+    (#427) - one true finding, not three.
+    """
+    seen = set()
+    deduped = []
+    for found in findings:
+        key = json.dumps(found, sort_keys=True, default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(found)
+    return deduped
 
 
 def _not_applicable(kind, media, records):
@@ -90,9 +111,9 @@ def assess(path, kind, shots, probe=None, detail=False):
     }
     body = {
         "shots_source": source,
-        "findings": [
+        "findings": _dedupe_findings(
             found for answer in answers.values() for found in answer["findings"]
-        ],
+        ),
         "rules_applied": [
             rule for answer in answers.values() for rule in answer["rules_applied"]
         ],

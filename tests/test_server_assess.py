@@ -233,6 +233,29 @@ def test_an_output_reference_resolves(server, tmp_path):
     assert answer.json()["name"] == CUT
 
 
+def test_an_overrunning_shot_is_reported_once_not_per_probe(server, tmp_path):
+    # #427: analyze_shots, analyze_seams and analyze_sync_drift all raise the
+    # same shot_span_overrun finding (via the shared _shot_span_findings), so
+    # the compact merge listed one real overrun three times.
+    with server() as client:
+        run_dir = tmp_path / "outputs" / RUN
+        write_cut(run_dir / "final" / "cut.mp4", (0.1, 0.1, 0.4))
+        overrunning = shots_of(3)
+        overrunning[-1]["num_samples"] += 1000
+        manifest = {
+            "steps": [
+                {"step": "join", "files": ["final/cut.mp4"], "shots": overrunning}
+            ]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+
+        body = client.get(f"/api/gallery/{CUT}/assess").json()
+
+    overrun = [f for f in body["findings"] if f["rule"] == "shot_span_overrun"]
+    assert len(overrun) == 1
+    assert overrun[0]["at"] == {"shot": "s2"}
+
+
 def test_a_path_outside_the_outputs_is_refused(server):
     with server() as client:
         answer = client.get("/api/gallery/..%2Fsecret.mp4/assess")
