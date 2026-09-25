@@ -250,6 +250,31 @@ def test_gallery_metadata_passes_the_media_block_through_and_says_how_to_read_it
     assert "audio_duration" in result["next"]
 
 
+def test_gallery_metadata_keeps_the_music_3_ceiling_text_off_a_video():
+    """#441: the Music 3 ceiling and mp3-overshoot guidance fired for any
+    audio or video output, so a video cut's 'next' hint carried advice
+    about an audio_duration ceiling that never applied to it. Video keeps
+    the generic peak/mean level guidance, but not the Music 3-specific
+    part."""
+    body = {
+        "name": "templates/assemble-and-score/20260925-094123-6db9e283/final/x.mp4",
+        "source": "output",
+        "metadata": None,
+        "job": {"id": "a18c3d548cce", "status": "succeeded"},
+        "media": {"kind": "video", "duration_seconds": 12.5, "peak_dbfs": -3.0},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/" + body["name"] + "/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, body["name"])
+
+    assert "Music 3" not in result["next"]
+    assert "audio_duration" not in result["next"]
+    assert "peak_dbfs" in result["next"]
+    assert "normalize_audio" in result["next"]
+
+
 def test_gallery_metadata_reads_an_asset_and_says_the_numbers_are_inputs():
     """#127: the same tool answers for an input asset, and the hint it
     carries is the one that matters before a run rather than after."""

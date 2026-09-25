@@ -326,7 +326,7 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "cut is padded with digital silence rather than refused, so "
             "make a longer bed with the 'loop_audio' task instead."
         )
-    elif media and media.get("kind") in ("audio", "video"):
+    elif media and media.get("kind") == "audio":
         hints.append(
             "Check duration_seconds against what was asked for: a Music 3 "
             "track that lands within 0.2 s of its audio_duration ceiling was "
@@ -339,6 +339,14 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "mp3s), but a figure of +1 or more is a mix with no headroom, and "
             "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
             "fixes it."
+        )
+    elif media and media.get("kind") == "video":
+        hints.append(
+            "peak_dbfs is the level normalize_audio would be given, and the "
+            "range has two ends: mean_dbfs below -40 on a track that should "
+            "be full is a near-silent render, and peak_dbfs at or above 0 is "
+            "a deliverable at or over full scale - 'normalize_audio' "
+            "(peak_dbfs: -3) before the saving step is what fixes it."
         )
     if media and media.get("shots"):
         hints.append(
