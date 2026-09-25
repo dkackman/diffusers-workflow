@@ -4471,11 +4471,20 @@ def create_app(
     async def output_file(
         name: str, request: Request, ws: Workspace = Depends(selected_workspace)
     ):
-        """One generated file, from the workspace that made it."""
-        files = _static_files_for(ws.outputs)
-        return _sandbox_active_content(
-            await files.get_response(_strip_output_prefix(name), request.scope)
-        )
+        """One generated file, from the workspace that made it - or, by an
+        'asset:' reference, one file from its asset library (#445): every
+        other route in this family (`get_gallery_metadata`, `/frames`,
+        `/audio`, `/assess`) already accepts one, and this route answering a
+        bare StaticFiles 404 for the same name gave no hint why."""
+        name = _strip_output_prefix(name)
+        if is_asset_reference(name):
+            path = _asset_file(name, ws)
+            files = _static_files_for(os.path.dirname(path))
+            response = await files.get_response(os.path.basename(path), request.scope)
+        else:
+            files = _static_files_for(ws.outputs)
+            response = await files.get_response(name, request.scope)
+        return _sandbox_active_content(response)
 
     @app.get("/inputs/{name:path}")
     async def input_file(

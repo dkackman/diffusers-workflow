@@ -2430,6 +2430,24 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         assert client.get("/api/gallery/clip.mp4/thumbnail").status_code == 404
 
 
+def test_output_file_route_resolves_an_asset_reference(asset_server, tmp_path):
+    """#445: get_output_image/get_output_text hit '/outputs/<name>' directly,
+    and an 'asset:' name there used to 404 with no hint - every sibling
+    gallery route (metadata, /frames, /audio, /assess) already resolves one."""
+    from PIL import Image
+
+    with asset_server(success_script) as client:
+        Image.new("RGB", (4, 4), "red").save(tmp_path / "assets" / "portrait.png")
+
+        response = client.get("/outputs/asset:portrait.png")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+
+        missing = client.get("/outputs/asset:nothing.png")
+        assert missing.status_code == 404
+
+
 def test_gallery_urls_change_when_a_file_is_rewritten(server, tmp_path):
     """A rerun overwrites the same name - the URL must move or the browser
     keeps showing the image it already cached."""
