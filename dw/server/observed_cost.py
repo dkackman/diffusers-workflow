@@ -116,6 +116,33 @@ def _comparable(value):
     return json.dumps(value, sort_keys=True, default=str)
 
 
+def _is_task_only(definition):
+    """Whether every declared step is a plain task - no `pipeline`,
+    `pipeline_reference` or composed `workflow` step anywhere.
+
+    Such a workflow never logs a `loading` phase, so every run of it lands
+    in `had_load: False` and the cold/warm split below would bucket it all
+    as warm forever - silently withholding `cold_minutes`, the only figure
+    `_observed` (dw/plan.py) will quote as `basis: "observed"` (#439). A
+    task-only run has no model-load component to separate from its wall
+    clock, so its whole duration is what a curated `cost` figure would be
+    measured against, and is reported as `cold` rather than `warm`.
+
+    False when `steps` is missing or empty - an inline or otherwise
+    step-less definition is not evidence either way, so the ordinary
+    `had_load` split stays in force rather than guessing.
+    """
+    steps = definition.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            return False
+        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
+            return False
+    return True
+
+
 def _every_step_was_reused(manifest_text):
     """Whether this run generated nothing - every manifest entry a step-cache
     hit republishing an earlier run's files."""
@@ -173,6 +200,7 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         # No declared drivers and the caller overrode something: nothing here
         # is comparable to the run being asked about
         return None
+    task_only = _is_task_only(definition)
     cold, warm, unclassified, earliest = [], [], 0, None
     for row in rows:
         if _every_step_was_reused(row["manifest"]):
@@ -188,7 +216,7 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         duration = row["duration"]
         if duration is None or duration <= 0:
             continue
-        if row["had_load"]:
+        if task_only or row["had_load"]:
             cold.append(duration)
         elif row["events_at_cap"]:
             unclassified += 1
