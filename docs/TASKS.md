@@ -451,6 +451,7 @@ returns frames without it, and this puts it back:
 | `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it (frames that carry none are written at 8 fps) |
 | `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
+| `fit` | No | `"video"` cuts or pads the track with silence to the length of the frames, warning when it does (`audio_padded_to_video` / `audio_trimmed_to_video`). Left unset (the default) the track is used as it is, and a length that disagrees with the frames' is warned about rather than corrected (`audio_video_length_mismatch`). Any other value is refused |
 
 When the video carries recorded `shots` (from an earlier `concat_videos`,
 `dissolve_videos` or chain step), `pair_audio` remeasures each one's sample
