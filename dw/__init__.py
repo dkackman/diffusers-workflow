@@ -30,6 +30,15 @@ if "HF_ENABLE_PARALLEL_LOADING" not in os.environ:
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+# ...except torch's notice that an op the MPS backend lacks ran on the CPU. With
+# PYTORCH_ENABLE_MPS_FALLBACK set (the fp4-fp8-for-torch-mps autoload sets it)
+# that is otherwise a step that got several times slower with nothing to say why.
+# Later filters take precedence, so this one wins over the blanket ignore above
+warnings.filterwarnings(
+    "default",
+    message=r".*not currently supported on the MPS backend and will fall back",
+    category=UserWarning,
+)
 
 # Eager (but guarded) import of torch. This module's own top-level code needs
 # torch's exceptions/types unconditionally to detect its absence gracefully
