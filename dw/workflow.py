@@ -30,6 +30,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .null_media import null_media_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import (
@@ -726,6 +727,11 @@ class Workflow:
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # A for_each item's bare reference (not in a list, so nothing to
+            # silently drop it from) whose media resolved null - realize_args
+            # already refuses this at run time, a few seconds into the job
+            # (dw/null_media.py, #478)
+            + null_media_errors(expanded, source_indices)
             # An adapter trained for the other checkpoint partition, which
             # the pipeline loads without complaint and answers worse for -
             # the one H3 mistake that never shows in the output
