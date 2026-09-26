@@ -374,6 +374,7 @@ class Pipeline:
             configure_components(
                 self.pipeline, self.configuration, self.device, reused_components
             )
+            apply_mps_rope_precision(self.pipeline, self.device)
 
             # Set up random generator if needed - no_generator is a boolean, so an
             # explicit false still gets a generator
@@ -1500,6 +1501,35 @@ def load_and_configure_scheduler(
     # the run itself - so this survives loading and every later run of the step
     logger.info(f"Setting {component_name} shift: {shift}")
     scheduler.set_shift(float(shift))
+
+
+def apply_mps_rope_precision(pipeline, device):
+    """Run a RoPE that asks for float64 in float32 on MPS, which has no float64.
+
+    diffusers makes this choice itself for Wan, Lumina2, SkyReels-V2, ChronoEdit
+    and Sana-Video. LTX-2's transformer and text connectors read a
+    `double_precision` flag at forward time instead, and left on (the default)
+    it failed LTX-2.5's first step on a Mac with "Cannot convert a MPS Tensor to
+    float64". Keyed on the flag rather than a model name, so any module that
+    exposes one gets the same treatment."""
+    if get_device_type(device) != "mps":
+        return
+    components = getattr(pipeline, "components", None)
+    if not isinstance(components, dict):
+        return
+    for component_name, component in components.items():
+        if not isinstance(component, torch.nn.Module):
+            continue
+        switched = 0
+        for module in component.modules():
+            if getattr(module, "double_precision", None) is True:
+                module.double_precision = False
+                switched += 1
+        if switched:
+            logger.warning(
+                f"Computing {switched} float64 RoPE module(s) in {component_name} in "
+                "float32 - MPS has no float64 (diffusers does the same for Wan)"
+            )
 
 
 def attention_slicing_requested(configuration, device):
