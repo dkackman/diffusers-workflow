@@ -24,8 +24,9 @@ class TestTranscribeAudio(unittest.TestCase):
         tone = numpy.zeros((channels, samples), dtype=numpy.float32)
         return tone, sample_rate
 
-    def _mock_pipe(self, mock_pipeline, text="hello world"):
+    def _mock_pipe(self, mock_pipeline, text="hello world", kind="seq2seq_whisper"):
         pipe = MagicMock()
+        pipe.type = kind
         pipe.return_value = {"text": text}
         mock_pipeline.return_value = pipe
         return pipe
@@ -81,6 +82,19 @@ class TestTranscribeAudio(unittest.TestCase):
         transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
         self.assertIs(pipe.call_args.kwargs.get("return_timestamps"), True)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_long_clip_on_a_ctc_model_does_not_ask_for_timestamps(
+        self, mock_pipeline
+    ):
+        # transformers raises for a CTC model unless return_timestamps is
+        # "char" or "word"; a CTC model has no 30 s window to stitch anyway
+        pipe = self._mock_pipe(mock_pipeline, kind="ctc")
+        waveform, rate = self._waveform(seconds=31.0)
+
+        transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
+        self.assertNotIn("return_timestamps", pipe.call_args.kwargs)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_a_short_clip_does_not_ask_for_timestamps(self, mock_pipeline):
