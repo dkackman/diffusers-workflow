@@ -21,6 +21,11 @@ A shot is a dict:
   not build shot by shot (a chain's `match_audio`)
 - `overlap_frames` - a dissolve's head: the frames at its start that are
   blended with the shot before it
+- `hard_cut` - `concat_videos` marks it `True` on the shot it starts at every
+  seam it itself draws (never the first shot, which has no seam before it) -
+  a cut meant as a cut, which `seam_frame_jump` (`dw/assessment_rules.py`)
+  reads to stay quiet there. A chained pipeline's inner segments leave it
+  unset, since continuity is expected between them
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new

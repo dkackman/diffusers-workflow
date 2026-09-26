@@ -952,6 +952,9 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
+| `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below `dead_air_floor_dbfs` |
+| `shots[].dead_air_at` | Where that run starts, in seconds into the file |
+| `shots[].dead_air_floor_dbfs` | The floor `dead_air_seconds` was measured against (`DEAD_AIR_FLOOR_DBFS`) |
 | `rms_range_db` | The spread between the loudest and quietest voiced shot |
 | `has_audio` | Whether the file carries a soundtrack at all |
 
@@ -1002,14 +1005,20 @@ its threshold, and the severity of a crossing:
 | `seam_click` | `analyze_seams` | `click_db` | > 12.0 dB | warn |
 | `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
 | `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 25.0 | info |
+| `shot_dead_air` | `analyze_shots` | `dead_air_seconds` | > 0.4 s | warn |
 | `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
 | `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
 
-Two rules carry a guard beyond the threshold: `seam_hole` only fires while
+Three rules carry a guard beyond the threshold: `seam_hole` only fires while
 both sides of the seam are voiced above -30 dBFS (a quiet join between two
-quiet shots is not a hole, it's a pause the shots themselves hold), and
+quiet shots is not a hole, it's a pause the shots themselves hold);
 `seam_frame_jump` is skipped at a seam whose incoming shot is marked
-`hard_cut: true` - a cut meant as a cut.
+`hard_cut: true` - a cut meant as a cut; and `shot_dead_air` is skipped
+inside a shot whose own rms is at or below -30 dBFS - a shot that is quiet
+throughout, on purpose, rather than one holding a gap. A gap the guard lets
+through is what `slice_audio` -> `loop_audio` -> `mix_audio` is for: cut a
+room-tone bed from the take, loop it to the gap's length, and mix it under
+the line rather than leaving the drop silent.
 
 A `shots` record reaching past the file's own length is a separate finding,
 `shot_span_overrun`, on all three probes - not a threshold crossing, since

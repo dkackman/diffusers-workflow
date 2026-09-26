@@ -73,10 +73,13 @@ arguments; the prompt format is MiniMax's, from their text not here.
   mixes it under the world sound. A character speaking in several shots keeps
   one voice by passing the same clip as an audio reference each time (the
   `voice-timbre-reference` pattern) - a repeated description alone drifts.
-  Each entry's `num_frames` paces the cut.
-  A score burying voice-over is not a `world_gain` fix - the world track
-  carries narration and action together, so raising it lifts both. Duck the
-  *score* first instead, per voice-over shot, before passing it as `score`.
+  A score burying voice-over is not a `world_gain` fix: the world track
+  carries narration and action together (narration ~24 dB over its own
+  ambience, score 6-15 dB over that), so raising it lifts both. Duck the
+  *score* instead, before passing it as `score`: one `gain_audio` (#187)
+  step per voice-over shot, chained, `start_frame` = running sum of
+  preceding shots' `num_frames`, `num_frames` that shot's length, `fps`
+  the cut's rate, negative `gain_db` (-6 to -10).
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry, no shared cast, no concat. `keep_output` each
   clip, then `templates/assemble-and-score` cuts and scores.
@@ -105,12 +108,9 @@ read the `workflows` guide's authoring section first.
   `transformer_ref` alone, so whatever is handed there only degrades the
   output. `validate_workflow` refuses it and warns on a `weight_name`
   naming neither path.
-- Match a crowd's action to what it holds and state its age range -
-  defaults skew young, and a held prop can grow an extra hand. Two people in
-  frame can lip-sync the wrong one: face the singer close-up and spell the
-  sung line in `<d>` tags. Check a reference shot's first frames for the
-  portraits' own backdrop leaking through. Ref2VA also reaches 1344x768, not
-  only `video-with-audio-768p` - give ground on frame count first. See the
+- Match a crowd's action to what it holds - defaults skew young. Two people
+  in frame can lip-sync the wrong one: face the singer close-up and spell
+  the sung line in `<d>` tags. Ref2VA also reaches 1344x768 - see the
   README's field notes (#484).
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
@@ -125,11 +125,10 @@ read the `workflows` guide's authoring section first.
   SIGKILL near the end where a fresh one would not.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
-- Music3 reads `audio_duration` as a ceiling, not a target: ask for more than
-  needed and trim with `templates/audio-trim-fade`.
+- Music3's `audio_duration` is a ceiling: ask for more than needed and trim
+  with `templates/audio-trim-fade`.
 - Write the prompt for the length generated: timestamps should span the
-  duration, or a five-second script tells a five-second story whatever the
-  frame count.
+  duration.
 
 ## Prompts
 
@@ -184,6 +183,8 @@ itself - or every shot inherits the portrait's composition.
    (`validate_workflow` on `templates/transcribe-audio`, `run_workflow` with
    `acknowledged_cost` bound, `get_output_text`, `delete_output`) - `basis:
    "unknown"`, quote seconds not minutes.
+   A `shot_dead_air` finding: bed with `slice_audio`->`loop_audio`->`mix_audio`
+   room tone, not silence.
    Then `get_gallery_metadata` for duration/audio presence,
    and hand the user the gallery `url`
    (`list_gallery`). `get_output_image` works only on image steps - the

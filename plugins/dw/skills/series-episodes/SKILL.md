@@ -109,6 +109,10 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 
 Judge a finished episode with `assess_output(name)` before listening end
 to end: it measures every seam and the shots' levels, and says where to look.
+A `shot_dead_air` finding is an H3 dialogue gap (0.5-2s of near-silence
+between lines) inside one shot, not a seam problem - see `minimax-h3`'s
+room-tone bed recipe (`slice_audio` -> `loop_audio` -> `mix_audio`) rather
+than treating it as a cut to fix.
 
 `output:` a shot straight from its generation run rather than downloading
 and re-uploading it as an asset - only the cast portraits from step 0 need

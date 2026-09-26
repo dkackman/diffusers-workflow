@@ -19,11 +19,13 @@ the problem. `shot_level_spread` shares its threshold with the run-time
 `LEVEL_SPREAD_WARN_DB`, so the join-time warning and the after-the-fact
 probe cannot disagree about the same cut.
 
-Two rules carry a guard the table alone cannot express, applied by the
+Three rules carry a guard the table alone cannot express, applied by the
 probe and named here in `unless` so it is written down beside the number:
-`seam_hole` holds only while both sides of the seam are voiced, and
+`seam_hole` holds only while both sides of the seam are voiced,
 `seam_frame_jump` does not fire at a seam whose incoming shot is marked
-`hard_cut: true` - a cut meant as a cut.
+`hard_cut: true` - a cut meant as a cut - and `shot_dead_air` does not fire
+inside a shot whose own level is already at or below `HOLE_VOICED_DBFS` - a
+shot that is quiet throughout, on purpose, rather than one holding a gap.
 
 The thresholds were settled against real runs on the server in stage D
 (#386); `docs/WORKFLOW_GUIDE.md` and `docs/TASKS.md` quote every one, and
@@ -37,6 +39,12 @@ SEVERITIES = ("info", "warn")
 # How loud both sides of a seam have to be for a quiet join to be a hole
 # rather than a pause the shots themselves hold
 HOLE_VOICED_DBFS = -30.0
+
+# Below this, a 50ms window inside a shot counts toward a dead-air run - low
+# enough that ordinary room tone under a line (well above this) never
+# qualifies, high enough to catch the -70 to -84 dBFS gaps an H3 dialogue
+# take leaves between lines (#465)
+DEAD_AIR_FLOOR_DBFS = -65.0
 
 COMPARATORS = {
     ">": lambda value, threshold: value > threshold,
@@ -96,6 +104,16 @@ RULES = (
         "unless": "the incoming shot is marked hard_cut: true",
     },
     {
+        "name": "shot_dead_air",
+        "probe": "analyze_shots",
+        "field": "dead_air_seconds",
+        "comparator": ">",
+        "threshold": 0.4,
+        "severity": "warn",
+        "says": "the shot holds a gap this long, well below the floor a line's own room tone sits at",
+        "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",
+    },
+    {
         "name": "sync_drift",
         "probe": "analyze_sync_drift",
         "field": "end_offset_ms",
@@ -148,7 +166,16 @@ def finding(rule, value, at):
     }
 
 
+def sort_findings(findings):
+    """Findings with every `info` moved after the `warn`s, order otherwise
+    unchanged - a real problem (`seam_hole`, `shot_dead_air`, ...) never
+    sits behind an informational one (`seam_frame_jump`) a reader skims
+    past first (#466)."""
+    return sorted(findings, key=lambda found: found.get("severity") == "info")
+
+
 __all__ = [
+    "DEAD_AIR_FLOOR_DBFS",
     "HOLE_VOICED_DBFS",
     "RULES",
     "RULES_BY_NAME",
@@ -156,4 +183,5 @@ __all__ = [
     "crosses",
     "finding",
     "rules_for",
+    "sort_findings",
 ]

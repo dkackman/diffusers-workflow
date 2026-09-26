@@ -28,7 +28,14 @@ import math
 
 import numpy
 
-from ..assessment_rules import HOLE_VOICED_DBFS, crosses, finding, rules_for
+from ..assessment_rules import (
+    DEAD_AIR_FLOOR_DBFS,
+    HOLE_VOICED_DBFS,
+    crosses,
+    finding,
+    rules_for,
+    sort_findings,
+)
 from ..events import emit_warning
 
 logger = logging.getLogger("dw")
@@ -52,6 +59,12 @@ CLICK_NEIGHBOUR_WINDOW = 0.01
 # dividing a seam's change by it would call any change at all a jump.
 # Grey levels on the 0-255 scale.
 TYPICAL_DELTA_FLOOR = 2.0
+
+# The window a dead-air run inside a shot is measured in, seconds - fine
+# enough that a half-second gap the rule cares about still spans several
+# windows, coarse enough that ordinary syllable-to-syllable dips don't read
+# as a run on their own (#465)
+DEAD_AIR_WINDOW = 0.05
 TYPICAL_DELTA_PERCENTILE = 90
 
 # A ratio against a zero neighbour has no size; report it capped
@@ -323,6 +336,56 @@ def _round(value, places=2):
     return None if value is None else round(float(value), places)
 
 
+def _dead_air(media, start, count):
+    """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
+    a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
+    the middle of the take, not the shot's own overall level (`_findings`'s
+    `unless` guard reads that separately). A window whose RMS is digital
+    silence (`_db` answers None) counts as below the floor too - it is
+    quieter than the floor, not un-measurable.
+
+    Returns (seconds, at, floor_dbfs): `at` is seconds into the *file*
+    (matching the seams probe's own seconds fields), so a caller does not
+    have to add the shot's own start back on. All three are None when the
+    span holds fewer than two windows; `seconds` is 0.0 with no run found.
+    """
+    rate = media.sample_rate
+    if start is None or not rate:
+        return None, None, None
+    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
+    total = media.audio.shape[1]
+    end = min(total, start + count)
+    if end - start < window_samples * 2:
+        return None, None, None
+    levels = [
+        _db(_rms(media.audio[:, offset : offset + window_samples]))
+        for offset in range(start, end - window_samples + 1, window_samples)
+    ]
+    best_len, best_start, best_levels = 0, None, []
+    run_start, run_levels = None, []
+    for index, level in enumerate(levels):
+        if level is None or level <= DEAD_AIR_FLOOR_DBFS:
+            if run_start is None:
+                run_start = index
+            run_levels.append(level)
+            continue
+        if len(run_levels) > best_len:
+            best_len, best_start, best_levels = len(run_levels), run_start, run_levels
+        run_start, run_levels = None, []
+    if len(run_levels) > best_len:
+        best_len, best_start, best_levels = len(run_levels), run_start, run_levels
+    if best_len == 0:
+        return 0.0, None, None
+    floor_values = [level for level in best_levels if level is not None]
+    seconds = best_len * window_samples / rate
+    at = (start + best_start * window_samples) / rate
+    return (
+        _round(seconds, 2),
+        _round(at, 2),
+        _round(min(floor_values)) if floor_values else None,
+    )
+
+
 def _findings(probe, record, at, skip=()):
     found = []
     for rule in rules_for(probe):
@@ -433,7 +496,7 @@ def _answer(probe, measurements, findings, shots_source, shot_dependent=()):
         )
     return {
         **measurements,
-        "findings": findings,
+        "findings": sort_findings(findings),
         "rules_applied": applied,
         "rules_skipped": skipped,
         "shots_source": shots_source,
@@ -450,8 +513,8 @@ def analyze_shots(video, shots=None):
 
     Returns:
         {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
-        high_dbfs, samples}], rms_range_db, findings, rules_applied,
-        rules_skipped, shots_source}
+        high_dbfs, dead_air_seconds, dead_air_at, dead_air_floor_dbfs, samples}], rms_range_db,
+        findings, rules_applied, rules_skipped, shots_source}
     """
     media = media_from(video)
     return shots_answer(media, *resolve_shots(video, media, shots))
@@ -483,6 +546,9 @@ def shots_answer(media, records, source):
             if window is not None and window.size
             else {"low_dbfs": None, "mid_dbfs": None, "high_dbfs": None}
         )
+        dead_air_seconds, dead_air_at, dead_air_floor_dbfs = (
+            _dead_air(media, start, count) if start is not None else (None, None, None)
+        )
         measured.append(
             {
                 "name": shot.get("name"),
@@ -492,6 +558,9 @@ def shots_answer(media, records, source):
                 "rms_dbfs": _round(rms),
                 "crest_db": _round(None if peak is None or rms is None else peak - rms),
                 **{key: _round(value) for key, value in balance.items()},
+                "dead_air_seconds": dead_air_seconds,
+                "dead_air_at": dead_air_at,
+                "dead_air_floor_dbfs": dead_air_floor_dbfs,
                 "samples": samples_source,
             }
         )
@@ -507,10 +576,25 @@ def shots_answer(media, records, source):
     elif voiced:
         rms_range = 0.0
     answer = {"shots": measured, "rms_range_db": rms_range, "has_audio": True}
+    dead_air_findings = []
+    for shot in measured:
+        # A shot that is quiet throughout, on purpose, holds no gap to find -
+        # the same guard seam_hole applies to a seam's two sides (#465)
+        quiet = shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
+        dead_air_findings.extend(
+            _findings(
+                "analyze_shots",
+                shot,
+                {"shot": shot["name"], "seconds": shot["dead_air_at"]},
+                skip={"shot_dead_air"} if quiet else (),
+            )
+        )
     return _answer(
         "analyze_shots",
         answer,
-        overrun_findings + (_findings("analyze_shots", answer, at) if at else []),
+        overrun_findings
+        + (_findings("analyze_shots", answer, at) if at else [])
+        + dead_air_findings,
         source,
         shot_dependent={"shot_level_spread"},
     )

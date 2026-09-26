@@ -881,6 +881,7 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `seam_click` | `analyze_seams` | the join peaks more than 12 dB above the audio either side |
 | `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
 | `seam_frame_jump` | `analyze_seams` | the picture changes more than 25x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
+| `shot_dead_air` | `analyze_shots` | the shot holds a gap more than 0.4 seconds long below its dead-air floor (skipped inside a shot that is quiet throughout) |
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
 
@@ -912,6 +913,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `seam_click` | a longer `crossfade_ms` on the join | recut |
 | `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
 | `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
+| `shot_dead_air` | cut a room-tone bed from the take with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
 

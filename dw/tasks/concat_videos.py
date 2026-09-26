@@ -229,6 +229,11 @@ def concat_videos(
                     names[index], start_frame, len(frames) - start_frame, start_sample
                 )
             ]
+        if index and video_shots:
+            # Every seam this step draws is a cut it chose to make, unlike a
+            # chain's inner segments (continuity is expected there) - marking
+            # it lets analyze_seams tell the two apart (#466)
+            video_shots[0]["hard_cut"] = True
         # Which input this shot came from - named_shots (dw/shots.py) uses
         # it to place a step's override name on the right shot once an
         # earlier input has nested more than one of its own (#432)
