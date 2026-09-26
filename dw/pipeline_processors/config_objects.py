@@ -144,6 +144,23 @@ def get_group_offload_configuration(configuration, default_device):
             resolve_device(group_offload_config.get("offload_device", "cpu"))
         )
 
+        # CUDA streams overlap the next group's transfer with this one's compute.
+        # diffusers refuses them without CUDA or XPU, and refuses record_stream
+        # without use_stream, so both go together - a catalog template written
+        # for the CUDA box would otherwise fail to load on a Mac
+        if group_offload_config["onload_device"].type not in ("cuda", "xpu"):
+            dropped = [
+                key
+                for key in ("use_stream", "record_stream")
+                if group_offload_config.pop(key, False)
+            ]
+            if dropped:
+                logger.warning(
+                    f"Ignoring group offload {', '.join(dropped)} - streams need "
+                    f"CUDA or XPU, and this onloads to "
+                    f"{group_offload_config['onload_device']}"
+                )
+
         return group_offload_config
 
     logger.debug("No group offload configuration found")

@@ -227,7 +227,8 @@ class TestGroupOffloadConfiguration:
 
         assert config["offload_device"] == torch.device("cpu")
 
-    def test_other_keys_are_carried_through(self):
+    def test_other_keys_are_carried_through(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
         config = get_group_offload_configuration(
             {"group_offload": {"num_blocks_per_group": 2, "use_stream": True}}, "cuda"
         )
@@ -244,6 +245,57 @@ class TestGroupOffloadConfiguration:
         second = get_group_offload_configuration(configuration, "cuda")
 
         assert first["onload_device"] == second["onload_device"] == torch.device("cpu")
+
+    def test_streams_are_dropped_on_mps(self, monkeypatch):
+        # diffusers refuses use_stream without CUDA/XPU, and refuses
+        # record_stream without use_stream - both have to go together
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+        config = get_group_offload_configuration(
+            {
+                "group_offload": {
+                    "onload_device": "cuda",
+                    "num_blocks_per_group": 1,
+                    "use_stream": True,
+                    "record_stream": True,
+                }
+            },
+            "cuda",
+        )
+
+        assert config["onload_device"] == torch.device("mps")
+        assert "use_stream" not in config
+        assert "record_stream" not in config
+        assert config["num_blocks_per_group"] == 1
+
+    def test_streams_are_dropped_when_onloading_to_cpu(self):
+        config = get_group_offload_configuration(
+            {"group_offload": {"onload_device": "cpu", "use_stream": True}}, "cpu"
+        )
+
+        assert "use_stream" not in config
+
+    def test_streams_are_kept_on_cuda(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+
+        config = get_group_offload_configuration(
+            {"group_offload": {"use_stream": True, "record_stream": True}}, "cuda"
+        )
+
+        assert config["use_stream"] is True
+        assert config["record_stream"] is True
+
+    def test_dropping_streams_twice_is_stable(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+        configuration = {"group_offload": {"use_stream": True, "record_stream": True}}
+
+        get_group_offload_configuration(configuration, "cuda")
+        second = get_group_offload_configuration(configuration, "cuda")
+
+        assert "use_stream" not in second
+        assert second["onload_device"] == torch.device("mps")
 
 
 class TestCacheConfiguration:
