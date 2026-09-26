@@ -138,9 +138,10 @@
     return () => query.removeEventListener('change', apply)
   })
   $effect(() => {
-    // any navigation closes the drawer
+    // any navigation closes the drawer and scrolls back to the top
     void route.parts
     drawerOpen = false
+    window.scrollTo(0, 0)
   })
   const view = $derived(route.view)
   const wide = $derived(
