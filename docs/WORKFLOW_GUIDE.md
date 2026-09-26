@@ -1290,7 +1290,8 @@ stays alive for the steps that reuse it.
 ```
 
 - `enable_attention_slicing` — process attention in slices to reduce memory at some
-  cost to speed. Opt-in on every backend (UNet/ControlNet models only).
+  cost to speed. Automatic on MPS unless `disable_attention_slicing` is set
+  (UNet/ControlNet models only; worth disabling for SDXL on a Mac).
 - `attention_backend` — selects a diffusers attention backend (e.g. `"flash_hub"`) for
   the duration of each pipeline call.
 - `prompt_weighting` — enables A1111-style prompt weighting (`(word:1.5)`, `[word]`,

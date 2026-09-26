@@ -309,9 +309,9 @@ class Pipeline:
                 defer_placement=adapters_to_load,
             )
 
-            # Attention slicing trades speed for memory and is opt-in - see
-            # attention_slicing_requested for why it is no longer automatic on MPS
-            if attention_slicing_requested(self.configuration):
+            # Attention slicing trades speed for memory - automatic on MPS, where
+            # it is often the faster path too (see attention_slicing_requested)
+            if attention_slicing_requested(self.configuration, self.device):
                 # Modular pipelines have no attention slicing - skip rather than fail
                 if has_method(self.pipeline, "enable_attention_slicing"):
                     logger.debug("Enabling attention slicing for pipeline")
@@ -1502,12 +1502,21 @@ def load_and_configure_scheduler(
     scheduler.set_shift(float(shift))
 
 
-def attention_slicing_requested(configuration):
-    """Whether a pipeline's attention runs sliced. Opt-in on every backend: it
-    used to be automatic on MPS, where it measured 2.4x slower on UNet attention
-    than the SDPA it replaces (bf16, M5 Pro) - SDPA is already the
-    memory-efficient path. 'disable_attention_slicing' is accepted and ignored."""
-    return bool(configuration.get("enable_attention_slicing", False))
+def attention_slicing_requested(configuration, device):
+    """Whether a pipeline's attention runs sliced: automatic on MPS unless
+    'disable_attention_slicing' is set, opt-in ('enable_attention_slicing')
+    everywhere else.
+
+    Which is faster on MPS depends on the model. Measured on an M5 Pro (torch
+    2.14), MPS SDPA is slow at head dims 40, 48 and 160 and fast at 32 and
+    64-128 - slicing made SD 1.5 (40/80/160) ~20% faster end to end and
+    SDXL-shaped attention (64) 2.4x slower. It stays automatic because the
+    catalog's quick-start is SD 1.5; SDXL on a Mac can opt out."""
+    if configuration.get("enable_attention_slicing", False):
+        return True
+    return get_device_type(device) == "mps" and not configuration.get(
+        "disable_attention_slicing", False
+    )
 
 
 def auto_cpu_offload_enabled(configuration):

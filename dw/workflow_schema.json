@@ -593,7 +593,7 @@
                     "type": "boolean"
                 },
                 "disable_attention_slicing": {
-                    "description": "Deprecated and ignored: attention slicing is opt-in on every backend (enable_attention_slicing).",
+                    "description": "Turn off the attention slicing MPS applies automatically. Worth setting for SDXL-family models on a Mac: MPS SDPA is fast at their head dim (64) and slicing made it 2.4x slower.",
                     "type": "boolean"
                 },
                 "attention_backend": {
