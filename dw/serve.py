@@ -270,7 +270,15 @@ def main():
         # would otherwise hold this line back until shutdown
         flush=True,
     )
-    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level.lower(),
+        # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
+        # off indefinitely (#477); a few seconds still lets lifespan cleanup run
+        timeout_graceful_shutdown=5,
+    )
 
 
 if __name__ == "__main__":

@@ -87,3 +87,10 @@ def test_a_non_loopback_bind_without_mcp_is_only_warned_about(serve):
     calls = serve("--host", "0.0.0.0")
     assert calls["create_app"]["mcp"] is False
     assert calls["uvicorn"]["host"] == "0.0.0.0"
+
+
+def test_shutdown_has_a_grace_period_so_an_open_mcp_connection_cannot_block_it(serve):
+    """#477: uvicorn otherwise waits forever on SIGTERM for a connected
+    streamable-HTTP MCP client to disconnect."""
+    calls = serve()
+    assert calls["uvicorn"]["timeout_graceful_shutdown"] == 5
