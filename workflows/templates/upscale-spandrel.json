@@ -6,7 +6,7 @@
   ],
   "variables": {
     "input_image": {
-      "location": "https://example.com/image.jpg"
+      "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
     },
     "upscale_model": "Kim2091/UltraSharp",
     "upscale_filename": "4x-UltraSharp.pth",
