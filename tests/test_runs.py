@@ -365,9 +365,7 @@ class TestRunDirectories:
 
         with patch.object(Pipeline, "load", mock_load):
             with patch("dw.workflow.empty_device_cache"):
-                Workflow(
-                    definition, str(tmp_path), "/w/workflows/Gyre.json"
-                ).run({})
+                Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
 
         # While gen1 was running, gen0 had already landed in the manifest,
         # and the run was still reported as in progress
