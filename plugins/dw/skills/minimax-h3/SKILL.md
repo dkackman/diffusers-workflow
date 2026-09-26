@@ -113,8 +113,8 @@ read the `workflows` guide's authoring section first.
   output. `validate_workflow` refuses it and warns on a `weight_name`
   naming neither path.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
-  terminal zero included, so `denoise_total_steps` reports 8 - expected, not
-  upstream's `--inference-steps 8` read literally.
+  terminal zero included, so `denoise_total_steps` reports 8. A null
+  `lora_model_name` drops the LoRA; raise steps and shifts too.
 - Nothing carries between generations except a passed reference: no latent
   memory, no extension mode. Identity rides on a picture, voice on an audio
   clip, motion/camera on a video tail (a chain's), score across cuts under

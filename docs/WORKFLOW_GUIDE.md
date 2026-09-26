@@ -1217,7 +1217,12 @@ Attach one or more LoRAs to a pipeline with `loras`, a sibling of `configuration
 ]
 ```
 
-- `model_name` — the LoRA's hub repo, required.
+- `model_name` — the LoRA's hub repo, required. `null` switches the entry off: it is not
+  loaded and the step runs without it. A template's `loras` list is fixed JSON, so this is
+  how a caller drops its adapter - pass the variable behind `model_name` as `null`
+  (MiniMax H3: `lora_model_name`). Validation and the run both warn (`lora_disabled`).
+  A step-distillation (turbo) LoRA sets the step count and sigma shift the step runs at, so
+  raise those to the base model's schedule with it or the step runs undertrained.
 - `weight_name` / `subfolder` — pick a specific weights file within the repo.
 - `adapter_name` — name passed to `set_adapters()`. Defaults to the LoRA's index in the list.
 - `scale` — the adapter's weight, passed to `set_adapters()`. Defaults to `1.0`.

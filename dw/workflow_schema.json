@@ -1057,8 +1057,11 @@
             "type": "object",
             "properties": {
                 "model_name": {
-                    "description": "The huggingface hub name of the lora.",
-                    "type": "string"
+                    "description": "The huggingface hub name of the lora. Null switches the entry off: it is not loaded and the step runs without it, which is how a caller drops a template's adapter by passing its model_name variable as null. A step-distillation (turbo) lora sets the step count and schedule the step runs at, so raise those with it.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "weight_name": {
                     "description": "The file name of the lora weights.",

@@ -295,7 +295,9 @@ class Pipeline:
             # Adapters add weights to the components they attach to, and an offloading
             # hook only streams the weights that existed when it was installed - so a
             # pipeline that loads any is placed after they are on it, not at load
-            adapters_to_load = bool(self.pipeline_definition.get("loras", [])) or (
+            adapters_to_load = bool(
+                active_loras(self.pipeline_definition.get("loras", []))
+            ) or (
                 self.pipeline_definition.get("ip_adapter", None) is not None
             )
 
@@ -1371,25 +1373,44 @@ def _lora_layers(pipeline):
                 yield module
 
 
+def active_loras(loras):
+    """The `loras` entries that will load: a null `model_name` switches one
+    off, which is how a caller runs a template's step without its adapter -
+    the list itself is fixed JSON, and a variable can null a value but not
+    remove an entry."""
+    return [
+        lora
+        for lora in loras or []
+        if not isinstance(lora, dict) or lora.get("model_name") is not None
+    ]
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
     adapter_names = []
     adapter_weights = []
     alphas = {}
 
-    for i, lora in enumerate(loras):
+    for i, lora in enumerate(loras or []):
+        if isinstance(lora, dict) and lora.get("model_name") is None:
+            # Switched off - said to the caller by warn_adapters before the
+            # run started, so only logged here
+            logger.info(f"LoRA {i} has a null model_name - not loaded")
+            continue
         model_name = lora.pop("model_name", None)
         logger.info(f"Loading LoRA: {model_name}")
         emit_phase("loading", detail=f"LoRA: {model_name}")
 
-        # Use provided adapter_name or generate from index
-        adapter_name = lora.pop("adapter_name", str(i))
+        # Use provided adapter_name or generate from index - `or`, because a
+        # variable nulled by the caller arrives as a present None
+        adapter_name = lora.pop("adapter_name", None) or str(i)
         adapter_names.append(adapter_name)
 
         # Extract scale for adapter weights - float() because the schema takes a
         # 'variable:' reference here, and a variable declared as a string default
         # substitutes as one
-        scale = float(lora.pop("scale", 1.0))
+        scale = lora.pop("scale", None)
+        scale = 1.0 if scale is None else float(scale)
         adapter_weights.append(scale)
 
         # Popped before the load: everything left in the dict is a keyword

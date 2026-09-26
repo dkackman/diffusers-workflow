@@ -533,6 +533,16 @@ same reason - default setup cannot load a pack.
   longer names it was replaced on purpose, and its record carries
   `overridden_by` and drops the diagnosis. A variable no step reads is not
   how the step was reached, so that case keeps the old wording
+- **A null `model_name` switches a lora off** — a template's `loras` list
+  is fixed JSON, so the way a caller drops its adapter is to pass the
+  variable behind `model_name` as `null` (H3: `lora_model_name`).
+  `load_loras` skips the entry, `active_loras` (`dw/pipeline_processors/pipeline.py`)
+  keeps placement from deferring for it, and `adapter_warnings`/`warn_adapters`
+  (`dw/adapter_compatibility.py`, kind `lora_disabled`) say so at the path
+  the caller wrote, since a turbo lora's step count and shift no longer fit.
+  Before, nulling the variables validated clean, loaded the pipeline for
+  minutes and then died on `float(None)`. A null `scale`/`adapter_name`
+  takes its default
 - **A deliverable with no audio headroom warns** — a track at or above
   −0.5 dBFS is written anyway and said out loud (`warn_without_headroom`,
   `dw/result.py`, kind `audio_no_headroom`), for both a saved audio file and
