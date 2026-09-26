@@ -10,7 +10,11 @@ import os
 
 TEMPLATE_PATH = os.path.normpath(
     os.path.join(
-        os.path.dirname(__file__), "..", "workflows", "templates", "assemble-and-score.json"
+        os.path.dirname(__file__),
+        "..",
+        "workflows",
+        "templates",
+        "assemble-and-score.json",
     )
 )
 
