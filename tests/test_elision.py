@@ -512,3 +512,21 @@ class TestExtendClip:
     def test_the_opening_saves_nothing(self):
         steps = {s["name"]: s for s in self.definition()["steps"]}
         assert steps["opening"]["result"]["save"] is False
+
+    def test_extended_resolves_components_with_opening_elided(self):
+        """#446 bounce: 'extended' declared reused_components with no
+        earlier step left to share them once 'opening' is elided, so a
+        clip-supplied run failed at load with 'no earlier step shared it'.
+        This builds the real Pipeline for 'extended' and resolves its
+        components against an empty shared_components dict - what the
+        elided run actually hands it - rather than mocking the check away."""
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        steps = {s["name"]: s for s in self.definition()["steps"]}
+        extended = Pipeline(
+            steps["extended"]["pipeline"], default_seed=42, device="cpu"
+        )
+        # Would raise ValueError("Cannot reuse component ... no earlier step
+        # shared it") if 'extended' still depended on a component only
+        # 'opening' ever populated
+        assert extended.resolve_reused_components({}) == {}
