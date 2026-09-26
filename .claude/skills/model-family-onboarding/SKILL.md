@@ -21,6 +21,7 @@ next family gets it in an afternoon rather than a rediscovery.
   encodes what the pipeline actually accepts). Blog posts, videos and forum
   threads restate the model card; weight a secondary claim only when several
   independent sources repeat it *and* nothing primary contradicts it.
+- **Field reports augment vendor text.** Vendor guides rarely cover edge cases (like a 24-shot musical). When a field report provides prompting notes (e.g., props vs actions, landmarks, lip-sync targets, crowd age, reference leaks, native resolutions, music section ignores), treat them as canonical for failure modes and workarounds. Update the model's SKILL.md and the template's README.md with these notes.
 - **Model knowledge is data, never engine code.** Template JSON, stored
   prompts, a builtin's system prompt, README prose, a skill. No per-model
   Python.
@@ -110,7 +111,7 @@ outline in the plugin spec (section "Skill outline"): frontmatter written for
 triggering; call `get_server_info` and a shape-filtered `list_workflows`
 before trusting any name; the shape decision as choices; the hard numeric
 rules; the vendor pointer for prompts and nothing else; validate, quote cost,
-run, look, and the family's failure modes; sources with dates. Near the size
+run, look, and the family's failure modes (including field report notes); sources with dates. Near the size
 of the README it derives from, under the 12 KB cap.
 
 Add the family's numbers to `tests/test_plugin_skills.py`, each checked
