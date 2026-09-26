@@ -63,7 +63,7 @@ An autouse `_clear_task_model_cache` fixture clears `dw.tasks.model_cache` befor
 ## Quick Validation
 
 ```bash
-# Verify torch and diffusers are working
+# End-to-end check: downloads SD 1.5 and generates one image
 python -m dw.test
 
 # Validate a workflow against schema

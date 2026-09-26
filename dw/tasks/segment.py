@@ -23,6 +23,14 @@ _DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
 _DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
 
 
+def grounding_query(prompt):
+    """A prompt in the form GroundingDINO scores: lowercase, each phrase ending
+    in a period. 'cat' scored 0.20 against a photo of a cat - under the 0.3
+    threshold, so segment returned an empty mask - where 'cat.' scored 0.40."""
+    query = prompt.strip().lower()
+    return query if query.endswith(".") else f"{query}."
+
+
 def segment_image(image, prompt, device="cpu", **kwargs):
     """Segment objects matching a text prompt, returning a binary mask.
 
@@ -58,7 +66,9 @@ def segment_image(image, prompt, device="cpu", **kwargs):
         ("segment_dino", model_name, str(device)), load_dino
     )
 
-    inputs = dino_processor(images=image, text=prompt, return_tensors="pt").to(device)
+    inputs = dino_processor(
+        images=image, text=grounding_query(prompt), return_tensors="pt"
+    ).to(device)
 
     with torch.inference_mode():
         outputs = dino_model(**inputs)
@@ -103,10 +113,11 @@ def segment_image(image, prompt, device="cpu", **kwargs):
     with torch.inference_mode():
         sam_outputs = sam_model(**sam_inputs)
 
+    # SAM2's processor takes the original sizes alone - the third positional
+    # argument is mask_threshold, and the SAM v1 'reshaped_input_sizes' key this
+    # used to pass does not exist in SAM2's inputs at all
     masks = sam_processor.post_process_masks(
-        sam_outputs.pred_masks,
-        sam_inputs["original_sizes"],
-        sam_inputs["reshaped_input_sizes"],
+        sam_outputs.pred_masks, sam_inputs["original_sizes"]
     )
 
     combined = masks[0][:, 0].sum(dim=0).clamp(0, 1)

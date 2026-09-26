@@ -55,7 +55,7 @@ pyproject; install.ps1 installs it explicitly on Windows.
 
 **Windows (CUDA):** bitsandbytes, kernels
 
-**macOS (MPS):** fp4-fp8-for-torch-mps (FP8/FP4 dtype support for Metal), fluidtop
+**macOS (MPS):** fp4-fp8-for-torch-mps (FP8/FP4 dtypes for Metal; autoloads on every torch import, overrides mm/linear/copy on the MPS dispatch key and sets PYTORCH_ENABLE_MPS_FALLBACK=1), fluidtop (a GPU/power TUI; needs sudo)
 
 ## Optional
 

@@ -1,6 +1,6 @@
 {
     "variables": {
-        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg",
+        "mask_image_uri": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png",
         "seed": null
     },
     "id": "sd15-controlnet",
@@ -34,7 +34,7 @@
                     }
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "runwayml/stable-diffusion-v1-5",
+                    "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
                     "torch_dtype": "torch.float16"
                 },
                 "arguments": {

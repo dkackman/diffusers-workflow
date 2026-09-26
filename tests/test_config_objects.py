@@ -70,6 +70,83 @@ class TestQuantizationConfiguration:
                 }
             )
 
+    def test_a_cuda_quantization_device_is_translated_on_a_mac(self, monkeypatch):
+        # A catalog template written on the CUDA box names "cuda" here, and SDNQ
+        # moves every weight to it inside from_pretrained
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+        config = create_quantization_config(
+            quantization_definition(quantization_device="cuda", return_device="cpu")
+        )
+
+        assert config.kwargs["quantization_device"] == "mps"
+        assert config.kwargs["return_device"] == "cpu"
+
+    def test_a_cpu_quantization_device_is_never_rewritten(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+        config = create_quantization_config(
+            quantization_definition(quantization_device="cpu")
+        )
+
+        assert config.kwargs["quantization_device"] == "cpu"
+
+    def test_quantized_matmul_is_switched_off_on_mps(self, monkeypatch):
+        # Without Triton SDNQ's quantized matmul is torch._int_mm, measured
+        # ~500x slower than the bf16 matmul it replaces on an M5 Pro
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+        config = create_quantization_config(
+            quantization_definition(
+                use_quantized_matmul=True, use_quantized_matmul_conv=True
+            )
+        )
+
+        assert config.kwargs["use_quantized_matmul"] is False
+        assert config.kwargs["use_quantized_matmul_conv"] is False
+
+    def test_quantized_matmul_is_kept_on_cuda(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+        monkeypatch.setattr(dw, "get_device", lambda: "cuda")
+
+        config = create_quantization_config(
+            quantization_definition(
+                quantization_device="cuda", use_quantized_matmul=True
+            )
+        )
+
+        assert config.kwargs["quantization_device"] == "cuda"
+        assert config.kwargs["use_quantized_matmul"] is True
+
+    def test_quantized_matmul_is_kept_on_cpu(self, monkeypatch):
+        monkeypatch.setattr(dw, "get_device", lambda: "cpu")
+
+        config = create_quantization_config(
+            quantization_definition(use_quantized_matmul=True)
+        )
+
+        assert config.kwargs["use_quantized_matmul"] is True
+
+    def test_adapting_does_not_mutate_the_definition(self, monkeypatch):
+        # A cached pipeline builds from the same definition a second time
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+        definition = quantization_definition(
+            quantization_device="cuda", use_quantized_matmul=True
+        )
+
+        create_quantization_config(definition)
+        second = create_quantization_config(definition)
+
+        assert definition["arguments"] == {
+            "quantization_device": "cuda",
+            "use_quantized_matmul": True,
+        }
+        assert second.kwargs["quantization_device"] == "mps"
+
 
 class TestLoadComponentsArguments:
     def test_a_pipeline_without_load_components_returns_none(self):
@@ -150,7 +227,8 @@ class TestGroupOffloadConfiguration:
 
         assert config["offload_device"] == torch.device("cpu")
 
-    def test_other_keys_are_carried_through(self):
+    def test_other_keys_are_carried_through(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
         config = get_group_offload_configuration(
             {"group_offload": {"num_blocks_per_group": 2, "use_stream": True}}, "cuda"
         )
@@ -167,6 +245,57 @@ class TestGroupOffloadConfiguration:
         second = get_group_offload_configuration(configuration, "cuda")
 
         assert first["onload_device"] == second["onload_device"] == torch.device("cpu")
+
+    def test_streams_are_dropped_on_mps(self, monkeypatch):
+        # diffusers refuses use_stream without CUDA/XPU, and refuses
+        # record_stream without use_stream - both have to go together
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+        config = get_group_offload_configuration(
+            {
+                "group_offload": {
+                    "onload_device": "cuda",
+                    "num_blocks_per_group": 1,
+                    "use_stream": True,
+                    "record_stream": True,
+                }
+            },
+            "cuda",
+        )
+
+        assert config["onload_device"] == torch.device("mps")
+        assert "use_stream" not in config
+        assert "record_stream" not in config
+        assert config["num_blocks_per_group"] == 1
+
+    def test_streams_are_dropped_when_onloading_to_cpu(self):
+        config = get_group_offload_configuration(
+            {"group_offload": {"onload_device": "cpu", "use_stream": True}}, "cpu"
+        )
+
+        assert "use_stream" not in config
+
+    def test_streams_are_kept_on_cuda(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+
+        config = get_group_offload_configuration(
+            {"group_offload": {"use_stream": True, "record_stream": True}}, "cuda"
+        )
+
+        assert config["use_stream"] is True
+        assert config["record_stream"] is True
+
+    def test_dropping_streams_twice_is_stable(self, monkeypatch):
+        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+        configuration = {"group_offload": {"use_stream": True, "record_stream": True}}
+
+        get_group_offload_configuration(configuration, "cuda")
+        second = get_group_offload_configuration(configuration, "cuda")
+
+        assert "use_stream" not in second
+        assert second["onload_device"] == torch.device("mps")
 
 
 class TestCacheConfiguration:

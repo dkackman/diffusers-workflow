@@ -7,7 +7,7 @@
   "cost_drivers": ["num_inference_steps"],
   "variables": {
     "input_image": {
-      "location": "https://example.com/image.jpg"
+      "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
     },
     "prompt": "",
     "negative_prompt": null,
