@@ -55,7 +55,6 @@ class TestSegmentImage:
                 "pixel_values": torch.zeros(1, 3, 256, 256),
                 "input_boxes": torch.tensor([[[100.0, 100.0, 300.0, 300.0]]]),
                 "original_sizes": torch.tensor([[480, 640]]),
-                "reshaped_input_sizes": torch.tensor([[256, 256]]),
             }
         )
         mock_sam_proc_instance.return_value = sam_inputs
@@ -73,6 +72,9 @@ class TestSegmentImage:
 
         image = _make_test_image()
         result = segment_image(image, "dog")
+
+        args, kwargs = mock_sam_proc_instance.post_process_masks.call_args
+        assert len(args) == 2 and not kwargs
 
         assert isinstance(result, Image.Image)
         assert result.mode == "L"
@@ -153,3 +155,53 @@ class TestSegmentTaskRegistration:
         from dw.tasks.task import _COMMAND_REGISTRY
 
         assert "segment" in _COMMAND_REGISTRY
+
+
+class TestSegmentWithRealSam2Processor:
+    """The mocked tests above hand segment_image a dict with whatever keys
+    they are told to - which is how a SAM v1 key ('reshaped_input_sizes')
+    survived in the code while every real run raised KeyError. This one
+    builds the real processor offline and fakes only the models."""
+
+    @patch("dw.tasks.segment.Sam2Model")
+    @patch("dw.tasks.segment.Sam2Processor")
+    @patch("dw.tasks.segment.AutoModelForZeroShotObjectDetection")
+    @patch("dw.tasks.segment.AutoProcessor")
+    def test_masks_come_back_at_the_image_size(
+        self, mock_auto_proc, mock_auto_model, mock_sam_proc, mock_sam_model
+    ):
+        from transformers import Sam2ImageProcessor
+        from transformers import Sam2Processor as RealSam2Processor
+
+        from dw.tasks.segment import segment_image
+
+        dino = MagicMock()
+        mock_auto_proc.from_pretrained.return_value = dino
+        dino.return_value = _make_batch_encoding({"input_ids": torch.zeros(1, 10)})
+        dino.post_process_grounded_object_detection.return_value = [
+            {
+                "boxes": torch.tensor([[100.0, 100.0, 300.0, 300.0]]),
+                "scores": torch.tensor([0.9]),
+                "labels": ["dog"],
+            }
+        ]
+        dino_model = MagicMock()
+        mock_auto_model.from_pretrained.return_value = dino_model
+        dino_model.to.return_value = dino_model
+
+        mock_sam_proc.from_pretrained.return_value = RealSam2Processor(
+            image_processor=Sam2ImageProcessor()
+        )
+        sam_model = MagicMock()
+        mock_sam_model.from_pretrained.return_value = sam_model
+        sam_model.to.return_value = sam_model
+        # SAM2's low-res mask logits: (batch, boxes, masks, 256, 256)
+        logits = torch.full((1, 1, 3, 256, 256), -10.0)
+        logits[..., 64:128, 64:128] = 10.0
+        sam_model.return_value = MagicMock(pred_masks=logits)
+
+        result = segment_image(_make_test_image(), "dog")
+
+        assert result.mode == "L"
+        assert result.size == (640, 480)
+        assert np.array(result).max() == 255

@@ -103,10 +103,11 @@ def segment_image(image, prompt, device="cpu", **kwargs):
     with torch.inference_mode():
         sam_outputs = sam_model(**sam_inputs)
 
+    # SAM2's processor takes the original sizes alone - the third positional
+    # argument is mask_threshold, and the SAM v1 'reshaped_input_sizes' key this
+    # used to pass does not exist in SAM2's inputs at all
     masks = sam_processor.post_process_masks(
-        sam_outputs.pred_masks,
-        sam_inputs["original_sizes"],
-        sam_inputs["reshaped_input_sizes"],
+        sam_outputs.pred_masks, sam_inputs["original_sizes"]
     )
 
     combined = masks[0][:, 0].sum(dim=0).clamp(0, 1)
