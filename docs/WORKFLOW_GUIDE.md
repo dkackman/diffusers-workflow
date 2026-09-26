@@ -288,7 +288,21 @@ for existence.
   One name, three places it can sit: a bare string (`"image": "asset:x.png"`),
   an element of a list, or the `location` of a media dict
   (`{"location": "asset:x.png"}`, with or without `media_type`) - all resolve
-  to the same file.
+  to the same file. When the file is on neither the MCP session's machine nor
+  reachable as `content=` (over 4MB, or the agent has no filesystem access to
+  read it into the call), curl it straight into the library the same way the
+  web UI's file picker does — `POST /api/uploads`, body is the raw bytes:
+  ```
+  curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary @portrait.jpg \
+    "http://<host>:8765/api/uploads?filename=portrait.jpg&asset_name=cast/portrait.jpg&workspace=<ws>"
+  ```
+  It answers 201 with `path` - the `asset:` reference to use in a workflow
+  argument (the bearer token only when the server requires one). The same
+  route is also how a file assembled entirely on the client - a finished cut
+  stitched locally rather than by a workflow step - gets onto the server at
+  all: it never lands in the gallery and `export_job` has no run to bundle it
+  from, so uploading it as an asset is the only way to hand it back to the
+  engine or to a teammate reading the workspace.
 - `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
   run wrote, under the output root and confined to it. `latest` in the run-id position
   picks the newest run that holds that file; `v<N>` picks the run the gallery labels
@@ -535,6 +549,16 @@ resolves to `slice@closeup`. That is how a shot reads the audio
 slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
 no zip and no loop index.
+
+That auto-pairing is at the *step* level only, where `from_previous_result`
+(or `previous_result:`) sits directly in the `for_each` step's own
+arguments. Inside an **item** — an entry field the step reads with
+`item:`, such as a `references` entry — nothing pairs it for you, because the
+entry is data the caller wrote and the engine does not know which list it
+came from. Spell the member out: `{"reference_type": "…",
+"from_previous_result": "slice@closeup"}`, not `"slice"`. Getting this wrong
+fails the run with a precise error naming the members that do exist, but the
+guide says it here first.
 
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`

@@ -133,9 +133,11 @@ def _confine_source(path, roots, named):
         f"({', '.join(roots)}). A file that is already there is reachable "
         f"as an 'asset:' reference; to put a new one there when it exists "
         f"only on your own machine, call upload_asset with content= (its "
-        f"bytes, base64-encoded) instead of file_path, upload it through "
-        f"the web UI's file picker, or promote a generated file with "
-        f"keep_output."
+        f"bytes, base64-encoded, capped at {MAX_INLINE_UPLOAD_BYTES} bytes) "
+        f"instead of file_path, curl it to POST /api/uploads?filename=<name>"
+        f"&asset_name=<folder/name> the way the web UI's file picker does "
+        f"(no size cap but the file body is raw bytes, not JSON), or promote "
+        f"a generated file with keep_output."
     )
 
 
@@ -368,7 +370,13 @@ def _upload_inline(client, content, asset_name=None, shared=False, workspace=Non
             f"content is {len(body)} bytes, over the "
             f"{MAX_INLINE_UPLOAD_BYTES} byte limit for an inline upload. A "
             f"file this large should be reached by file_path instead, from "
-            f"a machine that has it on disk."
+            f"a machine that has it on disk. If neither machine has it - a "
+            f"remote dw.serve --mcp endpoint with nothing in common with the "
+            f"caller's own disk - curl the bytes straight to the upload "
+            f"route dw.serve exposes for this: POST /api/uploads?"
+            f"filename=<name>&asset_name=<folder/name>[&workspace=<ws>], "
+            f"body is the raw file, bearer token if the server requires one; "
+            f"it answers with the same 'asset:' reference this tool returns."
         )
 
     params = {"filename": asset_name, "asset_name": asset_name}
