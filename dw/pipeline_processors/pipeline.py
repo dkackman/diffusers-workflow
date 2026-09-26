@@ -297,9 +297,7 @@ class Pipeline:
             # pipeline that loads any is placed after they are on it, not at load
             adapters_to_load = bool(
                 active_loras(self.pipeline_definition.get("loras", []))
-            ) or (
-                self.pipeline_definition.get("ip_adapter", None) is not None
-            )
+            ) or (self.pipeline_definition.get("ip_adapter", None) is not None)
 
             # Load and configure the main pipeline
             self.pipeline = load_component(

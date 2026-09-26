@@ -58,7 +58,21 @@ def h3_workflow(tmp_path):
 class TestLoadLoras:
     def test_an_all_null_entry_loads_nothing(self):
         pipeline = RecordingPipeline()
-        load_loras([{key: None for key in ("model_name", "weight_name", "adapter_name", "scale", "alpha")}], pipeline)
+        load_loras(
+            [
+                {
+                    key: None
+                    for key in (
+                        "model_name",
+                        "weight_name",
+                        "adapter_name",
+                        "scale",
+                        "alpha",
+                    )
+                }
+            ],
+            pipeline,
+        )
         assert pipeline.loaded == []
         assert pipeline.adapters is None
 
@@ -136,13 +150,19 @@ class TestValidation:
             lambda message, **data: emitted.append((message, data.get("kind"))),
         )
         warn_adapters(
-            {"steps": [{"name": "image", "pipeline": {"loras": [{"model_name": None}]}}]}
+            {
+                "steps": [
+                    {"name": "image", "pipeline": {"loras": [{"model_name": None}]}}
+                ]
+            }
         )
         assert [kind for _, kind in emitted] == ["lora_disabled"]
 
 
 def test_the_schema_takes_a_literal_null():
-    with open(os.path.join(REPO_ROOT, "dw", "workflow_schema.json"), encoding="utf-8") as f:
+    with open(
+        os.path.join(REPO_ROOT, "dw", "workflow_schema.json"), encoding="utf-8"
+    ) as f:
         schema = json.load(f)
     assert "null" in schema["$defs"]["lora"]["properties"]["model_name"]["type"]
 
