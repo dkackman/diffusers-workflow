@@ -388,3 +388,111 @@ class TestUploadContainmentOverAMountedEndpoint:
         client, _seen = recording()
 
         assert upload_asset(client, str(source))["uploaded"] == "iris.png"
+
+    def _mounted_client_with_shared_library(self, workspace, common, tmp_path):
+        """A workspace root plus the shared 'common/assets' library every
+        workspace's asset search path includes (#448) - only visible via
+        /api/assets's 'libraries', not /api/server's 'directories'."""
+
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(
+                    200,
+                    json={
+                        "directories": {
+                            "workspace": str(workspace),
+                            "workflows": str(workspace / "workflows"),
+                            "assets": str(workspace / "assets"),
+                            "outputs": str(workspace / "outputs"),
+                            "prompts": None,
+                        }
+                    },
+                )
+            if request.url.path == "/api/assets":
+                return httpx.Response(
+                    200,
+                    json={
+                        "asset_dir": str(workspace / "assets"),
+                        "assets": [],
+                        "folders": [],
+                        "libraries": [
+                            {
+                                "origin": "workspace",
+                                "dir": str(workspace / "assets"),
+                                "writable": True,
+                            },
+                            {
+                                "origin": "common",
+                                "dir": str(common),
+                                "writable": True,
+                            },
+                            {
+                                "origin": "examples",
+                                "dir": str(tmp_path / "examples" / "assets"),
+                                "writable": False,
+                            },
+                        ],
+                        "shadowed": [],
+                    },
+                )
+            return httpx.Response(
+                201,
+                json={
+                    "path": "asset:uploads/deadbeef.png",
+                    "url": "/inputs/uploads/deadbeef.png",
+                },
+            )
+
+        client = client_over(handler)
+        client.mounted = True
+        return client
+
+    def test_a_file_in_the_shared_common_library_is_a_legal_source(self, tmp_path):
+        """SE-F027: the shared asset library is writable and on every
+        workspace's asset search path, so it must be as legal a file_path
+        source as the four directories /api/server names - not just the
+        workspace's own assets/ folder (#448)."""
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        common = tmp_path / "common" / "assets"
+        common.mkdir(parents=True)
+        source = common / "qa-cast" / "ep10-bed.wav"
+        source.parent.mkdir()
+        source.write_bytes(b"wav-bytes")
+
+        client = self._mounted_client_with_shared_library(workspace, common, tmp_path)
+        result = upload_asset(client, str(source))
+        assert result["reference"] == "asset:uploads/deadbeef.png"
+
+    def test_a_read_only_examples_library_is_still_refused(self, tmp_path):
+        """A writable library is a legal source; a read-only examples one is
+        not - only #448's shared/writable gap is closed, not confinement
+        itself."""
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        common = tmp_path / "common" / "assets"
+        common.mkdir(parents=True)
+        examples = tmp_path / "examples" / "assets"
+        examples.mkdir(parents=True)
+        source = examples / "sample.png"
+        source.write_bytes(b"png-bytes")
+
+        client = self._mounted_client_with_shared_library(workspace, common, tmp_path)
+        with pytest.raises(DwApiError, match="Refusing to read"):
+            upload_asset(client, str(source))
+
+    def test_traversal_out_of_the_shared_library_is_still_refused(self, tmp_path):
+        """#448 widens the legal roots; it must not widen containment - '..'
+        out of the shared library is still refused."""
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        common = tmp_path / "common" / "assets"
+        common.mkdir(parents=True)
+        outside = tmp_path / "elsewhere" / "secret.png"
+        outside.parent.mkdir()
+        outside.write_bytes(b"png-bytes")
+        traversal = str(common) + "/../../elsewhere/secret.png"
+
+        client = self._mounted_client_with_shared_library(workspace, common, tmp_path)
+        with pytest.raises(DwApiError, match="Refusing to read"):
+            upload_asset(client, traversal)

@@ -58,6 +58,14 @@ def _remote_roots(client):
     file read plus a path-existence oracle (#138). A stdio `dw-mcp` returns
     None and keeps reading whatever the user can, because there "local file"
     is genuinely their own.
+
+    `/api/server`'s `directories` names only the four workspace-scoped
+    folders plus the shared prompt library, not the shared asset library
+    ('common/assets') every workspace's own asset search path already
+    includes - that one is only visible via `/api/assets`'s `libraries`
+    (#448). A writable library there (the workspace's own, already covered
+    above, and the shared one) is as legal a source as the four directories;
+    a read-only examples library is not, so it is left out.
     """
     if not getattr(client, "mounted", False):
         return None
@@ -73,6 +81,23 @@ def _remote_roots(client):
         )
         if resolved not in roots:
             roots.append(resolved)
+
+    try:
+        libraries = client.get_json("/api/assets").get("libraries") or []
+    except DwApiError:
+        libraries = []
+    for library in libraries:
+        if not isinstance(library, dict) or not library.get("writable"):
+            continue
+        value = library.get("dir")
+        if not value:
+            continue
+        resolved = os.path.normpath(
+            os.path.realpath(os.path.abspath(os.path.expanduser(str(value))))
+        )
+        if resolved not in roots:
+            roots.append(resolved)
+
     if not roots:
         raise DwApiError(
             "This server cannot say which directories it works in, so it "
