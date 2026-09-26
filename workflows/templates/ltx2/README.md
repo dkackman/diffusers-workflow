@@ -68,5 +68,5 @@ generating far above that bucket weakens the effect.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [extend-clip.json](extend-clip.json) | Continuing a clip by conditioning on it in full, both steps sharing one loaded model |
+| [extend-clip.json](extend-clip.json) | Continuing a clip by conditioning on it in full; `clip` extends an existing clip instead of generating one |
 | [chained-segments.json](chained-segments.json) | A chain re-runs the pipeline per segment on the previous last frame and stitches frames and audio back together |
