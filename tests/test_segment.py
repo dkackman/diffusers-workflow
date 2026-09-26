@@ -205,3 +205,37 @@ class TestSegmentWithRealSam2Processor:
         assert result.mode == "L"
         assert result.size == (640, 480)
         assert np.array(result).max() == 255
+
+
+class TestGroundingDinoQuery:
+    """GroundingDINO only scores a query written its way - lowercase, each
+    phrase ending in a period. 'cat' found nothing in a photo of a cat (max
+    score 0.20 under the 0.3 threshold); 'cat.' found it, on CPU and MPS."""
+
+    @patch("dw.tasks.segment.AutoModelForZeroShotObjectDetection")
+    @patch("dw.tasks.segment.AutoProcessor")
+    def _query_for(self, prompt, mock_auto_proc, mock_auto_model):
+        from dw.tasks.segment import segment_image
+
+        dino = MagicMock()
+        mock_auto_proc.from_pretrained.return_value = dino
+        dino.return_value = _make_batch_encoding({"input_ids": torch.zeros(1, 10)})
+        dino.post_process_grounded_object_detection.return_value = [
+            {"boxes": torch.zeros(0, 4), "scores": torch.zeros(0), "labels": []}
+        ]
+        model = MagicMock()
+        mock_auto_model.from_pretrained.return_value = model
+        model.to.return_value = model
+
+        segment_image(_make_test_image(), prompt)
+
+        return dino.call_args.kwargs["text"]
+
+    def test_a_bare_noun_gets_its_period(self):
+        assert self._query_for("cat") == "cat."
+
+    def test_case_and_whitespace_are_normalized(self):
+        assert self._query_for("  A Red Car ") == "a red car."
+
+    def test_a_query_already_in_form_is_unchanged(self):
+        assert self._query_for("a cat. a dog.") == "a cat. a dog."
