@@ -37,9 +37,8 @@ arguments; the prompt format is MiniMax's, from their text not here.
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards in one generation, one unbroken score**:
   `templates/minimax/storyboard` - H3 cuts between the boards inside a single
-  generation, which no concat can match. One beat with fixed cut points, not
-  a building block; past one beat with a recurring cast, use the cuts
-  pattern below.
+  generation, which no concat can match. One beat only; past that, use the
+  cuts pattern below.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes (each cut its own generation).
   Six distinct scenes are a cuts piece, not a chain.
@@ -71,19 +70,13 @@ arguments; the prompt format is MiniMax's, from their text not here.
   its own audio, so write `non_diegetic_music: N/A` in every shot and lay one
   score under the concat afterwards: `templates/minimax/music` writes the
   track and `templates/assemble-and-score` shows the `pair_audio` step that
-  mixes it under the world sound; `shots` is a list, so a six-shot reel is
-  one more entry, not a new file. A character speaking in several shots keeps
+  mixes it under the world sound. A character speaking in several shots keeps
   one voice by passing the same clip as an audio reference each time (the
   `voice-timbre-reference` pattern) - a repeated description alone drifts.
   Each entry's `num_frames` paces the cut.
-  A score burying voice-over is not a `world_gain` fix: the world track
-  carries narration and action together (narration ~24 dB over its own
-  ambience, score 6-15 dB over that), so raising it lifts both. Duck the
-  *score* instead, before passing it as `score`: one `gain_audio` (#187)
-  step per voice-over shot, chained, `start_frame` = running sum of
-  preceding shots' `num_frames`, `num_frames` that shot's length, `fps`
-  the cut's rate, negative `gain_db` (-6 to -10). `dissolve-between-shots`
-  eats `dissolve_frames` per seam, so its sum isn't plain.
+  A score burying voice-over is not a `world_gain` fix - the world track
+  carries narration and action together, so raising it lifts both. Duck the
+  *score* first instead, per voice-over shot, before passing it as `score`.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry, no shared cast, no concat. `keep_output` each
   clip, then `templates/assemble-and-score` cuts and scores.
@@ -112,6 +105,13 @@ read the `workflows` guide's authoring section first.
   `transformer_ref` alone, so whatever is handed there only degrades the
   output. `validate_workflow` refuses it and warns on a `weight_name`
   naming neither path.
+- Match a crowd's action to what it holds and state its age range -
+  defaults skew young, and a held prop can grow an extra hand. Two people in
+  frame can lip-sync the wrong one: face the singer close-up and spell the
+  sung line in `<d>` tags. Check a reference shot's first frames for the
+  portraits' own backdrop leaking through. Ref2VA also reaches 1344x768, not
+  only `video-with-audio-768p` - give ground on frame count first. See the
+  README's field notes (#484).
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
   `lora_model_name` drops the LoRA; raise steps and shifts too.
