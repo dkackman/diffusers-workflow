@@ -120,7 +120,9 @@ from the templates' examples:
    Arrangement - in 250-450 English words, with no title, no reasoning, and
    no lyric line copied into the caption. The pipeline strips markdown
    headings and emphasis on the way in, so the vendor's caption pastes
-   straight into `prompt`.
+   straight into `prompt`. This is the recommended route: a 24-shot field
+   report's three-heading caption produced a correct, complete song on its
+   first seed (#484).
 3. The concise one-paragraph form the templates' stored prompts use (genre,
    BPM, key, emotional progression, listening scenario, production profile,
    vocals, arrangement) is the model card's own example and works; the
