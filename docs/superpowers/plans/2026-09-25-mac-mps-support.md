@@ -59,82 +59,85 @@
 - [ ] **Step 1: Write the failing tests.** Append these to `class TestQuantizationConfiguration` in `tests/test_config_objects.py`:
 
 ```python
-    def test_a_cuda_quantization_device_is_translated_on_a_mac(self, monkeypatch):
-        # A catalog template written on the CUDA box names "cuda" here, and SDNQ
-        # moves every weight to it inside from_pretrained
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+def test_a_cuda_quantization_device_is_translated_on_a_mac(self, monkeypatch):
+    # A catalog template written on the CUDA box names "cuda" here, and SDNQ
+    # moves every weight to it inside from_pretrained
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
 
-        config = create_quantization_config(
-            quantization_definition(quantization_device="cuda", return_device="cpu")
+    config = create_quantization_config(
+        quantization_definition(quantization_device="cuda", return_device="cpu")
+    )
+
+    assert config.kwargs["quantization_device"] == "mps"
+    assert config.kwargs["return_device"] == "cpu"
+
+
+def test_a_cpu_quantization_device_is_never_rewritten(self, monkeypatch):
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+    config = create_quantization_config(
+        quantization_definition(quantization_device="cpu")
+    )
+
+    assert config.kwargs["quantization_device"] == "cpu"
+
+
+def test_quantized_matmul_is_switched_off_on_mps(self, monkeypatch):
+    # Without Triton SDNQ's quantized matmul is torch._int_mm, measured
+    # ~500x slower than the bf16 matmul it replaces on an M5 Pro
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
+
+    config = create_quantization_config(
+        quantization_definition(
+            use_quantized_matmul=True, use_quantized_matmul_conv=True
         )
+    )
 
-        assert config.kwargs["quantization_device"] == "mps"
-        assert config.kwargs["return_device"] == "cpu"
+    assert config.kwargs["use_quantized_matmul"] is False
+    assert config.kwargs["use_quantized_matmul_conv"] is False
 
-    def test_a_cpu_quantization_device_is_never_rewritten(self, monkeypatch):
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
 
-        config = create_quantization_config(
-            quantization_definition(quantization_device="cpu")
-        )
+def test_quantized_matmul_is_kept_on_cuda(self, monkeypatch):
+    monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+    monkeypatch.setattr(dw, "get_device", lambda: "cuda")
 
-        assert config.kwargs["quantization_device"] == "cpu"
+    config = create_quantization_config(
+        quantization_definition(quantization_device="cuda", use_quantized_matmul=True)
+    )
 
-    def test_quantized_matmul_is_switched_off_on_mps(self, monkeypatch):
-        # Without Triton SDNQ's quantized matmul is torch._int_mm, measured
-        # ~500x slower than the bf16 matmul it replaces on an M5 Pro
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+    assert config.kwargs["quantization_device"] == "cuda"
+    assert config.kwargs["use_quantized_matmul"] is True
 
-        config = create_quantization_config(
-            quantization_definition(
-                use_quantized_matmul=True, use_quantized_matmul_conv=True
-            )
-        )
 
-        assert config.kwargs["use_quantized_matmul"] is False
-        assert config.kwargs["use_quantized_matmul_conv"] is False
+def test_quantized_matmul_is_kept_on_cpu(self, monkeypatch):
+    monkeypatch.setattr(dw, "get_device", lambda: "cpu")
 
-    def test_quantized_matmul_is_kept_on_cuda(self, monkeypatch):
-        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
-        monkeypatch.setattr(dw, "get_device", lambda: "cuda")
+    config = create_quantization_config(
+        quantization_definition(use_quantized_matmul=True)
+    )
 
-        config = create_quantization_config(
-            quantization_definition(
-                quantization_device="cuda", use_quantized_matmul=True
-            )
-        )
+    assert config.kwargs["use_quantized_matmul"] is True
 
-        assert config.kwargs["quantization_device"] == "cuda"
-        assert config.kwargs["use_quantized_matmul"] is True
 
-    def test_quantized_matmul_is_kept_on_cpu(self, monkeypatch):
-        monkeypatch.setattr(dw, "get_device", lambda: "cpu")
+def test_adapting_does_not_mutate_the_definition(self, monkeypatch):
+    # A cached pipeline builds from the same definition a second time
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
+    definition = quantization_definition(
+        quantization_device="cuda", use_quantized_matmul=True
+    )
 
-        config = create_quantization_config(
-            quantization_definition(use_quantized_matmul=True)
-        )
+    create_quantization_config(definition)
+    second = create_quantization_config(definition)
 
-        assert config.kwargs["use_quantized_matmul"] is True
-
-    def test_adapting_does_not_mutate_the_definition(self, monkeypatch):
-        # A cached pipeline builds from the same definition a second time
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
-        definition = quantization_definition(
-            quantization_device="cuda", use_quantized_matmul=True
-        )
-
-        create_quantization_config(definition)
-        second = create_quantization_config(definition)
-
-        assert definition["arguments"] == {
-            "quantization_device": "cuda",
-            "use_quantized_matmul": True,
-        }
-        assert second.kwargs["quantization_device"] == "mps"
+    assert definition["arguments"] == {
+        "quantization_device": "cuda",
+        "use_quantized_matmul": True,
+    }
+    assert second.kwargs["quantization_device"] == "mps"
 ```
 
 - [ ] **Step 2: Run the tests to confirm they fail.**
@@ -215,56 +218,59 @@ git commit -m "fix(quantization): translate SDNQ devices and drop quantized matm
 - [ ] **Step 2: Write the failing tests.** Append these to `class TestGroupOffloadConfiguration`:
 
 ```python
-    def test_streams_are_dropped_on_mps(self, monkeypatch):
-        # diffusers refuses use_stream without CUDA/XPU, and refuses
-        # record_stream without use_stream - both have to go together
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
+def test_streams_are_dropped_on_mps(self, monkeypatch):
+    # diffusers refuses use_stream without CUDA/XPU, and refuses
+    # record_stream without use_stream - both have to go together
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
 
-        config = get_group_offload_configuration(
-            {
-                "group_offload": {
-                    "onload_device": "cuda",
-                    "num_blocks_per_group": 1,
-                    "use_stream": True,
-                    "record_stream": True,
-                }
-            },
-            "cuda",
-        )
+    config = get_group_offload_configuration(
+        {
+            "group_offload": {
+                "onload_device": "cuda",
+                "num_blocks_per_group": 1,
+                "use_stream": True,
+                "record_stream": True,
+            }
+        },
+        "cuda",
+    )
 
-        assert config["onload_device"] == torch.device("mps")
-        assert "use_stream" not in config
-        assert "record_stream" not in config
-        assert config["num_blocks_per_group"] == 1
+    assert config["onload_device"] == torch.device("mps")
+    assert "use_stream" not in config
+    assert "record_stream" not in config
+    assert config["num_blocks_per_group"] == 1
 
-    def test_streams_are_dropped_when_onloading_to_cpu(self):
-        config = get_group_offload_configuration(
-            {"group_offload": {"onload_device": "cpu", "use_stream": True}}, "cpu"
-        )
 
-        assert "use_stream" not in config
+def test_streams_are_dropped_when_onloading_to_cpu(self):
+    config = get_group_offload_configuration(
+        {"group_offload": {"onload_device": "cpu", "use_stream": True}}, "cpu"
+    )
 
-    def test_streams_are_kept_on_cuda(self, monkeypatch):
-        monkeypatch.setattr(dw, "backend_available", lambda backend: True)
+    assert "use_stream" not in config
 
-        config = get_group_offload_configuration(
-            {"group_offload": {"use_stream": True, "record_stream": True}}, "cuda"
-        )
 
-        assert config["use_stream"] is True
-        assert config["record_stream"] is True
+def test_streams_are_kept_on_cuda(self, monkeypatch):
+    monkeypatch.setattr(dw, "backend_available", lambda backend: True)
 
-    def test_dropping_streams_twice_is_stable(self, monkeypatch):
-        monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
-        monkeypatch.setattr(dw, "get_device", lambda: "mps")
-        configuration = {"group_offload": {"use_stream": True, "record_stream": True}}
+    config = get_group_offload_configuration(
+        {"group_offload": {"use_stream": True, "record_stream": True}}, "cuda"
+    )
 
-        get_group_offload_configuration(configuration, "cuda")
-        second = get_group_offload_configuration(configuration, "cuda")
+    assert config["use_stream"] is True
+    assert config["record_stream"] is True
 
-        assert "use_stream" not in second
-        assert second["onload_device"] == torch.device("mps")
+
+def test_dropping_streams_twice_is_stable(self, monkeypatch):
+    monkeypatch.setattr(dw, "backend_available", lambda backend: backend != "cuda")
+    monkeypatch.setattr(dw, "get_device", lambda: "mps")
+    configuration = {"group_offload": {"use_stream": True, "record_stream": True}}
+
+    get_group_offload_configuration(configuration, "cuda")
+    second = get_group_offload_configuration(configuration, "cuda")
+
+    assert "use_stream" not in second
+    assert second["onload_device"] == torch.device("mps")
 ```
 
 - [ ] **Step 3: Run the tests to confirm they fail.**
@@ -660,9 +666,7 @@ def test_a_mac_whose_capacity_is_unknown_keeps_the_conservative_check():
 
 def test_a_curated_mps_entry_wins_over_the_measured_capacity():
     mac = {"device": "mps", "name": "M5 Pro 64 GB", "vram_gb": 26, "minutes": 9}
-    errors = vram_estimate_errors(
-        definition([mac]), device_type="mps", capacity_gb=62
-    )
+    errors = vram_estimate_errors(definition([mac]), device_type="mps", capacity_gb=62)
     assert len(errors) == 1 and "M5 Pro 64 GB" in errors[0]["message"]
 
 
@@ -744,13 +748,13 @@ Append this to the module docstring: "The entries checked are the serving device
 - [ ] **Step 4: Wire the device in at both call sites in `dw/workflow.py`.** Extend the import at ~line 94 to `from . import get_device, empty_device_cache, device_memory_stats, device_capacity_gb, get_device_type`. At the validation call (~line 786):
 
 ```python
-            + vram_estimate_errors(
-                self.workflow_definition,
-                arguments,
-                supplied=set(arguments or {}),
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-            )
++vram_estimate_errors(
+    self.workflow_definition,
+    arguments,
+    supplied=set(arguments or {}),
+    device_type=get_device_type(),
+    capacity_gb=device_capacity_gb(),
+)
 ```
 
 At the run-time call (~line 997):
@@ -979,9 +983,7 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FILES = sorted(
-    [*ROOT.glob("workflows/**/*.json"), *ROOT.glob("dw/workflows/*.json")]
-)
+FILES = sorted([*ROOT.glob("workflows/**/*.json"), *ROOT.glob("dw/workflows/*.json")])
 PLACEHOLDER = re.compile(r"https?://(www\.)?example\.(com|org|net)/")
 WITHDRAWN = ("runwayml/",)
 
