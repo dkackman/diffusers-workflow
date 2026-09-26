@@ -487,7 +487,9 @@ class TestExtendClip:
 
     def test_by_default_the_opening_is_generated_and_kept(self):
         written = self.definition()
-        expanded = Workflow(copy.deepcopy(written), "outputs", self.PATH).expanded_definition()
+        expanded = Workflow(
+            copy.deepcopy(written), "outputs", self.PATH
+        ).expanded_definition()
         assert elide_definition(expanded, written) == []
 
     def test_a_supplied_clip_elides_the_opening(self):
