@@ -344,9 +344,12 @@ For faster model downloads, optionally `pip install hf_transfer` and set `HF_HUB
 
 Apple Silicon has narrower acceleration support than CUDA:
 
-- No flash-attn, no Triton, no bitsandbytes - `attention_backend` is effectively CUDA-only; use `"native"`-family backends or leave it unset on MPS. `compile` is skipped with a warning (inductor support on MPS is immature).
-- No `torch.autocast` support - autocast-related warnings from other libraries are suppressed automatically rather than surfaced.
-- `enable_attention_slicing` is on by default (set `disable_attention_slicing` to turn it off).
-- `float16` produces NaN values on Apple Silicon - use `float32` or `bfloat16` for `torch_dtype` instead; dw only warns, it doesn't override the dtype for you.
+- No flash-attn, no Triton, no bitsandbytes - `attention_backend` is effectively CUDA-only; use `"native"`-family backends or leave it unset on MPS. `compile` is skipped with a warning (inductor support on MPS is immature). A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path yet.
+- Workflows written for CUDA are adapted rather than refused: a `cuda` device becomes `mps`, SDNQ's `quantization_device` follows it and its quantized matmul is switched off (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`. Each change is logged as a warning.
+- Attention slicing is opt-in; it made UNet attention 2.4x slower on Apple Silicon.
+- `float16` can produce NaN values on Apple Silicon - use `bfloat16`; dw only warns, it doesn't override the dtype for you.
 - `PYTORCH_MPS_HIGH_WATERMARK_RATIO` defaults to `0.0` (use all unified memory) unless already set in the environment.
+- Ops the MPS backend lacks: with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds) they run on the CPU, and dw logs torch's warning when one does. Without it they raise.
+- Memory figures are real: allocated, driver-reserved, and Metal's recommended working set as the total. `vram_estimate` checks a Mac against that total, since the catalog's `cost` entries are CUDA cards; the per-voxel figures were calibrated on CUDA.
+- Cost estimates quoted on a Mac are the CUDA figures (`basis: "other_device"`) until the Mac's own runs build observed history - expect them to be optimistic.
 - Offloading has less benefit than on CUDA, since unified memory is already shared between CPU and GPU.

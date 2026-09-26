@@ -23,7 +23,7 @@ python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_image
 # Validate a workflow against schema
 python -m dw.validate workflows/models/z-image.json
 
-# Basic system test (torch, diffusers import check)
+# System test - downloads SD 1.5 (a few GB) and generates one image
 python -m dw.test
 
 # Interactive REPL
@@ -235,14 +235,16 @@ SDNQ pre-quantized models use a different pattern: `pre_load_modules` imports sd
 
 `dw/__init__.py` handles device detection (CUDA > MPS > CPU) and platform-specific optimizations:
 - **CUDA**: TF32 matmul, cuDNN benchmark, deterministic mode (configurable via settings)
-- **MPS**: `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` (use all unified memory), autocast warnings suppressed, attention slicing enabled by default
+- **MPS**: `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` (use all unified memory), autocast warnings suppressed; attention slicing is opt-in (it made UNet attention 2.4x slower there)
 - **CPU**: Warning displayed
 
 Detection is overridden by the `DW_DEVICE` environment variable (single run) or the `device` setting (standing), either of which can name a specific accelerator such as `cuda:1`. Device placement is explicit throughout — no default torch device is set, since that would build models directly in VRAM and defeat offloading. Compare backends with `get_device_type()` rather than `== "cuda"`, which a device like `cuda:1` would fail.
 
 A step can override the device it runs on: `device` in a pipeline `configuration` (also the default for that pipeline's components), in a component `configuration`, or in a task's `arguments`.
 
-Every device a workflow names passes through `resolve_device()`, which translates a backend this machine does not have into the one it does and warns — a `cuda` workflow runs on a Mac and an `mps` one runs on a CUDA box. Only the backend is translated: an index survives when the backend matches (`cuda:1` on a single-GPU CUDA box stays a genuine error) and is dropped when it does not. `cpu` is never rewritten, since pinning a step to the CPU is how a GPU-specific problem gets ruled out. Translation happens before anything reads the backend, so the MPS accommodations (the sequential-offload downgrade, attention slicing, the compile skip) fire for a translated device too.
+Every device a workflow names passes through `resolve_device()`, which translates a backend this machine does not have into the one it does and warns — a `cuda` workflow runs on a Mac and an `mps` one runs on a CUDA box. Only the backend is translated: an index survives when the backend matches (`cuda:1` on a single-GPU CUDA box stays a genuine error) and is dropped when it does not. `cpu` is never rewritten, since pinning a step to the CPU is how a GPU-specific problem gets ruled out. Translation happens before anything reads the backend, so the MPS accommodations (the sequential-offload downgrade, the compile skip) fire for a translated device too.
+
+The same translation reaches the settings that carry a device or a CUDA-only feature, so a template written on the CUDA box runs unchanged on a Mac and a caller (an MCP agent included) never has to know the backend: SDNQ `quantization_device`/`return_device` go through `resolve_device()`, and `use_quantized_matmul(_conv)` is turned off on MPS, where it falls back to `torch._int_mm`, ~500x slower (`portable_quantization_arguments`, `config_objects.py`). Group-offload `use_stream`/`record_stream` are dropped when the onload device is not CUDA/XPU. `vram_estimate` checks against the serving device's own `cost` entries, else its `device_capacity_gb()` (Metal's recommended working set on a Mac), else every entry. `device_memory_stats()` reports real unified-memory figures on MPS. Each adaptation logs a warning, and torch's MPS CPU-fallback warning is let through the blanket `UserWarning` filter.
 
 A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `pipeline.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
 
@@ -321,7 +323,7 @@ same reason - default setup cannot load a pack.
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
-- **MPS differences from CUDA**: no autocast, no bitsandbytes, no flash_attn, no triton, no torch.compile. Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
+- **MPS differences from CUDA**: no bitsandbytes, no flash_attn, no triton, no torch.compile (`torch.autocast("mps")` works on torch 2.14, but dw does not use it). Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
@@ -573,7 +575,7 @@ same reason - default setup cannot load a pack.
   stops the next instance. The half that fixes this one: every template
   whose deliverable ends in a `pair_audio` mux (`music-video`,
   `assemble-and-score`, `dissolve-between-shots`) normalizes to **-3 dBFS**;
-  `music`, an mp3, keeps -1
+  `music`, an mp3, normalizes to -3 as well (#362)
 - **A variable's bound is declared by the author, checked three times** — a
   model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
   to 345) is a property of the model, so it lives in the workflow rather than
