@@ -1,7 +1,7 @@
 import logging
 import torch
 
-from .. import resolve_device
+from .. import get_device_type, resolve_device
 
 logger = logging.getLogger("dw")
 
@@ -26,6 +26,35 @@ def get_quantization_configuration(configuration):
     return create_quantization_config(quantization_config)
 
 
+# Quantization config arguments that name a device. A workflow authored on the
+# CUDA box writes "cuda" here, and nothing downstream translates it - SDNQ moves
+# every weight to it inside from_pretrained, which fails outright on a Mac
+DEVICE_ARGUMENTS = ("quantization_device", "return_device")
+
+# SDNQ's quantized matmul has no Triton on MPS and falls back to torch._int_mm,
+# measured at ~500x the bf16 matmul it replaces (1096 ms vs 2.1 ms, 512x3072 by
+# 3072x3072 on an M5 Pro). The dequantize path is the fast one there
+QUANTIZED_MATMUL_ARGUMENTS = ("use_quantized_matmul", "use_quantized_matmul_conv")
+
+
+def portable_quantization_arguments(arguments):
+    """Adapt a quantization config's arguments to this machine without touching
+    the definition they came from - a cached pipeline builds from it again."""
+    adapted = dict(arguments)
+    for key in DEVICE_ARGUMENTS:
+        if isinstance(adapted.get(key), str):
+            adapted[key] = resolve_device(adapted[key])
+    if get_device_type() == "mps":
+        for key in QUANTIZED_MATMUL_ARGUMENTS:
+            if adapted.get(key):
+                logger.warning(
+                    f"Turning off '{key}' on MPS - without Triton it runs through "
+                    "torch._int_mm, which is far slower there than dequantizing"
+                )
+                adapted[key] = False
+    return adapted
+
+
 def create_quantization_config(quantization_config):
     """
     Create a quantization configuration object from its definition.
@@ -46,7 +75,9 @@ def create_quantization_config(quantization_config):
         # "quant_type": "torchao.quantization.Int8WeightOnlyConfig" in JSON.
         args = {
             k: v() if isinstance(v, type) else v
-            for k, v in quantization_config["arguments"].items()
+            for k, v in portable_quantization_arguments(
+                quantization_config["arguments"]
+            ).items()
         }
         return quantization_config_type(**args)
     except Exception as e:
