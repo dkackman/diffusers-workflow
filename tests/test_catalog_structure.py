@@ -369,7 +369,7 @@ def test_no_stale_entry_in_the_allowlist():
 # 768p entry. They earn it because they are what makes a checkpoint swap an
 # argument rather than a new template - a 768p turbo LoRA on the 544p sigma
 # schedule is a silent quality failure that costs a full run to discover, and
-# the alpha a file declares is not always the alpha upstream runs it at.
+# the alpha is a knob a caller can reach when a file's own figure is wrong.
 # Worth noting that variable *names* are now the largest single share of this
 # listing; if it needs raising again, the question to ask first is whether
 # every name belongs in the compact view or only the ones a caller is likely

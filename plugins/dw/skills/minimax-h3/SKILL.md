@@ -105,7 +105,7 @@ read the `workflows` guide's authoring section first.
   `lora_alpha` are variables everywhere, so a swap is arguments, not a file.
   Three combinations are tested, nothing else: 544p FL2VA turbo, 960x544,
   shift 12/3, alpha unset - the default; 768p FL2VA turbo, 1344x768, shift
-  **6**/3, **alpha 128** - `video-with-audio-768p`; 768p Ref2VA turbo, shift
+  **6**/3, alpha unset - `video-with-audio-768p`; 768p Ref2VA turbo, shift
   12/3, alpha unset - every `ref2va` template. The two 768p LoRAs differ in
   shift; do not generalise.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds

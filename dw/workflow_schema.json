@@ -1077,7 +1077,7 @@
                     "format": "float"
                 },
                 "alpha": {
-                    "description": "The network alpha to scale this lora by, overriding the one its checkpoint declares. peft scales an adapter by 'scale * alpha / rank', taking alpha from the file - a per-module '.alpha' tensor, else a '__metadata__' alpha where the loader honors one, else the rank itself. State it where the checkpoint's own figure is not the one it is meant to run at: the 768p MiniMax-H3 turbo LoRAs record alpha 8 at rank 128 while upstream runs them at 128. Accepts a 'variable:' reference.",
+                    "description": "The network alpha to scale this lora by, overriding the one its checkpoint declares. peft scales an adapter by 'scale * alpha / rank', taking alpha from the file - a per-module '.alpha' tensor, else a '__metadata__' alpha where the loader honors one, else the rank itself. State it only where the checkpoint's own figure is not the one it was trained at - read the file's header first; the MiniMax-H3 turbo LoRAs each record the right one. Accepts a 'variable:' reference.",
                     "type": [
                         "number",
                         "string",

@@ -69,15 +69,18 @@ than a new file. Three combinations are known good:
 | Checkpoint | Canvas | Shift (video/audio) | Alpha | Steps | Where |
 | --- | --- | --- | --- | --- | --- |
 | `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | the text- and frame-conditioned templates |
-| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | **128** | 9 | [video-with-audio-768p.json](video-with-audio-768p.json) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | the file's own 8 | 9 | [video-with-audio-768p.json](video-with-audio-768p.json) |
 | `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | every `ref2va` template |
 
 The shift differs between the two 768p LoRAs; do not generalise from one to the
-other. The alpha matters as much: peft scales an adapter by `scale * alpha /
-rank`, and all three files record `alpha: 8` at rank 128 in their
-`__metadata__`, which diffusers honors - so the 768p FL2VA path, which upstream
-runs at `--lora-alpha 128`, needs that stated or it loads at a sixteenth of its
-trained strength. Nine steps rather than eight because the scheduler counts
+other. The alpha is the one number that does not move: peft scales an adapter
+by `scale * alpha / rank`, and all three files record the alpha they were
+trained at - `alpha: 8` at rank 128 - in their `__metadata__`, which diffusers
+honors, so `lora_alpha` stays unset. Upstream's `--lora-alpha 128` belongs to
+the 4-step 768p file, which records 128 itself; the 768p template once stated
+128 for the 8-step file and ran it at sixteen times its trained strength
+(the ComfyUI twin reads `training_scale: 0.0625`). Set `lora_alpha` only for a
+file whose own figure is wrong, and read its header first. Nine steps rather than eight because the scheduler counts
 sigma grid points and the terminal zero is one of them.
 
 Never put an FL2VA LoRA on a reference template: a `ref2va` step holds

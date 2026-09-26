@@ -1,10 +1,10 @@
 """A lora's network alpha is declared by the workflow, not taken from the file.
 
 peft scales an adapter by `scale * alpha / rank`. The alpha normally comes
-from the checkpoint, and for the 768p MiniMax-H3 turbo LoRAs that figure is
-not the one upstream runs them at: the files record `alpha: 8` at rank 128 in
-their `__metadata__`, which diffusers honors, while upstream's own 768p
-invocation passes `--lora-alpha 128` - sixteen times the strength. #147.
+from the checkpoint, and that is the right figure whenever the file records
+the one it was trained at; the override is for a file that does not (#147).
+The 128 below is only a value distinct from the rank - no catalog template
+states one, see tests/test_h3_schedule.py.
 """
 
 import pytest

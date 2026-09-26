@@ -2,12 +2,16 @@
 
 Both are properties of the checkpoint being run, not of the engine. The base
 scheduler ships `shift = 12.0`, which is the 544p figure; the 768p FL2VA turbo
-LoRAs are trained at shift 6 and the 768p Ref2VA one at 12, and every one of
-them records `alpha: 8` in its `__metadata__` at rank 128 while upstream runs
-the 768p files at alpha 128. So a checkpoint swap that moved only
-`lora_weight_name` would run a 768p LoRA on the 544p schedule at a sixteenth
-of its trained strength - three silent quality failures, each costing a full
-run to discover (#147).
+LoRAs are trained at shift 6 and the 768p Ref2VA one at 12. So a checkpoint
+swap that moved only `lora_weight_name` would run a 768p LoRA on the 544p
+schedule - a silent quality failure costing a full run to discover (#147).
+
+The alpha is a knob on every template but is left to the file: each of the
+three records the alpha it was trained at (`alpha: 8` at rank 128) in its
+`__metadata__`, and diffusers honors it. The 768p template once stated 128,
+copied from upstream's invocation of the *4-step* 768p file (which records 128
+itself), and so ran the 8-step file at sixteen times its trained strength.
+
 
 Every number here is pinned to the diffusers symbol it derives from, the way
 tests/test_variable_constraints.py pins the frame grid.
@@ -91,7 +95,7 @@ def test_every_h3_step_declares_both_schedules(path):
 
 @pytest.mark.parametrize("path", H3_TEMPLATES)
 def test_every_lora_takes_a_declared_alpha(path):
-    """Left to the file, the 768p checkpoints load at alpha 8 over rank 128."""
+    """Every template can override the alpha a checkpoint declares."""
     definition = load(path)
     loras = [
         lora
@@ -103,6 +107,30 @@ def test_every_lora_takes_a_declared_alpha(path):
     for lora in loras:
         assert lora["alpha"] == "variable:lora_alpha", os.path.basename(path)
     assert "lora_alpha" in definition["variables"]
+
+
+# The alpha each published lightx2v turbo file records in its __metadata__,
+# read from the headers on the hub (2026-09-25). Its ComfyUI twin agrees:
+# training_alpha 8.0, training_scale 0.0625 for the 8-step 768p file.
+RECORDED_ALPHA = {
+    "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors": 8,
+    "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
+    "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
+}
+
+
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_the_alpha_is_left_to_the_file(path):
+    """A stated alpha overrides the file's, and each file's is the trained one.
+
+    The 768p template stated 128 and ran its LoRA at sixteen times the
+    strength it was distilled at.
+    """
+    variables = load(path).get("variables", {})
+    if "lora_alpha" not in variables:
+        pytest.skip("no adapter on this template")
+    assert variables["lora_weight_name"] in RECORDED_ALPHA, os.path.basename(path)
+    assert variables["lora_alpha"] is None, os.path.basename(path)
 
 
 @pytest.mark.parametrize("path", H3_TEMPLATES)

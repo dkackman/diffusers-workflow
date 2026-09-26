@@ -1293,12 +1293,13 @@ def set_adapter_alpha(pipeline, adapter_name, alpha):
     peft scales an adapter by `scale * alpha / rank`, and the alpha comes from
     the checkpoint: a per-module `.alpha` tensor, else a `__metadata__` alpha
     where the loader honors one, else the rank itself. That is the right
-    default, and for some files it is wrong. The 768p MiniMax-H3 turbo LoRAs
-    record `alpha: 8` in their `__metadata__` at rank 128, which diffusers
-    honors, while upstream's own 768p invocation passes `--lora-alpha 128` -
-    sixteen times the strength the file asks for. The number that makes a
-    distilled checkpoint hit its trained schedule is a property of the model,
-    so the workflow states it rather than the engine guessing.
+    default, and for a file that records the wrong figure (or none) it is
+    wrong. Check the header before overriding: the MiniMax-H3 turbo LoRAs each
+    record the alpha they were trained at, and upstream's `--lora-alpha 128`
+    matches the one 768p file that records 128 - stating it for the 8-step
+    768p file, which records 8, ran that one at sixteen times its trained
+    strength. The number is a property of the model, so the workflow states
+    it rather than the engine guessing.
 
     Set before the caller's set_adapters(), which is what recomputes each
     layer's scaling from the alpha found here.
