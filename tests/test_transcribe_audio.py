@@ -72,6 +72,26 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(fed["raw"].ndim, 1)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_clip_over_thirty_seconds_asks_for_timestamps(self, mock_pipeline):
+        # Whisper refuses more than 30 s of audio ("more than 3000 mel input
+        # features") unless it predicts timestamps - so a 110 s song failed
+        pipe = self._mock_pipe(mock_pipeline)
+        waveform, rate = self._waveform(seconds=31.0)
+
+        transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
+        self.assertIs(pipe.call_args.kwargs.get("return_timestamps"), True)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_short_clip_does_not_ask_for_timestamps(self, mock_pipeline):
+        pipe = self._mock_pipe(mock_pipeline)
+        waveform, rate = self._waveform(seconds=5.0)
+
+        transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
+        self.assertNotIn("return_timestamps", pipe.call_args.kwargs)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_resamples_to_16khz(self, mock_pipeline):
         pipe = self._mock_pipe(mock_pipeline)
         waveform, rate = self._waveform(sample_rate=44100)
