@@ -1,7 +1,7 @@
 {
     "id": "LTX2Extend",
-    "description": "Continuing a clip rather than restarting one. The opening is generated, then conditioned on in full so the second pass carries its motion and framing forward instead of inferring them from a single frame, with both steps sharing one copy of the loaded model.",
-    "summary": "A longer LTX-2.5 clip: an opening is generated, then continued conditioned on the whole clip, not one frame.",
+    "description": "Continuing a clip rather than restarting one. By default the opening is generated, then conditioned on in full so the second pass carries its motion and framing forward instead of inferring them from a single frame, with both steps sharing one copy of the loaded model. Passing 'clip' (an 'asset:' or 'output:' reference to a clip already on hand - width, height and 'clip_frames' must match it exactly) skips generating the opening and conditions on that clip instead; the 'opening' step is then unreferenced and elided, so it costs nothing.",
+    "summary": "A longer LTX-2.5 clip: an opening is generated or supplied, then continued conditioned on the whole clip.",
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
@@ -12,6 +12,7 @@
         "width": 768,
         "height": 448,
         "clip_frames": 121,
+        "clip": "previous_result:opening",
         "num_frames": 241,
         "frame_rate": 24.0,
         "seed": 42
@@ -154,7 +155,7 @@
             "task": {
                 "command": "video_frames",
                 "arguments": {
-                    "video": "previous_result:opening"
+                    "video": "variable:clip"
                 }
             },
             "result": {

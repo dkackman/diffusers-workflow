@@ -25,11 +25,10 @@ caption spec below.
    `info: null` means nothing is resident, and a `live: false` reading is
    cached from another moment. A non-trivial idle figure is an earlier run's
    leftover and comes off what this one has. With the server idle,
-   `clear_memory` clears it (refused while a job is queued or running) - it
-   also drops the step cache, so the next run, including a seeded rerun, is
-   cold and regenerates. Re-read `get_memory` to confirm. Don't
-   retry into a failed attempt without clearing first - a failed attempt is
-   itself what leaves weight resident.
+   `clear_memory` clears it (refused while queued or running) - it also
+   drops the step cache, so the next run, including a seeded rerun, is cold
+   and regenerates. Re-read `get_memory` to confirm; don't retry into a
+   failed attempt without clearing first.
 
 ## Which shape is the request
 
@@ -61,7 +60,8 @@ caption spec below.
   removes motion blur or grain - so say which defect you think it is and let
   the user correct you.
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
-  on all of it, not one frame;
+  on all of it, not one frame; `clip` extends an existing clip (matching
+  `width`/`height`/`clip_frames`) instead of generating one.
   `templates/ltx2/chained-segments` re-runs per segment on the previous last
   frame and stitches. Neither is a Lightricks recipe; both are dw's, and a
   single 481-frame pass reaches 20 seconds before either is needed.
@@ -140,8 +140,8 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    included) and name any `downloads_required` - an IC-LoRA template pulls a
    gated weight the box may not have. Only `text-to-video` and `two-stage`
    carry a `cost`; for the rest give the shape - a 121-frame clip at 960x544
-   is under two minutes cold on a 24 GB card, a minute of it loading, the
-   two-stage flow about eight, and extend and chain multiply by their passes.
+   is under two minutes cold on a 24 GB card, a minute of it loading; extend
+   and chain multiply by their passes.
    Get the go-ahead before `run_workflow` with `acknowledged_cost` set to the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, then `get_job` for the manifest.
