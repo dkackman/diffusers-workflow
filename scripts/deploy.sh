@@ -57,7 +57,17 @@ done
 ts() { date '+%H:%M:%S'; }
 say() { echo "[deploy $(ts)] $*"; }
 health() { curl -s -m 5 -H "Authorization: Bearer $DW_TOKEN" "$HEALTH" 2>/dev/null; }
-server_pids() { pgrep -f 'python -m dw\.serve' || true; }
+# The server is whatever listens on DW_PORT. Matching the command line
+# missed it on macOS, where Homebrew's interpreter shows up in ps as
+# .../MacOS/Python (capital P), and a broader match would stop every
+# dw.serve on the machine rather than the one on this port.
+server_pids() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti "tcp:$DW_PORT" -sTCP:LISTEN 2>/dev/null || true
+  else
+    pgrep -f 'python -m dw\.serve' || true
+  fi
+}
 
 # `ssh lem deploy.sh` runs a non-interactive shell, and a per-user node
 # install is usually put on PATH by ~/.bashrc *after* its "not interactive,
