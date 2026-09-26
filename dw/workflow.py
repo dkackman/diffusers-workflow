@@ -1628,6 +1628,24 @@ class Workflow:
                 )
                 logger.debug(f"Step {step.name} completed with result: {result}")
 
+                # Rewritten after every step, not only at the end (#480): a
+                # for_each member that just landed is otherwise invisible to
+                # anything reading manifest.json until the whole job finishes
+                # or dies, leaving a killed worker's finished shots
+                # unrecorded. Best effort, like the run-open and final
+                # writes - a step that saved its files has succeeded whether
+                # or not this lands
+                if self._run_dir and not self._run_dir_inherited:
+                    self._write_run_manifest(
+                        run_id,
+                        "running",
+                        started_at,
+                        arguments,
+                        resolved_seed,
+                        realized_name,
+                        annotations,
+                    )
+
                 # Release results no later step references - saved to disk
                 # already, and last_result keeps the workflow's return value
                 release_unreferenced_results(results, remaining_refs)
