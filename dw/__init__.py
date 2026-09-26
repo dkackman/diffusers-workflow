@@ -5,6 +5,7 @@ import os
 import re
 import logging
 import subprocess
+import sys
 import warnings
 from dotenv import load_dotenv
 
@@ -22,9 +23,21 @@ if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
 if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# Load sharded checkpoints in parallel - a pure cold-start win
+
+def _parallel_loading_default(platform):
+    """Whether diffusers loads a sharded checkpoint on several threads.
+
+    A pure cold-start win on CUDA. On MPS the loader threads each copy their
+    tensors onto the device at once, and that segfaulted LTX-2.5's SDNQ
+    transformer load (exit 139, four threads inside copy_ to mps) where the
+    serial load succeeded in 39s. diffusers reads the variable once at import,
+    before dw can ask torch for a device, so this goes by platform: macOS has
+    no CUDA, and its accelerator is always MPS."""
+    return "false" if platform == "darwin" else "true"
+
+
 if "HF_ENABLE_PARALLEL_LOADING" not in os.environ:
-    os.environ["HF_ENABLE_PARALLEL_LOADING"] = "true"
+    os.environ["HF_ENABLE_PARALLEL_LOADING"] = _parallel_loading_default(sys.platform)
 
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)

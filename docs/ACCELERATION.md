@@ -352,4 +352,5 @@ Apple Silicon has narrower acceleration support than CUDA:
 - Ops the MPS backend lacks: with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds) they run on the CPU, and dw logs torch's warning when one does. Without it they raise.
 - Memory figures are real: allocated, driver-reserved, and Metal's recommended working set as the total. `vram_estimate` checks a Mac against that total, since the catalog's `cost` entries are CUDA cards; the per-voxel figures were calibrated on CUDA.
 - Cost estimates quoted on a Mac are the CUDA figures (`basis: "other_device"`) until the Mac's own runs build observed history - expect them to be optimistic.
+- Parallel checkpoint loading (`HF_ENABLE_PARALLEL_LOADING`) defaults to off on macOS - concurrent loader threads copying onto MPS segfaulted a quantized load. Set it explicitly to override.
 - Offloading has less benefit than on CUDA, since unified memory is already shared between CPU and GPU.
