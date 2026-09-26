@@ -91,7 +91,13 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
-from . import get_device, empty_device_cache, device_memory_stats
+from . import (
+    get_device,
+    get_device_type,
+    empty_device_cache,
+    device_capacity_gb,
+    device_memory_stats,
+)
 from .host_memory import release_host_caches
 from .security import (
     validate_path,
@@ -784,7 +790,11 @@ class Workflow:
             # an OOM the caller had no way to see coming (dw/vram_estimate.py,
             # #265)
             + vram_estimate_errors(
-                self.workflow_definition, arguments, supplied=set(arguments or {})
+                self.workflow_definition,
+                arguments,
+                supplied=set(arguments or {}),
+                device_type=get_device_type(),
+                capacity_gb=device_capacity_gb(),
             )
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
@@ -994,7 +1004,12 @@ class Workflow:
             # validate_workflow, so this raises the same refusal rather
             # than starting a job the decode step was always going to OOM
             # on (dw/vram_estimate.py, #265)
-            apply_vram_estimate(workflow_def, variables)
+            apply_vram_estimate(
+                workflow_def,
+                variables,
+                device_type=get_device_type(),
+                capacity_gb=device_capacity_gb(),
+            )
             # realize the variables - explicit references only (asset:,
             # output:, constant:, prompt:, a {media_type, location} dict).
             # Key-name conventions (an 'image'/'video'/'_type' argument) are
