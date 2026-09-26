@@ -67,6 +67,20 @@ class TestListing:
         result = list_assets(client_over(handler))
         assert result["assets"][0]["reference"] == "asset:uploads/iris.png"
 
+    def test_a_workspace_can_be_named_for_one_request(self):
+        """#463: listing another workspace's library for one call must not
+        depend on switching the session's own pin."""
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                200, json={"asset_dir": "/w/A/assets", "assets": [], "folders": []}
+            )
+
+        list_assets(client_over(handler), workspace="A")
+        assert seen["params"]["workspace"] == "A"
+
 
 class TestUpload:
     def test_a_file_is_pushed_and_the_reference_returned(self, tmp_path):
@@ -157,6 +171,28 @@ class TestUpload:
         result = upload_asset(client_over(handler), str(source))
         assert result["reference"] == "/srv/outputs/uploads/x.png"
 
+    def test_a_workspace_can_be_named_for_one_request(self, tmp_path):
+        """#463: an upload pinned to another workspace must not depend on
+        switching the session's own pin."""
+        source = tmp_path / "iris.png"
+        source.write_bytes(b"png-bytes")
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                201,
+                json={
+                    "path": "asset:uploads/deadbeef.png",
+                    "workspace": "A",
+                    "url": "/inputs/uploads/deadbeef.png",
+                },
+            )
+
+        result = upload_asset(client_over(handler), str(source), workspace="A")
+        assert seen["params"]["workspace"] == "A"
+        assert result["workspace"] == "A"
+
 
 class TestKeeping:
     def test_keeping_sends_no_bytes(self):
@@ -226,6 +262,32 @@ class TestDeleting:
 
         with pytest.raises(DwApiError, match="read-only"):
             delete_asset(client_over(handler), "iris.png")
+
+    def test_a_workspace_can_be_named_for_one_request(self):
+        """#463: the exact incident this issue fixes - a delete pinned to the
+        workspace named on the call must not follow the session's own pin,
+        which another connection on a shared mount can move underneath it."""
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                200,
+                json={
+                    "name": "qa-cast/priya-voice",
+                    "workspace": "A",
+                    "path": "/w/A/assets/qa-cast/priya-voice.wav",
+                    "deleted": True,
+                    "origin": "workspace",
+                },
+            )
+
+        result = delete_asset(
+            client_over(handler), "qa-cast/priya-voice", workspace="A"
+        )
+        assert seen["params"]["workspace"] == "A"
+        assert result["workspace"] == "A"
+        assert result["deleted"] is True
 
 
 class TestUploadInlineContent:

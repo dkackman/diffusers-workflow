@@ -2229,6 +2229,7 @@ def create_app(
             )
         return {
             "name": name,
+            "workspace": ws.name,
             "path": path,
             "warnings": warnings,
             "shape": metadata["shape"],
@@ -2259,7 +2260,7 @@ def create_app(
         # deletes and recreates the same workflow, would inherit the deleted
         # copy's observed figures and host-memory history
         manager.history.orphan_workflow_history(ws.name, name)
-        return {"name": name, "deleted": True}
+        return {"name": name, "workspace": ws.name, "path": path, "deleted": True}
 
     @app.get("/api/workflows/{name:path}/download")
     @query_token_ok
@@ -3861,6 +3862,7 @@ def create_app(
             path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
             result = {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
+                "workspace": ws.name,
                 "url": _served_url(path, ws),
                 "shared": shared,
             }
@@ -3871,6 +3873,7 @@ def create_app(
         path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
         result = {
             "path": dest,
+            "workspace": ws.name,
             "url": _served_url(path, ws),
         }
         absolute_url = _absolute_served_url(path, ws)
@@ -4167,7 +4170,13 @@ def create_app(
             os.remove(path)
             logger.info(f"Deleted asset:{relative} ({path})")
             forget_workspace_usage()
-            return {"name": relative, "deleted": True, "origin": origin}
+            return {
+                "name": relative,
+                "workspace": ws.name,
+                "path": path,
+                "deleted": True,
+                "origin": origin,
+            }
 
         raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
 

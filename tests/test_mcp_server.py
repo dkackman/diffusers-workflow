@@ -1154,6 +1154,7 @@ WRAPPER_HANDLER_MAP = {
     "update_diffusers": (models, "update_diffusers"),
     "validate_workflow": (authoring, "validate_workflow"),
     "save_workflow": (authoring, "save_workflow"),
+    "delete_workflow": (authoring, "delete_workflow"),
     "run_workflow": (diagnose, "run_workflow"),
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),

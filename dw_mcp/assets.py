@@ -152,9 +152,13 @@ def _summarised_asset_entries(entries):
     ]
 
 
-def list_assets(client, detail=False):
+def list_assets(client, detail=False, workspace=None):
     """The input media on the server, each with the 'asset:' reference a
     workflow argument carries.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - the same selector `run_workflow` and the output
+    tools take.
 
     Spans the whole search path: each entry's 'origin' says whether it is
     this workspace's own ('workspace'), the library every workspace shares
@@ -172,7 +176,7 @@ def list_assets(client, detail=False):
     under what name" (#249). Pass `detail=True` for each entry's `folder`,
     `mtime` and `url` too.
     """
-    result = client.get_json("/api/assets")
+    result = client.get_json("/api/assets", workspace=workspace)
     if detail:
         return result
     assets = result.get("assets")
@@ -192,14 +196,18 @@ def list_assets(client, detail=False):
     }
 
 
-def delete_asset(client, name):
+def delete_asset(client, name, workspace=None):
     """Remove one file from the asset library.
 
     Deletes from whichever library holds it - the workspace's own before
     the shared one, the order 'asset:' resolves in. An asset from a
     read-only examples library answers 403.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - without it a delete follows the session's shared
+    pin, which another connection on a mounted transport can move.
     """
-    return client.delete_json(api_path("api", "assets", name))
+    return client.delete_json(api_path("api", "assets", name), workspace=workspace)
 
 
 def keep_output(
@@ -232,7 +240,14 @@ def keep_output(
     )
 
 
-def upload_asset(client, file_path=None, content=None, asset_name=None, shared=False):
+def upload_asset(
+    client,
+    file_path=None,
+    content=None,
+    asset_name=None,
+    shared=False,
+    workspace=None,
+):
     """Put an image, video or audio file into the server's asset library and
     get back the reference a workflow can use.
 
@@ -269,12 +284,18 @@ def upload_asset(client, file_path=None, content=None, asset_name=None, shared=F
     the session's own, which is what a recurring cast needs: assets are
     per workspace, so a cast uploaded while making episode one was
     invisible from the workspace episode four was made in.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - the same selector `run_workflow` and the output
+    tools take.
     """
     if (file_path is None) == (content is None):
         raise DwApiError("Pass exactly one of file_path or content.")
 
     if content is not None:
-        return _upload_inline(client, content, asset_name=asset_name, shared=shared)
+        return _upload_inline(
+            client, content, asset_name=asset_name, shared=shared, workspace=workspace
+        )
 
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     roots = _remote_roots(client)
@@ -308,19 +329,20 @@ def upload_asset(client, file_path=None, content=None, asset_name=None, shared=F
         params["asset_name"] = asset_name
     if shared:
         params["shared"] = "true"
-    result = client.post_bytes("/api/uploads", body, params=params)
+    result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     # 'path' from a server with no asset library is an absolute path on that
     # machine; from one with a library it is already the reference. Report
     # whichever it gave, named for what it is
     return {
         "reference": result.get("path"),
+        "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": os.path.basename(path),
         "size": size,
     }
 
 
-def _upload_inline(client, content, asset_name=None, shared=False):
+def _upload_inline(client, content, asset_name=None, shared=False, workspace=None):
     """The `content=` path of upload_asset - bytes with no path behind
     them, so nothing here is confined or read off any disk (#203)."""
     if not asset_name:
@@ -352,9 +374,10 @@ def _upload_inline(client, content, asset_name=None, shared=False):
     params = {"filename": asset_name, "asset_name": asset_name}
     if shared:
         params["shared"] = "true"
-    result = client.post_bytes("/api/uploads", body, params=params)
+    result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     return {
         "reference": result.get("path"),
+        "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": asset_name,
         "size": len(body),
