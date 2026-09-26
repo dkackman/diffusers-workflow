@@ -661,11 +661,12 @@ class TestDeletingAssets:
             response = client.delete("/api/assets/cast/hero.png")
             listed = client.get("/api/assets").json()["assets"]
         assert response.status_code == 200
-        assert response.json() == {
-            "name": "cast/hero.png",
-            "deleted": True,
-            "origin": "workspace",
-        }
+        body = response.json()
+        assert body["name"] == "cast/hero.png"
+        assert body["deleted"] is True
+        assert body["origin"] == "workspace"
+        assert body["workspace"] == "default"
+        assert body["path"] == os.path.join(workspace_root.assets, "cast", "hero.png")
         assert listed == []
         assert not os.path.exists(
             os.path.join(workspace_root.assets, "cast", "hero.png")
