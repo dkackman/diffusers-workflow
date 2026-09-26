@@ -1,8 +1,10 @@
 from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
+import functools
 import os
 import re
 import logging
+import subprocess
 import warnings
 from dotenv import load_dotenv
 
@@ -299,10 +301,11 @@ def device_memory_stats():
     """
     Snapshot of allocator memory usage for the device dw is configured for.
 
-    Only CUDA exposes free/total figures (via torch.cuda.mem_get_info); MPS
-    has no equivalent API, so its snapshot reports zeroed, "known" values
-    instead. CPU, or a CUDA/MPS backend that isn't actually available despite
-    being the configured device type, results in an "unavailable" snapshot.
+    CUDA exposes free/total via torch.cuda.mem_get_info. MPS reports
+    allocated (tensors), reserved (everything the Metal driver holds) and
+    total (Metal's recommended working set); free is total minus reserved.
+    CPU, or a CUDA/MPS backend that isn't actually available despite being
+    the configured device type, results in an "unavailable" snapshot.
 
     Returns:
         dict with keys:
@@ -310,10 +313,10 @@ def device_memory_stats():
             device_name (str or None)
             allocated_mb (float)
             reserved_mb (float)
-            free_mb (float or None): None only when CUDA's mem_get_info call
-                itself fails
-            total_mb (float or None): None only when CUDA's mem_get_info call
-                itself fails
+            free_mb (float or None): None only when the backend's capacity
+                probe itself fails
+            total_mb (float or None): None only when the backend's capacity
+                probe itself fails
     """
     stats = {
         "available": False,
@@ -344,13 +347,57 @@ def device_memory_stats():
         and hasattr(torch.backends, "mps")
         and torch.backends.mps.is_available()
     ):
-        # MPS doesn't provide detailed memory stats like CUDA
+        # Unified memory: 'reserved' is everything the Metal driver holds for
+        # this process, and the ceiling is Metal's recommended working set -
+        # the figure past which an allocation starts to page
         stats["available"] = True
-        stats["device_name"] = "Apple Silicon (MPS)"
-        stats["free_mb"] = 0.0
-        stats["total_mb"] = 0.0
+        stats["device_name"] = f"{_apple_chip_name()} (MPS)"
+        stats["allocated_mb"] = torch.mps.current_allocated_memory() / 1024 / 1024
+        stats["reserved_mb"] = torch.mps.driver_allocated_memory() / 1024 / 1024
+        try:
+            total = torch.mps.recommended_max_memory() / 1024 / 1024
+            stats["total_mb"] = total
+            stats["free_mb"] = max(total - stats["reserved_mb"], 0.0)
+        except (RuntimeError, AttributeError):
+            pass
 
     return stats
+
+
+@functools.lru_cache(maxsize=1)
+def _apple_chip_name():
+    """The chip's marketing name ('Apple M5 Pro'), so a reading from an 8 GB M1
+    and one from a 128 GB M4 Max are not reported as the same device."""
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+        return result.stdout.strip() or "Apple Silicon"
+    except (OSError, subprocess.SubprocessError):
+        return "Apple Silicon"
+
+
+def device_capacity_gb(device=None):
+    """How much memory the accelerator can hold, in GiB - Metal's recommended
+    working set on MPS, the card's total on CUDA - or None where there is no
+    accelerator or the probe fails. Used where a check needs a ceiling for a
+    device no curated 'cost' entry describes."""
+    if not _TORCH_AVAILABLE:
+        return None
+    try:
+        device_type = get_device_type(device)
+        if device_type == "mps":
+            return torch.mps.recommended_max_memory() / 1024**3
+        if device_type == "cuda":
+            index = torch.device(device or get_device()).index or 0
+            return torch.cuda.get_device_properties(index).total_memory / 1024**3
+    except (RuntimeError, AttributeError, AssertionError):
+        return None
+    return None
 
 
 def startup(log_level=None):

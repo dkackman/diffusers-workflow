@@ -175,20 +175,42 @@ class TestDeviceMemoryStats:
         assert stats["free_mb"] is None
         assert stats["total_mb"] is None
 
-    def test_mps_reports_zeroed_known_stats(self, monkeypatch):
+    def test_mps_reports_real_figures(self, monkeypatch):
+        mb = 1024 * 1024
         monkeypatch.setattr(dw, "get_device_type", lambda device=None: "mps")
         monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+        monkeypatch.setattr(dw, "_apple_chip_name", lambda: "Apple M5 Pro")
+        monkeypatch.setattr(torch.mps, "current_allocated_memory", lambda: 1000 * mb)
+        monkeypatch.setattr(torch.mps, "driver_allocated_memory", lambda: 1500 * mb)
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 64000 * mb)
 
         stats = dw.device_memory_stats()
 
         assert stats == {
             "available": True,
-            "device_name": "Apple Silicon (MPS)",
-            "allocated_mb": 0.0,
-            "reserved_mb": 0.0,
-            "free_mb": 0.0,
-            "total_mb": 0.0,
+            "device_name": "Apple M5 Pro (MPS)",
+            "allocated_mb": 1000.0,
+            "reserved_mb": 1500.0,
+            "free_mb": 62500.0,
+            "total_mb": 64000.0,
         }
+
+    def test_mps_without_a_capacity_reading_reports_none(self, monkeypatch):
+        def unavailable():
+            raise RuntimeError("no Metal device")
+
+        monkeypatch.setattr(dw, "get_device_type", lambda device=None: "mps")
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+        monkeypatch.setattr(dw, "_apple_chip_name", lambda: "Apple M5 Pro")
+        monkeypatch.setattr(torch.mps, "current_allocated_memory", lambda: 0)
+        monkeypatch.setattr(torch.mps, "driver_allocated_memory", lambda: 0)
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", unavailable)
+
+        stats = dw.device_memory_stats()
+
+        assert stats["available"] is True
+        assert stats["total_mb"] is None
+        assert stats["free_mb"] is None
 
     def test_cpu_reports_unavailable(self, monkeypatch):
         monkeypatch.setattr(dw, "get_device_type", lambda device=None: "cpu")
@@ -280,3 +302,31 @@ class TestWorkerMemoryInfoTranslation:
         )
 
         assert _make_worker()._get_gpu_memory_mb() == 42.0
+
+
+class TestDeviceCapacity:
+    def test_mps_capacity_is_the_recommended_max(self, monkeypatch):
+        monkeypatch.setattr(dw, "get_device_type", lambda device=None: "mps")
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 62 * 1024**3)
+
+        assert dw.device_capacity_gb() == 62.0
+
+    def test_cpu_has_no_capacity(self, monkeypatch):
+        monkeypatch.setattr(dw, "get_device_type", lambda device=None: "cpu")
+
+        assert dw.device_capacity_gb() is None
+
+    def test_a_failing_probe_is_none_not_an_exception(self, monkeypatch):
+        def broken():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(dw, "get_device_type", lambda device=None: "mps")
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", broken)
+
+        assert dw.device_capacity_gb() is None
+
+    @pytest.mark.skipif(
+        not torch.backends.mps.is_available(), reason="needs an Apple Silicon GPU"
+    )
+    def test_this_mac_reports_a_capacity(self):
+        assert dw.device_capacity_gb("mps") > 1.0
