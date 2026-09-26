@@ -295,9 +295,9 @@ class Pipeline:
             # Adapters add weights to the components they attach to, and an offloading
             # hook only streams the weights that existed when it was installed - so a
             # pipeline that loads any is placed after they are on it, not at load
-            adapters_to_load = bool(self.pipeline_definition.get("loras", [])) or (
-                self.pipeline_definition.get("ip_adapter", None) is not None
-            )
+            adapters_to_load = bool(
+                active_loras(self.pipeline_definition.get("loras", []))
+            ) or (self.pipeline_definition.get("ip_adapter", None) is not None)
 
             # Load and configure the main pipeline
             self.pipeline = load_component(
@@ -309,14 +309,10 @@ class Pipeline:
                 defer_placement=adapters_to_load,
             )
 
-            # Enable attention slicing if explicitly requested or automatically on MPS
-            # MPS benefits from slicing since Metal shares system RAM with the GPU
-            if self.configuration.get("enable_attention_slicing", False) or (
-                get_device_type(self.device) == "mps"
-                and not self.configuration.get("disable_attention_slicing", False)
-            ):
-                # Modular pipelines have no attention slicing - on MPS this is applied
-                # automatically, so skip rather than fail when the pipeline lacks it
+            # Attention slicing trades speed for memory - automatic on MPS, where
+            # it is often the faster path too (see attention_slicing_requested)
+            if attention_slicing_requested(self.configuration, self.device):
+                # Modular pipelines have no attention slicing - skip rather than fail
                 if has_method(self.pipeline, "enable_attention_slicing"):
                     logger.debug("Enabling attention slicing for pipeline")
                     self.pipeline.enable_attention_slicing()
@@ -378,6 +374,7 @@ class Pipeline:
             configure_components(
                 self.pipeline, self.configuration, self.device, reused_components
             )
+            apply_mps_rope_precision(self.pipeline, self.device)
 
             # Set up random generator if needed - no_generator is a boolean, so an
             # explicit false still gets a generator
@@ -1293,12 +1290,13 @@ def set_adapter_alpha(pipeline, adapter_name, alpha):
     peft scales an adapter by `scale * alpha / rank`, and the alpha comes from
     the checkpoint: a per-module `.alpha` tensor, else a `__metadata__` alpha
     where the loader honors one, else the rank itself. That is the right
-    default, and for some files it is wrong. The 768p MiniMax-H3 turbo LoRAs
-    record `alpha: 8` in their `__metadata__` at rank 128, which diffusers
-    honors, while upstream's own 768p invocation passes `--lora-alpha 128` -
-    sixteen times the strength the file asks for. The number that makes a
-    distilled checkpoint hit its trained schedule is a property of the model,
-    so the workflow states it rather than the engine guessing.
+    default, and for a file that records the wrong figure (or none) it is
+    wrong. Check the header before overriding: the MiniMax-H3 turbo LoRAs each
+    record the alpha they were trained at, and upstream's `--lora-alpha 128`
+    matches the one 768p file that records 128 - stating it for the 8-step
+    768p file, which records 8, ran that one at sixteen times its trained
+    strength. The number is a property of the model, so the workflow states
+    it rather than the engine guessing.
 
     Set before the caller's set_adapters(), which is what recomputes each
     layer's scaling from the alpha found here.
@@ -1370,25 +1368,44 @@ def _lora_layers(pipeline):
                 yield module
 
 
+def active_loras(loras):
+    """The `loras` entries that will load: a null `model_name` switches one
+    off, which is how a caller runs a template's step without its adapter -
+    the list itself is fixed JSON, and a variable can null a value but not
+    remove an entry."""
+    return [
+        lora
+        for lora in loras or []
+        if not isinstance(lora, dict) or lora.get("model_name") is not None
+    ]
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models."""
     adapter_names = []
     adapter_weights = []
     alphas = {}
 
-    for i, lora in enumerate(loras):
+    for i, lora in enumerate(loras or []):
+        if isinstance(lora, dict) and lora.get("model_name") is None:
+            # Switched off - said to the caller by warn_adapters before the
+            # run started, so only logged here
+            logger.info(f"LoRA {i} has a null model_name - not loaded")
+            continue
         model_name = lora.pop("model_name", None)
         logger.info(f"Loading LoRA: {model_name}")
         emit_phase("loading", detail=f"LoRA: {model_name}")
 
-        # Use provided adapter_name or generate from index
-        adapter_name = lora.pop("adapter_name", str(i))
+        # Use provided adapter_name or generate from index - `or`, because a
+        # variable nulled by the caller arrives as a present None
+        adapter_name = lora.pop("adapter_name", None) or str(i)
         adapter_names.append(adapter_name)
 
         # Extract scale for adapter weights - float() because the schema takes a
         # 'variable:' reference here, and a variable declared as a string default
         # substitutes as one
-        scale = float(lora.pop("scale", 1.0))
+        scale = lora.pop("scale", None)
+        scale = 1.0 if scale is None else float(scale)
         adapter_weights.append(scale)
 
         # Popped before the load: everything left in the dict is a keyword
@@ -1484,6 +1501,52 @@ def load_and_configure_scheduler(
     # the run itself - so this survives loading and every later run of the step
     logger.info(f"Setting {component_name} shift: {shift}")
     scheduler.set_shift(float(shift))
+
+
+def apply_mps_rope_precision(pipeline, device):
+    """Run a RoPE that asks for float64 in float32 on MPS, which has no float64.
+
+    diffusers makes this choice itself for Wan, Lumina2, SkyReels-V2, ChronoEdit
+    and Sana-Video. LTX-2's transformer and text connectors read a
+    `double_precision` flag at forward time instead, and left on (the default)
+    it failed LTX-2.5's first step on a Mac with "Cannot convert a MPS Tensor to
+    float64". Keyed on the flag rather than a model name, so any module that
+    exposes one gets the same treatment."""
+    if get_device_type(device) != "mps":
+        return
+    components = getattr(pipeline, "components", None)
+    if not isinstance(components, dict):
+        return
+    for component_name, component in components.items():
+        if not isinstance(component, torch.nn.Module):
+            continue
+        switched = 0
+        for module in component.modules():
+            if getattr(module, "double_precision", None) is True:
+                module.double_precision = False
+                switched += 1
+        if switched:
+            logger.warning(
+                f"Computing {switched} float64 RoPE module(s) in {component_name} in "
+                "float32 - MPS has no float64 (diffusers does the same for Wan)"
+            )
+
+
+def attention_slicing_requested(configuration, device):
+    """Whether a pipeline's attention runs sliced: automatic on MPS unless
+    'disable_attention_slicing' is set, opt-in ('enable_attention_slicing')
+    everywhere else.
+
+    Which is faster on MPS depends on the model. Measured on an M5 Pro (torch
+    2.14), MPS SDPA is slow at head dims 40, 48 and 160 and fast at 32 and
+    64-128 - slicing made SD 1.5 (40/80/160) ~20% faster end to end and
+    SDXL-shaped attention (64) 2.4x slower. It stays automatic because the
+    catalog's quick-start is SD 1.5; SDXL on a Mac can opt out."""
+    if configuration.get("enable_attention_slicing", False):
+        return True
+    return get_device_type(device) == "mps" and not configuration.get(
+        "disable_attention_slicing", False
+    )
 
 
 def auto_cpu_offload_enabled(configuration):
@@ -1809,8 +1872,8 @@ def load_component(
         and from_pretrained_arguments.get("torch_dtype") == torch.float16
     ):
         logger.warning(
-            f"On MPS devices float16 produces NaN values on Apple Silicon"
-            f"Consider changing torch_dtype from float16 to float32 for {component_name} "
+            f"{component_name} loads in float16 on MPS, which can produce NaN "
+            "values (black images) on Apple Silicon - bfloat16 is the usual fix"
         )
 
     model_name = None

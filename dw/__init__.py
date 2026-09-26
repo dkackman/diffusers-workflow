@@ -1,8 +1,11 @@
 from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
+import functools
 import os
 import re
 import logging
+import subprocess
+import sys
 import warnings
 from dotenv import load_dotenv
 
@@ -20,14 +23,35 @@ if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
 if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# Load sharded checkpoints in parallel - a pure cold-start win
+
+def _parallel_loading_default(platform):
+    """Whether diffusers loads a sharded checkpoint on several threads.
+
+    A pure cold-start win on CUDA. On MPS the loader threads each copy their
+    tensors onto the device at once, and that segfaulted LTX-2.5's SDNQ
+    transformer load (exit 139, four threads inside copy_ to mps) where the
+    serial load succeeded in 39s. diffusers reads the variable once at import,
+    before dw can ask torch for a device, so this goes by platform: macOS has
+    no CUDA, and its accelerator is always MPS."""
+    return "false" if platform == "darwin" else "true"
+
+
 if "HF_ENABLE_PARALLEL_LOADING" not in os.environ:
-    os.environ["HF_ENABLE_PARALLEL_LOADING"] = "true"
+    os.environ["HF_ENABLE_PARALLEL_LOADING"] = _parallel_loading_default(sys.platform)
 
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+# ...except torch's notice that an op the MPS backend lacks ran on the CPU. With
+# PYTORCH_ENABLE_MPS_FALLBACK set (the fp4-fp8-for-torch-mps autoload sets it)
+# that is otherwise a step that got several times slower with nothing to say why.
+# Later filters take precedence, so this one wins over the blanket ignore above
+warnings.filterwarnings(
+    "default",
+    message=r".*not currently supported on the MPS backend and will fall back",
+    category=UserWarning,
+)
 
 # Eager (but guarded) import of torch. This module's own top-level code needs
 # torch's exceptions/types unconditionally to detect its absence gracefully
@@ -299,10 +323,11 @@ def device_memory_stats():
     """
     Snapshot of allocator memory usage for the device dw is configured for.
 
-    Only CUDA exposes free/total figures (via torch.cuda.mem_get_info); MPS
-    has no equivalent API, so its snapshot reports zeroed, "known" values
-    instead. CPU, or a CUDA/MPS backend that isn't actually available despite
-    being the configured device type, results in an "unavailable" snapshot.
+    CUDA exposes free/total via torch.cuda.mem_get_info. MPS reports
+    allocated (tensors), reserved (everything the Metal driver holds) and
+    total (Metal's recommended working set); free is total minus reserved.
+    CPU, or a CUDA/MPS backend that isn't actually available despite being
+    the configured device type, results in an "unavailable" snapshot.
 
     Returns:
         dict with keys:
@@ -310,10 +335,10 @@ def device_memory_stats():
             device_name (str or None)
             allocated_mb (float)
             reserved_mb (float)
-            free_mb (float or None): None only when CUDA's mem_get_info call
-                itself fails
-            total_mb (float or None): None only when CUDA's mem_get_info call
-                itself fails
+            free_mb (float or None): None only when the backend's capacity
+                probe itself fails
+            total_mb (float or None): None only when the backend's capacity
+                probe itself fails
     """
     stats = {
         "available": False,
@@ -344,13 +369,57 @@ def device_memory_stats():
         and hasattr(torch.backends, "mps")
         and torch.backends.mps.is_available()
     ):
-        # MPS doesn't provide detailed memory stats like CUDA
+        # Unified memory: 'reserved' is everything the Metal driver holds for
+        # this process, and the ceiling is Metal's recommended working set -
+        # the figure past which an allocation starts to page
         stats["available"] = True
-        stats["device_name"] = "Apple Silicon (MPS)"
-        stats["free_mb"] = 0.0
-        stats["total_mb"] = 0.0
+        stats["device_name"] = f"{_apple_chip_name()} (MPS)"
+        stats["allocated_mb"] = torch.mps.current_allocated_memory() / 1024 / 1024
+        stats["reserved_mb"] = torch.mps.driver_allocated_memory() / 1024 / 1024
+        try:
+            total = torch.mps.recommended_max_memory() / 1024 / 1024
+            stats["total_mb"] = total
+            stats["free_mb"] = max(total - stats["reserved_mb"], 0.0)
+        except (RuntimeError, AttributeError):
+            pass
 
     return stats
+
+
+@functools.lru_cache(maxsize=1)
+def _apple_chip_name():
+    """The chip's marketing name ('Apple M5 Pro'), so a reading from an 8 GB M1
+    and one from a 128 GB M4 Max are not reported as the same device."""
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+        return result.stdout.strip() or "Apple Silicon"
+    except (OSError, subprocess.SubprocessError):
+        return "Apple Silicon"
+
+
+def device_capacity_gb(device=None):
+    """How much memory the accelerator can hold, in GiB - Metal's recommended
+    working set on MPS, the card's total on CUDA - or None where there is no
+    accelerator or the probe fails. Used where a check needs a ceiling for a
+    device no curated 'cost' entry describes."""
+    if not _TORCH_AVAILABLE:
+        return None
+    try:
+        device_type = get_device_type(device)
+        if device_type == "mps":
+            return torch.mps.recommended_max_memory() / 1024**3
+        if device_type == "cuda":
+            index = torch.device(device or get_device()).index or 0
+            return torch.cuda.get_device_properties(index).total_memory / 1024**3
+    except (RuntimeError, AttributeError, AssertionError):
+        return None
+    return None
 
 
 def startup(log_level=None):

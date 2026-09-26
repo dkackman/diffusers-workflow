@@ -12,9 +12,9 @@ caption spec below.
 
 ## Before anything
 
-1. `get_server_info`: the device and the workspace. These templates quantize
-   with SDNQ on CUDA; on an `mps` or `cpu` server say so and stop - none of
-   them fit there.
+1. `get_server_info`: the device and the workspace. On `mps` they run
+   slower than the CUDA `cost` says (only text-to-video has been run
+   there); on `cpu` say so and stop.
 2. `list_workflows(shape="shot")`: every template in the family carries
    that shape. Take their current names, `summary`, `traits` and `cost` from
    the listing and trust it over the names quoted below.

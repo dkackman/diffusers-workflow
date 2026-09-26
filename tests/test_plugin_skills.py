@@ -216,7 +216,8 @@ class TestMiniMaxH3Skill:
         text = skill_text(H3_SKILL)
         assert "Never put an FL2VA LoRA on a reference template" in text
         assert "video_shift" in text and "lora_alpha" in text
-        assert "alpha 128" in text
+        assert "alpha 128" not in text
+        assert "alpha unset" in text
 
         for name in (
             "storyboard",
@@ -257,7 +258,7 @@ class TestMiniMaxH3Skill:
         assert variables["width"] == 1344 and variables["height"] == 768
         assert variables["video_shift"] == 6.0
         assert variables["audio_shift"] == 3.0
-        assert variables["lora_alpha"] == 128
+        assert variables["lora_alpha"] is None
         assert variables["num_inference_steps"] == 9
         assert "768p" in variables["lora_weight_name"]
 

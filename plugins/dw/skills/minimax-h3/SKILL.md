@@ -105,7 +105,7 @@ read the `workflows` guide's authoring section first.
   `lora_alpha` are variables everywhere, so a swap is arguments, not a file.
   Three combinations are tested, nothing else: 544p FL2VA turbo, 960x544,
   shift 12/3, alpha unset - the default; 768p FL2VA turbo, 1344x768, shift
-  **6**/3, **alpha 128** - `video-with-audio-768p`; 768p Ref2VA turbo, shift
+  **6**/3, alpha unset - `video-with-audio-768p`; 768p Ref2VA turbo, shift
   12/3, alpha unset - every `ref2va` template. The two 768p LoRAs differ in
   shift; do not generalise.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
@@ -113,8 +113,8 @@ read the `workflows` guide's authoring section first.
   output. `validate_workflow` refuses it and warns on a `weight_name`
   naming neither path.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
-  terminal zero included, so `denoise_total_steps` reports 8 - expected, not
-  upstream's `--inference-steps 8` read literally.
+  terminal zero included, so `denoise_total_steps` reports 8. A null
+  `lora_model_name` drops the LoRA; raise steps and shifts too.
 - Nothing carries between generations except a passed reference: no latent
   memory, no extension mode. Identity rides on a picture, voice on an audio
   clip, motion/camera on a video tail (a chain's), score across cuts under

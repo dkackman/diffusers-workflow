@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3768p",
-    "description": "The 768p counterpart to 'video-with-audio'. Same pipeline, same offload and quantization; what differs is the checkpoint and the four numbers that go with it. 'lightx2v/Minimax-h3-Turbo' carries an 8-step FL2VA/T2VA turbo LoRA trained at exactly 1344x768 with a training shift of 6 for video and 3 for audio, and LightX2V's own hosted Studio runs it. Those move together: the base scheduler ships shift 12.0, which is the 544p figure, so the same weights on the default schedule spend a short sigma grid near sigma 1 and then drop to zero in one step. The alpha moves with them too - the file records 'alpha: 8' in its '__metadata__' at rank 128 and diffusers honors that, while upstream's own 768p invocation passes '--lora-alpha 128', sixteen times the strength the file asks for. 'num_inference_steps' is 9 for an 8-step checkpoint because the scheduler counts sigma grid points and the terminal zero is one of them. Keep 'video-with-audio' for fast iteration at 544p; this is the render. It does not lift the memory ceiling: peak attention memory is per step, so 1344x768 buys quality and, at 9 steps rather than 20, time - but a 24 GB card still runs out of room long before 345 frames at this canvas, and the frame count is where to give ground.",
+    "description": "The 768p counterpart to 'video-with-audio'. Same pipeline, same offload and quantization; what differs is the checkpoint and the four numbers that go with it. 'lightx2v/Minimax-h3-Turbo' carries an 8-step FL2VA/T2VA turbo LoRA trained at exactly 1344x768 with a training shift of 6 for video and 3 for audio, and LightX2V's own hosted Studio runs it. Those move together: the base scheduler ships shift 12.0, which is the 544p figure, so the same weights on the default schedule spend a short sigma grid near sigma 1 and then drop to zero in one step. The alpha is the file's own: it records 'alpha: 8' in its '__metadata__' at rank 128 (its ComfyUI twin says 'training_scale: 0.0625') and diffusers honors that, so 'lora_alpha' stays unset. Upstream's '--lora-alpha 128' belongs to the 4-step 768p file, which records 128 itself; stating 128 here ran this one at sixteen times its trained strength. 'num_inference_steps' is 9 for an 8-step checkpoint because the scheduler counts sigma grid points and the terminal zero is one of them. Keep 'video-with-audio' for fast iteration at 544p; this is the render. It does not lift the memory ceiling: peak attention memory is per step, so 1344x768 buys quality and, at 9 steps rather than 20, time - but a 24 GB card still runs out of room long before 345 frames at this canvas, and the frame count is where to give ground.",
     "summary": "The MiniMax H3 quality path: text to video with audio at 1344x768, on the 768p turbo LoRA's own schedule.",
     "cost": [
         {
@@ -36,7 +36,7 @@
         "audio_shift": 3.0,
         "weights_dtype": "{int4}",
         "lora_scale": 1.0,
-        "lora_alpha": 128,
+        "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",

@@ -9,7 +9,9 @@ name: CodeQL
 
 on:
   push:
-    branches: [master]
+    # develop too: the agent loop pushes it directly, with no PR, so without
+    # this nothing checks its range until the release PR (R14)
+    branches: [master, develop]
   pull_request:
   schedule:
     # Weekly, as default setup ran it

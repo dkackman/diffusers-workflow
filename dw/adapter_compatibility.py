@@ -48,6 +48,7 @@ REFERENCE_TOKEN = "ref2v"
 KEYFRAME_TOKEN = "fl2v"
 
 LORAS_KEY = "loras"
+MODEL_NAME_KEY = "model_name"
 WEIGHT_NAME_KEY = "weight_name"
 WORKFLOW_KEY = "workflow"
 FROM_PRETRAINED_KEY = "from_pretrained_arguments"
@@ -171,9 +172,9 @@ def _lora_problems(steps, source_indices, written=None, supplied=()):
     return found
 
 
-def _path_for(written_steps, source, position, supplied):
-    """`arguments.<name>` when the adapter came from a variable the caller
-    set, else None - the value is reported where it was written."""
+def _path_for(written_steps, source, position, supplied, key=WEIGHT_NAME_KEY):
+    """`arguments.<name>` when the entry's `key` came from a variable the
+    caller set, else None - the value is reported where it was written."""
     if not isinstance(written_steps, list) or source >= len(written_steps):
         return None
     step = written_steps[source]
@@ -182,7 +183,7 @@ def _path_for(written_steps, source, position, supplied):
     if not isinstance(loras, list) or position >= len(loras):
         return None
     entry = loras[position]
-    reference = entry.get(WEIGHT_NAME_KEY) if isinstance(entry, dict) else None
+    reference = entry.get(key) if isinstance(entry, dict) else None
     if not isinstance(reference, str) or not reference.startswith(VARIABLE_PREFIX):
         return None
     variable = reference.removeprefix(VARIABLE_PREFIX)
@@ -202,25 +203,76 @@ def adapter_errors(workflow_definition, source_indices=None, written=None, suppl
     ]
 
 
+DISABLED_MESSAGE = (
+    "this lora's model_name is null, so it is not loaded and the step runs "
+    "without it. If it was a step-distillation (turbo) lora, the step's "
+    "num_inference_steps and sigma shift were set for it - raise them to "
+    "the base model's schedule too, or the step runs undertrained"
+)
+
+
+def _disabled_loras(steps, source_indices, written=None, supplied=()):
+    """Every `loras` entry switched off with a null model_name, as
+    (path, message). Any pipeline, not only H3: the off switch is the
+    engine's, and so is saying that it was used."""
+    written_steps = (written or {}).get("steps")
+    found = []
+    for index, step in enumerate(steps):
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        loras = pipeline.get(LORAS_KEY) if isinstance(pipeline, dict) else None
+        if not isinstance(loras, list):
+            continue
+        source = (
+            source_indices[index]
+            if source_indices is not None and index < len(source_indices)
+            else index
+        )
+        name = step.get("name")
+        where = (
+            f" in member '{name}'"
+            if isinstance(name, str) and MEMBER_SEPARATOR in name
+            else ""
+        )
+        for position, lora in enumerate(loras):
+            if not isinstance(lora, dict) or lora.get(MODEL_NAME_KEY) is not None:
+                continue
+            path = _path_for(
+                written_steps, source, position, supplied, key=MODEL_NAME_KEY
+            ) or render_path(
+                ("steps", source, "pipeline", LORAS_KEY, position, MODEL_NAME_KEY)
+            )
+            found.append((path, DISABLED_MESSAGE + where))
+    return found
+
+
 def adapter_warnings(
     workflow_definition, source_indices=None, written=None, supplied=()
 ):
     """Every adapter whose name says nothing about what it was trained for,
-    as messages - valid, and said out loud because nothing at run time will."""
+    and every one switched off, as messages - valid, and said out loud
+    because nothing at run time will."""
+    steps = workflow_definition.get("steps") or []
     return [
         f"{path}: {message}"
         for severity, path, message in _lora_problems(
-            workflow_definition.get("steps") or [], source_indices, written, supplied
+            steps, source_indices, written, supplied
         )
         if severity == "warning"
+    ] + [
+        f"{path}: {message}"
+        for path, message in _disabled_loras(steps, source_indices, written, supplied)
     ]
 
 
 def warn_adapters(workflow_definition):
-    """Say the unrecognised-adapter warning where whoever asked for the run
-    can read it - a run started from the CLI or a rerun never passed through
-    the validate route."""
-    from .events import emit_warning
+    """Say the adapter warnings where whoever asked for the run can read it
+    - a run started from the CLI or a rerun never passed through the
+    validate route."""
+    from . import events
 
-    for message in adapter_warnings(workflow_definition):
-        emit_warning(message, kind="adapter_unrecognized")
+    steps = workflow_definition.get("steps") or []
+    for severity, path, message in _lora_problems(steps, None):
+        if severity == "warning":
+            events.emit_warning(f"{path}: {message}", kind="adapter_unrecognized")
+    for path, message in _disabled_loras(steps, None):
+        events.emit_warning(f"{path}: {message}", kind="lora_disabled")

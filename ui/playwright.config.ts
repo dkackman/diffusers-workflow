@@ -1,4 +1,19 @@
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
+
+/** The interpreter the fixture server runs on: DW_E2E_PYTHON when set
+ * (scripts/preflight.sh passes the one its pytest step used), else the
+ * repo's own venv under either name, else python3 on PATH - so a worktree
+ * or a `.venv` checkout runs e2e too, not only a checkout with `./venv`. */
+function e2ePython(): string {
+  if (process.env.DW_E2E_PYTHON) return process.env.DW_E2E_PYTHON
+  for (const candidate of ['venv/bin/python', '.venv/bin/python']) {
+    if (existsSync(fileURLToPath(new URL(`../${candidate}`, import.meta.url))))
+      return `./${candidate}`
+  }
+  return 'python3'
+}
 
 /** E2E smoke: real server, real browser, no GPU jobs. The server runs
  * against a scratch copy of the example workflows and prompts (see
@@ -20,7 +35,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:8971',
   },
   webServer: {
-    command: './venv/bin/python ui/e2e/serve_fixture.py --port 8971',
+    command: `${e2ePython()} ui/e2e/serve_fixture.py --port 8971`,
     cwd: '..',
     url: 'http://127.0.0.1:8971/api/health',
     reuseExistingServer: false,

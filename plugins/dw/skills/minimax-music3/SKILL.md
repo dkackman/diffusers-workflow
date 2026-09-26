@@ -12,8 +12,9 @@ shapes; do not author a new workflow until the shape decision below fails.
 
 ## Before anything
 
-1. `get_server_info`: the device. Music 3 is a CUDA model; on an `mps` or `cpu`
-   server stop and say so.
+1. `get_server_info`: the device. On `mps` the `music` template runs, slower
+   than the CUDA `cost` says; `music-video` (it also runs H3) has not been
+   run there. On `cpu` stop and say so.
 2. `list_workflows(shape="audio")`, and `shape="sequence"` for the music video.
    Trust the names quoted below only after the listing confirms them.
 3. `get_workflow` on the one chosen, for its variables and their defaults.

@@ -593,7 +593,7 @@
                     "type": "boolean"
                 },
                 "disable_attention_slicing": {
-                    "description": "Whether to disable automatic attention slicing on MPS devices. Attention slicing is enabled by default on MPS to reduce memory usage.",
+                    "description": "Turn off the attention slicing MPS applies automatically. Worth setting for SDXL-family models on a Mac: MPS SDPA is fast at their head dim (64) and slicing made it 2.4x slower.",
                     "type": "boolean"
                 },
                 "attention_backend": {
@@ -1057,8 +1057,11 @@
             "type": "object",
             "properties": {
                 "model_name": {
-                    "description": "The huggingface hub name of the lora.",
-                    "type": "string"
+                    "description": "The huggingface hub name of the lora. Null switches the entry off: it is not loaded and the step runs without it, which is how a caller drops a template's adapter by passing its model_name variable as null. A step-distillation (turbo) lora sets the step count and schedule the step runs at, so raise those with it.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "weight_name": {
                     "description": "The file name of the lora weights.",
@@ -1077,7 +1080,7 @@
                     "format": "float"
                 },
                 "alpha": {
-                    "description": "The network alpha to scale this lora by, overriding the one its checkpoint declares. peft scales an adapter by 'scale * alpha / rank', taking alpha from the file - a per-module '.alpha' tensor, else a '__metadata__' alpha where the loader honors one, else the rank itself. State it where the checkpoint's own figure is not the one it is meant to run at: the 768p MiniMax-H3 turbo LoRAs record alpha 8 at rank 128 while upstream runs them at 128. Accepts a 'variable:' reference.",
+                    "description": "The network alpha to scale this lora by, overriding the one its checkpoint declares. peft scales an adapter by 'scale * alpha / rank', taking alpha from the file - a per-module '.alpha' tensor, else a '__metadata__' alpha where the loader honors one, else the rank itself. State it only where the checkpoint's own figure is not the one it was trained at - read the file's header first; the MiniMax-H3 turbo LoRAs each record the right one. Accepts a 'variable:' reference.",
                     "type": [
                         "number",
                         "string",

@@ -57,7 +57,23 @@ done
 ts() { date '+%H:%M:%S'; }
 say() { echo "[deploy $(ts)] $*"; }
 health() { curl -s -m 5 -H "Authorization: Bearer $DW_TOKEN" "$HEALTH" 2>/dev/null; }
-server_pids() { pgrep -f 'python -m dw\.serve' || true; }
+# Two questions, two answers. Which server to stop is whatever listens on
+# DW_PORT: matching the command line missed it on macOS, where Homebrew's
+# interpreter shows up in ps as .../MacOS/Python (capital P), and a broader
+# match would stop every dw.serve on the machine rather than the one on this
+# port. Whether the new server is still starting is its process: dw.serve
+# imports torch for seconds before it binds, so an empty port means nothing
+# then. Stopping waits on the pids it signalled, since uvicorn closes its
+# socket early in a graceful shutdown while the process still holds memory.
+listener_pids() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti "tcp:$DW_PORT" -sTCP:LISTEN 2>/dev/null || true
+  else
+    pgrep -if 'python[0-9.]* -m dw\.serve' || true
+  fi
+}
+server_running() { pgrep -if 'python[0-9.]* -m dw\.serve' >/dev/null; }
+any_alive() { local p; for p in "$@"; do kill -0 "$p" 2>/dev/null && return 0; done; return 1; }
 
 # `ssh lem deploy.sh` runs a non-interactive shell, and a per-user node
 # install is usually put on PATH by ~/.bashrc *after* its "not interactive,
@@ -137,16 +153,19 @@ if systemctl --user cat dw-serve >/dev/null 2>&1; then
 else
 LOG_HINT="$LOG"
 tail_log() { tail -n 20 "$LOG"; }
-pids="$(server_pids)"
+pids="$(listener_pids)"
 if [ -n "$pids" ]; then
   say "stopping dw.serve (pid $pids)"
+  # shellcheck disable=SC2086  # one word per pid
   kill -TERM $pids
   for _ in $(seq 1 30); do
-    [ -z "$(server_pids)" ] && break
+    # shellcheck disable=SC2086
+    any_alive $pids || break
     sleep 1
   done
-  if [ -n "$(server_pids)" ]; then
-    say "dw.serve did not exit within 30 s of SIGTERM (pid $(server_pids)); not escalating - report this"; exit 1
+  # shellcheck disable=SC2086
+  if any_alive $pids; then
+    say "dw.serve did not exit within 30 s of SIGTERM (pid $pids); not escalating - report this"; exit 1
   fi
 else
   say "no dw.serve running"
@@ -170,7 +189,7 @@ for i in $(seq 1 120); do
     say "deployed $branch @ $(git rev-parse --short HEAD)"
     exit 0
   fi
-  [ -z "$(server_pids)" ] && { say "dw.serve exited during startup; last log lines ($LOG_HINT):"; tail_log; exit 1; }
+  server_running || { say "dw.serve exited during startup; last log lines ($LOG_HINT):"; tail_log; exit 1; }
   sleep 1
 done
 say "no healthy answer within 120 s; last log lines ($LOG_HINT):"; tail_log; exit 1

@@ -2,7 +2,7 @@
     "variables": {
         "prompt": "an evil version of this image",
         "image": {
-            "location": "https://raw.githubusercontent.com/Hadamcik/sage-permission-probe/3e0f80d1fbed7ea0ad118be1771436b8dda59bba/public/icon.png"
+            "location": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
         },
         "num_images_per_prompt": 1,
         "num_inference_steps": 15,

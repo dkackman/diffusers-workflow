@@ -16,6 +16,10 @@ scaling: memory beyond a fixed base grows with the voxel count a decode
 tensor holds, which is why the variables it scales with are named rather
 than assumed to be `num_frames` alone - an image template's width and
 height matter here just as much as a video template's frame count does.
+
+The entries checked are the serving device's own (see `_entries_for`);
+`bytes_per_voxel` was calibrated on CUDA, so a check against a Mac's capacity
+is an estimate of an estimate.
 """
 
 import numbers
@@ -56,7 +60,36 @@ def required_gb(estimate, values):
     return base + per_voxel * product / (1024**3)
 
 
-def vram_estimate_errors(definition, arguments=None, supplied=()):
+def _entries_for(cost, device_type, capacity_gb):
+    """The cost entries a projection is checked against on this device.
+
+    Entries measured on this backend first. A backend no entry describes - a
+    Mac, against a catalog measured on CUDA cards - is checked against its own
+    capacity when it can report one, and against every entry when it cannot,
+    so an unreadable ceiling never turns the guard off."""
+    entries = [entry for entry in cost if isinstance(entry, dict)]
+    if device_type is None:
+        return entries
+    matching = [
+        entry
+        for entry in entries
+        if str(entry.get("device", "")).split(":")[0] == device_type
+    ]
+    if matching:
+        return matching
+    if capacity_gb is not None:
+        return [
+            {
+                "name": f"this {device_type} device (recommended maximum)",
+                "vram_gb": round(capacity_gb, 1),
+            }
+        ]
+    return entries
+
+
+def vram_estimate_errors(
+    definition, arguments=None, supplied=(), device_type=None, capacity_gb=None
+):
     """Every `cost` entry a declared vram_estimate projects to exceed, as
     [{path, message}] - refused, not warned, since the failure this guards
     is an OOM partway through a run that already spent minutes loading."""
@@ -79,9 +112,7 @@ def vram_estimate_errors(definition, arguments=None, supplied=()):
         else "variables"
     )
     errors = []
-    for entry in cost:
-        if not isinstance(entry, dict):
-            continue
+    for entry in _entries_for(cost, device_type, capacity_gb):
         capacity = entry.get("vram_gb")
         if capacity is None or projected <= capacity:
             continue
@@ -103,7 +134,7 @@ def vram_estimate_errors(definition, arguments=None, supplied=()):
     return errors
 
 
-def apply_vram_estimate(definition, variables):
+def apply_vram_estimate(definition, variables, device_type=None, capacity_gb=None):
     """The run-time half of the check above - the backstop for a caller
     that skips validate_workflow (or an inline/composed workflow static
     validation never saw). Raises ValueError for the same projection
@@ -111,6 +142,8 @@ def apply_vram_estimate(definition, variables):
     step was always going to OOM on (#265)."""
     if not isinstance(variables, dict):
         return
-    errors = vram_estimate_errors(definition, variables)
+    errors = vram_estimate_errors(
+        definition, variables, device_type=device_type, capacity_gb=capacity_gb
+    )
     if errors:
         raise ValueError(errors[0]["message"])

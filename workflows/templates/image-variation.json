@@ -1,6 +1,6 @@
 {
     "variables": {
-        "input_image": "https://pbs.twimg.com/media/GgpbmxGWkAATZtp?format=jpg&name=small",
+        "input_image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
         "num_images_per_prompt": 4,
         "seed": null
     },

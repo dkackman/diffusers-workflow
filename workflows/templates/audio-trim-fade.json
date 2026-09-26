@@ -2,7 +2,7 @@
   "id": "TrimFadeAudio",
   "description": "Trims an audio file to a duration and fades it in and out - a finishing pass for a track that ends abruptly. Leaving 'duration_seconds' unset degrades to a fade-only pass over the whole track rather than failing.",
   "variables": {
-    "input_audio": "https://example.com/audio.mp3",
+    "input_audio": "https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac",
     "start_seconds": 0.0,
     "duration_seconds": null,
     "fade_in_ms": 0,

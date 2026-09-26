@@ -26,6 +26,7 @@ logger = logging.getLogger("dw")
 
 _DEFAULT_ASR_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000
+_WHISPER_WINDOW_SECONDS = 30
 
 
 def _downmixed_mono(waveform):
@@ -80,8 +81,20 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         ("transcribe_audio", model_name, str(device), str(dtype)), load_pipe
     )
 
+    # Whisper takes 30 s per window and refuses a longer clip ("more than 3000
+    # mel input features") unless it predicts timestamps, which is how its
+    # long-form mode stitches windows. Asked for only of Whisper and only past
+    # 30 s: transformers raises for a CTC model unless the value is "char" or
+    # "word", and for any other seq2seq model at all
+    options = {}
+    if (
+        getattr(pipe, "type", None) == "seq2seq_whisper"
+        and len(mono) > _WHISPER_WINDOW_SECONDS * _ASR_SAMPLE_RATE
+    ):
+        options["return_timestamps"] = True
     result = pipe(
-        {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE}
+        {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE},
+        **options,
     )
     text = result["text"].strip()
     logger.info(f"Transcript: {text[:100]}{'...' if len(text) > 100 else ''}")

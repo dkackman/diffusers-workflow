@@ -32,8 +32,8 @@ source ./activate
 .\venv\scripts\activate
 ```
 
-`python -m dw.test` confirms torch and diffusers import and shows which
-accelerator was found.
+`python -m dw.test` runs a small built-in workflow end to end - it downloads
+SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
 
 **2. Start the engine.** Leave it running; everything else talks to it.
 
