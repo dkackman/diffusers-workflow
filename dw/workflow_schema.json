@@ -593,7 +593,7 @@
                     "type": "boolean"
                 },
                 "disable_attention_slicing": {
-                    "description": "Whether to disable automatic attention slicing on MPS devices. Attention slicing is enabled by default on MPS to reduce memory usage.",
+                    "description": "Deprecated and ignored: attention slicing is opt-in on every backend (enable_attention_slicing).",
                     "type": "boolean"
                 },
                 "attention_backend": {

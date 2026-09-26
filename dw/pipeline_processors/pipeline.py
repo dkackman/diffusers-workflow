@@ -309,14 +309,10 @@ class Pipeline:
                 defer_placement=adapters_to_load,
             )
 
-            # Enable attention slicing if explicitly requested or automatically on MPS
-            # MPS benefits from slicing since Metal shares system RAM with the GPU
-            if self.configuration.get("enable_attention_slicing", False) or (
-                get_device_type(self.device) == "mps"
-                and not self.configuration.get("disable_attention_slicing", False)
-            ):
-                # Modular pipelines have no attention slicing - on MPS this is applied
-                # automatically, so skip rather than fail when the pipeline lacks it
+            # Attention slicing trades speed for memory and is opt-in - see
+            # attention_slicing_requested for why it is no longer automatic on MPS
+            if attention_slicing_requested(self.configuration):
+                # Modular pipelines have no attention slicing - skip rather than fail
                 if has_method(self.pipeline, "enable_attention_slicing"):
                     logger.debug("Enabling attention slicing for pipeline")
                     self.pipeline.enable_attention_slicing()
@@ -1506,6 +1502,14 @@ def load_and_configure_scheduler(
     scheduler.set_shift(float(shift))
 
 
+def attention_slicing_requested(configuration):
+    """Whether a pipeline's attention runs sliced. Opt-in on every backend: it
+    used to be automatic on MPS, where it measured 2.4x slower on UNet attention
+    than the SDPA it replaces (bf16, M5 Pro) - SDPA is already the
+    memory-efficient path. 'disable_attention_slicing' is accepted and ignored."""
+    return bool(configuration.get("enable_attention_slicing", False))
+
+
 def auto_cpu_offload_enabled(configuration):
     """Whether the configuration asks its components manager to offload to the CPU."""
     return configuration.get("components_manager", {}).get(
@@ -1829,8 +1833,8 @@ def load_component(
         and from_pretrained_arguments.get("torch_dtype") == torch.float16
     ):
         logger.warning(
-            f"On MPS devices float16 produces NaN values on Apple Silicon"
-            f"Consider changing torch_dtype from float16 to float32 for {component_name} "
+            f"{component_name} loads in float16 on MPS, which can produce NaN "
+            "values (black images) on Apple Silicon - bfloat16 is the usual fix"
         )
 
     model_name = None

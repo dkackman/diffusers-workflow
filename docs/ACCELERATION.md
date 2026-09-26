@@ -215,7 +215,7 @@ Prefer the pinned form for a compiled component - the per-call context manager s
 }
 ```
 
-Processes attention in slices to reduce memory at some cost to speed. Enabled automatically on MPS (unified memory benefits from slicing) unless `disable_attention_slicing` is set. Modular pipelines have no `enable_attention_slicing()` method - the setting is silently skipped rather than failing when the pipeline doesn't support it.
+Processes attention in slices to reduce memory at some cost to speed. Opt-in on every backend. It is not automatic on MPS, because PyTorch's SDPA is already memory-efficient and slicing measured 2.4x slower on UNet attention on Apple Silicon. It only affects UNet/ControlNet models. Modular pipelines have no `enable_attention_slicing()` method - the setting is silently skipped rather than failing when the pipeline doesn't support it.
 
 ## torch.compile
 
