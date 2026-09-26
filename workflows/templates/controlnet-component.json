@@ -1,6 +1,6 @@
 {
     "variables": {
-        "mask_image_uri": "https://nftfactory.blob.core.windows.net/images/chia256.jpg",
+        "mask_image_uri": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/input_image_vermeer.png",
         "seed": null
     },
     "id": "sd15-controlnet",
