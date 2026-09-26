@@ -42,11 +42,12 @@ routing table, with `get_prompt` for the one body that was chosen. It also
 forwards `tag` and `intended_model`, because the library is where the
 trained caption format for a family is already written out and the reason to
 read it is to find that one.
-`run_workflow` and `validate_workflow` are the other two handlers that carry
-one: each takes an
-optional per-call `workspace` that `_scoped`'s `setdefault` lets win over the
-session's, so one call can be pinned to a workspace other than the session's
-without switching it.
+`run_workflow`, `validate_workflow` and the gallery and output tools
+(`list_gallery`, `get_output_*`, `get_gallery_metadata`, `keep_output`,
+`download_output`, `delete_output`, `assess_output`) also take an optional
+per-call `workspace` that `_scoped`'s `setdefault` lets win over the session's,
+so one call can be pinned to a workspace other than the session's without
+switching it.
 `get_server_info`
 (`/api/server`) is the capability call: the device a run will use, the dw
 version, the workspace and the workflow/output/prompt/asset directories, which is what tells an
@@ -58,7 +59,7 @@ because a request names a subject and the catalog is written in shapes, and an
 agent with nowhere to look up the shape authors a fresh workflow instead of
 composing one. Only `dw_mcp/server.py` imports the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
-`media.py`, `assets.py`, `models.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
+`media.py`, `assets.py`, `models.py`, `exports.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than
 `dw.mcp` on purpose: importing any `dw.*` submodule runs `dw/__init__.py`
 and pulls in torch, which a pure HTTP client has no use for — a test guards
