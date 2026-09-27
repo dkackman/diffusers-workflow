@@ -60,6 +60,11 @@ CLICK_NEIGHBOUR_WINDOW = 0.01
 # Grey levels on the 0-255 scale.
 TYPICAL_DELTA_FLOOR = 2.0
 
+# The opening a shot's leaked reference frame is looked for in, and the
+# shortest shot with a body left over to compare it against, seconds (#487)
+OPENING_WINDOW_SECONDS = 2.0
+OPENING_MIN_SHOT_SECONDS = 4.0
+
 # The window a dead-air run inside a shot is measured in, seconds - fine
 # enough that a half-second gap the rule cares about still spans several
 # windows, coarse enough that ordinary syllable-to-syllable dips don't read
@@ -694,6 +699,42 @@ def _typical_delta(thumbs, start, end):
         return None
     deltas = numpy.abs(numpy.diff(span.astype(numpy.int16), axis=0)).mean(axis=(1, 2))
     return float(numpy.percentile(deltas, TYPICAL_DELTA_PERCENTILE))
+
+
+def _opening_cut(media, shot):
+    """The largest single-frame change in the first OPENING_WINDOW_SECONDS of
+    `shot`, against the shot's own typical change after that window, floored
+    - and when in the shot it falls (#487). A generated shot that opens on a
+    held reference frame and then cuts into the scene shows its one hard cut
+    here, inside a shot the seam probe treats as continuous.
+
+    (None, None) for a shot too short to have an opening and a body to
+    compare it against (OPENING_MIN_SHOT_SECONDS), or with no picture or
+    frame rate. A shot opened by a dissolve is measured from where its fade
+    ends, so the fade is not mistaken for the jump."""
+    thumbs, fps = media.thumbs, media.fps
+    if thumbs is None or not fps:
+        return None, None
+    start = int(shot.get("start_frame") or 0)
+    count = shot.get("num_frames")
+    count = int(count) if count is not None else thumbs.shape[0] - start
+    count = min(count, thumbs.shape[0] - start)
+    if count / fps < OPENING_MIN_SHOT_SECONDS:
+        return None, None
+    fade = int(shot.get("overlap_frames") or 0)
+    window = max(1, round(OPENING_WINDOW_SECONDS * fps))
+    first = start + fade
+    opening = thumbs[first : first + window + 1].astype(numpy.int16)
+    if opening.shape[0] < 2:
+        return None, None
+    deltas = numpy.abs(numpy.diff(opening, axis=0)).mean(axis=(1, 2))
+    peak = int(numpy.argmax(deltas))
+    typical = _typical_delta(thumbs, first + window, start + count)
+    typical = max(TYPICAL_DELTA_FLOOR, typical if typical is not None else 0.0)
+    return (
+        _round(float(deltas[peak]) / typical),
+        _round((fade + peak + 1) / fps),
+    )
 
 
 def _seam_video(media, previous, shot, fade):
