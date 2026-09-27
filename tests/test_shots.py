@@ -28,6 +28,7 @@ from dw.result import AudioVideo, Result
 from dw.runs import MANIFEST_FILE_NAME, recorded_shots
 from dw.shots import (
     carried_shots,
+    duplicate_shot_names,
     named_shots,
     remeasured_shots,
     rescaled_shots,
@@ -1015,6 +1016,35 @@ class TestShotsForFile:
         assert shots_for_file([], "solo.mp4", ["solo.mp4"]) is None
 
 
+class TestDuplicateShotNames:
+    """#508: two joined inputs whose inner shots share names."""
+
+    def test_no_collision_returns_none(self):
+        shots = [shot_record("shot@accuse", 0, 4), shot_record("shot@deflect", 4, 4)]
+        assert duplicate_shot_names(shots) is None
+
+    def test_collision_across_two_inputs_named_by_the_same_for_each(self):
+        shots = [
+            shot_record("shot@accuse", 0, 4),
+            shot_record("shot@deflect", 4, 4),
+            shot_record("shot@accuse", 8, 5),
+            shot_record("shot@deflect", 13, 5),
+        ]
+        assert duplicate_shot_names(shots) == {None: ["shot@accuse", "shot@deflect"]}
+
+    def test_collision_is_scoped_per_file(self):
+        shots = [
+            {**shot_record("shot@accuse", 0, 4), "file": "one.mp4"},
+            {**shot_record("shot@accuse", 0, 5), "file": "one.mp4"},
+            {**shot_record("shot@accuse", 0, 6), "file": "two.mp4"},
+        ]
+        assert duplicate_shot_names(shots) == {"one.mp4": ["shot@accuse"]}
+
+    def test_no_shots_returns_none(self):
+        assert duplicate_shot_names(None) is None
+        assert duplicate_shot_names([]) is None
+
+
 # 11. Workflow.run: the manifest entry and step_end carry the shots, named by
 # the `gather:shot` the step wrote
 
@@ -1103,3 +1133,75 @@ def test_workflow_run_names_the_joined_shots_by_their_members(tmp_path):
         os.path.join(workflow._run_dir, written["files"][0]), str(tmp_path)
     ).replace(os.sep, "/")
     assert recorded_shots(str(tmp_path), relative) == entry["shots"]
+
+
+def test_workflow_run_warns_when_two_joined_inputs_share_inner_shot_names(tmp_path):
+    """#508: joining two cuts each made by its own `for_each` named `accuse`/
+    `deflect` (the normal shape for a series' episodes) collides their inner
+    shot names in the joined map - a real concat_videos join, not a stand-in,
+    since the collision comes from named_shots/nested_shots leaving a nested
+    input's own names untouched."""
+    from dw.events import RunContext
+    from dw.step import Step
+    from dw.step_cache import step_cache
+    from dw.workflow import Workflow
+
+    fps, sample_rate = 4, 100
+    episode_a = AudioVideo(
+        frames(8),
+        numpy.full((2, 200), 1.0, dtype=numpy.float32),
+        sample_rate,
+        fps=fps,
+        shots=[
+            shot_record("shot@accuse", 0, 4, start_sample=0, num_samples=100),
+            shot_record("shot@deflect", 4, 4, start_sample=100, num_samples=100),
+        ],
+    )
+    episode_b = AudioVideo(
+        frames(10),
+        numpy.full((2, 250), 1.0, dtype=numpy.float32),
+        sample_rate,
+        fps=fps,
+        shots=[
+            shot_record("shot@accuse", 0, 5, start_sample=0, num_samples=125),
+            shot_record("shot@deflect", 5, 5, start_sample=125, num_samples=125),
+        ],
+    )
+    joined = concat_videos([episode_a, episode_b], fps=fps)
+
+    definition = {
+        "id": "shots_collision",
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {"videos": ["episode-a.mp4", "episode-b.mp4"]},
+                },
+                "result": {"content_type": "video/mp4"},
+            }
+        ],
+    }
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return _ShotResult(joined.shots)
+
+    step_cache.clear()
+    events = []
+    workflow = Workflow(definition, str(tmp_path), str(tmp_path / "shots.json"))
+    with patch.object(Step, "run", fake_step_run):
+        workflow.run({}, context=RunContext(on_event=events.append))
+
+    (entry,) = [e for e in workflow.manifest if e["step"] == "cut"]
+    assert [shot["name"] for shot in entry["shots"]] == [
+        "shot@accuse",
+        "shot@deflect",
+        "shot@accuse",
+        "shot@deflect",
+    ]
+
+    (warning,) = [
+        e for e in events if e["event"] == "warning" and e.get("kind") == "shot_name_collision"
+    ]
+    assert set(warning["names"]) == {"shot@accuse", "shot@deflect"}
+    assert "cut" in warning["message"]

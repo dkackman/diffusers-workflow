@@ -346,6 +346,34 @@ def step_shots(saved_shots, saved_files, references=None):
     ]
 
 
+def duplicate_shot_names(shots):
+    """Names that collide within one file's shot map, or None.
+
+    Two joined inputs whose inner `for_each` used the same entry names
+    (`shot@accuse` from one episode and `shot@accuse` from another, #508)
+    leave the joined map unable to tell them apart by name - `start_frame`
+    still disambiguates, but a `shots=` argument or a finding that addresses
+    a shot by name cannot. Checked per `file` (a multi-file manifest entry
+    keeps each file's names independent), and returns the duplicated names
+    for each file that has any, in file order, so the caller can name them
+    in one warning rather than emitting one per shot.
+    """
+    if not shots:
+        return None
+    groups = {}
+    for shot in shots:
+        groups.setdefault(shot.get("file"), []).append(shot["name"])
+    duplicates = {}
+    for file, names in groups.items():
+        counts = {}
+        for name in names:
+            counts[name] = counts.get(name, 0) + 1
+        dups = [name for name in dict.fromkeys(names) if counts[name] > 1]
+        if dups:
+            duplicates[file] = dups
+    return duplicates or None
+
+
 def shots_for_file(shots, path, step_files):
     """The shots of one file out of a manifest entry's `shots`, or None.
 

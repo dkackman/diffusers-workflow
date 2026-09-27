@@ -18,6 +18,7 @@ from .arguments import (
 from .events import (
     RunContext,
     emit_phase,
+    emit_warning,
     WorkflowCancelled,
     get_context,
     current_context,
@@ -48,7 +49,7 @@ from .variable_constraints import (
     resolve_constraint_references,
 )
 from .result_fps import fps_errors
-from .shots import step_shots
+from .shots import duplicate_shot_names, step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -1611,6 +1612,23 @@ class Workflow:
                 )
                 if shots:
                     manifest_entry["shots"] = shots
+                    duplicates = duplicate_shot_names(shots)
+                    if duplicates:
+                        # Frames and samples stay exact either way - only a
+                        # name-based lookup (a `shots=` argument, a finding)
+                        # can no longer tell the collided shots apart (#508)
+                        for file, names in duplicates.items():
+                            extra = {"file": file} if file is not None else {}
+                            emit_warning(
+                                f"{step.name}: joined shots share a name ("
+                                + ", ".join(names)
+                                + ") and can no longer be told apart by "
+                                "name - start_frame still disambiguates.",
+                                kind="shot_name_collision",
+                                command=step.name,
+                                names=names,
+                                **extra,
+                            )
                 # No entry at all for a step the parent saves for: the
                 # parent's own entry names the same files, under the step
                 # name the caller wrote (#92)
