@@ -109,7 +109,7 @@ def _remote_roots(client):
     return roots
 
 
-def _confine_source(path, roots, named):
+def _confine_source(path, roots, named, client):
     """Refuse a source outside `roots`, before anything looks at the file.
 
     Ordered ahead of the existence and extension checks on purpose: a
@@ -134,10 +134,15 @@ def _confine_source(path, roots, named):
         f"as an 'asset:' reference; to put a new one there when it exists "
         f"only on your own machine, call upload_asset with content= (its "
         f"bytes, base64-encoded, capped at {MAX_INLINE_UPLOAD_BYTES} bytes) "
-        f"instead of file_path, curl it to POST /api/uploads?filename=<name>"
-        f"&asset_name=<folder/name> the way the web UI's file picker does "
-        f"(no size cap but the file body is raw bytes, not JSON), or promote "
-        f"a generated file with keep_output."
+        f"instead of file_path, or curl it straight to the upload route "
+        f"dw.serve exposes for this - the way the web UI's file picker does, "
+        f"no size cap but the file body is raw bytes, not JSON: "
+        f'curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary '
+        f'@<file> "{client.base_url}/api/uploads?filename=<name>'
+        f'&asset_name=<folder/name>&workspace=<ws>" (the bearer token only '
+        f"when the server requires one) - it answers 201 with 'path', the "
+        f"'asset:' reference to use in a workflow argument. Or promote a "
+        f"generated file with keep_output."
     )
 
 
@@ -302,7 +307,7 @@ def upload_asset(
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     roots = _remote_roots(client)
     if roots is not None:
-        _confine_source(path, roots, file_path)
+        _confine_source(path, roots, file_path, client)
     if not os.path.isfile(path):
         raise DwApiError(f"No such file: {file_path}")
 
@@ -373,10 +378,13 @@ def _upload_inline(client, content, asset_name=None, shared=False, workspace=Non
             f"a machine that has it on disk. If neither machine has it - a "
             f"remote dw.serve --mcp endpoint with nothing in common with the "
             f"caller's own disk - curl the bytes straight to the upload "
-            f"route dw.serve exposes for this: POST /api/uploads?"
-            f"filename=<name>&asset_name=<folder/name>[&workspace=<ws>], "
-            f"body is the raw file, bearer token if the server requires one; "
-            f"it answers with the same 'asset:' reference this tool returns."
+            f"route dw.serve exposes for this, no size cap but the file body "
+            f"is raw bytes, not JSON: "
+            f'curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary '
+            f'@<file> "{client.base_url}/api/uploads?filename=<name>'
+            f'&asset_name=<folder/name>&workspace=<ws>" (the bearer token '
+            f"only when the server requires one) - it answers 201 with "
+            f"'path', the same 'asset:' reference this tool returns."
         )
 
     params = {"filename": asset_name, "asset_name": asset_name}
