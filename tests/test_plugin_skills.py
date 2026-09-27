@@ -342,6 +342,48 @@ class TestMiniMaxH3Skill:
         assert "175" in guide and "17n+5" in guide
         assert "31 minutes" in guide
 
+    def test_the_1344x768_reference_ceilings_are_the_templates_vram_estimate(self):
+        """#479: `gb_per_reference` and the per-step projection moved the
+        Ref2VA ceiling from one number (175 frames, unstated reference count)
+        to one per reference count. Derived here from
+        reference-to-video.json's own `vram_estimate`/`cost`/
+        `variable_constraints` rather than hardcoded, so a recalibration of
+        the template fails this rather than leaving the skill stale.
+        """
+        import json
+
+        from dw.vram_estimate import required_gb
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "reference-to-video.json"
+        )
+        definition = json.load(open(path, encoding="utf-8"))
+        estimate = definition["vram_estimate"]
+        (cost_entry,) = definition["cost"]
+        capacity = cost_entry["vram_gb"]
+        constraint = definition["variable_constraints"]["num_frames"]
+        width, height = 1344, 768
+
+        def max_frames_for(references):
+            best = None
+            n = 0
+            while True:
+                frames = constraint["modulus"] * n + constraint["remainder"]
+                if frames > constraint["max_frames"]:
+                    return best
+                if frames >= constraint["min_frames"]:
+                    values = {"width": width, "height": height, "num_frames": frames}
+                    if required_gb(estimate, values, references) <= capacity:
+                        best = frames
+                n += 1
+
+        ceilings = {refs: max_frames_for(refs) for refs in (1, 2, 3, 4)}
+        assert ceilings == {1: 243, 2: 209, 3: 175, 4: 141}
+
+        text = skill_text(H3_SKILL)
+        for frames in ceilings.values():
+            assert str(frames) in text
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 

@@ -728,6 +728,21 @@ class Workflow:
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # A step a declared vram_estimate projects past the card 'cost'
+            # was measured on - per step, after expansion, so a for_each
+            # member is projected with its own frames and references, and
+            # refused here rather than found 90+ seconds into denoising on
+            # an OOM the caller had no way to see coming
+            # (dw/vram_estimate.py, #265, #479)
+            + vram_estimate_errors(
+                expanded,
+                arguments,
+                supplied=set(arguments or {}),
+                device_type=get_device_type(),
+                capacity_gb=device_capacity_gb(),
+                source_indices=source_indices,
+                written=self.workflow_definition,
+            )
             # A for_each item's bare reference (not in a list, so nothing to
             # silently drop it from) whose media resolved null - realize_args
             # already refuses this at run time, a few seconds into the job
@@ -795,18 +810,6 @@ class Workflow:
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
             + constraint_reference_errors(self.workflow_definition)
-            # A (width, height, num_frames)-shaped combination a declared
-            # vram_estimate projects past the card 'cost' was measured on -
-            # refused here rather than found 90+ seconds into denoising on
-            # an OOM the caller had no way to see coming (dw/vram_estimate.py,
-            # #265)
-            + vram_estimate_errors(
-                self.workflow_definition,
-                arguments,
-                supplied=set(arguments or {}),
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-            )
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
             # loading, naming a torch/natten mismatch the construction alone
@@ -1009,18 +1012,6 @@ class Workflow:
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
-            # A (width, height, num_frames)-shaped combination a declared
-            # vram_estimate projects past the card 'cost' was measured on -
-            # the run-time backstop for a caller that skips
-            # validate_workflow, so this raises the same refusal rather
-            # than starting a job the decode step was always going to OOM
-            # on (dw/vram_estimate.py, #265)
-            apply_vram_estimate(
-                workflow_def,
-                variables,
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-            )
             # realize the variables - explicit references only (asset:,
             # output:, constant:, prompt:, a {media_type, location} dict).
             # Key-name conventions (an 'image'/'video'/'_type' argument) are
@@ -1045,6 +1036,19 @@ class Workflow:
         resolve_constraint_references(workflow_def)
 
         workflow_def = expand_for_each(workflow_def)
+
+        # A step a declared vram_estimate projects past the card 'cost' was
+        # measured on - the run-time backstop for a caller that skips
+        # validate_workflow, so this raises the same refusal rather than
+        # starting a job the decode step was always going to OOM on. After
+        # expansion, so a for_each member is projected with its own frames
+        # and references (dw/vram_estimate.py, #265, #479)
+        apply_vram_estimate(
+            workflow_def,
+            variables,
+            device_type=get_device_type(),
+            capacity_gb=device_capacity_gb(),
+        )
 
         # A step nothing after it reads, and which saves no file, does not
         # run - after expansion, so a for_each member is judged like any

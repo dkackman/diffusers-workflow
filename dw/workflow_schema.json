@@ -69,7 +69,7 @@
             "$ref": "#/$defs/arguments"
         },
         "vram_estimate": {
-            "description": "A declared VRAM ceiling over this workflow's cost_drivers, checked against each 'cost' entry's 'vram_gb' in validate_workflow. Never derived from a profiler - a maintainer's own reading of what a stage needs, the same way 'cost' itself is. required_gb = base_gb + bytes_per_voxel * (product of voxel_variables' values) / 2^30; a combination projecting above any cost entry's vram_gb for that entry's device is refused, not warned, since the failure this guards is an OOM partway through a run that already spent minutes loading. 'voxel_variables' names the cost_drivers whose product drives the estimate - typically width, height and num_frames for a video template.",
+            "description": "A declared VRAM ceiling over this workflow's cost_drivers, checked against each 'cost' entry's 'vram_gb' in validate_workflow and again before a run starts. Never derived from a profiler - a maintainer's own reading of what a stage needs, the same way 'cost' itself is. Projected per pipeline step of the definition as it will run - variables substituted and every for_each expanded, so each member is projected with its own values: required_gb = base_gb + bytes_per_voxel * (product of voxel_variables' values) / 2^30 + gb_per_reference * (the step's 'references' entries whose from_file/from_previous_result is not null); a step projecting above any cost entry's vram_gb for that entry's device is refused, not warned, since the failure this guards is an OOM partway through a run that already spent minutes loading. Only the largest step past the ceiling is reported - for a for_each member, at the list entry it came from. 'voxel_variables' names the cost_drivers whose product drives the estimate - typically width, height and num_frames for a video template.",
             "type": "object",
             "required": ["base_gb", "bytes_per_voxel", "voxel_variables"],
             "properties": {
@@ -80,8 +80,9 @@
                     "items": {"type": "string"},
                     "minItems": 1,
                     "uniqueItems": true,
-                    "description": "Variable names whose product is the voxel count the formula scales with. Each must be a declared variable."
+                    "description": "Names whose product is the voxel count the formula scales with. Each is read from the step's own pipeline arguments, else from the workflow's variables; a step where one is not a number is not projected."
                 },
+                "gb_per_reference": {"type": "number", "minimum": 0, "description": "GB of additional VRAM per reference the step passes - a reference-conditioned pipeline holds each one's encoding resident beside the latents. Every kind counts once; an entry whose media is null is dropped before the pipeline sees it and is not counted. Absent means references are not in the formula."},
                 "reason": {"type": "string"}
             },
             "additionalProperties": false

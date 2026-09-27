@@ -592,6 +592,30 @@ same reason - default setup cannot load a pack.
   name into the JSON. An entry violation is reported at
   `arguments.shots[0].num_frames`, and the rule is reported beside the field in
   the catalog's `lists` block as well as in `constraints`
+- **`vram_estimate`'s ceiling is projected per pipeline step, after
+  `for_each` expansion** — a template's declared VRAM formula
+  (`dw/vram_estimate.py`) used to read the workflow's top-level variables;
+  now it walks the definition the run actually executes (substituted,
+  every `for_each` member expanded) and projects each step that loads a
+  pipeline from *that step's own* pipeline arguments, falling back to the
+  workflow's variables only when the step doesn't name a voxel variable
+  itself — so `shot@deflect` of `dialogue-short` is projected with its own
+  `num_frames` and its own `references`, not the template's defaults. An
+  optional `gb_per_reference` adds a fixed amount per reference the step
+  will actually pass, counting an entry once its `from_file`/
+  `from_previous_result` is non-null (a null one is dropped before the
+  pipeline sees it, #478, and costs nothing). Only the *largest*
+  over-ceiling step is reported — cutting that one is the fix the caller
+  makes first — at the entry's path (`arguments.shots[1]` when the caller
+  supplied `shots`, else `variables.shots[1]`), naming the member, its
+  frames, size and reference count. Checked in `validation_errors` and
+  again in `_prepare_definition` right before a run starts, so an inline or
+  composed definition that skipped `validate_workflow` is still caught.
+  Every H3 Ref2VA template declares `base_gb` 16.0, `bytes_per_voxel`
+  28.71 and `gb_per_reference` 1.0 (`tests/test_h3_vram_ceiling.py`): at 1344x768 on a 24 GB card the ceiling on
+  H3's `17n+5` grid runs 243 frames at one reference, 209 at two, 175 at
+  three, 141 at four — a classification from the #479 field report with
+  about 0.2 GB of margin either side, not a fitted curve.
 - **A joined video records its shots, measured** — `concat_videos`,
   `dissolve_videos` and both `run_chain` returns set `AudioVideo.shots`
   (`dw/shots.py`): one `{name, start_frame, num_frames, start_sample,

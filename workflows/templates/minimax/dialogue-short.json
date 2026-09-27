@@ -16,6 +16,17 @@
         "width",
         "height"
     ],
+    "vram_estimate": {
+        "base_gb": 16.0,
+        "bytes_per_voxel": 28.71,
+        "gb_per_reference": 1.0,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "Ref2VA holds every reference's encoding resident beside the video latents, so the ceiling is a fixed base, a per-voxel term for the VAE decode's conv3d activation (width * height * num_frames), and a per-reference term. Classified against the 24 GB entry from the #479 field report (lem, RTX 3090 24 GB, int4 + 768p turbo LoRA, 9 steps, 2026-09-25/26) at 1344x768: 175 frames x 2 refs, 209 x 2 and 175 x 3 ran (projected 22.83, 23.77 and 23.83 GB); 209 x 3 OOM'd in reference encode needing a further 5.1 GB and 260 x 1 OOM'd at denoise step 1 needing a further 4.8 GB (projected 24.77 and 24.18 GB). The refused allocations are lower bounds, not peaks, so this is a classification with about 0.2 GB of margin either side, not a fitted curve. bytes_per_voxel is unchanged from #324's calibration (job 282172105da1); base_gb drops 0.3 GB now the references are counted separately"
+    },
     "variables": {
         "character_a_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
         "character_b_portrait_prompt": "a 3/4-length studio portrait of a heavyset man in his mid 40s with a shaved head and a calm, heavy-lidded expression, wearing an open gray flannel shirt over a dark t-shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
