@@ -1201,7 +1201,9 @@ def test_workflow_run_warns_when_two_joined_inputs_share_inner_shot_names(tmp_pa
     ]
 
     (warning,) = [
-        e for e in events if e["event"] == "warning" and e.get("kind") == "shot_name_collision"
+        e
+        for e in events
+        if e["event"] == "warning" and e.get("kind") == "shot_name_collision"
     ]
     assert set(warning["names"]) == {"shot@accuse", "shot@deflect"}
     assert "cut" in warning["message"]
