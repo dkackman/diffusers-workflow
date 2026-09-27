@@ -56,7 +56,7 @@
     uploading = true
     try {
       const result = await api.uploadMedia(file)
-      onchange(result.path)
+      onchange(result.reference ?? result.url)
       setLocalPreview(result.url)
     } catch (err) {
       error = err instanceof Error ? err.message : 'upload failed'

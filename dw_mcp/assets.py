@@ -154,8 +154,8 @@ def _upload_route_hint(client, workspace=None):
             "127.0.0.1, which on your machine is your machine. "
         )
     return text + (
-        "It answers 201 with 'path', the 'asset:' reference to use in a "
-        "workflow argument; the guide's References section "
+        "It answers 201 with 'reference', the 'asset:' reference to use in "
+        "a workflow argument; the guide's References section "
         '(get_guide("workflows", section="Authoring a workflow from an '
         'agent")) has the same command.'
     )
@@ -382,11 +382,11 @@ def upload_asset(
     if shared:
         params["shared"] = "true"
     result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
-    # 'path' from a server with no asset library is an absolute path on that
-    # machine; from one with a library it is already the reference. Report
-    # whichever it gave, named for what it is
+    # A server with no asset library gives no reference at all - there is
+    # nothing an `asset:` argument could name - only a URL to fetch the file
+    # back from. One with a library gives the reference straight.
     return {
-        "reference": result.get("path"),
+        "reference": result.get("reference"),
         "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": os.path.basename(path),
@@ -430,7 +430,7 @@ def _upload_inline(client, content, asset_name=None, shared=False, workspace=Non
         params["shared"] = "true"
     result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     return {
-        "reference": result.get("path"),
+        "reference": result.get("reference"),
         "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": asset_name,

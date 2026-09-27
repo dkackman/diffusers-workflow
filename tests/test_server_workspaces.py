@@ -174,7 +174,7 @@ class TestScopedRoutes:
                 content=b"png",
             )
             assert uploaded.status_code == 201
-            assert uploaded.json()["path"].startswith("asset:uploads/")
+            assert uploaded.json()["reference"].startswith("asset:uploads/")
 
             assert client.get("/api/assets").json()["assets"] == []
             scoped = client.get("/api/assets?workspace=shots").json()
@@ -450,7 +450,8 @@ class TestKeepingOutputs:
         # outputs and assets share one temporary filesystem, so a link is
         # always possible here
         assert body["linked"] is True
-        assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+        kept_path = os.path.join(workspace_root.assets, "clip.mp4")
+        assert os.stat(source).st_ino == os.stat(kept_path).st_ino
 
     def test_it_copies_when_it_cannot_link(self, server, workspace_root, monkeypatch):
         """A different filesystem, or one with no links, still keeps the
@@ -466,8 +467,10 @@ class TestKeepingOutputs:
                 "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
             ).json()
         assert body["linked"] is False
-        assert os.stat(source).st_ino != os.stat(body["path"]).st_ino
-        with open(body["path"], "rb") as kept:
+        assert body["reference"] == "asset:clip.mp4"
+        kept_path = os.path.join(workspace_root.assets, "clip.mp4")
+        assert os.stat(source).st_ino != os.stat(kept_path).st_ino
+        with open(kept_path, "rb") as kept:
             assert kept.read() == b"clip"
 
     def test_the_name_defaults_to_the_files_own(self, server, workspace_root):
@@ -991,7 +994,7 @@ class TestSharedAssets:
             )
             assert uploaded.status_code == 201
             body = uploaded.json()
-            assert body["path"] == "asset:uploads/cast/priya.png"
+            assert body["reference"] == "asset:uploads/cast/priya.png"
             assert body["shared"] is True
 
             for workspace in ("", "?workspace=episode-four"):

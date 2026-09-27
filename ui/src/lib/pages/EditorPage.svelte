@@ -341,7 +341,7 @@
     if (!(await validate())) return
     busy = true
     try {
-      const result = await api.saveWorkflow(
+      await api.saveWorkflow(
         path,
         $state.snapshot(workflow) as WorkflowDefinition,
       )
@@ -356,7 +356,7 @@
         workflowFiles = [...workflowFiles, `${path}.json`]
       }
       baseline = JSON.stringify($state.snapshot(workflow))
-      notify.success(`Saved to ${result.path}`)
+      notify.success(`Saved to ${path}`)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {

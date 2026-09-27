@@ -2251,7 +2251,7 @@ def create_app(
                 status_code=400,
                 detail='Provide the definition as {"workflow": {...}}',
             )
-        path, _source = resolve_writable_workflow(_sources_for(ws), name)
+        path, source = resolve_writable_workflow(_sources_for(ws), name)
         candidate = Workflow(
             copy.deepcopy(request.workflow),
             ws.outputs,
@@ -2283,7 +2283,7 @@ def create_app(
         return {
             "name": name,
             "workspace": ws.name,
-            "path": path,
+            "origin": source.origin,
             "warnings": warnings,
             "shape": metadata["shape"],
             "traits": metadata["traits"],
@@ -2560,7 +2560,7 @@ def create_app(
             json.dump(request.prompt, file, indent=2)
             file.write("\n")
         logger.info(f"Saved prompt {name} to {path}")
-        return {"name": name, "path": path}
+        return {"name": name}
 
     @app.delete("/api/prompts/{name:path}")
     def delete_prompt(name: str):
@@ -3919,7 +3919,7 @@ def create_app(
         if shared or ws.assets:
             path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
             result = {
-                "path": f"asset:{UPLOADS_SUBDIR}/{name}",
+                "reference": f"asset:{UPLOADS_SUBDIR}/{name}",
                 "workspace": ws.name,
                 "url": _served_url(path, ws),
                 "shared": shared,
@@ -3930,7 +3930,6 @@ def create_app(
             return result
         path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
         result = {
-            "path": dest,
             "workspace": ws.name,
             "url": _served_url(path, ws),
         }
@@ -4155,7 +4154,7 @@ def create_app(
         return {
             "reference": f"asset:{asset_name}",
             "name": asset_name,
-            "path": destination,
+            "workspace": ws.name,
             "linked": linked,
             "shared": bool(request.shared),
         }

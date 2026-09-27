@@ -2586,7 +2586,7 @@ def test_gallery_delete_accepts_an_output_reference(server, tmp_path):
         assert not (outputs / "victim.png").exists()
 
 
-def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
+def test_upload_media_saves_file_and_returns_no_server_path(server, tmp_path):
     with server(success_script) as client:
         response = client.post(
             "/api/uploads",
@@ -2601,8 +2601,7 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
-        assert body["path"] == str(files[0])
-        assert os.path.isabs(body["path"])
+        assert "path" not in body
         assert body["url"] == f"/outputs/uploads/{files[0].name}"
 
         # served back through the same static mount the gallery uses
@@ -2670,7 +2669,7 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
-        assert body["path"] == f"asset:uploads/{files[0].name}"
+        assert body["reference"] == f"asset:uploads/{files[0].name}"
         assert body["url"] == f"/inputs/uploads/{files[0].name}"
         assert not (tmp_path / "outputs" / "uploads").exists()
 
@@ -2691,7 +2690,7 @@ def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
             content=b"not-really-wav-bytes",
         )
         assert response.status_code == 201
-        assert response.json()["path"] == "asset:uploads/cast/priya-voice.wav"
+        assert response.json()["reference"] == "asset:uploads/cast/priya-voice.wav"
         stored = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
         assert stored.read_bytes() == b"not-really-wav-bytes"
 
@@ -2701,7 +2700,7 @@ def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
             params={"filename": "clip-02.wav", "asset_name": "cast/hal-voice.wav"},
             content=b"more-bytes",
         )
-        assert named.json()["path"] == "asset:uploads/cast/hal-voice.wav"
+        assert named.json()["reference"] == "asset:uploads/cast/hal-voice.wav"
 
         mismatched = client.post(
             "/api/uploads",
@@ -3068,9 +3067,7 @@ def test_saving_an_example_copies_it_into_the_writable_library(
 
         response = client.put("/api/workflows/ltx2/Gyre", json={"workflow": edited})
         assert response.status_code == 200
-        assert response.json()["path"] == str(
-            tmp_path / "workflows" / "ltx2" / "Gyre.json"
-        )
+        assert response.json()["origin"] == "workspace"
         # the example on disk did not move or change
         assert (
             json.loads((tmp_path / "examples" / "ltx2" / "Gyre.json").read_text())
