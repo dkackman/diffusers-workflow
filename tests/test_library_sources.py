@@ -198,9 +198,7 @@ class TestServer:
         )
         assert saved.status_code == 200
         assert saved.json()["name"] == "flux/daffodil"
-        assert os.path.isfile(
-            os.path.join(workspace.prompts, "flux", "daffodil.json")
-        )
+        assert os.path.isfile(os.path.join(workspace.prompts, "flux", "daffodil.json"))
         with open(checkout / "prompts" / "flux" / "daffodil.json") as file:
             assert json.load(file)["text"] == "a biomechanical daffodil"
         assert api.get("/api/prompts/flux/daffodil").json()["text"] == "changed"
