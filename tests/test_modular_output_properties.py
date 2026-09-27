@@ -169,5 +169,93 @@ def test_the_batched_audio_reaches_pair_audio_as_one_track():
     assert numpy.asarray(paired.audio).ndim == 2
 
 
+class TestTheBasesOwnTakeSavesBesideIt:
+    """`previous_result:base.videos` is the pipeline's batch - a list holding
+    one frame list. pair_audio unwraps it; passed through, the encoder took
+    the batch for a frame list and failed at save (#499, third bounce)."""
+
+    def reference_step(self):
+        return {
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:base.videos",
+                    "audio": "previous_result:base.audio",
+                    "sample_rate": "previous_result:base.sampling_rate",
+                    "fit": "video",
+                },
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": FPS,
+                "subfolder": "intermediate",
+            },
+        }
+
+    def test_the_guide_names_the_reference_step(self):
+        text = GUIDE.read_text()
+        section = text[text.index(HEADING) :]
+        section = section[: section.index("\n### ", 1)]
+        assert '"video": "previous_result:base.videos"' in section
+        assert '"fps": 24' in section
+
+    def test_the_base_videos_save_as_one_mp4_with_its_frames_and_audio(self, tmp_path):
+        import av
+
+        base, _ = modular_result()
+        step = self.reference_step()
+        (arguments,) = get_iterations(step["task"]["arguments"], {"base": base})
+
+        paired = pair_audio(**arguments)
+        assert isinstance(paired.frames, list)
+        assert len(paired.frames) == FRAME_COUNT
+
+        result = Result(step["result"])
+        result.add_result(paired)
+        result.save(str(tmp_path), "reference")
+
+        (written,) = tmp_path.rglob("*.mp4")
+        with av.open(str(written)) as container:
+            assert container.streams.audio
+            decoded = sum(1 for _ in container.decode(video=0))
+        assert decoded == FRAME_COUNT
+
+    def test_a_five_dimensional_batch_of_one_is_unwrapped(self):
+        video = numpy.zeros((1, FRAME_COUNT, 32, 64, 3), dtype=numpy.float32)
+        paired = pair_audio(video, torch.zeros((1, 2, 100)), sample_rate=SAMPLE_RATE)
+        assert paired.frames.shape == (FRAME_COUNT, 32, 64, 3)
+
+    def test_a_frame_list_is_left_alone(self):
+        video = frames()
+        paired = pair_audio(video, torch.zeros((1, 2, 100)), sample_rate=SAMPLE_RATE)
+        assert paired.frames is video
+
+    def test_a_list_of_array_frames_is_not_mistaken_for_a_batch(self):
+        video = [numpy.zeros((32, 64, 3), dtype=numpy.uint8)] * FRAME_COUNT
+        paired = pair_audio(video, torch.zeros((1, 2, 100)), sample_rate=SAMPLE_RATE)
+        assert paired.frames is video
+
+    def test_fit_measures_the_unwrapped_video(self):
+        paired = pair_audio(
+            [frames()],
+            torch.zeros((1, 2, 10)),
+            sample_rate=SAMPLE_RATE,
+            fps=FPS,
+            fit="video",
+        )
+        assert paired.audio.shape[1] == int(round(FRAME_COUNT / FPS * SAMPLE_RATE))
+
+    @pytest.mark.parametrize(
+        "video",
+        [
+            [frames(), frames()],
+            numpy.zeros((2, FRAME_COUNT, 32, 64, 3), dtype=numpy.float32),
+        ],
+    )
+    def test_a_batch_of_several_is_refused(self, video):
+        with pytest.raises(ValueError, match="batch of 2 videos"):
+            pair_audio(video, torch.zeros((1, 2, 100)), sample_rate=SAMPLE_RATE)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
