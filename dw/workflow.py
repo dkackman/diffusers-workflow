@@ -843,6 +843,36 @@ class Workflow:
             supplied=set(arguments or {}),
         )
 
+    def inherited_vram_warnings(self, arguments=None, index=None):
+        """Every catalog VRAM ceiling this workflow's expanded steps project
+        past, matched by pipeline identity (`dw/vram_inheritance.py`) - for a
+        workflow that declares no `vram_estimate` of its own. A warning, not
+        an error: the catalog's numbers were measured on the catalog's
+        offload and quantization config (#479).
+
+        Best effort, like `adapter_warnings`.
+        """
+        from .vram_inheritance import inherited_vram_warnings
+
+        if not index:
+            return []
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No inherited VRAM warnings available", exc_info=True)
+            return []
+        return inherited_vram_warnings(
+            expanded,
+            index,
+            arguments,
+            supplied=set(arguments or {}),
+            device_type=get_device_type(),
+            capacity_gb=device_capacity_gb(),
+            source_indices=source_indices,
+            written=self.workflow_definition,
+        )
+
     def slice_past_end_warnings(self, arguments=None):
         """Every `slice_audio` step whose source's real duration is already
         knowable and whose requested slice reaches past it - valid, padded

@@ -781,6 +781,7 @@ class JobManager:
         catalog_name=None,
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
+        warnings=None,
     ):
         """Validate a job request and queue it. Raises ValueError on a bad
         request so the HTTP layer can answer 400 before anything runs.
@@ -802,6 +803,10 @@ class JobManager:
         `acknowledged` is the form of cost acknowledgement the caller gave
         (none/boolean/bound) and `acknowledged_cost` the bound object - both
         recorded, neither checked here; the route checks (#85).
+
+        `warnings` are the caller's own, added to the job's - the route's
+        inherited VRAM ceiling (#502), which needs the catalog this manager
+        does not hold.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -888,6 +893,9 @@ class JobManager:
         spec["warnings"] = workflow_argument_warnings(
             loaded.workflow_definition, arguments
         )
+        # What the caller worked out and this manager cannot - a VRAM ceiling
+        # inherited from the catalog needs the workspace's search path (#502)
+        spec["warnings"] += list(warnings or [])
 
         job = Job(spec)
         with self._lock:

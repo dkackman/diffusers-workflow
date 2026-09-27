@@ -456,6 +456,25 @@ All of it is reported by `validate_workflow`, before anything is queued, so
 a draft that names a file the server may not read costs nothing to find out.
 `get_server_info`'s `trust_workflows` says which posture is in force.
 
+### A workflow you wrote inherits the catalog's VRAM ceiling
+
+A template can declare a `vram_estimate`, and a workflow over it that
+projects past the card is refused before anything is queued. A workflow you
+wrote declares none, so `validate_workflow` (and `run_workflow`'s pre-queue
+check) match each of its pipeline steps to the catalog by *pipeline
+identity* - the step's `component_type`, `from_pretrained_arguments.model_name`
+and `from_pretrained_arguments.workflow` - and project it against the
+ceiling a catalog template declared for that same pipeline. Past it, the
+answer stays `valid: true` and carries a warning of kind
+`vram_projection_inherited` that names the source template and the heaviest
+step (for a `for_each`, the heaviest member). It warns rather than
+refuses: your offload and quantization config may differ from the
+template's. Cut frames, size or references until it goes quiet, or declare
+your own `vram_estimate`, which always wins and is judged exactly as a
+template's. A pipeline the catalog declares no ceiling for gets no warning -
+silence there is not a clearance - and H3's `t2va` and `ref2va` are
+different identities with different ceilings.
+
 ### Remote code is refused by default
 
 A server started without `--trust-workflows` refuses any

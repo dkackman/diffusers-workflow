@@ -158,6 +158,7 @@ from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
+from ..vram_inheritance import build_index
 from . import guides
 from .guides import GuideError
 from .. import settings
@@ -1035,6 +1036,36 @@ def create_app(
         first, then the same read-only roots every workspace shares."""
         return workflow_sources(ws.workflows, examples_dirs)
 
+    # One index per distinct listing - keyed by every file's path and mtime,
+    # so an edited, added or removed template rebuilds it and nothing else does
+    ceiling_indexes = {}
+
+    def _ceiling_index(ws):
+        """The catalog's VRAM ceilings by pipeline identity, as this
+        workspace's search path lists them (`dw/vram_inheritance.py`, #502).
+        A file that cannot be read contributes nothing."""
+        paths = []
+        for name, source in sorted(listing(_sources_for(ws)).items()):
+            path = os.path.join(source.root, f"{name}.json")
+            try:
+                paths.append((name, path, os.path.getmtime(path)))
+            except OSError:
+                continue
+        signature = tuple(paths)
+        cached = ceiling_indexes.get(ws.name)
+        if cached and cached[0] == signature:
+            return cached[1]
+        catalog = []
+        for name, path, _ in paths:
+            try:
+                with open(path, "r") as file:
+                    catalog.append((name, json.load(file)))
+            except (OSError, ValueError):
+                continue
+        index = build_index(catalog)
+        ceiling_indexes[ws.name] = (signature, index)
+        return index
+
     # ------------------------------------------------------------------ jobs
 
     def _acknowledgement_form(value):
@@ -1219,6 +1250,11 @@ def create_app(
                     request.acknowledged_cost.model_dump()
                     if form == ACK_BOUND
                     else None
+                ),
+                # A ceiling inherited from the catalog warns and never
+                # refuses, so it rides on the job the caller got (#502)
+                warnings=candidate.inherited_vram_warnings(
+                    request.arguments, _ceiling_index(workspace)
                 ),
             )
         except HTTPException:
@@ -1907,7 +1943,14 @@ def create_app(
             # statically-knowable video's real frame count - silently
             # clipped rather than refused, but previously said only by the
             # run itself (#425)
-            + candidate.shot_span_warnings(request.arguments),
+            + candidate.shot_span_warnings(request.arguments)
+            # A step loading a pipeline the catalog declares a VRAM ceiling
+            # for, in a workflow that declares none, projected past it - a
+            # warning, since this workflow's offload/quantization may be
+            # leaner than the template's (#502)
+            + candidate.inherited_vram_warnings(
+                request.arguments, _ceiling_index(workspace)
+            ),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
