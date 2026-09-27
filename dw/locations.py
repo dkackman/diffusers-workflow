@@ -458,7 +458,7 @@ WEIGHT_NAME_KEY = "weight_name"
 # Tasks that read their weights with safetensors and nothing else. A pickle
 # format is refused by name rather than left to fail in the loader: the
 # refusal is the documented contract, not an accident of which loader runs
-SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents",)
+SAFETENSORS_ONLY_COMMANDS = ()
 SAFETENSORS_SUFFIX = ".safetensors"
 
 
