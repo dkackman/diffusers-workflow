@@ -102,6 +102,10 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 - Section tags and the caption are generative control, not guarantees: the
   vendor says tempo, key, structure and lyrics may not match every detail.
   Iterate at 30-60 seconds before asking for a long track.
+- Music 3 ignores per-section singer directions. Before staging lip-sync on
+  a song with two or more singers, run `attribute_voices` with a reference
+  span per singer and cast each shot from its answer. Never infer the singer
+  from pitch: a tenor and a mezzo share the range.
 
 ## Prompts
 
