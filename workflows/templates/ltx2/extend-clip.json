@@ -39,6 +39,7 @@
     "steps": [
         {
             "name": "opening",
+            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "LTX2Pipeline",
