@@ -107,9 +107,13 @@ composes into, not something to re-derive:
   `assemble-and-score` run. Don't pick the loudest episode's loudness and
   ask the others to climb to it. A `target_lufs_capped` warning on an
   episode means that episode's own peak sets the series' ceiling; lower the
-  series `target_lufs` rather than accepting the mismatch. Reaching a
-  louder target than a capped episode's ceiling allows needs a limiter,
-  which does not exist yet (tracked separately).
+  series `target_lufs` rather than accepting the mismatch. Only when the
+  series should sit louder than its most dynamic episode allows (e.g. -16
+  for streaming) pass `limit: true` beside the same `target_lufs` on every
+  episode: -3 dBFS becomes a true-peak ceiling a look-ahead limiter holds,
+  so the laugh is limited rather than setting the gain. A `limiter_heavy`
+  warning on an episode means the series target is squashing it audibly -
+  lower the series `target_lufs` rather than living with it.
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
@@ -151,7 +155,8 @@ episode with one loud outlier (a studio-audience laugh, a sting) can sit
 1-2 LU quieter than its neighbors even at the same -3 dBFS peak ceiling -
 that gap is `target_lufs`'s to close, matched downward to a series-wide
 value every episode's ceiling allows (see the **normalize** bullet above);
-`target_lufs` alone cannot raise a capped episode to meet a louder one. To confirm a
+`target_lufs` alone cannot raise a capped episode to meet a louder one -
+`limit: true` can, for a series that must sit louder (same bullet). To confirm a
 line actually rendered rather than judging it by ear, `get_output_audio`
 returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
 arguments={"input_audio": "output:<name>"})` first (free; it takes the
