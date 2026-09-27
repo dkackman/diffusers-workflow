@@ -37,10 +37,10 @@ def join_workflow(command, videos, extra_arguments=None):
 class TestTheCheck:
     def test_mismatched_asset_sizes_are_refused_for_dissolve_videos(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
-        write_mp4(os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32)
-        definition = join_workflow(
-            "dissolve_videos", ["asset:a.mp4", "asset:b.mp4"]
+        write_mp4(
+            os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )
+        definition = join_workflow("dissolve_videos", ["asset:a.mp4", "asset:b.mp4"])
 
         problems = video_size_errors(definition, base_dir=base_dir)
 
@@ -51,7 +51,9 @@ class TestTheCheck:
 
     def test_mismatched_asset_sizes_are_refused_for_concat_videos(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
-        write_mp4(os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32)
+        write_mp4(
+            os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
+        )
         definition = join_workflow("concat_videos", ["asset:a.mp4", "asset:b.mp4"])
 
         problems = video_size_errors(definition, base_dir=base_dir)
@@ -119,7 +121,9 @@ class TestTheCheck:
 class TestTheValidationPass:
     def test_wired_into_validation_errors(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
-        write_mp4(os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32)
+        write_mp4(
+            os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
+        )
         definition = join_workflow("concat_videos", ["asset:a.mp4", "asset:b.mp4"])
         workflow = workflow_from_definition(
             definition, os.path.join(base_dir, "workflow.json")
@@ -128,6 +132,5 @@ class TestTheValidationPass:
         problems = workflow.validation_errors()
 
         assert any(
-            problem["path"] == "steps[0].task.arguments.videos"
-            for problem in problems
+            problem["path"] == "steps[0].task.arguments.videos" for problem in problems
         )
