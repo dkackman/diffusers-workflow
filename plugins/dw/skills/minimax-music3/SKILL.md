@@ -163,9 +163,10 @@ Control" section.
    ceiling cut the track (raise it and rerun); well short of it means the
    song finished on its own. Its `peak_dbfs` is a single sample and does not
    say how loud the song reads end to end - `integrated_lufs` (BS.1770,
-   whole-track) is the field for that, and what `normalize_audio`'s optional
-   `target_lufs` targets when a score or a music-video mix needs to match
-   another track by ear rather than by peak alone. Then listen with
+   whole-track) is the field for that, and what `normalize_audio`'s
+   `target_lufs` targets when a mix must match another track by ear, not
+   by peak. A master louder than its peak allows (-16 streaming): add
+   `limit: true`; `limiter_heavy` means lower the target. Then listen with
    `get_output_audio` (a long
    track in `start`/`duration` excerpts) for the family's failure modes: a
    song that went instrumental (name the vocals in the caption), an ending
