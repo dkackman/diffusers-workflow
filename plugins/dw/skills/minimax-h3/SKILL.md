@@ -43,43 +43,29 @@ arguments; the prompt format is MiniMax's, from their text not here.
   crosses the seam, cut when the scene changes (each cut its own generation).
   Six distinct scenes are a cuts piece, not a chain.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
-  (last-frame continuity), `templates/minimax/chain-video-continuity` (the
-  previous segment's tail rides as a video reference - motion, camera and
-  voice carry across the seam), `templates/minimax/chain-matched-to-audio` (a
-  supplied track sets the length, muxed back seamless),
-  `templates/minimax/chain-matched-and-aligned` (all of it, per-segment
-  prompts). Drift compounds per seam: reference the subject picture every
-  segment, prefer `last_segment` continuity, use the longest segments memory
-  allows.
+  (last-frame continuity), `templates/minimax/chain-video-continuity`
+  (previous segment's tail rides as a video reference - motion, camera and
+  voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
+  sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`
+  (per-segment prompts). Drift compounds per seam: reference the subject
+  picture each segment, prefer `last_segment` continuity, use the longest
+  segments memory allows.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
-  `shots` entry on one loaded model, `concat_videos` splices) and
-  `templates/minimax/music-video` (a song, one slice and one lip-synced shot
-  per entry; its singer is `singer_reference` - a `from_file` reference uses
-  an existing cast portrait and elides the drawing).
-  `shots` is one list argument: a dialogue entry is `name`, `prompt`,
-  `references` (portraits and voices: `from_previous_result` for one drawn
-  here, `from_file` for an `asset:` cast) and `num_frames`; a music-video
-  entry is `name`, `prompt`, `start_frame`.
-  A six-shot piece is one more entry, not a new file. The listing's
-  `lists` block says what an entry carries; its `cost` carries `per_entry`
-  when one shot was measured: quote
-  `minutes - per_entry.minutes × per_entry.entries + per_entry.minutes × N`
-  for N entries. Without `per_entry`, quote the total for the default list.
-  A cut erases drift: the last shot is as clean as the first. Each shot makes
-  its own audio, so write `non_diegetic_music: N/A` in every shot and lay one
-  score under the concat afterwards: `templates/minimax/music` writes the
-  track and `templates/assemble-and-score` shows the `pair_audio` step that
-  mixes it under the world sound. A character speaking in several shots keeps
-  one voice by passing the same clip as an audio reference each time (the
-  `voice-timbre-reference` pattern) - a repeated description alone drifts.
-  A score burying voice-over is not a `world_gain` fix: the world track
-  carries narration and action together (narration ~24 dB over its own
-  ambience, score 6-15 dB over that), so raising it lifts both. Duck the
-  *score* instead, before passing it as `score`: one `gain_audio` (#187)
-  step per voice-over shot, chained, `start_frame` = running sum of
-  preceding shots' `num_frames`, `num_frames` that shot's length, `fps`
-  the cut's rate, negative `gain_db` (-6 to -10).
+  `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
+  (a song, one slice and one lip-synced shot per entry - `from_file` reuses
+  an existing cast portrait and skips the drawing).
+  `shots` is one list: a dialogue entry is `name`, `prompt`, `references`
+  and `num_frames`; a music-video entry is `name`, `prompt`, `start_frame`.
+  A six-shot piece is one more entry, not a new file. The listing's `lists`
+  block says what an entry carries; its `cost` carries `per_entry` when one
+  shot was measured - scale from that, else quote the default list's total.
+  A cut erases drift, and each shot makes its own audio: score with
+  `templates/minimax/music` and `templates/assemble-and-score`'s `pair_audio`
+  mix under the world sound. Keep one voice across shots with a repeated
+  audio reference, not a repeated description. Duck a score burying
+  voice-over rather than raising the world track - a `gain_audio` step per
+  shot, negative `gain_db`.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry, no shared cast, no concat. `keep_output` each
   clip, then `templates/assemble-and-score` cuts and scores.
@@ -108,10 +94,21 @@ read the `workflows` guide's authoring section first.
   `transformer_ref` alone, so whatever is handed there only degrades the
   output. `validate_workflow` refuses it and warns on a `weight_name`
   naming neither path.
-- Match a crowd's action to what it holds - defaults skew young. Two people
-  in frame can lip-sync the wrong one: face the singer close-up and spell
-  the sung line in `<d>` tags. Ref2VA also reaches 1344x768 - see the
-  README's field notes (#484).
+- Fit a crowd's action to what it holds: a candle-holding crowd asked to
+  clap rendered three-handed people. State an action the prop allows.
+- A directed crowd move needs its landmark in frame - "the town marches up
+  to the house" put the house behind camera. Track from the side with the
+  landmark ahead, in the direction of travel.
+- Two people in frame can lip-sync the wrong one, seemingly by whichever
+  voice enters first: credit a shout to the crowd, spell the sung line in
+  `<d>` tags, and frame the singer face-on at medium close-up.
+- State the crowd's age range - an unstated crowd skews young.
+- A three-reference shot can open on the reference portraits' own backdrop
+  for ~1.5s (about 1 in 25): check a shot's first frames, and say in
+  `subject_definitions` that the portrait's backdrop, pose and framing are
+  not reused.
+- Ref2VA reaches 1344x768 too, not only the FL2VA 768p template - see the
+  `recipes` guide's MiniMax-H3 section for the trade-off and frame limit.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
   `lora_model_name` drops the LoRA; raise steps and shifts too.
@@ -135,11 +132,9 @@ read the `workflows` guide's authoring section first.
 H3 wants Context-IR, MiniMax's own format. `get_prompt` shows the shape;
 the rules come from MiniMax, not from paraphrasing one:
 
-1. If the `h3-prompt-writing` skill is installed (MiniMax ships it in
-   https://github.com/MiniMax-AI/MiniMax-H3 under `skills/`), use it. If not,
-   say once that
-   `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing` installs
-   it - only that one; the rest are style packs - and go on without it.
+1. If the `h3-prompt-writing` skill is installed, use it. If not, say once
+   that `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing`
+   installs it, and go on without it.
 2. Else read the guides on the model card:
    https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
    for text and frame conditioning, and
@@ -197,7 +192,6 @@ itself - or every shot inherits the portrait's composition.
 
 ## Sources
 
-MiniMax-H3 model card and prompt guides (huggingface.co/MiniMaxAI/MiniMax-H3),
-`h3-prompt-writing` (github.com/MiniMax-AI/MiniMax-H3), the diffusers
+MiniMax-H3 model card and prompt guides, `h3-prompt-writing`, the diffusers
 MiniMax-H3 modular pipeline, `lightx2v/Minimax-h3-Turbo` LoRA notes; read
 2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
