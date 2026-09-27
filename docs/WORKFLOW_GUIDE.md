@@ -1705,6 +1705,14 @@ this task can still stall mid-run pulling the upscaler.
 }
 ```
 
+To keep the 544p take beside the promotion for comparison, add one more `pair_audio`
+step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`,
+saved with `"result": {"content_type": "video/mp4", "fps": 24, "subfolder":
+"intermediate"}`. `base.videos` is the pipeline's batch - a list holding the one video -
+and `pair_audio` unwraps a batch of one (a batch of several is refused, since one track
+goes under one video). The dict's frames carry no frame rate, so the result's `fps`
+says it; without it the file is written at the 8 fps fallback.
+
 ### Chained Video Generation
 
 Video pipelines generate short clips - a `chain` block on a pipeline step runs the
