@@ -610,7 +610,8 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     summary=(
         "Resize MiniMax-H3 video latents to a larger canvas (e.g. a 960x544 "
         "take to 1344x768) without denoising again; decode_h3_latents turns "
-        "the result into frames."
+        "the result into frames. The whole promoting workflow is "
+        "get_guide('workflows', section='upscale_h3_latents')."
     ),
     parameter_descriptions={
         "latents": (
@@ -652,7 +653,8 @@ def _handle_upscale_h3_latents(task, arguments, previous_pipelines):
     summary=(
         "Decode MiniMax-H3 video latents into frames with the H3 video VAE, "
         "through diffusers' own H3 decode block. Returns video only, at 24 fps; "
-        "pair_audio puts a soundtrack back under it."
+        "pair_audio puts a soundtrack back under it. The whole promoting "
+        "workflow is get_guide('workflows', section='upscale_h3_latents')."
     ),
     parameter_descriptions={
         "latents": (

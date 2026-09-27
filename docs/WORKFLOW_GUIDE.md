@@ -1485,7 +1485,7 @@ it — see [workflows/templates/minimax/last-frame-only.json](../workflows/templ
 See [workflows/templates/minimax/music.json](../workflows/templates/minimax/music.json) and
 [workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json) for full examples.
 
-#### Promoting an H3 take to 768p in latent space
+### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
 `decode_h3_latents` promote it to 1344x768 without denoising it again - cheaper than a
