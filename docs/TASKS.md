@@ -970,9 +970,9 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
-| `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below `dead_air_floor_dbfs` |
+| `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below the `DEAD_AIR_FLOOR_DBFS` threshold (-65 dBFS) |
 | `shots[].dead_air_at` | Where that run starts, in seconds into the file |
-| `shots[].dead_air_floor_dbfs` | The floor `dead_air_seconds` was measured against (`DEAD_AIR_FLOOR_DBFS`) |
+| `shots[].dead_air_floor_dbfs` | The quietest 50ms window measured inside that run - not the threshold. Null when the run is pure digital silence, and null when there is no run at all |
 | `rms_range_db` | The spread between the loudest and quietest voiced shot |
 | `has_audio` | Whether the file carries a soundtrack at all |
 
