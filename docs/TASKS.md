@@ -1083,6 +1083,13 @@ voiced, so a weak answer is visible as weak rather than silently accepted.
 | `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
 | `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
 | `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
+
+A literal `voices` is checked at validation as well as on the step: fewer
+than two voices, a bad name, a malformed span, or a span-list reference under
+`min_reference_seconds` is refused at `steps[i].task.arguments.voices`, and a
+bare path as a voice meets the same location policy as `audio`. What needs
+the song itself - a span past its end, a clip's voiced length - is the
+step's to refuse.
 | `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
 | `device` | No | Where the models run |
 
@@ -1090,12 +1097,21 @@ The result: `voices` (the names), `separated`, `duration_seconds`, `lines[]`
 (`start`, `end`, `text`, `scores`, `voice`, `margin`, `voiced_seconds`,
 `uncertain`, `reason`), `windows[]` (`name`, `start`, `end`, `voiced_seconds`,
 `share`, `voice`, `uncertain`, `reason`), `reference_similarity` (pairwise
-cosine between the voices' references), `warnings` and the `thresholds`
-compared against:
+cosine between the voices' references), `voiced_floor_dbfs` (the floor this
+song's stem was read against), `warnings` and the `thresholds` compared
+against.
+
+The voiced floor is relative to the stem rather than a fixed level: a quiet
+sung verse under a loud chorus sits 20 dB or more beneath it, and a fixed
+-40 dBFS floor dropped such a verse as unvoiced and refused it as a
+reference. Separation leaves near-silence between phrases, so the floor sits
+well above that and well below the singing.
 
 | Threshold | Value | What crossing it does |
 | --------- | ----- | ---------------------- |
-| `voiced_floor_dbfs` | -40.0 dBFS | A 20 ms frame of the (separated) vocal stem at or above this rms is voiced |
+| `voiced_level_percentile` | 95 | The stem's level is this percentile of its 20 ms frames' rms |
+| `voiced_floor_below_level_db` | 35.0 dB | A frame at or above the stem's level less this is voiced |
+| `voiced_floor_min_dbfs` | -60.0 dBFS | The floor never drops below this, however quiet the stem |
 | `min_voiced_seconds` | 0.5 s | A line or window under this much voiced time has no voice - `voice: null`, `uncertain: true` |
 | `uncertain_margin` | 0.05 | A line whose best score beats the runner-up by less than this is `uncertain` - the argmax is still reported |
 | `uncertain_share_margin` | 0.2 | A window whose leading voice's share beats the runner-up's by less than this is `uncertain` - a duet line, or a window straddling a hand-over |

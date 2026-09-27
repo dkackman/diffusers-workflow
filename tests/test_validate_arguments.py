@@ -411,6 +411,31 @@ class TestSubmission:
         assert response.status_code == 400
         assert "arguments.image" in response.json()["detail"]
 
+    def test_a_missing_asset_written_into_a_step_is_refused(self, server):
+        """A literal in a step is as much a promise as a variable: a missing
+        `asset:` voice on an attribute_voices step validated clean and died
+        on the step (#494)."""
+        workflow = typed_workflow()
+        workflow["steps"][0]["pipeline"]["arguments"]["image"] = "asset:gone.png"
+        with server() as client:
+            checked = client.post("/api/validate", json={"workflow": workflow}).json()
+            response = client.post("/api/jobs", json={"workflow": workflow})
+
+            assert checked["valid"] is False
+            paths = [error["path"] for error in checked["errors"]]
+            assert "steps[0].pipeline.arguments.image" in paths
+            assert response.status_code == 400
+            assert "gone.png" in response.json()["detail"]
+            assert client.get("/api/jobs").json()["jobs"] == []
+
+    def test_an_asset_written_into_a_step_that_is_there_passes(self, server):
+        workflow = typed_workflow()
+        workflow["steps"][0]["pipeline"]["arguments"]["image"] = "asset:iris.png"
+        with server() as client:
+            checked = client.post("/api/validate", json={"workflow": workflow}).json()
+
+        assert checked["valid"] is True, checked
+
     def test_a_bad_stored_default_is_refused_before_the_job_is_queued(self, server):
         """The same gap at submission: a bare submit used to queue a job
         that could only fail on its first step (#166)."""

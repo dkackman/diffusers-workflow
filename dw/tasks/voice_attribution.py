@@ -30,6 +30,7 @@ import numpy
 import torch
 
 from ..events import emit_warning
+from ..for_each import MEMBER_SEPARATOR, render_path
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
 from .audio_utils import _waveform_and_rate, load_audio, resample_waveform
@@ -49,10 +50,17 @@ _EMBEDDER_MODEL = "speechbrain/spkrec-ecapa-voxceleb"
 _EMBEDDER_SAMPLE_RATE = 16000
 
 # Voiced-frame detection on the (separated) vocal stem: 20 ms frames, voiced
-# when the frame's rms reaches this level. Separation leaves a residue under
-# an instrumental passage well below it
+# when the frame's rms reaches a floor set from the stem's own level - its
+# VOICED_LEVEL_PERCENTILE frame rms - less VOICED_FLOOR_BELOW_LEVEL_DB, and
+# never below VOICED_FLOOR_MIN_DBFS. Relative, because a song's sections sit
+# at very different levels: an absolute -40 dBFS floor threw away a quiet
+# verse that was clearly sung while its loud chorus sat 20 dB above it
+# (#494). Separation leaves a residue under an instrumental passage well
+# below the floor either way
 FRAME_SECONDS = 0.02
-VOICED_FLOOR_DBFS = -40.0
+VOICED_LEVEL_PERCENTILE = 95.0
+VOICED_FLOOR_BELOW_LEVEL_DB = 35.0
+VOICED_FLOOR_MIN_DBFS = -60.0
 # Below this many voiced seconds a line has too little voice to embed, and
 # its `voice` is null with the reason; a window below it has no voice either
 MIN_VOICED_SECONDS = 0.5
@@ -76,7 +84,9 @@ END_TOLERANCE_SECONDS = 0.1
 WINDOW_SECONDS = 2.0
 
 THRESHOLDS = {
-    "voiced_floor_dbfs": VOICED_FLOOR_DBFS,
+    "voiced_level_percentile": VOICED_LEVEL_PERCENTILE,
+    "voiced_floor_below_level_db": VOICED_FLOOR_BELOW_LEVEL_DB,
+    "voiced_floor_min_dbfs": VOICED_FLOOR_MIN_DBFS,
     "min_voiced_seconds": MIN_VOICED_SECONDS,
     "uncertain_margin": UNCERTAIN_MARGIN,
     "uncertain_share_margin": UNCERTAIN_SHARE_MARGIN,
@@ -199,6 +209,70 @@ def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     return parsed
 
 
+def voices_errors(workflow_definition, source_indices=None):
+    """Every attribute_voices step whose literal `voices` parse_voices would
+    refuse, as [{path, message}] - fewer than two, a bad name, a malformed
+    span, a reference under min_reference_seconds.
+
+    The definition is substituted and expanded, so a `voices` a caller
+    passed is checked as it will run. What needs the audio - a span past its
+    end, a clip's length - stays the run's: the duration is not known here.
+    A `voices` still spelled as a reference, or with a span holding one, is
+    left to the run too.
+    """
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+    errors = []
+    for index, step in enumerate(steps):
+        task = step.get("task") if isinstance(step, dict) else None
+        if not isinstance(task, dict) or task.get("command") != COMMAND:
+            continue
+        arguments = task.get("arguments")
+        if not isinstance(arguments, dict) or "voices" not in arguments:
+            continue
+        voices = arguments["voices"]
+        if isinstance(voices, str) or _holds_reference(voices):
+            continue
+        minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
+        if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
+            minimum = MIN_REFERENCE_SECONDS
+        try:
+            parse_voices(voices, None, minimum)
+        except ValueError as error:
+            source = (
+                source_indices[index]
+                if source_indices is not None and index < len(source_indices)
+                else index
+            )
+            name = step.get("name")
+            where = (
+                f" in member '{name}'"
+                if isinstance(name, str) and MEMBER_SEPARATOR in name
+                else ""
+            )
+            path = ("steps", source, "task", "arguments", "voices")
+            errors.append({"path": render_path(path), "message": f"{error}{where}"})
+    return errors
+
+
+def _holds_reference(voices):
+    """Whether any span in `voices` carries a string - a reference the run
+    resolves - so its numbers are not known yet. A clip path in place of a
+    voice's spans is not a span and does not count."""
+    if not isinstance(voices, dict):
+        return False
+    for reference in voices.values():
+        spans = [reference] if isinstance(reference, dict) else reference
+        if not isinstance(spans, list):
+            continue
+        for span in spans:
+            values = span.values() if isinstance(span, dict) else [span]
+            if any(isinstance(value, str) for value in values):
+                return True
+    return False
+
+
 def parse_lines(lines, duration, window_seconds):
     """The lines to attribute, as [{start, end, text}].
 
@@ -248,17 +322,32 @@ def parse_windows(windows, duration):
 # --- measurement -----------------------------------------------------------
 
 
+def _dbfs(amplitude):
+    return 20 * math.log10(amplitude) if amplitude > 0 else -math.inf
+
+
+def voiced_floor_dbfs(rms):
+    """The voiced floor for a stem whose frames have these rms values: its
+    VOICED_LEVEL_PERCENTILE level less VOICED_FLOOR_BELOW_LEVEL_DB, never
+    below VOICED_FLOOR_MIN_DBFS."""
+    if len(rms) == 0:
+        return VOICED_FLOOR_MIN_DBFS
+    level = _dbfs(float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE)))
+    return max(VOICED_FLOOR_MIN_DBFS, level - VOICED_FLOOR_BELOW_LEVEL_DB)
+
+
 def voiced_mask(waveform, sample_rate):
-    """Per-frame voiced flags for a mono waveform: FRAME_SECONDS frames whose
-    rms reaches VOICED_FLOOR_DBFS."""
+    """Per-frame voiced flags for a mono waveform, the frame length in
+    samples and the floor used: FRAME_SECONDS frames whose rms reaches
+    voiced_floor_dbfs."""
     frame = max(1, int(round(FRAME_SECONDS * sample_rate)))
     count = len(waveform) // frame
     if count == 0:
-        return numpy.zeros(0, dtype=bool), frame
+        return numpy.zeros(0, dtype=bool), frame, VOICED_FLOOR_MIN_DBFS
     frames = waveform[: count * frame].reshape(count, frame)
     rms = numpy.sqrt(numpy.mean(frames.astype(numpy.float64) ** 2, axis=1))
-    floor = 10 ** (VOICED_FLOOR_DBFS / 20)
-    return rms >= floor, frame
+    floor_dbfs = voiced_floor_dbfs(rms)
+    return rms >= 10 ** (floor_dbfs / 20), frame, floor_dbfs
 
 
 class _Voicing:
@@ -267,7 +356,7 @@ class _Voicing:
     def __init__(self, waveform, sample_rate):
         self.waveform = waveform
         self.sample_rate = sample_rate
-        self.mask, self.frame = voiced_mask(waveform, sample_rate)
+        self.mask, self.frame, self.floor_dbfs = voiced_mask(waveform, sample_rate)
         self.frame_seconds = self.frame / sample_rate
 
     def _frames(self, start, end):
@@ -677,6 +766,7 @@ def attribute_voices(
         "voices": list(references),
         "separated": separate,
         "duration_seconds": _round(duration, 3),
+        "voiced_floor_dbfs": _round(song.floor_dbfs, 2),
         "lines": attributed,
         "windows": rolled,
         "reference_similarity": similarity,

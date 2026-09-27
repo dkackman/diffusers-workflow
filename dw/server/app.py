@@ -1621,8 +1621,8 @@ def create_app(
     def _argument_reference_errors(definition, arguments, ws):
         """The 'asset:', 'prompt:' and 'output:' references that name nothing
         this workspace can reach, in the values a run would actually use -
-        the caller's `arguments`, plus every declared `variables` default
-        the caller did not override.
+        the caller's `arguments`, every declared `variables` default the
+        caller did not override, and the literals written into the steps.
 
         A stored default is exactly as much a promise as a caller's value:
         `validate_workflow(name="templates/ltx2/reference-sheet")` with no
@@ -1688,6 +1688,14 @@ def create_app(
                     effective.append((f"variables.{name}", value))
         for name, value in supplied.items():
             effective.append((f"arguments.{name}", value))
+        # A reference written straight into a step is as much a promise as
+        # one in a variable: `asset:cast/no-such-voice.wav` as a literal
+        # attribute_voices voice validated clean and died on the step
+        # (#494). Walked as written, so the path is the author's
+        steps = definition.get("steps") if isinstance(definition, dict) else None
+        if isinstance(steps, list):
+            for index, step in enumerate(steps):
+                effective.append((f"steps[{index}]", step))
 
         errors = []
         for base_path, value in effective:
