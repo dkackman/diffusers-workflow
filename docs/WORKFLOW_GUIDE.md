@@ -291,7 +291,8 @@ for existence.
   to the same file. When the file is on neither the MCP session's machine nor
   reachable as `content=` (over 4MB, or the agent has no filesystem access to
   read it into the call), curl it straight into the library the same way the
-  web UI's file picker does — `POST /api/uploads`, body is the raw bytes:
+  web UI's file picker does — `POST /api/uploads`, body is the raw bytes, up to
+  200MB:
   ```
   curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary @portrait.jpg \
     "http://<host>:8765/api/uploads?filename=portrait.jpg&asset_name=cast/portrait.jpg&workspace=<ws>"

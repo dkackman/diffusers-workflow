@@ -558,3 +558,92 @@ class TestUploadContainmentOverAMountedEndpoint:
         client = self._mounted_client_with_shared_library(workspace, common, tmp_path)
         with pytest.raises(DwApiError, match="Refusing to read"):
             upload_asset(client, traversal)
+
+
+class TestUploadRouteInTheRefusals:
+    """Both refusals end in a curl command for POST /api/uploads that the
+    caller can run from its own machine (#481): a mounted endpoint reaches
+    its server at 127.0.0.1, which on a remote caller's machine is that
+    machine, so a loopback origin is printed as <host>; the workspace is the
+    one the call would have uploaded to; and the ceiling is the route's real
+    one, not 'no size cap'."""
+
+    def _client(self, base_url, workspace=None, roots=None):
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(200, json={"directories": roots or {}})
+            if request.url.path == "/api/assets":
+                return httpx.Response(200, json={"assets": []})
+            raise AssertionError(f"nothing should be sent: {request.url}")
+
+        client = DwClient(
+            base_url=base_url,
+            workspace=workspace,
+            transport=httpx.MockTransport(handler),
+        )
+        client.mounted = roots is not None
+        return client
+
+    def _file_path_refusal(self, tmp_path, base_url, **kwargs):
+        workspace = tmp_path / "workspace"
+        (workspace / "assets").mkdir(parents=True)
+        roots = {"workspace": str(workspace), "assets": str(workspace / "assets")}
+        client = self._client(
+            base_url, workspace=kwargs.pop("session", None), roots=roots
+        )
+        with pytest.raises(DwApiError) as refused:
+            upload_asset(
+                client,
+                file_path="/Users/don/Pictures/portrait.jpg",
+                asset_name="qa-cast/portrait.jpg",
+                **kwargs,
+            )
+        return str(refused.value)
+
+    def test_a_loopback_origin_is_printed_as_host(self, tmp_path):
+        # what dw/server/mcp_mount.py's client_base_url gives a mounted
+        # endpoint on a loopback or wildcard bind
+        text = self._file_path_refusal(tmp_path, "http://127.0.0.1:8765")
+        assert "127.0.0.1:8765" not in text
+        assert '"http://<host>:8765/api/uploads?filename=<name>' in text
+        assert "<host> is this server's address as your machine reaches it" in text
+
+    def test_a_reachable_origin_is_printed_verbatim(self, tmp_path):
+        text = self._file_path_refusal(tmp_path, "http://100.64.0.7:8765")
+        assert '"http://100.64.0.7:8765/api/uploads?' in text
+        assert "<host>" not in text
+
+    def test_the_command_carries_token_workspace_and_return(self, tmp_path):
+        text = self._file_path_refusal(
+            tmp_path, "http://127.0.0.1:8765", workspace="qa-series"
+        )
+        assert "Authorization: Bearer $DW_API_TOKEN" in text
+        assert "--data-binary @<file>" in text
+        assert '&asset_name=<folder/name>&workspace=qa-series"' in text
+        assert "201 with 'path', the 'asset:' reference" in text
+        assert f"up to {MAX_UPLOAD_BYTES // (1024 * 1024)}MB" in text
+        assert "no size cap" not in text
+
+    def test_the_session_workspace_fills_the_command(self, tmp_path):
+        text = self._file_path_refusal(
+            tmp_path, "http://127.0.0.1:8765", session="episode-4"
+        )
+        assert '&workspace=episode-4"' in text
+
+    def test_the_default_workspace_is_named_rather_than_left_blank(self, tmp_path):
+        text = self._file_path_refusal(tmp_path, "http://127.0.0.1:8765")
+        assert '&workspace=default"' in text
+        assert "<ws>" not in text
+
+    def test_the_inline_limit_refusal_carries_the_same_command(self):
+        client = self._client("http://127.0.0.1:8765", workspace="qa-series")
+        oversized = base64.b64encode(b"0" * (MAX_INLINE_UPLOAD_BYTES + 1)).decode(
+            "ascii"
+        )
+        with pytest.raises(DwApiError) as refused:
+            upload_asset(client, content=oversized, asset_name="cut/final.mp4")
+        text = str(refused.value)
+        assert '"http://<host>:8765/api/uploads?filename=<name>' in text
+        assert '&workspace=qa-series"' in text
+        assert "201 with 'path', the 'asset:' reference" in text
+        assert "no size cap" not in text
