@@ -839,6 +839,28 @@ class Result:
             )
             saved_files = []
             for k, v in artifact.items():
+                if isinstance(v, torch.Tensor) and not content_type.startswith(
+                    "audio"
+                ):
+                    # A modular pipeline's leftover output not part of the
+                    # video/audio pairing (dw's own 'latents', from an H3
+                    # upscale step's output: [..., "latents"]) is raw model
+                    # state, not media - it has no video/image/json rendering
+                    # under the step's declared content_type, and trying one
+                    # crashed the exporter deep inside its own error (#507).
+                    # It stays reachable as previous_result:<step>.<key>
+                    # straight off the in-memory result; only the file write
+                    # here is skipped.
+                    emit_warning(
+                        f"'{k}' in '{file_base_name}' is a raw tensor, not "
+                        f"media - skipped saving it under content_type "
+                        f"{content_type!r}. It is still available as "
+                        f"previous_result:<step>.{k}.",
+                        kind="non_media_artifact_skipped",
+                        key=k,
+                        content_type=content_type,
+                    )
+                    continue
                 saved_files.extend(
                     self.save_artifact(
                         output_dir,
