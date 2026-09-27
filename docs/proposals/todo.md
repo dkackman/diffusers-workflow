@@ -55,6 +55,11 @@ remaining deferred fix is recorded in
   workflows** (#479, stages #501-#502), shipped 2026-09-27. Record, including
   what was deferred (the host-memory half, measured calibration):
   `complete/h3-vram-ceiling-references-complete.md`.
+- **A true-peak limit mode for `normalize_audio`** (#474, stages
+  #496-#497), shipped 2026-09-27. Record, including what was deferred
+  (holding the ceiling on the encoded film, true-peak in the post-encode
+  check, `compress_audio`'s limit mode):
+  `complete/normalize-audio-limiter-complete.md`.
 
 ## Declined
 
