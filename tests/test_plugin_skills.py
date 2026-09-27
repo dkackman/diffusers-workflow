@@ -112,6 +112,25 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
         )
 
 
+# The task commands a skill sends an agent to by name. A skill cannot be
+# swept for these the way catalog names are - a backticked identifier may be
+# a tool, a field or a task - so each one is listed here.
+SKILL_TASKS = {"minimax-music3": ["attribute_voices"]}
+
+
+@pytest.mark.parametrize(
+    "skill,task",
+    [(skill, task) for skill, tasks in SKILL_TASKS.items() for task in tasks],
+)
+def test_every_task_a_skill_names_is_in_list_tasks(skill, task):
+    """A renamed task fails here rather than in a cold session."""
+    from dw.introspection import list_tasks
+
+    path = os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md")
+    assert f"`{task}`" in skill_text(path)
+    assert task in list_tasks()["commands"]
+
+
 H3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3", "SKILL.md")
 
 
