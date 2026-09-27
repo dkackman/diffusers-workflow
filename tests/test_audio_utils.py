@@ -866,6 +866,52 @@ class TestNormalizeAudioLimit:
         assert logs[0]["max_gain_reduction_db"] <= 12.0 + 0.1
         assert self._true_peak_dbfs(track) <= -3.0 + 0.05
 
+    def _dense(self, seconds=6.0):
+        # A burst every 120 ms, 6-20 dB over the bed - laughter under a line
+        # rather than one laugh, so the limiter acts on half the track and
+        # takes loudness with it wherever the gain goes (#496's bounce)
+        t = numpy.arange(int(self.RATE * seconds)) / self.RATE
+        rng = numpy.random.default_rng(0)
+        level = numpy.full(t.size, 0.05)
+        for start in range(0, t.size, int(0.12 * self.RATE)):
+            level[start : start + int(0.05 * self.RATE)] = 0.05 * 10 ** (
+                rng.uniform(6, 20) / 20
+            )
+        wave = level * numpy.sin(2 * numpy.pi * 700 * t)
+        return wave.astype(numpy.float32)[numpy.newaxis, :]
+
+    def test_dense_material_still_reaches_a_target_inside_the_cap(self):
+        # One correction pass left this 0.4 LU short, and a real laugh-track
+        # episode 2 LU short; the gain is searched for instead
+        from dw.tasks.audio_utils import LIMITER_TOLERANCE_LU
+
+        track, logs, warnings = self._run(
+            self._dense(), peak_dbfs=-3.0, target_lufs=-12.0
+        )
+
+        assert self._lufs(track) == pytest.approx(
+            -12.0, abs=LIMITER_TOLERANCE_LU + 0.05
+        )
+        assert self._true_peak_dbfs(track) <= -3.0 + 0.05
+        assert "target_lufs_capped" not in warnings
+        assert 0 < logs[0]["max_gain_reduction_db"] < 12.0
+        assert logs[0]["limited_fraction"] > 0.3
+
+    def test_a_target_the_cap_stops_short_of_says_by_how_much(self):
+        # Past the cap the track lands short; the warning's shortfall is the
+        # one the output actually has, not the gain's
+        track, logs, warnings = self._run(
+            self._dense(), peak_dbfs=-3.0, target_lufs=-10.0
+        )
+
+        capped = warnings["target_lufs_capped"]
+        assert capped["limited"] is True
+        assert capped["shortfall_lu"] == pytest.approx(
+            -10.0 - self._lufs(track), abs=0.05
+        )
+        assert logs[0]["max_gain_reduction_db"] == pytest.approx(12.0, abs=0.1)
+        assert self._true_peak_dbfs(track) <= -3.0 + 0.05
+
     def test_heavy_limiting_warns(self):
         _, logs, warnings = self._run(self._bursty(), peak_dbfs=-3.0, target_lufs=-16.0)
 
@@ -948,6 +994,8 @@ class TestNormalizeAudioLimit:
         assert audio_utils.LIMITER_HOLD_MS == 20.0
         assert audio_utils.LIMITER_MAX_REDUCTION_DB == 12.0
         assert audio_utils.LIMITER_HEAVY_DB == 6.0
+        assert audio_utils.LIMITER_TOLERANCE_LU == 0.1
+        assert audio_utils.LIMITER_SEARCH_PASSES == 8
 
     def test_the_curve_ramps_down_before_the_transient(self):
         # Look-ahead: the gain is already down when the burst arrives

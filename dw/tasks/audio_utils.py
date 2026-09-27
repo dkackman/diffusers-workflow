@@ -1520,9 +1520,13 @@ LIMITER_RELEASE_DB = 6.0
 LIMITER_MAX_REDUCTION_DB = 12.0
 # Past this much reduction pumping becomes audible - limiter_heavy
 LIMITER_HEAVY_DB = 6.0
-# A limited track loses a little loudness; one correction pass makes up a
-# shortfall larger than this
-LIMITER_CORRECTION_LU = 0.05
+# Limiting lowers loudness by an amount that depends on how dense the
+# material is, so the gain is searched for rather than corrected once (one
+# pass left a dense track 2 LU short, #496). The search stops within this much
+# of the target, after at most this many limiting passes; a track still
+# further short than the tolerance is warned target_lufs_capped
+LIMITER_TOLERANCE_LU = 0.1
+LIMITER_SEARCH_PASSES = 8
 # Oversampling runs in blocks so a long track never holds 4x of itself; the
 # polyphase filter reaches about ten input samples each side, so this much
 # overlap makes each block's interior exact
@@ -1615,6 +1619,52 @@ def _limit_at(waveform, envelope, gain_db, ceiling, sample_rate):
     return output, curve, trim, output_peak
 
 
+def _search_gain(
+    waveform, envelope, ceiling, sample_rate, target_lufs, low_db, high_db
+):
+    """The static gain in [low_db, high_db] whose limited output lands within
+    LIMITER_TOLERANCE_LU of target_lufs: (gain_db, _limit_at's result, output
+    LUFS). Loudness rises with the gain, but by less than the gain once the
+    limiter acts, so this starts at the target's own gain (exact while the
+    limiter is idle), tries the cap when that falls short, and closes the
+    bracket between the two by regula falsi. Where even the cap falls short
+    the cap is the answer, and the caller warns the shortfall."""
+
+    def attempt(gain_db):
+        limited = _limit_at(waveform, envelope, gain_db, ceiling, sample_rate)
+        return gain_db, limited, integrated_lufs(limited[0].T, sample_rate)
+
+    def miss(result):
+        return None if result[2] is None else target_lufs - result[2]
+
+    low = attempt(low_db)
+    if miss(low) is None or miss(low) <= LIMITER_TOLERANCE_LU or low_db >= high_db:
+        return low
+    high = attempt(high_db)
+    if miss(high) is None or miss(high) >= -LIMITER_TOLERANCE_LU:
+        return high
+    best = min((low, high), key=lambda result: abs(miss(result)))
+    for _ in range(LIMITER_SEARCH_PASSES - 2):
+        low_miss, high_miss = miss(low), miss(high)
+        span = high[0] - low[0]
+        gain_db = low[0] + span * low_miss / (low_miss - high_miss)
+        # Stay off the bracket's ends, so a curved response cannot stall
+        # regula falsi against one side of it
+        gain_db = min(max(gain_db, low[0] + 0.1 * span), high[0] - 0.1 * span)
+        probe = attempt(gain_db)
+        if miss(probe) is None:
+            break
+        if abs(miss(probe)) < abs(miss(best)):
+            best = probe
+        if abs(miss(probe)) <= LIMITER_TOLERANCE_LU:
+            break
+        if miss(probe) > 0:
+            low = probe
+        else:
+            high = probe
+    return best
+
+
 def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
     """normalize_audio(limit=True): the target's gain, applied uncapped, with
     a true-peak limiter holding peak_dbfs. The limiter is never a gain stage
@@ -1643,25 +1693,22 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
         else:
             target_gain_db = target_lufs - measured_lufs
 
-    gain_db = (
-        peak_gain_db if target_gain_db is None else min(target_gain_db, most_gain_db)
-    )
-    output, curve, trim, output_peak = _limit_at(
-        waveform, envelope, gain_db, ceiling, sample_rate
-    )
-    output_lufs = integrated_lufs(output.T, sample_rate)
-    if (
-        target_gain_db is not None
-        and output_lufs is not None
-        and (curve is not None or trim < 1.0)
-        and target_lufs - output_lufs > LIMITER_CORRECTION_LU
-        and gain_db < most_gain_db
-    ):
-        gain_db = min(gain_db + target_lufs - output_lufs, most_gain_db)
+    if target_gain_db is None:
+        gain_db = peak_gain_db
         output, curve, trim, output_peak = _limit_at(
             waveform, envelope, gain_db, ceiling, sample_rate
         )
         output_lufs = integrated_lufs(output.T, sample_rate)
+    else:
+        gain_db, (output, curve, trim, output_peak), output_lufs = _search_gain(
+            waveform,
+            envelope,
+            ceiling,
+            sample_rate,
+            target_lufs,
+            min(target_gain_db, most_gain_db),
+            most_gain_db,
+        )
 
     lowest = (1.0 if curve is None else float(curve.min())) * trim
     max_reduction_db = max(0.0, -20 * numpy.log10(lowest))
@@ -1673,15 +1720,23 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
         )
     output_peak_db = 20 * numpy.log10(output_peak)
 
-    if target_gain_db is not None and gain_db < target_gain_db:
-        shortfall = target_gain_db - gain_db
+    shortfall = None
+    if target_gain_db is not None:
         if output_lufs is not None:
-            shortfall = max(shortfall, target_lufs - output_lufs)
+            shortfall = target_lufs - output_lufs
+        elif gain_db < target_gain_db:
+            shortfall = target_gain_db - gain_db
+    if shortfall is not None and shortfall > LIMITER_TOLERANCE_LU:
+        reason = (
+            f"would need more than {LIMITER_MAX_REDUCTION_DB:.0f} dB of limiting "
+            f"under peak_dbfs={peak_dbfs}, so the gain stops at {gain_db:+.1f} dB"
+            if gain_db >= most_gain_db - 1e-9
+            else f"was not reached under peak_dbfs={peak_dbfs} at "
+            f"{gain_db:+.1f} dB of gain"
+        )
         emit_warning(
-            f"normalize_audio: target_lufs={target_lufs} would need more than "
-            f"{LIMITER_MAX_REDUCTION_DB:.0f} dB of limiting under "
-            f"peak_dbfs={peak_dbfs}, so the gain stops at {gain_db:+.1f} dB - "
-            f"lands {shortfall:.1f} LU below the target.",
+            f"normalize_audio: target_lufs={target_lufs} {reason} - lands "
+            f"{shortfall:.1f} LU below the target.",
             kind="target_lufs_capped",
             command="normalize_audio",
             target_lufs=target_lufs,
