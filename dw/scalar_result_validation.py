@@ -16,6 +16,17 @@ measurements, which `Result.save` writes whole only under
 `application/json`; any other content type explodes the dict key by key
 into files, or dies on a number. So a `result` on one is allowed and must
 say `application/json`.
+
+`transcribe_audio` (#498) is a third shape: its `returns` is declared
+"artifact" because that is what it answers by default (plain text), but a
+literal `timestamps` of "segment"/"word" switches its return value to a
+{text, chunks} dict - chunks being a list, which explodes fine under
+`application/json` but dies with a bare `write() argument must be str, not
+list` under `text/plain`. Checked here as a special case keyed on the
+command name and the literal argument value, because unlike `judge`'s or
+the probes' `returns`, the shape is not a property of the command alone -
+`timestamps` reached through a `variable:` is invisible here and is instead
+named at save time (`Result.save_artifact`).
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
@@ -23,6 +34,25 @@ from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
 JSON_CONTENT_TYPE = "application/json"
+_TIMESTAMPED_TRANSCRIPTION_COMMAND = "transcribe_audio"
+
+
+def _literal_timestamps(arguments):
+    """True when `arguments` sets a literal `timestamps` of "segment"/"word"
+    - the one shape that switches `transcribe_audio`'s return value to a
+    {text, chunks} dict. A `variable:`-supplied value is not literal here and
+    is left to `Result.save_artifact` to name at run time.
+
+    Imports `dw.tasks.audio_transcription` lazily - that module imports
+    transformers at module scope (deliberately, per its own docstring, to
+    keep the heavy import out of workflows that never transcribe), and this
+    module is on the path of every `validate_workflow` call.
+    """
+    if not isinstance(arguments, dict):
+        return False
+    from .tasks.audio_transcription import TIMESTAMP_KINDS
+
+    return arguments.get("timestamps") in TIMESTAMP_KINDS
 
 
 def scalar_result_errors(workflow_definition, source_indices=None):
@@ -58,14 +88,25 @@ def scalar_result_errors(workflow_definition, source_indices=None):
         except ValueError:
             continue
         returns = info.get("returns")
-        if returns == "json":
+        timestamped = command == _TIMESTAMPED_TRANSCRIPTION_COMMAND and _literal_timestamps(
+            task.get("arguments")
+        )
+        if returns == "json" or timestamped:
             if result.get("content_type") == JSON_CONTENT_TYPE:
                 continue
-            message = (
-                f"{command} answers a JSON document - 'result' must set "
-                f"content_type '{JSON_CONTENT_TYPE}', not "
-                f"{result.get('content_type')!r}"
-            )
+            if timestamped:
+                message = (
+                    f"{command} with timestamps={task['arguments']['timestamps']!r} "
+                    f"answers a {{text, chunks}} document, not plain text - "
+                    f"'result' must set content_type '{JSON_CONTENT_TYPE}', not "
+                    f"{result.get('content_type')!r}"
+                )
+            else:
+                message = (
+                    f"{command} answers a JSON document - 'result' must set "
+                    f"content_type '{JSON_CONTENT_TYPE}', not "
+                    f"{result.get('content_type')!r}"
+                )
         elif returns == "scalar":
             message = (
                 f"{command} returns a number, not an artifact - "
