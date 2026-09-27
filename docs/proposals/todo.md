@@ -51,6 +51,10 @@ remaining deferred fix is recorded in
   stages #494-#495), shipped 2026-09-27. Record, including what was
   deferred (template wiring, demucs weights in `downloads_required`):
   `complete/attribute-voices-complete.md`.
+- **H3 Ref2VA VRAM ceiling: references, `for_each` members, hand-built
+  workflows** (#479, stages #501-#502), shipped 2026-09-27. Record, including
+  what was deferred (the host-memory half, measured calibration):
+  `complete/h3-vram-ceiling-references-complete.md`.
 
 ## Declined
 
