@@ -375,6 +375,71 @@ when any input is silent the result is, and `pair_audio` puts a score under it.
 
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
+### join_into_song
+
+Join a spoken scene into a musical number: dialogue shots keep their own
+audio, and the shots sung after them play over the *unbroken* song rather
+than the separate slices each was generated against. The song's entry point
+is `dialogue length - cue_seconds`, and a workflow cannot do that arithmetic
+itself - a hand-computed literal goes stale the moment one dialogue shot is
+regenerated at another length. This task measures the joined dialogue at run
+time and places the song from it, so the offset never goes stale:
+
+```json
+{
+    "task": {
+        "command": "join_into_song",
+        "arguments": {
+            "dialogue": ["previous_result:line_a", "previous_result:line_b"],
+            "song_shots": "gather:sung",
+            "song": "asset:song.mp3",
+            "cue_seconds": 1.5
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `dialogue` | Yes | The spoken shots, in order, each keeping its own audio - a non-empty list, the same entries `concat_videos`' `videos` takes: `previous_result` references, or the path or URL of a video file an earlier run wrote, each optionally wrapped in a `{"location": ...}` dict. A shot with no track is filled with silence for its length |
+| `song_shots` | Yes | The sung shots, in order - a non-empty list in the same shapes as `dialogue`. Their own audio is discarded; they play over `song` |
+| `song` | Yes | The unbroken track the song shots were sliced from - an audio result, a video or audio file's path, or anything carrying `.audio` and `.sample_rate`. Its rate is the output's |
+| `cue_seconds` | No | The song time that lands on the first song shot's frame 0 - the start of the slice that shot was generated against. `0` (the default) starts the song exactly at the cut; above `0` the song enters that long before it, under the last spoken line. Longer than the dialogue is refused - the song would have to start before the film. Must be ≥ 0 |
+| `dialogue_target_lufs` | No | Integrated loudness (BS.1770) each dialogue shot is gained to, with one static gain per shot. Omitted (the default), the shots keep their own levels. A shot too short (under 400 ms) or too quiet to measure is left at its own level, with a `dialogue_unmatched` warning |
+| `duck_delay_ms` | No | How long after the song enters the dialogue starts to duck (default: `0`). At or past the dialogue's end, nothing ducks. Must be ≥ 0 |
+| `duck_db` | No | How far the dialogue ducks, in dB (default: `-12`). Must be ≤ 0 |
+| `duck_ramp_ms` | No | The length of the linear ramp into the duck (default: `250`). Must be ≥ 0 |
+| `fps` | No | The rate the videos play at, needed only when none of them carries one of its own - a pipeline's frames carry none, a file brings its own. Must be > 0 |
+
+The timeline, in samples at the song's rate: each dialogue shot's track is
+fitted to its own frames (trimmed or padded with silence, warning
+`dialogue_fitted_to_frames` past a frame's worth of difference), so the
+joined dialogue ends exactly where the first song shot's frame 0 is - call
+that sample `D`. The song is placed at `D - cue_seconds * sample_rate`, so
+song time `cue_seconds` lands on that frame, and it runs to the end of the
+picture; a song shorter than that warns `song_short` and is padded with
+silence rather than looped. The dialogue ducks by `duck_db` from
+`duck_delay_ms` after the song enters, over a linear `duck_ramp_ms` ramp. The
+song shots' own audio is discarded, and a dialogue shot with no track of its
+own is filled with silence for its length rather than skipped, so later
+shots do not land early.
+
+Frames are joined one for one, so every video must share one frame size and
+one frame rate: a mismatch is refused rather than resampled, as is a join
+where no video carries a rate and `fps` is not given.
+
+There is no final normalization here - what level a deliverable sits at is
+the workflow's to decide, with [`normalize_audio`](#normalize_audio) after
+this step; the templates that mux to video normalize to -3 dBFS peak, as
+with any `pair_audio` mux.
+
+The result is one `video/mp4`: the dialogue's frames then the song shots',
+over the mix, with a shot record per input (`shot@<key>`, named from the
+step's `dialogue` then `song_shots` references, as `for_each` names a
+member), each shot's samples measured off the built waveform rather than
+derived from its frames.
+
 ### stabilize_video
 
 Remove a generated clip's accumulated framing drift - the slow wander a video
