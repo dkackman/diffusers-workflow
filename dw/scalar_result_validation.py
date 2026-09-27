@@ -88,8 +88,9 @@ def scalar_result_errors(workflow_definition, source_indices=None):
         except ValueError:
             continue
         returns = info.get("returns")
-        timestamped = command == _TIMESTAMPED_TRANSCRIPTION_COMMAND and _literal_timestamps(
-            task.get("arguments")
+        timestamped = (
+            command == _TIMESTAMPED_TRANSCRIPTION_COMMAND
+            and _literal_timestamps(task.get("arguments"))
         )
         if returns == "json" or timestamped:
             if result.get("content_type") == JSON_CONTENT_TYPE:
