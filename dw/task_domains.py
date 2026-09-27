@@ -128,6 +128,13 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    "join_into_song": {
+        "cue_seconds": NON_NEGATIVE,
+        "duck_delay_ms": NON_NEGATIVE,
+        "duck_db": NON_POSITIVE,
+        "duck_ramp_ms": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
     "loop_frames": {"num_frames": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "dissolve_videos": {

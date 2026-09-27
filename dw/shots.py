@@ -267,6 +267,24 @@ def shot_reference_names(references):
     return names
 
 
+def shot_references(arguments):
+    """The list of references naming a step's joined inputs, in join order.
+
+    concat_videos and dissolve_videos take theirs as `videos`;
+    join_into_song takes two lists, `dialogue` then `song_shots`, and joins
+    them in that order, so the two together are its inputs' references.
+    """
+    if not isinstance(arguments, dict):
+        return None
+    videos = arguments.get("videos")
+    if videos is not None:
+        return videos
+    dialogue, song_shots = arguments.get("dialogue"), arguments.get("song_shots")
+    if isinstance(dialogue, list) and isinstance(song_shots, list):
+        return dialogue + song_shots
+    return None
+
+
 def named_shots(shots, names):
     """The shots with each renamed where the step named its source input.
 

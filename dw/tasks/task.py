@@ -194,6 +194,17 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
     return dissolve_videos(**arguments)
 
 
+@register_command(
+    "join_into_song", implementation="dw.tasks.join_into_song.join_into_song"
+)
+def _handle_join_into_song(task, arguments, previous_pipelines):
+    """Join dialogue shots and song shots into one video over the unbroken song"""
+    logger.debug("Joining dialogue into a song")
+    from .join_into_song import join_into_song
+
+    return join_into_song(**arguments)
+
+
 @register_command("fade_audio", implementation="dw.tasks.audio_utils.fade_audio")
 def _handle_fade_audio(task, arguments, previous_pipelines):
     """Fade an audio track in from silence and out to it"""
