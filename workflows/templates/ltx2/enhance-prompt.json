@@ -19,6 +19,18 @@
         "enhancer_weights_dtype": "{uint4}",
         "seed": null
     },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the full pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the full pipeline load rather than after it"
+        }
+    },
     "seed": "variable:seed",
     "steps": [
         {

@@ -509,6 +509,36 @@ class TestTheCatalogsNumbersAreTheLibrarys:
             # pipeline chose
             assert "snap" not in rule, path
 
+    def test_the_ltx2_size_rule_is_the_pipelines(self):
+        """`check_inputs` on every LTX-2.5 pipeline refuses a `height`/`width`
+        not divisible by 32 outright (#505) - unlike `num_frames`, there is
+        no named symbol for it, so the rule is pinned by reading the source
+        of the pipeline class each constrained template actually loads."""
+        import inspect
+        import re
+
+        pipeline = pytest.importorskip(
+            "diffusers.pipelines.ltx2.pipeline_ltx2", reason="diffusers without LTX-2"
+        )
+        source = inspect.getsource(pipeline.LTX2Pipeline.check_inputs)
+        match = re.search(r"height % (\d+) != 0 or width % (\d+) != 0", source)
+        assert match, "LTX2Pipeline.check_inputs no longer refuses an odd size the way #505 pinned"
+        modulus = int(match.group(1))
+        assert modulus == int(match.group(2))
+
+        for name in ("width", "height"):
+            declared = [
+                (path, rule)
+                for path, variable, rule in declared_in_the_catalog()
+                if "ltx2" in path and variable == name
+            ]
+            assert declared, f"no LTX-2.5 template declares a {name} constraint"
+            for path, rule in declared:
+                assert rule["modulus"] == modulus, path
+                assert rule["remainder"] == 0, path
+                # A hard ValueError, not a floor like num_frames: no snap
+                assert "snap" not in rule, path
+
     def test_a_chain_step_states_the_rule_once(self):
         """Where a template declares a constraint and also snaps a chain,
         the chain names the constraint rather than repeating its numbers."""
