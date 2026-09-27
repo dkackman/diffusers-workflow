@@ -7,6 +7,123 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.5.0
+
+<!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.4.0..f272188 (origin/develop). -->
+
+Most of this range landed on `develop` without PRs, so the auto-generated
+notes name only the Mac PR (#470) and a deploy-script PR (#476). Paste this
+section into the GitHub release body once the tag has published (`gh release
+edit v0.5.0 --notes-file ...`).
+
+**Breaking and behaviour changes**
+
+- `templates/ltx2/two-stage` no longer has `full_width`/`full_height`. They
+  never changed the output, which is always exactly 2x `width`/`height`. A
+  call that still passes them is refused as an unknown variable (#506).
+- Every LTX-2.5 template refuses a `width` or `height` that isn't a multiple
+  of 32 at validate and at `run_workflow`, before the pipeline loads (#505).
+- The MiniMax-H3 Ref2VA VRAM ceiling is now projected per step, after
+  `for_each` expansion, and adds 1 GB for each non-null reference. At
+  1344x768 on a 24 GB card the limits are 243/209/175/141 frames with 1/2/3/4
+  references. Calls that used to pass are now refused, for example 209
+  frames with 3 references. A `for_each` refusal names the member
+  (`Member 'shot@...'`). Eight more Ref2VA templates declare the ceiling
+  (#479/#501).
+- A workflow with no `vram_estimate` gets a `vram_projection_inherited`
+  warning, not a refusal, when the catalog template that loads the same
+  pipeline would be over its ceiling (#502).
+- The VRAM ceiling is checked against the serving device's own cost entries
+  (or its measured capacity), not every CUDA card in the catalog. A 64 GB
+  Mac is no longer refused against the RTX 3090 entry (#470).
+- `asset:`, `prompt:` and `output:` references written directly into a step
+  are resolved at validate and at submission. A stored workflow with a
+  literal reference to a missing file now fails validation (#494).
+- `validate_workflow` refuses a `for_each` item's reference that resolves to
+  null, which the run already refused (#478). It also refuses a frame-size
+  mismatch between the `asset:`/`output:`/path inputs of `concat_videos` and
+  `dissolve_videos` (#504).
+- A `transcribe_audio` step with `timestamps` must set `content_type:
+  application/json` (#498).
+- A `weight_name` (a LoRA's, an IP adapter's) must be a relative file inside
+  the model repo. An absolute path, a backslash, a drive or a `.`/`..`
+  segment is refused at validate. Media path and glob refusals no longer
+  list the server's directories.
+- `previous_result:<step>.<key>` for a key that no result carries is an
+  error. It used to run zero iterations and save nothing.
+- `templates/minimax/video-with-audio-768p` runs its turbo LoRA at its
+  trained strength. It had been running at 16x, so its output changes (#468).
+- On macOS, parallel checkpoint loading is off by default, and so is SDNQ
+  quantized matmul on MPS. Group-offload CUDA streams are dropped, with a
+  warning, when the onload device isn't CUDA or XPU. An explicit
+  `HF_ENABLE_PARALLEL_LOADING` still wins (#470).
+- A `for_each` whose members produce the same shot name now warns
+  `shot_name_collision` (#508). `assess_output` has a new `shot_dead_air`
+  finding for silent gaps inside a shot, and `concat_videos` marks its joins
+  as hard cuts, so `seam_frame_jump` no longer fires on a deliberate cut
+  (#465/#466).
+
+**New**
+
+- Apple Silicon (MPS): the CUDA templates, LTX-2.5 and `minimax/music`
+  included, run unchanged. Memory figures and the chip name are real, and
+  torch's CPU-fallback warning is shown (#470).
+- The `attribute_voices` task names which reference voice sings or speaks
+  each line or window, by timbre. It uses demucs separation and ECAPA
+  embeddings, and `demucs` is now a dependency. `list_tasks` marks the
+  read-only probes with an `assessment` flag (#485/#494). The
+  `minimax-music3` skill points to it for multi-singer songs (#495).
+- `normalize_audio(limit=true)`: a true-peak look-ahead limiter that reaches
+  `target_lufs` past a loud transient. It warns `limiter_heavy` past 6 dB of
+  reduction and `target_lufs_capped` (`limited: true`) past 12 dB
+  (#474/#496).
+- `assemble-and-score` takes `target_lufs` (#467) and `limit` (#497, still
+  open). The `series-episodes` skill says to match episodes downward to one
+  series target. **Unfinished (#497):** with `limit: true` the mix holds
+  -3 dBTP, but the AAC-muxed film can land up to about 1 dB above it.
+- `transcribe_audio(timestamps="segment"|"word")` returns `{text, chunks}`.
+  Unset, it still returns plain text (#483).
+- `templates/ltx2/extend-clip` takes a `clip` to extend an existing clip.
+  The opening isn't generated when one is given (#446).
+- `save_workflow`, `delete_workflow`, `upload_asset`, `delete_asset` and
+  `list_assets` take `workspace=` for one call. Their replies name the
+  workspace they acted on (#463).
+- A LoRA with `model_name: null` is switched off and warns `lora_disabled`.
+  It used to validate clean and then fail after the model load (#469).
+- `get_guide(section=...)` reaches a `###` subsection and returns its
+  `parent_section` (#503).
+- `upload_asset`'s refusals give a working `curl` to `POST /api/uploads`
+  and state the 200 MB limit. The guide explains that `for_each`
+  item-level `from_previous_result` must name the member, as
+  `slice@<entry>` (#481/#482).
+- A running job's `manifest.json` is rewritten after each step, so finished
+  `for_each` members show up before the run ends (#480).
+- `SECURITY.md`: report vulnerabilities privately, not as issues.
+
+**Fixes**
+
+- `templates/ltx2/extend-clip` frees the opening's pipeline before the
+  extension loads, so it no longer holds two LTX-2.5 stacks on the GPU
+  (#523).
+- `concat_videos`/`dissolve_videos` load a `{"location": ...}` entry in
+  `videos` (#510).
+- A modular step whose outputs include latents no longer crashes at save
+  (#507). `pair_audio` unwraps a pipeline's batch of one video.
+- `transcribe_audio` works on clips over 30 s, and a non-Whisper model on a
+  long clip still returns text.
+- `segment` works again: the SAM2 `KeyError` is fixed, and the
+  GroundingDINO query is written the way it scores. Dead default input URLs
+  in several templates are replaced (#470).
+- `upload_asset(file_path=...)` accepts the writable shared asset library
+  (#448).
+- `host_memory_job_peak_rss_mb` is a running max (#457).
+- `dw.serve` exits on SIGTERM with an MCP client still connected (#477).
+- The `shot_dead_air` finding names the room-tone remedy. The
+  `normalize_audio` warning no longer says that gaining down always succeeds
+  (#491/#492). The docs describe `dead_air_floor_dbfs` correctly (#519).
+- The `minimax-h3` skill carries the 24-shot field report's prompting rules
+  (#484).
+
 ### 0.4.0
 
 The auto-generated notes for this range are a single merge line, since the
