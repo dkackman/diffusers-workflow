@@ -666,7 +666,7 @@ class TestDeletingAssets:
         assert body["deleted"] is True
         assert body["origin"] == "workspace"
         assert body["workspace"] == "default"
-        assert body["path"] == os.path.join(workspace_root.assets, "cast", "hero.png")
+        assert body["reference"] == "asset:cast/hero.png"
         assert listed == []
         assert not os.path.exists(
             os.path.join(workspace_root.assets, "cast", "hero.png")

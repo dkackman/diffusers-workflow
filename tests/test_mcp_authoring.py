@@ -260,7 +260,7 @@ def test_delete_can_name_a_workspace_for_one_request():
                 {
                     "name": "mine",
                     "workspace": "A",
-                    "path": "/w/mine.json",
+                    "origin": "workspace",
                     "deleted": True,
                 },
             )

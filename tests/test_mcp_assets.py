@@ -276,7 +276,7 @@ class TestDeleting:
                 json={
                     "name": "qa-cast/priya-voice",
                     "workspace": "A",
-                    "path": "/w/A/assets/qa-cast/priya-voice.wav",
+                    "reference": "asset:qa-cast/priya-voice.wav",
                     "deleted": True,
                     "origin": "workspace",
                 },

@@ -2313,7 +2313,12 @@ def create_app(
         # deletes and recreates the same workflow, would inherit the deleted
         # copy's observed figures and host-memory history
         manager.history.orphan_workflow_history(ws.name, name)
-        return {"name": name, "workspace": ws.name, "path": path, "deleted": True}
+        return {
+            "name": name,
+            "workspace": ws.name,
+            "origin": source.origin,
+            "deleted": True,
+        }
 
     @app.get("/api/workflows/{name:path}/download")
     @query_token_ok
@@ -4226,7 +4231,7 @@ def create_app(
             return {
                 "name": relative,
                 "workspace": ws.name,
-                "path": path,
+                "reference": f"asset:{relative}",
                 "deleted": True,
                 "origin": origin,
             }
