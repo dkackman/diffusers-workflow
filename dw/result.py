@@ -839,9 +839,7 @@ class Result:
             )
             saved_files = []
             for k, v in artifact.items():
-                if isinstance(v, torch.Tensor) and not content_type.startswith(
-                    "audio"
-                ):
+                if isinstance(v, torch.Tensor) and not content_type.startswith("audio"):
                     # A modular pipeline's leftover output not part of the
                     # video/audio pairing (dw's own 'latents', from an H3
                     # upscale step's output: [..., "latents"]) is raw model
