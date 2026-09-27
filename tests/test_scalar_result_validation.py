@@ -194,6 +194,119 @@ class TestJsonReturningCommands(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestTranscribeAudioTimestamps(unittest.TestCase):
+    """#498: a literal `timestamps` of "segment"/"word" switches
+    transcribe_audio's return value to a {text, chunks} dict - the same
+    application/json requirement as a returns="json" command, but keyed on
+    the argument rather than on the command's declared `returns` (which
+    stays "artifact", since the no-timestamps case really is plain text)."""
+
+    def test_word_timestamps_with_text_plain_is_an_error(self):
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    result={"content_type": "text/plain"},
+                    arguments={"audio": "asset:voice.wav", "timestamps": "word"},
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["path"], "steps[0].result")
+        self.assertIn("application/json", errors[0]["message"])
+        self.assertIn("transcribe_audio", errors[0]["message"])
+        self.assertIn("timestamps", errors[0]["message"])
+
+    def test_segment_timestamps_with_image_png_is_an_error(self):
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    result={"content_type": "image/png"},
+                    arguments={"audio": "asset:voice.wav", "timestamps": "segment"},
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("application/json", errors[0]["message"])
+
+    def test_word_timestamps_with_application_json_is_fine(self):
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    result={"content_type": "application/json"},
+                    arguments={"audio": "asset:voice.wav", "timestamps": "word"},
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(errors, [])
+
+    def test_no_timestamps_with_text_plain_is_fine(self):
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    result={"content_type": "text/plain"},
+                    arguments={"audio": "asset:voice.wav"},
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(errors, [])
+
+    def test_variable_timestamps_is_not_flagged_here(self):
+        # Not literal - a variable's value is unknown until run time, so
+        # this is left to Result.save_artifact to name (see test_result.py)
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    result={"content_type": "text/plain"},
+                    arguments={
+                        "audio": "asset:voice.wav",
+                        "timestamps": "variable:ts_kind",
+                    },
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(errors, [])
+
+    def test_no_result_block_with_timestamps_is_fine(self):
+        definition = {
+            "steps": [
+                _step(
+                    "mm",
+                    "transcribe_audio",
+                    arguments={"audio": "asset:voice.wav", "timestamps": "word"},
+                )
+            ]
+        }
+
+        errors = scalar_result_errors(definition, source_indices=[0])
+
+        self.assertEqual(errors, [])
+
+
 class TestThroughValidationErrors(unittest.TestCase):
     """The same check, exercised through the public `validation_errors` on a
     full workflow definition rather than the pre-substituted form directly."""

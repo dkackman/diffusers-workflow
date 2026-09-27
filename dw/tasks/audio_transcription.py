@@ -27,7 +27,11 @@ logger = logging.getLogger("dw")
 _DEFAULT_ASR_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000
 _WHISPER_WINDOW_SECONDS = 30
-_TIMESTAMP_KINDS = ("segment", "word")
+# Public: dw/scalar_result_validation.py checks a literal `timestamps`
+# argument against this same tuple to catch a `result.content_type` that
+# does not match the {text, chunks} dict shape timestamps switches the
+# return value to (#498).
+TIMESTAMP_KINDS = ("segment", "word")
 
 
 def _downmixed_mono(waveform):
@@ -65,9 +69,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         {text, chunks} dict of {start, end, text} chunks.
     """
     timestamps = kwargs.get("timestamps")
-    if timestamps is not None and timestamps not in _TIMESTAMP_KINDS:
+    if timestamps is not None and timestamps not in TIMESTAMP_KINDS:
         raise ValueError(
-            f"timestamps must be one of {_TIMESTAMP_KINDS}, got {timestamps!r}"
+            f"timestamps must be one of {TIMESTAMP_KINDS}, got {timestamps!r}"
         )
     waveform, waveform_rate = _waveform_and_rate(audio, sample_rate, "transcribe_audio")
     mono = _downmixed_mono(waveform)
