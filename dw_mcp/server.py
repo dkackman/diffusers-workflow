@@ -461,7 +461,8 @@ def build_server(client):
         section - a guide runs to thousands of lines, and the headings in
         the listing are there so the right part can be asked for by name. A
         section name is matched loosely, so a heading copied approximately
-        still resolves. Called without one, the answer is the guide's index
+        still resolves, including a `###` subsection not in `sections`
+        (e.g. "for_each"). Called without one, the answer is the guide's index
         (its opening and first section, with `sections` and `withheld`
         naming the rest), not the whole file."""
         return guides.get_guide(client, name, section=section)

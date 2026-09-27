@@ -1609,8 +1609,10 @@ def create_app(
     def get_guide(name: str, section: Optional[str] = None):
         """One guide from /api/guides, whole or one section of it. A
         section name is matched loosely - case and punctuation dropped -
-        so a heading copied approximately still resolves. An unknown name
-        or section is a 404 whose detail lists what exists."""
+        so a heading copied approximately still resolves, and also reaches
+        a `###` subsection not listed at the top level, by its own heading
+        or by a term inside it. An unknown name or section is a 404 whose
+        detail lists what exists."""
         try:
             return guides.get_guide(name, section=section)
         except GuideError as e:

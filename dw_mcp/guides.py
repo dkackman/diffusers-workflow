@@ -24,7 +24,9 @@ def list_guides(client):
 
 def get_guide(client, name, section=None):
     """One guide, or one section of it. A section name is matched loosely
-    on the server, so a heading copied approximately resolves.
+    on the server, so a heading copied approximately resolves; this also
+    reaches a `###` subsection not listed in `sections` (e.g. "for_each"),
+    by name or by a term inside it.
 
     Without a section the answer is the guide's index - its opening, its
     first section, and `sections`/`withheld` naming the rest - not the
