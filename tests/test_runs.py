@@ -10,6 +10,7 @@ import pytest
 
 from dw.runs import (
     FLAT_LAYOUT,
+    MANIFEST_FILE_NAME,
     assign_run_version,
     record_run_versions,
     OUTPUT_LAYOUT_ENV_VAR,
@@ -23,6 +24,7 @@ from dw.runs import (
     split_run_path,
     strip_run_id,
     workflow_identity,
+    write_manifest,
 )
 
 
@@ -225,6 +227,39 @@ def fake_pipeline():
     with patch.object(Pipeline, "load", mock_load):
         with patch("dw.workflow.empty_device_cache"):
             yield
+
+
+class TestManifestAtomicity:
+    """#517: a worker killed mid-write must never leave manifest.json
+    truncated - the previous, complete manifest has to survive a failed
+    rewrite."""
+
+    def test_a_dump_failure_leaves_the_previous_manifest_intact(self, tmp_path):
+        run_dir = str(tmp_path)
+        write_manifest(run_dir, {"status": "running", "steps": ["gen0"]})
+
+        with patch("json.dump", side_effect=OSError("simulated kill mid-write")):
+            result = write_manifest(
+                run_dir, {"status": "running", "steps": ["gen0", "gen1"]}
+            )
+
+        assert result is None
+        manifest_path = tmp_path / MANIFEST_FILE_NAME
+        assert json.loads(manifest_path.read_text()) == {
+            "status": "running",
+            "steps": ["gen0"],
+        }
+        # no leftover temp file beside it
+        assert os.listdir(run_dir) == [MANIFEST_FILE_NAME]
+
+    def test_a_successful_write_replaces_the_manifest(self, tmp_path):
+        run_dir = str(tmp_path)
+        write_manifest(run_dir, {"status": "running"})
+        write_manifest(run_dir, {"status": "completed"})
+
+        manifest_path = tmp_path / MANIFEST_FILE_NAME
+        assert json.loads(manifest_path.read_text()) == {"status": "completed"}
+        assert os.listdir(run_dir) == [MANIFEST_FILE_NAME]
 
 
 class TestRunDirectories:

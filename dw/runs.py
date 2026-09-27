@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
 
 logger = logging.getLogger("dw")
@@ -605,8 +606,14 @@ def write_manifest(run_dir, manifest):
     path = os.path.join(run_dir, MANIFEST_FILE_NAME)
     try:
         os.makedirs(run_dir, exist_ok=True)
-        with open(path, "w") as file:
-            json.dump(manifest, file, indent=2, default=str)
+        fd, tmp_path = tempfile.mkstemp(dir=run_dir, prefix=f".{MANIFEST_FILE_NAME}-")
+        try:
+            with os.fdopen(fd, "w") as file:
+                json.dump(manifest, file, indent=2, default=str)
+            os.replace(tmp_path, path)
+        except OSError:
+            os.unlink(tmp_path)
+            raise
     except OSError as e:
         logger.warning(f"Could not write {path}: {e}")
         return None
