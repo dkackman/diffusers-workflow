@@ -604,6 +604,77 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "upscale_h3_latents",
+    implementation="dw.tasks.h3_latent_upscale.upscale_h3_latents",
+    consumes_device=True,
+    summary=(
+        "Resize MiniMax-H3 video latents to a larger canvas (e.g. a 960x544 "
+        "take to 1344x768) without denoising again; decode_h3_latents turns "
+        "the result into frames."
+    ),
+    parameter_descriptions={
+        "latents": (
+            "H3 video latents, (batch, 24, frames, height, width) - a MiniMax-H3 "
+            "pipeline step's 'latents' output, e.g. 'previous_result:base.latents' "
+            "from a step whose output lists 'latents'."
+        ),
+        "width": (
+            "Target width in pixels: a multiple of 16, 1x to 4x the latents' "
+            "own width, within H3's 1344x768 canvas."
+        ),
+        "height": (
+            "Target height in pixels: a multiple of 16, 1x to 4x the latents' "
+            "own height, within H3's 1344x768 canvas."
+        ),
+        "model_name": (
+            "Hugging Face repo holding the upscaler (default "
+            "LBH-123-AI/Minimax_h3_latent_Upscaler, read at a pinned revision)."
+        ),
+        "weight_name": (
+            "The v1 checkpoint's safetensors file within model_name (default: "
+            "the bf16 v1 checkpoint)."
+        ),
+    },
+)
+def _handle_upscale_h3_latents(task, arguments, previous_pipelines):
+    """Resize MiniMax-H3 video latents to a larger canvas"""
+    logger.debug("Upscaling H3 latents")
+    latents = arguments.pop("latents")
+    from .h3_latent_upscale import upscale_h3_latents
+
+    return upscale_h3_latents(latents, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
+    "decode_h3_latents",
+    implementation="dw.tasks.h3_latent_upscale.decode_h3_latents",
+    consumes_device=True,
+    summary=(
+        "Decode MiniMax-H3 video latents into frames with the H3 video VAE, "
+        "through diffusers' own H3 decode block. Returns video only, at 24 fps; "
+        "pair_audio puts a soundtrack back under it."
+    ),
+    parameter_descriptions={
+        "latents": (
+            "H3 video latents, (batch, 24, frames, height, width) - a pipeline "
+            "step's 'latents' output or an upscale_h3_latents result."
+        ),
+        "model_name": (
+            "The MiniMax-H3 repo whose 'vae' subfolder decodes (default "
+            "MiniMaxAI/MiniMax-H3)."
+        ),
+    },
+)
+def _handle_decode_h3_latents(task, arguments, previous_pipelines):
+    """Decode MiniMax-H3 video latents into frames"""
+    logger.debug("Decoding H3 latents")
+    latents = arguments.pop("latents")
+    from .h3_latent_upscale import decode_h3_latents
+
+    return decode_h3_latents(latents, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
     "image_to_text",
     implementation="dw.tasks.image_to_text.image_to_text",
     consumes_device=True,

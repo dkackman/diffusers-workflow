@@ -668,6 +668,7 @@ class Result:
                 lookup) would silently drop data or raise a confusing TypeError.
         """
         values = []
+        missing = None
         for result in self.result_list:
             if isinstance(result, Mapping):
                 if property_name in result:
@@ -678,11 +679,19 @@ class Result:
             # A string's every 'property' is a method, and so is most of a list's -
             # the original loud failure for those is the useful answer
             if value is _NO_PROPERTY or callable(value):
-                raise ValueError(
-                    f"result has no property '{property_name}' "
-                    f"(it is a {type(result).__name__}, not a dict)"
-                )
+                missing = missing or result
+                continue
             values.append(value)
+
+        # A modular step asked for several outputs returns the muxed video and a
+        # dict of the rest side by side (modular_artifacts), so 'base.latents'
+        # names the dict's key and nothing on the video. Only when no artifact
+        # carries the property is the missing one an error (#499)
+        if missing is not None and not values:
+            raise ValueError(
+                f"result has no property '{property_name}' "
+                f"(it is a {type(missing).__name__}, not a dict)"
+            )
 
         logger.debug(f"Retrieved {len(values)} values for property: {property_name}")
         return values
