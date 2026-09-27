@@ -40,6 +40,7 @@ from .introspection import (
     component_name_errors,
 )
 from .dissolve_frame_errors import dissolve_frame_errors
+from .video_size_errors import video_size_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
@@ -776,6 +777,11 @@ class Workflow:
             # output:/literal-path video, the cases the frame count is
             # already knowable (dw/dissolve_frame_errors.py, #400)
             + dissolve_frame_errors(expanded, source_indices, base_dir)
+            # A dissolve_videos/concat_videos size mismatch decoded clean
+            # past the queue and failed only after every upstream step had
+            # already generated - refused here for the cases the sizes are
+            # already knowable (dw/video_size_errors.py, #504)
+            + video_size_errors(expanded, source_indices, base_dir)
             # A select step whose rule is misspelled, or whose
             # threshold/index does not match its rule, validated clean and
             # died on select's own run-time ValueError after the fan-out
