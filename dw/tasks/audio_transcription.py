@@ -27,6 +27,7 @@ logger = logging.getLogger("dw")
 _DEFAULT_ASR_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000
 _WHISPER_WINDOW_SECONDS = 30
+_TIMESTAMP_KINDS = ("segment", "word")
 
 
 def _downmixed_mono(waveform):
@@ -53,10 +54,21 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         **kwargs:
             model_name: HuggingFace model ID of a Whisper-class ASR model
                 (default: openai/whisper-base).
+            timestamps: Unset (default) returns plain text. "segment" or
+                "word" instead returns a dict of {text, chunks}, chunks
+                being a list of {start, end, text} - the step's result
+                content_type must then be "application/json" rather than
+                "text/plain", since the return shape follows the argument.
 
     Returns:
-        Transcribed text string.
+        Transcribed text string, or (with timestamps set) a
+        {text, chunks} dict of {start, end, text} chunks.
     """
+    timestamps = kwargs.get("timestamps")
+    if timestamps is not None and timestamps not in _TIMESTAMP_KINDS:
+        raise ValueError(
+            f"timestamps must be one of {_TIMESTAMP_KINDS}, got {timestamps!r}"
+        )
     waveform, waveform_rate = _waveform_and_rate(audio, sample_rate, "transcribe_audio")
     mono = _downmixed_mono(waveform)
     if waveform_rate != _ASR_SAMPLE_RATE:
@@ -86,11 +98,14 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
     # long-form mode stitches windows. Asked for only of Whisper and only past
     # 30 s: transformers raises for a CTC model unless the value is "char" or
     # "word", and for any other seq2seq model at all
+    is_whisper = getattr(pipe, "type", None) == "seq2seq_whisper"
     options = {}
-    if (
-        getattr(pipe, "type", None) == "seq2seq_whisper"
-        and len(mono) > _WHISPER_WINDOW_SECONDS * _ASR_SAMPLE_RATE
-    ):
+    if timestamps == "word":
+        # "word" is accepted by both a seq2seq Whisper model and a CTC model
+        options["return_timestamps"] = "word"
+    elif timestamps == "segment":
+        options["return_timestamps"] = True
+    elif is_whisper and len(mono) > _WHISPER_WINDOW_SECONDS * _ASR_SAMPLE_RATE:
         options["return_timestamps"] = True
     result = pipe(
         {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE},
@@ -98,4 +113,15 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
     )
     text = result["text"].strip()
     logger.info(f"Transcript: {text[:100]}{'...' if len(text) > 100 else ''}")
-    return text
+    if timestamps is None:
+        return text
+
+    chunks = [
+        {
+            "start": chunk.get("timestamp", (None, None))[0],
+            "end": chunk.get("timestamp", (None, None))[1],
+            "text": chunk.get("text", "").strip(),
+        }
+        for chunk in result.get("chunks", [])
+    ]
+    return {"text": text, "chunks": chunks}
