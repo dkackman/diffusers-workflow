@@ -77,7 +77,12 @@ def concat_videos(
             into it. Give
             each video its own entry: one previous_result reference naming a
             step that produced several videos fans this step out over them,
-            one concatenation per video, rather than joining them
+            one concatenation per video, rather than joining them. Every
+            video must be the same frame size - unlike a sample-rate
+            mismatch, there is no reconciliation for a size mismatch, so a
+            statically-resolvable (asset:/output:/literal path) size
+            disagreement is refused at validate; one only known at run time
+            still fails there (#504)
         trim_frames: Frames dropped from the head of every video after the
             first - the trim used when each video was generated from the
             previous one's last frame

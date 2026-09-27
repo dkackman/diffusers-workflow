@@ -57,8 +57,13 @@ def dissolve_videos(
         videos: The videos to join, in order - frame lists, frame arrays,
             AudioVideos, the path or URL of a video file, or a
             {"location": ...} dict wrapping either (#510). Give each video
-            its own entry, as with concat_videos. Soundtracks at different
-            sample rates are not a constraint - see `sample_rate` below
+            its own entry, as with concat_videos. Every video must be the
+            same frame size - unlike a sample-rate mismatch, there is no
+            reconciliation for a size mismatch, so a statically-resolvable
+            (asset:/output:/literal path) size disagreement is refused at
+            validate; one only known at run time still fails there (#504).
+            Soundtracks at different sample rates are not a constraint - see
+            `sample_rate` below
         dissolve_frames: Frames of overlap at each seam. 0 is a hard cut
         fade_in_frames: Frames over which the first video rises out of
             `fade_color`

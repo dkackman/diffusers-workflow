@@ -212,7 +212,7 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
@@ -358,7 +358,7 @@ montage cut to a score wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos` |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
 | `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
