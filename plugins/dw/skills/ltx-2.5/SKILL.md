@@ -60,10 +60,10 @@ caption spec below.
   removes motion blur or grain - so say which defect you think it is and let
   the user correct you.
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
-  on all of it, not one frame; `clip` extends an existing clip (matching
-  `width`/`height`/`clip_frames`) instead of generating one.
-  `templates/ltx2/chained-segments` re-runs per segment on the previous last
-  frame and stitches. Neither is a Lightricks recipe; both are dw's, and a
+  on all of it, not one frame; `clip` extends an existing clip (`width`/
+  `height` matched, shorter than `num_frames`; clip_frames unused) instead
+  of generating. `templates/ltx2/chained-segments` re-runs per segment on
+  the previous last frame and stitches. Neither is a Lightricks recipe; a
   single 481-frame pass reaches 20 seconds before either is needed.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
