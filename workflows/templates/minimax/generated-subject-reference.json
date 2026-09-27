@@ -8,6 +8,17 @@
         "width",
         "height"
     ],
+    "vram_estimate": {
+        "base_gb": 16.0,
+        "bytes_per_voxel": 28.71,
+        "gb_per_reference": 1.0,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "Ref2VA holds every reference's encoding resident beside the video latents, so the ceiling is a fixed base, a per-voxel term for the VAE decode's conv3d activation (width * height * num_frames), and a per-reference term. Classified against the 24 GB entry from the #479 field report (lem, RTX 3090 24 GB, int4 + 768p turbo LoRA, 9 steps, 2026-09-25/26) at 1344x768: 175 frames x 2 refs, 209 x 2 and 175 x 3 ran (projected 22.83, 23.77 and 23.83 GB); 209 x 3 OOM'd in reference encode needing a further 5.1 GB and 260 x 1 OOM'd at denoise step 1 needing a further 4.8 GB (projected 24.77 and 24.18 GB). The refused allocations are lower bounds, not peaks, so this is a classification with about 0.2 GB of margin either side, not a fitted curve. bytes_per_voxel is unchanged from #324's calibration (job 282172105da1); base_gb drops 0.3 GB now the references are counted separately"
+    },
     "variables": {
         "subject_prompt": "prompt:zimage/deep_sea_diver_portrait",
         "prompt": "subject_definitions:\n<Subject 1> is the deep-sea diver in <Picture 1>, in a heavy canvas suit and a brass helmet with the faceplate open, whose face, helmet, suit and proportions define their appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> speaking directly to camera in the setting of <Picture 1>, in one continuous take.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, helmet, suit and proportions of <Picture 1> are kept exactly, with the head, jaw and shoulders newly animated to speak.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous shot. The lighting of <Picture 1> is kept exactly as it is, the warm rim light steady along the brass of the helmet and the background staying dark and well behind in shallow focus. <Subject 1> (S1), a low and gravelled male voice, unhurried and worn, says <d>[English] Down there the light gives out first. Everything else follows.</d> The jaw and lips move in natural synchronisation with the speech and settle closed at the end of the line. Between phrases <Subject 1> shifts weight very slightly and the head drifts a few degrees off centre and back, with the eyes staying on the lens and blinking at a natural rate. The camera holds a static shot throughout.\n\noverall_soundscape:\nA quiet, close room tone at an even level from the first frame to the last, with a faint creak of canvas as <Subject 1> shifts weight and a single soft knock of a glove against the brass collar.\n\nnon_diegetic_music:\nN/A",
