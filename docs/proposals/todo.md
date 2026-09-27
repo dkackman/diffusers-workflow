@@ -47,6 +47,10 @@ remaining deferred fix is recorded in
 - **Closing the xfail security tests** (#407, stages #409-#413), shipped
   2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
   Playwright in CI): `complete/xfail-security-tests-complete.md`.
+- **`attribute_voices`, which reference singer sings each line** (#485,
+  stages #494-#495), shipped 2026-09-27. Record, including what was
+  deferred (template wiring, demucs weights in `downloads_required`):
+  `complete/attribute-voices-complete.md`.
 
 ## Declined
 
