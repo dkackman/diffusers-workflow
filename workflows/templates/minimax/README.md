@@ -201,7 +201,14 @@ issue #484):
   transformer partition is denoising, so the same ceiling that OOM'd
   `video-with-audio-768p` at 1344x768x345 (above) applies to a Ref2VA shot
   at that canvas - frame count is where to give ground first, well before
-  345.
+  345. A reference costs VRAM too - about 1 GB each, folded into
+  `reference-to-video.json`'s `vram_estimate` as `gb_per_reference` - so
+  dropping one buys roughly as much headroom as cutting a band of frames
+  (~34, two steps of the `17n+5` grid) at this canvas: at 1344x768 the
+  `17n+5` ceiling on 24 GB runs 243 frames at one reference, 209 at two, 175
+  at three, 141 at four. `validate_workflow` projects every shot of a
+  `for_each` list this way and names the largest one over budget, at that
+  shot's entry, so the refusal says which shot to cut.
 
 Item 7 of the field report - Music3 ignoring a per-section singer
 assignment - is a tool gap, not a prompting habit; see #485.

@@ -108,7 +108,11 @@ read the `workflows` guide's authoring section first.
   `subject_definitions` that the portrait's backdrop, pose and framing are
   not reused.
 - Ref2VA reaches 1344x768 too, not only the FL2VA 768p template - see the
-  `recipes` guide's MiniMax-H3 section for the trade-off and frame limit.
+  `recipes` guide's MiniMax-H3 section for the trade-off. At that canvas the
+  24 GB ceiling on the `17n+5` grid drops with each reference: 243 frames at
+  one, 209 at two, 175 at three, 141 at four. `validate_workflow` projects
+  every `for_each` shot on its own frames and references and refuses the
+  largest one over budget, at that shot's path.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
   `lora_model_name` drops the LoRA; raise steps and shifts too.
