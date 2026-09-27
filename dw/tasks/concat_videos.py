@@ -24,7 +24,12 @@ from .audio_utils import (
     resample_waveform,
     warn_on_level_spread,
 )
-from .video_utils import check_same_frame_size, frames_as_pil_list, load_audio_video
+from .video_utils import (
+    check_same_frame_size,
+    frames_as_pil_list,
+    is_video_location,
+    load_audio_video,
+)
 
 logger = logging.getLogger("dw")
 
@@ -65,8 +70,11 @@ def concat_videos(
 
     Args:
         videos: The videos to join, in order - frame lists, frame arrays,
-            AudioVideos (from previous_result references), or the path or URL
-            of a video file, which is read with the audio muxed into it. Give
+            AudioVideos (from previous_result references), the path or URL
+            of a video file, or a {"location": ...} dict wrapping either -
+            the same idiom get_last_frame(video=...) and a pipeline's
+            'image' argument accept (#510) - each read with the audio muxed
+            into it. Give
             each video its own entry: one previous_result reference naming a
             step that produced several videos fans this step out over them,
             one concatenation per video, rather than joining them
@@ -128,7 +136,7 @@ def concat_videos(
     names = video_names(videos)
     # A shot an earlier run already wrote is loaded here rather than by
     # gather_videos, which reads frames only and would join it silent
-    videos = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
+    videos = [load_audio_video(v) if is_video_location(v) else v for v in videos]
     clips = [frames_as_pil_list(v) for v in videos]
     check_same_frame_size(clips, "concat_videos")
 

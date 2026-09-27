@@ -76,6 +76,18 @@ class TestDissolveVideos:
         with pytest.raises(ValueError):
             dissolve_videos([])
 
+    def test_a_location_dict_is_loaded_from_disk(self, tmp_path):
+        """The {"location": ...} idiom get_last_frame(video=...) already
+        accepts, unwrapped inside the videos list too (#510)."""
+        from diffusers.utils.export_utils import encode_video
+
+        path = tmp_path / "shot.mp4"
+        encode_video(frames(4, 0), fps=4, output_path=str(path))
+
+        result = dissolve_videos([{"location": str(path)}, frames(4, 200)], 0)
+
+        assert levels(result) == [0, 0, 0, 0, 200, 200, 200, 200]
+
     def test_audio_is_crossfaded_over_the_seam_span(self):
         first, second = audio_video(8, 0, 1.0), audio_video(8, 0, 1.0)
 

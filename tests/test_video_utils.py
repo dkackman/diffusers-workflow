@@ -315,6 +315,18 @@ class TestLoadAudioVideo:
         assert video.sample_rate == 8000
         assert video.audio.shape[0] == 2
 
+    def test_a_location_dict_is_unwrapped(self, tmp_path):
+        """The same {"location": ...} idiom a `video` argument accepts,
+        unwrapped here too so a list entry can carry it (#510)."""
+        from dw.tasks.video_utils import load_audio_video
+
+        path = self.write_video(tmp_path / "shot.mp4")
+
+        video = load_audio_video({"location": path})
+
+        assert len(video.frames) == 8
+        assert video.sample_rate == 8000
+
     def test_the_files_own_frame_rate_comes_back_with_it(self, tmp_path):
         """A step that joins videos read from disk knows what to write them
         back at without being told - see issue #84."""
@@ -491,6 +503,27 @@ class TestLoadAudioVideo:
 
         with pytest.raises(SecurityError):
             load_audio_video(str(payload))
+
+
+class TestIsVideoLocation:
+    """What a task's own list-of-videos loop should hand to load_audio_video
+    rather than pass through untouched - see #510."""
+
+    def test_a_path_and_a_location_dict_are_locations(self):
+        from dw.tasks.video_utils import is_video_location
+
+        assert is_video_location("shot.mp4")
+        assert is_video_location({"location": "shot.mp4"})
+
+    def test_an_already_loaded_video_is_not(self):
+        from PIL import Image
+
+        from dw.result import AudioVideo
+        from dw.tasks.video_utils import is_video_location
+
+        assert not is_video_location(AudioVideo([Image.new("RGB", (2, 2))], None, None))
+        assert not is_video_location([Image.new("RGB", (2, 2))])
+        assert not is_video_location({"media_type": "video"})
 
 
 class TestVideoFileReference:
