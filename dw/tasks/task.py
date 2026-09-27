@@ -41,6 +41,7 @@ def register_command(
     returns="artifact",
     summary=None,
     parameter_descriptions=None,
+    assessment=False,
 ):
     """
     Decorator to register a command handler function.
@@ -67,10 +68,10 @@ def register_command(
             `validation_errors` (dw/scalar_result_validation.py, #212) rather
             than reaching `save_artifact` at run time, where a float has
             nothing left identifying which command produced it
-            - or "json" for a command answering a JSON-safe dict of
-            measurements (the assessment probes, `dw/tasks/assess.py`): its
-            `result` may only be `application/json`, since any other content
-            type would explode the dict key by key into files
+            - or "json" for a command answering a JSON-safe dict (the
+            assessment probes, `attribute_voices`): its `result` may only be
+            `application/json`, since any other content type would explode
+            the dict key by key into files
         summary: Overrides the command's `get_task` summary, which otherwise
             reads the implementation function's docstring. For a command
             whose handler dispatches its implementation per video frame
@@ -81,6 +82,11 @@ def register_command(
         parameter_descriptions: Overrides one or more of the implementation's
             per-parameter `get_task` descriptions by name, for the same
             single-frame-vs-command reason as `summary`
+        assessment: True for an assessment probe (`dw/tasks/assess.py`) - a
+            command that measures a finished cut and says where to look,
+            listed in `list_tasks`' `assessment`. Declared, not inferred from
+            `returns="json"`: `attribute_voices` answers JSON too and is an
+            analysis of a song, not a check of a cut (#485)
 
     Returns:
         Decorator function
@@ -103,6 +109,8 @@ def register_command(
             "provided": tuple(provided),
             "returns": returns,
         }
+        if assessment:
+            info["assessment"] = True
         if summary:
             info["summary"] = summary
         if parameter_descriptions:
@@ -341,7 +349,10 @@ def _handle_analyze_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "analyze_shots", implementation="dw.tasks.assess.analyze_shots", returns="json"
+    "analyze_shots",
+    implementation="dw.tasks.assess.analyze_shots",
+    returns="json",
+    assessment=True,
 )
 def _handle_analyze_shots(task, arguments, previous_pipelines):
     """Measure each shot of a cut's soundtrack and how far apart they sit"""
@@ -351,7 +362,10 @@ def _handle_analyze_shots(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "analyze_seams", implementation="dw.tasks.assess.analyze_seams", returns="json"
+    "analyze_seams",
+    implementation="dw.tasks.assess.analyze_seams",
+    returns="json",
+    assessment=True,
 )
 def _handle_analyze_seams(task, arguments, previous_pipelines):
     """Measure every seam of a cut - level step, hole, click, frame jump"""
@@ -364,12 +378,26 @@ def _handle_analyze_seams(task, arguments, previous_pipelines):
     "analyze_sync_drift",
     implementation="dw.tasks.assess.analyze_sync_drift",
     returns="json",
+    assessment=True,
 )
 def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
     """Measure how far a cut's soundtrack sits from its picture"""
     from .assess import analyze_sync_drift
 
     return analyze_sync_drift(**arguments)
+
+
+@register_command(
+    "attribute_voices",
+    implementation="dw.tasks.voice_attribution.attribute_voices",
+    consumes_device=True,
+    returns="json",
+)
+def _handle_attribute_voices(task, arguments, previous_pipelines):
+    """Say which reference voice sings each line of a song, by timbre"""
+    from .voice_attribution import attribute_voices
+
+    return attribute_voices(device=task.device_for(arguments), **arguments)
 
 
 @register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
