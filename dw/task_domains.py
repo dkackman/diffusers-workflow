@@ -147,6 +147,10 @@ TASK_ARGUMENT_DOMAINS = {
         "sample_rate": POSITIVE,
     },
     "analyze_audio": {"sample_rate": POSITIVE},
+    "attribute_voices": {
+        "window_seconds": POSITIVE,
+        "min_reference_seconds": POSITIVE,
+    },
     "grade": {
         "contrast": NON_NEGATIVE,
         "saturation": NON_NEGATIVE,
