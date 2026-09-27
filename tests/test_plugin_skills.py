@@ -303,6 +303,26 @@ class TestMiniMaxH3Skill:
         assert "`per_entry`" in text
         assert "`lists`" in text
 
+    def test_the_768p_ref2va_tradeoff_points_at_the_recipes_guide(self):
+        """Ref2VA reaches 1344x768 too (field report #484 item 6), but the
+        skill's byte cap can't hold the long-form trade-off - it has to
+        point at the recipes guide, and the guide has to actually say it.
+
+        No diffusers symbol enforces these figures (they're a measured
+        field report, not a library constant), so this pins the literal
+        numbers directly rather than deriving them.
+        """
+        text = skill_text(H3_SKILL)
+        assert "1344x768" in text
+        assert "`recipes` guide" in text and "MiniMax-H3" in text
+
+        from dw.server.guides import get_guide
+
+        guide = get_guide("recipes", section="MiniMax-H3")["content"]
+        assert "1344x768" in guide
+        assert "175" in guide and "17n+5" in guide
+        assert "31 minutes" in guide
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 
