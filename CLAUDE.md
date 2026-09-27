@@ -616,6 +616,16 @@ same reason - default setup cannot load a pack.
   H3's `17n+5` grid runs 243 frames at one reference, 209 at two, 175 at
   three, 141 at four — a classification from the #479 field report with
   about 0.2 GB of margin either side, not a fitted curve.
+  A workflow with no `vram_estimate` of its own inherits the catalog's
+  (`dw/vram_inheritance.py`): each pipeline step is matched by identity
+  (`component_type` + `model_name` + `workflow`) against an index built from
+  every single-identity template declaring one (`_ceiling_index` in
+  `dw/server/app.py`, cached against the listing's mtimes), projected with
+  the same code, and over the ceiling it *warns* (`vram_projection_inherited`,
+  naming the source template) at validate and pre-queue - never refuses,
+  since the hand-built config may offload or quantize differently. No
+  run-time backstop: the worker has no catalog. Templates declaring one
+  identity agree on their numbers (`tests/test_vram_inheritance.py`)
 - **A joined video records its shots, measured** — `concat_videos`,
   `dissolve_videos` and both `run_chain` returns set `AudioVideo.shots`
   (`dw/shots.py`): one `{name, start_frame, num_frames, start_sample,
