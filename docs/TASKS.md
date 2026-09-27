@@ -212,7 +212,7 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
@@ -358,7 +358,7 @@ montage cut to a score wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518) |
 | `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
@@ -1097,6 +1097,8 @@ voiced, so a weak answer is visible as weak rather than silently accepted.
 | `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
 | `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
 | `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
+| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
+| `device` | No | Where the models run |
 
 A literal `voices` is checked at validation as well as on the step: fewer
 than two voices, a bad name, a malformed span, or a span-list reference under
@@ -1104,8 +1106,6 @@ than two voices, a bad name, a malformed span, or a span-list reference under
 bare path as a voice meets the same location policy as `audio`. What needs
 the song itself - a span past its end, a clip's voiced length - is the
 step's to refuse.
-| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
-| `device` | No | Where the models run |
 
 The result: `voices` (the names), `separated`, `duration_seconds`, `lines[]`
 (`start`, `end`, `text`, `scores`, `voice`, `margin`, `voiced_seconds`,
