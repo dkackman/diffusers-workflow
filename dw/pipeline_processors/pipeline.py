@@ -1992,7 +1992,9 @@ def _diagnose_image_crf_error(error, arguments):
 
     from ..result import AudioVideo
 
-    offending = [name for name, value in arguments.items() if isinstance(value, AudioVideo)]
+    offending = [
+        name for name, value in arguments.items() if isinstance(value, AudioVideo)
+    ]
     if not offending:
         return None
 
