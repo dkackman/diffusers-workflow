@@ -33,7 +33,9 @@ FRAME_COUNT = 5
 
 
 def frames(width=64, height=32):
-    return [Image.new("RGB", (width, height), (i * 40, 0, 0)) for i in range(FRAME_COUNT)]
+    return [
+        Image.new("RGB", (width, height), (i * 40, 0, 0)) for i in range(FRAME_COUNT)
+    ]
 
 
 def modular_output():
