@@ -130,7 +130,7 @@ def test_save_puts_the_definition_under_its_name():
         body_seen["path"] = request.url.path
         body_seen["body"] = request.read()
         return httpx.Response(
-            200, json={"name": "mine", "path": "/w/mine.json", "warnings": []}
+            200, json={"name": "mine", "workspace": "default", "warnings": []}
         )
 
     client = DwClient(transport=httpx.MockTransport(handler))
@@ -227,7 +227,7 @@ def test_save_can_name_a_workspace_for_one_request():
         {
             ("PUT", "/api/workflows/mine"): (
                 200,
-                {"name": "mine", "workspace": "A", "path": "/w/mine.json"},
+                {"name": "mine", "workspace": "A"},
             )
         }
     )

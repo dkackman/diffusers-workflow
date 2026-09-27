@@ -469,7 +469,7 @@ export const api = {
    * than the random one a browser upload gets, and `shared` puts it in the
    * library every workspace under this root shares. */
   uploadMedia: (file: File, assetName?: string, shared = false) =>
-    request<{ path: string; url: string; reference?: string }>(
+    request<{ url: string; reference?: string }>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
@@ -565,7 +565,7 @@ export const api = {
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{ name: string; path: string; warnings: string[] }>(
+    request<{ name: string; workspace: string; origin: string; warnings: string[] }>(
       `/api/workflows/${encodePath(name)}`,
       {
         method: 'PUT',
@@ -596,7 +596,7 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string; path: string }>(
+    request<{ name: string }>(
       `/api/prompts/${encodePath(name)}`,
       {
         method: 'PUT',

@@ -36,7 +36,7 @@ def recording():
         return httpx.Response(
             201,
             json={
-                "path": "asset:uploads/deadbeef.png",
+                "reference": "asset:uploads/deadbeef.png",
                 "url": "/inputs/uploads/deadbeef.png",
             },
         )
@@ -156,20 +156,20 @@ class TestUpload:
             upload_asset(client, str(source))
         assert "body" not in seen
 
-    def test_a_server_with_no_library_still_reports_what_it_got(self, tmp_path):
-        """Older servers answer with an absolute path rather than a
-        reference - report whatever came back rather than inventing one."""
+    def test_a_server_with_no_library_still_reports_the_url(self, tmp_path):
+        """A server with no asset library configured gives no reference at
+        all - there is nothing an `asset:` argument could name - only a URL
+        to fetch the file back from. Report that rather than inventing a
+        reference out of it (#527)."""
         source = tmp_path / "iris.png"
         source.write_bytes(b"png")
 
         def handler(request):
-            return httpx.Response(
-                201,
-                json={"path": "/srv/outputs/uploads/x.png", "url": "/outputs/x.png"},
-            )
+            return httpx.Response(201, json={"url": "/outputs/x.png"})
 
         result = upload_asset(client_over(handler), str(source))
-        assert result["reference"] == "/srv/outputs/uploads/x.png"
+        assert result["reference"] is None
+        assert result["url"] == "/outputs/x.png"
 
     def test_a_workspace_can_be_named_for_one_request(self, tmp_path):
         """#463: an upload pinned to another workspace must not depend on
@@ -183,7 +183,7 @@ class TestUpload:
             return httpx.Response(
                 201,
                 json={
-                    "path": "asset:uploads/deadbeef.png",
+                    "reference": "asset:uploads/deadbeef.png",
                     "workspace": "A",
                     "url": "/inputs/uploads/deadbeef.png",
                 },
@@ -389,7 +389,7 @@ class TestUploadContainmentOverAMountedEndpoint:
             return httpx.Response(
                 201,
                 json={
-                    "path": "asset:uploads/deadbeef.png",
+                    "reference": "asset:uploads/deadbeef.png",
                     "url": "/inputs/uploads/deadbeef.png",
                 },
             )
@@ -500,7 +500,7 @@ class TestUploadContainmentOverAMountedEndpoint:
             return httpx.Response(
                 201,
                 json={
-                    "path": "asset:uploads/deadbeef.png",
+                    "reference": "asset:uploads/deadbeef.png",
                     "url": "/inputs/uploads/deadbeef.png",
                 },
             )
@@ -620,7 +620,7 @@ class TestUploadRouteInTheRefusals:
         assert "Authorization: Bearer $DW_API_TOKEN" in text
         assert "--data-binary @<file>" in text
         assert '&asset_name=<folder/name>&workspace=qa-series"' in text
-        assert "201 with 'path', the 'asset:' reference" in text
+        assert "201 with 'reference', the 'asset:' reference" in text
         assert f"up to {MAX_UPLOAD_BYTES // (1024 * 1024)}MB" in text
         assert "no size cap" not in text
 
@@ -645,5 +645,5 @@ class TestUploadRouteInTheRefusals:
         text = str(refused.value)
         assert '"http://<host>:8765/api/uploads?filename=<name>' in text
         assert '&workspace=qa-series"' in text
-        assert "201 with 'path', the 'asset:' reference" in text
+        assert "201 with 'reference', the 'asset:' reference" in text
         assert "no size cap" not in text
