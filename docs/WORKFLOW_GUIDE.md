@@ -580,6 +580,23 @@ came from. Spell the member out: `{"reference_type": "…",
 fails the run with a precise error naming the members that do exist, but the
 guide says it here first.
 
+A member may reference an *earlier* member of its own list directly
+(`"image": "previous_result:shot@accuse"` inside `shot@deflect`), but it
+cannot interpose a derivation on that reference — "shot 2 starts where shot
+1 ended," a still pulled from shot 1's last frame with `get_last_frame`.
+There is no step between two members of the same `for_each` list: a step
+meant to derive that still (say, named `last`) would itself have to sit
+after `shot` in the file to read `shot@accuse`'s result, which makes it a
+step *after* the whole list, and referencing it from inside the list is a
+`previous_result:` naming no earlier step — refused at validate. Split the
+list at the dependency instead: run the members up to and including the one
+being derived from as their own `for_each` (or, for a single entry, an
+ordinary step), add an ordinary `get_last_frame` step after it reading
+`previous_result:shot@accuse`, and run the remaining members as a second
+`for_each` whose dependent entry takes that derived still — as a variable
+value or, over the API/MCP, folded into the entry itself — rather than a
+bare `previous_result:` reference to the video.
+
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`
 default before checking it, so a list defaulted to a constant validates the

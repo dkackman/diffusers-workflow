@@ -759,3 +759,61 @@ class TestFailedLoadIsTornDown:
             pipeline.load(shared)
 
         assert shared == {}
+
+
+class TestImageCrfMismatchDiagnosis:
+    """#511: diffusers' `image_crf` re-compression error names a re-encoding
+    knob that does not fix an argument holding a video where an image was
+    required - the caller needs a still, not a different crf."""
+
+    def _definition(self):
+        return {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "some/repo"},
+            "arguments": {"image": "variable:image"},
+        }
+
+    def test_an_audiovideo_argument_is_named_in_the_rewritten_error(self, monkeypatch):
+        from dw.result import AudioVideo
+
+        def _raise(self, arguments):
+            raise ValueError("re-compression requires you to set `image_crf`")
+
+        monkeypatch.setattr(Pipeline, "_run_once", _raise)
+
+        pipeline = Pipeline(self._definition(), 42, "cpu")
+        pipeline.pipeline = MagicMock()
+
+        video = AudioVideo(frames=[], audio=None, sample_rate=None)
+        with pytest.raises(ValueError, match="expected an image but received a video"):
+            pipeline.run({"image": video})
+
+    def test_names_every_offending_argument(self):
+        from dw.result import AudioVideo
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        video = AudioVideo(frames=[], audio=None, sample_rate=None)
+        error = ValueError("re-compression requires you to set `image_crf`")
+
+        diagnosed = _diagnose_image_crf_error(
+            error, {"image": video, "conditioning_image": video, "prompt": "a cat"}
+        )
+
+        assert diagnosed is not None
+        assert "conditioning_image" in str(diagnosed)
+        assert "image" in str(diagnosed)
+        assert "get_last_frame" in str(diagnosed)
+        assert "video_frames" in str(diagnosed)
+
+    def test_a_different_value_error_is_left_alone(self):
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        error = ValueError("some unrelated failure")
+        assert _diagnose_image_crf_error(error, {"image": "not a video"}) is None
+
+    def test_the_same_message_with_no_video_argument_is_left_alone(self):
+        """The text alone isn't enough - it has to actually be this mismatch."""
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        error = ValueError("re-compression requires you to set `image_crf`")
+        assert _diagnose_image_crf_error(error, {"image": "a/path.png"}) is None

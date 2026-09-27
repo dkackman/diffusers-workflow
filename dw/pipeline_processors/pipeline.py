@@ -493,6 +493,10 @@ class Pipeline:
             logger.info("Pipeline run cancelled")
             raise
         except Exception as e:
+            diagnosed = _diagnose_image_crf_error(e, arguments)
+            if diagnosed is not None:
+                logger.error(f"{type(e).__name__} running pipeline: {e}", exc_info=True)
+                raise diagnosed from e
             # One log line with the full traceback - every error class was
             # logged and re-raised identically
             logger.error(f"{type(e).__name__} running pipeline: {e}", exc_info=True)
@@ -1969,6 +1973,35 @@ def load_component(
             ) from e
         logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
         raise
+
+
+def _diagnose_image_crf_error(error, arguments):
+    """Rewrite diffusers' `image_crf` re-compression error into one that
+    names the actual mismatch, when it is one: an argument the pipeline
+    expects as a still image (`PIL.Image.Image`) instead holds an
+    `AudioVideo` - a video where an image was required. Diffusers' own
+    message suggests `image_crf=0`, which does not fix anything, since the
+    argument still receives a video; the caller needs to derive a still
+    first. Returns None when the error is something else, so the caller
+    re-raises unchanged.
+    """
+    if not isinstance(error, (ValueError, TypeError)):
+        return None
+    if "image_crf" not in str(error) or "re-compression requires" not in str(error):
+        return None
+
+    from ..result import AudioVideo
+
+    offending = [name for name, value in arguments.items() if isinstance(value, AudioVideo)]
+    if not offending:
+        return None
+
+    names = ", ".join(sorted(offending))
+    return ValueError(
+        f"Argument(s) {names} expected an image but received a video. Derive a "
+        f"still from it first - `get_last_frame` or `video_frames` - and pass "
+        f"that instead."
+    )
 
 
 def _hub_auth_status(error):
