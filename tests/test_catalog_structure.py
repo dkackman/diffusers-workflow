@@ -402,7 +402,13 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 8_450 for the catalog-wide seed convention (#351): every generative
 # entry now declares `seed` in `variables`, which is a compact field
 # (`variable_names`), measured at 8_424.
-COMPACT_BUDGET = 8_650
+# Then to 8_850 for the LTX-2.5 width/height divisibility rule (#505):
+# `constraints` is a compact field, and the twelve LTX-2.5 templates that take
+# a `width`/`height` pair each now carry a `32*n+0` entry for both, measured
+# at 8_762 - the cost of a real diffusers refusal (not a floor like
+# `num_frames`) being checked before the pipeline loads rather than 80s
+# after it.
+COMPACT_BUDGET = 8_850
 FILTERED_BUDGET = 1_500
 
 
