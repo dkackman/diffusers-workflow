@@ -522,7 +522,9 @@ class TestTheCatalogsNumbersAreTheLibrarys:
         )
         source = inspect.getsource(pipeline.LTX2Pipeline.check_inputs)
         match = re.search(r"height % (\d+) != 0 or width % (\d+) != 0", source)
-        assert match, "LTX2Pipeline.check_inputs no longer refuses an odd size the way #505 pinned"
+        assert match, (
+            "LTX2Pipeline.check_inputs no longer refuses an odd size the way #505 pinned"
+        )
         modulus = int(match.group(1))
         assert modulus == int(match.group(2))
 
