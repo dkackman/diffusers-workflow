@@ -26,6 +26,19 @@ reference's encoding resident beside the video latents, so an optional
 pass; one whose media resolved null is dropped before the pipeline sees it
 (#478) and costs nothing.
 
+A workflow-level estimate was measured against one pipeline, not against
+every step that happens to load one (#516) - a music-video template's image
+step at a caller-chosen resolution has no business being judged by the H3
+video estimate beside it just because both name `width`/`height`. Which
+identity the estimate describes is inferred rather than declared twice: the
+one every step that names *all* of the estimate's `voxel_variables` in its
+own pipeline arguments shares (`_estimate_identity`, using
+`vram_inheritance.pipeline_identity`). When that comes out ambiguous - no
+step owns every voxel variable directly, more than one identity does, or the
+steps carry no pipeline identity metadata at all, as every workflow before
+#516 and most of this module's own tests do - projection falls back to every
+pipeline step, unchanged from before.
+
 The entries checked are the serving device's own (see `_entries_for`);
 `bytes_per_voxel` was calibrated on CUDA, so a check against a Mac's capacity
 is an estimate of an estimate.
@@ -124,6 +137,42 @@ def _entries_for(cost, device_type, capacity_gb):
     return entries
 
 
+def _estimate_identity(steps, variables, names):
+    """The pipeline identity a workflow-level estimate describes, or None
+    when that is ambiguous.
+
+    The identity every step that names *all* of `names` in its own pipeline
+    arguments shares - a step only partly naming the voxel variables (an
+    image step with `width`/`height` but no `num_frames`) is not a candidate,
+    so it cannot pull an unrelated estimate onto itself. None when no step
+    qualifies, when the qualifying steps disagree, or when the identity found
+    carries no real pipeline metadata (`pipeline_identity` returns None) -
+    each of those means "cannot tell", not "no pipeline", and the caller
+    falls back to projecting every step as it did before #516.
+    """
+    if not names:
+        return None
+    from .vram_inheritance import pipeline_identity
+
+    identities = set()
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        pipeline = step.get("pipeline")
+        if not isinstance(pipeline, dict):
+            continue
+        step_arguments = pipeline.get("arguments")
+        step_arguments = step_arguments if isinstance(step_arguments, dict) else {}
+        if not all(name in step_arguments for name in names):
+            continue
+        identities.add(pipeline_identity(step, variables))
+    if len(identities) == 1:
+        found = next(iter(identities))
+        if found is not None:
+            return found
+    return None
+
+
 def _projections(definition, estimate, arguments):
     """(step index, step, values, references, projected GB) for every step
     the estimate can project.
@@ -133,7 +182,10 @@ def _projections(definition, estimate, arguments):
     substituted, so a for_each member carries its entry's `num_frames` -
     and from the workflow's variables (the caller's arguments over them) when
     the step does not name it. A definition with no steps at all is projected
-    from its variables alone, as a single step.
+    from its variables alone, as a single step. When the estimate's own
+    pipeline identity can be determined (`_estimate_identity`), a step whose
+    identity does not match it is not projected at all (#516) - the estimate
+    was never measured for that pipeline.
     """
     variables = {**(definition.get("variables") or {}), **(arguments or {})}
     steps = definition.get("steps")
@@ -143,9 +195,14 @@ def _projections(definition, estimate, arguments):
             yield None, None, variables, 0, projected
         return
     names = estimate.get("voxel_variables", [])
+    identity = _estimate_identity(steps, variables, names)
+    if identity is not None:
+        from .vram_inheritance import pipeline_identity as _pipeline_identity
     for index, step in enumerate(steps):
         pipeline = step.get("pipeline") if isinstance(step, dict) else None
         if not isinstance(pipeline, dict):
+            continue
+        if identity is not None and _pipeline_identity(step, variables) != identity:
             continue
         step_arguments = pipeline.get("arguments")
         if not isinstance(step_arguments, dict):
