@@ -1295,6 +1295,16 @@ def test_the_instructions_say_where_a_copied_workflow_gets_its_cost_from():
     assert "times the number of images" in server.instructions
 
 
+def test_the_instructions_say_a_hand_built_workflow_inherits_a_warning_ceiling():
+    """#502: a workflow with no `vram_estimate` is projected against the
+    catalog template that loads the same pipeline, and only warned. Without
+    naming the template, "its VRAM ceiling" read as the `models/` entry's."""
+    server = server_over(ok({}))
+
+    for words in ("warns (never refuses)", "catalog template", "may differ"):
+        assert words in server.instructions
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
