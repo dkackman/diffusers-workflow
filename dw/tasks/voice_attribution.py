@@ -407,12 +407,15 @@ def reference_similarity(embeddings):
     return pairs
 
 
-def score_line(embedding, references, voiced_seconds, too_similar_pairs=()):
+def score_line(
+    embedding, references, voiced_seconds, too_similar_pairs=(), separated=True
+):
     """One line's scores against every reference, its argmax and margin.
 
     A line under MIN_VOICED_SECONDS is not embedded (embedding None) and has
     no voice. A line whose best two voices are a too-similar pair is
-    uncertain whatever its margin.
+    uncertain whatever its margin. `separated` only words the reason: a
+    stem that was never separated is not "after separation".
     """
     if embedding is None or voiced_seconds < MIN_VOICED_SECONDS:
         return {
@@ -422,7 +425,8 @@ def score_line(embedding, references, voiced_seconds, too_similar_pairs=()):
             "voiced_seconds": _round(voiced_seconds, 3),
             "uncertain": True,
             "reason": (
-                f"only {voiced_seconds:.2f} s voiced after separation "
+                f"only {voiced_seconds:.2f} s voiced"
+                f"{' after separation' if separated else ''} "
                 f"(needs {MIN_VOICED_SECONDS} s) - instrumental, or too short "
                 "to embed"
             ),
@@ -746,7 +750,9 @@ def attribute_voices(
                 "start": _round(line["start"], 3),
                 "end": _round(line["end"], 3),
                 "text": line["text"],
-                **score_line(embedding, embeddings, voiced, too_similar),
+                **score_line(
+                    embedding, embeddings, voiced, too_similar, separated=separate
+                ),
             }
         )
 

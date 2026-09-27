@@ -303,6 +303,14 @@ class TestUncertainPaths(unittest.TestCase):
         self.assertIn("voiced", result["reason"])
         self.assertEqual(result["scores"], {})
         self.assertLess(0.1, MIN_VOICED_SECONDS)
+        self.assertIn("after separation", result["reason"])
+
+    def test_an_unseparated_silent_line_does_not_claim_separation(self):
+        result = score_line(
+            None, {"a": numpy.array([1.0, 0.0])}, voiced_seconds=0.1, separated=False
+        )
+        self.assertIsNone(result["voice"])
+        self.assertNotIn("separation", result["reason"])
 
     def test_a_too_similar_top_two_pair_is_uncertain(self):
         references = {
