@@ -777,6 +777,195 @@ class TestGainAudio:
         assert logs[0]["constraint"] == "peak_ceiling"
 
 
+class TestNormalizeAudioLimit:
+    """normalize_audio(limit=True): the target's gain under a true-peak
+    look-ahead limiter rather than a gain the loudest transient caps (#474)."""
+
+    RATE = 48000
+
+    def _bursty(self, seconds=4.0, bed=0.05, burst=0.5, channels=1):
+        # A quiet 1 kHz bed with one 20 ms burst 20 dB above it - the shape of
+        # a dialogue track with a laugh on it, whose peak caps a peak-only gain
+        t = numpy.arange(int(self.RATE * seconds)) / self.RATE
+        wave = bed * numpy.sin(2 * numpy.pi * 1000 * t)
+        start, length = int(self.RATE * seconds / 2), int(0.02 * self.RATE)
+        wave[start : start + length] *= burst / bed
+        return numpy.tile(wave.astype(numpy.float32), (channels, 1))
+
+    def _run(self, waveform, **kwargs):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            track = normalize_audio(
+                waveform, sample_rate=self.RATE, limit=True, **kwargs
+            )
+        finally:
+            deactivate_context(token)
+        logs = [e for e in events if e.get("event") == "log"]
+        warnings = {e.get("kind"): e for e in events if e.get("event") == "warning"}
+        return track, logs, warnings
+
+    @staticmethod
+    def _true_peak_dbfs(track):
+        import scipy.signal
+
+        up = scipy.signal.resample_poly(
+            numpy.atleast_2d(numpy.asarray(track.audio)), 4, 1, axis=1
+        )
+        return 20 * numpy.log10(numpy.abs(up).max())
+
+    def _lufs(self, track):
+        from dw.loudness import integrated_lufs
+
+        return integrated_lufs(samples(track), self.RATE)
+
+    def test_reaches_the_target_under_a_true_peak_ceiling(self):
+        track, logs, warnings = self._run(
+            self._bursty(), peak_dbfs=-3.0, target_lufs=-16.0
+        )
+
+        assert self._true_peak_dbfs(track) <= -3.0 + 0.05
+        assert self._lufs(track) == pytest.approx(-16.0, abs=0.5)
+        assert "target_lufs_capped" not in warnings
+        (log,) = logs
+        assert log["constraint"] == "limiter"
+        assert 0 < log["limited_fraction"] < 0.2
+        assert log["max_gain_reduction_db"] > 0
+        assert log["output_true_peak_dbfs"] <= -3.0 + 0.05
+        assert log["output_lufs"] == pytest.approx(-16.0, abs=0.5)
+        for field in ("gain_db", "measured_lufs", "measured_true_peak_dbfs"):
+            assert log[field] is not None
+
+    def test_the_peak_only_path_could_not_reach_that_target(self):
+        # The case the limiter exists for: without it the burst caps the gain
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import normalize_audio
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            normalize_audio(
+                self._bursty(), peak_dbfs=-3.0, target_lufs=-16.0, sample_rate=self.RATE
+            )
+        finally:
+            deactivate_context(token)
+        assert any(e.get("kind") == "target_lufs_capped" for e in events)
+
+    def test_past_twelve_db_of_reduction_the_target_is_capped(self):
+        track, logs, warnings = self._run(
+            self._bursty(), peak_dbfs=-3.0, target_lufs=-8.0
+        )
+
+        capped = warnings["target_lufs_capped"]
+        assert capped["limited"] is True
+        assert capped["shortfall_lu"] > 0
+        assert "limiter_heavy" in warnings
+        assert logs[0]["max_gain_reduction_db"] <= 12.0 + 0.1
+        assert self._true_peak_dbfs(track) <= -3.0 + 0.05
+
+    def test_heavy_limiting_warns(self):
+        _, logs, warnings = self._run(self._bursty(), peak_dbfs=-3.0, target_lufs=-16.0)
+
+        assert logs[0]["max_gain_reduction_db"] > 6.0
+        assert warnings["limiter_heavy"]["max_gain_reduction_db"] > 6.0
+
+    def test_a_target_the_ceiling_allows_leaves_the_limiter_idle(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        track, logs, warnings = self._run(
+            self._bursty(), peak_dbfs=-3.0, target_lufs=-30.0
+        )
+        plain = normalize_audio(
+            self._bursty(), peak_dbfs=-3.0, target_lufs=-30.0, sample_rate=self.RATE
+        )
+
+        assert logs[0]["limited_fraction"] == 0
+        assert logs[0]["max_gain_reduction_db"] == 0
+        assert "limiter_heavy" not in warnings
+        numpy.testing.assert_array_equal(
+            numpy.asarray(track.audio), numpy.asarray(plain.audio)
+        )
+
+    def test_without_a_target_the_ceiling_is_a_true_peak_one(self):
+        # A pure tone just under Nyquist/4 peaks between samples; limit=True
+        # holds the reconstructed peak, not the sample peak
+        t = numpy.arange(self.RATE) / self.RATE
+        tone = (0.5 * numpy.sin(2 * numpy.pi * 11025 * t + 0.25 * numpy.pi)).astype(
+            numpy.float32
+        )[numpy.newaxis, :]
+
+        track, logs, _ = self._run(tone, peak_dbfs=-1.0)
+
+        assert self._true_peak_dbfs(track) <= -1.0 + 0.05
+        assert logs[0]["constraint"] == "limiter"
+
+    def test_keeps_length_and_channels(self):
+        waveform = self._bursty(channels=2)
+
+        track, _, _ = self._run(waveform, peak_dbfs=-1.0, target_lufs=-14.0)
+
+        assert samples(track).shape == (waveform.shape[1], 2)
+
+    def test_a_silent_track_is_returned_unchanged(self):
+        silent = numpy.zeros((2, self.RATE), dtype=numpy.float32)
+
+        track, logs, _ = self._run(silent, peak_dbfs=-1.0, target_lufs=-14.0)
+
+        numpy.testing.assert_array_equal(numpy.asarray(track.audio), silent)
+        assert logs == []
+
+    def test_three_minutes_of_stereo_is_fast(self):
+        import time
+
+        waveform = self._bursty(seconds=180.0, channels=2)
+        started = time.perf_counter()
+        self._run(waveform, peak_dbfs=-1.0, target_lufs=-14.0)
+        assert time.perf_counter() - started < 10.0
+
+    def test_limit_must_be_a_bool(self):
+        from dw.tasks.audio_utils import normalize_audio
+
+        with pytest.raises(ValueError, match="limit"):
+            normalize_audio(self._bursty(), limit="yes", sample_rate=self.RATE)
+
+    def test_limit_false_is_the_default(self):
+        import inspect
+
+        from dw.tasks.audio_utils import normalize_audio
+
+        assert inspect.signature(normalize_audio).parameters["limit"].default is False
+
+    def test_timings_are_pinned(self):
+        # The plan fixes these rather than exposing them: ~5 ms look-ahead,
+        # ~150 ms release, 12 dB most reduction, 6 dB heavy
+        from dw.tasks import audio_utils
+
+        assert audio_utils.LIMITER_LOOKAHEAD_MS == 5.0
+        assert audio_utils.LIMITER_RELEASE_MS == 150.0
+        assert audio_utils.LIMITER_HOLD_MS == 20.0
+        assert audio_utils.LIMITER_MAX_REDUCTION_DB == 12.0
+        assert audio_utils.LIMITER_HEAVY_DB == 6.0
+
+    def test_the_curve_ramps_down_before_the_transient(self):
+        # Look-ahead: the gain is already down when the burst arrives
+        from dw.tasks.audio_utils import _limiter_curve, _true_peak_envelope
+
+        waveform = self._bursty()
+        envelope = _true_peak_envelope(waveform) * 10 ** (12 / 20)
+        curve = _limiter_curve(envelope, 10 ** (-3 / 20), self.RATE)
+        start = waveform.shape[1] // 2
+        assert curve[start] < 1.0
+        assert curve[start - int(0.004 * self.RATE)] < 1.0
+        assert curve[start - int(0.05 * self.RATE)] == pytest.approx(1.0)
+        required = numpy.minimum(
+            1.0, 10 ** (-3 / 20) / numpy.maximum(envelope.astype(numpy.float64), 1e-12)
+        )
+        assert numpy.all(curve <= required + 1e-9)
+
+
 class TestAudioTasksTakeAnAudioVideo:
     """Every audio task accepts the video an earlier step generated with its
     soundtrack, and takes the sample rate that video carries."""

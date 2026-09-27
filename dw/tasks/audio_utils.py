@@ -11,11 +11,13 @@ import logging
 from fractions import Fraction
 
 import numpy
+import scipy.ndimage
+import scipy.signal
 import soundfile
 import torch
 
 from ..events import emit_log, emit_warning
-from ..loudness import integrated_lufs
+from ..loudness import TRUE_PEAK_OVERSAMPLE, integrated_lufs
 from ..task_domains import as_number, check_arguments
 from ..security import (
     validate_file_extension,
@@ -1394,7 +1396,9 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     return _as_track(faded, sample_rate, "fade_audio")
 
 
-def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
+def normalize_audio(
+    audio, peak_dbfs=-1.0, target_lufs=None, limit=False, sample_rate=None
+):
     """Task command: scale a track so its loudest sample sits at a level.
 
     Generated music comes out at whatever level the model happened to land
@@ -1417,6 +1421,13 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
             and if reaching target_lufs would cross it the gain stops at the
             ceiling and a warning names the shortfall in LU. None (the
             default) leaves behavior exactly as peak-only
+        limit: Hold peak_dbfs with a look-ahead limiter instead of capping the
+            gain, so target_lufs can be reached past a transient that sets
+            the peak. peak_dbfs becomes a true-peak (4x oversampled, BS.1770)
+            ceiling; the gain is target_lufs's alone (the limiter never adds
+            any), and limiting stops at 12 dB of reduction, past which
+            target_lufs is warned as capped. False (the default) leaves
+            behavior exactly as without it
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
@@ -1424,6 +1435,10 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
         track is returned unchanged
     """
     check_arguments("normalize_audio", sample_rate=sample_rate, target_lufs=target_lufs)
+    if not isinstance(limit, (bool, numpy.bool_)):
+        raise ValueError(
+            f"normalize_audio 'limit' must be true or false, got {limit!r}"
+        )
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "normalize_audio")
     if peak_dbfs > 0:
         raise ValueError("normalize_audio 'peak_dbfs' cannot be above full scale (0)")
@@ -1431,6 +1446,12 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
     if peak == 0.0:
         logger.warning("normalize_audio: the track is silent - left unchanged")
         return _as_track(waveform, sample_rate, "normalize_audio")
+    if limit:
+        return _as_track(
+            _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs),
+            sample_rate,
+            "normalize_audio",
+        )
 
     peak_db = 20 * numpy.log10(peak)
     measured_lufs = None
@@ -1483,6 +1504,220 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
     return _as_track(
         (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"
     )
+
+
+# The limiter normalize_audio(limit=True) runs. Fixed rather than exposed
+# (#474): long enough not to pump on a laugh, short enough not to duck the
+# line after it. The look-ahead ramps the gain down before a transient; the
+# hold keeps it down across the transient's own cycles; the release then
+# recovers linearly in dB
+LIMITER_LOOKAHEAD_MS = 5.0
+LIMITER_HOLD_MS = 20.0
+LIMITER_RELEASE_MS = 150.0
+LIMITER_RELEASE_DB = 6.0
+# Past this much reduction a target is squashing the track rather than
+# levelling it, so the gain stops and target_lufs_capped says so
+LIMITER_MAX_REDUCTION_DB = 12.0
+# Past this much reduction pumping becomes audible - limiter_heavy
+LIMITER_HEAVY_DB = 6.0
+# A limited track loses a little loudness; one correction pass makes up a
+# shortfall larger than this
+LIMITER_CORRECTION_LU = 0.05
+# Oversampling runs in blocks so a long track never holds 4x of itself; the
+# polyphase filter reaches about ten input samples each side, so this much
+# overlap makes each block's interior exact
+_TRUE_PEAK_BLOCK = 1 << 18
+_TRUE_PEAK_OVERLAP = 32
+# A gain this close to unity is floating-point noise, not reduction
+_UNITY_TOLERANCE = 1e-6
+
+
+def _true_peak_envelope(waveform):
+    """The per-sample true peak of a (channels, samples) waveform, linked
+    across channels so the loudest one drives them all and the stereo image
+    does not shift. Each sample carries the largest oversampled value on
+    either side of it, so an inter-sample peak is owed by both neighbours."""
+    total = waveform.shape[1]
+    envelope = numpy.zeros(total, dtype=numpy.float32)
+    for start in range(0, total, _TRUE_PEAK_BLOCK):
+        stop = min(total, start + _TRUE_PEAK_BLOCK)
+        low = max(0, start - _TRUE_PEAK_OVERLAP)
+        high = min(total, stop + _TRUE_PEAK_OVERLAP)
+        block = scipy.signal.resample_poly(
+            waveform[:, low:high].astype(numpy.float32),
+            TRUE_PEAK_OVERSAMPLE,
+            1,
+            axis=1,
+        )
+        linked = numpy.abs(block).max(axis=0)
+        per_sample = linked.reshape(high - low, TRUE_PEAK_OVERSAMPLE).max(axis=1)
+        envelope[start:stop] = per_sample[start - low : stop - low]
+    envelope[1:] = numpy.maximum(envelope[1:], envelope[:-1])
+    return envelope
+
+
+def _limiter_curve(envelope, ceiling, sample_rate):
+    """The per-sample gain (<= 1) that holds `envelope` under `ceiling`, or
+    None when nothing crosses it.
+
+    Vectorised end to end: the required gain goes through a forward sliding
+    minimum over the look-ahead, a backward one over the hold, a linear-in-dB
+    release (a cumulative minimum), and a boxcar as long as the look-ahead.
+    Every value the boxcar averages is the minimum of a window that contains
+    the sample it lands on, so the curve never exceeds the required gain -
+    it ramps down before a transient rather than delaying the signal.
+    """
+    required = numpy.minimum(
+        1.0, ceiling / numpy.maximum(envelope.astype(numpy.float64), 1e-12)
+    )
+    if required.min() >= 1.0 - _UNITY_TOLERANCE:
+        return None
+    total = required.size
+    half = max(1, int(round(LIMITER_LOOKAHEAD_MS / 2000.0 * sample_rate)))
+    lookahead = 2 * half
+    centred = scipy.ndimage.minimum_filter1d(required, lookahead + 1, mode="nearest")
+    ahead = numpy.concatenate([centred[half:], numpy.full(half, centred[-1])])[:total]
+
+    hold = max(1, int(round(LIMITER_HOLD_MS / 1000.0 * sample_rate)))
+    centred = scipy.ndimage.minimum_filter1d(ahead, 2 * hold + 1, mode="nearest")
+    held = numpy.empty_like(ahead)
+    head = min(hold, total)
+    held[:head] = numpy.minimum.accumulate(ahead[:head])
+    held[head:] = centred[: total - head]
+
+    rate = LIMITER_RELEASE_DB / (LIMITER_RELEASE_MS / 1000.0 * sample_rate)
+    ramp = rate * numpy.arange(total, dtype=numpy.float64)
+    held_db = 20.0 * numpy.log10(held)
+    released = 10.0 ** ((numpy.minimum.accumulate(held_db - ramp) + ramp) / 20.0)
+
+    padded = numpy.concatenate([numpy.full(lookahead, released[0]), released])
+    sums = numpy.concatenate([[0.0], numpy.cumsum(padded)])
+    curve = (sums[lookahead + 1 :] - sums[: -lookahead - 1]) / (lookahead + 1)
+    return numpy.minimum(curve, required)
+
+
+def _limit_at(waveform, envelope, gain_db, ceiling, sample_rate):
+    """One limiting pass at a static gain: the output, the limiter's curve
+    (None when it touched nothing), the static trim a reconstruction
+    overshoot needed, and the output's true peak (linear)."""
+    gain = 10 ** (gain_db / 20)
+    curve = _limiter_curve(envelope * gain, ceiling, sample_rate)
+    if curve is None:
+        output = (waveform * gain).astype(numpy.float32)
+    else:
+        output = (waveform * (gain * curve)[numpy.newaxis, :]).astype(numpy.float32)
+    output_peak = float(_true_peak_envelope(output).max())
+    trim = 1.0
+    if output_peak > ceiling * (1.0 + 1e-4):
+        trim = ceiling / output_peak
+        output = (output * trim).astype(numpy.float32)
+        output_peak *= trim
+    return output, curve, trim, output_peak
+
+
+def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
+    """normalize_audio(limit=True): the target's gain, applied uncapped, with
+    a true-peak limiter holding peak_dbfs. The limiter is never a gain stage
+    - makeup comes from target_lufs alone - and it stops at
+    LIMITER_MAX_REDUCTION_DB, past which the gain is what stops instead."""
+    ceiling = 10 ** (peak_dbfs / 20)
+    envelope = _true_peak_envelope(waveform)
+    input_peak_db = 20 * numpy.log10(float(envelope.max()))
+    peak_gain_db = peak_dbfs - input_peak_db
+    most_gain_db = peak_gain_db + LIMITER_MAX_REDUCTION_DB
+
+    measured_lufs = None
+    target_gain_db = None
+    if target_lufs is not None:
+        measured_lufs = integrated_lufs(waveform.T, sample_rate)
+        if measured_lufs is None:
+            emit_warning(
+                f"normalize_audio: target_lufs={target_lufs} was given, but the "
+                "track's loudness could not be measured (shorter than the 400 ms "
+                "gating block, or silent throughout) - falling back to peak_dbfs "
+                "alone.",
+                kind="target_lufs_unmeasurable",
+                command="normalize_audio",
+                target_lufs=target_lufs,
+            )
+        else:
+            target_gain_db = target_lufs - measured_lufs
+
+    gain_db = (
+        peak_gain_db if target_gain_db is None else min(target_gain_db, most_gain_db)
+    )
+    output, curve, trim, output_peak = _limit_at(
+        waveform, envelope, gain_db, ceiling, sample_rate
+    )
+    output_lufs = integrated_lufs(output.T, sample_rate)
+    if (
+        target_gain_db is not None
+        and output_lufs is not None
+        and (curve is not None or trim < 1.0)
+        and target_lufs - output_lufs > LIMITER_CORRECTION_LU
+        and gain_db < most_gain_db
+    ):
+        gain_db = min(gain_db + target_lufs - output_lufs, most_gain_db)
+        output, curve, trim, output_peak = _limit_at(
+            waveform, envelope, gain_db, ceiling, sample_rate
+        )
+        output_lufs = integrated_lufs(output.T, sample_rate)
+
+    lowest = (1.0 if curve is None else float(curve.min())) * trim
+    max_reduction_db = max(0.0, -20 * numpy.log10(lowest))
+    if curve is None:
+        limited_fraction = 1.0 if trim < 1.0 else 0.0
+    else:
+        limited_fraction = float(
+            numpy.count_nonzero(curve * trim < 1.0 - _UNITY_TOLERANCE) / curve.size
+        )
+    output_peak_db = 20 * numpy.log10(output_peak)
+
+    if target_gain_db is not None and gain_db < target_gain_db:
+        shortfall = target_gain_db - gain_db
+        if output_lufs is not None:
+            shortfall = max(shortfall, target_lufs - output_lufs)
+        emit_warning(
+            f"normalize_audio: target_lufs={target_lufs} would need more than "
+            f"{LIMITER_MAX_REDUCTION_DB:.0f} dB of limiting under "
+            f"peak_dbfs={peak_dbfs}, so the gain stops at {gain_db:+.1f} dB - "
+            f"lands {shortfall:.1f} LU below the target.",
+            kind="target_lufs_capped",
+            command="normalize_audio",
+            target_lufs=target_lufs,
+            peak_dbfs=peak_dbfs,
+            shortfall_lu=round(shortfall, 2),
+            limited=True,
+        )
+    if max_reduction_db > LIMITER_HEAVY_DB:
+        emit_warning(
+            f"normalize_audio: the limiter reduced the loudest moments by "
+            f"{max_reduction_db:.1f} dB to hold peak_dbfs={peak_dbfs} - past "
+            f"{LIMITER_HEAVY_DB:.0f} dB, pumping can be audible. A lower "
+            "target_lufs asks less of it.",
+            kind="limiter_heavy",
+            command="normalize_audio",
+            max_gain_reduction_db=round(max_reduction_db, 1),
+            peak_dbfs=peak_dbfs,
+            target_lufs=target_lufs,
+        )
+    emit_log(
+        f"normalize_audio: measured {input_peak_db:.1f} dBTP"
+        + ("" if measured_lufs is None else f", {measured_lufs:.1f} LUFS")
+        + f" -> gain {gain_db:+.1f} dB, limiter up to {max_reduction_db:.1f} dB "
+        f"on {limited_fraction:.1%} of samples -> {output_peak_db:.1f} dBTP"
+        + ("" if output_lufs is None else f", {output_lufs:.1f} LUFS"),
+        command="normalize_audio",
+        measured_true_peak_dbfs=round(input_peak_db, 1),
+        measured_lufs=round(measured_lufs, 1) if measured_lufs is not None else None,
+        gain_db=round(gain_db, 1),
+        constraint="limiter",
+        max_gain_reduction_db=round(max_reduction_db, 2),
+        limited_fraction=round(limited_fraction, 4),
+        output_true_peak_dbfs=round(output_peak_db, 2),
+        output_lufs=round(output_lufs, 1) if output_lufs is not None else None,
+    )
+    return output
 
 
 def _fade_curve(window):

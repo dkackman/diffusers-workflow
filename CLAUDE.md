@@ -538,7 +538,14 @@ same reason - default setup cannot load a pack.
   and `normalize_audio` is the step that decides it (the level every
   template uses is in the next bullet). `music-video` normalizes only the
   track going into the mux, not the slices that condition the shots, so the
-  picture is unchanged; `music`'s deliverable is its `balanced` step
+  picture is unchanged; `music`'s deliverable is its `balanced` step.
+  `normalize_audio(limit=true)` reaches a `target_lufs` a transient would
+  otherwise cap: the target's gain in full under a true-peak (4x) look-ahead
+  limiter holding `peak_dbfs` (`_normalize_limited`, constants
+  `LIMITER_*`), stopping at 12 dB of reduction - past it the gain drops and
+  `target_lufs_capped` carries `limited: true`, past 6 dB `limiter_heavy`
+  warns, and the log's `constraint` is `"limiter"`. `compress_audio`'s
+  `limit` mode is sample-peak with no look-ahead, so it is not a ceiling
 - **A deliverable is measured as written, not as handed to the writer** —
   `warn_without_headroom` reads the waveform, and the encoder sits downstream
   of it: a song normalized to exactly -1.0 dBFS can come back out of an AAC
