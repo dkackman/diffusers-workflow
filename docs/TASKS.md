@@ -646,10 +646,19 @@ changes, so the dynamics survive:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
-| `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale |
+| `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale. With `limit`, a true-peak (4x oversampled, BS.1770) ceiling the output never crosses |
+| `target_lufs` | No | An integrated loudness (BS.1770) to scale the track to instead, in LUFS (0 or below). Without `limit` the gain is capped so the peak stays under `peak_dbfs`, and `target_lufs_capped` warns when that cap wins. A track shorter than 400 ms (or silent throughout) cannot be measured, warns `target_lufs_unmeasurable`, and falls back to `peak_dbfs` |
+| `limit` | No | Reach `target_lufs` past a transient instead of letting it cap the gain: the target's gain is applied in full and a true-peak look-ahead limiter (5 ms look-ahead, 20 ms hold, 150 ms release, linked across channels) holds `peak_dbfs`. The limiter never adds gain, and it stops at 12 dB of reduction - past that the gain is lowered instead and `target_lufs_capped` warns with `limited: true` and `shortfall_lu`. More than 6 dB warns `limiter_heavy` (pumping can be audible). The step's log carries `constraint: "limiter"`, `gain_db`, `max_gain_reduction_db`, `limited_fraction` (0 when the limiter was not needed), `output_true_peak_dbfs` and `output_lufs` (default: false, which behaves exactly as without it) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 A silent track is returned unchanged.
+
+To level dialogue with a laugh or a shout on it, `limit` is the switch: a
+peak-only gain lets that one transient set the level of every line around it.
+
+```json
+"arguments": {"audio": "previous_result:dialogue", "target_lufs": -16, "peak_dbfs": -1.0, "limit": true}
+```
 
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
@@ -838,6 +847,11 @@ covers all three through `mode`:
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 A silent track is returned unchanged.
+
+`mode: "limit"` is a sample-peak limiter with no look-ahead: the envelope
+reacts to a transient as it arrives, so the transient's leading edge and any
+inter-sample peak get through. To hold a true-peak ceiling while reaching a
+loudness target, use `normalize_audio` with `limit: true`.
 
 ### filter_audio
 
