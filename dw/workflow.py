@@ -50,7 +50,7 @@ from .variable_constraints import (
     resolve_constraint_references,
 )
 from .result_fps import fps_errors
-from .shots import duplicate_shot_names, step_shots
+from .shots import duplicate_shot_names, shot_references, step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -1640,11 +1640,11 @@ class Workflow:
                 if selected is not None:
                     manifest_entry["selected"] = selected
                 # Where each joined shot sits in the file, named by the
-                # step's own `videos` references (dw/shots.py)
+                # step's own input references (dw/shots.py)
                 shots = step_shots(
                     getattr(result, "saved_shots", None),
                     saved_files,
-                    step_data.get("task", {}).get("arguments", {}).get("videos"),
+                    shot_references(step_data.get("task", {}).get("arguments", {})),
                 )
                 if shots:
                     manifest_entry["shots"] = shots
