@@ -92,6 +92,7 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
+from .tasks.voice_attribution import voices_errors
 from . import (
     get_device,
     get_device_type,
@@ -748,6 +749,10 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # An attribute_voices `voices` it would refuse - one voice, a bad
+            # name, a reference too short - is knowable from the literal and
+            # was refused only on the step, a queued job in (#494)
+            + voices_errors(expanded, source_indices)
             # A dissolve_videos overlap wider than a statically-resolvable
             # input's real frame count decoded clean past the queue and
             # failed only after every upstream step had already generated -

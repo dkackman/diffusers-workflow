@@ -27,12 +27,17 @@ from dw.tasks.voice_attribution import (
     reference_similarity,
     roll_up,
     score_line,
+    voiced_floor_dbfs,
+    voiced_mask,
+    voices_errors,
 )
+from dw.locations import location_errors
+from dw.security import TRUST_WORKFLOWS_ENV_VAR
 from dw.workflow import Workflow
 
 
 def tone(seconds, sample_rate=16000, amplitude=0.3, channels=1):
-    """A loud sine tone - counts as voiced (rms well above VOICED_FLOOR_DBFS)."""
+    """A loud sine tone - counts as voiced (well above any voiced floor)."""
     samples = int(round(seconds * sample_rate))
     t = numpy.arange(samples, dtype=numpy.float32) / sample_rate
     wave = (amplitude * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
@@ -623,6 +628,148 @@ class TestStepValidation(unittest.TestCase):
         messages = [e["message"] for e in errors if e["path"] == "steps[0].result"]
         self.assertTrue(messages)
         self.assertTrue(any("application/json" in m for m in messages))
+
+
+# ---------------------------------------------------------------------------
+# Bounce 1 (#494): a floor relative to the stem, voices checked statically
+# ---------------------------------------------------------------------------
+
+
+class TestRelativeVoicedFloor(unittest.TestCase):
+    """C-F138: an absolute -40 dBFS floor dropped a quiet sung section."""
+
+    def test_a_quiet_section_under_a_loud_one_is_voiced(self):
+        # -20 dBFS and ~-43 dBFS sine sections: the quiet one sat under the
+        # old absolute floor, and is 23 dB under the loud one
+        loud = tone(4.0, amplitude=0.14)
+        quiet = tone(4.0, amplitude=0.01)
+        waveform = numpy.concatenate([quiet, loud, silence(2.0)], axis=1)[0]
+
+        mask, frame, floor = voiced_mask(waveform, 16000)
+
+        quiet_frames = int(4.0 * 16000) // frame
+        self.assertTrue(mask[:quiet_frames].all())
+        self.assertFalse(mask[-(int(2.0 * 16000) // frame) :].any())
+        self.assertLess(floor, -40.0)
+
+    def test_the_floor_follows_the_stem_level(self):
+        loud = numpy.full(100, 0.5)
+        quiet = numpy.full(100, 0.005)
+        self.assertGreater(voiced_floor_dbfs(loud), voiced_floor_dbfs(quiet))
+
+    def test_the_floor_never_drops_below_its_minimum(self):
+        self.assertEqual(voiced_floor_dbfs(numpy.full(100, 1e-7)), -60.0)
+        self.assertEqual(voiced_floor_dbfs(numpy.zeros(0)), -60.0)
+
+    def test_silence_is_never_voiced(self):
+        mask, _, _ = voiced_mask(silence(2.0)[0], 16000)
+        self.assertFalse(mask.any())
+
+
+def _voices_step(voices, **extra):
+    return {
+        "name": "who",
+        "task": {
+            "command": "attribute_voices",
+            "arguments": {"audio": "asset:song.wav", "voices": voices, **extra},
+        },
+        "result": {"content_type": "application/json"},
+    }
+
+
+SPAN = {"start_seconds": 0, "duration_seconds": 4}
+
+
+class TestVoicesErrors(unittest.TestCase):
+    """C-F141: what parse_voices refuses without the audio is refused at
+    validation, at the path the author wrote."""
+
+    def errors(self, *steps, source_indices=None):
+        return voices_errors({"steps": list(steps)}, source_indices)
+
+    def test_a_good_voices_map_is_clean(self):
+        self.assertEqual(self.errors(_voices_step({"a": SPAN, "b": [SPAN]})), [])
+
+    def test_one_voice_is_refused(self):
+        errors = self.errors(_voices_step({"a": SPAN}))
+        self.assertEqual(errors[0]["path"], "steps[0].task.arguments.voices")
+        self.assertIn("at least 2 voices", errors[0]["message"])
+
+    def test_a_bad_name_is_refused(self):
+        errors = self.errors(_voices_step({"1bad": SPAN, "b": SPAN}))
+        self.assertIn("1bad", errors[0]["message"])
+
+    def test_a_short_reference_is_refused_against_the_literal_minimum(self):
+        short = {"start_seconds": 0, "duration_seconds": 2}
+        self.assertTrue(self.errors(_voices_step({"a": short, "b": SPAN})))
+        self.assertEqual(
+            self.errors(_voices_step({"a": short, "b": SPAN}, min_reference_seconds=1)),
+            [],
+        )
+
+    def test_a_span_past_the_end_is_left_to_the_run(self):
+        late = {"start_seconds": 9000, "duration_seconds": 4}
+        self.assertEqual(self.errors(_voices_step({"a": late, "b": SPAN})), [])
+
+    def test_references_are_left_to_the_run(self):
+        self.assertEqual(self.errors(_voices_step("variable:voices")), [])
+        self.assertEqual(
+            self.errors(_voices_step({"a": "asset:a.wav", "b": "asset:b.wav"})), []
+        )
+        held = {"start_seconds": "variable:start", "duration_seconds": 4}
+        self.assertEqual(self.errors(_voices_step({"a": held, "b": SPAN})), [])
+
+    def test_a_member_is_reported_at_its_source_step(self):
+        step = _voices_step({"a": SPAN})
+        step["name"] = "who@verse"
+        errors = self.errors({"name": "x", "task": {}}, step, source_indices=[0, 0])
+        self.assertEqual(errors[0]["path"], "steps[0].task.arguments.voices")
+        self.assertIn("in member 'who@verse'", errors[0]["message"])
+
+    def test_through_validation_errors(self):
+        workflow = Workflow(
+            {"id": "attribute", "steps": [_voices_step({"a": SPAN})]},
+            "outputs",
+            None,
+        )
+        paths = [e["path"] for e in workflow.validation_errors()]
+        self.assertIn("steps[0].task.arguments.voices", paths)
+
+
+class TestVoicePathsAreLocations(unittest.TestCase):
+    """SE-F038: a bare path as a voice is a location like `audio` is, in
+    the posture a server runs on (workflow files untrusted)."""
+
+    def setUp(self):
+        patcher = patch.dict("os.environ", {TRUST_WORKFLOWS_ENV_VAR: "0"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_an_absolute_voice_path_is_refused(self):
+        definition = {
+            "steps": [
+                _voices_step(
+                    {"a": "/usr/share/sounds/alsa/Front_Center.wav", "b": SPAN}
+                )
+            ]
+        }
+        errors = location_errors(definition, [0], base_dir="/tmp/wf")
+        self.assertEqual(
+            [e["path"] for e in errors], ["steps[0].task.arguments.voices.a"]
+        )
+
+    def test_a_traversing_voice_path_is_refused(self):
+        definition = {
+            "steps": [_voices_step({"a": "../../../../../etc/x.wav", "b": SPAN})]
+        }
+        errors = location_errors(definition, [0], base_dir="/tmp/wf")
+        self.assertEqual(
+            [e["path"] for e in errors], ["steps[0].task.arguments.voices.a"]
+        )
+
+    def test_asset_voices_and_spans_are_not_locations(self):
+        definition = {"steps": [_voices_step({"a": "asset:a.wav", "b": SPAN})]}
+        self.assertEqual(location_errors(definition, [0], base_dir="/tmp/wf"), [])
 
 
 if __name__ == "__main__":

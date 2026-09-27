@@ -559,6 +559,15 @@ def _walk(node, path, base_dir, errors):
                     message = _check(item, base_dir, f"'{key}'")
                     if message:
                         errors.append({"path": sub_path, "message": message})
+            if key == "voices" and isinstance(value, dict):
+                # attribute_voices maps a voice's name to its reference, and
+                # a string reference is a clip it reads - the key is the
+                # voice's name, not a media key, so it is checked here or
+                # only when the run reaches it (#494)
+                for name, item in value.items():
+                    message = _check(item, base_dir, f"voice '{name}'")
+                    if message:
+                        errors.append({"path": f"{here}.{name}", "message": message})
             if key == "urls" and isinstance(value, list):
                 for sub_path, item in _each(value, here):
                     message = _check(item, base_dir, f"'{key}'")
