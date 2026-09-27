@@ -110,7 +110,12 @@ RULES = (
         "comparator": ">",
         "threshold": 0.4,
         "severity": "warn",
-        "says": "the shot holds a gap this long, well below the floor a line's own room tone sits at",
+        "says": (
+            "the shot holds a gap this long, well below the floor a line's own room"
+            " tone sits at - cut a room-tone bed from the take with slice_audio, loop"
+            " it to the gap's length with loop_audio, and mix it under the line with"
+            " mix_audio rather than leaving the drop silent"
+        ),
         "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",
     },
     {

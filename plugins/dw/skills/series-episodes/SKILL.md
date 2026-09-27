@@ -98,9 +98,10 @@ composes into, not something to re-derive:
   and a dense, score-heavy one can both sit at -3 dBFS peak and still read
   as very different volumes. `assemble-and-score`'s `target_lufs` variable
   (passed through to `normalize_audio`) gains the mix toward a measured
-  loudness before the ceiling is applied - but gain down always succeeds
-  while gain up can be capped by a single loud peak (a laugh track,
-  a sting), so match episodes **downward**: pick one series `target_lufs`
+  loudness before the ceiling is applied - but gain down succeeds only
+  while the mix's own peak is below the ceiling; a single loud peak (a
+  laugh track, a sting) caps gain up the same way, and can pull a gain-down
+  episode lower still. Match episodes **downward** anyway: pick one series `target_lufs`
   that every episode can reach - in practice, about the quietest episode
   the ceiling holds back - and pass that same value on every episode's
   `assemble-and-score` run. Don't pick the loudest episode's loudness and

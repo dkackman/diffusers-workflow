@@ -1461,8 +1461,8 @@ def normalize_audio(audio, peak_dbfs=-1.0, target_lufs=None, sample_rate=None):
                 emit_warning(
                     f"normalize_audio: target_lufs={target_lufs} would need "
                     f"{target_gain_db:+.1f} dB of gain, but peak_dbfs={peak_dbfs} "
-                    f"caps it at {gain_db:+.1f} dB - "
-                    f"{target_gain_db - gain_db:.1f} LU short of the target.",
+                    f"caps the gain at {gain_db:+.1f} dB - lands "
+                    f"{target_gain_db - gain_db:.1f} LU below the target.",
                     kind="target_lufs_capped",
                     command="normalize_audio",
                     target_lufs=target_lufs,
