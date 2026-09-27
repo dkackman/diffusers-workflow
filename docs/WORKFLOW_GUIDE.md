@@ -1497,10 +1497,12 @@ This is a measurement path, not a catalog template: the catalog's native 768p re
 
 Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
 latents' own size, and within H3's 1344x768 (or portrait 768x1344) canvas. The latents
-pass from `base` to `up` to `decode` entirely in memory - `previous_result:base.latents`
-reaches the dict key a modular step's `output` list adds, alongside `base.audio` and
-`base.sample_rate` for the AudioVideo the same step also returns (the pipeline's own
-output key is `sampling_rate`; it arrives on the AudioVideo as `sample_rate`). The base
+pass from `base` to `up` to `decode` entirely in memory. A `previous_result:` property
+on a modular step names a key of the dict its `output` list returns, spelled as the
+pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` - not
+`sample_rate`, which is what the saved AudioVideo calls it, and which the dict does
+not carry. A property no result carries is an error rather than an empty list, so a
+misspelt one fails the step instead of skipping the mux that reads it. The base
 step carries no `result` at all, so nothing beyond its return value is written -
 upscaling only makes sense for a take chosen from something already reviewed, so the
 544p pass that produced it is not itself a deliverable here.
@@ -1690,7 +1692,7 @@ this task can still stall mid-run pulling the upscaler.
                 "arguments": {
                     "video": "previous_result:decode",
                     "audio": "previous_result:base.audio",
-                    "sample_rate": "previous_result:base.sample_rate",
+                    "sample_rate": "previous_result:base.sampling_rate",
                     "fit": "video"
                 }
             },

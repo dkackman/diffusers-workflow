@@ -118,6 +118,28 @@ def _network_dtype(device):
     return torch.float32 if torch.device(device).type == "cpu" else torch.bfloat16
 
 
+def _check_upscaler_source(model_name, weight_name):
+    """Refuse an upscaler source that is not a Hub repo and a safetensors file in it.
+
+    hf_hub_download takes a repo id and a file inside it, and the weights are
+    read with safetensors, so anything else - a local path, a name climbing
+    out of the repo, a pickle format - is refused rather than handed on.
+    """
+    from huggingface_hub.utils import HFValidationError, validate_repo_id
+
+    from ..locations import SAFETENSORS_SUFFIX, validate_weight_name
+    from ..security import InvalidInputError
+
+    try:
+        validate_repo_id(str(model_name))
+    except HFValidationError:
+        raise InvalidInputError(
+            f"Refusing a model_name of '{model_name}': upscale_h3_latents "
+            f"downloads its weights, so it takes a Hugging Face repo id."
+        ) from None
+    validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,))
+
+
 def _load_upscaler(device, model_name, weight_name):
     from huggingface_hub import hf_hub_download
 
@@ -172,6 +194,9 @@ def upscale_h3_latents(
     size, (scale_h, scale_w) = target_latent_size(latents, width, height)
     model_name = model_name or DEFAULT_UPSCALER_REPO
     weight_name = weight_name or DEFAULT_UPSCALER_WEIGHTS
+    # Before anything downloads: a value arriving through a variable or an
+    # earlier step was never in the document validation checked
+    _check_upscaler_source(model_name, weight_name)
 
     net = _load_upscaler(device, model_name, weight_name)
     # Upstream conditions the network on the mean of the two spatial scales

@@ -673,6 +673,8 @@ class Result:
             if isinstance(result, Mapping):
                 if property_name in result:
                     values.append(result[property_name])
+                else:
+                    missing = missing or result
                 continue
 
             value = getattr(result, property_name, _NO_PROPERTY)
@@ -683,11 +685,18 @@ class Result:
                 continue
             values.append(value)
 
-        # A modular step asked for several outputs returns the muxed video and a
-        # dict of the rest side by side (modular_artifacts), so 'base.latents'
-        # names the dict's key and nothing on the video. Only when no artifact
-        # carries the property is the missing one an error (#499)
+        # Only when no result carries the property is the missing one an error
+        # (#499). An empty list is not "nothing to do": the step reading it gets
+        # zero iterations and succeeds having written nothing - a modular step's
+        # raw output dict holds 'sampling_rate', and asking it for 'sample_rate'
+        # silently skipped the mux that depended on it
         if missing is not None and not values:
+            if isinstance(missing, Mapping):
+                keys = ", ".join(sorted(str(key) for key in missing)) or "none"
+                raise ValueError(
+                    f"result has no property '{property_name}' "
+                    f"(it is a dict with keys: {keys})"
+                )
             raise ValueError(
                 f"result has no property '{property_name}' "
                 f"(it is a {type(missing).__name__}, not a dict)"
