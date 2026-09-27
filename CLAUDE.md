@@ -607,8 +607,12 @@ same reason - default setup cannot load a pack.
   (thumbnails only, never the full frame list, so a long cut is cheap) and
   answer a JSON dict of measurements plus `findings`, the ones that crossed a
   threshold in `dw/assessment_rules.py`'s table; nothing in the engine acts
-  on a finding. These are the `returns: "json"` task kind, listed separately
-  in `list_tasks`' `assessment` (probes stay in `commands` too), and a step
+  on a finding. Membership is the declared `assessment=True` flag on
+  `register_command`, not the `returns: "json"` task kind by itself:
+  `attribute_voices` (`dw/tasks/voice_attribution.py`) answers JSON too but
+  is an analysis of a song, not a check of a cut, so it is not a probe.
+  The three probes are listed separately in `list_tasks`' `assessment`
+  (they stay in `commands` too), and a step
   on one must save `"result": {"content_type": "application/json"}` -
   anything else fails validation. Shot boundaries resolve in order: the step's `shots` argument,
   the video's own carried shots, the run manifest beside the file, else the

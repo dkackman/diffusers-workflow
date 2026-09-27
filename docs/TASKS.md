@@ -902,7 +902,11 @@ sample rate, reads as `null` rather than `-inf`.
 ## Assessment Probes
 
 Three read-only commands measure a finished cut and say where to look -
-`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each takes a video
+`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each is registered
+with `assessment=True` (`register_command`, `dw/tasks/task.py`), which is
+what makes a command a probe - not merely answering JSON, since
+[`attribute_voices`](#voice-attribution) answers JSON too and is not one.
+Each takes a video
 (a stored file - `asset:`, `output:` or a path, read straight from disk
 rather than decoded first - or the video an earlier step returned; not a
 URL, whose download is a bare frame list with no soundtrack) and answers one JSON
@@ -1030,7 +1034,84 @@ written is left to the finding.
 
 `list_tasks` names the probes in their own `assessment` list, alongside
 `commands`, so a caller looking for a way to check a cut can find them
-without reading every command's schema.
+without reading every command's schema. The list is exactly the commands
+declared `assessment=True`; `attribute_voices` stays in `commands` only,
+since it analyzes a song rather than checking a cut.
+
+## Voice attribution
+
+Which reference voice sings each line of a song, by timbre - staging
+lip-sync shots for a generated song needs its section-to-singer map, and a
+generation model (MiniMax Music3 included) does not hand one back. Pitch
+cannot stand in for it: a tenor and a mezzo share a range, and a pitch
+heuristic has called a tenor female.
+
+`attribute_voices` separates the vocal stem (htdemucs), reduces every line
+and every voice's reference to its voiced frames, embeds each with
+speechbrain's ECAPA speaker encoder (`spkrec-ecapa-voxceleb`), scores every
+line against every voice by cosine, and rolls lines up into named windows
+(shots, say) by the voiced seconds they overlap. It decides nothing: the
+argmax is always reported, alongside the margin and how much of the line was
+voiced, so a weak answer is visible as weak rather than silently accepted.
+
+```json
+{
+    "task": {
+        "command": "attribute_voices",
+        "arguments": {
+            "audio": "asset:song.mp3",
+            "voices": {
+                "lena": [{"start_seconds": 4.0, "duration_seconds": 6.0}],
+                "marcus": [{"start_seconds": 32.0, "duration_seconds": 6.0}]
+            },
+            "windows": [
+                {"name": "shot-1", "start": 0.0, "end": 12.0},
+                {"name": "shot-2", "start": 12.0, "end": 24.0},
+                {"name": "shot-3", "start": 24.0, "end": 40.0}
+            ]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The song - a path, `asset:`/`output:` reference, or an earlier step's audio or video |
+| `voices` | Yes | Each voice's name mapped to its reference: a list of `{start_seconds, duration_seconds}` (or `{start, end}`) spans into `audio`, or a path/`asset:` of a separate clip. At least 2 voices; names follow the variable-name pattern; each voice's reference must total at least `min_reference_seconds` |
+| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. Omitted: the song is cut into fixed windows of `window_seconds` |
+| `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
+| `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
+| `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
+| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
+| `device` | No | Where the models run |
+
+The result: `voices` (the names), `separated`, `duration_seconds`, `lines[]`
+(`start`, `end`, `text`, `scores`, `voice`, `margin`, `voiced_seconds`,
+`uncertain`, `reason`), `windows[]` (`name`, `start`, `end`, `voiced_seconds`,
+`share`, `voice`, `uncertain`, `reason`), `reference_similarity` (pairwise
+cosine between the voices' references), `warnings` and the `thresholds`
+compared against:
+
+| Threshold | Value | What crossing it does |
+| --------- | ----- | ---------------------- |
+| `voiced_floor_dbfs` | -40.0 dBFS | A 20 ms frame of the (separated) vocal stem at or above this rms is voiced |
+| `min_voiced_seconds` | 0.5 s | A line or window under this much voiced time has no voice - `voice: null`, `uncertain: true` |
+| `uncertain_margin` | 0.05 | A line whose best score beats the runner-up by less than this is `uncertain` - the argmax is still reported |
+| `uncertain_share_margin` | 0.2 | A window whose leading voice's share beats the runner-up's by less than this is `uncertain` - a duet line, or a window straddling a hand-over |
+| `voices_too_similar` | 0.8 | Two references scoring above this against each other make every line between them a weak answer whatever its scores say |
+
+A `voices_too_similar` pair is reported in `reference_similarity`, added to
+`warnings`, and emitted onto the job's warnings (`voices_too_similar`) -
+picking better-separated reference spans is the fix, not reading past it.
+
+Both models are fixed - there is no model-name argument - and both run in
+fp32 (their STFT front ends are fp32-only in practice, and both are small
+enough that it costs nothing). Weights download on first use - htdemucs from
+Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
+and are cached between calls like any other model. On MPS a `separate: true`
+run that fails in htdemucs falls back to the CPU and warns
+(`separation_cpu_fallback`) rather than failing the step.
 
 ## Data Gathering
 

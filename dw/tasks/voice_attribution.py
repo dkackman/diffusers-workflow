@@ -30,7 +30,7 @@ import numpy
 import torch
 
 from ..events import emit_warning
-from ..security import validate_variable_name
+from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
 from .audio_utils import _waveform_and_rate, load_audio, resample_waveform
 from .model_cache import cached_model
@@ -169,7 +169,7 @@ def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     for name, reference in voices.items():
         try:
             validate_variable_name(name)
-        except ValueError as error:
+        except InvalidInputError as error:
             raise ValueError(
                 f"{COMMAND}: voice name {name!r} is not allowed - letters, "
                 f"digits, '_' and '-', starting with a letter or '_' ({error})"

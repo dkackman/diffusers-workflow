@@ -934,8 +934,8 @@ Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `
 A task command's implementation declares what it hands back - most answer an
 `artifact` (a file `result` saves in one of the media content types above),
 some (`judge`) answer a bare `scalar` that cannot be saved at all, and some
-(the assessment probes in [TASKS.md](TASKS.md)) answer a `json` document -
-every measurement taken, in one dict. A step on a `json` command must set
+(the assessment probes in [TASKS.md](TASKS.md), and `attribute_voices`) answer
+a `json` document - every measurement taken, in one dict. A step on a `json` command must set
 `content_type` to `application/json`, which saves it as one document; a step on a `scalar` command
 may not carry a `result` at all. Both are checked in validation, by the
 command's own declared kind rather than a name match.
