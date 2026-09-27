@@ -292,11 +292,11 @@ class TestModelName:
     def test_an_absolute_path_outside_every_root_is_refused(
         self, untrusted, workflow_dir
     ):
-        with pytest.raises(PathTraversalError):
+        with pytest.raises(PathTraversalError, match="Repo id must be in the form"):
             validate_model_name("/etc/passwd", workflow_dir)
 
     def test_a_traversal_shaped_name_is_refused(self, untrusted, workflow_dir):
-        with pytest.raises(PathTraversalError):
+        with pytest.raises(PathTraversalError, match="Repo id must be in the form"):
             validate_model_name("org/name/../../x", workflow_dir)
 
     def test_a_local_model_directory_inside_a_root_is_allowed(
