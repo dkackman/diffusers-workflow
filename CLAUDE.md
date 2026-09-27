@@ -540,10 +540,12 @@ same reason - default setup cannot load a pack.
   track going into the mux, not the slices that condition the shots, so the
   picture is unchanged; `music`'s deliverable is its `balanced` step.
   `normalize_audio(limit=true)` reaches a `target_lufs` a transient would
-  otherwise cap: the target's gain in full under a true-peak (4x) look-ahead
-  limiter holding `peak_dbfs` (`_normalize_limited`, constants
-  `LIMITER_*`), stopping at 12 dB of reduction - past it the gain drops and
-  `target_lufs_capped` carries `limited: true`, past 6 dB `limiter_heavy`
+  otherwise cap: a true-peak (4x) look-ahead limiter holds `peak_dbfs`
+  (`_normalize_limited`, constants `LIMITER_*`) while the gain is searched
+  for (`_search_gain`) until the limited track lands within 0.1 LU of the
+  target - one correction pass left dense material 2 LU short. It stops at
+  12 dB of reduction; a track left short of the target, at the cap or not,
+  warns `target_lufs_capped` with `limited: true`, past 6 dB `limiter_heavy`
   warns, and the log's `constraint` is `"limiter"`. `compress_audio`'s
   `limit` mode is sample-peak with no look-ahead, so it is not a ceiling
 - **A deliverable is measured as written, not as handed to the writer** —
