@@ -158,6 +158,7 @@ from .netinfo import local_addresses
 from .updater import DiffusersUpdater
 from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
+from ..vram_inheritance import build_index
 from . import guides
 from .guides import GuideError
 from .. import settings
@@ -1035,6 +1036,36 @@ def create_app(
         first, then the same read-only roots every workspace shares."""
         return workflow_sources(ws.workflows, examples_dirs)
 
+    # One index per distinct listing - keyed by every file's path and mtime,
+    # so an edited, added or removed template rebuilds it and nothing else does
+    ceiling_indexes = {}
+
+    def _ceiling_index(ws):
+        """The catalog's VRAM ceilings by pipeline identity, as this
+        workspace's search path lists them (`dw/vram_inheritance.py`, #502).
+        A file that cannot be read contributes nothing."""
+        paths = []
+        for name, source in sorted(listing(_sources_for(ws)).items()):
+            path = os.path.join(source.root, f"{name}.json")
+            try:
+                paths.append((name, path, os.path.getmtime(path)))
+            except OSError:
+                continue
+        signature = tuple(paths)
+        cached = ceiling_indexes.get(ws.name)
+        if cached and cached[0] == signature:
+            return cached[1]
+        catalog = []
+        for name, path, _ in paths:
+            try:
+                with open(path, "r") as file:
+                    catalog.append((name, json.load(file)))
+            except (OSError, ValueError):
+                continue
+        index = build_index(catalog)
+        ceiling_indexes[ws.name] = (signature, index)
+        return index
+
     # ------------------------------------------------------------------ jobs
 
     def _acknowledgement_form(value):
@@ -1219,6 +1250,11 @@ def create_app(
                     request.acknowledged_cost.model_dump()
                     if form == ACK_BOUND
                     else None
+                ),
+                # A ceiling inherited from the catalog warns and never
+                # refuses, so it rides on the job the caller got (#502)
+                warnings=candidate.inherited_vram_warnings(
+                    request.arguments, _ceiling_index(workspace)
                 ),
             )
         except HTTPException:
@@ -1609,8 +1645,10 @@ def create_app(
     def get_guide(name: str, section: Optional[str] = None):
         """One guide from /api/guides, whole or one section of it. A
         section name is matched loosely - case and punctuation dropped -
-        so a heading copied approximately still resolves. An unknown name
-        or section is a 404 whose detail lists what exists."""
+        so a heading copied approximately still resolves, and also reaches
+        a `###` subsection not listed at the top level, by its own heading
+        or by a term inside it. An unknown name or section is a 404 whose
+        detail lists what exists."""
         try:
             return guides.get_guide(name, section=section)
         except GuideError as e:
@@ -1619,8 +1657,8 @@ def create_app(
     def _argument_reference_errors(definition, arguments, ws):
         """The 'asset:', 'prompt:' and 'output:' references that name nothing
         this workspace can reach, in the values a run would actually use -
-        the caller's `arguments`, plus every declared `variables` default
-        the caller did not override.
+        the caller's `arguments`, every declared `variables` default the
+        caller did not override, and the literals written into the steps.
 
         A stored default is exactly as much a promise as a caller's value:
         `validate_workflow(name="templates/ltx2/reference-sheet")` with no
@@ -1686,6 +1724,14 @@ def create_app(
                     effective.append((f"variables.{name}", value))
         for name, value in supplied.items():
             effective.append((f"arguments.{name}", value))
+        # A reference written straight into a step is as much a promise as
+        # one in a variable: `asset:cast/no-such-voice.wav` as a literal
+        # attribute_voices voice validated clean and died on the step
+        # (#494). Walked as written, so the path is the author's
+        steps = definition.get("steps") if isinstance(definition, dict) else None
+        if isinstance(steps, list):
+            for index, step in enumerate(steps):
+                effective.append((f"steps[{index}]", step))
 
         errors = []
         for base_path, value in effective:
@@ -1897,7 +1943,14 @@ def create_app(
             # statically-knowable video's real frame count - silently
             # clipped rather than refused, but previously said only by the
             # run itself (#425)
-            + candidate.shot_span_warnings(request.arguments),
+            + candidate.shot_span_warnings(request.arguments)
+            # A step loading a pipeline the catalog declares a VRAM ceiling
+            # for, in a workflow that declares none, projected past it - a
+            # warning, since this workflow's offload/quantization may be
+            # leaner than the template's (#502)
+            + candidate.inherited_vram_warnings(
+                request.arguments, _ceiling_index(workspace)
+            ),
         }
         if request.arguments:
             # Naming what was checked is the difference between 'the stored
@@ -2229,6 +2282,7 @@ def create_app(
             )
         return {
             "name": name,
+            "workspace": ws.name,
             "path": path,
             "warnings": warnings,
             "shape": metadata["shape"],
@@ -2259,7 +2313,12 @@ def create_app(
         # deletes and recreates the same workflow, would inherit the deleted
         # copy's observed figures and host-memory history
         manager.history.orphan_workflow_history(ws.name, name)
-        return {"name": name, "deleted": True}
+        return {
+            "name": name,
+            "workspace": ws.name,
+            "origin": source.origin,
+            "deleted": True,
+        }
 
     @app.get("/api/workflows/{name:path}/download")
     @query_token_ok
@@ -3861,6 +3920,7 @@ def create_app(
             path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
             result = {
                 "path": f"asset:{UPLOADS_SUBDIR}/{name}",
+                "workspace": ws.name,
                 "url": _served_url(path, ws),
                 "shared": shared,
             }
@@ -3871,6 +3931,7 @@ def create_app(
         path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
         result = {
             "path": dest,
+            "workspace": ws.name,
             "url": _served_url(path, ws),
         }
         absolute_url = _absolute_served_url(path, ws)
@@ -4167,7 +4228,13 @@ def create_app(
             os.remove(path)
             logger.info(f"Deleted asset:{relative} ({path})")
             forget_workspace_usage()
-            return {"name": relative, "deleted": True, "origin": origin}
+            return {
+                "name": relative,
+                "workspace": ws.name,
+                "reference": f"asset:{relative}",
+                "deleted": True,
+                "origin": origin,
+            }
 
         raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
 

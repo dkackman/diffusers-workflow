@@ -257,6 +257,58 @@ class TestResult:
             assert os.path.exists(output_file)
 
 
+class TestTranscribeAudioTimestampsAtSave:
+    """#498: static validation (test_scalar_result_validation.py) catches a
+    literal `timestamps` against the wrong content_type before the queue, but
+    a `timestamps` reached through a `variable:` is literal only at run time -
+    this is the real save_artifact path a transcribe_audio 'chunks' list (a
+    list, under content_type text/plain) reaches, which used to die with a
+    bare `write() argument must be str, not list` TypeError."""
+
+    def test_a_list_under_text_content_type_names_the_cause(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "text/plain", "save": True})
+            result.add_result({"text": "hello world", "chunks": [{"start": 0.0}]})
+
+            with pytest.raises(ValueError) as excinfo:
+                result.save(temp_dir, "transcript")
+
+            message = str(excinfo.value)
+            assert "application/json" in message
+            assert "transcribe_audio" in message
+            assert not os.path.exists(
+                os.path.join(temp_dir, "transcript-0.0-chunks.txt")
+            )
+
+    def test_the_text_half_alone_still_saves(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "text/plain", "save": True})
+            result.add_result("plain transcript")
+
+            result.save(temp_dir, "transcript")
+
+            output_file = os.path.join(temp_dir, "transcript-0.0.txt")
+            assert os.path.exists(output_file)
+            with open(output_file) as file:
+                assert file.read() == "plain transcript"
+
+    def test_the_same_dict_under_application_json_is_fine(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = Result({"content_type": "application/json", "save": True})
+            result.add_result({"text": "hello world", "chunks": [{"start": 0.0}]})
+
+            result.save(temp_dir, "transcript")
+
+            # A JSON content_type is handled by save() itself, ahead of
+            # save_artifact's own dict recursion - the whole {text, chunks}
+            # document is written to one file, not exploded key by key
+            output_file = os.path.join(temp_dir, "transcript-0.json")
+            assert os.path.exists(output_file)
+            with open(output_file) as file:
+                saved = json.load(file)
+            assert saved == {"text": "hello world", "chunks": [{"start": 0.0}]}
+
+
 @dataclass
 class _LatentOutput:
     """The shape LTX2PipelineOutput has when output_type is 'latent': two
@@ -508,6 +560,45 @@ class TestModularOutputs:
         export.assert_not_called()
         assert encode.call_args.kwargs["audio_sample_rate"] == 16000
         assert encode.call_args.kwargs["audio"].shape == (2, 100)
+
+    def test_latents_leftover_beside_video_is_skipped_not_crashed(self, monkeypatch):
+        # #507: a modular step asked for output: [..., "latents"] alongside
+        # video/audio put the raw latents tensor through export_to_video,
+        # which does not accept one - "append_data requires ndarray" deep in
+        # the exporter, after the run's only generation was already made.
+        # The tensor has no media rendering under this step's content_type,
+        # so it is skipped rather than crashing the whole save.
+        import dw.result as result_module
+
+        warnings = []
+        monkeypatch.setattr(
+            result_module,
+            "emit_warning",
+            lambda message, **data: warnings.append((message, data)),
+        )
+        outputs = {
+            "videos": [["frame"] * 1000],
+            "audio": torch.zeros((1, 2, 100)),
+            "sampling_rate": 16000,
+            "latents": torch.zeros((1, 24, 8, 16, 16)),
+        }
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(outputs)
+
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+            tempfile.TemporaryDirectory() as temp_dir,
+        ):
+            saved = result.save(temp_dir, "test")
+
+        export.assert_not_called()
+        assert len(saved) == 1
+        assert warnings and warnings[0][1]["kind"] == "non_media_artifact_skipped"
+        assert warnings[0][1]["key"] == "latents"
+        # Still reachable in memory by name, unaffected by the save skip
+        assert result.get_artifact_properties("latents")[0].shape == (1, 24, 8, 16, 16)
 
     def test_outputs_are_still_available_by_name(self):
         # The outputs stay a dictionary, so a later step can reference one of them

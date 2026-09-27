@@ -80,6 +80,11 @@ GUIDES = {
 # better reached by reading the section they sit in
 SECTION_PATTERN = re.compile(r"^## (.+)$", re.M)
 
+# Not indexed (see above), but `section=` still has to reach one: a `###`
+# subsection is real content a caller can name exactly, and refusing that
+# because it isn't in the listing is the gap #503 reported.
+SUBSECTION_PATTERN = re.compile(r"^### (.+)$", re.M)
+
 # A doc's link to an example is a repo-relative path, which resolves for a
 # reader with a checkout and dead-ends for the one these guides are served
 # to: an agent holding the MCP and nothing else. Said once, on a payload
@@ -168,6 +173,41 @@ def _extract_section(text, section):
     return None
 
 
+def _extract_subsection(text, section):
+    """One `###` subsection's text, heading included, plus the `##` section
+    it sits under - or None if no subsection matches.
+
+    Matched on containment rather than equality (unlike `_extract_section`):
+    a subsection heading is usually a full sentence ("One step per entry:
+    for_each"), and the term a caller actually has in hand is the concept
+    inside it ("for_each"), not the sentence.
+    """
+    wanted = _normalized(section)
+    if not wanted:
+        return None
+    section_matches = list(SECTION_PATTERN.finditer(text))
+    for index, section_match in enumerate(section_matches):
+        section_end = (
+            section_matches[index + 1].start()
+            if index + 1 < len(section_matches)
+            else len(text)
+        )
+        section_text = text[section_match.start() : section_end]
+        sub_matches = list(SUBSECTION_PATTERN.finditer(section_text))
+        for sub_index, sub_match in enumerate(sub_matches):
+            normalized_heading = _normalized(sub_match.group(1))
+            if wanted != normalized_heading and wanted not in normalized_heading:
+                continue
+            sub_end = (
+                sub_matches[sub_index + 1].start()
+                if sub_index + 1 < len(sub_matches)
+                else len(section_text)
+            )
+            content = section_text[sub_match.start() : sub_end].rstrip() + "\n"
+            return sub_match.group(1), content, section_match.group(1)
+    return None
+
+
 def _noted(body):
     """The payload, with the repo-path rule attached when it holds one.
 
@@ -210,13 +250,26 @@ def get_guide(name, section=None):
         return _noted(_index(name, text))
 
     found = _extract_section(text, section)
-    if found is None:
-        raise GuideError(
-            f"The '{name}' guide has no section '{section}'. Its sections are: "
-            f"{', '.join(_sections(text))}."
+    if found is not None:
+        heading, content = found
+        return _noted({"name": name, "section": heading, "content": content})
+
+    sub_found = _extract_subsection(text, section)
+    if sub_found is not None:
+        heading, content, parent = sub_found
+        return _noted(
+            {
+                "name": name,
+                "section": heading,
+                "parent_section": parent,
+                "content": content,
+            }
         )
-    heading, content = found
-    return _noted({"name": name, "section": heading, "content": content})
+
+    raise GuideError(
+        f"The '{name}' guide has no section '{section}'. Its sections are: "
+        f"{', '.join(_sections(text))}."
+    )
 
 
 def _index(name, text):

@@ -25,6 +25,41 @@ logger = logging.getLogger("dw")
 LENGTH_WARN_MS = 100.0
 
 
+def _one_video(frames):
+    """The frames of one video, unwrapping a batch of one.
+
+    A pipeline's `videos` output is batched - one entry per generation - and
+    a modular step hands that batch on as it is, so
+    `previous_result:base.videos` arrives as a list holding one frame list (or
+    a 5-D array). Passed through, the encoder took the batch for a frame list
+    and failed at save (#499); the waveform beside it already had its batch of
+    one unwrapped by `as_channels_samples`. A batch of several is refused
+    rather than guessed at: which generation the track belongs under is not
+    this function's to pick.
+    """
+    ndim = getattr(frames, "ndim", None)
+    if ndim == 5:
+        count = frames.shape[0]
+    elif (
+        isinstance(frames, (list, tuple))
+        and frames
+        and (
+            isinstance(frames[0], (list, tuple))
+            or getattr(frames[0], "ndim", None) == 4
+        )
+    ):
+        count = len(frames)
+    else:
+        return frames
+    if count != 1:
+        raise ValueError(
+            f"pair_audio: 'video' is a batch of {count} videos, and one track "
+            f"goes under one video. Generate one video per step, or pair each "
+            f"from its own step"
+        )
+    return frames[0]
+
+
 class _Loaded:
     """A waveform read from a file, shaped like the artifact pair_audio expects."""
 
@@ -178,7 +213,8 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     """Pair a video's frames with an audio track.
 
     Args:
-        video: The frames - a frame list, a frame array or tensor, or an
+        video: The frames - a frame list, a frame array or tensor (or a
+            pipeline's batch of one of those, unwrapped), or an
             AudioVideo whose own soundtrack is replaced by this one; the
             frames' own rate is carried through to the output, so set
             `result.fps` only to override it (a loaded file brings its rate
@@ -249,7 +285,7 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     # Frames are left in whatever shape they arrived in - the result saves a frame
     # list, an array and a tensor alike, and converting a long video here would
     # cost a copy of the whole thing for nothing
-    frames = video.frames if isinstance(video, AudioVideo) else video
+    frames = _one_video(video.frames if isinstance(video, AudioVideo) else video)
     frame_rate = fps if fps is not None else getattr(video, "fps", None)
     logger.debug(f"Pairing frames with audio at {rate} Hz")
     waveform = _fit_to_video(

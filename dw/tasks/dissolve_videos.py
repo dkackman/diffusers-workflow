@@ -30,7 +30,12 @@ from .audio_utils import (
     warn_on_level_spread,
 )
 from .concat_videos import video_names
-from .video_utils import check_same_frame_size, frames_as_array, load_audio_video
+from .video_utils import (
+    check_same_frame_size,
+    frames_as_array,
+    is_video_location,
+    load_audio_video,
+)
 
 logger = logging.getLogger("dw")
 
@@ -50,9 +55,15 @@ def dissolve_videos(
 
     Args:
         videos: The videos to join, in order - frame lists, frame arrays,
-            AudioVideos, or the path or URL of a video file. Give each video
-            its own entry, as with concat_videos. Soundtracks at different
-            sample rates are not a constraint - see `sample_rate` below
+            AudioVideos, the path or URL of a video file, or a
+            {"location": ...} dict wrapping either (#510). Give each video
+            its own entry, as with concat_videos. Every video must be the
+            same frame size - unlike a sample-rate mismatch, there is no
+            reconciliation for a size mismatch, so a statically-resolvable
+            (asset:/output:/literal path) size disagreement is refused at
+            validate; one only known at run time still fails there (#504).
+            Soundtracks at different sample rates are not a constraint - see
+            `sample_rate` below
         dissolve_frames: Frames of overlap at each seam. 0 is a hard cut
         fade_in_frames: Frames over which the first video rises out of
             `fade_color`
@@ -88,7 +99,7 @@ def dissolve_videos(
     if dissolve_frames < 0 or fade_in_frames < 0 or fade_out_frames < 0:
         raise ValueError("dissolve_videos frame counts cannot be negative")
 
-    loaded = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
+    loaded = [load_audio_video(v) if is_video_location(v) else v for v in videos]
     clips = [frames_as_array(v).astype(numpy.float32) for v in loaded]
     check_same_frame_size(clips, "dissolve_videos")
 

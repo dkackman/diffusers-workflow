@@ -100,6 +100,14 @@ model first (Z-Image drawing a subject, Music3 writing a song) must free it with
 `release_pipeline` before H3 loads - with it, the multi-model digital-short
 workflows below fit; without it, the load is an OOM kill, not a slowdown.
 
+Ref2VA reaches 1344x768 too - the canvas isn't tied to the FL2VA 768p checkpoint, only
+the shift/alpha pairing is (above). The trade-off is frame count, not a config change:
+VAE decode memory scales with `width * height * num_frames`, so the same 24GB budget
+that holds 345 frames at 960x544 only holds 209 at 1344x768 with 2 references, and each
+reference costs about 1 GB more (175 at 3) - 175 frames with 2 references measured at
+~31 minutes on a 3090. Give up length, or a reference, before reaching for a smaller canvas;
+the model's `17n+5` ceiling (345) is reachable at 960x544, not at 1344x768.
+
 **Examples:** [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), [chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json), [image-to-video.json](../workflows/templates/minimax/image-to-video.json), [dialogue-short.json](../workflows/templates/minimax/dialogue-short.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
 ## MiniMax-Music3

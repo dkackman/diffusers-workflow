@@ -47,6 +47,14 @@ remaining deferred fix is recorded in
 - **Closing the xfail security tests** (#407, stages #409-#413), shipped
   2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
   Playwright in CI): `complete/xfail-security-tests-complete.md`.
+- **`attribute_voices`, which reference singer sings each line** (#485,
+  stages #494-#495), shipped 2026-09-27. Record, including what was
+  deferred (template wiring, demucs weights in `downloads_required`):
+  `complete/attribute-voices-complete.md`.
+- **H3 Ref2VA VRAM ceiling: references, `for_each` members, hand-built
+  workflows** (#479, stages #501-#502), shipped 2026-09-27. Record, including
+  what was deferred (the host-memory half, measured calibration):
+  `complete/h3-vram-ceiling-references-complete.md`.
 
 ## Declined
 

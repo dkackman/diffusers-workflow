@@ -11,6 +11,7 @@ workflow carries and the path means nothing on the machine the agent is on.
 
 import base64
 import os
+from urllib.parse import urlsplit
 
 from dw_mcp.client import DwApiError, api_path
 
@@ -58,6 +59,14 @@ def _remote_roots(client):
     file read plus a path-existence oracle (#138). A stdio `dw-mcp` returns
     None and keeps reading whatever the user can, because there "local file"
     is genuinely their own.
+
+    `/api/server`'s `directories` names only the four workspace-scoped
+    folders plus the shared prompt library, not the shared asset library
+    ('common/assets') every workspace's own asset search path already
+    includes - that one is only visible via `/api/assets`'s `libraries`
+    (#448). A writable library there (the workspace's own, already covered
+    above, and the shared one) is as legal a source as the four directories;
+    a read-only examples library is not, so it is left out.
     """
     if not getattr(client, "mounted", False):
         return None
@@ -73,6 +82,23 @@ def _remote_roots(client):
         )
         if resolved not in roots:
             roots.append(resolved)
+
+    try:
+        libraries = client.get_json("/api/assets").get("libraries") or []
+    except DwApiError:
+        libraries = []
+    for library in libraries:
+        if not isinstance(library, dict) or not library.get("writable"):
+            continue
+        value = library.get("dir")
+        if not value:
+            continue
+        resolved = os.path.normpath(
+            os.path.realpath(os.path.abspath(os.path.expanduser(str(value))))
+        )
+        if resolved not in roots:
+            roots.append(resolved)
+
     if not roots:
         raise DwApiError(
             "This server cannot say which directories it works in, so it "
@@ -84,7 +110,58 @@ def _remote_roots(client):
     return roots
 
 
-def _confine_source(path, roots, named):
+# Hosts a URL cannot be handed to another machine with: each one names
+# whichever machine reads it. A `dw.serve --mcp` endpoint reaches its own
+# server at 127.0.0.1 (dw/server/mcp_mount.py's client_base_url), which is
+# exactly the address that is wrong for the remote caller an upload refusal
+# is written for (#481)
+LOCAL_ONLY_HOSTS = frozenset(("localhost", "::1", "0.0.0.0", "::"))
+
+
+def _upload_origin(client):
+    """The origin to print in a curl command meant for the caller's machine:
+    the client's own base URL when another machine can use it, else the
+    same URL with `<host>` in place of the loopback address."""
+    parsed = urlsplit(client.base_url)
+    host = (parsed.hostname or "").lower()
+    if host and host not in LOCAL_ONLY_HOSTS and not host.startswith("127."):
+        return client.base_url.rstrip("/")
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme or 'http'}://<host>{port}"
+
+
+def _upload_route_hint(client, workspace=None):
+    """The `POST /api/uploads` curl command both upload_asset refusals end
+    in - the one route that takes a file no MCP call can carry (#481). The
+    workspace is filled from the call or the session, since an upload to the
+    wrong one yields an 'asset:' reference that resolves to nothing where
+    the caller is working."""
+    origin = _upload_origin(client)
+    ws = workspace or client.workspace
+    text = (
+        f"curl the bytes straight to the upload route dw.serve exposes for "
+        f"this - the one the web UI's file picker uses, up to "
+        f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB, the body the raw file rather than JSON: "
+        f'curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary '
+        f'@<file> "{origin}/api/uploads?filename=<name>'
+        f'&asset_name=<folder/name>&workspace={ws}" (the bearer token only '
+        f"when the server requires one). "
+    )
+    if "<host>" in origin:
+        text += (
+            "<host> is this server's address as your machine reaches it - "
+            "the host of the MCP endpoint you are connected to - not "
+            "127.0.0.1, which on your machine is your machine. "
+        )
+    return text + (
+        "It answers 201 with 'path', the 'asset:' reference to use in a "
+        "workflow argument; the guide's References section "
+        '(get_guide("workflows", section="Authoring a workflow from an '
+        'agent")) has the same command.'
+    )
+
+
+def _confine_source(path, roots, named, client, workspace=None):
     """Refuse a source outside `roots`, before anything looks at the file.
 
     Ordered ahead of the existence and extension checks on purpose: a
@@ -108,9 +185,9 @@ def _confine_source(path, roots, named):
         f"({', '.join(roots)}). A file that is already there is reachable "
         f"as an 'asset:' reference; to put a new one there when it exists "
         f"only on your own machine, call upload_asset with content= (its "
-        f"bytes, base64-encoded) instead of file_path, upload it through "
-        f"the web UI's file picker, or promote a generated file with "
-        f"keep_output."
+        f"bytes, base64-encoded, capped at {MAX_INLINE_UPLOAD_BYTES} bytes) "
+        f"instead of file_path, or {_upload_route_hint(client, workspace)} "
+        f"Or promote a generated file with keep_output."
     )
 
 
@@ -127,9 +204,13 @@ def _summarised_asset_entries(entries):
     ]
 
 
-def list_assets(client, detail=False):
+def list_assets(client, detail=False, workspace=None):
     """The input media on the server, each with the 'asset:' reference a
     workflow argument carries.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - the same selector `run_workflow` and the output
+    tools take.
 
     Spans the whole search path: each entry's 'origin' says whether it is
     this workspace's own ('workspace'), the library every workspace shares
@@ -147,7 +228,7 @@ def list_assets(client, detail=False):
     under what name" (#249). Pass `detail=True` for each entry's `folder`,
     `mtime` and `url` too.
     """
-    result = client.get_json("/api/assets")
+    result = client.get_json("/api/assets", workspace=workspace)
     if detail:
         return result
     assets = result.get("assets")
@@ -167,14 +248,18 @@ def list_assets(client, detail=False):
     }
 
 
-def delete_asset(client, name):
+def delete_asset(client, name, workspace=None):
     """Remove one file from the asset library.
 
     Deletes from whichever library holds it - the workspace's own before
     the shared one, the order 'asset:' resolves in. An asset from a
     read-only examples library answers 403.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - without it a delete follows the session's shared
+    pin, which another connection on a mounted transport can move.
     """
-    return client.delete_json(api_path("api", "assets", name))
+    return client.delete_json(api_path("api", "assets", name), workspace=workspace)
 
 
 def keep_output(
@@ -207,7 +292,14 @@ def keep_output(
     )
 
 
-def upload_asset(client, file_path=None, content=None, asset_name=None, shared=False):
+def upload_asset(
+    client,
+    file_path=None,
+    content=None,
+    asset_name=None,
+    shared=False,
+    workspace=None,
+):
     """Put an image, video or audio file into the server's asset library and
     get back the reference a workflow can use.
 
@@ -244,17 +336,23 @@ def upload_asset(client, file_path=None, content=None, asset_name=None, shared=F
     the session's own, which is what a recurring cast needs: assets are
     per workspace, so a cast uploaded while making episode one was
     invisible from the workspace episode four was made in.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - the same selector `run_workflow` and the output
+    tools take.
     """
     if (file_path is None) == (content is None):
         raise DwApiError("Pass exactly one of file_path or content.")
 
     if content is not None:
-        return _upload_inline(client, content, asset_name=asset_name, shared=shared)
+        return _upload_inline(
+            client, content, asset_name=asset_name, shared=shared, workspace=workspace
+        )
 
     path = os.path.abspath(os.path.expanduser(str(file_path)))
     roots = _remote_roots(client)
     if roots is not None:
-        _confine_source(path, roots, file_path)
+        _confine_source(path, roots, file_path, client, workspace)
     if not os.path.isfile(path):
         raise DwApiError(f"No such file: {file_path}")
 
@@ -283,19 +381,20 @@ def upload_asset(client, file_path=None, content=None, asset_name=None, shared=F
         params["asset_name"] = asset_name
     if shared:
         params["shared"] = "true"
-    result = client.post_bytes("/api/uploads", body, params=params)
+    result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     # 'path' from a server with no asset library is an absolute path on that
     # machine; from one with a library it is already the reference. Report
     # whichever it gave, named for what it is
     return {
         "reference": result.get("path"),
+        "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": os.path.basename(path),
         "size": size,
     }
 
 
-def _upload_inline(client, content, asset_name=None, shared=False):
+def _upload_inline(client, content, asset_name=None, shared=False, workspace=None):
     """The `content=` path of upload_asset - bytes with no path behind
     them, so nothing here is confined or read off any disk (#203)."""
     if not asset_name:
@@ -321,15 +420,18 @@ def _upload_inline(client, content, asset_name=None, shared=False):
             f"content is {len(body)} bytes, over the "
             f"{MAX_INLINE_UPLOAD_BYTES} byte limit for an inline upload. A "
             f"file this large should be reached by file_path instead, from "
-            f"a machine that has it on disk."
+            f"a machine that has it on disk. If neither machine has it - a "
+            f"remote dw.serve --mcp endpoint with nothing in common with the "
+            f"caller's own disk - {_upload_route_hint(client, workspace)}"
         )
 
     params = {"filename": asset_name, "asset_name": asset_name}
     if shared:
         params["shared"] = "true"
-    result = client.post_bytes("/api/uploads", body, params=params)
+    result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     return {
         "reference": result.get("path"),
+        "workspace": result.get("workspace"),
         "url": result.get("url"),
         "uploaded": asset_name,
         "size": len(body),

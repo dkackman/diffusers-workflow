@@ -1,7 +1,7 @@
 {
     "id": "LTX2Extend",
-    "description": "Continuing a clip rather than restarting one. The opening is generated, then conditioned on in full so the second pass carries its motion and framing forward instead of inferring them from a single frame, with both steps sharing one copy of the loaded model.",
-    "summary": "A longer LTX-2.5 clip: an opening is generated, then continued conditioned on the whole clip, not one frame.",
+    "description": "Continuing a clip rather than restarting one. By default the opening is generated, then conditioned on in full so the second pass carries its motion and framing forward instead of inferring them from a single frame. Passing 'clip' (an 'asset:' or 'output:' reference to a clip already on hand - width, height and 'clip_frames' must match it exactly) skips generating the opening and conditions on that clip instead; the 'opening' step is then unreferenced and elided, so it costs nothing. Each step loads its own copy of the model rather than sharing one, because the opening step it would otherwise share from may be elided.",
+    "summary": "A longer LTX-2.5 clip: an opening is generated or supplied, then continued conditioned on the whole clip.",
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
@@ -12,11 +12,22 @@
         "width": 768,
         "height": 448,
         "clip_frames": 121,
+        "clip": "previous_result:opening",
         "num_frames": 241,
         "frame_rate": 24.0,
         "seed": 42
     },
     "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before either step's pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before either step's pipeline load rather than after it"
+        },
         "num_frames": {
             "modulus": 8,
             "remainder": 1,
@@ -28,6 +39,7 @@
     "steps": [
         {
             "name": "opening",
+            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "LTX2Pipeline",
@@ -62,15 +74,7 @@
                         "duration_head": {
                             "device": "cuda"
                         }
-                    },
-                    "shared_components": [
-                        "transformer",
-                        "text_encoder",
-                        "connectors",
-                        "vae",
-                        "audio_vae",
-                        "vocoder"
-                    ]
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Lightricks/LTX-2.5-Diffusers",
@@ -154,7 +158,7 @@
             "task": {
                 "command": "video_frames",
                 "arguments": {
-                    "video": "previous_result:opening"
+                    "video": "variable:clip"
                 }
             },
             "result": {
@@ -170,14 +174,6 @@
                     "component_type": "LTX2ConditionPipeline",
                     "pre_load_modules": [
                         "sdnq"
-                    ],
-                    "reused_components": [
-                        "transformer",
-                        "text_encoder",
-                        "connectors",
-                        "vae",
-                        "audio_vae",
-                        "vocoder"
                     ],
                     "components": {
                         "transformer": {
@@ -215,6 +211,56 @@
                 "from_pretrained_arguments": {
                     "model_name": "Lightricks/LTX-2.5-Diffusers",
                     "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
                 },
                 "arguments": {
                     "prompt": "variable:continuation_prompt",

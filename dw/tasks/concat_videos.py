@@ -24,7 +24,12 @@ from .audio_utils import (
     resample_waveform,
     warn_on_level_spread,
 )
-from .video_utils import check_same_frame_size, frames_as_pil_list, load_audio_video
+from .video_utils import (
+    check_same_frame_size,
+    frames_as_pil_list,
+    is_video_location,
+    load_audio_video,
+)
 
 logger = logging.getLogger("dw")
 
@@ -65,11 +70,19 @@ def concat_videos(
 
     Args:
         videos: The videos to join, in order - frame lists, frame arrays,
-            AudioVideos (from previous_result references), or the path or URL
-            of a video file, which is read with the audio muxed into it. Give
+            AudioVideos (from previous_result references), the path or URL
+            of a video file, or a {"location": ...} dict wrapping either -
+            the same idiom get_last_frame(video=...) and a pipeline's
+            'image' argument accept (#510) - each read with the audio muxed
+            into it. Give
             each video its own entry: one previous_result reference naming a
             step that produced several videos fans this step out over them,
-            one concatenation per video, rather than joining them
+            one concatenation per video, rather than joining them. Every
+            video must be the same frame size - unlike a sample-rate
+            mismatch, there is no reconciliation for a size mismatch, so a
+            statically-resolvable (asset:/output:/literal path) size
+            disagreement is refused at validate; one only known at run time
+            still fails there (#504)
         trim_frames: Frames dropped from the head of every video after the
             first - the trim used when each video was generated from the
             previous one's last frame
@@ -128,7 +141,7 @@ def concat_videos(
     names = video_names(videos)
     # A shot an earlier run already wrote is loaded here rather than by
     # gather_videos, which reads frames only and would join it silent
-    videos = [load_audio_video(v) if isinstance(v, str) else v for v in videos]
+    videos = [load_audio_video(v) if is_video_location(v) else v for v in videos]
     clips = [frames_as_pil_list(v) for v in videos]
     check_same_frame_size(clips, "concat_videos")
 
@@ -229,6 +242,11 @@ def concat_videos(
                     names[index], start_frame, len(frames) - start_frame, start_sample
                 )
             ]
+        if index and video_shots:
+            # Every seam this step draws is a cut it chose to make, unlike a
+            # chain's inner segments (continuity is expected there) - marking
+            # it lets analyze_seams tell the two apart (#466)
+            video_shots[0]["hard_cut"] = True
         # Which input this shot came from - named_shots (dw/shots.py) uses
         # it to place a step's override name on the right shot once an
         # earlier input has nested more than one of its own (#432)

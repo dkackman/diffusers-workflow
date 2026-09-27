@@ -18,6 +18,7 @@ from .arguments import (
 from .events import (
     RunContext,
     emit_phase,
+    emit_warning,
     WorkflowCancelled,
     get_context,
     current_context,
@@ -30,6 +31,7 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
+from .null_media import null_media_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import (
@@ -38,6 +40,7 @@ from .introspection import (
     component_name_errors,
 )
 from .dissolve_frame_errors import dissolve_frame_errors
+from .video_size_errors import video_size_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
@@ -47,7 +50,7 @@ from .variable_constraints import (
     resolve_constraint_references,
 )
 from .result_fps import fps_errors
-from .shots import step_shots
+from .shots import duplicate_shot_names, step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -91,6 +94,7 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
+from .tasks.voice_attribution import voices_errors
 from . import (
     get_device,
     get_device_type,
@@ -726,6 +730,26 @@ class Workflow:
             # A reference set the pipeline would refuse costs a checkpoint
             # load to find out about otherwise (dw/reference_limits.py, #136)
             + reference_limit_errors(expanded, source_indices)
+            # A step a declared vram_estimate projects past the card 'cost'
+            # was measured on - per step, after expansion, so a for_each
+            # member is projected with its own frames and references, and
+            # refused here rather than found 90+ seconds into denoising on
+            # an OOM the caller had no way to see coming
+            # (dw/vram_estimate.py, #265, #479)
+            + vram_estimate_errors(
+                expanded,
+                arguments,
+                supplied=set(arguments or {}),
+                device_type=get_device_type(),
+                capacity_gb=device_capacity_gb(),
+                source_indices=source_indices,
+                written=self.workflow_definition,
+            )
+            # A for_each item's bare reference (not in a list, so nothing to
+            # silently drop it from) whose media resolved null - realize_args
+            # already refuses this at run time, a few seconds into the job
+            # (dw/null_media.py, #478)
+            + null_media_errors(expanded, source_indices)
             # An adapter trained for the other checkpoint partition, which
             # the pipeline loads without complaint and answers worse for -
             # the one H3 mistake that never shows in the output
@@ -742,6 +766,10 @@ class Workflow:
             # sample rate a silent fallback to 44100 (dw/task_domains.py,
             # #139, #140)
             + task_argument_errors(expanded, source_indices)
+            # An attribute_voices `voices` it would refuse - one voice, a bad
+            # name, a reference too short - is knowable from the literal and
+            # was refused only on the step, a queued job in (#494)
+            + voices_errors(expanded, source_indices)
             # A dissolve_videos overlap wider than a statically-resolvable
             # input's real frame count decoded clean past the queue and
             # failed only after every upstream step had already generated -
@@ -749,6 +777,11 @@ class Workflow:
             # output:/literal-path video, the cases the frame count is
             # already knowable (dw/dissolve_frame_errors.py, #400)
             + dissolve_frame_errors(expanded, source_indices, base_dir)
+            # A dissolve_videos/concat_videos size mismatch decoded clean
+            # past the queue and failed only after every upstream step had
+            # already generated - refused here for the cases the sizes are
+            # already knowable (dw/video_size_errors.py, #504)
+            + video_size_errors(expanded, source_indices, base_dir)
             # A select step whose rule is misspelled, or whose
             # threshold/index does not match its rule, validated clean and
             # died on select's own run-time ValueError after the fan-out
@@ -784,18 +817,6 @@ class Workflow:
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
             + constraint_reference_errors(self.workflow_definition)
-            # A (width, height, num_frames)-shaped combination a declared
-            # vram_estimate projects past the card 'cost' was measured on -
-            # refused here rather than found 90+ seconds into denoising on
-            # an OOM the caller had no way to see coming (dw/vram_estimate.py,
-            # #265)
-            + vram_estimate_errors(
-                self.workflow_definition,
-                arguments,
-                supplied=set(arguments or {}),
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-            )
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
             # loading, naming a torch/natten mismatch the construction alone
@@ -826,6 +847,36 @@ class Workflow:
             source_indices,
             written=self.workflow_definition,
             supplied=set(arguments or {}),
+        )
+
+    def inherited_vram_warnings(self, arguments=None, index=None):
+        """Every catalog VRAM ceiling this workflow's expanded steps project
+        past, matched by pipeline identity (`dw/vram_inheritance.py`) - for a
+        workflow that declares no `vram_estimate` of its own. A warning, not
+        an error: the catalog's numbers were measured on the catalog's
+        offload and quantization config (#479).
+
+        Best effort, like `adapter_warnings`.
+        """
+        from .vram_inheritance import inherited_vram_warnings
+
+        if not index:
+            return []
+        try:
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+        except Exception:
+            logger.debug("No inherited VRAM warnings available", exc_info=True)
+            return []
+        return inherited_vram_warnings(
+            expanded,
+            index,
+            arguments,
+            supplied=set(arguments or {}),
+            device_type=get_device_type(),
+            capacity_gb=device_capacity_gb(),
+            source_indices=source_indices,
+            written=self.workflow_definition,
         )
 
     def slice_past_end_warnings(self, arguments=None):
@@ -998,18 +1049,6 @@ class Workflow:
             # before anything loads, and before substitution puts the value
             # everywhere it is referenced (dw/variable_constraints.py, #96)
             apply_constraints(workflow_def, variables)
-            # A (width, height, num_frames)-shaped combination a declared
-            # vram_estimate projects past the card 'cost' was measured on -
-            # the run-time backstop for a caller that skips
-            # validate_workflow, so this raises the same refusal rather
-            # than starting a job the decode step was always going to OOM
-            # on (dw/vram_estimate.py, #265)
-            apply_vram_estimate(
-                workflow_def,
-                variables,
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-            )
             # realize the variables - explicit references only (asset:,
             # output:, constant:, prompt:, a {media_type, location} dict).
             # Key-name conventions (an 'image'/'video'/'_type' argument) are
@@ -1034,6 +1073,19 @@ class Workflow:
         resolve_constraint_references(workflow_def)
 
         workflow_def = expand_for_each(workflow_def)
+
+        # A step a declared vram_estimate projects past the card 'cost' was
+        # measured on - the run-time backstop for a caller that skips
+        # validate_workflow, so this raises the same refusal rather than
+        # starting a job the decode step was always going to OOM on. After
+        # expansion, so a for_each member is projected with its own frames
+        # and references (dw/vram_estimate.py, #265, #479)
+        apply_vram_estimate(
+            workflow_def,
+            variables,
+            device_type=get_device_type(),
+            capacity_gb=device_capacity_gb(),
+        )
 
         # A step nothing after it reads, and which saves no file, does not
         # run - after expansion, so a for_each member is judged like any
@@ -1596,6 +1648,23 @@ class Workflow:
                 )
                 if shots:
                     manifest_entry["shots"] = shots
+                    duplicates = duplicate_shot_names(shots)
+                    if duplicates:
+                        # Frames and samples stay exact either way - only a
+                        # name-based lookup (a `shots=` argument, a finding)
+                        # can no longer tell the collided shots apart (#508)
+                        for file, names in duplicates.items():
+                            extra = {"file": file} if file is not None else {}
+                            emit_warning(
+                                f"{step.name}: joined shots share a name ("
+                                + ", ".join(names)
+                                + ") and can no longer be told apart by "
+                                "name - start_frame still disambiguates.",
+                                kind="shot_name_collision",
+                                command=step.name,
+                                names=names,
+                                **extra,
+                            )
                 # No entry at all for a step the parent saves for: the
                 # parent's own entry names the same files, under the step
                 # name the caller wrote (#92)
@@ -1621,6 +1690,24 @@ class Workflow:
                     **step_end_data,
                 )
                 logger.debug(f"Step {step.name} completed with result: {result}")
+
+                # Rewritten after every step, not only at the end (#480): a
+                # for_each member that just landed is otherwise invisible to
+                # anything reading manifest.json until the whole job finishes
+                # or dies, leaving a killed worker's finished shots
+                # unrecorded. Best effort, like the run-open and final
+                # writes - a step that saved its files has succeeded whether
+                # or not this lands
+                if self._run_dir and not self._run_dir_inherited:
+                    self._write_run_manifest(
+                        run_id,
+                        "running",
+                        started_at,
+                        arguments,
+                        resolved_seed,
+                        realized_name,
+                        annotations,
+                    )
 
                 # Release results no later step references - saved to disk
                 # already, and last_result keeps the workflow's return value

@@ -212,7 +212,7 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
@@ -358,7 +358,7 @@ montage cut to a score wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos` |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
 | `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
@@ -646,10 +646,19 @@ changes, so the dynamics survive:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
-| `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale |
+| `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale. With `limit`, a true-peak (4x oversampled, BS.1770) ceiling the output never crosses |
+| `target_lufs` | No | An integrated loudness (BS.1770) to scale the track to instead, in LUFS (0 or below). Without `limit` the gain is capped so the peak stays under `peak_dbfs`, and `target_lufs_capped` warns when that cap wins. A track shorter than 400 ms (or silent throughout) cannot be measured, warns `target_lufs_unmeasurable`, and falls back to `peak_dbfs` |
+| `limit` | No | Reach `target_lufs` past a transient instead of letting it cap the gain: a true-peak look-ahead limiter (5 ms look-ahead, 20 ms hold, 150 ms release, linked across channels) holds `peak_dbfs`, and the gain is searched for until the limited track lands within 0.1 LU of `target_lufs` - limiting takes some loudness back, more on dense material. The limiter itself never adds gain, and it stops at 12 dB of reduction - past that the gain stops too, and `target_lufs_capped` warns with `limited: true` and `shortfall_lu` (as it does for any track left more than 0.1 LU short). More than 6 dB warns `limiter_heavy` (pumping can be audible). The step's log carries `constraint: "limiter"`, `gain_db`, `max_gain_reduction_db`, `limited_fraction` (0 when the limiter was not needed), `output_true_peak_dbfs` and `output_lufs` (default: false, which behaves exactly as without it) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 A silent track is returned unchanged.
+
+To level dialogue with a laugh or a shout on it, `limit` is the switch: a
+peak-only gain lets that one transient set the level of every line around it.
+
+```json
+"arguments": {"audio": "previous_result:dialogue", "target_lufs": -16, "peak_dbfs": -1.0, "limit": true}
+```
 
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
 
@@ -839,6 +848,11 @@ covers all three through `mode`:
 
 A silent track is returned unchanged.
 
+`mode: "limit"` is a sample-peak limiter with no look-ahead: the envelope
+reacts to a transient as it arrives, so the transient's leading edge and any
+inter-sample peak get through. To hold a true-peak ceiling while reaching a
+loudness target, use `normalize_audio` with `limit: true`.
+
 ### filter_audio
 
 Run a track through a single biquad filter stage - trimming the frequencies a
@@ -902,7 +916,11 @@ sample rate, reads as `null` rather than `-inf`.
 ## Assessment Probes
 
 Three read-only commands measure a finished cut and say where to look -
-`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each takes a video
+`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each is registered
+with `assessment=True` (`register_command`, `dw/tasks/task.py`), which is
+what makes a command a probe - not merely answering JSON, since
+[`attribute_voices`](#voice-attribution) answers JSON too and is not one.
+Each takes a video
 (a stored file - `asset:`, `output:` or a path, read straight from disk
 rather than decoded first - or the video an earlier step returned; not a
 URL, whose download is a bare frame list with no soundtrack) and answers one JSON
@@ -952,6 +970,9 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
+| `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below the `DEAD_AIR_FLOOR_DBFS` threshold (-65 dBFS) |
+| `shots[].dead_air_at` | Where that run starts, in seconds into the file |
+| `shots[].dead_air_floor_dbfs` | The quietest 50ms window measured inside that run - not the threshold. Null when the run is pure digital silence, and null when there is no run at all |
 | `rms_range_db` | The spread between the loudest and quietest voiced shot |
 | `has_audio` | Whether the file carries a soundtrack at all |
 
@@ -1002,14 +1023,20 @@ its threshold, and the severity of a crossing:
 | `seam_click` | `analyze_seams` | `click_db` | > 12.0 dB | warn |
 | `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
 | `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 25.0 | info |
+| `shot_dead_air` | `analyze_shots` | `dead_air_seconds` | > 0.4 s | warn |
 | `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
 | `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
 
-Two rules carry a guard beyond the threshold: `seam_hole` only fires while
+Three rules carry a guard beyond the threshold: `seam_hole` only fires while
 both sides of the seam are voiced above -30 dBFS (a quiet join between two
-quiet shots is not a hole, it's a pause the shots themselves hold), and
+quiet shots is not a hole, it's a pause the shots themselves hold);
 `seam_frame_jump` is skipped at a seam whose incoming shot is marked
-`hard_cut: true` - a cut meant as a cut.
+`hard_cut: true` - a cut meant as a cut; and `shot_dead_air` is skipped
+inside a shot whose own rms is at or below -30 dBFS - a shot that is quiet
+throughout, on purpose, rather than one holding a gap. A gap the guard lets
+through is what `slice_audio` -> `loop_audio` -> `mix_audio` is for: cut a
+room-tone bed from the take, loop it to the gap's length, and mix it under
+the line rather than leaving the drop silent.
 
 A `shots` record reaching past the file's own length is a separate finding,
 `shot_span_overrun`, on all three probes - not a threshold crossing, since
@@ -1021,7 +1048,100 @@ written is left to the finding.
 
 `list_tasks` names the probes in their own `assessment` list, alongside
 `commands`, so a caller looking for a way to check a cut can find them
-without reading every command's schema.
+without reading every command's schema. The list is exactly the commands
+declared `assessment=True`; `attribute_voices` stays in `commands` only,
+since it analyzes a song rather than checking a cut.
+
+## Voice attribution
+
+Which reference voice sings each line of a song, by timbre - staging
+lip-sync shots for a generated song needs its section-to-singer map, and a
+generation model (MiniMax Music3 included) does not hand one back. Pitch
+cannot stand in for it: a tenor and a mezzo share a range, and a pitch
+heuristic has called a tenor female.
+
+`attribute_voices` separates the vocal stem (htdemucs), reduces every line
+and every voice's reference to its voiced frames, embeds each with
+speechbrain's ECAPA speaker encoder (`spkrec-ecapa-voxceleb`), scores every
+line against every voice by cosine, and rolls lines up into named windows
+(shots, say) by the voiced seconds they overlap. It decides nothing: the
+argmax is always reported, alongside the margin and how much of the line was
+voiced, so a weak answer is visible as weak rather than silently accepted.
+
+```json
+{
+    "task": {
+        "command": "attribute_voices",
+        "arguments": {
+            "audio": "asset:song.mp3",
+            "voices": {
+                "lena": [{"start_seconds": 4.0, "duration_seconds": 6.0}],
+                "marcus": [{"start_seconds": 32.0, "duration_seconds": 6.0}]
+            },
+            "windows": [
+                {"name": "shot-1", "start": 0.0, "end": 12.0},
+                {"name": "shot-2", "start": 12.0, "end": 24.0},
+                {"name": "shot-3", "start": 24.0, "end": 40.0}
+            ]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The song - a path, `asset:`/`output:` reference, or an earlier step's audio or video |
+| `voices` | Yes | Each voice's name mapped to its reference: a list of `{start_seconds, duration_seconds}` (or `{start, end}`) spans into `audio`, or a path/`asset:` of a separate clip. At least 2 voices; names follow the variable-name pattern; each voice's reference must total at least `min_reference_seconds` |
+| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. Omitted: the song is cut into fixed windows of `window_seconds` |
+| `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
+| `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
+| `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
+
+A literal `voices` is checked at validation as well as on the step: fewer
+than two voices, a bad name, a malformed span, or a span-list reference under
+`min_reference_seconds` is refused at `steps[i].task.arguments.voices`, and a
+bare path as a voice meets the same location policy as `audio`. What needs
+the song itself - a span past its end, a clip's voiced length - is the
+step's to refuse.
+| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
+| `device` | No | Where the models run |
+
+The result: `voices` (the names), `separated`, `duration_seconds`, `lines[]`
+(`start`, `end`, `text`, `scores`, `voice`, `margin`, `voiced_seconds`,
+`uncertain`, `reason`), `windows[]` (`name`, `start`, `end`, `voiced_seconds`,
+`share`, `voice`, `uncertain`, `reason`), `reference_similarity` (pairwise
+cosine between the voices' references), `voiced_floor_dbfs` (the floor this
+song's stem was read against), `warnings` and the `thresholds` compared
+against.
+
+The voiced floor is relative to the stem rather than a fixed level: a quiet
+sung verse under a loud chorus sits 20 dB or more beneath it, and a fixed
+-40 dBFS floor dropped such a verse as unvoiced and refused it as a
+reference. Separation leaves near-silence between phrases, so the floor sits
+well above that and well below the singing.
+
+| Threshold | Value | What crossing it does |
+| --------- | ----- | ---------------------- |
+| `voiced_level_percentile` | 95 | The stem's level is this percentile of its 20 ms frames' rms |
+| `voiced_floor_below_level_db` | 35.0 dB | A frame at or above the stem's level less this is voiced |
+| `voiced_floor_min_dbfs` | -60.0 dBFS | The floor never drops below this, however quiet the stem |
+| `min_voiced_seconds` | 0.5 s | A line or window under this much voiced time has no voice - `voice: null`, `uncertain: true` |
+| `uncertain_margin` | 0.05 | A line whose best score beats the runner-up by less than this is `uncertain` - the argmax is still reported |
+| `uncertain_share_margin` | 0.2 | A window whose leading voice's share beats the runner-up's by less than this is `uncertain` - a duet line, or a window straddling a hand-over |
+| `voices_too_similar` | 0.8 | Two references scoring above this against each other make every line between them a weak answer whatever its scores say |
+
+A `voices_too_similar` pair is reported in `reference_similarity`, added to
+`warnings`, and emitted onto the job's warnings (`voices_too_similar`) -
+picking better-separated reference spans is the fix, not reading past it.
+
+Both models are fixed - there is no model-name argument - and both run in
+fp32 (their STFT front ends are fp32-only in practice, and both are small
+enough that it costs nothing). Weights download on first use - htdemucs from
+Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
+and are cached between calls like any other model. On MPS a `separate: true`
+run that fails in htdemucs falls back to the CPU and warns
+(`separation_cpu_fallback`) rather than failing the step.
 
 ## Data Gathering
 
@@ -1520,8 +1640,11 @@ Transcribe spoken audio to text with a local Whisper-class model. The word-corre
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a video with a soundtrack, or a waveform — usually a `previous_result:` reference |
 | `sample_rate` | No | Sample rate of a waveform passed directly |
 | `model_name` | No | HuggingFace model ID of a Whisper-class ASR model (default: `openai/whisper-base`) |
+| `timestamps` | No | `"segment"` or `"word"` to get chunk timings instead of plain text (see below) |
 
-Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. The result is plain text, read with MCP's `get_output_text`.
+Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. By default the result is plain text, read with MCP's `get_output_text`.
+
+Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask.
 
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 

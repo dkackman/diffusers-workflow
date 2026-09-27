@@ -102,6 +102,10 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 - Section tags and the caption are generative control, not guarantees: the
   vendor says tempo, key, structure and lyrics may not match every detail.
   Iterate at 30-60 seconds before asking for a long track.
+- Music 3 ignores per-section singer directions. Before staging lip-sync on
+  a song with two or more singers, run `attribute_voices` with a reference
+  span per singer and cast each shot from its answer. Never infer the singer
+  from pitch: a tenor and a mezzo share the range.
 
 ## Prompts
 
@@ -120,7 +124,9 @@ from the templates' examples:
    Arrangement - in 250-450 English words, with no title, no reasoning, and
    no lyric line copied into the caption. The pipeline strips markdown
    headings and emphasis on the way in, so the vendor's caption pastes
-   straight into `prompt`.
+   straight into `prompt`. This is the recommended route: a 24-shot field
+   report's three-heading caption produced a correct, complete song on its
+   first seed (#484).
 3. The concise one-paragraph form the templates' stored prompts use (genre,
    BPM, key, emotional progression, listening scenario, production profile,
    vocals, arrangement) is the model card's own example and works; the
@@ -157,9 +163,10 @@ Control" section.
    ceiling cut the track (raise it and rerun); well short of it means the
    song finished on its own. Its `peak_dbfs` is a single sample and does not
    say how loud the song reads end to end - `integrated_lufs` (BS.1770,
-   whole-track) is the field for that, and what `normalize_audio`'s optional
-   `target_lufs` targets when a score or a music-video mix needs to match
-   another track by ear rather than by peak alone. Then listen with
+   whole-track) is the field for that, and what `normalize_audio`'s
+   `target_lufs` targets when a mix must match another track by ear, not
+   by peak. A master louder than its peak allows (-16 streaming): add
+   `limit: true`; `limiter_heavy` means lower the target. Then listen with
    `get_output_audio` (a long
    track in `start`/`duration` excerpts) for the family's failure modes: a
    song that went instrumental (name the vocals in the caption), an ending

@@ -474,3 +474,61 @@ class TestMusicVideo:
         otherwise keep the step a cast episode has no use for."""
         steps = {s["name"]: s for s in self.definition()["steps"]}
         assert steps["draw_singer"]["result"]["save"] is False
+
+
+class TestExtendClip:
+    """#446: extending a kept clip elides the opening rather than generating
+    and discarding one, the same pattern as the music-video singer."""
+
+    PATH = str(REPO_ROOT / "workflows/templates/ltx2/extend-clip.json")
+
+    def definition(self):
+        return json.loads(pathlib.Path(self.PATH).read_text())
+
+    def test_by_default_the_opening_is_generated_and_kept(self):
+        written = self.definition()
+        expanded = Workflow(
+            copy.deepcopy(written), "outputs", self.PATH
+        ).expanded_definition()
+        assert elide_definition(expanded, written) == []
+
+    def test_a_supplied_clip_elides_the_opening(self):
+        written = self.definition()
+        definition = copy.deepcopy(written)
+        definition["variables"]["clip"] = "asset:cast/ep63-shot-ltx-priya.mp4"
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+
+        elided = elide_definition(expanded, written)
+
+        assert [e["step"] for e in elided] == ["opening"]
+        assert elided[0]["overridden_by"] == "clip"
+
+    def test_opening_frames_reads_the_clip_variable(self):
+        definition = self.definition()
+        assert definition["variables"]["clip"] == "previous_result:opening"
+        opening_frames = next(
+            s for s in definition["steps"] if s["name"] == "opening_frames"
+        )
+        assert opening_frames["task"]["arguments"]["video"] == "variable:clip"
+
+    def test_the_opening_saves_nothing(self):
+        steps = {s["name"]: s for s in self.definition()["steps"]}
+        assert steps["opening"]["result"]["save"] is False
+
+    def test_extended_resolves_components_with_opening_elided(self):
+        """#446 bounce: 'extended' declared reused_components with no
+        earlier step left to share them once 'opening' is elided, so a
+        clip-supplied run failed at load with 'no earlier step shared it'.
+        This builds the real Pipeline for 'extended' and resolves its
+        components against an empty shared_components dict - what the
+        elided run actually hands it - rather than mocking the check away."""
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        steps = {s["name"]: s for s in self.definition()["steps"]}
+        extended = Pipeline(
+            steps["extended"]["pipeline"], default_seed=42, device="cpu"
+        )
+        # Would raise ValueError("Cannot reuse component ... no earlier step
+        # shared it") if 'extended' still depended on a component only
+        # 'opening' ever populated
+        assert extended.resolve_reused_components({}) == {}

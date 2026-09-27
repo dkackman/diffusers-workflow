@@ -32,7 +32,12 @@ def checkout(tmp_path, monkeypatch):
     (root / "docs").mkdir(parents=True)
     (root / "docs" / "TASKS.md").write_text(TASKS_TEXT)
     (root / "docs" / "WORKFLOW_GUIDE.md").write_text(
-        "## Structure\n\nsteps - as in workflows/templates/text-to-image.json\n"
+        "## Structure\n\nsteps - as in workflows/templates/text-to-image.json\n\n"
+        "## Cross-Step Data Flow\n\n"
+        "### One step per entry: for_each\n\n"
+        "for_each runs a step once per entry.\n\n"
+        "### previous_result\n\n"
+        "previous_result chains steps.\n"
     )
     monkeypatch.setattr(guides, "__file__", str(root / "dw" / "server" / "guides.py"))
     monkeypatch.setattr(
@@ -147,6 +152,34 @@ class TestFetching:
 
         assert guide["section"] == "Speech Generation"
 
+    def test_a_subsection_is_reachable_by_its_own_heading(self, checkout):
+        # #503: a `###` subsection isn't in the top-level index, but a
+        # caller who copied its exact heading still reaches it, not a
+        # refusal that only lists `##` headings.
+        guide = guides.get_guide("workflows", section="One step per entry: for_each")
+
+        assert guide["section"] == "One step per entry: for_each"
+        assert guide["parent_section"] == "Cross-Step Data Flow"
+        assert "for_each runs a step once per entry." in guide["content"]
+        # Just the subsection - not its sibling, not the whole ## section
+        assert "previous_result chains steps." not in guide["content"]
+
+    def test_a_subsection_is_reachable_by_a_term_inside_its_heading(self, checkout):
+        # The concept a caller has in hand ("for_each") rather than the
+        # full sentence the heading is written as.
+        guide = guides.get_guide("workflows", section="for_each")
+
+        assert guide["section"] == "One step per entry: for_each"
+        assert guide["parent_section"] == "Cross-Step Data Flow"
+
+    def test_a_section_match_wins_over_a_subsection_match(self, checkout):
+        # An exact `##` match still takes priority - subsections are a
+        # fallback for a term the top level does not otherwise resolve.
+        guide = guides.get_guide("workflows", section="Cross-Step Data Flow")
+
+        assert guide["section"] == "Cross-Step Data Flow"
+        assert "parent_section" not in guide
+
     def test_a_section_linking_an_example_says_how_to_reach_it(self, checkout):
         """A guide's link to an example is a repo path. The reader these
         guides exist for has no checkout - it has the MCP and nothing else -
@@ -216,6 +249,16 @@ class TestTheRealDocs:
         )
 
         assert guide["section"] == "Authoring a workflow from an agent"
+
+    def test_the_for_each_subsection_is_reachable_without_its_parent(self):
+        """#503: both terms the issue's repro used reach the `###` subsection
+        directly, rather than only through its `##` parent."""
+        for section in ("for_each", "One step per entry: for_each"):
+            guide = guides.get_guide("workflows", section=section)
+
+            assert "for_each" in guide["section"]
+            assert guide["parent_section"] == "Authoring a workflow from an agent"
+            assert "for_each" in guide["content"]
 
     def test_the_authoring_section_names_every_reference_prefix(self):
         """The prefixes the engine reserves are the ones the section has to

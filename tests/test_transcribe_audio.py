@@ -24,10 +24,15 @@ class TestTranscribeAudio(unittest.TestCase):
         tone = numpy.zeros((channels, samples), dtype=numpy.float32)
         return tone, sample_rate
 
-    def _mock_pipe(self, mock_pipeline, text="hello world", kind="seq2seq_whisper"):
+    def _mock_pipe(
+        self, mock_pipeline, text="hello world", kind="seq2seq_whisper", chunks=None
+    ):
         pipe = MagicMock()
         pipe.type = kind
-        pipe.return_value = {"text": text}
+        result = {"text": text}
+        if chunks is not None:
+            result["chunks"] = chunks
+        pipe.return_value = result
         mock_pipeline.return_value = pipe
         return pipe
 
@@ -123,6 +128,82 @@ class TestTranscribeAudio(unittest.TestCase):
         result = transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
         self.assertEqual(result, "spaced out")
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_timestamps_word_requests_word_level_and_returns_chunks(
+        self, mock_pipeline
+    ):
+        pipe = self._mock_pipe(
+            mock_pipeline,
+            "hello world",
+            chunks=[
+                {"text": " hello", "timestamp": (0.0, 0.5)},
+                {"text": " world", "timestamp": (0.5, 1.0)},
+            ],
+        )
+        waveform, rate = self._waveform()
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertEqual(pipe.call_args.kwargs.get("return_timestamps"), "word")
+        self.assertEqual(result["text"], "hello world")
+        self.assertEqual(
+            result["chunks"],
+            [
+                {"start": 0.0, "end": 0.5, "text": "hello"},
+                {"start": 0.5, "end": 1.0, "text": "world"},
+            ],
+        )
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_timestamps_segment_requests_true_and_returns_chunks(self, mock_pipeline):
+        pipe = self._mock_pipe(
+            mock_pipeline,
+            "hello world",
+            chunks=[{"text": "hello world", "timestamp": (0.0, 1.0)}],
+        )
+        waveform, rate = self._waveform()
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertIs(pipe.call_args.kwargs.get("return_timestamps"), True)
+        self.assertEqual(
+            result["chunks"], [{"start": 0.0, "end": 1.0, "text": "hello world"}]
+        )
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_timestamps_requested_under_thirty_seconds_too(self, mock_pipeline):
+        # The 30 s long-form branch is a separate reason to ask for
+        # timestamps; an explicit request must not depend on clip length
+        pipe = self._mock_pipe(mock_pipeline, chunks=[])
+        waveform, rate = self._waveform(seconds=5.0)
+
+        transcribe_audio(waveform, device="cpu", sample_rate=rate, timestamps="word")
+
+        self.assertEqual(pipe.call_args.kwargs.get("return_timestamps"), "word")
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_timestamps_unset_still_returns_plain_text(self, mock_pipeline):
+        self._mock_pipe(mock_pipeline, "unchanged")
+        waveform, rate = self._waveform()
+
+        result = transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
+        self.assertEqual(result, "unchanged")
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_invalid_timestamps_value_is_rejected(self, mock_pipeline):
+        self._mock_pipe(mock_pipeline)
+        waveform, rate = self._waveform()
+
+        with self.assertRaises(ValueError):
+            transcribe_audio(
+                waveform, device="cpu", sample_rate=rate, timestamps="paragraph"
+            )
 
 
 class TestTranscribeAudioRegistration(unittest.TestCase):

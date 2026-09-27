@@ -151,7 +151,8 @@ def validate_media_path(
             raise PathTraversalError(
                 f"Refusing to read {what} at '{location}': it resolves "
                 f"outside every directory this workflow may read "
-                f"({', '.join(roots) or 'none configured'}). This includes "
+                f"(its own directory, the asset libraries and the output "
+                f"root). This includes "
                 f"another workspace's own directories - each workspace is "
                 f"isolated by design, not just a generic path-traversal "
                 f"refusal, so a bare path into one is refused the same way "
@@ -208,9 +209,9 @@ def validate_media_glob(pattern, base_dir=None, what="a glob argument"):
     roots = media_roots(base_dir)
     if not any(_within(resolved, root) for root in roots):
         raise PathTraversalError(
-            f"Refusing {what} '{pattern}': it expands under {resolved}, "
-            f"outside every directory this workflow may read "
-            f"({', '.join(roots) or 'none configured'}). Glob inside the "
+            f"Refusing {what} '{pattern}': it expands outside every "
+            f"directory this workflow may read (its own directory, the asset "
+            f"libraries and the output root). Glob inside the "
             f"asset library, or pass --trust-workflows if you trust this "
             f"workflow's source."
         )
@@ -449,6 +450,61 @@ def validate_model_name(name, base_dir=None):
     )
 
 
+# The key a Hub file inside a model repo is named by - a lora's, an IP
+# adapter's, a task's weights. It names a file *within* a repo, so it is a
+# relative path and nothing else
+WEIGHT_NAME_KEY = "weight_name"
+
+# Tasks that read their weights with safetensors and nothing else. A pickle
+# format is refused by name rather than left to fail in the loader: the
+# refusal is the documented contract, not an accident of which loader runs
+SAFETENSORS_ONLY_COMMANDS = ()
+SAFETENSORS_SUFFIX = ".safetensors"
+
+
+def validate_weight_name(name, suffixes=None, what="weight_name"):
+    """A file name inside a Hub repo: relative, and never climbing out of it.
+
+    `hf_hub_download(filename=...)` joins the name onto the local cache
+    directory, so a name shaped like a path is a path on this machine. A
+    subfolder is legitimate (the H3 upscaler's default lives under one);
+    an absolute path, a backslash, a drive, an empty segment or a '.'/'..'
+    segment is not. The refusal names only what the caller wrote, never a
+    directory on the server.
+
+    Args:
+        name: The file name the workflow supplied
+        suffixes: The file endings allowed, or None for any
+        what: Short phrase naming the argument, for the error message
+
+    Raises:
+        PathTraversalError: On a name that is not a plain relative path
+        InvalidInputError: On an empty name, or one with a refused ending
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidInputError(f"Refusing an empty {what}.")
+    if "\x00" in name:
+        raise InvalidInputError(f"Refusing a {what} containing a null byte.")
+    if name.startswith(("/", "~")) or "\\" in name or ":" in name:
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it names a file inside the model "
+            f"repo, so it must be a relative path - no leading '/' or '~', no "
+            f"backslash, no drive."
+        )
+    if any(segment in ("", ".", "..") for segment in name.split("/")):
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it has an empty, '.' or '..' "
+            f"path segment, so it does not name a file inside the model repo."
+        )
+    if suffixes and not name.lower().endswith(tuple(suffixes)):
+        raise InvalidInputError(
+            f"Refusing a {what} of '{name}': only "
+            f"{', '.join(repr(suffix) for suffix in suffixes)} weights are "
+            f"read here."
+        )
+    return name
+
+
 # ------------------------------------------------------------- validation
 
 
@@ -529,11 +585,20 @@ def location_errors(definition, source_indices=None, base_dir=None):
             if source_indices and index < len(source_indices)
             else index
         )
-        _walk(step, f"steps[{source}]", base_dir, errors)
+        _walk(step, f"steps[{source}]", base_dir, errors, _weight_suffixes(step))
     return errors
 
 
-def _walk(node, path, base_dir, errors):
+def _weight_suffixes(step):
+    """The weight file endings a step's task reads, or None for any."""
+    task = step.get("task")
+    command = task.get("command") if isinstance(task, dict) else None
+    if command in SAFETENSORS_ONLY_COMMANDS:
+        return (SAFETENSORS_SUFFIX,)
+    return None
+
+
+def _walk(node, path, base_dir, errors, weight_suffixes=None):
     if isinstance(node, dict):
         for key, value in node.items():
             here = f"{path}.{key}"
@@ -541,6 +606,12 @@ def _walk(node, path, base_dir, errors):
                 message = _model_name_message(value, base_dir)
                 if message:
                     errors.append({"path": here, "message": message})
+                continue
+            if key == WEIGHT_NAME_KEY and isinstance(value, str):
+                if not _deferred(value):
+                    message = _refusal(validate_weight_name, value, weight_suffixes)
+                    if message:
+                        errors.append({"path": here, "message": message})
                 continue
             if key == "remote_text_encoder" and isinstance(value, dict):
                 url = value.get("url")
@@ -559,15 +630,24 @@ def _walk(node, path, base_dir, errors):
                     message = _check(item, base_dir, f"'{key}'")
                     if message:
                         errors.append({"path": sub_path, "message": message})
+            if key == "voices" and isinstance(value, dict):
+                # attribute_voices maps a voice's name to its reference, and
+                # a string reference is a clip it reads - the key is the
+                # voice's name, not a media key, so it is checked here or
+                # only when the run reaches it (#494)
+                for name, item in value.items():
+                    message = _check(item, base_dir, f"voice '{name}'")
+                    if message:
+                        errors.append({"path": f"{here}.{name}", "message": message})
             if key == "urls" and isinstance(value, list):
                 for sub_path, item in _each(value, here):
                     message = _check(item, base_dir, f"'{key}'")
                     if message:
                         errors.append({"path": sub_path, "message": message})
-            _walk(value, here, base_dir, errors)
+            _walk(value, here, base_dir, errors, weight_suffixes)
     elif isinstance(node, list):
         for index, item in enumerate(node):
-            _walk(item, f"{path}[{index}]", base_dir, errors)
+            _walk(item, f"{path}[{index}]", base_dir, errors, weight_suffixes)
 
 
 def _each(value, path):

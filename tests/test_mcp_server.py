@@ -1154,6 +1154,7 @@ WRAPPER_HANDLER_MAP = {
     "update_diffusers": (models, "update_diffusers"),
     "validate_workflow": (authoring, "validate_workflow"),
     "save_workflow": (authoring, "save_workflow"),
+    "delete_workflow": (authoring, "delete_workflow"),
     "run_workflow": (diagnose, "run_workflow"),
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),
@@ -1292,6 +1293,16 @@ def test_the_instructions_say_where_a_copied_workflow_gets_its_cost_from():
 
     assert "include_models=true" in server.instructions
     assert "times the number of images" in server.instructions
+
+
+def test_the_instructions_say_a_hand_built_workflow_inherits_a_warning_ceiling():
+    """#502: a workflow with no `vram_estimate` is projected against the
+    catalog template that loads the same pipeline, and only warned. Without
+    naming the template, "its VRAM ceiling" read as the `models/` entry's."""
+    server = server_over(ok({}))
+
+    for words in ("warns (never refuses)", "catalog template", "may differ"):
+        assert words in server.instructions
 
 
 @pytest.mark.asyncio

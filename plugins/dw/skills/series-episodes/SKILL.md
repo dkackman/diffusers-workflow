@@ -92,13 +92,28 @@ composes into, not something to re-derive:
   recipe: `gain_audio` regions on the score, one per voice-over shot,
   applied before the score is passed in.
 - **normalize**: the mixed world sound and score are normalized together
-  (`assemble-and-score`'s `balanced` step, -3 dBFS) so one episode is not
-  louder than the next. A shared peak ceiling does not mean a shared
-  loudness - a sparse, dialogue-only episode and a dense, score-heavy one
-  can both sit at -3 dBFS peak and still read as very different volumes;
-  `normalize_audio`'s optional `target_lufs` gains to a measured loudness
-  first, with `peak_dbfs` still holding as a ceiling, when episodes need to
-  match by ear rather than by sample.
+  (`assemble-and-score`'s `balanced` step, -3 dBFS peak ceiling, always
+  enforced) so one episode is not louder than the next. A shared peak
+  ceiling does not mean a shared loudness - a sparse, dialogue-only episode
+  and a dense, score-heavy one can both sit at -3 dBFS peak and still read
+  as very different volumes. `assemble-and-score`'s `target_lufs` variable
+  (passed through to `normalize_audio`) gains the mix toward a measured
+  loudness before the ceiling is applied - but gain down succeeds only
+  while the mix's own peak is below the ceiling; a single loud peak (a
+  laugh track, a sting) caps gain up the same way, and can pull a gain-down
+  episode lower still. Match episodes **downward** anyway: pick one series `target_lufs`
+  that every episode can reach - in practice, about the quietest episode
+  the ceiling holds back - and pass that same value on every episode's
+  `assemble-and-score` run. Don't pick the loudest episode's loudness and
+  ask the others to climb to it. A `target_lufs_capped` warning on an
+  episode means that episode's own peak sets the series' ceiling; lower the
+  series `target_lufs` rather than accepting the mismatch. Only when the
+  series should sit louder than its most dynamic episode allows (e.g. -16
+  for streaming) pass `limit: true` beside the same `target_lufs` on every
+  episode: -3 dBFS becomes a true-peak ceiling a look-ahead limiter holds,
+  so the laugh is limited rather than setting the gain. A `limiter_heavy`
+  warning on an episode means the series target is squashing it audibly -
+  lower the series `target_lufs` rather than living with it.
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
@@ -109,6 +124,10 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 
 Judge a finished episode with `assess_output(name)` before listening end
 to end: it measures every seam and the shots' levels, and says where to look.
+A `shot_dead_air` finding is an H3 dialogue gap (0.5-2s of near-silence
+between lines) inside one shot, not a seam problem - see `minimax-h3`'s
+room-tone bed recipe (`slice_audio` -> `loop_audio` -> `mix_audio`) rather
+than treating it as a cut to fix.
 
 `output:` a shot straight from its generation run rather than downloading
 and re-uploading it as an asset - only the cast portraits from step 0 need
@@ -131,7 +150,13 @@ on each episode's final file for duration and loudness, so a level
 mismatch between episodes shows up before a viewer notices it - its
 `peak_dbfs` is a single sample and does not say how loud the episode reads
 as a whole; `integrated_lufs` (BS.1770, whole-track) is the field that
-answers that, and is what to compare across episodes. To confirm a
+answers that, and is what to compare across episodes. A peak-normalized
+episode with one loud outlier (a studio-audience laugh, a sting) can sit
+1-2 LU quieter than its neighbors even at the same -3 dBFS peak ceiling -
+that gap is `target_lufs`'s to close, matched downward to a series-wide
+value every episode's ceiling allows (see the **normalize** bullet above);
+`target_lufs` alone cannot raise a capped episode to meet a louder one -
+`limit: true` can, for a series that must sit louder (same bullet). To confirm a
 line actually rendered rather than judging it by ear, `get_output_audio`
 returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
 arguments={"input_audio": "output:<name>"})` first (free; it takes the

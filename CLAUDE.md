@@ -88,7 +88,7 @@ Reserved names: `workflows`, `prompts`, `assets`, `outputs`, `exports`,
 workspace on the server (`ui/src/lib/Sidebar.svelte`) and the selected one
 named in the hash (`#/ws/<name>/...`).
 
-The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte` (#165)
+The web UI has a page for it: `ui/src/lib/pages/AssetsPage.svelte`
 reads `GET /api/assets` and shows the library the way the gallery shows
 outputs, tagged by `origin` so a shadowed or read-only entry is visible
 before a 403 explains it.
@@ -164,8 +164,9 @@ references) are documented above in *Workflow sources* and *Type System*.
 - Values prefixed with `prompt:` load a stored prompt's `text` from the prompt library:
   `"prompt:name"` or `"prompt:folder/name"`. Resolved in `realize_args` (`dw/prompts.py`),
   rooted at the library rather than the workflow file. The library is `DW_PROMPT_DIR` /
-  `--prompt-dir`, else `./prompts` if it exists, else found by walking up from the
-  workflow file's directory
+  `--prompt-dir`, else the workspace's `prompts/` when a workspace was named, else
+  `./prompts` if it exists, else found by walking up from the workflow file's
+  directory, else the workspace's `prompts/`
 - A step's `result.subfolder` names a subfolder of the run directory for that step's
   files - by convention `final` for the deliverable and `intermediate` for the rest; any
   relative path (`shots/act-1`); `variable:`/`item:` allowed; no default. Mechanics under
@@ -204,10 +205,10 @@ change both when one changes.
 
 ### LTX-2.5 IC-LoRAs
 
-`templates/ltx2/generative-upscale` was the only IC-LoRA use in the catalog;
-three more conditioning templates join it (#151, #152), all through
-`LTX2InContextPipeline` + `LTX2ReferenceCondition`, all at
-`reference_downscale_factor: 1` (the upscaler's is 2). `reference-sheet`
+The catalog's IC-LoRA templates are `templates/ltx2/generative-upscale` and three
+conditioning templates, all through `LTX2InContextPipeline` +
+`LTX2ReferenceCondition`; the three run at `reference_downscale_factor: 1` (the
+upscaler's is 2). `reference-sheet`
 drives Ingredients — the family's only identity route, and the first two
 templates here whose reference is a file the workflow did not make; the sheet
 is a still, so a `loop_frames` step (`dw/tasks/video_utils.py`, the video
@@ -221,13 +222,13 @@ against their own convention rather than the 150-220-word paragraph rule.
 The weights are `gated: auto` on Hugging Face — per repo, so a box that pulls
 one can still 403 on another. A `loras` entry counts toward
 `plan.downloads_required` (`_collect_sources`, `dw/plan.py`): it names its repo
-under `model_name` directly rather than through `from_pretrained_arguments`, so
-the walk used to miss it and a box holding every base weight but not the
-IC-LoRA answered `[]` and then pulled it mid-run.
+under `model_name` directly rather than through `from_pretrained_arguments`, and
+a walk that skipped it would report `[]` on a box missing only the IC-LoRA,
+which then downloads mid-run.
 
 ### Quantization Support
 
-Quantization configs are defined per-component in workflow JSON and instantiated in `config_objects.py`. Supported frameworks: BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto. The `config_type` field is a free-form string — new quantization backends work automatically via dynamic import.
+Quantization configs are defined per-component in workflow JSON and instantiated in `dw/pipeline_processors/config_objects.py`. Supported frameworks: BitsAndBytes, TorchAO, GGUF, SDNQ, optimum-quanto. The `config_type` field is a free-form string — new quantization backends work automatically via dynamic import.
 
 SDNQ pre-quantized models use a different pattern: `pre_load_modules` imports sdnq (registers with diffusers), then the entire pipeline loads from the pre-quantized repo. Optional `sdnq_optimize` applies quantized matmul post-load (CUDA/XPU only).
 
@@ -248,7 +249,7 @@ The same translation reaches the settings that carry a device or a CUDA-only fea
 
 A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `pipeline.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
 
-Settings in `~/.diffusers_helper/settings.json`: `device`, `enable_tf32`, `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename`.
+Settings in `~/.diffusers_helper/settings.json` (`dw/settings.py`): `device`, `workspace`, `output_layout`, `public_url`, `enable_tf32`, `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename`.
 
 ## Security Rules
 
@@ -279,9 +280,9 @@ same reason - default setup cannot load a pack.
 - **`previous_result:` references are checked statically too** — once the schema
   passes, `previous_result_reference_errors` (`dw/previous_results.py`) reports any
   literal `previous_result:` or `from_previous_result` naming no *earlier* step, with
-  the JSON path it sits at. References otherwise resolve lazily per step, so a step
-  renamed in one place and not another failed only when the run reached it, after
-  every step before it had generated. The definition is substituted before the check,
+  the JSON path it sits at. References otherwise resolve lazily per step, so without
+  the check a step renamed in one place and not another would fail only when the run
+  reached it, after every step before it had generated. The definition is substituted before the check,
   so a reference spelled by a *declared* variable is checked by its value; one spelled
   by an undeclared variable is itself a validation error (below)
 - **`for_each` expands before the reference check** — `validation_errors` substitutes
@@ -294,32 +295,28 @@ same reason - default setup cannot load a pack.
   warning and not a complaint about the `for_each` list that did substitute: once a
   `variables` block exists, `replace_variables` refuses an undeclared reference, so it is
   a run that cannot start
-- **The two MiniMax cut templates take one `shots` list** — since the stage-2
-  rewrite (2026-09-11) `templates/minimax/dialogue-short` and `music-video`
-  have no `shot_N_*` variables; a scripted caller passes `shots` (entries
+- **The two MiniMax cut templates take one `shots` list** —
+  `templates/minimax/dialogue-short` and `music-video` have no per-shot
+  variables; a scripted caller passes `shots` (entries
   `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
-  The members are `shot@<name>` in the manifest and the gallery. This is the
-  breaking change the next release note should name. The CLI and REPL only
+  The members are `shot@<name>` in the manifest and the gallery. The CLI and REPL only
   take `name=value` strings, and a string handed to a list variable is
   comma-split - so `shots` can only be supplied over the API/MCP (a JSON
   body); `python -m dw.run` runs the templates' default list
 - **A reference name is checked for its shape before the queue, and `@` is
   part of it** — a `for_each` member is `<group>@<entry>` and the files it
-  writes carry that `@` in their base name, which `OUTPUT_REFERENCE_PATTERN`
-  and `ASSET_REFERENCE_PATTERN` refused: a whole class of files the server
-  itself named could not be named back to it, so `output:` on a shot a
-  list-driven template produced forced a re-render or an `upload_asset` round
-  trip (#162). `@` is safe in a path — not a separator, not `..`, and
-  containment is still `validate_path`'s — and a name still may not *start*
-  with one. The other half is that the refusal arrived at run time, after the
-  queue, from a message that described a *valid* name and never said which
-  character it objected to: `reference_name_errors` (`dw/reference_names.py`)
-  now checks the shape of every `asset:`/`prompt:`/`output:` reference in the
-  definition in `validation_errors`, and `_name_fault` (`dw/security.py`)
-  names the offending character and position. Shape only — *existence*
-  depends on the workspace and on what pruning has taken, so it stays where it
-  was: the validate route resolves the caller's `arguments` against the
-  workspace, and the definition's own references resolve at run time
+  writes carry that `@` in their base name, so `OUTPUT_REFERENCE_PATTERN`
+  and `ASSET_REFERENCE_PATTERN` accept it: every file the server names can be
+  named back to it. `@` is safe in a path — not a separator, not `..`, and
+  containment is still `validate_path`'s — but a name may not *start* with
+  one. `reference_name_errors` (`dw/reference_names.py`) checks the shape of
+  every `asset:`/`prompt:`/`output:` reference in the definition in
+  `validation_errors`, so a bad name is refused before the queue, and
+  `_name_fault` (`dw/security.py`) names the offending character and
+  position. Shape only — *existence* depends on the workspace and on what
+  pruning has taken: the validate route resolves the caller's `arguments`
+  against the workspace, and the definition's own references resolve at run
+  time
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
@@ -334,9 +331,9 @@ same reason - default setup cannot load a pack.
   job that fails on its first step, and `POST /api/validate` takes the same
   `arguments` (plus an `asset:`/`prompt:`/`output:` existence check against
   the workspace) so the free pre-flight covers the part the caller wrote.
-  A workflow that declares no variables takes no arguments at all - those were
-  dropped in silence, since `Workflow.run` only substitutes when a `variables`
-  block exists. A valid `POST /api/validate` answer also carries `plan`
+  A workflow that declares no variables takes no arguments at all, since
+  `Workflow.run` only substitutes when a `variables` block exists - any passed
+  would be dropped in silence. A valid `POST /api/validate` answer also carries `plan`
   (`dw/plan.py`): the fingerprint of the work, step and list counts,
   `downloads_required` and a cost `estimate` with its `basis` - the number an
   agent quotes, with `basis` saying whether it was measured for this list
@@ -362,8 +359,8 @@ same reason - default setup cannot load a pack.
   Identity is the workflow's path under a `workflows/` tree, else its file name, else its
   `id`; the run id is `<UTC timestamp>-<8 hex of the spec>`, with a `-N` counter if taken.
   A sub-workflow inherits the parent's run directory and writes no manifest of its own.
-  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting restores the
-  old layout. The gallery groups a workflow's runs under one folder by stripping the run
+  `--output-layout flat` / `DW_OUTPUT_LAYOUT` / the `output_layout` setting writes
+  straight into the output directory with no run directories. The gallery groups a workflow's runs under one folder by stripping the run
   id (`strip_run_id`). The realized workflow is written into the same directory as
   `workflow.json` (`dw/realize.py`, `write_realized_workflow`), and the manifest's
   `workflow` block carries `realized`, `prompts` (the stored prompts inlined) and
@@ -373,10 +370,9 @@ same reason - default setup cannot load a pack.
   `POST /api/jobs/{id}/export` gathers one finished job into
   `<workspace>/exports/<job id>/` and `GET /exports/<job id>.zip` streams it.
 - **A run has a number, and it is not derived from the listing** - a file's name
-  is per *step*, so four runs of one workflow write four files called
-  `AcornWarsCutAndScore-film.7-0.0.mp4` and the gallery drew four identical
-  captions: the run id told them apart but is not something anyone says out
-  loud, so an agent had no way to name one of them to a person. Every run now
+  is per *step*, so four runs of one workflow write four files with the same
+  name; the run id tells them apart but is not something anyone says out
+  loud, so the number is how an agent names one of them to a person. Every run
   takes an ordinal, `assign_run_version` (`dw/runs.py`) at the moment
   `Workflow.run` opens the run directory, recorded as `version` in
   `manifest.json` and read back by `run_versions`. Assigned once and never
@@ -429,20 +425,16 @@ same reason - default setup cannot load a pack.
   whatever the step named) (`sectionBySubfolder`, `ui/src/lib/results.ts`),
   unchanged for a run that chose none. `file_base_name` may not contain a
   separator - it is a name, not a path - and it *replaces* the derived
-  `<workflow id>-<step name>.<index>` base rather than prefixing it (#100), so
+  `<workflow id>-<step name>.<index>` base rather than prefixing it, so
   two steps in one subfolder that set the same one collide onto
   `output_file_path`'s `-2` counter.
   Every `workflows/templates/**` file with two or more saving steps
   marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
-  `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). That moved
-  the templates' outputs into `<run>/final/` and `<run>/intermediate/`: an
-  `output:<template>/latest/x` reference keeps resolving but stops advancing past the last
-  pre-change run (`keep_output` is the stable form), and a seeded template's first run
-  after the change regenerates rather than hitting the step cache (the key includes
-  `result`). Those two, and a stray `subfolder` key becoming live, are the release-note
-  items beside the `shots` list change. Gallery names for a template's runs now read
-  `<template>/<run id>/final/<file>`, so an `output:` reference built from one carries the
-  `final/` segment
+  `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). A
+  template's outputs land in `<run>/final/` and `<run>/intermediate/`, so gallery names
+  read `<template>/<run id>/final/<file>` and an `output:` reference built from one
+  carries the `final/` segment. The step-cache key includes `result`, so changing a
+  step's `subfolder` misses the cache; `keep_output` is the stable way to name an output
 - **A task argument's numeric domain is declared, not inferred** — a task
   command's argument schema is its implementation's signature, which says
   nothing about range, so `dw/task_domains.py` declares the domains that are
@@ -450,12 +442,12 @@ same reason - default setup cannot load a pack.
   and `validation_errors` reports a literal outside one at its JSON path. The
   commands check the same table at run time (`check_arguments`), which is the
   only layer that sees a value arriving from a `variable:` or an earlier step.
-  Both defects it closed were silent successes rather than failures:
-  `slice_audio(num_frames=-10)` reached Python's slice semantics and returned
-  the track minus its last ten frames (#139), and
-  `resample_audio(target_sample_rate=0)` left the samples alone and then hit
+  An out-of-domain value is a silent success rather than a failure without it:
+  `slice_audio(num_frames=-10)` would reach Python's slice semantics and return
+  the track minus its last ten frames, and
+  `resample_audio(target_sample_rate=0)` would leave the samples alone and then hit
   `DEFAULT_AUDIO_SAMPLE_RATE` at save, writing a 44100 Hz header over a 32 kHz
-  waveform (#140) — which is why `_as_track` now refuses a non-positive rate
+  waveform — which is why `_as_track` refuses a non-positive rate
   outright: relabelling a waveform changes its speed and pitch, and the save
   default makes a missing rate look like a valid one. Adding a domain means
   one entry in the table; `tests/test_task_domains.py` pins every entry to a
@@ -464,7 +456,7 @@ same reason - default setup cannot load a pack.
 - **`cost` is curated, `observed` is derived, and they are different fields** —
   `dw/workflow_schema.json` defines `cost` as *"Never derived"*, so nothing
   writes one; `dw/server/observed_cost.py` reports a sibling built from this
-  box's own `jobs.sqlite` rows (#93). Four rules, each a way the naive median
+  box's own `jobs.sqlite` rows. Four rules, each a way the naive median
   would lie: runs are bucketed by the workflow's declared `cost_drivers` (a
   list driver on its *length*, so two four-shot runs are comparable however
   different their prompts) and the bucket reported is the one the *defaults*
@@ -477,46 +469,40 @@ same reason - default setup cannot load a pack.
   job row in one query, so a figure survives a pruned run directory, and the
   aggregate caches against `JobHistory.watermark()` rather than a file mtime —
   a job landing changes every figure and changes no file. The compact listing
-  carries only `observed_minutes`/`observed_runs` (#101 budget); the full
+  carries only `observed_minutes`/`observed_runs` (the listing has a size budget); the full
   block is in the full listing and `GET /api/workflows/{name}/variables`. The
   raw `GET /api/workflows/{name}` is left verbatim, since the editor saves
   what it reads back. A `cost_drivers` entry naming no declared variable is
   dropped, and `tests/test_observed_cost.py` sweeps the catalog for one.
   `plan.estimate` quotes the observed figure ahead of the curated one
   (`basis: "observed"`, with `runs`) — `basis: "unknown"` has to mean nobody
-  has a number, not nobody curated one (#154). Only the *cold* median, only
+  has a number, not nobody curated one. Only the *cold* median, only
   when the history is this backend's, and only for the bucket the caller's
   own arguments fall in (`ObservedCosts.observed(name, definition,
   arguments)`); a resized list finds no bucket and falls back to the curated
   figure. Nothing is added for a composed child, since an observed run
   already ran it. An inline definition has no catalog name, so no history
 - **An observed figure below three runs is not the same statistical basis as
-  a dozen, and says so** — a single-run `observed_minutes` was quoted at the
-  same authority as a twelve-run one, and ran ~3x pessimistic doing it
-  (#301). Below `SMALL_N_THRESHOLD` (3) runs, `estimate()`'s `_tempered`
+  a dozen, and says so** — a single-run `observed_minutes` can be well off
+  (one ran ~3x pessimistic). Below `SMALL_N_THRESHOLD` (3) runs, `estimate()`'s `_tempered`
   (`dw/plan.py`) blends the observed minutes toward the workflow's curated
   `cost` when one exists — proportional to how thin the history is, one run
   counting for a third of the blend — rather than quoting the raw point
-  figure; where no curated figure exists to blend toward (including the
-  #268 child-rollup case, which has none by construction), the minutes are
+  figure; where no curated figure exists to blend toward (including a
+  composed child's rollup, which has none by construction), the minutes are
   left alone and `low_confidence: true` is added to the estimate instead, so
   a caller has something machine-checkable beyond having to know to inspect
-  `runs` itself. No new range/uncertainty-band math — that was considered
-  and rejected as more surface than the problem needs. A blend still
-  answered `basis: "observed"`, the same label a raw, full-authority figure
-  carries, with nothing in the estimate saying the number had been moved off
-  what `list_workflows`' own `observed_minutes` reports for the same
-  workflow (#319) — a caller reconciling the two saw them disagree with no
-  explanation. `_tempered` now marks a blend with `tempered: true` plus
-  `observed_minutes` (the raw point figure) and `curated_minutes` (what it
-  blended toward) beside `runs`, additive fields only; `basis` stays
-  `"observed"` so an existing consumer that only reads `basis`/`minutes`
-  is unaffected
+  `runs` itself. There is deliberately no range/uncertainty-band math - more
+  surface than the problem needs. `_tempered` marks a blend with `tempered:
+  true` plus `observed_minutes` (the raw point figure, which is what
+  `list_workflows` reports) and `curated_minutes` (what it blended toward)
+  beside `runs`, so a caller can reconcile the two; `basis` stays
+  `"observed"` so a consumer that only reads `basis`/`minutes` is unaffected
 - **An H3 adapter is checked against the partition its step denoises on** —
   `ref2va` loads `transformer_ref` alone, so diffusers puts whatever
   `lora_weight_name` names straight onto it: an FL2VA turbo LoRA on a
-  reference step runs, succeeds, and only retains identity worse (#149,
-  #155). `dw/adapter_compatibility.py` refuses the mispairing in
+  reference step runs, succeeds, and only retains identity worse.
+  `dw/adapter_compatibility.py` refuses the mispairing in
   `validation_errors` (so `POST /api/validate` and the pre-queue check both
   catch it, at `arguments.<name>` when the caller supplied it) and *warns*
   on a file name carrying neither `ref2v` nor `fl2v` — the name of a future
@@ -526,15 +512,14 @@ same reason - default setup cannot load a pack.
   (`MiniMaxH3Blocks._workflow_map`, pinned by `tests/test_h3_adapters.py`);
   the file-name convention is MiniMax's and is swept against the catalog's
   own defaults
-- **An elided step says whether anyone decided it** — `warn_elided` used to
-  tell every caller their reference was probably misspelled, including the
-  one who deliberately passed `singer_reference` and so bought the elision
-  `music-video` advertises (#146, #157). `overriding_variables`
+- **An elided step says whether anyone decided it** — `warn_elided` diagnoses a
+  probable misspelling only when nobody replaced the step on purpose (passing
+  `singer_reference` buys the elision `music-video` advertises). `overriding_variables`
   (`dw/elision.py`) compares the definition as *written* against the
   substituted steps: a step reached only through a variable whose value no
   longer names it was replaced on purpose, and its record carries
   `overridden_by` and drops the diagnosis. A variable no step reads is not
-  how the step was reached, so that case keeps the old wording
+  how the step was reached, so that case keeps the misspelling diagnosis
 - **A null `model_name` switches a lora off** — a template's `loras` list
   is fixed JSON, so the way a caller drops its adapter is to pass the
   variable behind `model_name` as `null` (H3: `lora_model_name`).
@@ -542,28 +527,31 @@ same reason - default setup cannot load a pack.
   keeps placement from deferring for it, and `adapter_warnings`/`warn_adapters`
   (`dw/adapter_compatibility.py`, kind `lora_disabled`) say so at the path
   the caller wrote, since a turbo lora's step count and shift no longer fit.
-  Before, nulling the variables validated clean, loaded the pipeline for
-  minutes and then died on `float(None)`. A null `scale`/`adapter_name`
+  A null `scale`/`adapter_name`
   takes its default
 - **A deliverable with no audio headroom warns** — a track at or above
   −0.5 dBFS is written anyway and said out loud (`warn_without_headroom`,
   `dw/result.py`, kind `audio_no_headroom`), for both a saved audio file and
   a muxed video: a clipped file succeeds, and a consumer that cannot listen
-  had `peak_dbfs` with no rule to read it against — `get_gallery_metadata`'s
-  hint taught the near-silent end of the range only (#158). A warning, not a
+  needs a rule to read `peak_dbfs` against. A warning, not a
   gain change: what level a deliverable sits at is the workflow's to decide,
-  and `normalize_audio` is the step that decides it. The two Music 3
-  templates decide it now (#159) - `music` and `music-video` peak-normalize
-  to -1 dBFS, the level `assemble-and-score` has always used, because the
-  warning was firing on their own defaults every run. `music-video`
-  normalizes only the track going into the mux, not the slices that condition
-  the shots, so the picture is unchanged; `music`'s deliverable moves to the
-  new `balanced` step, which renames the file an `output:` reference names
+  and `normalize_audio` is the step that decides it (the level every
+  template uses is in the next bullet). `music-video` normalizes only the
+  track going into the mux, not the slices that condition the shots, so the
+  picture is unchanged; `music`'s deliverable is its `balanced` step.
+  `normalize_audio(limit=true)` reaches a `target_lufs` a transient would
+  otherwise cap: a true-peak (4x) look-ahead limiter holds `peak_dbfs`
+  (`_normalize_limited`, constants `LIMITER_*`) while the gain is searched
+  for (`_search_gain`) until the limited track lands within 0.1 LU of the
+  target - one correction pass left dense material 2 LU short. It stops at
+  12 dB of reduction; a track left short of the target, at the cap or not,
+  warns `target_lufs_capped` with `limited: true`, past 6 dB `limiter_heavy`
+  warns, and the log's `constraint` is `"limiter"`. `compress_audio`'s
+  `limit` mode is sample-peak with no look-ahead, so it is not a ceiling
 - **A deliverable is measured as written, not as handed to the writer** —
   `warn_without_headroom` reads the waveform, and the encoder sits downstream
-  of it: a song normalized to exactly -1.0 dBFS came back out of
-  `music-video`'s AAC mux at **+0.94**, so a clean default run shipped a
-  clipped file and nothing warned (#161). `warn_if_written_above_full_scale`
+  of it: a song normalized to exactly -1.0 dBFS can come back out of an AAC
+  mux at **+0.94**. `warn_if_written_above_full_scale`
   (`dw/result.py`, kind `audio_clipped`) probes the file it just wrote and
   warns when it decodes at or above 0 dBFS — whatever the encoder did, that
   is the number a consumer's decoder sees. Only for a file that can carry a
@@ -571,11 +559,10 @@ same reason - default setup cannot load a pack.
   file, since two warnings would be two answers to one mistake. The encode's
   overshoot is material-dependent — about 0.1 dB on an mp3 and about 1.9 dB
   on the AAC mux of the same song — so no target chosen up front can be
-  *known* to be enough, which is why reading the file back is the half that
-  stops the next instance. The half that fixes this one: every template
-  whose deliverable ends in a `pair_audio` mux (`music-video`,
-  `assemble-and-score`, `dissolve-between-shots`) normalizes to **-3 dBFS**;
-  `music`, an mp3, normalizes to -3 as well (#362)
+  *known* to be enough, which is why the file is read back. The templates
+  leave room as well: every template whose deliverable ends in a `pair_audio`
+  mux (`music-video`, `assemble-and-score`, `dissolve-between-shots`)
+  normalizes to **-3 dBFS**, and so does `music`, an mp3
 - **A variable's bound is declared by the author, checked three times** — a
   model's own rule about a value (H3's `num_frames` is `17 * n + 5` from 124
   to 345) is a property of the model, so it lives in the workflow rather than
@@ -594,23 +581,57 @@ same reason - default setup cannot load a pack.
   `POST /api/validate`, `validate_workflow` and the pre-queue check all
   refuse it at `arguments.<name>` / `variables.<name>`), at run time in
   `apply_constraints` before anything loads, and reported beside the default
-  by `list_workflows` (terse) / `get_workflow(variables_only=true)` — that
-  last part is what stops the next consumer picking 61 (#96).
+  by `list_workflows` (terse) / `get_workflow(variables_only=true)`, so a
+  caller sees the rule before it picks a value.
   `tests/test_variable_constraints.py` sweeps the whole catalog and pins every
   declared number to the diffusers symbol it derives from. A constraint key is
   a plain variable name and is matched wherever a value by that name sits -
-  top-level variable *or* a field of a `for_each` entry (#145), the latter only
+  top-level variable *or* a field of a `for_each` entry, the latter only
   where a step consumes that field as `item:<name>` (`entry_constraint_fields`),
   so the bound follows the value into the pipeline argument rather than the
   name into the JSON. An entry violation is reported at
   `arguments.shots[0].num_frames`, and the rule is reported beside the field in
   the catalog's `lists` block as well as in `constraints`
+- **`vram_estimate`'s ceiling is projected per pipeline step, after
+  `for_each` expansion** — a template's declared VRAM formula
+  (`dw/vram_estimate.py`) used to read the workflow's top-level variables;
+  now it walks the definition the run actually executes (substituted,
+  every `for_each` member expanded) and projects each step that loads a
+  pipeline from *that step's own* pipeline arguments, falling back to the
+  workflow's variables only when the step doesn't name a voxel variable
+  itself — so `shot@deflect` of `dialogue-short` is projected with its own
+  `num_frames` and its own `references`, not the template's defaults. An
+  optional `gb_per_reference` adds a fixed amount per reference the step
+  will actually pass, counting an entry once its `from_file`/
+  `from_previous_result` is non-null (a null one is dropped before the
+  pipeline sees it, #478, and costs nothing). Only the *largest*
+  over-ceiling step is reported — cutting that one is the fix the caller
+  makes first — at the entry's path (`arguments.shots[1]` when the caller
+  supplied `shots`, else `variables.shots[1]`), naming the member, its
+  frames, size and reference count. Checked in `validation_errors` and
+  again in `_prepare_definition` right before a run starts, so an inline or
+  composed definition that skipped `validate_workflow` is still caught.
+  Every H3 Ref2VA template declares `base_gb` 16.0, `bytes_per_voxel`
+  28.71 and `gb_per_reference` 1.0 (`tests/test_h3_vram_ceiling.py`): at 1344x768 on a 24 GB card the ceiling on
+  H3's `17n+5` grid runs 243 frames at one reference, 209 at two, 175 at
+  three, 141 at four — a classification from the #479 field report with
+  about 0.2 GB of margin either side, not a fitted curve.
+  A workflow with no `vram_estimate` of its own inherits the catalog's
+  (`dw/vram_inheritance.py`): each pipeline step is matched by identity
+  (`component_type` + `model_name` + `workflow`) against an index built from
+  every single-identity template declaring one (`_ceiling_index` in
+  `dw/server/app.py`, cached against the listing's mtimes), projected with
+  the same code, and over the ceiling it *warns* (`vram_projection_inherited`,
+  naming the source template) at validate and pre-queue - never refuses,
+  since the hand-built config may offload or quantize differently. No
+  run-time backstop: the worker has no catalog. Templates declaring one
+  identity agree on their numbers (`tests/test_vram_inheritance.py`)
 - **A joined video records its shots, measured** — `concat_videos`,
   `dissolve_videos` and both `run_chain` returns set `AudioVideo.shots`
   (`dw/shots.py`): one `{name, start_frame, num_frames, start_sample,
   num_samples}` per input. The frames are partitioned, and the samples are
   read off the waveform the join built, never derived from the frames, so a
-  shot's overrun stays visible (#385). Every other `AudioVideo` constructor
+  shot's overrun stays visible. Every other `AudioVideo` constructor
   carries, rescales (`interpolate_frames`), re-measures (`pair_audio`) or
   drops them, and `tests/test_shots.py` enumerates the constructor sites with
   `ast`, so a new one fails until someone decides for it. `Result.save`
@@ -624,20 +645,24 @@ same reason - default setup cannot load a pack.
   *root*, never the per-run directory - a run directory is new every execution and would
   defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
 - **Assessment probes measure a finished file and say where to look, and
-  decide nothing** (`dw/tasks/assess.py`, #387) - `analyze_shots`,
+  decide nothing** (`dw/tasks/assess.py`) - `analyze_shots`,
   `analyze_seams` and `analyze_sync_drift` each read a video streaming
   (thumbnails only, never the full frame list, so a long cut is cheap) and
   answer a JSON dict of measurements plus `findings`, the ones that crossed a
   threshold in `dw/assessment_rules.py`'s table; nothing in the engine acts
-  on a finding. These are the `returns: "json"` task kind, listed separately
-  in `list_tasks`' `assessment` (probes stay in `commands` too), and a step
+  on a finding. Membership is the declared `assessment=True` flag on
+  `register_command`, not the `returns: "json"` task kind by itself:
+  `attribute_voices` (`dw/tasks/voice_attribution.py`) answers JSON too but
+  is an analysis of a song, not a check of a cut, so it is not a probe.
+  The three probes are listed separately in `list_tasks`' `assessment`
+  (they stay in `commands` too), and a step
   on one must save `"result": {"content_type": "application/json"}` -
   anything else fails validation. Shot boundaries resolve in order: the step's `shots` argument,
   the video's own carried shots, the run manifest beside the file, else the
   whole file as one shot (`shots_source` says which). A shot's `hard_cut:
   true` field suppresses the `seam_frame_jump` rule at the seam it opens - a
   cut meant as a cut. `tests/test_assessment_rules.py` pins the rules table
-  to real probe fields, so a rename cannot leave a rule reading nothing. `GET /api/gallery/{name}/assess` (MCP `assess_output`, #388,
+  to real probe fields, so a rename cannot leave a rule reading nothing. `GET /api/gallery/{name}/assess` (MCP `assess_output`,
   `dw/server/assess.py`) runs the applicable probes in the server process on
   one decode - a sync route, so it answers beside a GPU job rather than
   queueing - with the shots the run's manifest (or an asset's keep sidecar)

@@ -18,6 +18,16 @@
         "seed": 42
     },
     "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "The latents step is LTX2Pipeline, which refuses a width not divisible by 32 outright (ValueError, not a silent floor) - checked here before its load rather than after it, even though this template's width/height never reach the diffusion decoder itself"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "The latents step is LTX2Pipeline, which refuses a height not divisible by 32 outright (ValueError, not a silent floor) - checked here before its load rather than after it, even though this template's width/height never reach the diffusion decoder itself"
+        },
         "num_frames": {
             "modulus": 8,
             "remainder": 1,

@@ -220,6 +220,71 @@ def test_delete_calls_delete():
     assert seen == [("DELETE", "/api/workflows/mine")]
 
 
+def test_save_can_name_a_workspace_for_one_request():
+    """#463: a save pinned to another workspace must not depend on the
+    session's own pin, which another connection on a shared mount can move."""
+    client, seen = scripted_with_params(
+        {
+            ("PUT", "/api/workflows/mine"): (
+                200,
+                {"name": "mine", "workspace": "A", "path": "/w/mine.json"},
+            )
+        }
+    )
+
+    result = authoring.save_workflow(client, "mine", WORKFLOW, workspace="A")
+
+    assert seen[0]["params"]["workspace"] == "A"
+    assert client.workspace == DEFAULT_WORKSPACE
+    assert result["workspace"] == "A"
+
+
+def test_save_without_workspace_sends_no_workspace_param():
+    client, seen = scripted_with_params(
+        {("PUT", "/api/workflows/mine"): (200, {"name": "mine"})}
+    )
+
+    authoring.save_workflow(client, "mine", WORKFLOW)
+
+    assert "workspace" not in seen[0]["params"]
+
+
+def test_delete_can_name_a_workspace_for_one_request():
+    """#463: same guard for delete - a stray save's cleanup must land in the
+    workspace named on the call, not wherever the session happened to be
+    pinned."""
+    client, seen = scripted_with_params(
+        {
+            ("DELETE", "/api/workflows/mine"): (
+                200,
+                {
+                    "name": "mine",
+                    "workspace": "A",
+                    "origin": "workspace",
+                    "deleted": True,
+                },
+            )
+        }
+    )
+
+    result = authoring.delete_workflow(client, "mine", workspace="A")
+
+    assert seen[0]["params"]["workspace"] == "A"
+    assert client.workspace == DEFAULT_WORKSPACE
+    assert result["workspace"] == "A"
+    assert result["deleted"] is True
+
+
+def test_delete_without_workspace_sends_no_workspace_param():
+    client, seen = scripted_with_params(
+        {("DELETE", "/api/workflows/mine"): (200, {"name": "mine", "deleted": True})}
+    )
+
+    authoring.delete_workflow(client, "mine")
+
+    assert "workspace" not in seen[0]["params"]
+
+
 def body_recording_client():
     """A client that keeps the request body, for the parts of a payload the
     (method, path) recorders above cannot see."""

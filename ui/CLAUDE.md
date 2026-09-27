@@ -12,7 +12,7 @@ and `npx playwright test` (e2e — it starts its own server, so do not have
 Every request is scoped to the selected workspace in one place: `scoped()` in
 `lib/api.ts` reads `workspace.current` and appends `?workspace=`. The route is
 what sets it: `lib/routes.ts` parses `#/ws/<name>/<section>/...`, and
-`router.svelte.ts` calls `applyRouteWorkspace` on every change, so a `ws`
+`lib/router.svelte.ts` calls `applyRouteWorkspace` on every change, so a `ws`
 route names the workspace and a `shared`/`server` route keeps the last one
 named (localStorage `dw-workspace`, which is only ever a fallback). There is
 no picker; the sidebar (`lib/Sidebar.svelte`) is links. A page refetches on a
@@ -102,8 +102,7 @@ I not delete this" has to be answerable at a glance: an `examples` asset is
 read-only and the server answers 403, so the page offers no delete for one at
 all.
 
-"The same UX" is literal, and three things were missing from it until they
-were fixed: the detail popout is `position: sticky; bottom: 1rem` as the
+"The same UX" is literal: the detail popout is `position: sticky; bottom: 1rem` as the
 gallery's is, so it rides the viewport rather than sitting at the end of the
 document where a click above the fold scrolls it out of sight; the bulk
 actions are the gallery's - a checkbox per tile (shift-click spans a range),
@@ -118,11 +117,10 @@ The selection itself is not this page's: `picks.svelte.ts` holds it (a
 under the selection is seen rather than snapshotted), `BulkBar.svelte` is the
 sticky bar and the select-all, and the two rules that have to reach a tile
 the page lays out - `.cellwrap .pick`, `.cellwrap.picked .cell` - are in
-`app.css`. The gallery runs the same three. They were one page's code copied
-into the other first, and the copies had already drifted: the assets page's
-Escape guard knew that `ConfirmDialog` renders `alertdialog` and the
-gallery's did not, so Escape in the gallery's delete confirm closed the
-detail behind it. `dialogOpen()` is that check, once. A bulk action must
+`app.css`. The gallery runs the same three - keep it that way rather than
+copying code between the pages. `dialogOpen()` is the one Escape guard: it
+knows `ConfirmDialog` renders `alertdialog`, so Escape in a delete confirm
+closes the confirm, not the detail behind it. A bulk action must
 never touch what the user cannot see, so `Picks.size` counts only the
 visible selection - the same set `names` hands to an action - and a ticked
 name the filter is hiding is inert until the filter brings it back.
@@ -130,10 +128,7 @@ name the filter is hiding is inert until the filter brings it back.
 The search path is the page's top level and folders sit inside it: one
 section per library, in the order the server resolves them, because which
 library a name lives in is what decides whether it can be deleted, what a
-delete costs, and what it hides. It used to be one mtime-sorted grid with
-an `origin` badge per tile and a library `select` over it - folders then
-cut across libraries, and the select could be left pointing at a library
-that unmounted on the next workspace. A section header carries the label,
+delete costs, and what it hides. A section header carries the label,
 the count, the root it reads and a collapse chevron (persisted under
 `collapsed-asset-libraries`; a filter opens everything, as `FolderGroups`
 does), and an empty library still shows its header, so an empty workspace

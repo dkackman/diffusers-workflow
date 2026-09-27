@@ -478,7 +478,10 @@ def load_audio_video(location, base_dir=None):
     without dropping the audio those runs generated alongside them.
 
     Args:
-        location: Local path, or an http(s) URL, of a video file
+        location: Local path, or an http(s) URL, of a video file, or a
+            {"location": ...} dict wrapping either - the same idiom
+            `get_last_frame(video=...)` and a pipeline's `image` argument
+            already accept (#510)
         base_dir: Directory a relative path is resolved against
 
     Returns:
@@ -491,6 +494,9 @@ def load_audio_video(location, base_dir=None):
     """
     from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
     from ..locations import safe_get, validate_media_path
+
+    if isinstance(location, dict):
+        location = location["location"]
 
     if _URL_SCHEME.match(location):
         import io
@@ -512,6 +518,14 @@ def load_audio_video(location, base_dir=None):
 
     video.shots = shots_beside(validated_path)
     return video
+
+
+def is_video_location(value):
+    """Whether value is something load_audio_video can load: a path/URL
+    string, or a {"location": ...} dict wrapping one - the form validation
+    lets through unresolved inside a list argument (#510), since arguments.py's
+    key conventions only fire for a scalar 'video' argument, never a list entry."""
+    return isinstance(value, str) or (isinstance(value, dict) and "location" in value)
 
 
 def _decode_audio_video(handle):

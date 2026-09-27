@@ -404,6 +404,18 @@ class TestVideoFiles:
         assert len(result.frames) == 8
         assert result.audio.shape[1] == 8 / 4 * 8000
 
+    def test_a_location_dict_is_loaded_with_its_audio(self, tmp_path):
+        """The {"location": ...} idiom get_last_frame(video=...) already
+        accepts, unwrapped inside the videos list too (#510)."""
+        first = self.write_shot(tmp_path / "shot_1.mp4", 40)
+        second = self.write_shot(tmp_path / "shot_2.mp4", 200)
+
+        result = concat_videos([{"location": first}, second], fps=4)
+
+        assert len(result.frames) == 8
+        assert result.sample_rate == 8000
+        assert result.audio.shape == (2, 8 / 4 * 8000)
+
 
 class TestLevelMatching:
     """Independently generated shots land at whatever level the model chose,

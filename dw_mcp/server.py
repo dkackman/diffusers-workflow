@@ -70,8 +70,7 @@ def build_server(client):
             "Generate images, video and audio on a real GPU: author, run "
             "and diagnose diffusers-workflow jobs against a running "
             "dw.serve. A workflow is a JSON document of named steps, each a "
-            "diffusers pipeline or a utility task; the engine runs one job "
-            "at a time.\n"
+            "diffusers pipeline or a utility task.\n"
             "\n"
             "Start from `list_workflows(shape=...)` and run what the catalog "
             "already holds, with `arguments` overriding its variables. "
@@ -84,7 +83,7 @@ def build_server(client):
             "author new JSON only when neither the catalog nor a "
             "composition covers the request.\n"
             "\n"
-            "`get_server_info` reports the accelerator, directories and this "
+            "`get_server_info` reports the accelerator and this "
             "session's workspace; a CUDA-only choice is unavailable on an "
             "mps or cpu server.\n"
             "\n"
@@ -93,21 +92,23 @@ def build_server(client):
             "`validate_workflow` (free; repeat until clean) -> quote its "
             "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
             "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
-            "`get_output_frames`, `get_output_audio` to look at and listen "
-            "to the result and judge it against the request. Tools that "
-            "spend GPU time or disk, or delete for good, refuse until "
+            "`get_output_frames`, `get_output_audio` to judge the result "
+            "against the ask. Tools that spend GPU time or disk, or "
+            "delete, refuse until "
             "`acknowledged_cost` is set. A workflow you wrote has no "
-            "measured cost: quote the `models/` entry that loads the same "
-            "pipeline (`list_workflows(include_models=true)`) times the "
-            "number of images.\n"
+            "cost: quote the `models/` entry for its pipeline "
+            "(`list_workflows(include_models=true)`) times the number of "
+            "images. Validate warns (never refuses) past the VRAM ceiling "
+            "inherited from the catalog template with the same pipeline; "
+            "your offload or quantization may differ.\n"
             "\n"
             "Arguments carry references rather than literals: `variable:`, "
             "`previous_result:`, `prompt:` (the stored prompt library), "
             "`asset:` (input media on the server - `upload_asset`, "
             "`keep_output`) and `output:` (an earlier run's file). The "
-            "guide's References section defines each; prefer them to a "
-            "local path, which means nothing to the server. "
-            "`use_workspace` picks the workspace this session works in."
+            "guide's References section defines each; a local path means "
+            "nothing to the server. "
+            "`use_workspace` picks this session's workspace."
         ),
     )
 
@@ -461,7 +462,8 @@ def build_server(client):
         section - a guide runs to thousands of lines, and the headings in
         the listing are there so the right part can be asked for by name. A
         section name is matched loosely, so a heading copied approximately
-        still resolves. Called without one, the answer is the guide's index
+        still resolves, including a `###` subsection not in `sections`
+        (e.g. "for_each"). Called without one, the answer is the guide's index
         (its opening and first section, with `sections` and `withheld`
         naming the rest), not the whole file."""
         return guides.get_guide(client, name, section=section)
@@ -753,60 +755,60 @@ def build_server(client):
 
     # ---------------------------------------------------------------- assets
 
-    def list_assets(detail: bool = False) -> dict:
+    def list_assets(detail: bool = False, workspace: str | None = None) -> dict:
         """List the input media on the server, each with the "asset:"
         reference a workflow argument carries. Look here before asking for
         a file: what a workflow needs may already be there. Entries carry
-        name, reference, kind, size and origin only - for one asset's
-        duration, frame count, fps, sample rate or channels, pass its
-        reference to `get_gallery_metadata`, which reads inputs as well as
-        outputs. Pass detail=true for each entry's folder, mtime and url
-        too, needed before naming a shared library's writable/read-only
-        roots or opening the file's preview URL."""
-        return assets.list_assets(client, detail=detail)
+        name, reference, kind, size and origin only - for duration, frame
+        count, fps, sample rate or channels, pass the reference to
+        `get_gallery_metadata`, which reads inputs as well as outputs. Pass
+        detail=true for each entry's folder, mtime and url too, needed
+        before naming a shared library's writable/read-only roots or
+        opening the file's preview URL.
+
+        `workspace` scopes this one call without changing the session pin."""
+        return assets.list_assets(client, detail=detail, workspace=workspace)
 
     def upload_asset(
         file_path: str | None = None,
         content: str | None = None,
         asset_name: str | None = None,
         shared: bool = False,
+        workspace: str | None = None,
     ) -> dict:
         """Put an image, video or audio file into the server's asset
         library and get back the "asset:" reference to use in a workflow.
         Pass exactly one of `file_path` or `content`.
 
         `file_path` is read from the machine this MCP server runs on and
-        pushed to the engine, so it is how an input reaches a dw.serve
-        running somewhere else. When this MCP surface is served by
-        dw.serve itself, "this machine" is the engine's own box, so
-        `file_path` is confined to the directories it works in - a file
-        that exists only on your own machine cannot be named this way.
+        pushed to the engine - how an input reaches a dw.serve running
+        elsewhere. When this MCP surface is served by dw.serve itself,
+        "this machine" is the engine's own box, so `file_path` is confined
+        to the directories it works in - a file that exists only on your
+        own machine cannot be named this way.
 
-        `content` is for exactly that case: the file's bytes, base64-encoded,
-        sent inline in the call rather than read off any disk. Use it for a
-        voice sample or small image that lives only on the machine you are
-        running on, against a remote `dw.serve --mcp` endpoint with no
-        filesystem in common with you. Capped at 4MB, well under
-        `file_path`'s 200MB, because these bytes ride in the call itself.
-        `asset_name` is required with `content`, since there is no file to
-        take a name or extension from.
+        `content` is for that case: the file's bytes, base64-encoded, sent
+        inline rather than read off disk. Use it for a file that lives
+        only on the machine you're running on, against a remote
+        `dw.serve --mcp` endpoint with no filesystem in common with you.
+        Capped at 4MB, well under `file_path`'s 200MB. `asset_name` is
+        required with `content`, since there is no file to name it from.
 
-        Accepts the usual image, video and audio extensions. Reference the
-        result rather than a path: a path on this machine means nothing to
-        the server. Pass `asset_name` to store it under a readable name
-        ("cast/priya-voice.wav", folders allowed) - without one (when using
-        `file_path`) the stored name is random, and a set of related inputs
-        cannot be told apart in the workflows that carry them. Pass
-        `shared=true` to put it in the library every workspace shares
-        rather than this session's own - where a recurring cast belongs,
-        since a workspace's own assets are invisible from the next
-        workspace."""
+        Accepts the usual image, video and audio extensions; reference the
+        result, not a path. Pass `asset_name` for a readable stored name
+        ("cast/priya-voice.wav", folders allowed) - otherwise (with
+        `file_path`) the name is random. Pass `shared=true` to put it in
+        the library every workspace shares - where a recurring cast
+        belongs, since a workspace's own assets are invisible from the next.
+
+        `workspace` scopes this one call without changing the session pin."""
         return assets.upload_asset(
             client,
             file_path=file_path,
             content=content,
             asset_name=asset_name,
             shared=shared,
+            workspace=workspace,
         )
 
     def keep_output(
@@ -818,18 +820,13 @@ def build_server(client):
     ) -> dict:
         """Keep a generated file as an input asset under a stable "asset:"
         name, so later workflows can rely on it - a run's own name moves
-        ("latest") or breaks when outputs are pruned. This is the step
-        between a render you liked and the next stage that conditions on
-        it. `name` is a gallery name; `asset_name` defaults to the file's
-        own. The copy happens on the server, inside the workspace: nothing
-        is downloaded or re-uploaded. Pass `shared=true` to keep it in the
-        library every workspace shares instead - where something a later
-        piece in its own workspace has to reach belongs.
+        ("latest") or breaks when outputs are pruned. `name` is a gallery
+        name; `asset_name` defaults to the file's own. The copy happens on
+        the server, inside the workspace: nothing is downloaded or
+        re-uploaded. Pass `shared=true` to keep it in the library every
+        workspace shares instead.
 
-        `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one."""
+        `workspace` scopes this one call without changing the session pin."""
         return assets.keep_output(
             client,
             name,
@@ -839,15 +836,18 @@ def build_server(client):
             workspace=workspace,
         )
 
-    def delete_asset(name: str) -> dict:
+    def delete_asset(name: str, workspace: str | None = None) -> dict:
         """Permanently remove one file from the asset library, by the name
         `list_assets` reports (without the "asset:" prefix). Not
         recoverable, and any workflow still carrying that reference stops
         loading. Deletes from whichever library holds it - this
         workspace's own before the shared one, the order an "asset:"
         reference resolves in; one from a read-only examples library is
-        refused."""
-        return assets.delete_asset(client, name)
+        refused.
+
+        `workspace` scopes this one call without changing the session pin,
+        movable by another connection on a mounted transport."""
+        return assets.delete_asset(client, name, workspace=workspace)
 
     tool(list_assets, READ_ONLY)
     tool(upload_asset, WRITES)
@@ -951,40 +951,41 @@ def build_server(client):
         name: str,
         workflow: dict | str | None = None,
         patch: dict | str | None = None,
+        workspace: str | None = None,
     ) -> dict:
         """Save a workflow to the server's writable workflow directory,
         overwriting any existing workflow of that name there. Validate it
-        first. A name that currently resolves to a read-only source (an
-        examples directory) is not overwritten - the copy lands in the
-        writable directory and shadows it from then on, which is how an
-        example gets adapted without being damaged. `name` may include
-        folders.
+        first. A name resolving to a read-only source (an examples
+        directory) is not overwritten - the copy lands in the writable
+        directory and shadows it, adapting the example without damaging it.
+        `name` may include folders.
 
-        Give exactly one of `workflow` (the full document) or `patch` for a
-        small, targeted edit: a JSON Merge Patch (RFC 7396) merged onto the
-        currently stored definition, so bumping one argument means sending
-        just that argument rather than the whole document -
+        Give exactly one of `workflow` (the full document) or `patch`: a
+        JSON Merge Patch (RFC 7396) merged onto the stored definition, so
+        bumping one argument means sending just that argument -
         `{"variables": {"num_images_per_prompt": 4}}` rather than the whole
-        workflow. A patch key set to `null` deletes that key from the
-        stored document. A list is replaced whole, never merged - a merge
-        patch has no notion of list position, so changing one `shots` entry
-        still means sending the whole `shots` list. Either may also be
-        given as a JSON-encoded string, which is parsed before saving; a
-        string that fails to parse is reported as invalid JSON rather than
-        as a type mismatch.
+        workflow. A patch key set to `null` deletes that key; a list is
+        replaced whole, never merged. Either may be a JSON-encoded string,
+        parsed before saving; a parse failure is reported as invalid JSON.
 
-        A workflow stored for reuse should mark each saving step's
-        `result.subfolder` - `final` for the step whose output the user will
-        be shown, `intermediate` for the rest - so a later consumer can tell
-        the deliverable from the scratch files without knowing the workflow."""
-        return authoring.save_workflow(client, name, workflow=workflow, patch=patch)
+        Mark each saving step's `result.subfolder` (`final`/`intermediate`)
+        so a later consumer can tell the deliverable from scratch files.
 
-    def delete_workflow(name: str) -> dict:
+        `workspace` scopes this one call without changing the session pin,
+        so a save cannot be misdirected by another connection's pin change."""
+        return authoring.save_workflow(
+            client, name, workflow=workflow, patch=patch, workspace=workspace
+        )
+
+    def delete_workflow(name: str, workspace: str | None = None) -> dict:
         """Permanently delete a stored workflow from this workspace. A
         workflow from a read-only examples directory is refused rather than
         deleted - `list_workflows` reports which those are as
-        `writable: false`."""
-        return authoring.delete_workflow(client, name)
+        `writable: false`.
+
+        `workspace` scopes this one call without changing the session pin,
+        movable by another connection on a mounted transport."""
+        return authoring.delete_workflow(client, name, workspace=workspace)
 
     tool(validate_workflow, READ_ONLY)
     tool(save_workflow, OVERWRITES)

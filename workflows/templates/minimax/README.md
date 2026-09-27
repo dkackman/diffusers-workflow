@@ -160,3 +160,55 @@ same clip as an audio reference in each shot, as
 | ------- | ------------------ |
 | [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, one `for_each` step over a `shots` list generates a shot per entry - its prompt, its references, its length - on one loaded model, and `concat_videos` gathers the episode |
 | [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit, cut to the length of the edit by `fit: "video"` so the soundtrack follows the list rather than a constant |
+
+## Field notes from a 24-shot musical
+
+A 24-shot Ref2VA short with a Music3 song surfaced six prompting habits, each
+caught only by a human watching the render (2026-09-25/26 field report,
+issue #484):
+
+- **Crowd actions have to fit what the crowd holds.** "The crowd claps while
+  holding candles" rendered three-handed people - a prop and an action that
+  conflict are resolved by adding a limb, not by dropping the prop. State an
+  action the held prop allows.
+- **A direction needs a landmark in the frame.** "The town marches up to the
+  house" put the house behind the camera and read as the crowd walking
+  toward the viewer. A side tracking shot naming the landmark at the top of
+  frame, in the direction of travel, is what held.
+- **Two people in one frame can lip-sync the wrong one.** It appears to
+  follow whichever vocal register opens the line first: a chorus opening on
+  a high ensemble shout before a tenor solo lip-synced onto the female lead
+  standing beside him. Three things that held together: spell the sung
+  lyric itself in `<d>` tags; credit a shouted attack to the crowd rather
+  than leaving it unattributed; frame the singer face-on at medium
+  close-up.
+- **Crowds skew young without an age note.** An Encanto-style "townspeople"
+  prompt rendered mostly children. State the crowd's age range explicitly.
+- **A three-reference shot can open on the reference itself.** About 1 in
+  25 opened on ~1.5 seconds of the reference portraits' own cream backdrop
+  before cutting to the generated scene. Stating in `subject_definitions`
+  that "the portrait's backdrop, pose and framing are not reused" reduced
+  but did not eliminate it - check a shot's first frames before trusting it;
+  an `analyze_shots` probe step for automating that check is #487.
+- **1344x768 is available to Ref2VA, not only to the FL2VA 768p template.**
+  The Ref2VA turbo LoRA's own schedule (shift 12/3) is trained at 960x544,
+  but 960x544 and 1344x768 are both legal canvases under H3's 768-pixel
+  short edge / 768x1344 ceiling (above), and running Ref2VA at 1344x768
+  turned smeared crowd faces crisp in the field report (175 frames, two
+  image references, ~31 minutes on a 3090 - not a measured `cost` entry,
+  one data point). It is a genuine trade-off, not a free upgrade: VAE decode
+  memory scales with `width * height * num_frames` regardless of which
+  transformer partition is denoising, so the same ceiling that OOM'd
+  `video-with-audio-768p` at 1344x768x345 (above) applies to a Ref2VA shot
+  at that canvas - frame count is where to give ground first, well before
+  345. A reference costs VRAM too - about 1 GB each, folded into
+  `reference-to-video.json`'s `vram_estimate` as `gb_per_reference` - so
+  dropping one buys roughly as much headroom as cutting a band of frames
+  (~34, two steps of the `17n+5` grid) at this canvas: at 1344x768 the
+  `17n+5` ceiling on 24 GB runs 243 frames at one reference, 209 at two, 175
+  at three, 141 at four. `validate_workflow` projects every shot of a
+  `for_each` list this way and names the largest one over budget, at that
+  shot's entry, so the refusal says which shot to cut.
+
+Item 7 of the field report - Music3 ignoring a per-section singer
+assignment - is a tool gap, not a prompting habit; see #485.

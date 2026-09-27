@@ -396,10 +396,12 @@ def list_tasks():
     """Every task command a workflow's task step can name.
 
     `assessment` names the probes among the commands (#387) - the ones that
-    answer a JSON document of measurements about a finished file rather than
-    make one - so a caller looking for a way to check a cut finds them
-    without reading every command's schema. They stay in `commands` too,
-    since a step still names one as its `command`.
+    measure a finished cut and say where to look rather than make one - so a
+    caller looking for a way to check a cut finds them without reading every
+    command's schema. They stay in `commands` too, since a step still names
+    one as its `command`. Membership is the `assessment` flag the command
+    registered with, not its JSON return: `attribute_voices` answers JSON
+    and is not a check of a cut (#485).
     """
     from .tasks.task import (
         _COMMAND_INFO,
@@ -413,9 +415,7 @@ def list_tasks():
         "image_processors": sorted(available_processors()),
         "video_processors": list(_VIDEO_PROCESSOR_COMMANDS),
         "assessment": sorted(
-            name
-            for name, info in _COMMAND_INFO.items()
-            if info.get("returns") == "json"
+            name for name, info in _COMMAND_INFO.items() if info.get("assessment")
         ),
     }
 

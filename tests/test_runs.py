@@ -298,6 +298,80 @@ class TestRunDirectories:
             assert not os.path.isabs(name)
             assert (run_dir / name).exists()
 
+    def test_a_finished_step_is_in_the_manifest_before_the_run_ends(
+        self, tmp_path, fake_pipeline
+    ):
+        """#480: a finished for_each member (or any earlier step) must be
+        readable from manifest.json while a later, still-running step is
+        the one holding up the job - not only once the whole run ends or is
+        killed."""
+        from PIL import Image
+
+        from dw.pipeline_processors.pipeline import Pipeline
+        from dw.workflow import Workflow
+
+        definition = _workflow_definition()
+        second = _workflow_definition()["steps"][0]
+        second["name"] = "gen1"
+        second["pipeline"]["from_pretrained_arguments"]["model_name"] = "model-1"
+        definition["steps"].append(second)
+
+        seen = {}
+
+        class SecondStepPipeline:
+            def __call__(self, *args, **kwargs):
+                # The run directory is the only one this workflow wrote
+                run_dir = next((tmp_path / "Gyre").iterdir())
+                manifest = json.loads((run_dir / "manifest.json").read_text())
+                seen["status"] = manifest["status"]
+                seen["steps"] = [entry["step"] for entry in manifest["steps"]]
+
+                class Output:
+                    images = [Image.new("RGB", (8, 8), "green")]
+
+                return Output()
+
+            def to(self, *args, **kwargs):
+                return self
+
+            @property
+            def components(self):
+                return {}
+
+        calls = {"n": 0}
+
+        def mock_load(self, shared_components):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                from PIL import Image as _Image
+
+                class FirstStepPipeline:
+                    def __call__(self, *args, **kwargs):
+                        class Output:
+                            images = [_Image.new("RGB", (8, 8), "green")]
+
+                        return Output()
+
+                    def to(self, *args, **kwargs):
+                        return self
+
+                    @property
+                    def components(self):
+                        return {}
+
+                self.pipeline = FirstStepPipeline()
+            else:
+                self.pipeline = SecondStepPipeline()
+
+        with patch.object(Pipeline, "load", mock_load):
+            with patch("dw.workflow.empty_device_cache"):
+                Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
+
+        # While gen1 was running, gen0 had already landed in the manifest,
+        # and the run was still reported as in progress
+        assert seen["status"] == "running"
+        assert seen["steps"] == ["gen0"]
+
     def test_the_manifest_records_the_seed_a_seedless_run_drew(
         self, tmp_path, fake_pipeline
     ):

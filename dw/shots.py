@@ -21,6 +21,11 @@ A shot is a dict:
   not build shot by shot (a chain's `match_audio`)
 - `overlap_frames` - a dissolve's head: the frames at its start that are
   blended with the shot before it
+- `hard_cut` - `concat_videos` marks it `True` on the shot it starts at every
+  seam it itself draws (never the first shot, which has no seam before it) -
+  a cut meant as a cut, which `seam_frame_jump` (`dw/assessment_rules.py`)
+  reads to stay quiet there. A chained pipeline's inner segments leave it
+  unset, since continuity is expected between them
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
@@ -339,6 +344,34 @@ def step_shots(saved_shots, saved_files, references=None):
         for path in files
         for shot in copy.deepcopy(saved_shots[path])
     ]
+
+
+def duplicate_shot_names(shots):
+    """Names that collide within one file's shot map, or None.
+
+    Two joined inputs whose inner `for_each` used the same entry names
+    (`shot@accuse` from one episode and `shot@accuse` from another, #508)
+    leave the joined map unable to tell them apart by name - `start_frame`
+    still disambiguates, but a `shots=` argument or a finding that addresses
+    a shot by name cannot. Checked per `file` (a multi-file manifest entry
+    keeps each file's names independent), and returns the duplicated names
+    for each file that has any, in file order, so the caller can name them
+    in one warning rather than emitting one per shot.
+    """
+    if not shots:
+        return None
+    groups = {}
+    for shot in shots:
+        groups.setdefault(shot.get("file"), []).append(shot["name"])
+    duplicates = {}
+    for file, names in groups.items():
+        counts = {}
+        for name in names:
+            counts[name] = counts.get(name, 0) + 1
+        dups = [name for name in dict.fromkeys(names) if counts[name] > 1]
+        if dups:
+            duplicates[file] = dups
+    return duplicates or None
 
 
 def shots_for_file(shots, path, step_files):

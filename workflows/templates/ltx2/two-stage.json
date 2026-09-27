@@ -1,7 +1,7 @@
 {
     "id": "LTX2TwoStage",
-    "description": "LTX-2.5's distilled two-stage flow in its three moves: render at half size on the eight distilled sigmas, double the video latents with the latent upsampler, then renoise them and run the three stage-two sigmas at full size through the same pipeline. The soundtrack is generated in the base pass and its latents go through the refine pass with the video, renoised and denoised on the same three sigmas, so the finished clip has the audio the base pass made. Latents pass between the steps directly - nothing is decoded to pixels and re-encoded. The renoise scale 0.909375 is the first value of the library's STAGE_2_DISTILLED_SIGMA_VALUES, which a reference cannot name, so it is written out and a test holds it to the constant. The base pass keeps its pipeline loaded for the refine pass (identical configurations load once); the refine pass releases it. The upsampler borrows the base pass's VAE.",
-    "summary": "LTX-2.5 video with audio at 1536x896: half-size render, 2x latent upsample, three-sigma refine.",
+    "description": "LTX-2.5's distilled two-stage flow in its three moves: render at half size on the eight distilled sigmas, double the video latents with the latent upsampler, then renoise them and run the three stage-two sigmas at full size through the same pipeline. The soundtrack is generated in the base pass and its latents go through the refine pass with the video, renoised and denoised on the same three sigmas, so the finished clip has the audio the base pass made. Latents pass between the steps directly - nothing is decoded to pixels and re-encoded. The renoise scale 0.909375 is the first value of the library's STAGE_2_DISTILLED_SIGMA_VALUES, which a reference cannot name, so it is written out and a test holds it to the constant. The base pass keeps its pipeline loaded for the refine pass (identical configurations load once); the refine pass releases it. The upsampler borrows the base pass's VAE. The finished clip is always exactly 2x `width`/`height`: `upscale` doubles the base latents and `refine` reads its shape off those latents, so there is no separate 'full size' to ask for - the output size is not itself a free choice, only `width`/`height` are. `width` and `height` each have to be divisible by 32 (LTX-2.5's own pipelines refuse otherwise), which makes the delivered size always a multiple of 64. That rules out a 960x544 shot from this template - 544 is not a multiple of 64 - so a two-stage clip cannot be cut into a fixed-size sequence (an H3 episode, for instance) without a resize step downstream.",
+    "summary": "LTX-2.5 video with audio at 2x width/height: half-size render, 2x latent upsample, three-sigma refine.",
     "cost": [
         {
             "device": "cuda",
@@ -10,7 +10,7 @@
             "minutes": 8.2
         }
     ],
-    "cost_drivers": ["num_frames", "width", "height", "full_width", "full_height"],
+    "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
@@ -18,13 +18,21 @@
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 768,
         "height": 448,
-        "full_width": 1536,
-        "full_height": 896,
         "num_frames": 121,
         "frame_rate": 24.0,
         "seed": 42
     },
     "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the ~80s base-stage load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the ~80s base-stage load rather than after it"
+        },
         "num_frames": {
             "modulus": 8,
             "remainder": 1,
@@ -296,8 +304,8 @@
                     "audio_latents": "previous_result:base.audio",
                     "noise_scale": 0.909375,
                     "sigmas": "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES",
-                    "width": "variable:full_width",
-                    "height": "variable:full_height",
+                    "width": "variable:width",
+                    "height": "variable:height",
                     "num_frames": "variable:num_frames",
                     "frame_rate": "variable:frame_rate",
                     "guidance_scale": 1.0,

@@ -7,6 +7,7 @@ tests/test_media_info.py.
 """
 
 import json
+import math
 
 import numpy
 import pytest
@@ -25,6 +26,7 @@ from dw.tasks.assess import (
     read_media,
     resolve_shots,
 )
+from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
 
 
@@ -201,6 +203,55 @@ class TestLevelStep:
 
 
 # ---------------------------------------------------------------------------
+# 1b. A voiced shot's in-shot gap flags shot_dead_air only when the gap sits
+# below the floor and the shot itself is not quiet throughout (#465)
+# ---------------------------------------------------------------------------
+
+
+class TestShotDeadAir:
+    @staticmethod
+    def _shot(gap_dbfs, tone_dbfs=-17.0, sample_rate=48000, seg_seconds=1.0):
+        """One shot, three one-second segments: tone, gap, tone. `tone_dbfs`
+        and `gap_dbfs` are each realized as a sine amplitude via
+        amplitude = sqrt(2) * 10**(dbfs/20), matching make_tone's own RMS."""
+        seg_samples = int(sample_rate * seg_seconds)
+        tone_amp = math.sqrt(2) * 10 ** (tone_dbfs / 20)
+        gap_amp = math.sqrt(2) * 10 ** (gap_dbfs / 20)
+        tone = make_tone(seg_samples, sample_rate, amplitude=tone_amp)
+        gap = make_tone(seg_samples, sample_rate, amplitude=gap_amp)
+        audio = numpy.concatenate([tone, gap, tone], axis=1)
+        frames = make_frames(3 * 24, base_grey=120, noise=3.0, seed=0)
+        shots = [shot_record("s0", 0, len(frames), 0, audio.shape[1])]
+        return AudioVideo(frames, audio, sample_rate, fps=24, shots=shots)
+
+    def test_a_deep_gap_fires_at_the_right_position(self):
+        answer = analyze_shots(self._shot(gap_dbfs=-80.0))
+        shot = answer["shots"][0]
+        assert shot["dead_air_seconds"] == pytest.approx(1.0, abs=0.1)
+        assert shot["dead_air_at"] == pytest.approx(1.0, abs=0.1)
+        findings = [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+        assert len(findings) == 1
+        assert findings[0]["at"]["shot"] == "s0"
+
+    def test_a_shallow_gap_does_not_fire(self):
+        # -58 dBFS sits above DEAD_AIR_FLOOR_DBFS (-65) - a dip, not a hole
+        answer = analyze_shots(self._shot(gap_dbfs=-58.0))
+        shot = answer["shots"][0]
+        assert shot["dead_air_seconds"] == 0.0
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
+    def test_a_shot_quiet_throughout_does_not_fire(self):
+        # The shot's own rms sits at or below HOLE_VOICED_DBFS (-30), so the
+        # deep gap it still measures is the shot being quiet on purpose,
+        # not a hole inside a voiced take
+        answer = analyze_shots(self._shot(gap_dbfs=-80.0, tone_dbfs=-40.0))
+        shot = answer["shots"][0]
+        assert shot["rms_dbfs"] <= -30.0
+        assert shot["dead_air_seconds"] > 0.4
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
+
+# ---------------------------------------------------------------------------
 # 2. A dissolve does not flag a level step, click, hole or frame jump
 # ---------------------------------------------------------------------------
 
@@ -279,6 +330,57 @@ class TestHardCut:
         assert len(jump_findings) == 1
         assert jump_findings[0]["severity"] == "info"
         assert jump_findings[0]["at"]["seam"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 3b. concat_videos marks its own seam hard_cut, so a real join's jump is
+# suppressed while the same magnitude reached by a chain-style join (which
+# never sets hard_cut) still fires (#466)
+# ---------------------------------------------------------------------------
+
+
+class TestConcatVideosMarksHardCut:
+    @staticmethod
+    def _clips(fps, frames_per_shot):
+        frames_a = make_frames(frames_per_shot, base_grey=0.3 * 255, noise=2.0, seed=1)
+        frames_b = make_frames(frames_per_shot, base_grey=0.8 * 255, noise=2.0, seed=2)
+        return (
+            AudioVideo(frames_a, None, None, fps=fps),
+            AudioVideo(frames_b, None, None, fps=fps),
+        )
+
+    def test_concat_videos_seam_is_not_flagged(self):
+        fps, frames_per_shot = 24, 24
+        clip_a, clip_b = self._clips(fps, frames_per_shot)
+
+        joined = concat_videos([clip_a, clip_b], fps=fps)
+        assert joined.shots[1]["hard_cut"] is True
+
+        answer = analyze_seams(joined)
+        assert answer["seams"][0]["hard_cut"] is True
+        jump_findings = [
+            f for f in answer["findings"] if f["rule"] == "seam_frame_jump"
+        ]
+        assert jump_findings == []
+
+    def test_the_same_jump_without_a_concat_seam_still_fires(self):
+        # A chain never marks hard_cut on its inner segments (dw/pipeline_processors/chain.py) -
+        # the same picture jump, built the same way but joined by hand rather
+        # than through concat_videos, is still checked
+        fps, frames_per_shot = 24, 24
+        clip_a, clip_b = self._clips(fps, frames_per_shot)
+        video = AudioVideo(clip_a.frames + clip_b.frames, None, None, fps=fps)
+        shots = [
+            shot_record("s0", 0, frames_per_shot),
+            shot_record("s1", frames_per_shot, frames_per_shot),
+        ]
+
+        answer = analyze_seams(video, shots=shots)
+        assert answer["seams"][0]["hard_cut"] is False
+        jump_findings = [
+            f for f in answer["findings"] if f["rule"] == "seam_frame_jump"
+        ]
+        assert len(jump_findings) == 1
 
 
 # ---------------------------------------------------------------------------

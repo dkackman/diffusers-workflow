@@ -66,7 +66,7 @@ def validate_workflow(
     return client.post_json("/api/validate", payload, params=params)
 
 
-def save_workflow(client, name, workflow=None, patch=None):
+def save_workflow(client, name, workflow=None, patch=None, workspace=None):
     """Write a workflow into the server's writable workflow directory,
     overwriting any file already under that name there. A name that resolves
     to one of the server's read-only sources (an examples directory) is not
@@ -80,7 +80,12 @@ def save_workflow(client, name, workflow=None, patch=None):
     argument rather than the whole document. A key set to `null` deletes it.
     A list replaces the stored list whole - a merge patch has no notion of
     list position, so changing one entry of a `for_each` list still means
-    sending that whole list."""
+    sending that whole list.
+
+    `workspace` pins this one call to another workspace without switching
+    the session - the same selector `run_workflow` and the output tools
+    take, so a save cannot be misdirected by a pin another connection on a
+    shared mount changed underneath it (#463)."""
     if (workflow is None) == (patch is None):
         raise DwApiError(
             "Provide exactly one of `workflow` (a full replacement) or "
@@ -89,9 +94,13 @@ def save_workflow(client, name, workflow=None, patch=None):
     workflow = coerce_json_object(workflow, "workflow")
     patch = coerce_json_object(patch, "patch")
     if patch is not None:
-        current = client.get_json(api_path("api", "workflows", name))
+        current = client.get_json(
+            api_path("api", "workflows", name), workspace=workspace
+        )
         workflow = _merge_patch(current, patch)
-    return client.put_json(api_path("api", "workflows", name), {"workflow": workflow})
+    return client.put_json(
+        api_path("api", "workflows", name), {"workflow": workflow}, workspace=workspace
+    )
 
 
 def _merge_patch(target, patch):
@@ -109,6 +118,10 @@ def _merge_patch(target, patch):
     return result
 
 
-def delete_workflow(client, name):
-    """Remove a workflow from the server's workflow directory."""
-    return client.delete_json(api_path("api", "workflows", name))
+def delete_workflow(client, name, workspace=None):
+    """Remove a workflow from the server's workflow directory.
+
+    `workspace` pins this one call to another workspace without switching
+    the session (#463) - without it a delete follows the session's shared
+    pin, which another connection on a mounted transport can move."""
+    return client.delete_json(api_path("api", "workflows", name), workspace=workspace)

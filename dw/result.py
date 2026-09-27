@@ -668,21 +668,39 @@ class Result:
                 lookup) would silently drop data or raise a confusing TypeError.
         """
         values = []
+        missing = None
         for result in self.result_list:
             if isinstance(result, Mapping):
                 if property_name in result:
                     values.append(result[property_name])
+                else:
+                    missing = missing or result
                 continue
 
             value = getattr(result, property_name, _NO_PROPERTY)
             # A string's every 'property' is a method, and so is most of a list's -
             # the original loud failure for those is the useful answer
             if value is _NO_PROPERTY or callable(value):
+                missing = missing or result
+                continue
+            values.append(value)
+
+        # Only when no result carries the property is the missing one an error
+        # (#499). An empty list is not "nothing to do": the step reading it gets
+        # zero iterations and succeeds having written nothing - a modular step's
+        # raw output dict holds 'sampling_rate', and asking it for 'sample_rate'
+        # silently skipped the mux that depended on it
+        if missing is not None and not values:
+            if isinstance(missing, Mapping):
+                keys = ", ".join(sorted(str(key) for key in missing)) or "none"
                 raise ValueError(
                     f"result has no property '{property_name}' "
-                    f"(it is a {type(result).__name__}, not a dict)"
+                    f"(it is a dict with keys: {keys})"
                 )
-            values.append(value)
+            raise ValueError(
+                f"result has no property '{property_name}' "
+                f"(it is a {type(missing).__name__}, not a dict)"
+            )
 
         logger.debug(f"Retrieved {len(values)} values for property: {property_name}")
         return values
@@ -830,6 +848,26 @@ class Result:
             )
             saved_files = []
             for k, v in artifact.items():
+                if isinstance(v, torch.Tensor) and not content_type.startswith("audio"):
+                    # A modular pipeline's leftover output not part of the
+                    # video/audio pairing (dw's own 'latents', from an H3
+                    # upscale step's output: [..., "latents"]) is raw model
+                    # state, not media - it has no video/image/json rendering
+                    # under the step's declared content_type, and trying one
+                    # crashed the exporter deep inside its own error (#507).
+                    # It stays reachable as previous_result:<step>.<key>
+                    # straight off the in-memory result; only the file write
+                    # here is skipped.
+                    emit_warning(
+                        f"'{k}' in '{file_base_name}' is a raw tensor, not "
+                        f"media - skipped saving it under content_type "
+                        f"{content_type!r}. It is still available as "
+                        f"previous_result:<step>.{k}.",
+                        kind="non_media_artifact_skipped",
+                        key=k,
+                        content_type=content_type,
+                    )
+                    continue
                 saved_files.extend(
                     self.save_artifact(
                         output_dir,
@@ -931,6 +969,22 @@ class Result:
                 with open(output_path, "w") as file:
                     file.write(json.dumps(artifact, indent=4))
             elif content_type.startswith("text"):
+                if not isinstance(artifact, str):
+                    # Static validation (dw/scalar_result_validation.py, #498)
+                    # catches a literal transcribe_audio(timestamps=...)
+                    # against the wrong content_type before the queue, but a
+                    # 'timestamps' reached through a 'variable:' is literal
+                    # only at run time - this names the same mismatch for
+                    # the one path that can still get here (a
+                    # transcribe_audio 'chunks' list, in practice), instead
+                    # of a bare write() TypeError after the step already ran
+                    raise ValueError(
+                        f"'{file_base_name}' is a {type(artifact).__name__}, not "
+                        "text - a command whose result is JSON-shaped (for "
+                        "example transcribe_audio with timestamps set) needs "
+                        "'result.content_type' set to 'application/json', not "
+                        f"{content_type!r}"
+                    )
                 with open(output_path, "w") as file:
                     file.write(artifact)
             elif hasattr(artifact, "save"):

@@ -17,6 +17,7 @@ finding (`dw/assessment_rules.py`).
 
 import json
 
+from ..assessment_rules import sort_findings
 from ..tasks.assess import (
     read_media,
     seams_answer,
@@ -111,8 +112,10 @@ def assess(path, kind, shots, probe=None, detail=False):
     }
     body = {
         "shots_source": source,
-        "findings": _dedupe_findings(
-            found for answer in answers.values() for found in answer["findings"]
+        "findings": sort_findings(
+            _dedupe_findings(
+                found for answer in answers.values() for found in answer["findings"]
+            )
         ),
         "rules_applied": [
             rule for answer in answers.values() for rule in answer["rules_applied"]

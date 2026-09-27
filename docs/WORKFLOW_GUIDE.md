@@ -288,7 +288,22 @@ for existence.
   One name, three places it can sit: a bare string (`"image": "asset:x.png"`),
   an element of a list, or the `location` of a media dict
   (`{"location": "asset:x.png"}`, with or without `media_type`) - all resolve
-  to the same file.
+  to the same file. When the file is on neither the MCP session's machine nor
+  reachable as `content=` (over 4MB, or the agent has no filesystem access to
+  read it into the call), curl it straight into the library the same way the
+  web UI's file picker does — `POST /api/uploads`, body is the raw bytes, up to
+  200MB:
+  ```
+  curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary @portrait.jpg \
+    "http://<host>:8765/api/uploads?filename=portrait.jpg&asset_name=cast/portrait.jpg&workspace=<ws>"
+  ```
+  It answers 201 with `path` - the `asset:` reference to use in a workflow
+  argument (the bearer token only when the server requires one). The same
+  route is also how a file assembled entirely on the client - a finished cut
+  stitched locally rather than by a workflow step - gets onto the server at
+  all: it never lands in the gallery and `export_job` has no run to bundle it
+  from, so uploading it as an asset is the only way to hand it back to the
+  engine or to a teammate reading the workspace.
 - `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
   run wrote, under the output root and confined to it. `latest` in the run-id position
   picks the newest run that holds that file; `v<N>` picks the run the gallery labels
@@ -441,6 +456,25 @@ All of it is reported by `validate_workflow`, before anything is queued, so
 a draft that names a file the server may not read costs nothing to find out.
 `get_server_info`'s `trust_workflows` says which posture is in force.
 
+### A workflow you wrote inherits the catalog's VRAM ceiling
+
+A template can declare a `vram_estimate`, and a workflow over it that
+projects past the card is refused before anything is queued. A workflow you
+wrote declares none, so `validate_workflow` (and `run_workflow`'s pre-queue
+check) match each of its pipeline steps to the catalog by *pipeline
+identity* - the step's `component_type`, `from_pretrained_arguments.model_name`
+and `from_pretrained_arguments.workflow` - and project it against the
+ceiling a catalog template declared for that same pipeline. Past it, the
+answer stays `valid: true` and carries a warning of kind
+`vram_projection_inherited` that names the source template and the heaviest
+step (for a `for_each`, the heaviest member). It warns rather than
+refuses: your offload and quantization config may differ from the
+template's. Cut frames, size or references until it goes quiet, or declare
+your own `vram_estimate`, which always wins and is judged exactly as a
+template's. A pipeline the catalog declares no ceiling for gets no warning -
+silence there is not a clearance - and H3's `t2va` and `ref2va` are
+different identities with different ceilings.
+
 ### Remote code is refused by default
 
 A server started without `--trust-workflows` refuses any
@@ -535,6 +569,16 @@ resolves to `slice@closeup`. That is how a shot reads the audio
 slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
 no zip and no loop index.
+
+That auto-pairing is at the *step* level only, where `from_previous_result`
+(or `previous_result:`) sits directly in the `for_each` step's own
+arguments. Inside an **item** — an entry field the step reads with
+`item:`, such as a `references` entry — nothing pairs it for you, because the
+entry is data the caller wrote and the engine does not know which list it
+came from. Spell the member out: `{"reference_type": "…",
+"from_previous_result": "slice@closeup"}`, not `"slice"`. Getting this wrong
+fails the run with a precise error naming the members that do exist, but the
+guide says it here first.
 
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`
@@ -857,6 +901,7 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `seam_click` | `analyze_seams` | the join peaks more than 12 dB above the audio either side |
 | `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
 | `seam_frame_jump` | `analyze_seams` | the picture changes more than 25x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
+| `shot_dead_air` | `analyze_shots` | the shot holds a gap more than 0.4 seconds long below its dead-air floor (skipped inside a shot that is quiet throughout) |
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
 
@@ -888,6 +933,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `seam_click` | a longer `crossfade_ms` on the join | recut |
 | `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
 | `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
+| `shot_dead_air` | cut a room-tone bed from the take with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
 
@@ -907,8 +953,8 @@ Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `
 A task command's implementation declares what it hands back - most answer an
 `artifact` (a file `result` saves in one of the media content types above),
 some (`judge`) answer a bare `scalar` that cannot be saved at all, and some
-(the assessment probes in [TASKS.md](TASKS.md)) answer a `json` document -
-every measurement taken, in one dict. A step on a `json` command must set
+(the assessment probes in [TASKS.md](TASKS.md), and `attribute_voices`) answer
+a `json` document - every measurement taken, in one dict. A step on a `json` command must set
 `content_type` to `application/json`, which saves it as one document; a step on a `scalar` command
 may not carry a `result` at all. Both are checked in validation, by the
 command's own declared kind rather than a name match.

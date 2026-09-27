@@ -273,3 +273,19 @@ class TestDocsQuoteTheTable:
         assert guard in _section(
             DOCS / "WORKFLOW_GUIDE.md", "## Assessing a run's output"
         )
+
+
+class TestFindingSaysTheRemedy:
+    def test_shot_dead_air_names_the_room_tone_recipe(self):
+        """#491: the finding an agent actually reads, not just the docs, has
+        to carry the remedy - lay a room-tone bed with slice_audio ->
+        loop_audio -> mix_audio, using the take's own quiet stretch."""
+        says = RULES_BY_NAME["shot_dead_air"]["says"]
+        assert says == (
+            "the shot holds a gap this long, well below the floor a line's own room"
+            " tone sits at - cut a room-tone bed from the take with slice_audio, loop"
+            " it to the gap's length with loop_audio, and mix it under the line with"
+            " mix_audio rather than leaving the drop silent"
+        )
+        for command in ("slice_audio", "loop_audio", "mix_audio"):
+            assert command in says
