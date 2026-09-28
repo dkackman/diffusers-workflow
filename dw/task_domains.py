@@ -117,6 +117,7 @@ TASK_ARGUMENT_DOMAINS = {
         "loop_seconds": POSITIVE,
         "target_bed_dbfs": NON_POSITIVE,
         "max_candidates": POSITIVE,
+        "fps": POSITIVE,
     },
     "fade_audio": {
         "fade_in_ms": NON_NEGATIVE,

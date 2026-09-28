@@ -50,6 +50,17 @@ def media_duration(path):
         return _container_duration(container)
 
 
+def container_fps(path):
+    """The picture stream's frame rate from the container's headers alone, or
+    None for a file with no picture stream (or none it declares) - what turns
+    a shot's frames into seconds without decoding a frame."""
+    with av.open(path) as container:
+        if not container.streams.video:
+            return None
+        rate = container.streams.video[0].average_rate
+        return float(rate) if rate else None
+
+
 def audio_shape(path):
     """The soundtrack's duration (seconds), sample rate and channel count
     from the container's headers alone - what projecting the size of a
