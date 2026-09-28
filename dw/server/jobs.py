@@ -1,7 +1,7 @@
 """Job queue over the persistent worker process.
 
-One runner thread executes jobs FIFO against the single GPU worker - the
-same WorkerManager the REPL uses. Jobs collect their progress events with
+One runner thread executes jobs FIFO against the single GPU worker, managed
+by WorkerManager. Jobs collect their progress events with
 sequence numbers so an SSE client can attach late (or reconnect) and replay
 from where it left off.
 """
@@ -19,7 +19,7 @@ import threading
 
 from ..assets import activate_asset_dir, deactivate_asset_dir
 from ..download_watch import format_progress
-from ..repl_worker import WorkerManager
+from ..worker_manager import WorkerManager
 from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
 from ..introspection import workflow_argument_warnings
 from ..schema import format_validation_errors
@@ -1560,9 +1560,8 @@ class JobManager:
         memory reading taken right after. Callers must check `is_busy()`
         first - this does not itself refuse a running/queued job, and racing
         one would clear state a queued run still expects resident. The
-        30s timeout (vs. `memory_status`'s 5s) matches the REPL's `memory
-        clear` (`repl_commands.py`): actually freeing CUDA memory takes
-        longer than reading a counter does.
+        30s timeout (vs. `memory_status`'s 5s) allows for this: actually
+        freeing CUDA memory takes longer than reading a counter does.
 
         Returns the reading taken after the clear, or None when there was no
         worker to clear - nothing was resident in that case."""

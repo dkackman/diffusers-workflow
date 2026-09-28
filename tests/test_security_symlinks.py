@@ -668,21 +668,6 @@ class TestListingsKeepWhatBelongs:
         assert "alias.png" in names
         assert "leak.png" not in names
 
-    def test_the_repl_listing_drops_the_link(self, tree):
-        from types import SimpleNamespace
-
-        from dw.repl_commands import WorkflowCommands
-
-        (tree["workflows"] / "mine.json").write_text("{}")
-        link(tree["workflows"] / "leak.json", tree["outside"] / "secret.json")
-        commands = WorkflowCommands.__new__(WorkflowCommands)
-        commands.repl = SimpleNamespace(
-            globals={"workflow_dir": str(tree["workflows"])}
-        )
-        names = commands.workflow_names()
-        assert "mine" in names
-        assert "leak" not in names
-
     def test_the_export_zip_keeps_its_ordinary_files(self, client, tree):
         export = tree["root"] / "exports" / "job-3"
         (export / "outputs").mkdir(parents=True)

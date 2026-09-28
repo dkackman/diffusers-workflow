@@ -16,7 +16,7 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 ### Input Validation
 
 - `validate_variable_name()` — Alphanumeric, underscore, hyphen only (pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`), max 100 chars
-- `validate_string_input()` — Max length, no null bytes, no control characters other than tab/newline/CR. Every caller that checks a caller-supplied variable value (`dw/variables.py`, `dw/run.py`, the REPL) passes `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters; file names and paths pass their own, shorter caps, so the function's bare default of 1000 is not the limit anything is held to. A variable's *default*, written in the definition, is not capped separately: the author controls the file, and the whole file is capped at 50MB
+- `validate_string_input()` — Max length, no null bytes, no control characters other than tab/newline/CR. Every caller that checks a caller-supplied variable value (`dw/variables.py`, `dw/run.py`) passes `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters; file names and paths pass their own, shorter caps, so the function's bare default of 1000 is not the limit anything is held to. A variable's *default*, written in the definition, is not capped separately: the author controls the file, and the whole file is capped at 50MB
 - `validate_json_size()` — Limits JSON files to 50MB
 - `validate_url()` — Scheme must be `http` or `https`; must have a non-empty domain (`netloc`); may not contain a backslash. `urllib.parse` and the HTTP client disagree on which host `http://169.254.169.254\@example.com/` names, so the host the check approved need not be the one dialed; a `\` that belongs in a path is written `%5C`
 - `validate_constant_name()` — Guards `constant:` references before import: dotted-name pattern only, module must already be importable, and anything callable is refused
@@ -25,7 +25,7 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 ### Command Sanitization
 
 - `sanitize_command_args()` — Rejects arguments containing shell metacharacters ( `` ` `` `$` `|` `&` `;` `>` `<` and newline/CR). It does **not** call `shlex.quote()` — with `shell=False`, argument list separation is handled safely by Python/the OS, so this function is a defense-in-depth check, not an escaping step.
-- As of this writing, `dw/` does not invoke `subprocess` anywhere — the REPL's worker process (`dw/repl_worker.py`, `dw/worker.py`) is a `multiprocessing.Process` communicating over `multiprocessing.Queue`, not a shelled-out command. `sanitize_command_args()` is exercised by `tests/test_security.py` but is otherwise unused; it exists for any future code path that shells out.
+- As of this writing, `dw/` does not invoke `subprocess` anywhere — the worker process (`dw/worker_manager.py`, `dw/worker.py`) is a `multiprocessing.Process` communicating over `multiprocessing.Queue`, not a shelled-out command. `sanitize_command_args()` is exercised by `tests/test_security.py` but is otherwise unused; it exists for any future code path that shells out.
 
 ## Trust model
 
@@ -60,7 +60,7 @@ read.
 
 ### `--trust-workflows`
 
-`dw-run`, `dw-serve`, and `dw-repl` all take a `--trust-workflows` flag,
+`dw-run` and `dw-serve` both take a `--trust-workflows` flag,
 **off by default**. Untrusted (the default), `pre_load_modules` and any
 dotted `*_type`/`*_dtype`/`dtype`/`config_type` value are refused unless
 they resolve under a top-level package the tool already depends on for
@@ -202,7 +202,6 @@ MCP-submitted or not - see the blanket-choice note just above.
 |-------------|-----------------|
 | `workflow.py` | Workflow file paths, JSON size, output directories, sub-workflow paths |
 | `run.py`, `validate.py` | CLI arguments, variable names and values |
-| `repl.py`, `repl_commands.py` | Interactive command arguments — paths, workflow paths, output paths, variable names/values |
 | `arguments.py` | Image/video/audio URLs, file paths, file extensions (`validate_media_location`, `fetch_image`, `fetch_video`) |
 | `tasks/gather.py` | URLs passed to the `gather` task |
 | `result.py` | Output directories and filenames |

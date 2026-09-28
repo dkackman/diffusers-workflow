@@ -47,8 +47,8 @@ Around 120 files and 3,600+ tests as of this writing (`pytest tests/ --collect-o
 | test_integration.py | End-to-end workflow tests |
 | test_task.py | Task dispatch |
 | test_schema.py | JSON schema validation |
-| test_worker.py | REPL worker subprocess |
-| test_repl_commands.py, test_repl_hierarchical.py, test_repl_reorganization.py | REPL command structure |
+| test_worker.py | Worker subprocess |
+| test_worker_manager.py | Worker process lifecycle management |
 | test_pipeline_caching.py, test_pipeline_components.py, test_modular_pipeline.py | Pipeline caching, component discovery, `load_components` |
 | test_device.py, test_device_helpers.py | Device selection, shared device/dtype helpers |
 | test_image_utils.py, test_resize_bucket.py, test_strip_exif_and_watermark.py, test_tensor_image.py, test_list_images.py | Image processing task commands |

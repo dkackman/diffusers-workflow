@@ -8,7 +8,7 @@ diffusers-workflow wraps the [Hugging Face Diffusers library](https://github.com
 in an engine that runs image, video and audio generation as jobs, and puts
 two front ends on it: an **MCP server**, so Claude Code (or any MCP client)
 can author, run and inspect generations; and a **web UI** for doing the same
-by hand. A CLI and REPL sit underneath for when you want neither.
+by hand. A CLI sits underneath for when you want neither.
 
 **Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
@@ -184,9 +184,6 @@ python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_image
 python -m dw.validate workflows/models/flux-dev.json
 ```
 
-An interactive REPL (`python -m dw.repl`) keeps models resident between runs
-for 2-4x faster iteration. See [REPL Commands](docs/REPL_COMMANDS.md).
-
 ## What's underneath
 
 Every front end reads and writes the same thing: a JSON document of named
@@ -231,8 +228,7 @@ frame interpolation and more.
 
 ### Reference
 
-- [REPL Commands](docs/REPL_COMMANDS.md) — Interactive REPL command reference
-- [Worker Guide](docs/REPL_WORKER_GUIDE.md) — GPU persistence and troubleshooting
+- [Worker Guide](docs/WORKER_GUIDE.md) — GPU persistence and troubleshooting
 - [Dependencies](docs/DEPENDENCIES.md) — Installation details
 - [Security](docs/SECURITY.md) — Security model
 - [Testing](docs/TESTING.md) — Running the test suite

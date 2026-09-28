@@ -145,7 +145,6 @@ Homepage = "https://github.com/dkackman/diffusers-workflow"
 [project.scripts]
 dw-run = "dw.run:main"
 dw-validate = "dw.validate:main"
-dw-repl = "dw.repl:main"
 dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
 dw-mcp = "dw_mcp.__main__:main"

@@ -26,9 +26,6 @@ python -m dw.validate workflows/models/z-image.json
 # System test - downloads SD 1.5 (a few GB) and generates one image
 python -m dw.test
 
-# Interactive REPL
-python -m dw.repl
-
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
 ```
@@ -37,7 +34,7 @@ python -m dw.serve
 
 ### Server & Web UI
 
-`dw/serve.py` runs a FastAPI app over the same persistent worker the REPL uses,
+`dw/serve.py` runs a FastAPI app over a persistent worker process,
 queueing jobs FIFO and persisting history to `~/.diffusers_helper/jobs.sqlite`.
 See docs/SERVER.md, `dw/server/CLAUDE.md` and `ui/CLAUDE.md`.
 
@@ -58,11 +55,9 @@ code; every number a skill states is pinned to a diffusers symbol by
 `tests/test_plugin_skills.py`. `plugin.json`'s version is the engine's, bumped by
 `scripts/release.sh`. Adding or re-auditing a family is `.claude/skills/model-family-onboarding/`.
 
-### REPL Architecture
+### Worker
 
-The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
-
-**Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
+A **persistent worker subprocess** (`dw/worker.py`), managed by `dw/worker_manager.py`, keeps GPU models cached between runs for `JobManager`. Communication is via `multiprocessing.Queue`, with `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
 ### Workspaces on the server
 

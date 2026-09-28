@@ -78,7 +78,7 @@ class UntrustedWorkflowError(SecurityError):
 # The environment variable a parent process sets to hand its --trust-workflows
 # choice down to a spawned worker subprocess - multiprocessing's 'spawn' start
 # method launches a fresh interpreter that inherits os.environ, the same way
-# DW_PROMPT_DIR reaches the worker (see dw/serve.py, dw/repl.py)
+# DW_PROMPT_DIR reaches the worker (see dw/serve.py)
 TRUST_WORKFLOWS_ENV_VAR = "DW_TRUST_WORKFLOWS"
 
 # Dotted type/pre_load_modules references that resolve under one of these

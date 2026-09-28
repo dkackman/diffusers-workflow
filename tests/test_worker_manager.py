@@ -1,14 +1,15 @@
-"""Unit tests for WorkerManager - the process-facing side of the REPL and
-the server's job runner. Everything here runs against a fake process; the
-real spawn/shutdown path is exercised by tests/test_worker.py on a GPU box.
+"""Unit tests for WorkerManager - the process management used by
+JobManager to run the GPU worker. Everything here runs against a fake
+process; the real spawn/shutdown path is exercised by tests/test_worker.py
+on a GPU box.
 """
 
 import queue
 
 import pytest
 
-import dw.repl_worker as repl_worker
-from dw.repl_worker import WorkerManager
+import dw.worker_manager as worker_manager
+from dw.worker_manager import WorkerManager
 
 
 class FakeProcess:
@@ -24,7 +25,7 @@ class FakeProcess:
 def manager(monkeypatch):
     # The liveness poll is one second in production; the tests should not
     # spend it
-    monkeypatch.setattr(repl_worker, "WORKER_LIVENESS_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(worker_manager, "WORKER_LIVENESS_POLL_SECONDS", 0.01)
     manager = WorkerManager()
     manager.worker_active = True
     manager.worker_process = FakeProcess()

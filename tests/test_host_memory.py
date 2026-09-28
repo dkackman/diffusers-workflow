@@ -9,8 +9,6 @@ import builtins
 import os
 import sys
 
-import pytest
-
 from dw import host_memory
 
 
@@ -87,26 +85,6 @@ def test_the_worker_reports_host_fields_beside_the_gpu_ones():
     if host:  # a platform that can answer answers in MB, as the gpu keys do
         assert all(isinstance(v, float) for v in host.values())
         assert host["host_memory_rss_mb"] > 1.0
-
-
-@pytest.mark.parametrize("gpu_available", [True, False])
-def test_the_repl_prints_host_memory_either_way(capsys, gpu_available):
-    from dw.repl import DiffusersWorkflowREPL
-
-    repl = DiffusersWorkflowREPL.__new__(DiffusersWorkflowREPL)
-    DiffusersWorkflowREPL._print_memory_info(
-        repl,
-        {
-            "gpu_available": gpu_available,
-            "run_count": 1,
-            "host_memory_rss_mb": 1234.5,
-            "host_memory_total_mb": 64000.0,
-            "host_memory_available_mb": 32000.0,
-        },
-    )
-    out = capsys.readouterr().out
-    assert "Worker RSS: 1234.5 MB" in out
-    assert "32000.0 MB of 64000.0 MB" in out
 
 
 def test_the_peak_is_never_below_the_resident_figure(monkeypatch):
