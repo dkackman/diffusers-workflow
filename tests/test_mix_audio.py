@@ -119,6 +119,24 @@ class TestMixAudio:
         ]
         assert warnings == []
 
+    def test_a_computed_multiplier_does_not_warn(self):
+        # #555: find_loop_bed hands back a non-integer gain (e.g. 10.374) as
+        # mix_audio's documented multiplier - a hand-typed dB figure is a
+        # round number, so only an integer above the threshold is a likely typo.
+        warnings = [
+            e
+            for e in self.events_of(
+                lambda: mix_audio(
+                    [_tone(10, 0.1), _tone(10, 0.1)],
+                    gains=[1.0, 10.374],
+                    sample_rate=44100,
+                ),
+                "warning",
+            )
+            if e.get("kind") == "mix_audio_gain_not_db"
+        ]
+        assert warnings == []
+
     def test_the_applied_gains_are_logged(self):
         logs = self.events_of(
             lambda: mix_audio(

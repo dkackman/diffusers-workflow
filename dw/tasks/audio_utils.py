@@ -1050,11 +1050,17 @@ def mix_audio(audios, gains=None, sample_rate=None):
         # only a gain loud enough that a caller almost certainly meant it as
         # dB (12, 6, 20, ...) is worth flagging. GAIN_LOOKS_LIKE_DB_ABOVE sits
         # above any observed catalog default and below the smallest figure a
-        # dB-as-multiplier typo would produce (a "6 dB" or "12 dB" boost)
+        # dB-as-multiplier typo would produce (a "6 dB" or "12 dB" boost).
+        # #555: a hand-typed dB figure is a round number; a computed
+        # multiplier (find_loop_bed's "gain", meant for this argument) almost
+        # never lands on an exact integer, so only an integer value above the
+        # threshold is flagged.
         loud = [
             g
             for g in gains
-            if as_number(g) is not None and as_number(g) > GAIN_LOOKS_LIKE_DB_ABOVE
+            if as_number(g) is not None
+            and as_number(g) > GAIN_LOOKS_LIKE_DB_ABOVE
+            and float(as_number(g)).is_integer()
         ]
         if loud:
             emit_warning(
