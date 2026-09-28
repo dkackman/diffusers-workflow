@@ -411,7 +411,11 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 9_000 for `templates/ltx2/upscale-clip` (#548), measured at 8_910:
 # about 125 tokens, the same as each of its restore siblings - the only
 # catalog route to a generative upscale of a clip the caller brings.
-COMPACT_BUDGET = 9_000
+# Then to 9_150 for `templates/ltx2/refine-clip` (#543, 2026-09-28), measured
+# at 9_052 before its curated `cost` (about 15 tokens more): the latent-refine
+# route to 2x for a clip the caller brings, kept beside upscale-clip because
+# the two trade differently (source latents vs. an IC-LoRA re-render).
+COMPACT_BUDGET = 9_150
 FILTERED_BUDGET = 1_500
 
 
@@ -557,6 +561,61 @@ class TestLtxTwoStage:
 
         assert base_cache_key == refine_cache_key
         assert not _step(definition, "base").get("release_pipeline", False)
+
+
+class TestLtxRefineClip:
+    """two-stage's refine pass fed a clip dw did not make (#543): the latent
+    upsampler encodes the source itself (its `video` argument), so the refine
+    starts from the source's own latents, and the soundtrack is the source's,
+    read first so a silent source fails before any pipeline loads."""
+
+    def _definition(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "refine-clip.json"
+        )
+        return json.load(open(path, encoding="utf-8"))
+
+    def test_the_renoise_scale_is_the_first_stage_two_sigma(self):
+        from diffusers.pipelines.ltx2.utils import STAGE_2_DISTILLED_SIGMA_VALUES
+
+        refine = _step(self._definition(), "refine")
+
+        assert (
+            refine["pipeline"]["arguments"]["noise_scale"]
+            == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        )
+        assert (
+            refine["pipeline"]["arguments"]["sigmas"]
+            == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        )
+
+    def test_the_upsampler_encodes_the_source_and_refine_reads_its_latents(self):
+        definition = self._definition()
+        upscale = _step(definition, "upscale")["pipeline"]
+        refine = _step(definition, "refine")["pipeline"]
+
+        assert upscale["arguments"]["video"] == "variable:source_video"
+        assert upscale["arguments"]["output_type"] == "{latent}"
+        assert refine["arguments"]["latents"] == "previous_result:upscale.frames"
+        # No audio latents: the source's track is paired back instead
+        assert "audio_latents" not in refine["arguments"]
+        assert upscale["configuration"]["shared_components"] == ["vae"]
+        assert refine["configuration"]["reused_components"] == ["vae"]
+
+    def test_the_source_track_is_read_first_and_paired_at_minus_three(self):
+        definition = self._definition()
+        first = definition["steps"][0]
+        final = _step(definition, "with_source_audio")
+
+        assert first["task"]["command"] == "normalize_audio"
+        assert first["task"]["arguments"]["audio"] == "variable:source_video"
+        assert first["task"]["arguments"]["peak_dbfs"] == -3.0
+        assert final["task"]["command"] == "pair_audio"
+        assert final["task"]["arguments"]["video"] == "previous_result:refine"
+        assert final["task"]["arguments"]["audio"] == (
+            f"previous_result:{first['name']}"
+        )
+        assert final["task"]["arguments"]["fit"] == "video"
 
 
 LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")
