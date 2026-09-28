@@ -17,6 +17,7 @@ import uuid
 import logging
 import threading
 
+from ..assets import activate_asset_dir, deactivate_asset_dir
 from ..download_watch import format_progress
 from ..repl_worker import WorkerManager
 from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
@@ -768,6 +769,23 @@ class JobManager:
 
     # ------------------------------------------------------------- submission
 
+    @staticmethod
+    def _validation_errors(loaded, arguments, asset_dir):
+        """`loaded.validation_errors` with this job's asset library active.
+
+        validation_errors() resolves 'asset:' references itself, through
+        dw.assets' default discovery, which dw.serve pins to the default
+        workspace's library - so a named workspace's job would be checked
+        against another workspace's files of the same name. The route's
+        _candidate_for and the worker's execute path activate the same way.
+        """
+        token = activate_asset_dir(asset_dir) if asset_dir else None
+        try:
+            return loaded.validation_errors(arguments=arguments)
+        finally:
+            if token is not None:
+                deactivate_asset_dir(token)
+
     def submit(
         self,
         workflow_path=None,
@@ -826,7 +844,7 @@ class JobManager:
             # already accepted for the same call (#415, the run_workflow
             # mirror of #414)
             loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
-            errors = loaded.validation_errors(arguments=arguments)
+            errors = self._validation_errors(loaded, arguments, asset_dir)
             if errors:
                 raise Exception(format_validation_errors(errors))
             spec = {
@@ -841,7 +859,7 @@ class JobManager:
             loaded = workflow_from_definition(
                 copy.deepcopy(workflow), job_output_dir, base_dir, confinement
             )
-            errors = loaded.validation_errors(arguments=arguments)
+            errors = self._validation_errors(loaded, arguments, asset_dir)
             if errors:
                 raise Exception(format_validation_errors(errors))
             spec = {

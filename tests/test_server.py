@@ -1001,7 +1001,9 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
         assert not any("cached_steps" in w for w in result["warnings"])
 
 
-def _shots_workspace_with_short_dissolve_assets(tmp_path, monkeypatch):
+def _shots_workspace_with_short_dissolve_assets(
+    tmp_path, monkeypatch, shots_frames=124, default_frames=None
+):
     """A server whose default workspace's DW_ASSET_DIR is pinned (mirroring
     dw.serve's real startup, dw/serve.py:145) and whose named 'shots'
     workspace holds two mp4 assets too short for a dissolve_frames=130
@@ -1045,13 +1047,19 @@ def _shots_workspace_with_short_dissolve_assets(tmp_path, monkeypatch):
     # Too short for the dissolve declared below - the same fixture shape
     # test_dissolve_frame_errors.py uses for the un-scoped version of
     # this check
-    write_mp4(os.path.join(shots_assets, "a.mp4"), frames=124)
-    write_mp4(os.path.join(shots_assets, "b.mp4"), frames=124)
-    # Nothing of the same name in the default workspace - if validation
-    # resolves against the pinned default library instead of the named
-    # one, it finds no file at all and dissolve_frame_errors silently
-    # reports nothing, rather than correctly flagging the overlap
-    assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+    write_mp4(os.path.join(shots_assets, "a.mp4"), frames=shots_frames)
+    write_mp4(os.path.join(shots_assets, "b.mp4"), frames=shots_frames)
+    if default_frames is None:
+        # Nothing of the same name in the default workspace - if validation
+        # resolves against the pinned default library instead of the named
+        # one, it finds no file at all and dissolve_frame_errors silently
+        # reports nothing, rather than correctly flagging the overlap
+        assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+    else:
+        # The same names in the default library, so a check that looked
+        # there instead of at the named workspace reaches a different answer
+        write_mp4(os.path.join(root.assets, "a.mp4"), frames=default_frames)
+        write_mp4(os.path.join(root.assets, "b.mp4"), frames=default_frames)
 
     workflow = dissolve_workflow(["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130)
     return client, workflow
@@ -1102,6 +1110,36 @@ def test_submit_job_checks_a_dissolve_asset_against_the_named_workspace(
 
     assert response.status_code == 400
     assert "124 frames" in response.json()["detail"]
+
+
+def test_a_named_workspace_asset_shadowing_a_default_one_is_checked_in_its_own_library(
+    tmp_path, monkeypatch
+):
+    """The job manager's own pre-queue check, not only the route's, resolves
+    'asset:' against the job's workspace. With the same names in the pinned
+    default library at a length too short for the dissolve, a check that
+    looked there would refuse a submission (and its rerun) that validate
+    accepts."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch, shots_frames=400, default_frames=124
+    )
+    with client:
+        verdict = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+        assert verdict["valid"] is True, verdict
+
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+        assert submitted.status_code == 201, submitted.json()
+        job_id = submitted.json()["id"]
+        assert wait_for_status(client, job_id, ["succeeded"])
+
+        rerun = client.post(f"/api/jobs/{job_id}/rerun")
+        assert rerun.status_code == 201, rerun.json()
 
 
 def test_submission_carries_argument_warnings(server):
