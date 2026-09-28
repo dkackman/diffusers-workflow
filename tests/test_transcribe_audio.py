@@ -102,13 +102,54 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertNotIn("return_timestamps", pipe.call_args.kwargs)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
-    def test_a_short_clip_does_not_ask_for_timestamps(self, mock_pipeline):
+    def test_a_short_clip_on_whisper_still_asks_for_timestamps(self, mock_pipeline):
+        # Without return_timestamps, Whisper's decoder can emit an early
+        # end-of-text after a pause between lines and truncate a well-under-
+        # 30s multi-line clip (#559) - so plain mode asks for timestamps
+        # internally too, on every Whisper call regardless of length
         pipe = self._mock_pipe(mock_pipeline)
         waveform, rate = self._waveform(seconds=5.0)
 
         transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
+        self.assertIs(pipe.call_args.kwargs.get("return_timestamps"), True)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_short_clip_on_a_ctc_model_does_not_ask_for_timestamps(
+        self, mock_pipeline
+    ):
+        pipe = self._mock_pipe(mock_pipeline, kind="ctc")
+        waveform, rate = self._waveform(seconds=5.0)
+
+        transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
         self.assertNotIn("return_timestamps", pipe.call_args.kwargs)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_plain_mode_returns_full_text_across_a_pause(self, mock_pipeline):
+        # The real-world repro (#559): a joined clip with silence between
+        # three spoken lines. The timestamped decode path already returns
+        # every line in `text`; plain mode must return the same text, not
+        # just the first line before the pause.
+        self._mock_pipe(
+            mock_pipeline,
+            "I never touched the pistachio. Spoon was in your sink, Hal. "
+            "Pistachio on the handle.",
+            chunks=[
+                {"text": "I never touched the pistachio.", "timestamp": (0.0, 2.0)},
+                {"text": "Spoon was in your sink, Hal.", "timestamp": (2.0, 4.0)},
+                {"text": "Pistachio on the handle.", "timestamp": (4.0, 7.0)},
+            ],
+        )
+        waveform, rate = self._waveform(seconds=6.8)
+
+        result = transcribe_audio(waveform, device="cpu", sample_rate=rate)
+
+        self.assertEqual(
+            result,
+            "I never touched the pistachio. Spoon was in your sink, Hal. "
+            "Pistachio on the handle.",
+        )
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_resamples_to_16khz(self, mock_pipeline):
