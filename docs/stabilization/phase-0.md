@@ -948,3 +948,31 @@ The mount is stateless HTTP by design (`dw/server/mcp_mount.py`, "single-user"; 
 - [ ] **Step 5:** Deploy to lem (`scripts/deploy.sh`) and run the smoke checks from `docs/RELEASING.md`.
 - [ ] **Step 6:** B2 "after" timing on lem: the same template and arguments as Step 0. Record both wall-clock times in the ROADMAP status row.
 - [ ] **Step 7:** Refresh `ASSESSMENT.md` bug statuses, set Phase 0 to `done` in `ROADMAP.md`, and move `hot-zone.txt` to the Phase 1 file list. Commit and push. Tag the merge commit `stabilization-gate-0` and push the tag. Gate reports are computed from the tag once Phase 1 adds `scripts/arch_report.py`.
+
+---
+
+### Task 11: B2 completion - defer a cached step's load until a step that runs borrows it
+
+Added at the gate, 2026-09-28. On lem, a fully cached rerun of `templates/ltx2/two-stage` took 78.8 s before Task 8 and 84.4 s after it: `base` still loaded the whole LTX-2.5 pipeline (about 72 s) because `upscale` reuses its `vae`, and Task 8's rule ("a later step borrows it") does not ask whether that later step will run. `upscale` was itself a cache hit.
+
+**Rule:** a cache-hit step never loads its pipeline when it is not resident. It records the pipeline as *deferred* (its key recorded and touched exactly as Task 8 does), and a later step that actually executes (a cache miss) loads every deferred pipeline it borrows immediately before it needs it. The look-ahead check Task 8 added (`hit_needs_no_pipeline` / the `borrowed_later` computation over later steps) is deleted, not refined: no prediction of later hits is needed.
+
+**Files:**
+- Modify: `dw/workflow.py` (the run loop, `create_step_action`)
+- Test: `tests/test_workflow_step_cache.py`
+
+**Interfaces:**
+- Consumes: `borrowed_pipeline_keys(steps, index)` from `dw/step_cache.py` (Task 7): for step `index`, the earlier step names it borrows from.
+- Produces: per-run deferred state, e.g. `self._deferred_pipelines: dict[str, <what create_step_action needs to load that step's pipeline later>]`, reset at the start of each run. `create_step_action(..., cache_hit=True)` defers instead of loading. Before a cold step's own `create_step_action`, the run loop loads each deferred pipeline named in `borrowed_pipeline_keys(steps, i)`, in step order, through the same code path a cold load uses (so `shared_components` are published and `pipeline_reference` resolves). A `release_pipeline` on a deferred step drops it from the deferred map and emits nothing.
+
+- [ ] **Step 1: Failing tests** (tests/test_workflow_step_cache.py; use `_mock_pipeline_load` with a load counter, patch.object only):
+    1. A two-step workflow where step B reuses A's shared component and both are cache hits on the second run: the second run loads nothing. This fails today: A loads.
+    2. The same workflow where, on the second run, B misses (change B's arguments through a variable) but A hits: A's pipeline is loaded once, before B, and B runs with A's shared component available. This passes today and must keep passing.
+    3. The same for `pipeline_reference`: A hits and B (`pipeline_reference: A`) misses. A loads once, B resolves the reference.
+    4. The existing guard tests (`test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligible`, `test_cache_hit_republishes_shared_components_for_a_later_cold_step`, `test_cache_hit_still_touches_the_steps_pipeline`, `test_release_pipeline_on_a_hit_that_loaded_nothing_emits_no_release`, `test_a_fully_cached_rerun_loads_no_pipeline`) stay green, unedited.
+- [ ] **Step 2:** Run the new tests and see test 1 fail with A's load counted.
+- [ ] **Step 3:** Implement the deferral and the lazy load. Delete the look-ahead.
+- [ ] **Step 4:** Run tests/test_workflow_step_cache.py, tests/test_pipeline_caching.py, tests/test_workflow.py, tests/test_worker.py, tests/test_events.py, then the full suite. `scripts/arch_metrics.py --check docs/stabilization/baseline.json` must exit 0.
+- [ ] **Step 5:** Commit: `fix(step-cache): a cached step defers its load until a step that runs borrows it`.
+
+The gate (Task 10, Step 6) re-times `templates/ltx2/two-stage` after this lands. Expected: the cached rerun no longer spends about 72 s loading `base`.

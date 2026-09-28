@@ -1282,6 +1282,11 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
+        # Step name -> {step_data, seed, released} for each cache hit whose
+        # pipeline was not resident and so was not loaded. Per run: a persistent worker
+        # reuses this Workflow across jobs, and what one run deferred says
+        # nothing about what the next has resident
+        self._deferred_pipelines = {}
         # Last run's step->key map: a redefined step's old model is evicted
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
@@ -1536,21 +1541,21 @@ class Workflow:
                 # shared_components for a later reusing step, and records the
                 # step's pipeline key for release_pipeline and
                 # pipeline_reference to address it by. Loading is not
-                # bookkeeping: a hit whose pipeline is not resident loads it
-                # only when a later step of this run borrows it (its
-                # pipeline, or components it shares), since nothing else
-                # will call it
-                hit_needs_no_pipeline = cached_result is not None and not any(
-                    step_data["name"] in borrowed_pipeline_keys(steps, j)
-                    for j in range(i + 1, len(steps))
-                )
+                # bookkeeping: a hit whose pipeline is not resident defers
+                # it, and it loads only when a step that actually runs
+                # borrows it - whether a later step will be a hit too is not
+                # known until that step's own lookup
+                if cached_result is None:
+                    self._load_deferred_borrows(
+                        workflow_id, steps, i, shared_components, pipelines
+                    )
                 step_action = self.create_step_action(
                     step_data,
                     shared_components,
                     pipelines,
                     step_seed,
                     get_device(),
-                    cache_hit=hit_needs_no_pipeline,
+                    cache_hit=cached_result is not None,
                 )
                 if isinstance(step_action, Workflow):
                     # The child reports into this run's counter rather than
@@ -1605,6 +1610,11 @@ class Workflow:
                     if release
                     else None
                 )
+                if release and step.name in self._deferred_pipelines:
+                    # Release frees the pipeline but keeps what it published:
+                    # a later reuser still gets the components, and the
+                    # lazy load drops the pipeline again straight after
+                    self._deferred_pipelines[step.name]["released"] = True
                 # A hit that loaded nothing holds nothing: announcing a
                 # release would report a drop that never happened. Not gated
                 # on the pop alone - a sub-workflow step has no pipeline key,
@@ -1614,31 +1624,7 @@ class Workflow:
                     before = _allocated_mb()
                     released = None
                     step_action = None
-                    gc.collect()
-                    empty_device_cache()
-                    # The device cache is not the only one the release fills:
-                    # the pinned-host staging buffers the pipeline offloaded
-                    # through and the heap arenas its weights were read into
-                    # stay in this process's RSS until they are handed back,
-                    # which otherwise waits for the end of the job - ~10 GB
-                    # held through every step after the release (#368)
-                    _release_host_caches(step.name)
-                    # Say so on the event stream. The release is otherwise
-                    # invisible to a consumer: it sits inside the sub-second
-                    # window between a step's generation and its files
-                    # appearing, which is too narrow to catch by polling
-                    # get_memory, and it is exactly the ordering this event
-                    # exists to make readable (it precedes the step's
-                    # step_end, and on a released card the figures show the
-                    # drop rather than implying it)
-                    run_context.emit(
-                        "pipeline_released",
-                        workflow=workflow_id,
-                        step=step.name,
-                        index=i,
-                        gpu_memory_allocated_mb=_allocated_mb(),
-                        gpu_memory_allocated_before_mb=before,
-                    )
+                    self._finish_release(workflow_id, step.name, i, before)
 
                 if not reused:
                     if parent_saves_this:
@@ -1906,6 +1892,89 @@ class Workflow:
             self._pipeline_keys_by_step = {}
         self._pipeline_keys_by_step[step_name] = cache_key
 
+    def _finish_release(self, workflow_id, step_name, index, before):
+        """Free what a popped pipeline held and announce the release.
+
+        `before` is measured by the caller ahead of dropping its own
+        references, which may free the pipeline on the spot.
+        """
+        gc.collect()
+        empty_device_cache()
+        # The device cache is not the only one the release fills: the
+        # pinned-host staging buffers the pipeline offloaded through and the
+        # heap arenas its weights were read into stay in this process's RSS
+        # until they are handed back, which otherwise waits for the end of
+        # the job - ~10 GB held through every step after the release (#368)
+        _release_host_caches(step_name)
+        # Say so on the event stream. The release is otherwise invisible to
+        # a consumer: it sits inside the sub-second window between a step's
+        # generation and its files appearing, which is too narrow to catch
+        # by polling get_memory, and it is exactly the ordering this event
+        # exists to make readable (it precedes the step's step_end, and on a
+        # released card the figures show the drop rather than implying it)
+        get_context().emit(
+            "pipeline_released",
+            workflow=workflow_id,
+            step=step_name,
+            index=index,
+            gpu_memory_allocated_mb=_allocated_mb(),
+            gpu_memory_allocated_before_mb=before,
+        )
+
+    def _load_deferred_borrows(
+        self, workflow_id, steps, index, shared_components, pipelines
+    ):
+        """Load, in step order, every deferred pipeline step `index` borrows.
+
+        Through create_step_action's cold path, so a lazy load is a load like
+        any other: the loading phase, the touch, the superseded-key release
+        and the shared_components publish all happen as they would have at
+        the deferred step. A deferred step's own deferred borrows load first,
+        since its load resolves the components they share. A released entry
+        is loaded for its components only, then dropped again - what a cold
+        load followed by its release leaves behind.
+        """
+        step = steps[index]
+        own_key = getattr(self, "_running_pipeline_keys", {}).get(step["name"])
+        if own_key is not None and own_key in pipelines:
+            # Reused components are resolved only inside load(), and a
+            # resident pipeline does not load
+            return
+        deferred = getattr(self, "_deferred_pipelines", {})
+        borrowed = borrowed_pipeline_keys(steps, index)
+        reference = step.get("pipeline_reference")
+        referenced_name = (
+            reference.get("reference_name") if isinstance(reference, dict) else None
+        )
+        # Ascending, so a source's own earlier borrows never come later in
+        # this list
+        for source_index, source in enumerate(steps[:index]):
+            name = source.get("name")
+            if name not in borrowed or name not in deferred:
+                continue
+            if name == referenced_name and deferred[name]["released"]:
+                # A released pipeline cannot be referenced; loading it only
+                # to drop it would delay the error the reference raises
+                continue
+            self._load_deferred_borrows(
+                workflow_id, steps, source_index, shared_components, pipelines
+            )
+            entry = deferred.pop(name)
+            self.create_step_action(
+                entry["step_data"],
+                shared_components,
+                pipelines,
+                entry["seed"],
+                get_device(),
+            )
+            if entry["released"]:
+                # The release the step asked for, happening now: freed and
+                # announced as its own release would have been, so the
+                # borrower does not load on top of it
+                before = _allocated_mb()
+                pipelines.pop(self._pipeline_keys_by_step.get(name), None)
+                self._finish_release(workflow_id, name, source_index, before)
+
     def create_step_action(
         self,
         step_definition,
@@ -1918,10 +1987,12 @@ class Workflow:
         """
         Creates the appropriate action object based on step type:
         - Pipeline: Creates new pipeline or reuses cached one. With
-          cache_hit (a step-cache hit no later step borrows from), a pipeline
-          that is not already resident is not loaded: its key is recorded and
-          touched, and None is returned
-        - Pipeline reference: References existing pipeline
+          cache_hit (a step-cache hit), a pipeline that is not already
+          resident is not loaded: its key is recorded and touched, the step
+          is deferred for a later step that runs to load, and None is
+          returned
+        - Pipeline reference: References existing pipeline; on a cache hit
+          whose referenced pipeline is not resident, None
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
         """
@@ -1937,7 +2008,15 @@ class Workflow:
             if cache_hit and cache_key not in previous_pipelines:
                 # A hit needs the key recorded (release_pipeline and
                 # pipeline_reference address it by name), not the weights:
-                # nothing this run does will call the pipeline
+                # nothing calls the pipeline unless a step that runs borrows
+                # it, and that step loads it then
+                if not hasattr(self, "_deferred_pipelines"):
+                    self._deferred_pipelines = {}
+                self._deferred_pipelines[step_name] = {
+                    "step_data": step_definition,
+                    "seed": default_seed,
+                    "released": False,
+                }
                 return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
@@ -2058,6 +2137,10 @@ class Workflow:
             pipeline_reference = step_definition["pipeline_reference"]
             reference_name = pipeline_reference["reference_name"]
             referenced_key = self._pipeline_keys_by_step.get(reference_name)
+            if cache_hit and reference_name in getattr(self, "_deferred_pipelines", {}):
+                # The referenced step was a hit that deferred its load, and
+                # this step's result is cached too: nothing will call it
+                return None
             if referenced_key is None or referenced_key not in previous_pipelines:
                 raise ValueError(
                     f"pipeline_reference '{reference_name}' does not name an "
