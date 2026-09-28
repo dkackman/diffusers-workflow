@@ -244,7 +244,7 @@ Compile a component once it is fully configured - the graph captures final dtype
 
 Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks with the caches above. Notes:
 
-- **First run pays the compile cost.** The [REPL](REPL_COMMANDS.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
+- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
 - **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.

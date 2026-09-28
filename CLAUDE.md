@@ -298,8 +298,8 @@ same reason - default setup cannot load a pack.
   `templates/minimax/dialogue-short` and `music-video` have no per-shot
   variables; a scripted caller passes `shots` (entries
   `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
-  The members are `shot@<name>` in the manifest and the gallery. The CLI and REPL only
-  take `name=value` strings, and a string handed to a list variable is
+  The members are `shot@<name>` in the manifest and the gallery. The CLI only
+  takes `name=value` strings, and a string handed to a list variable is
   comma-split - so `shots` can only be supplied over the API/MCP (a JSON
   body); `python -m dw.run` runs the templates' default list
 - **A reference name is checked for its shape before the queue, and `@` is
@@ -642,7 +642,7 @@ same reason - default setup cannot load a pack.
   without `boundaries`. The mp4 itself carries nothing yet
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
-  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
+  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `POST /api/memory/clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
 - **Assessment probes measure a finished file and say where to look, and
   decide nothing** (`dw/tasks/assess.py`) - `analyze_shots`,
   `analyze_seams` and `analyze_sync_drift` each read a video streaming

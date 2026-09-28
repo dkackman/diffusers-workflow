@@ -2,9 +2,9 @@
 
 This is a declarative workflow engine for the HuggingFace Diffusers library that executes AI model pipelines via JSON configuration files.
 
-## REPL Worker Architecture (NEW)
+## Worker Architecture
 
-The REPL uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
+`dw.serve` uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
 - Worker keeps models loaded in GPU across multiple runs
 - Automatic workflow file change detection (SHA256 hash)
 - Aggressive memory cleanup between runs (gc.collect + torch.cuda.empty_cache)
