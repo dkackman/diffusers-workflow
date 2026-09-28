@@ -811,6 +811,88 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert result.audio.shape[1] == 90 + 100
 
 
+class TestPerInputAudioConforming:
+    """#562: only the aggregate joined track was reconciled against the
+    frame grid, at the very end (see TestJoinedAudioFitsTheFrameGrid) - so a
+    middle input's own shortfall against its own frame grid shifted every
+    seam after it before that final catch-up, small enough per seam to miss
+    analyze_sync_drift's single-seam threshold but compounding across
+    however many joins came after it."""
+
+    def test_a_middle_inputs_own_shortfall_lands_the_next_seam_on_grid(self):
+        from dw.tasks.audio_utils import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos(
+            [audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4
+        )
+
+        third_shot = result.shots[-1]
+        assert third_shot["start_sample"] == frames_to_samples(8, 4, 100)
+
+    def test_a_middle_inputs_shortfall_is_still_warned(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["pad_samples"] == 30
+
+    def test_an_over_length_input_warns_and_is_left_unaligned(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_utils import frames_to_samples
+
+        long = AudioVideo(
+            frames(4), numpy.full((2, 130), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = concat_videos([audio_video(4, 0.5), long], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "audio_frame_drift"]
+        assert len(warnings) == 1
+        assert warnings[0]["video"] == "video 2"
+        assert warnings[0]["drift_samples"] == 30
+        # #378: an overrun is measured, never trimmed
+        assert result.audio.shape[1] == 100 + 130
+        assert result.shots[-1]["num_samples"] == frames_to_samples(4, 4, 100) + 30
+
+    def test_a_sub_frame_overrun_draws_no_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        barely_long = AudioVideo(
+            frames(4), numpy.full((2, 105), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), barely_long], fps=4)
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "audio_frame_drift"] == []
+
+
 class TestFrameRateTravelsWithTheJoin:
     """result.fps defaults to 8, so a 24 fps cut that says nothing there
     used to be written three times slow against audio of the right length -

@@ -292,6 +292,34 @@ def concat_videos(
             )
         else:
             waveform = waveforms[index]
+            input_fps = fps or getattr(video, "fps", None)
+            if input_fps:
+                # A per-input shortfall against its own frame grid propagates
+                # into the join and compounds across every further join that
+                # takes this one's own output as an input (#435/#553's
+                # remedy for the aggregate track, extended here per input -
+                # #562). fit_audio_to_frames pads a short track and warns
+                # once the gap is a frame or more; it deliberately leaves an
+                # *over*-length track alone (#378 - a shot keeps the samples
+                # it actually took), so that direction is warned here
+                # instead, since it is exactly the drift analyze_sync_drift's
+                # single-seam threshold misses
+                wanted_samples = frames_to_samples(len(clip), input_fps, sample_rate)
+                overrun_samples = waveform.shape[1] - wanted_samples
+                if overrun_samples > sample_rate / input_fps:
+                    emit_warning(
+                        f"concat_videos: {names[index]}'s audio is "
+                        f"{overrun_samples} sample(s) longer than its own "
+                        f"{len(clip)}-frame length before the join - drift "
+                        f"like this compounds at the seam",
+                        command="concat_videos",
+                        kind="audio_frame_drift",
+                        video=names[index],
+                        drift_samples=int(overrun_samples),
+                    )
+                waveform = fit_audio_to_frames(
+                    waveform, sample_rate, len(clip), input_fps, "concat_videos"
+                )
 
         if audio is None:
             audio = waveform
