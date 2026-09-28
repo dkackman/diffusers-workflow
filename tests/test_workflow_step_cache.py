@@ -13,6 +13,7 @@ import pytest
 from dw.events import RunContext
 from dw.step_cache import step_cache
 from dw.step import Step
+from dw.pipeline_processors.config_objects import get_group_offload_configuration
 from dw.pipeline_processors.pipeline import Pipeline
 from dw import workflow as workflow_module
 from dw.workflow import Workflow
@@ -579,6 +580,80 @@ def test_a_cold_step_loads_a_deferred_chain_of_borrowed_components(tmp_path):
     )
     assert executed[1] == ["C"]
     assert loads[1] == ["model-a", "model-b", "model-c"]
+
+
+def _shared_components_def_with_group_offload():
+    """A (which shares) declares a group-offloaded component, the way
+    templates/ltx2/two-stage's base step does."""
+    definition = _shared_components_workflow_def()
+    definition["steps"][0]["pipeline"]["configuration"]["components"] = {
+        "text_encoder": {
+            "group_offload": {"offload_type": "leaf_level", "use_stream": True}
+        }
+    }
+    return definition
+
+
+def _editing_loader(names):
+    """A Pipeline.load stand-in that edits its own definition as the real
+    load does: placement resolves each component's group_offload block in
+    place, through the same helper, on the dict the step definition holds."""
+    record = _loading_recorder(names)
+
+    def load(self, shared_components):
+        for component in self.configuration.get("components", {}).values():
+            get_group_offload_configuration(component, self.device)
+        record(self, shared_components)
+
+    return load
+
+
+def test_a_rerun_after_a_load_that_edits_its_definition_is_fully_cached(tmp_path):
+    """B's entry is keyed on A's pipeline. The cold run looks B up after A
+    has loaded and edited its definition; the rerun looks it up with A a
+    deferred hit that never loaded - the key must be the same both times."""
+    step_cache.clear()
+    workflow = Workflow(
+        _shared_components_def_with_group_offload(), str(tmp_path), "test.json"
+    )
+    loads, executed = [], []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        executed[-1].append(self.name)
+        return FakeResult()
+
+    with patch.object(Step, "run", fake_step_run):
+        for _ in range(2):
+            loads.append([])
+            executed.append([])
+            with patch.object(Pipeline, "load", _editing_loader(loads[-1])):
+                workflow.run({"prompt_b": "first"})
+
+    assert loads[0] == ["model-a", "model-b"], "the cold run loaded both"
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_the_probe_after_a_load_that_edits_its_definition_names_every_step(
+    tmp_path,
+):
+    """cache_hits never loads, so it must key B on the definition as written
+    - the same key the run stored - or it reports a miss the run would not
+    have."""
+    step_cache.clear()
+    workflow = Workflow(
+        _shared_components_def_with_group_offload(), str(tmp_path), "test.json"
+    )
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _editing_loader([])),
+    ):
+        workflow.run({"prompt_b": "first"})
+        assert workflow.cache_hits({"prompt_b": "first"}) == ["A", "B"]
 
 
 def test_a_released_deferred_hit_still_shares_its_components(tmp_path):

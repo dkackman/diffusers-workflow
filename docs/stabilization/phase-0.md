@@ -976,3 +976,33 @@ Added at the gate, 2026-09-28. On lem, a fully cached rerun of `templates/ltx2/t
 - [ ] **Step 5:** Commit: `fix(step-cache): a cached step defers its load until a step that runs borrows it`.
 
 The gate (Task 10, Step 6) re-times `templates/ltx2/two-stage` after this lands. Expected: the cached rerun no longer spends about 72 s loading `base`.
+
+---
+
+### Task 12: B7/B2 follow-up - borrowed pipeline keys come from the definition as written, not as loaded
+
+Added at the gate, 2026-09-28. After Task 11 was deployed, a cached rerun of `templates/ltx2/two-stage` on lem took 172 s, as long as a cold run. `upscale` missed the step cache, so `refine` missed too and regenerated.
+
+Cause: `Pipeline.load` edits its step's definition in place (for example `from_pretrained_arguments.pop("model_name")`). `borrowed_pipeline_keys` (Task 7) hashes the *earlier* step's pipeline definition when the later step is looked up:
+- In the cold run, `base` has already loaded by then, so its definition is the edited one.
+- In the cached run, `base` is a deferred hit (Task 11) that never loaded, so its definition is the original.
+
+The two keys differ, and `upscale` never matches its own cache entry. The Task 7 and Task 11 tests use a mock load that edits nothing, so they could not see this.
+
+**Rule:** each pipeline step's cache key is computed once per run, from the prepared definition before any step executes. Both the run and `cache_hits` compute it that way. `borrowed_pipeline_keys` reads those precomputed keys and never hashes a definition that a load may have changed.
+
+**Files:**
+- Modify: `dw/step_cache.py` (`borrowed_pipeline_keys` takes the precomputed keys)
+- Modify: `dw/workflow.py` (`run` and `cache_hits` compute the key table once, before the step loop, and pass it through `_cache_lookup` and the deferred-borrow load)
+- Test: `tests/test_workflow_step_cache.py`
+
+**Interfaces:**
+- Produces: `borrowed_pipeline_keys(steps, index, pipeline_keys)`, where `pipeline_keys: dict[str, str]` maps a step name to the `pipeline_cache_key` of its pipeline definition, computed before the run executes anything. Every caller passes it, and the function no longer imports `pipeline_cache_key`.
+
+- [ ] **Step 1: Failing test.** Write a mock load (patch.object on `Pipeline.load`) that edits its own definition the way the real one does (`self.from_pretrained_arguments.pop("model_name", None)`, or whatever attribute path reaches the step's definition dict). Run the shared-components workflow (A shares, B reuses) twice with no argument change. The second run must be served entirely from the cache: B reused, and neither A nor B loads. Today this fails with B missing.
+- [ ] **Step 2:** Run it and see B miss.
+- [ ] **Step 3:** Implement the precomputed key table and thread it through.
+- [ ] **Step 4:** Run the step-cache, pipeline-caching, workflow, worker and events suites, then the full suite. `arch_metrics --check` must exit 0.
+- [ ] **Step 5:** Commit: `fix(step-cache): borrowed pipeline keys come from the definition as written, not as loaded`.
+
+Deferred to Phase 2: `Pipeline.load` must stop editing the workflow definition it was given (copy on entry). The edits are a hazard beyond the cache key.
