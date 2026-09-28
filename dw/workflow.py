@@ -1671,7 +1671,15 @@ class Workflow:
                 if not parent_saves_this:
                     self.manifest.append(manifest_entry)
                 # roll the child's saves up so job history and the gallery see
-                # every file
+                # every file. Each entry is tagged with the composing step
+                # that produced it - a for_each member's files otherwise sit
+                # under the child template's own (repeated) step name with
+                # nothing tying an entry back to its member (#560). A deeper
+                # rollup (a child composing a grandchild) already carries its
+                # own tag, which stays: the nearest composing step is the one
+                # that matters for grouping
+                for sub_entry in sub_manifest:
+                    sub_entry.setdefault("parent_step", step.name)
                 self.manifest.extend(sub_manifest)
                 step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:
