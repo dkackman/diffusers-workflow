@@ -17,6 +17,10 @@ dw/repl_commands.py
 dw/repl_worker.py
 dw/run.py
 dw/validate.py
+dw/worker_manager.py
+dw/runs.py
+dw/server/admission.py
+pyproject.toml
 dw/server/app.py
 dw/server/jobs.py
 scripts/arch_metrics.py
