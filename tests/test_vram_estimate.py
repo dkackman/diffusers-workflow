@@ -71,6 +71,23 @@ def test_an_indexed_cost_device_matches_its_backend():
     assert vram_estimate_errors(d, device_type="cuda", capacity_gb=24) == []
 
 
+def test_a_workflow_with_no_cost_block_still_checks_the_device_capacity():
+    # #552: a caller-authored workflow that copies a template's vram_estimate
+    # but drops its cost block must not go unchecked - the ceiling here is
+    # the device's own capacity, not a curated cost entry.
+    d = definition()
+    del d["cost"]
+    errors = vram_estimate_errors(d, device_type="mps", capacity_gb=16)
+    assert len(errors) == 1
+    assert "mps" in errors[0]["message"]
+
+
+def test_a_workflow_with_no_cost_block_and_room_is_not_refused():
+    d = definition()
+    del d["cost"]
+    assert vram_estimate_errors(d, device_type="mps", capacity_gb=62) == []
+
+
 def test_run_time_backstop_takes_the_device_too():
     d = definition()
     apply_vram_estimate(d, d["variables"], device_type="mps", capacity_gb=62)

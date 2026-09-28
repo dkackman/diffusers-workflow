@@ -313,8 +313,7 @@ def vram_estimate_errors(
     if estimate is None:
         return []
     cost = definition.get("cost")
-    if not isinstance(cost, list):
-        return []
+    cost = cost if isinstance(cost, list) else []
     entries = _entries_for(cost, device_type, capacity_gb)
     capacities = [
         entry.get("vram_gb") for entry in entries if entry.get("vram_gb") is not None
