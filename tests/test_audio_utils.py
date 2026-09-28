@@ -897,6 +897,21 @@ class TestNormalizeAudioLimit:
         assert 0 < logs[0]["max_gain_reduction_db"] < 12.0
         assert logs[0]["limited_fraction"] > 0.3
 
+    def test_gain_db_is_the_searched_static_gain_not_the_plain_lufs_gain(self):
+        # #540: the limiter takes back loudness on dense material, so the
+        # static gain the search settles on to still land on target_lufs
+        # runs past the plain (unlimited) gain a naive target_lufs - measured
+        # would give - gain_db reports that searched gain, not the plain one
+        from dw.loudness import integrated_lufs
+
+        waveform = self._dense()
+        measured_lufs = integrated_lufs(waveform.T, self.RATE)
+        plain_gain_db = -12.0 - measured_lufs
+        track, logs, warnings = self._run(waveform, peak_dbfs=-3.0, target_lufs=-12.0)
+
+        assert "target_lufs_capped" not in warnings
+        assert logs[0]["gain_db"] > plain_gain_db + 0.1
+
     def test_a_target_the_cap_stops_short_of_says_by_how_much(self):
         # Past the cap the track lands short; the warning's shortfall is the
         # one the output actually has, not the gain's
@@ -1360,6 +1375,66 @@ class TestSlicingPastTheEndOfATrack:
 
         assert len(warnings) == 1
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
+
+
+class TestSliceEndingExactlyAtTheSourceReachesIt:
+    """#557: a frame-addressed slice used to round its start and its length
+    separately (round(start_frame) samples + round(num_frames) samples), so
+    a slice meant to reach the source's exact end could land a sample short
+    and fire a 'dropping its tail' warning whose own figures read 0.00 s.
+    The end is now rounded once - round(end_frame * sr / fps) - so a slice
+    whose start_frame + num_frames is the source's own frame count reaches
+    its last sample exactly and warns about nothing.
+    """
+
+    def events_from(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = call()
+        finally:
+            deactivate_context(token)
+        return result, [e for e in events if e.get("kind") == "slice_trimmed_tail"]
+
+    def tone(self, count, rate, channels=1):
+        return numpy.full((channels, count), 0.5, dtype=numpy.float32)
+
+    def test_the_557_repro_lands_exactly_and_warns_nothing(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        # 294 frames @ 24 fps, 44.1 kHz -> 540225 samples total; the second
+        # half (147..294) is exactly the tail the #557 repro sliced
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(540225, 44100),
+                start_frame=147,
+                num_frames=147,
+                fps=24,
+                sample_rate=44100,
+            )
+        )
+
+        assert samples(sliced).shape == (270113, 1)
+        assert warnings == []
+
+    def test_a_sub_ten_millisecond_remainder_says_nothing(self):
+        """Even outside the frame-addressed case, a remainder too short to
+        act on is rounding noise, not a dropped tail worth flagging."""
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(10000, 1000),
+                start_seconds=0,
+                duration_seconds=9.9955,
+                sample_rate=1000,
+            )
+        )
+
+        assert samples(sliced).shape == (9996, 1)
+        assert warnings == []
 
 
 class TestSliceAudioCarriesSourceLevel:

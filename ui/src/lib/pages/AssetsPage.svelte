@@ -221,7 +221,7 @@
         assetName || undefined,
         uploadTarget === 'shared',
       )
-      notify.success(`Uploaded as ${result.reference ?? result.path}`)
+      notify.success(`Uploaded as ${result.reference ?? result.url}`)
       await load()
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))

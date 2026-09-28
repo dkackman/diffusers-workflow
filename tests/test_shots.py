@@ -71,6 +71,7 @@ def audio_video(num_frames, level, fps=4, sample_rate=100):
 EXPECTED_SITES = {
     ("dw/tasks/concat_videos.py", "concat_videos"): ("populates", 1),
     ("dw/tasks/dissolve_videos.py", "dissolve_videos"): ("populates", 1),
+    ("dw/tasks/join_into_song.py", "join_into_song"): ("populates", 1),
     ("dw/pipeline_processors/chain.py", "run_chain"): ("populates", 2),
     ("dw/tasks/task.py", "_per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),

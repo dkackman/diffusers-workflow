@@ -41,6 +41,12 @@ SLICE_PAD_WARN_MS = 10.0
 SLICE_TRIM_WARN_SECONDS = 10.0
 SLICE_TRIM_WARN_FRACTION = 0.05
 
+# A remainder shorter than this is the rounding frame-aligned slicing
+# produces (or a sub-millisecond seconds-addressed remainder), not a
+# noticeable dropped tail - the same floor SLICE_PAD_WARN_MS applies on the
+# other side of a slice
+SLICE_TRIM_WARN_MIN_MS = 10.0
+
 
 def as_channels_samples(audio):
     """Normalize a waveform to a (channels, samples) float32 numpy array.
@@ -249,9 +255,15 @@ def _harmonicity(waveform, sample_rate):
         energy = float(numpy.dot(centered, centered))
         if energy <= 1e-12:
             continue
-        correlation = numpy.correlate(centered, centered, mode="full")
-        zero_lag = correlation.shape[0] // 2
-        window = correlation[zero_lag + min_lag : zero_lag + max_lag + 1]
+        # The autocorrelation through an FFT rather than numpy.correlate,
+        # which is O(n^2): on a 2 s window at 48 kHz that is about 10^10
+        # operations, and find_loop_bed measures many windows (#218).
+        # Padding to at least 2n - 1 keeps the circular correlation from
+        # wrapping, so every lag equals the direct sum
+        size = 1 << int(2 * centered.shape[0] - 1).bit_length()
+        spectrum = numpy.fft.rfft(centered, size)
+        correlation = numpy.fft.irfft(spectrum * numpy.conj(spectrum), size)
+        window = correlation[min_lag : max_lag + 1]
         if window.size == 0:
             continue
         scores.append(float(numpy.max(window) / energy))
@@ -562,11 +574,15 @@ def slice_audio(
         if fps is None:
             raise ValueError("slice_audio needs 'fps' to address a slice in frames")
         start = frames_to_samples(start_frame or 0, fps, sample_rate)
-        length = (
-            max(total - start, 0)
-            if num_frames is None
-            else frames_to_samples(num_frames, fps, sample_rate)
-        )
+        if num_frames is None:
+            length = max(total - start, 0)
+        else:
+            # Round the end frame directly rather than adding two separately
+            # rounded halves - start's and num_frames' - which can each round
+            # down half a sample and together land one sample short of a
+            # slice meant to reach the source's exact end (#557)
+            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            length = end - start
     else:
         raise ValueError(
             "slice_audio needs either 'start_seconds'/'duration_seconds' or "
@@ -773,6 +789,8 @@ def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
     if remainder <= 0:
         return
     remainder_seconds = remainder / float(sample_rate)
+    if remainder_seconds * 1000.0 < SLICE_TRIM_WARN_MIN_MS:
+        return
     if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
         return
     if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:
@@ -1044,11 +1062,17 @@ def mix_audio(audios, gains=None, sample_rate=None):
         # only a gain loud enough that a caller almost certainly meant it as
         # dB (12, 6, 20, ...) is worth flagging. GAIN_LOOKS_LIKE_DB_ABOVE sits
         # above any observed catalog default and below the smallest figure a
-        # dB-as-multiplier typo would produce (a "6 dB" or "12 dB" boost)
+        # dB-as-multiplier typo would produce (a "6 dB" or "12 dB" boost).
+        # #555: a hand-typed dB figure is a round number; a computed
+        # multiplier (find_loop_bed's "gain", meant for this argument) almost
+        # never lands on an exact integer, so only an integer value above the
+        # threshold is flagged.
         loud = [
             g
             for g in gains
-            if as_number(g) is not None and as_number(g) > GAIN_LOOKS_LIKE_DB_ABOVE
+            if as_number(g) is not None
+            and as_number(g) > GAIN_LOOKS_LIKE_DB_ABOVE
+            and float(as_number(g)).is_integer()
         ]
         if loud:
             emit_warning(
@@ -1424,10 +1448,13 @@ def normalize_audio(
         limit: Hold peak_dbfs with a look-ahead limiter instead of capping the
             gain, so target_lufs can be reached past a transient that sets
             the peak. peak_dbfs becomes a true-peak (4x oversampled, BS.1770)
-            ceiling; the gain is target_lufs's alone (the limiter never adds
-            any), and limiting stops at 12 dB of reduction, past which
-            target_lufs is warned as capped. False (the default) leaves
-            behavior exactly as without it
+            ceiling; the limiter itself never adds gain, but the static gain
+            applied before it is searched for - not read off target_lufs
+            directly - since limiting takes back some of the loudness a
+            plain gain would have reached, more on dense material, so the
+            reported gain_db can run past target_lufs's own gain. Limiting
+            stops at 12 dB of reduction, past which target_lufs is warned as
+            capped. False (the default) leaves behavior exactly as without it
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
@@ -1666,10 +1693,13 @@ def _search_gain(
 
 
 def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
-    """normalize_audio(limit=True): the target's gain, applied uncapped, with
-    a true-peak limiter holding peak_dbfs. The limiter is never a gain stage
-    - makeup comes from target_lufs alone - and it stops at
-    LIMITER_MAX_REDUCTION_DB, past which the gain is what stops instead."""
+    """normalize_audio(limit=True): a static gain, applied uncapped, with a
+    true-peak limiter holding peak_dbfs. The limiter is never a gain stage -
+    it only tames what the static gain sends it - but that static gain is
+    searched for so the *limited* output lands on target_lufs, since
+    limiting takes back some of the loudness a plain target_lufs gain would
+    have reached; the search stops at LIMITER_MAX_REDUCTION_DB, past which
+    the gain is what stops instead."""
     ceiling = 10 ** (peak_dbfs / 20)
     envelope = _true_peak_envelope(waveform)
     input_peak_db = 20 * numpy.log10(float(envelope.max()))

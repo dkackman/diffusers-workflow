@@ -445,9 +445,20 @@ def validate_model_name(name, base_dir=None):
                 f"Refusing a model_name of '{name}': it is a URL, not a Hub "
                 f"repo id or a local model directory ({e})."
             )
-    return validate_media_path(
-        str(name), base_dir, "a model_name", require_exists=False
-    )
+        # Not a URL either, so it is checked as a path next. Every refusal
+        # below is nested onto this same HF message (#529) - a caller who
+        # only reads the leaf ("Repo id must be in the form...") sees the one
+        # rule `download_model` states for a repo id, whichever shape of it
+        # tripped; the outer sentence still says *why this particular value*
+        # was refused (a '..' segment, or a directory outside every root).
+        try:
+            return validate_media_path(
+                str(name), base_dir, "a model_name", require_exists=False
+            )
+        except PathTraversalError as path_error:
+            raise PathTraversalError(f"{path_error} ({e}).")
+        except InvalidInputError as path_error:
+            raise InvalidInputError(f"{path_error} ({e}).")
 
 
 # The key a Hub file inside a model repo is named by - a lora's, an IP

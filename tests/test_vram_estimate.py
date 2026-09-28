@@ -71,6 +71,23 @@ def test_an_indexed_cost_device_matches_its_backend():
     assert vram_estimate_errors(d, device_type="cuda", capacity_gb=24) == []
 
 
+def test_a_workflow_with_no_cost_block_still_checks_the_device_capacity():
+    # #552: a caller-authored workflow that copies a template's vram_estimate
+    # but drops its cost block must not go unchecked - the ceiling here is
+    # the device's own capacity, not a curated cost entry.
+    d = definition()
+    del d["cost"]
+    errors = vram_estimate_errors(d, device_type="mps", capacity_gb=16)
+    assert len(errors) == 1
+    assert "mps" in errors[0]["message"]
+
+
+def test_a_workflow_with_no_cost_block_and_room_is_not_refused():
+    d = definition()
+    del d["cost"]
+    assert vram_estimate_errors(d, device_type="mps", capacity_gb=62) == []
+
+
 def test_run_time_backstop_takes_the_device_too():
     d = definition()
     apply_vram_estimate(d, d["variables"], device_type="mps", capacity_gb=62)
@@ -322,6 +339,65 @@ def test_a_literal_for_each_list_names_the_steps_path():
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].for_each[1]"
         assert "shot@b" in errors[0]["message"]
+
+
+# --- A workflow-level estimate is scoped to the pipeline it was measured
+# --- for, not projected onto every step that shares a voxel variable (#516)
+
+
+def music_video_shaped_definition(image_width=768, image_height=768):
+    """An H3 ref2va estimate beside an unrelated image step, shaped like
+    music-video.json: both name width/height, only the H3 step also names
+    num_frames - which is what should keep the estimate off the image step."""
+    return {
+        "cost": [{"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1}],
+        "vram_estimate": {
+            "base_gb": 16.0,
+            "bytes_per_voxel": 28.71,
+            "gb_per_reference": 1.0,
+            "voxel_variables": ["width", "height", "num_frames"],
+        },
+        "steps": [
+            {
+                "name": "draw_singer",
+                "pipeline": {
+                    "configuration": {"component_type": "ZImagePipeline"},
+                    "from_pretrained_arguments": {
+                        "model_name": "Tongyi-MAI/Z-Image-Turbo"
+                    },
+                    "arguments": {"width": image_width, "height": image_height},
+                },
+                "result": {"content_type": "image/png"},
+            },
+            {
+                "name": "shot",
+                "pipeline": {
+                    "configuration": {"component_type": "ModularPipeline"},
+                    "from_pretrained_arguments": {
+                        "model_name": "MiniMaxAI/MiniMax-H3",
+                        "workflow": "ref2va",
+                    },
+                    "arguments": {"width": 960, "height": 544, "num_frames": 124},
+                },
+                "result": {"content_type": "video/mp4"},
+            },
+        ],
+    }
+
+
+def test_an_image_step_sharing_only_some_voxel_variables_is_not_projected():
+    # 2048x2048 would project to ~29.9 GB under the H3 formula, but the
+    # image step never holds H3's memory - it should not be checked at all.
+    d = music_video_shaped_definition(image_width=2048, image_height=2048)
+    assert vram_estimate_errors(d) == []
+
+
+def test_the_matching_identity_still_projects_and_refuses():
+    d = music_video_shaped_definition()
+    d["steps"][1]["pipeline"]["arguments"]["num_frames"] = 600
+    errors = vram_estimate_errors(d)
+    assert len(errors) == 1
+    assert "RTX 3090" in errors[0]["message"]
 
 
 # --- Run-time backstop -----------------------------------------------------

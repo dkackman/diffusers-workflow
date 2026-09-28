@@ -44,9 +44,9 @@ describe('ArgumentsEditor media arguments', () => {
     expect(input).not.toHaveAttribute('placeholder', 'image path or URL')
   })
 
-  it('picking a file uploads it and writes the server path into the argument', async () => {
+  it('picking a file uploads it and writes the asset reference into the argument', async () => {
     vi.spyOn(api, 'uploadMedia').mockResolvedValue({
-      path: '/abs/outputs/uploads/abc123.png',
+      reference: 'asset:abc123.png',
       url: '/outputs/uploads/abc123.png',
     })
 
@@ -68,8 +68,6 @@ describe('ArgumentsEditor media arguments', () => {
 
     // resolves asynchronously - wait for the mocked upload to settle
     await vi.waitFor(() => expect(api.uploadMedia).toHaveBeenCalledWith(file))
-    await vi.waitFor(() =>
-      expect(args.image).toBe('/abs/outputs/uploads/abc123.png'),
-    )
+    await vi.waitFor(() => expect(args.image).toBe('asset:abc123.png'))
   })
 })

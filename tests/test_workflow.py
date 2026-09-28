@@ -1121,6 +1121,84 @@ class TestComposedStepSavesOnce:
             "sub.child-write"
         )
 
+    def test_the_childs_own_entry_is_tagged_with_the_composing_step(self, tmp_path):
+        """A parent that declares no result leaves the child's own manifest
+        entry in place under the child's step name ('write') - it now also
+        carries 'parent_step' naming the composing step ('sub'), so a
+        consumer can tie the entry back to what produced it without parsing
+        filenames (#560)."""
+        workflow = self._compose(tmp_path, parent_result=False)
+
+        by_step = {entry["step"]: entry for entry in workflow.manifest}
+        assert "parent_step" not in by_step["sub"]
+        assert by_step["write"]["parent_step"] == "sub"
+
+
+class TestForEachOverComposedTemplate:
+    """A for_each step whose members each compose a catalog template, with
+    no result of its own, used to list every member's files under the same
+    repeated child step name with nothing tying an entry to its member
+    (#560)."""
+
+    def _run(self, tmp_path):
+        import json
+
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        child = {
+            "id": "child",
+            "variables": {"text": "x"},
+            "steps": [
+                {
+                    "name": "write",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["variable:text"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        (workflows / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "variables": {"shots": [{"name": "answer"}, {"name": "insist"}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"text": "item:name"},
+                    },
+                }
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workflows)
+        )
+        workflow.run({}, {})
+        return workflow
+
+    def test_each_members_files_are_tagged_with_its_own_member_name(self, tmp_path):
+        workflow = self._run(tmp_path)
+
+        write_entries = [e for e in workflow.manifest if e["step"] == "write"]
+        assert len(write_entries) == 2
+        assert {e["parent_step"] for e in write_entries} == {
+            "shot@answer",
+            "shot@insist",
+        }
+        member_entries = {
+            e["parent_step"]: e["files"] for e in write_entries if e["files"]
+        }
+        assert len(member_entries) == 2
+
 
 class TestSubWorkflowPreviousResultArgument:
     """A 'previous_result:' argument folded into a sub-workflow step is

@@ -50,7 +50,7 @@ from .variable_constraints import (
     resolve_constraint_references,
 )
 from .result_fps import fps_errors
-from .shots import duplicate_shot_names, step_shots
+from .shots import duplicate_shot_names, shot_references, step_shots
 from .subfolders import step_subfolder, subfolder_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
@@ -1605,14 +1605,20 @@ class Workflow:
                     )
 
                 if not reused:
-                    saved_files = (
-                        []
-                        if parent_saves_this
-                        else result.save(
+                    if parent_saves_this:
+                        # No file is written here - the parent owns that
+                        # (#92) - but this step's own declared fps and its
+                        # audio-to-frames fit must still land on the artifact
+                        # before it is handed up, or the parent (and any
+                        # previous_result: consumer) sees an unstamped one
+                        # and falls back to DEFAULT_VIDEO_FPS (#561)
+                        result.conform_artifacts()
+                        saved_files = []
+                    else:
+                        saved_files = result.save(
                             self.step_output_dir(step_data),
                             self.step_save_name(workflow_id, step.name, i),
                         )
-                    )
                     if is_cacheable:
                         step_cache.put(
                             workflow_id,
@@ -1640,11 +1646,11 @@ class Workflow:
                 if selected is not None:
                     manifest_entry["selected"] = selected
                 # Where each joined shot sits in the file, named by the
-                # step's own `videos` references (dw/shots.py)
+                # step's own input references (dw/shots.py)
                 shots = step_shots(
                     getattr(result, "saved_shots", None),
                     saved_files,
-                    step_data.get("task", {}).get("arguments", {}).get("videos"),
+                    shot_references(step_data.get("task", {}).get("arguments", {})),
                 )
                 if shots:
                     manifest_entry["shots"] = shots
@@ -1671,7 +1677,15 @@ class Workflow:
                 if not parent_saves_this:
                     self.manifest.append(manifest_entry)
                 # roll the child's saves up so job history and the gallery see
-                # every file
+                # every file. Each entry is tagged with the composing step
+                # that produced it - a for_each member's files otherwise sit
+                # under the child template's own (repeated) step name with
+                # nothing tying an entry back to its member (#560). A deeper
+                # rollup (a child composing a grandchild) already carries its
+                # own tag, which stays: the nearest composing step is the one
+                # that matters for grouping
+                for sub_entry in sub_manifest:
+                    sub_entry.setdefault("parent_step", step.name)
                 self.manifest.extend(sub_manifest)
                 step_end_data = {"files": saved_files, "subfolder": subfolder}
                 if reused:

@@ -115,7 +115,10 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 # The task commands a skill sends an agent to by name. A skill cannot be
 # swept for these the way catalog names are - a backticked identifier may be
 # a tool, a field or a task - so each one is listed here.
-SKILL_TASKS = {"minimax-music3": ["attribute_voices"]}
+SKILL_TASKS = {
+    "minimax-music3": ["attribute_voices"],
+    "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
+}
 
 
 @pytest.mark.parametrize(
@@ -341,6 +344,54 @@ class TestMiniMaxH3Skill:
         assert "1344x768" in guide
         assert "175" in guide and "17n+5" in guide
         assert "31 minutes" in guide
+
+    def test_the_dialogue_into_a_song_recipe_is_the_task_s_and_the_guide_s(self):
+        """#514: the skill states the recipe in brief and points at the
+        `workflows` guide for the worked tail. The parameter names are
+        join_into_song's own, the -3 dBFS is music-video's `balanced` step,
+        and the guide's tail validates as a workflow, so a rename or a
+        re-level fails here rather than in a session following the text."""
+        from dw.server.guides import get_guide
+        from dw.tasks.join_into_song import join_into_song
+        from dw.workflow import Workflow
+
+        text = skill_text(H3_SKILL)
+        parameters = inspect.signature(join_into_song).parameters
+        for name in ("cue_seconds", "song_shots", "song"):
+            assert name in parameters
+            assert f"`{name}`" in text
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        steps = json.load(open(path, encoding="utf-8"))["steps"]
+        (balanced,) = [step for step in steps if step["name"] == "balanced"]
+        assert balanced["task"]["arguments"]["peak_dbfs"] == -3.0
+        assert "-3 dBFS" in text
+
+        section = "A spoken scene breaking into a song"
+        assert f'"{section}"' in text
+        guide = get_guide("workflows", section=section)["content"]
+        for word in (
+            "`join_into_song`",
+            "`cue_seconds`",
+            "`slice_audio`",
+            "`normalize_audio`",
+            "`pair_audio`",
+            "-3 dBFS",
+        ):
+            assert word in guide
+
+        (tail,) = re.findall(r"```json\n(.*?)```", guide, re.DOTALL)
+        definition = {"id": "number", "steps": json.loads(f"[{tail}]")}
+        (normalize,) = [
+            step
+            for step in definition["steps"]
+            if step["task"]["command"] == "normalize_audio"
+        ]
+        assert normalize["task"]["arguments"]["peak_dbfs"] == -3.0
+        workflow = Workflow(definition, REPO_ROOT, os.path.join(REPO_ROOT, "n.json"))
+        assert workflow.validation_errors() == []
 
     def test_the_1344x768_reference_ceilings_are_the_templates_vram_estimate(self):
         """#479: `gb_per_reference` and the per-step projection moved the

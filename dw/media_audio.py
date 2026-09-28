@@ -50,6 +50,17 @@ def media_duration(path):
         return _container_duration(container)
 
 
+def container_fps(path):
+    """The picture stream's frame rate from the container's headers alone, or
+    None for a file with no picture stream (or none it declares) - what turns
+    a shot's frames into seconds without decoding a frame."""
+    with av.open(path) as container:
+        if not container.streams.video:
+            return None
+        rate = container.streams.video[0].average_rate
+        return float(rate) if rate else None
+
+
 def audio_shape(path):
     """The soundtrack's duration (seconds), sample rate and channel count
     from the container's headers alone - what projecting the size of a
@@ -215,3 +226,41 @@ def extract_audio(path, start=None, duration=None):
         "start": start,
         "excerpt": excerpt,
     }
+
+
+def decode_soundtrack(path):
+    """The whole soundtrack of `path` as a float32 (channels, samples) array
+    and its sample rate, decoded from the audio stream alone.
+
+    `load_audio` on a video decodes every picture frame to get at the track
+    (`load_audio_video`), which on a minutes-long cut is most of the work and
+    all of the memory. A caller that only measures the sound - find_loop_bed
+    (#218) - reads it here instead. Float rather than extract_audio's s16:
+    room tone sits at -70 to -85 dBFS, close enough to 16-bit's floor that
+    requantizing would add to what is being measured.
+    """
+    with av.open(path) as container:
+        if not container.streams.audio:
+            raise NoSoundtrack(f"{path} has no soundtrack")
+        stream = container.streams.audio[0]
+        rate = int(stream.rate)
+        channels = int(stream.channels)
+        layout = (
+            "stereo"
+            if channels == 2
+            else ("mono" if channels == 1 else stream.layout.name)
+        )
+        resampler = AudioResampler(format="flt", layout=layout, rate=rate)
+        pieces = []
+        for frame in container.decode(stream):
+            for chunk in resampler.resample(frame):
+                pieces.append(chunk.to_ndarray().reshape(-1, channels))
+        for chunk in resampler.resample(None):
+            pieces.append(chunk.to_ndarray().reshape(-1, channels))
+
+    samples = (
+        numpy.concatenate(pieces)
+        if pieces
+        else numpy.zeros((0, channels), numpy.float32)
+    )
+    return numpy.ascontiguousarray(samples.T, dtype=numpy.float32), rate

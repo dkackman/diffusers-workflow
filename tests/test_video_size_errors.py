@@ -117,6 +117,32 @@ class TestTheCheck:
 
         assert video_size_errors(definition, base_dir=base_dir) == []
 
+    def test_a_location_dict_wrapping_a_mismatched_asset_is_refused(self, monkeypatch):
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+        write_mp4(
+            os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
+        )
+        definition = join_workflow(
+            "concat_videos", ["asset:a.mp4", {"location": "asset:b.mp4"}]
+        )
+
+        problems = video_size_errors(definition, base_dir=base_dir)
+
+        assert len(problems) == 1
+        assert "32x16" in problems[0]["message"]
+        assert "64x32" in problems[0]["message"]
+
+    def test_a_location_dict_wrapping_an_unresolvable_entry_is_left_to_the_run(
+        self, monkeypatch
+    ):
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        definition = join_workflow(
+            "dissolve_videos",
+            ["asset:a.mp4", {"location": "previous_result:make_b"}],
+        )
+
+        assert video_size_errors(definition, base_dir=base_dir) == []
+
 
 class TestTheValidationPass:
     def test_wired_into_validation_errors(self, monkeypatch):

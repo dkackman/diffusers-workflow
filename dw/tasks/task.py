@@ -194,6 +194,17 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
     return dissolve_videos(**arguments)
 
 
+@register_command(
+    "join_into_song", implementation="dw.tasks.join_into_song.join_into_song"
+)
+def _handle_join_into_song(task, arguments, previous_pipelines):
+    """Join dialogue shots and song shots into one video over the unbroken song"""
+    logger.debug("Joining dialogue into a song")
+    from .join_into_song import join_into_song
+
+    return join_into_song(**arguments)
+
+
 @register_command("fade_audio", implementation="dw.tasks.audio_utils.fade_audio")
 def _handle_fade_audio(task, arguments, previous_pipelines):
     """Fade an audio track in from silence and out to it"""
@@ -297,6 +308,17 @@ def _handle_loop_audio(task, arguments, previous_pipelines):
     from .audio_utils import loop_audio
 
     return loop_audio(**arguments)
+
+
+@register_command(
+    "find_loop_bed", implementation="dw.tasks.loop_bed.find_loop_bed", returns="json"
+)
+def _handle_find_loop_bed(task, arguments, previous_pipelines):
+    """Rank the quiet windows of a recording worth looping into a room-tone bed"""
+    logger.debug("Searching for a loop bed")
+    from .loop_bed import find_loop_bed
+
+    return find_loop_bed(**arguments)
 
 
 @register_command(

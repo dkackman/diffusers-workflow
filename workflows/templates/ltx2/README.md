@@ -42,6 +42,8 @@ Read them in this order and each introduces one new idea on top of the last.
 | ------- | ------------------ |
 | [two-stage.json](two-stage.json) | The distilled two-stage flow in its three moves: render at half size, double the latents, renoise and refine at full size. Lightricks' newer DFR pipeline is the follow-up |
 | [generative-upscale.json](generative-upscale.json) | A generative 2x upscale: an in-context LoRA re-renders a clip at twice the size, inventing detail |
+| [upscale-clip.json](upscale-clip.json) | The same 2x re-render of a clip the caller brings (`source_video`), with its soundtrack paired back on by `pair_audio`. Set `width`/`height` to twice the source's at its aspect ratio - any other ratio is center-cropped - and `num_frames` to no more than its length. Generative, not a faithful resize; restore a compressed source first (#548) |
+| [refine-clip.json](refine-clip.json) | `two-stage`'s refine pass on a clip the caller brings (`source_video`): the latent upsampler encodes the source and doubles its latents, then the three stage-two sigmas refine them - the source's own latents, not a reference re-render, and no LoRA. Set `width`/`height` to the source's own size (the output is exactly 2x; another aspect ratio is stretched) and `num_frames` to no more than its length. The source's soundtrack is paired back on; a silent source is refused before any pipeline loads (#543) |
 | [diffusion-decode.json](diffusion-decode.json) | LTX-2.5's other video decoder: a small diffusion model in place of the convolutional VAE, held against `text-to-video` frame for frame. An experiment, not a recommendation - it is silent (audio comes back as latents), and it needs a `shi-labs/natten` build for the installed torch: the FlexAttention fallback needs ~25.5GiB for the smallest canvas its kernel accepts, so on 24GB it decodes nothing at all (#153) |
 
 ## Keeping a subject
@@ -52,7 +54,7 @@ Read them in this order and each introduces one new idea on top of the last.
 
 ## Restoring footage you did not generate
 
-Both of these read a clip the workflow did not make, with the source attached
+Both of these (and `upscale-clip` above) read a clip the workflow did not make, with the source attached
 as an in-context reference for the whole denoise - so identity, framing and
 background geometry are the source's and only the defect changes. A different
 trade from `two-stage`, which invents a sharper version of a scene it

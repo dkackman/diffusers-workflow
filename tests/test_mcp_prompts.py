@@ -98,7 +98,7 @@ def test_get_prompt_encodes_a_foldered_name():
 
 def test_save_prompt_puts_the_definition_under_its_name():
     client, seen = recording(
-        httpx.Response(200, json={"name": "duke", "path": "/p/duke.json"})
+        httpx.Response(200, json={"name": "duke", "workspace": "default"})
     )
 
     result = prompts.save_prompt(client, "duke", PROMPT)

@@ -408,7 +408,14 @@ def test_no_stale_entry_in_the_allowlist():
 # at 8_762 - the cost of a real diffusers refusal (not a floor like
 # `num_frames`) being checked before the pipeline loads rather than 80s
 # after it.
-COMPACT_BUDGET = 8_850
+# Then to 9_000 for `templates/ltx2/upscale-clip` (#548), measured at 8_910:
+# about 125 tokens, the same as each of its restore siblings - the only
+# catalog route to a generative upscale of a clip the caller brings.
+# Then to 9_150 for `templates/ltx2/refine-clip` (#543, 2026-09-28), measured
+# at 9_052 before its curated `cost` (about 15 tokens more): the latent-refine
+# route to 2x for a clip the caller brings, kept beside upscale-clip because
+# the two trade differently (source latents vs. an IC-LoRA re-render).
+COMPACT_BUDGET = 9_150
 FILTERED_BUDGET = 1_500
 
 
@@ -554,6 +561,88 @@ class TestLtxTwoStage:
 
         assert base_cache_key == refine_cache_key
         assert not _step(definition, "base").get("release_pipeline", False)
+
+
+class TestLtxRefineClip:
+    """two-stage's refine pass fed a clip dw did not make (#543): the latent
+    upsampler encodes the source itself (its `video` argument), so the refine
+    starts from the source's own latents, and the soundtrack is the source's,
+    read first so a silent source fails before any pipeline loads."""
+
+    def _definition(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "refine-clip.json"
+        )
+        return json.load(open(path, encoding="utf-8"))
+
+    def test_the_renoise_scale_is_the_first_stage_two_sigma(self):
+        from diffusers.pipelines.ltx2.utils import STAGE_2_DISTILLED_SIGMA_VALUES
+
+        refine = _step(self._definition(), "refine")
+
+        assert (
+            refine["pipeline"]["arguments"]["noise_scale"]
+            == STAGE_2_DISTILLED_SIGMA_VALUES[0]
+        )
+        assert (
+            refine["pipeline"]["arguments"]["sigmas"]
+            == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
+        )
+
+    def test_the_upsampler_encodes_the_source_and_refine_reads_its_latents(self):
+        definition = self._definition()
+        upscale = _step(definition, "upscale")["pipeline"]
+        refine = _step(definition, "refine")["pipeline"]
+
+        trim = _step(definition, "source_frames")["task"]
+
+        # The upsampler encodes every frame it is handed (num_frames is
+        # overwritten by len(video)), so the source is trimmed first (#549)
+        assert trim["command"] == "loop_frames"
+        assert trim["arguments"] == {
+            "video": "variable:source_video",
+            "num_frames": "variable:num_frames",
+        }
+        assert upscale["arguments"]["video"] == "previous_result:source_frames"
+        assert upscale["arguments"]["output_type"] == "{latent}"
+        assert refine["arguments"]["latents"] == "previous_result:upscale.frames"
+        # No audio latents: the source's track is paired back instead
+        assert "audio_latents" not in refine["arguments"]
+        assert upscale["configuration"]["shared_components"] == ["vae"]
+        assert refine["configuration"]["reused_components"] == ["vae"]
+
+    def test_the_trim_keeps_the_sources_opening_frames_in_order(self):
+        # The short arm of #549's bounce: a 130-frame source asked for 97
+        # must reach the upsampler as its first 97 frames, not all 130
+        import numpy
+
+        from dw.tasks.video_utils import loop_frames
+
+        source = numpy.arange(130, dtype=numpy.uint8)[:, None, None, None]
+        source = numpy.broadcast_to(source, (130, 4, 4, 3)).copy()
+
+        trimmed = loop_frames(source, 97)
+
+        assert trimmed.shape == (97, 4, 4, 3)
+        assert numpy.array_equal(
+            (trimmed[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
+            numpy.arange(97, dtype=numpy.uint8),
+        )
+
+    def test_the_source_track_is_read_first_and_paired_at_minus_three(self):
+        definition = self._definition()
+        first = definition["steps"][0]
+        final = _step(definition, "with_source_audio")
+
+        assert first["task"]["command"] == "normalize_audio"
+        assert first["task"]["arguments"]["audio"] == "variable:source_video"
+        assert first["task"]["arguments"]["peak_dbfs"] == -3.0
+        assert final["task"]["command"] == "pair_audio"
+        assert final["task"]["arguments"]["video"] == "previous_result:refine"
+        assert final["task"]["arguments"]["audio"] == (
+            f"previous_result:{first['name']}"
+        )
+        assert final["task"]["arguments"]["fit"] == "video"
 
 
 LINK_PATTERN = re.compile(r"\]\(([^)]+)\)")

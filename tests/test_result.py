@@ -964,6 +964,91 @@ class TestSaveAudioVideo:
         export.assert_called_once()
 
 
+class TestConformArtifacts:
+    """#561: a composed child's own last step, when its parent owns saving
+    (parent_saves_this in workflow.py), never calls save() - so without a
+    way to reach the fps stamp-back and audio-to-frames fit outside of
+    save_audio_video, a child's declared fps never lands on the artifact it
+    hands up, and the parent (or a previous_result: consumer) falls back to
+    DEFAULT_VIDEO_FPS. conform_artifacts is workflow.py's replacement for
+    the skipped save() call."""
+
+    def test_declared_fps_is_stamped_without_a_save_call(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.fps == 24
+
+    def test_audio_is_fit_to_the_frame_count_without_a_save_call(self):
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.audio.shape == (2, 2000)
+
+    def test_every_audio_video_artifact_in_the_result_is_conformed(self):
+        first = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        second = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 30})
+        result.add_result([first, second])
+
+        result.conform_artifacts()
+
+        assert first.fps == 30
+        assert second.fps == 30
+
+    def test_a_non_audio_video_artifact_is_left_alone(self):
+        result = Result({"content_type": "image/png", "fps": 24})
+        result.add_result("not-an-audio-video")
+
+        result.conform_artifacts()  # must not raise
+
+    def test_stamped_fps_survives_a_fresh_result_across_the_workflow_boundary(self):
+        # #561 reopened: Workflow.run hands a composed child's result_list to
+        # the *parent* step's own, separate Result (Step.run's add_result) -
+        # a fresh _artifact_cache. Stamping only the artifact get_artifacts()
+        # returned (the original fix) left result_list holding the raw
+        # pipeline output; the parent's own get_artifact_list() then rebuilt
+        # a brand new, unstamped AudioVideo from it and fell back to
+        # DEFAULT_VIDEO_FPS when it wrote the file - the fix has to survive
+        # the actual save() call on a *different* Result instance, not just
+        # a direct get_artifacts()/attribute check on the same one.
+        frames = ["frame"] * 48
+        audio = [torch.zeros((2, 1900))]  # 48 frames @ 24fps @ 1000Hz -> 2000
+        pipeline_output = types.SimpleNamespace(
+            frames=[frames], audio=audio, audio_sample_rate=1000
+        )
+        child_result = Result({"content_type": "video/mp4", "fps": 24})
+        child_result.add_result(pipeline_output)
+
+        child_result.conform_artifacts()
+
+        # What Workflow.run returns to the parent's Step.run, folded via
+        # add_result into a fresh Result with no fps of its own declared -
+        # the shape of a for_each member's "shot" step result block in #561
+        parent_result = Result({"content_type": "video/mp4"})
+        parent_result.add_result(child_result.result_list)
+
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                parent_result.save(temp_dir, "test")
+
+        export.assert_not_called()
+        assert encode.call_args.kwargs["fps"] == 24
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
+
+
 class TestNormalizeAudio:
     """Test conversion of pipeline audio output into writable waveforms"""
 
@@ -1503,6 +1588,22 @@ class TestVideoFrameRate:
         encode, _ = self.save({"content_type": "video/mp4", "fps": 12}, artifact)
 
         assert encode.call_args.kwargs["fps"] == 12
+
+    def test_a_declared_rate_is_handed_on_to_a_later_step(self):
+        # A previous_result: consumer reads this same instance - a 24 fps
+        # shot written at 12 must read as 12 there, as its file does (#513)
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        self.save({"content_type": "video/mp4", "fps": 12}, artifact)
+
+        assert artifact.fps == 12
+
+    def test_an_undeclared_rate_is_not_written_back(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        self.save({"content_type": "video/mp4"}, artifact)
+
+        assert artifact.fps is None
 
     def test_the_old_default_holds_when_nothing_knows_the_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)

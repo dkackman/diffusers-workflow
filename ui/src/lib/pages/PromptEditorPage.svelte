@@ -390,7 +390,7 @@
     const path = savePath()!
     busy = true
     try {
-      const result = await api.savePrompt(
+      await api.savePrompt(
         path,
         $state.snapshot(doc) as PromptDefinition,
       )
@@ -402,7 +402,7 @@
       // listing, so a newly created one must be added or the select resets
       if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
       baseline = JSON.stringify($state.snapshot(doc))
-      notify.success(`Saved to ${result.path}`)
+      notify.success(`Saved to ${path}`)
       loadPromptLibrary()
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))

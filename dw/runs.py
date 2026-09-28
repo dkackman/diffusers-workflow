@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
 
 logger = logging.getLogger("dw")
@@ -605,8 +606,14 @@ def write_manifest(run_dir, manifest):
     path = os.path.join(run_dir, MANIFEST_FILE_NAME)
     try:
         os.makedirs(run_dir, exist_ok=True)
-        with open(path, "w") as file:
-            json.dump(manifest, file, indent=2, default=str)
+        fd, tmp_path = tempfile.mkstemp(dir=run_dir, prefix=f".{MANIFEST_FILE_NAME}-")
+        try:
+            with os.fdopen(fd, "w") as file:
+                json.dump(manifest, file, indent=2, default=str)
+            os.replace(tmp_path, path)
+        except OSError:
+            os.unlink(tmp_path)
+            raise
     except OSError as e:
         logger.warning(f"Could not write {path}: {e}")
         return None
@@ -689,20 +696,25 @@ def recorded_shots(output_root, relative_path):
     return None
 
 
-def record_kept_shots(directory, file_name, shots):
+def record_kept_shots(directory, file_name, shots, provenance=None):
     """Write or update the manifest sidecar beside a kept asset so
     `shots_beside` can read the shot boundaries the source run recorded for
-    it (#393).
+    it (#393), and `kept_provenance` can read which job and run it was kept
+    from (#556).
 
     Keeping a file copies its bytes but not the run directory it lived in,
     so a join's shot records - `pair_audio`'s picture is unchanged, but
     nothing carried them past `keep_output` - were unreachable from the
-    asset and every probe saw `shots_source: "none"`. One manifest per
-    directory, keyed by file name, in the same shape a run's own
-    `manifest.json` uses, so the existing manifest-reading path (used by
-    both outputs and assets) picks it up with no change of its own. A
-    re-keep replaces the entry for that name rather than leaving a stale
-    one from a differently-shot source; `shots` of None or [] removes it.
+    asset and every probe saw `shots_source: "none"`. Likewise the job that
+    wrote the file is the one thing `keep_output` knows and a plain asset
+    never can, since nothing on the server otherwise remembers which job
+    produced an asset. One manifest per directory, keyed by file name, in
+    the same shape a run's own `manifest.json` uses, so the existing
+    manifest-reading path (used by both outputs and assets) picks it up
+    with no change of its own. A re-keep replaces the entry for that name
+    rather than leaving a stale one from a differently-shot or
+    differently-sourced kept file; `shots` and `provenance` of None (or
+    `shots` of []) remove the entry entirely.
     """
     manifest_path = os.path.join(directory, MANIFEST_FILE_NAME)
     manifest = _read_manifest(directory) or {}
@@ -711,8 +723,13 @@ def record_kept_shots(directory, file_name, shots):
         for entry in manifest.get("steps") or []
         if not (isinstance(entry, dict) and entry.get("files") == [file_name])
     ]
-    if shots:
-        steps.append({"step": "keep_output", "files": [file_name], "shots": shots})
+    if shots or provenance:
+        entry = {"step": "keep_output", "files": [file_name]}
+        if shots:
+            entry["shots"] = shots
+        if provenance:
+            entry["provenance"] = provenance
+        steps.append(entry)
     if not steps:
         try:
             os.remove(manifest_path)
@@ -765,4 +782,35 @@ def shots_beside(path):
             shots = shots_for_file(entry.get("shots"), own, files)
             if shots:
                 return shots
+    return None
+
+
+def kept_provenance(path):
+    """The job/run `keep_output` recorded for a kept asset, read back from
+    the same sidecar manifest `shots_beside` reads (#556). None when the
+    file was never kept through `keep_output` (no sidecar, or an entry with
+    no `provenance` - kept before this fix, or the source had no job
+    history of its own)."""
+    path = os.path.abspath(path)
+    run_dir = os.path.dirname(path)
+    for _ in range(MANIFEST_SEARCH_DEPTH):
+        if os.path.isfile(os.path.join(run_dir, MANIFEST_FILE_NAME)):
+            break
+        parent = os.path.dirname(run_dir)
+        if parent == run_dir:
+            return None
+        run_dir = parent
+    else:
+        return None
+    manifest = _read_manifest(run_dir)
+    if manifest is None:
+        return None
+    own = os.path.relpath(path, run_dir).replace(os.sep, "/")
+    for entry in manifest.get("steps") or []:
+        if not isinstance(entry, dict) or entry.get("reused"):
+            continue
+        if own in (entry.get("files") or []):
+            provenance = entry.get("provenance")
+            if provenance:
+                return provenance
     return None
