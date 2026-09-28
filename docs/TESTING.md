@@ -3,11 +3,20 @@
 ## Running Tests
 
 ```bash
-# All tests
+# All tests - parallel across every core (pytest-xdist, `-n auto` in pytest.ini)
 pytest tests/ -v
 
-# Single file
+# Single file - naming test files runs them in one process, since a worker's
+# torch import costs more than it saves there; -n N forces workers anyway
 pytest tests/test_security.py -v
+
+# Debugging with -s or --pdb needs one process
+pytest tests/ -n0 -s
+
+# The real-model tests (an accelerator, plus SD 1.5 and facebook/mms-tts-eng,
+# which download on first run) are the release gate, and are
+# excluded by default; one process, since each test holds a model on the device
+pytest tests/ -m integration -n0
 
 # Match pattern
 pytest tests/ -k "variables" -v

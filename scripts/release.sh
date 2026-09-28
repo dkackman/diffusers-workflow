@@ -84,6 +84,19 @@ if ! git diff --cached --quiet; then
     exit 1
 fi
 
+# The integration tests are the release gate CI cannot run - its runners have
+# no accelerator. They skip themselves without one, which would pass having
+# run nothing, so no accelerator is a refusal rather than a pass
+if ! python -c 'import sys, torch; sys.exit(not (torch.cuda.is_available() or torch.backends.mps.is_available()))'; then
+    echo "error: no CUDA or MPS device - the integration tests cannot run here" >&2
+    exit 1
+fi
+echo "==> integration tests"
+if ! python -m pytest -m integration -n0 -q; then
+    echo "error: integration tests failed - not releasing" >&2
+    exit 1
+fi
+
 # set_version <version>: pyproject.toml and the plugin manifest to <version>
 plugin_path="plugins/dw/.claude-plugin/plugin.json"
 set_version() {

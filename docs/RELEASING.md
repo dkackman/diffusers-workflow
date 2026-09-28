@@ -246,7 +246,8 @@ Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
 passing. It covers more than CI: ruff over the whole repo rather than
-`dw dw_mcp tests`, and the UI's Playwright e2e tests, which CI doesn't run.
+`dw dw_mcp tests`, the real-model integration tests (`pytest -m
+integration`), and the UI's Playwright e2e tests, none of which CI runs.
 
 ```bash
 scripts/release.sh 0.38.0
@@ -262,6 +263,13 @@ master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
 a malformed version, a branch other than master, an existing tag, or a
 dirty index (unstaged changes elsewhere are fine — the release commit
 is path-limited to those two files).
+
+Before it bumps anything it runs the integration tests, the gate CI's
+accelerator-less runners cannot, and refuses to release when they fail or
+when the machine has no CUDA or MPS device - there they would skip and
+pass having run nothing. Cut a release from the Mac or lem, with the venv
+active. The tests run against the working tree, so unstaged changes are
+part of what they check.
 
 `--next <version>` finishes the release on the other branch: it merges
 `master` back into `develop` (a fast-forward when nothing landed there

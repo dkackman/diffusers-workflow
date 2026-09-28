@@ -31,9 +31,9 @@ from dw.worker import worker_main
 from dw.workflow import workflow_from_definition
 import torch
 
-# These two run a real SD 1.5 fp16 generation through the worker - fp16
-# doesn't run on CPU, and CI has no accelerator (or the model), so they
-# only run where one exists
+# A real SD 1.5 fp16 generation through the worker - fp16 doesn't run on
+# CPU, and CI has no accelerator (or the model), so it only runs where one
+# exists, and only when asked for with -m integration
 requires_accelerator = pytest.mark.skipif(
     not (torch.cuda.is_available() or torch.backends.mps.is_available()),
     reason="runs a real fp16 generation; needs an accelerator",
@@ -160,6 +160,7 @@ def test_worker_clear_memory(worker_process):
     reason=f"test workflow not found: {TEST_WORKFLOW_PATH}",
 )
 @requires_accelerator
+@pytest.mark.integration
 def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
     """
     A second execute for the same workflow keeps its models cached, but the
@@ -244,6 +245,42 @@ def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
         "second_output_dir exists but is empty - results kept going to the "
         "original output_dir"
     )
+
+
+@requires_accelerator
+@pytest.mark.integration
+def test_clear_memory_returns_a_resident_models_device_memory(worker_process, tmp_path):
+    """S-F059. Clearing is the only way to reclaim the device short of
+    restarting the server, so it has to actually free what a loaded model
+    holds, not just drop the worker's references to it."""
+    cmd_queue, res_queue, worker = worker_process
+    cmd_queue.put(
+        {
+            "type": "execute",
+            "workflow_path": TEST_WORKFLOW_PATH,
+            "arguments": {},
+            "output_dir": str(tmp_path),
+            "log_level": "INFO",
+        }
+    )
+    while True:
+        result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
+        if result.get("type") == "success":
+            break
+        if result.get("type") == "error":
+            pytest.fail(f"Workflow execution error: {result['message']}")
+
+    cmd_queue.put({"type": "memory_status"})
+    resident = res_queue.get(timeout=COMMAND_TIMEOUT)["info"]
+    cmd_queue.put({"type": "clear_memory"})
+    cleared = res_queue.get(timeout=WORKER_READY_TIMEOUT)
+
+    assert cleared["type"] == "memory_cleared"
+    # SD 1.5 holds gigabytes once loaded; what is left after a clear is the
+    # allocator's own bookkeeping
+    assert resident["gpu_memory_allocated_mb"] > 500
+    assert cleared["info"]["gpu_memory_allocated_mb"] < 50
+    assert cleared["info"]["run_count"] == 0
 
 
 def test_inline_definition_validates_against_its_own_workspace(tmp_path):

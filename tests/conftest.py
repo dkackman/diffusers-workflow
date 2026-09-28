@@ -9,6 +9,14 @@ from PIL import Image
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
 
 
+def pytest_xdist_auto_num_workers(config):
+    # Every worker pays a torch import, which costs a run of one or two files
+    # more than it saves; `-n auto` parallelizes a directory or the whole suite
+    if any(os.path.isfile(arg.split("::")[0]) for arg in config.args):
+        return 0
+    return None
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
     # The engine calls gc.collect() between steps; over the whole suite's heap
