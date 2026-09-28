@@ -575,7 +575,9 @@ class Workflow:
         `arguments`, computed once per workflow and arguments - validation
         and its six warning passes all ask for the same expansion. An
         exception is raised again on the next call rather than cached."""
-        key = json.dumps(arguments, sort_keys=True, default=repr)
+        # None (check the document) and {} fold exactly the same - no
+        # arguments to fold either way - so they share one entry
+        key = json.dumps(arguments or {}, sort_keys=True, default=repr)
         cache = self._expansions
         if key not in cache:
             definition = copy.deepcopy(self.workflow_definition)

@@ -399,8 +399,9 @@ def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_pat
     """#415: a document-default 'text/html' content_type that the caller's
     own argument overrides to 'text/plain' must actually run, not just queue.
 
-    JobManager.submit() (fixed for #415's first bounce) checks the caller's
-    arguments before handing the command to the worker, but _handle_execute
+    Admission (dw.server.admission.admit, where #415's first bounce was
+    fixed) checks the caller's arguments before the job is queued, but
+    _handle_execute
     itself called workflow.validate() with none - so the job queued, then
     failed at execution against the unsubstituted default. This drives a
     real Workflow (not StubWorkflow, which stubs validate() to a no-op)

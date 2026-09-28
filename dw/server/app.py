@@ -58,7 +58,6 @@ from ..introspection import (
     workflow_argument_warnings,
 )
 from ..events import select_kinds
-from ..for_each import entry_field_warnings
 from ..schema import (
     load_schema,
     schema_section,
@@ -69,19 +68,13 @@ from ..schema import (
 from ..prompts import (
     PROMPT_PREFIX,
     RESERVED_TEXT_PREFIXES,
-    resolve_prompt_reference,
 )
 from ..assets import (
     ASSET_PREFIX,
-    activate_asset_dir,
-    deactivate_asset_dir,
     is_asset_reference,
-    resolve_asset_reference,
 )
-from ..variable_constraints import constraint_errors, constraint_warnings
 from .observed_cost import ObservedCosts, declared_drivers
-from ..variables import argument_errors
-from ..workflow import Workflow, workflow_from_definition, workflow_from_file
+from ..workflow import Workflow
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
 from .assess import assess, unknown_probe
@@ -104,7 +97,7 @@ from ..media_frames import (
 )
 from ..hub_cache import scan_models, delete_model, DownloadManager
 from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
-from ..plan import build_plan, gate_warnings, unseeded_cache_warnings
+from ..plan import build_plan, gate_warnings
 from ..runs import (
     MANIFEST_FILE_NAME,
     OUTPUT_PREFIX,
@@ -115,7 +108,6 @@ from ..runs import (
     kept_provenance,
     record_kept_shots,
     record_run_versions,
-    resolve_output_reference,
     run_versions,
     recorded_shots,
     shots_beside,
@@ -153,6 +145,7 @@ from ..workflow_sources import (
     writable_source,
     SubWorkflowNotFound,
 )
+from .admission import ValidatorFailure, admit
 from .jobs import (
     ACK_BOOLEAN,
     ACK_BOUND,
@@ -1077,13 +1070,35 @@ def create_app(
             return ACK_BOUND
         return ACK_BOOLEAN if value is True else ACK_NONE
 
-    def _check_bound_acknowledgement(candidate, arguments, acknowledged, workspace):
-        """Refuse with 409 when the run `candidate` + `arguments` will
-        execute is not the one `acknowledged` was bound to: a different
+    def _bound_plan_for(arguments, workspace):
+        """The `plan_for` a bound acknowledgement is checked against - the
+        run these arguments execute, planned without asking the hub for
+        sizes. None when it cannot be built, which the check refuses."""
+
+        def plan_for(candidate):
+            try:
+                from .. import get_device, get_device_type
+
+                return build_plan(
+                    candidate,
+                    arguments,
+                    device=get_device_type(get_device()),
+                    prompt_dir=workspace.prompts,
+                    lookup_sizes=False,
+                )
+            except Exception:
+                logger.exception("Plan could not be built for a bound acknowledgement")
+                return None
+
+        return plan_for
+
+    def _check_bound_acknowledgement(current, acknowledged, workspace):
+        """Refuse with 409 when `current`, the plan of the run the request
+        admitted, is not the one `acknowledged` was bound to: a different
         fingerprint, or a download the caller did not acknowledge. The body
         carries the current plan so the agent re-quotes from it without a
-        second validate call. A plan that cannot be built is a refusal too -
-        never a silent pass (#85).
+        second validate call. A plan that could not be built (None) is a
+        refusal too - never a silent pass (#85).
         """
         record = acknowledged.model_dump()
 
@@ -1098,18 +1113,7 @@ def create_app(
                 },
             )
 
-        try:
-            from .. import get_device, get_device_type
-
-            current = build_plan(
-                candidate,
-                arguments,
-                device=get_device_type(get_device()),
-                prompt_dir=workspace.prompts,
-                lookup_sizes=False,
-            )
-        except Exception:
-            logger.exception("Plan could not be built for a bound acknowledgement")
+        if current is None:
             refuse(
                 "The run could not be planned, so a bound acknowledgement "
                 "cannot be checked; acknowledge with true or validate again",
@@ -1138,62 +1142,17 @@ def create_app(
                 current,
             )
 
-    def _candidate_for(
-        workflow_path,
-        workflow,
-        base_dir,
-        output_dir,
-        workflow_dir,
-        arguments,
-        asset_dir=None,
-    ):
-        """The Workflow a job spec names, built and checked as submit() will
-        build and check it - schema first, then the caller's arguments -
-        so a bound acknowledgement never turns the caller's 400 into a 409
-        telling them to acknowledge with true and find out.
-
-        Raises what submit() raises (ValueError, SecurityError, ...), which
-        the routes already answer as 400.
-        """
-        if workflow_path is not None:
-            candidate = workflow_from_file(workflow_path, output_dir, workflow_dir)
-        else:
-            candidate = workflow_from_definition(
-                copy.deepcopy(workflow), output_dir, base_dir, workflow_dir
-            )
-        # Checked against the caller's arguments, not the document alone -
-        # validate_workflow's candidate.validation_errors(arguments=...) is
-        # what catches a content_type (or reference_name, video_extension,
-        # ...) that only becomes active once a 'variable:' resolves; a bare
-        # candidate.validate() checked the document with no arguments and so
-        # queued a job validate_workflow had already refused for the same
-        # call (#414)
-        #
-        # validation_errors() resolves 'asset:' references itself
-        # (dissolve_frame_errors, video_size_errors) through dw.assets'
-        # default discovery, which a real deployment's DW_ASSET_DIR pins to
-        # the default workspace - so this job's own workspace has to be made
-        # the active library for the length of the call, the same ContextVar
-        # dw/worker.py's execute path activates before running the same check
-        asset_token = activate_asset_dir(asset_dir) if asset_dir else None
-        try:
-            problems = candidate.validation_errors(arguments=arguments)
-        finally:
-            if asset_token is not None:
-                deactivate_asset_dir(asset_token)
-        problems += argument_errors(candidate.workflow_definition, arguments)
-        # A value outside a rule the workflow declares, refused before the
-        # job id rather than after the weights are loaded (#96)
-        problems += constraint_errors(
-            candidate.workflow_definition, arguments, supplied=set(arguments or {})
+    def _admit(workspace, **request):
+        """`admit()` with this server's view of `workspace` - the asset and
+        prompt search paths and the catalog's VRAM ceilings, which live in
+        this closure rather than in the request."""
+        return admit(
+            workspace=workspace,
+            ceiling_index=_ceiling_index(workspace),
+            asset_roots=_resolution_roots(workspace),
+            prompt_roots=_prompt_roots(),
+            **request,
         )
-        if problems:
-            raise ValueError(
-                "; ".join(
-                    f"{problem['path']}: {problem['message']}" for problem in problems
-                )
-            )
-        return candidate
 
     @app.post("/api/jobs", status_code=201)
     def submit_job(request: JobRequest, ws: Workspace = Depends(selected_workspace)):
@@ -1202,59 +1161,45 @@ def create_app(
         the body wins when both are given."""
         try:
             workspace = _workspace_for(request.workspace or ws.name)
-            sources = _sources_for(workspace)
             resolved, source = resolve_workflow_reference(
-                request.workflow_path, sources
+                request.workflow_path, _sources_for(workspace)
             )
-            # Built unconditionally - both the reference check below and a
-            # bound acknowledgement (further down) need the definition a run
-            # would actually use, and resolve_workflow_reference already
-            # returns (None, None) for an inline definition, which
-            # _candidate_for handles the same way _candidate_for always has
-            candidate = _candidate_for(
-                resolved,
-                request.workflow,
-                request.base_dir,
-                workspace.outputs,
-                source.root if source else workspace.workflows,
-                request.arguments,
-                asset_dir=workspace.assets,
-            )
-            # The same reference check POST /api/validate makes, because a
-            # caller who skipped the free pre-flight should still not get a
-            # job id for an argument that cannot resolve. The name half of
-            # this check lives in JobManager.submit, where the definition is
-            # loaded; this half needs the workspace's search path, which is
-            # here - which is why a bad 'asset:' used to queue and die on the
-            # first step while a bad variable name was refused outright
-            reference_problems = _argument_reference_errors(
-                candidate.workflow_definition, request.arguments, workspace
-            )
-            if reference_problems:
-                raise ValueError(
-                    "; ".join(
-                        f"{problem['path']}: {problem['message']}"
-                        for problem in reference_problems
-                    )
-                )
-            # A bound acknowledgement is checked against the plan this
-            # request would run - before anything is queued, since a refusal
-            # is free here and costs a job id anywhere later (#85)
+            # The root this run is confined to: the source the workflow came
+            # from, so an example runs where it lives while an inline
+            # definition stays held to this workspace's own workflows
+            workflow_dir = source.root if source else workspace.workflows
             form = _acknowledgement_form(request.acknowledged_cost)
-            if form == ACK_BOUND:
-                _check_bound_acknowledgement(
-                    candidate, request.arguments, request.acknowledged_cost, workspace
-                )
-            job = manager.submit(
+            # Everything POST /api/validate checks, so a caller who skipped
+            # the free pre-flight still gets no job id for a run that cannot
+            # start - and a bound acknowledgement is checked against the plan
+            # of the run admitted, before anything is queued (#85)
+            admission = _admit(
+                workspace,
                 workflow_path=resolved,
                 workflow=request.workflow,
                 arguments=request.arguments,
                 base_dir=request.base_dir,
-                # The root this run is confined to: the source the workflow
-                # came from, so an example runs where it lives while an
-                # inline definition stays held to this workspace's own
-                # workflows
-                workflow_dir=source.root if source else workspace.workflows,
+                output_dir=workspace.outputs,
+                workflow_dir=workflow_dir,
+                plan_for=(
+                    _bound_plan_for(request.arguments, workspace)
+                    if form == ACK_BOUND
+                    else None
+                ),
+            )
+            if not admission.ok:
+                raise ValueError(admission.message())
+            if form == ACK_BOUND:
+                _check_bound_acknowledgement(
+                    admission.plan, request.acknowledged_cost, workspace
+                )
+            job = manager.submit(
+                workflow_path=resolved,
+                workflow=request.workflow,
+                workflow_name=admission.workflow.name,
+                arguments=request.arguments,
+                base_dir=request.base_dir,
+                workflow_dir=workflow_dir,
                 # The roots this job runs against, so it stays in its
                 # workspace however many others the server serves meanwhile
                 output_dir=workspace.outputs,
@@ -1272,11 +1217,8 @@ def create_app(
                     if form == ACK_BOUND
                     else None
                 ),
-                # A ceiling inherited from the catalog warns and never
-                # refuses, so it rides on the job the caller got (#502)
-                warnings=candidate.inherited_vram_warnings(
-                    request.arguments, _ceiling_index(workspace)
-                ),
+                # The job carries every warning validate would have answered
+                warnings=admission.warnings,
             )
         except HTTPException:
             raise
@@ -1379,42 +1321,46 @@ def create_app(
 
     @app.post("/api/jobs/{job_id}/rerun", status_code=201)
     def rerun_job(job_id: str, body: RerunRequest = RerunRequest()):
-        """Queue a fresh job from a previous job's stored spec. Takes
-        `acknowledged_cost` as POST /api/jobs does; a bound one is checked
-        against the stored spec's plan - the fresh seed of `new_seed` does
-        not change a fingerprint."""
+        """Queue a fresh job from a previous job's stored spec, admitted as
+        a new submission would be - a reference that resolved when the
+        original ran may not any more. Takes `acknowledged_cost` as POST
+        /api/jobs does; a bound one is checked against the stored spec's
+        plan - the fresh seed of `new_seed` does not change a fingerprint."""
         form = _acknowledgement_form(body.acknowledged_cost)
-        if form == ACK_BOUND:
-            prepared = manager.rerun_spec(job_id)
+        try:
+            prepared = manager.rerun_spec(job_id, new_seed=body.new_seed)
             if prepared is None:
                 raise HTTPException(status_code=404, detail="Unknown job")
             spec, arguments = prepared
-            try:
-                candidate = _candidate_for(
-                    spec.get("workflow_path"),
-                    spec.get("workflow"),
-                    spec.get("base_dir"),
-                    spec.get("output_dir") or manager.output_dir,
-                    spec.get("workflow_dir"),
-                    arguments,
-                    asset_dir=spec.get("asset_dir"),
-                )
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            _check_bound_acknowledgement(
-                candidate,
-                arguments,
-                body.acknowledged_cost,
-                _workspace_for(spec.get("workspace")),
+            workspace = _workspace_for(spec.get("workspace"))
+            admission = _admit(
+                workspace,
+                workflow_path=spec.get("workflow_path"),
+                workflow=spec.get("workflow"),
+                arguments=arguments,
+                base_dir=spec.get("base_dir"),
+                output_dir=spec.get("output_dir") or manager.output_dir,
+                workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
+                plan_for=(
+                    _bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
+                ),
             )
-        try:
+            if not admission.ok:
+                raise ValueError(admission.message())
+            if form == ACK_BOUND:
+                _check_bound_acknowledgement(
+                    admission.plan, body.acknowledged_cost, workspace
+                )
             job = manager.rerun(
                 job_id,
-                new_seed=body.new_seed,
                 acknowledged=form,
                 acknowledged_cost=(
                     body.acknowledged_cost.model_dump() if form == ACK_BOUND else None
                 ),
+                warnings=admission.warnings,
+                # The arguments admitted - the fresh seed already drawn
+                arguments=arguments,
+                workflow_name=admission.workflow.name,
             )
         except HTTPException:
             raise
@@ -1676,122 +1622,6 @@ def create_app(
         except GuideError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-    def _argument_reference_errors(definition, arguments, ws):
-        """The 'asset:', 'prompt:' and 'output:' references that name nothing
-        this workspace can reach, in the values a run would actually use -
-        the caller's `arguments`, every declared `variables` default the
-        caller did not override, and the literals written into the steps.
-
-        A stored default is exactly as much a promise as a caller's value:
-        `validate_workflow(name="templates/ltx2/reference-sheet")` with no
-        arguments at all used to answer valid because only `arguments` was
-        checked, while the same call with the stored default handed back
-        explicitly answered invalid - one run, two verdicts (#166). Reported
-        at `variables.<name>` so the message still says whether the caller
-        wrote the bad reference or merely didn't override one.
-
-        Resolved through the engine's own resolvers over the roots this
-        workspace searches, so validation agrees with what the run would
-        find - an asset that exists in another workspace is a miss here for
-        the same reason it would be a miss there. Only the reference is
-        resolved, never loaded: the point is to answer before any bytes move.
-        """
-
-        def over_roots(roots, resolve):
-            """Resolve against each root in turn, and on a total miss raise
-            the *first* root's error rather than the last.
-
-            The resolvers name the path they searched in their message, and
-            the first root is the workspace's own library plus the read-only
-            fallbacks the environment pins - which is the path a run would
-            report. The last root's message would name an examples directory
-            and leave out the workspace, reading as though the library the
-            caller works in was never looked in."""
-            first = None
-            for root in roots:
-                try:
-                    return resolve(root)
-                except Exception as e:
-                    first = first or e
-            # `roots` is never empty here: the asset branch answers an empty
-            # search path itself, and the prompt path always holds the
-            # server's own library. Re-raising None would be a TypeError
-            raise first
-
-        def _string_leaves(value, path):
-            """Every string in `value`, paired with the path it sits at.
-
-            `value` is walked the way a for_each entry is - a list or dict
-            of arbitrary nesting - so a reference inside `shots[2].
-            references[1].from_file` is found the same as one at the
-            argument's own top level."""
-            if isinstance(value, str):
-                yield path, value
-            elif isinstance(value, list):
-                for i, item in enumerate(value):
-                    yield from _string_leaves(item, f"{path}[{i}]")
-            elif isinstance(value, dict):
-                for key, item in value.items():
-                    yield from _string_leaves(item, f"{path}.{key}")
-
-        if arguments is not None and not isinstance(arguments, dict):
-            return []
-        supplied = arguments if isinstance(arguments, dict) else {}
-
-        effective = []
-        declared = definition.get("variables") if isinstance(definition, dict) else None
-        if isinstance(declared, dict):
-            for name, value in declared.items():
-                if name not in supplied:
-                    effective.append((f"variables.{name}", value))
-        for name, value in supplied.items():
-            effective.append((f"arguments.{name}", value))
-        # A reference written straight into a step is as much a promise as
-        # one in a variable: `asset:cast/no-such-voice.wav` as a literal
-        # attribute_voices voice validated clean and died on the step
-        # (#494). Walked as written, so the path is the author's
-        steps = definition.get("steps") if isinstance(definition, dict) else None
-        if isinstance(steps, list):
-            for index, step in enumerate(steps):
-                effective.append((f"steps[{index}]", step))
-
-        errors = []
-        for base_path, value in effective:
-            for path, leaf in _string_leaves(value, base_path):
-                try:
-                    if is_asset_reference(leaf):
-                        roots = _resolution_roots(ws)
-                        if not roots:
-                            # A server configured with no asset library has
-                            # no root to fail against: over_roots would
-                            # re-raise its "first error", which is None,
-                            # and the caller would read a TypeError about
-                            # BaseException in place of a verdict
-                            name = leaf.removeprefix(ASSET_PREFIX).strip()
-                            raise ValueError(
-                                f"Unknown asset {name!r}: "
-                                "this workspace has no asset library"
-                            )
-                        over_roots(
-                            roots,
-                            lambda root: resolve_asset_reference(leaf, asset_dir=root),
-                        )
-                    elif leaf.startswith(PROMPT_PREFIX):
-                        over_roots(
-                            _prompt_roots(),
-                            lambda root: resolve_prompt_reference(
-                                leaf, prompt_dir=root
-                            ),
-                        )
-                    elif is_output_reference(leaf):
-                        resolve_output_reference(leaf, root=ws.outputs)
-                except Exception as e:
-                    # Every resolver here raises with a message written for
-                    # the person who wrote the reference - a traversal
-                    # refusal from the security layer included
-                    errors.append({"path": path, "message": str(e)})
-        return errors
-
     def _probe_command_for(candidate, request, workspace, workflow_dir):
         """The execute-shaped command a cache probe of this validate request
         needs - the same fields _run_job sends, so the worker loads the
@@ -1810,185 +1640,14 @@ def create_app(
             command["base_dir"] = os.path.dirname(candidate.file_spec)
         return command
 
-    @app.post("/api/validate")
-    def validate_workflow(
-        request: JobRequest,
-        ws: Workspace = Depends(selected_workspace),
-        sizes: bool = Query(
-            True,
-            description="Ask the hub how large each missing model is; false "
-            "skips the network for a faster answer",
-        ),
-    ):
-        """Schema-validate a workflow and check its pipeline arguments
-        against real signatures, without queuing anything. Give either an
-        inline workflow or a workflow_path - a path on the server or a
-        stored workflow name from /api/workflows. The workspace it resolves
-        in comes from the body or the query string, body first. A valid
-        answer also carries a plan: the fingerprint of the work these
-        arguments produce, the step count, the list lengths, the model
-        repos not in the cache, and an estimate from the workflow's cost
-        block."""
-        if (request.workflow is None) == (request.workflow_path is None):
-            raise HTTPException(
-                status_code=400,
-                detail="Provide exactly one of workflow or workflow_path",
-            )
-        try:
-            workspace = _workspace_for(request.workspace or ws.name)
-            if request.workflow_path is not None:
-                # Built from the file so relative paths inside it resolve
-                # against its own directory, exactly as a run would
-                sources = _sources_for(workspace)
-                resolved, source = resolve_workflow_reference(
-                    request.workflow_path, sources
-                )
-                # Confined to the source it came from, not to the writable
-                # root - an example is read where it lives
-                source_root = source.root if source else workspace.workflows
-                candidate = workflow_from_file(resolved, workspace.outputs, source_root)
-                definition = candidate.workflow_definition
-                # The listing name the job history is keyed on, so the plan
-                # can quote what this box's own runs of it took (#154)
-                catalog_name = catalog_name_for(resolved, source)
-            else:
-                definition = request.workflow
-                source_root = workspace.workflows
-                # An inline definition has no catalog name, so no history
-                catalog_name = None
-                candidate = workflow_from_definition(
-                    copy.deepcopy(request.workflow),
-                    workspace.outputs,
-                    request.base_dir,
-                    source_root,
-                )
-        except HTTPException:
-            raise
-        except SecurityError as e:
-            # Messages the security layer writes itself - safe to surface
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception:
-            # Anything else could carry internals in its message; the log
-            # keeps the detail, the client gets the category
-            logger.exception("Workflow could not be constructed for validation")
-            raise HTTPException(
-                status_code=400,
-                detail="Workflow could not be constructed - the server log "
-                "has the detail",
-            )
-        # `arguments` defaults to `{}` on the model (JobRequest is shared
-        # with run_workflow, which needs a dict), so an omitted field and an
-        # explicit `{}` are otherwise indistinguishable here - and the two
-        # mean different things: omitted is "check the document", explicit
-        # is "check a run with these arguments" (#364). model_fields_set
-        # tells them apart without changing the field's default for every
-        # other caller of validate_workflow.
-        caller_arguments = (
-            request.arguments if "arguments" in request.model_fields_set else None
-        )
-        # See _candidate_for's activate_asset_dir comment: validation_errors()
-        # resolves 'asset:' references itself, through discovery a pinned
-        # DW_ASSET_DIR would otherwise point at the default workspace
-        # regardless of which one this request names
-        asset_token = activate_asset_dir(workspace.assets) if workspace.assets else None
-        try:
-            # The caller's list is the one a for_each expands over, so the
-            # pre-flight checks the step set that will actually run
-            errors = candidate.validation_errors(arguments=caller_arguments)
-        except Exception:
-            # An error here is not the schema's verdict on the workflow -
-            # validation_errors() reports that by returning it. It is the
-            # validator itself failing, and its message could carry
-            # internals, so the log keeps the detail and the client is told
-            # the category, as above
-            logger.exception("Workflow could not be validated")
-            detail = (
-                "The workflow could not be validated - the server log has the detail"
-            )
-            return {
-                "valid": False,
-                "error": detail,
-                "errors": [{"path": None, "message": detail}],
-                "warnings": [],
-            }
-        finally:
-            if asset_token is not None:
-                deactivate_asset_dir(asset_token)
-        if errors:
-            return {
-                "valid": False,
-                "error": format_validation_errors(errors),
-                "errors": errors,
-                "warnings": [],
-            }
-        # The arguments a caller is about to run with, checked the way the
-        # run itself would check them: an undeclared name, a value that will
-        # not coerce, an 'asset:'/'prompt:'/'output:' reference that names
-        # nothing in this workspace. Without this the free pre-flight covers
-        # every part of a run except the part the caller actually wrote
-        argument_problems = argument_errors(definition, request.arguments)
-        argument_problems += _argument_reference_errors(
-            definition, request.arguments, workspace
-        )
-        if argument_problems:
-            return {
-                "valid": False,
-                "error": format_validation_errors(argument_problems),
-                "errors": argument_problems,
-                "warnings": [],
-                "checked_arguments": sorted(request.arguments or {}),
-            }
-        answer = {
-            "valid": True,
-            "error": None,
-            "errors": [],
-            "warnings": workflow_argument_warnings(definition, request.arguments)
-            # A value a declared constraint will round up - the silent half
-            # of #96: the run changed the caller's frame count and only the
-            # server's log said so
-            + constraint_warnings(definition, request.arguments)
-            + entry_field_warnings(definition, request.arguments)
-            # Why `plan.cached_steps` is 0 for a workflow with no seed - the
-            # cache is off, not empty
-            + unseeded_cache_warnings(definition, request.arguments)
-            # An adapter whose file name says nothing about which checkpoint
-            # partition it was trained for: valid, since the name of a
-            # future checkpoint cannot be predicted, but nothing at run time
-            # would say it loaded onto the wrong one (#155)
-            + candidate.adapter_warnings(request.arguments)
-            # A required task argument fed by variable:name where name's
-            # default is null - a fine document, but a run left as-is would
-            # fail; empty once the caller names any arguments, since that
-            # condition is a hard error above instead (#364)
-            + candidate.null_variable_argument_warnings(caller_arguments)
-            # An argument a sub-workflow step passes to a workflow that
-            # declares no variable for it - dropped in silence at run time
-            + candidate.sub_workflow_warnings(caller_arguments)
-            # A slice_audio source whose real duration is already knowable
-            # (an asset:/output: reference validate can already probe) and
-            # whose requested slice reaches past it - zero-padded rather than
-            # refused, but previously said only by the run itself (#402)
-            + candidate.slice_past_end_warnings(request.arguments)
-            # An assessment probe's shots argument reaching past a
-            # statically-knowable video's real frame count - silently
-            # clipped rather than refused, but previously said only by the
-            # run itself (#425)
-            + candidate.shot_span_warnings(request.arguments)
-            # A step loading a pipeline the catalog declares a VRAM ceiling
-            # for, in a workflow that declares none, projected past it - a
-            # warning, since this workflow's offload/quantization may be
-            # leaner than the template's (#502)
-            + candidate.inherited_vram_warnings(
-                request.arguments, _ceiling_index(workspace)
-            ),
-        }
-        if request.arguments:
-            # Naming what was checked is the difference between 'the stored
-            # definition is valid' and 'the values you are about to pass are'
-            answer["checked_arguments"] = sorted(request.arguments)
-        # What the run will execute for these arguments, fingerprinted so
-        # an acknowledgement can be bound to it (#85). Best effort: the
-        # verdict above is the schema's and the planner may not change it
+    def _validation_plan(candidate, request, workspace, source, catalog_name, sizes):
+        """The plan a valid /api/validate answer carries: what the run will
+        execute for these arguments, fingerprinted so an acknowledgement can
+        be bound to it (#85). Best effort - None when it cannot be built,
+        since the verdict is the schema's and the planner may not change it.
+        """
+        source_root = source.root if source else workspace.workflows
+        definition = candidate.workflow_definition
         try:
             from .. import get_device, get_device_type
 
@@ -2032,7 +1691,7 @@ def create_app(
                     child_name, child_definition, arguments, workspace=child_workspace
                 )
 
-            answer["plan"] = build_plan(
+            return build_plan(
                 candidate,
                 request.arguments,
                 device=get_device_type(get_device()),
@@ -2061,7 +1720,122 @@ def create_app(
             )
         except Exception:
             logger.exception("Plan could not be built")
-            answer["plan"] = None
+            return None
+
+    @app.post("/api/validate")
+    def validate_workflow(
+        request: JobRequest,
+        ws: Workspace = Depends(selected_workspace),
+        sizes: bool = Query(
+            True,
+            description="Ask the hub how large each missing model is; false "
+            "skips the network for a faster answer",
+        ),
+    ):
+        """Schema-validate a workflow and check its pipeline arguments
+        against real signatures, without queuing anything. Give either an
+        inline workflow or a workflow_path - a path on the server or a
+        stored workflow name from /api/workflows. The workspace it resolves
+        in comes from the body or the query string, body first. A valid
+        answer also carries a plan: the fingerprint of the work these
+        arguments produce, the step count, the list lengths, the model
+        repos not in the cache, and an estimate from the workflow's cost
+        block."""
+        if (request.workflow is None) == (request.workflow_path is None):
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of workflow or workflow_path",
+            )
+        try:
+            workspace = _workspace_for(request.workspace or ws.name)
+            # Built from the file so relative paths inside it resolve against
+            # its own directory, exactly as a run would; (None, None) for an
+            # inline definition
+            resolved, source = resolve_workflow_reference(
+                request.workflow_path, _sources_for(workspace)
+            )
+            # The listing name the job history is keyed on, so the plan can
+            # quote what this box's own runs of it took (#154); an inline
+            # definition has none, so no history
+            catalog_name = catalog_name_for(resolved, source) if resolved else None
+            admission = _admit(
+                workspace,
+                workflow_path=resolved,
+                workflow=request.workflow,
+                arguments=request.arguments,
+                base_dir=request.base_dir,
+                output_dir=workspace.outputs,
+                # Confined to the source it came from, not to the writable
+                # root - an example is read where it lives
+                workflow_dir=source.root if source else workspace.workflows,
+                # `arguments` defaults to `{}` on the model, so an omitted
+                # field and an explicit `{}` are otherwise indistinguishable
+                # here - and the two mean different things: omitted is
+                # "check the document", explicit is "check a run with these
+                # arguments" (#364)
+                supplied="arguments" in request.model_fields_set,
+                plan_for=lambda candidate: _validation_plan(
+                    candidate, request, workspace, source, catalog_name, sizes
+                ),
+            )
+        except HTTPException:
+            raise
+        except ValidatorFailure:
+            # Not the schema's verdict on the workflow - validation_errors()
+            # reports that by returning it. It is the validator itself
+            # failing, and its message could carry internals, so the log
+            # keeps the detail and the client is told the category
+            logger.exception("Workflow could not be validated")
+            detail = (
+                "The workflow could not be validated - the server log has the detail"
+            )
+            return {
+                "valid": False,
+                "error": detail,
+                "errors": [{"path": None, "message": detail}],
+                "warnings": [],
+            }
+        except SecurityError as e:
+            # Messages the security layer writes itself - safe to surface
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            # Anything else could carry internals in its message; the log
+            # keeps the detail, the client gets the category
+            logger.exception("Workflow could not be constructed for validation")
+            raise HTTPException(
+                status_code=400,
+                detail="Workflow could not be constructed - the server log "
+                "has the detail",
+            )
+        if admission.schema_errors:
+            return {
+                "valid": False,
+                "error": format_validation_errors(admission.errors),
+                "errors": admission.errors,
+                "warnings": [],
+            }
+        if not admission.ok:
+            # The arguments a caller is about to run with, checked the way
+            # the run would check them. The warnings are the expansion's
+            # over the defaults, since the arguments did not fold
+            return {
+                "valid": False,
+                "error": format_validation_errors(admission.errors),
+                "errors": admission.errors,
+                "warnings": admission.warnings,
+                "checked_arguments": sorted(request.arguments or {}),
+            }
+        answer = {
+            "valid": True,
+            "error": None,
+            "errors": [],
+            "warnings": list(admission.warnings),
+        }
+        if request.arguments:
+            # Naming what was checked is the difference between 'the stored
+            # definition is valid' and 'the values you are about to pass are'
+            answer["checked_arguments"] = sorted(request.arguments)
+        answer["plan"] = admission.plan
         if answer["plan"]:
             # cached_steps is 0 both when nothing hit and when the probe ran
             # against the wrong workspace's output root (#184) - echoing
@@ -2073,7 +1847,7 @@ def create_app(
             if catalog_name:
                 answer["warnings"] += _host_memory_warnings(
                     catalog_name,
-                    definition,
+                    admission.workflow.workflow_definition,
                     answer["plan"]["list_entries"],
                     workspace=workspace.name if source.writable else None,
                 )
@@ -2670,13 +2444,28 @@ def create_app(
                 model_name=request.model_name,
                 device=request.device,
             )
+            # Admitted like any other job - submit records and queues what
+            # was admitted, it does not check
+            admission = _admit(
+                ws,
+                workflow_path=None,
+                workflow=definition,
+                arguments={},
+                base_dir=None,
+                output_dir=ws.outputs,
+                workflow_dir=ws.workflows,
+            )
+            if not admission.ok:
+                raise ValueError(admission.message())
             job = manager.submit(
                 workflow=definition,
+                workflow_name=admission.workflow.name,
                 arguments={},
                 workflow_dir=ws.workflows,
                 output_dir=ws.outputs,
                 asset_dir=ws.assets,
                 workspace=ws.name,
+                warnings=admission.warnings,
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
