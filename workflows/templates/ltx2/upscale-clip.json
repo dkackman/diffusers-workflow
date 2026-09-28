@@ -1,0 +1,197 @@
+{
+    "id": "LTX2UpscaleClip",
+    "description": "Re-renders a clip from the asset library at twice its size with the spatial-upscaler in-context LoRA, the clip attached as the reference for the whole denoise - so composition, motion and subject carry over while fine detail (texture, edges, micro-contrast) is invented, not interpolated. It is a generative re-render, not a faithful resize: the vendor scopes it as a creative step, not for live-action footage where factual fidelity matters, and a heavily compressed source is 'restore-decompression''s job first. The source is scaled and center-cropped to width/2 x height/2 with no error, so set 'width'/'height' to twice the source's size, keeping its aspect ratio - a different aspect ratio is silently cropped and a larger source silently downscaled. 'num_frames' must not exceed the source's length: the reference is trimmed to it, and frames past the end of a shorter source are generated with no reference. Read the source's size, frame rate and length first with get_gallery_metadata('asset:...'). Defaults fit a 480x272, 121-frame, 24 fps source. Replace the default prompt with a description of the source's subject, setting, motion and lighting - the vendor card states no caption convention, and the prompt is what anchors the re-render to the scene. 'lora_scale' is 1.0 because the weights ship pre-scaled. The upscale is saved to intermediate/; the deliverable in final/ carries the source's own soundtrack cut to the output length, so a source with no audio fails at that step, after the upscale is saved.",
+    "summary": "2x generative re-render of your own clip, soundtrack kept. width/height = 2x the source's; num_frames <= its length.",
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:clip.mp4",
+        "prompt": "A high-resolution rendering of the scene in the reference video, with the same subject, framing and motion, and sharp, fine detail.",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "lora_scale": 1.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "upscaled",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2InContextPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}",
+                    "reference_conditions": [
+                        {
+                            "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+                            "from_arguments": {
+                                "frames": {
+                                    "media_type": "video",
+                                    "location": "variable:source_video"
+                                },
+                                "strength": 1.0
+                            }
+                        }
+                    ],
+                    "reference_downscale_factor": 2,
+                    "conditioning_attention_strength": 1.0
+                },
+                "loras": [
+                    {
+                        "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+                        "weight_name": "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+                        "adapter_name": "ic_lora",
+                        "scale": "variable:lora_scale"
+                    }
+                ]
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "with_source_audio",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:upscaled",
+                    "audio": "variable:source_video",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

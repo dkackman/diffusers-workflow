@@ -35,6 +35,44 @@ def test_pairs_frames_with_a_soundtrack_read_from_a_file(tmp_path):
     assert paired.sample_rate == 16000
 
 
+def test_takes_the_soundtrack_of_an_mp4_file(tmp_path):
+    """#548: templates/ltx2/upscale-clip names the caller's own clip as the
+    'audio', so the deliverable carries the original track rather than one
+    the IC-LoRA pass invented. The track is read out of the mp4 itself."""
+    from diffusers.utils.export_utils import encode_video
+
+    path = tmp_path / "clip.mp4"
+    sample_rate = 16000
+    encode_video(
+        [Image.new("RGB", (16, 16)) for _ in range(8)],
+        fps=4,
+        output_path=str(path),
+        audio=torch.full((2, 2 * sample_rate), 0.25),
+        audio_sample_rate=sample_rate,
+    )
+
+    paired = pair_audio(
+        [Image.new("RGB", (32, 32)) for _ in range(4)], str(path), fps=4, fit="video"
+    )
+
+    assert paired.sample_rate == sample_rate
+    assert paired.audio.shape == (2, sample_rate)
+    assert numpy.abs(paired.audio).max() > 0.1
+
+
+def test_an_mp4_without_a_soundtrack_is_named_as_the_fault(tmp_path):
+    """A silent source fails the pairing step with an error that says why."""
+    from diffusers.utils.export_utils import encode_video
+
+    path = tmp_path / "silent.mp4"
+    encode_video(
+        [Image.new("RGB", (16, 16)) for _ in range(4)], fps=4, output_path=str(path)
+    )
+
+    with pytest.raises(ValueError, match="carries no audio track"):
+        pair_audio(["frame"], str(path), fps=4, fit="video")
+
+
 def test_pairs_frames_with_a_bare_waveform():
     paired = pair_audio(["frame1", "frame2"], _waveform(), sample_rate=24000)
 

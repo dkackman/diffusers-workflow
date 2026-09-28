@@ -8,7 +8,12 @@ is quietly worse - the failure mode hardest to notice - so they are pinned
 here rather than trusted to a reading.
 
 Sources, read from `lem` with its own Hugging Face token on 2026-09-14:
-Lightricks/LTX-2.5-22b-IC-LoRA-{Ingredients,Deblur,Decompression}.
+Lightricks/LTX-2.5-22b-IC-LoRA-{Ingredients,Deblur,Decompression}; and
+Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler on 2026-09-27 (#548).
+The upscaler's card states the weight, factor 2 and strength 1.0 but no
+trained bucket and no caption convention: its entry below pins the
+family's 960x544 / 121 defaults, a 480x272 source doubled, which is the
+card's "~280p" base run through the 2x.
 """
 
 import json
@@ -50,6 +55,15 @@ CARDS = {
         121,
         1.0,
     ),
+    "upscale-clip": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+        "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+        2,
+        960,
+        544,
+        121,
+        1.0,
+    ),
 }
 
 
@@ -81,8 +95,8 @@ class TestEachTemplateMatchesItsCard:
         assert variables[lora["scale"].removeprefix("variable:")] == strength
 
     def test_the_reference_is_encoded_at_the_output_resolution(self, name):
-        """Every one of these three states downscale factor 1 - unlike the
-        spatial upscaler, whose reference is half size."""
+        """The conditioning LoRAs state downscale factor 1; the spatial
+        upscaler states 2, its reference half the output's size."""
         _repo, _weight, factor, *_ = CARDS[name]
         arguments = conditioned_step(name)["pipeline"]["arguments"]
 
@@ -131,11 +145,35 @@ class TestTheReferenceSheetIsHeldForTheWholeClip:
         assert variables["reference_frames"] >= 121
 
 
-class TestTheRestorationTemplatesReadFootageTheyDidNotGenerate:
-    """The point of both: a reference the workflow did not make. Every other
-    IC-LoRA use in this catalog conditions on an earlier step's output."""
+class TestTheGenerativeUpscaleMatchesTheSameCard:
+    """`generative-upscale` runs the same upscaler on a clip it generated
+    first; its numbers are the card's as much as `upscale-clip`'s are."""
 
-    @pytest.mark.parametrize("name", ["restore-deblur", "restore-decompression"])
+    def test_it_loads_the_upscaler_at_factor_two(self):
+        repo, weight, factor, *_ = CARDS["upscale-clip"]
+        pipeline = conditioned_step("generative-upscale")["pipeline"]
+        (lora,) = pipeline["loras"]
+
+        assert lora["model_name"] == repo
+        assert lora["weight_name"] == weight
+        assert lora["scale"] == 1.0
+        assert pipeline["arguments"]["reference_downscale_factor"] == factor
+
+    def test_its_output_is_twice_its_base(self):
+        variables = definition("generative-upscale")["variables"]
+
+        assert variables["width"] == 2 * variables["base_width"]
+        assert variables["height"] == 2 * variables["base_height"]
+
+
+class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
+    """A reference the workflow did not make: the caller's own clip, named
+    by `source_video`. `reference-sheet` and `generative-upscale` condition
+    on an earlier step's output instead."""
+
+    @pytest.mark.parametrize(
+        "name", ["restore-deblur", "restore-decompression", "upscale-clip"]
+    )
     def test_the_reference_is_the_callers_own_clip(self, name):
         (reference,) = conditioned_step(name)["pipeline"]["arguments"][
             "reference_conditions"
@@ -164,3 +202,28 @@ class TestTheRestorationTemplatesReadFootageTheyDidNotGenerate:
 
         assert "Reference shows" in text
         assert marker in text
+
+
+class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
+    """#548: the deliverable carries the caller's own track, cut to the
+    output's length, not the one the IC-LoRA pass generates beside it."""
+
+    def test_the_deliverable_pairs_the_upscale_with_the_source(self):
+        upscaled, paired = definition("upscale-clip")["steps"]
+
+        assert upscaled["result"]["subfolder"] == "intermediate"
+        assert paired["task"]["command"] == "pair_audio"
+        assert paired["task"]["arguments"] == {
+            "video": "previous_result:upscaled",
+            "audio": "variable:source_video",
+            "fit": "video",
+        }
+        assert paired["result"]["subfolder"] == "final"
+
+    def test_the_default_prompt_is_a_literal_the_caller_replaces(self):
+        """The card states no caption convention, so there is no trained
+        form to store; the description says to describe the source."""
+        workflow = definition("upscale-clip")
+
+        assert not workflow["variables"]["prompt"].startswith("prompt:")
+        assert "Replace the default prompt" in workflow["description"]
