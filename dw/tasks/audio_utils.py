@@ -249,9 +249,15 @@ def _harmonicity(waveform, sample_rate):
         energy = float(numpy.dot(centered, centered))
         if energy <= 1e-12:
             continue
-        correlation = numpy.correlate(centered, centered, mode="full")
-        zero_lag = correlation.shape[0] // 2
-        window = correlation[zero_lag + min_lag : zero_lag + max_lag + 1]
+        # The autocorrelation through an FFT rather than numpy.correlate,
+        # which is O(n^2): on a 2 s window at 48 kHz that is about 10^10
+        # operations, and find_loop_bed measures many windows (#218).
+        # Padding to at least 2n - 1 keeps the circular correlation from
+        # wrapping, so every lag equals the direct sum
+        size = 1 << int(2 * centered.shape[0] - 1).bit_length()
+        spectrum = numpy.fft.rfft(centered, size)
+        correlation = numpy.fft.irfft(spectrum * numpy.conj(spectrum), size)
+        window = correlation[min_lag : max_lag + 1]
         if window.size == 0:
             continue
         scores.append(float(numpy.max(window) / energy))

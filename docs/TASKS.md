@@ -842,10 +842,127 @@ The bed is laid under the cut with `mix_audio` and attached to the picture with
   "result": { "content_type": "video/mp4", "fps": 24 } }
 ```
 
-Where the bed itself comes from is the open question: a few seconds of a
-generated shot's own ambience, cut out with `slice_audio` from a stretch with
-nothing tonal in it, is the material that matches — the room the shots were
-generated in.
+The bed's source: [`find_loop_bed`](#find_loop_bed) picks the stretch. Run it
+against the cut (or a stem of it) over the range that should hold room tone,
+copy the top candidate's `start_seconds`/`duration_seconds` into `slice_audio`,
+`loop_audio` the slice to the cut's length, and `mix_audio` it in at the
+candidate's `gain` — the room the shots were generated in, picked by
+measurement rather than by ear.
+
+### find_loop_bed
+
+Pick the window of a recording worth looping into the room-tone bed above,
+measured as it will sound looped rather than as it sits in the source. A
+level check alone misses three things, each found on a real episode:
+
+- near-programme material — faint speech attenuated ~30 dB reads as quiet,
+  and is audible once it repeats every lap.
+- lap-rate modulation — the loop's repeat rate beats against the source's own
+  level movement, invisible in one pass through the source.
+- ticks — a 1 ms transient is invisible to 50 ms RMS and recurs once per lap.
+
+```json
+{
+    "task": {
+        "command": "find_loop_bed",
+        "arguments": {
+            "audio": "output:episode/latest/final/cut.mp4",
+            "start_seconds": 30.0,
+            "end_seconds": 90.0
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path, `asset:`/`output:` reference of an audio or video file (a video is read audio-only - frames are never decoded), or a track or video from `previous_result:` |
+| `start_seconds` / `end_seconds` | No | The range to search; the whole file if omitted |
+| `min_seconds` / `max_seconds` | No | Shortest/longest window tried (default `0.5` / `2.0`) |
+| `max_bin_dbfs` | No | Every 50 ms bin of a window must be at or below this (default `-55`) |
+| `max_mean_dbfs` | No | A window's mean (RMS) level must be at or below this (default `-60`) |
+| `max_spike_db` | No | Most a window's largest 1 ms peak may sit above its median 1 ms peak (default `12`) |
+| `crossfade_ms` | No | The crossfade candidates are looped with - `loop_audio`'s own default, so what is measured is what `loop_audio` will make (default `250`) |
+| `loop_seconds` | No | Length of the looped result that is measured (default `10.0`) |
+| `target_bed_dbfs` | No | The level each candidate's `gain` is computed to reach (default `-60`) |
+| `max_candidates` | No | How many ranked candidates to return (default `5`) |
+
+Every window on a 50 ms grid, from `min_seconds` to `max_seconds` long, is
+kept only if it is quiet, not digital silence, free of ticks and not tonal or
+speech-like (the same flatness/harmonicity test `bleed_join` uses).
+Overlapping survivors are thinned to the steadiest, rejecting one mostly
+inside a span already found tonal without re-measuring it. Each survivor is
+then looped with `loop_audio`'s own crossfade to `loop_seconds` and measured:
+`ripple_db` (the 5-95% spread of the looped 50 ms bins), `envelope_peak_db`/
+`envelope_peak_hz` (the strongest level wobble) and `lap_component_db` (the
+wobble at the lap rate). Candidates are ranked by looped `ripple_db`, lowest
+first; one whose `envelope_peak_db` is above -15 dB carries the
+`lap_modulation` warning.
+
+```json
+{
+    "source": { "duration_seconds": 620.4, "sample_rate": 44100, "searched": [30.0, 90.0], "shots_source": null },
+    "criteria": { "min_seconds": 0.5, "max_seconds": 2.0, "target_bed_dbfs": -60.0 },
+    "candidates": [
+        {
+            "rank": 1,
+            "start_seconds": 41.28,
+            "duration_seconds": 1.35,
+            "end_seconds": 42.63,
+            "shot": null,
+            "mean_dbfs": -63.1,
+            "max_bin_dbfs": -57.4,
+            "spike_db": 4.2,
+            "flatness": 0.61,
+            "harmonicity": 0.08,
+            "looped": {
+                "ripple_db": 1.1,
+                "envelope_peak_db": -24.0,
+                "envelope_peak_hz": 0.4,
+                "lap_hz": 0.096,
+                "lap_component_db": -26.0
+            },
+            "gain_db": 3.1,
+            "gain": 1.43,
+            "warnings": []
+        }
+    ],
+    "rejected": { "too_loud": 812, "silent": 0, "spike": 14, "tonal": 203 },
+    "findings": []
+}
+```
+
+`start_seconds`/`duration_seconds` are `slice_audio`'s arguments and `gain`
+is `mix_audio`'s multiplier for reaching `target_bed_dbfs` — the answer picks
+a window and builds nothing, so the remedy is a copy. Finding nothing is an
+answer, not an error: `candidates` is `[]`, `rejected` counts the windows
+each rule threw out, and one `no_loop_bed` finding says which rule to relax.
+
+Like the assessment probes it answers JSON and decides nothing, but it
+searches rather than checking a finished cut, so it is not one of them — it
+stays out of `list_tasks`' `assessment` list. The result must be saved as
+`application/json`.
+
+```json
+{
+    "variables": { "audio": "output:episode/latest/final/cut.mp4" },
+    "steps": [
+        { "name": "bed", "task": { "command": "find_loop_bed",
+                                    "arguments": { "audio": "variable:audio" } },
+          "result": { "content_type": "application/json" } }
+    ]
+}
+```
+
+run against the finished cut once it exists, then read back over MCP with
+`get_output_text` (JSON results are text) rather than `get_output_audio`.
+
+Out-of-range literals (`min_seconds`/`max_seconds`/`loop_seconds` at or below
+zero, `max_candidates` at or below zero, a negative `crossfade_ms`, and the
+like) are refused at validation. `end_seconds` at or before `start_seconds`,
+`min_seconds` above `max_seconds`, a range past the end of the file, and a
+source shorter than `min_seconds` fail at run time — they depend on the file.
 
 ### resample_audio
 
