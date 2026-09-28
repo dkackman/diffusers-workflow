@@ -68,6 +68,11 @@ remaining deferred fix is recorded in
   #544-#545), shipped 2026-09-27. Record, including what was deferred (a
   sync route, in-workflow wiring into `slice_audio`, thresholds for louder
   rooms): `complete/find-loop-bed-complete.md`.
+- **`ltx2/refine-clip`, LTX-2.5's two-stage refine on an existing mp4**
+  (#543, stage #549), shipped 2026-09-28 as one template with no engine
+  task. Record, including what was deferred (a 1x refine and the
+  VAE-encode task it needs, encoding the source soundtrack into audio
+  latents): `complete/ltx2-refine-clip-complete.md`.
 
 ## Declined
 
