@@ -1504,6 +1504,22 @@ class TestVideoFrameRate:
 
         assert encode.call_args.kwargs["fps"] == 12
 
+    def test_a_declared_rate_is_handed_on_to_a_later_step(self):
+        # A previous_result: consumer reads this same instance - a 24 fps
+        # shot written at 12 must read as 12 there, as its file does (#513)
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        self.save({"content_type": "video/mp4", "fps": 12}, artifact)
+
+        assert artifact.fps == 12
+
+    def test_an_undeclared_rate_is_not_written_back(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        self.save({"content_type": "video/mp4"}, artifact)
+
+        assert artifact.fps is None
+
     def test_the_old_default_holds_when_nothing_knows_the_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
 

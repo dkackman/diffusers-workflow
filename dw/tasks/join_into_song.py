@@ -233,6 +233,15 @@ def _one_fps(videos, names, fps):
             + ". Frames are joined one for one, so a shot at another rate would "
             "play at the wrong speed against the song"
         )
+    if fps is not None and rates and abs(fps - next(iter(rates))) > 0.01:
+        raise ValueError(
+            f"{COMMAND} was given fps {fps:g}, but the videos carry "
+            + ", ".join(
+                f"{name}: {float(rate):g} fps" for name, rate in carried if rate
+            )
+            + ". 'fps' is only for videos that carry no rate - drop it, or "
+            "write the shots at the rate you want first"
+        )
     if fps is None:
         fps = next((rate for _name, rate in carried if rate), None)
     if fps is None:
