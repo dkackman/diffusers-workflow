@@ -83,9 +83,10 @@ def concat_videos(
             statically-resolvable (asset:/output:/literal path) size
             disagreement is refused at validate; one only known at run time
             still fails there (#504). To fit the odd video: `video_frames`
-            to get its frames, `resize_rescale`/`resize_center_crop` to the
-            target size, then `pair_audio(fit="video")` to put its
-            soundtrack back before passing it here (#551)
+            to get its frames, `resize_rescale` to the target size
+            (`resize_center_crop` squares the frame first and then stretches
+            it, distorting a non-square target), then `pair_audio(fit="video")`
+            to put its soundtrack back before passing it here (#551)
         trim_frames: Frames dropped from the head of every video after the
             first - the trim used when each video was generated from the
             previous one's last frame

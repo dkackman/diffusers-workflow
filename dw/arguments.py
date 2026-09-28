@@ -1025,7 +1025,10 @@ def fetch_image(img_spec, base_dir=None):
             # Validate file extension
             ext = os.path.splitext(validated_path)[1].lower()
             if ext not in ALLOWED_IMAGE_EXTENSIONS:
-                raise SecurityError(f"Image file extension not allowed: {ext}")
+                raise SecurityError(
+                    f"Image file extension not allowed: {ext} - a video file "
+                    "must go through video_frames first"
+                )
             return load_image(validated_path)
 
     except SecurityError:
