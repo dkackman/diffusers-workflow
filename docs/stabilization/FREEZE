@@ -1,0 +1,4 @@
+dw is under a stabilization freeze (see ROADMAP.md in this directory).
+While this file exists on develop, the harness adds no new features or
+surface and does not touch paths in hot-zone.txt. Deleting this file lifts
+the freeze; that happens at the Phase 4 gate.
