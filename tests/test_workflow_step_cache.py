@@ -63,10 +63,10 @@ def _workflow_def():
     }
 
 
-def build_test_workflow_and_call_count_spy():
+def build_test_workflow_and_call_count_spy(output_dir):
     """Returns (workflow, call_count) where call_count() reports how many
     times the step's body (Step.run) actually executed."""
-    workflow = Workflow(_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_workflow_def(), output_dir, "test.json")
 
     calls = {"n": 0}
 
@@ -88,9 +88,9 @@ def build_test_workflow_and_call_count_spy():
     return workflow, call_count
 
 
-def test_second_run_with_unchanged_step_reuses_cached_result():
+def test_second_run_with_unchanged_step_reuses_cached_result(tmp_path):
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({})
@@ -102,9 +102,9 @@ def test_second_run_with_unchanged_step_reuses_cached_result():
             p.stop()
 
 
-def test_second_run_with_changed_variable_recomputes_that_step():
+def test_second_run_with_changed_variable_recomputes_that_step(tmp_path):
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({"prompt": "a cat"})
@@ -116,7 +116,9 @@ def test_second_run_with_changed_variable_recomputes_that_step():
             p.stop()
 
 
-def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
+def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
+    tmp_path,
+):
     """A realized argument that copy.deepcopy chokes on makes the step
     uncacheable - the run must continue normally, not abort."""
 
@@ -134,7 +136,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
             target[0]["pipeline"]["arguments"]["image"] = NotCopyable()
 
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         with patch.object(workflow_module, "realize_args", realize_and_poison):
@@ -175,10 +177,8 @@ def _pipeline_reference_workflow_def():
     }
 
 
-def build_pipeline_reference_workflow_and_call_count_spy():
-    workflow = Workflow(
-        _pipeline_reference_workflow_def(), "/tmp/test_output", "test.json"
-    )
+def build_pipeline_reference_workflow_and_call_count_spy(output_dir):
+    workflow = Workflow(_pipeline_reference_workflow_def(), output_dir, "test.json")
 
     calls = {"n": 0}
 
@@ -200,7 +200,9 @@ def build_pipeline_reference_workflow_and_call_count_spy():
     return workflow, call_count
 
 
-def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligible():
+def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligible(
+    tmp_path,
+):
     """A step reached by a later step's pipeline_reference may be served
     from cache - create_step_action runs on a hit too, so
     _pipeline_keys_by_step still records the referenced step's pipeline and
@@ -210,7 +212,9 @@ def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligibl
     change every run (so B always re-executes and always needs to resolve
     its pipeline_reference to 'A' this run)."""
     step_cache.clear()
-    workflow, call_count = build_pipeline_reference_workflow_and_call_count_spy()
+    workflow, call_count = build_pipeline_reference_workflow_and_call_count_spy(
+        str(tmp_path)
+    )
 
     try:
         workflow.run({"prompt_b": "first"})
@@ -223,12 +227,12 @@ def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligibl
             p.stop()
 
 
-def test_cache_hit_still_touches_the_steps_pipeline():
+def test_cache_hit_still_touches_the_steps_pipeline(tmp_path):
     """A hit must run create_step_action's bookkeeping - it is the only
     caller of touch_pipeline, and the worker evicts every pipeline a run
     did not touch."""
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
     pipelines = {}
 
     try:
@@ -282,14 +286,12 @@ def _mock_pipeline_load_with_sharing(self, shared_components):
     self.publish_shared_components(shared_components)
 
 
-def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
+def test_cache_hit_republishes_shared_components_for_a_later_cold_step(tmp_path):
     """A hit on the sharing step must still republish into this run's
     shared_components dict, or a later step that has to load fresh raises
     'Cannot reuse component ... Shared so far: nothing'."""
     step_cache.clear()
-    workflow = Workflow(
-        _shared_components_workflow_def(), "/tmp/test_output", "test.json"
-    )
+    workflow = Workflow(_shared_components_workflow_def(), str(tmp_path), "test.json")
     pipelines = {}
 
     def fake_step_run(self, previous_results, previous_pipelines, step_action):
@@ -328,13 +330,13 @@ def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
             p.stop()
 
 
-def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline():
+def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline(tmp_path):
     """release_pipeline is not a no-op on a hit - create_step_action ran,
     so the step's key is recorded and the pop finds it."""
     step_cache.clear()
     definition = _workflow_def()
     definition["steps"][0]["release_pipeline"] = True
-    workflow = Workflow(definition, "/tmp/test_output", "test.json")
+    workflow = Workflow(definition, str(tmp_path), "test.json")
 
     def fake_step_run(self, previous_results, previous_pipelines, step_action):
         return FakeResult()
@@ -360,13 +362,13 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline():
             p.stop()
 
 
-def test_workflow_without_a_seed_skips_the_step_cache_entirely():
+def test_workflow_without_a_seed_skips_the_step_cache_entirely(tmp_path):
     """A workflow that names no seed draws a fresh one every run, so no
     step can ever hit - it must not pay the deepcopy or pin a Result."""
     step_cache.clear()
     definition = _workflow_def()
     del definition["seed"]
-    workflow = Workflow(definition, "/tmp/test_output", "test.json")
+    workflow = Workflow(definition, str(tmp_path), "test.json")
 
     copied = []
     real_deepcopy = copy.deepcopy
@@ -401,12 +403,12 @@ def test_workflow_without_a_seed_skips_the_step_cache_entirely():
             p.stop()
 
 
-def test_cache_hit_marks_its_manifest_entry_and_event_reused():
+def test_cache_hit_marks_its_manifest_entry_and_event_reused(tmp_path):
     """A hit republishes an earlier run's files - both the manifest entry
     and the step_end event say so, so nothing downstream credits this run
     with writing them."""
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({})
@@ -557,25 +559,25 @@ def _run_with_per_step_counts(workflow, arguments, fail_on=None):
     return counts
 
 
-def test_renaming_the_workflow_id_does_not_reuse_the_old_ids_entry():
+def test_renaming_the_workflow_id_does_not_reuse_the_old_ids_entry(tmp_path):
     """Saved files carry the workflow id, so an entry keyed by the bare step
     name would republish the previous id's paths and write none of its own."""
     step_cache.clear()
-    first = Workflow(_workflow_def(), "/tmp/test_output", "test.json")
+    first = Workflow(_workflow_def(), str(tmp_path), "test.json")
     assert _run_with_per_step_counts(first, {}) == {"generate": 1}
 
     renamed_def = _workflow_def()
     renamed_def["id"] = "test_step_cache_renamed"
-    renamed = Workflow(renamed_def, "/tmp/test_output", "test.json")
+    renamed = Workflow(renamed_def, str(tmp_path), "test.json")
 
     assert _run_with_per_step_counts(renamed, {}) == {"generate": 1}
 
 
-def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses():
+def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses(tmp_path):
     """A -> B, fixed seed. Change A, run, cancel after A's put but before
     B's: the next unchanged run must not serve B computed from the old A."""
     step_cache.clear()
-    workflow = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+    workflow = Workflow(_two_step_def(True), str(tmp_path), "test.json")
 
     assert _run_with_per_step_counts(workflow, {"a_prompt": "one"}) == {"A": 1, "B": 1}
     # A changes and is re-put; the run dies before B's put
@@ -588,11 +590,11 @@ def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses():
     assert _run_with_per_step_counts(workflow, {"a_prompt": "two"}) == {"B": 1}
 
 
-def test_unreferenced_non_final_step_is_cached_without_its_result_list():
+def test_unreferenced_non_final_step_is_cached_without_its_result_list(tmp_path):
     """B does not read A and A is not the workflow's return value, so A's
     entry keeps its saved_files but drops the realized media."""
     step_cache.clear()
-    workflow = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+    workflow = Workflow(_two_step_def(False), str(tmp_path), "test.json")
 
     _run_with_per_step_counts(workflow, {})
 
@@ -604,14 +606,16 @@ def test_unreferenced_non_final_step_is_cached_without_its_result_list():
     assert b_entry["result"].result_list == ["B artifact"]
 
 
-def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained():
+def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained(
+    tmp_path,
+):
     """A ran unreferenced (so its entry holds no result); a later run whose
     B reads A needs the real thing and must re-run A."""
     step_cache.clear()
-    without = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+    without = Workflow(_two_step_def(False), str(tmp_path), "test.json")
     assert _run_with_per_step_counts(without, {}) == {"A": 1, "B": 1}
 
-    with_reference = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+    with_reference = Workflow(_two_step_def(True), str(tmp_path), "test.json")
 
     counts = _run_with_per_step_counts(with_reference, {})
 
@@ -622,18 +626,18 @@ class TestCacheHits:
     """cache_hits() answers the plan's cached_steps (#85): what the next
     run would reuse, by the run's own preparation, executing nothing."""
 
-    def test_a_cold_cache_reports_no_hits(self):
+    def test_a_cold_cache_reports_no_hits(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             assert workflow.cache_hits({}) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_after_a_run_the_probe_names_what_the_next_run_reuses(self):
+    def test_after_a_run_the_probe_names_what_the_next_run_reuses(self, tmp_path):
         step_cache.clear()
-        workflow, call_count = build_test_workflow_and_call_count_spy()
+        workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({})
             probe = workflow.cache_hits({})
@@ -648,9 +652,9 @@ class TestCacheHits:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_a_changed_argument_is_a_miss(self):
+    def test_a_changed_argument_is_a_miss(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({"prompt": "a cat"})
             assert workflow.cache_hits({"prompt": "a dog"}) == []
@@ -658,9 +662,9 @@ class TestCacheHits:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_an_unseeded_workflow_has_no_hits(self):
+    def test_an_unseeded_workflow_has_no_hits(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         del workflow.workflow_definition["seed"]
         try:
             workflow.run({})
@@ -671,8 +675,7 @@ class TestCacheHits:
 
     def test_the_probe_writes_nothing(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
-        workflow.output_dir = str(tmp_path)
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.cache_hits({})
             assert list(tmp_path.iterdir()) == []

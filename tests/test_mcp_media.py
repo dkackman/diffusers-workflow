@@ -155,15 +155,7 @@ def test_a_png_source_comes_back_as_png():
 def test_the_result_stays_under_the_byte_ceiling():
     """A hard cap matters more than fidelity - a payload over the ceiling
     would crowd out the conversation it is meant to inform."""
-    import random
-
-    noise = Image.new("RGB", (4000, 4000))
-    noise.putdata(
-        [
-            (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-            for _ in range(4000 * 4000)
-        ]
-    )
+    noise = Image.frombytes("RGB", (4000, 4000), os.urandom(4000 * 4000 * 3))
     buffer = io.BytesIO()
     noise.save(buffer, format="PNG")
     client = serving(buffer.getvalue(), "image/png")

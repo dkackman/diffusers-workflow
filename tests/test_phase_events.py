@@ -64,9 +64,7 @@ def _pipeline_workflow(save=False):
     return {"id": "phase_test", "steps": [step]}
 
 
-def _run(
-    workflow_def, context, output_dir="/tmp/test_output", pipelines=None, fake=None
-):
+def _run(workflow_def, context, output_dir, pipelines=None, fake=None):
     def mock_load(self, shared_components):
         self.pipeline = fake if fake is not None else FakePipeline()
 
@@ -98,22 +96,23 @@ def test_a_run_reports_every_phase_in_order(tmp_path):
     ]
 
 
-def test_loading_names_the_model_it_is_waiting_on():
+def test_loading_names_the_model_it_is_waiting_on(tmp_path):
     events = []
-    _run(_pipeline_workflow(), RunContext(on_event=events.append))
+    _run(_pipeline_workflow(), RunContext(on_event=events.append), str(tmp_path))
 
     loading = [detail for phase, detail in _phases(events) if phase == "loading"]
     assert loading == ["acme/model"]
 
 
-def test_a_cache_hit_is_reported_as_cached_not_loading():
+def test_a_cache_hit_is_reported_as_cached_not_loading(tmp_path):
     pipelines = {}
-    _run(_pipeline_workflow(), RunContext(), pipelines=pipelines)
+    _run(_pipeline_workflow(), RunContext(), str(tmp_path), pipelines=pipelines)
 
     events = []
     _run(
         _pipeline_workflow(),
         RunContext(on_event=events.append),
+        str(tmp_path),
         pipelines=pipelines,
     )
 
@@ -122,9 +121,9 @@ def test_a_cache_hit_is_reported_as_cached_not_loading():
     assert "loading" not in [phase for phase, _ in phases]
 
 
-def test_decoding_is_reported_after_the_last_denoise_step():
+def test_decoding_is_reported_after_the_last_denoise_step(tmp_path):
     events = []
-    _run(_pipeline_workflow(), RunContext(on_event=events.append))
+    _run(_pipeline_workflow(), RunContext(on_event=events.append), str(tmp_path))
 
     names = [
         event.get("phase") if event["event"] == "phase" else event["event"]
@@ -142,11 +141,12 @@ def test_decoding_is_reported_after_the_last_denoise_step():
     ]
 
 
-def test_a_pipeline_without_a_step_callback_still_reports_generating():
+def test_a_pipeline_without_a_step_callback_still_reports_generating(tmp_path):
     events = []
     _run(
         _pipeline_workflow(),
         RunContext(on_event=events.append),
+        str(tmp_path),
         fake=FakePipelineNoCallback(),
     )
 

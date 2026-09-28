@@ -105,7 +105,7 @@ def test_workflow_switch_evicts_cache_and_untouched_keys_dropped():
     cleanup.assert_called_once()
 
 
-def test_inline_workflow_definition_executes():
+def test_inline_workflow_definition_executes(tmp_path):
     worker = _make_worker()
     with patch(
         "dw.worker.workflow_from_definition",
@@ -115,7 +115,7 @@ def test_inline_workflow_definition_executes():
             {
                 "workflow": {"id": "inline_test", "steps": []},
                 "arguments": {},
-                "output_dir": "/tmp/test_output",
+                "output_dir": str(tmp_path),
             }
         )
     types = [message["type"] for message in _drain(worker.result_queue)]

@@ -432,8 +432,8 @@ same reason - default setup cannot load a pack.
   `<workflow id>-<step name>.<index>` base rather than prefixing it, so
   two steps in one subfolder that set the same one collide onto
   `output_file_path`'s `-2` counter.
-  Every `workflows/templates/**` file with two or more saving steps
-  marks each one `final`/`intermediate` (`tests/test_template_subfolders.py` pins the rule;
+  Every `workflows/templates/**` file saves at least one step and
+  marks each saving step `final`/`intermediate`, at least one `final` (`tests/test_template_subfolders.py` pins the rule;
   `dw/workflows/` builtins stay unmarked - a role is the parent's to assign). A
   template's outputs land in `<run>/final/` and `<run>/intermediate/`, so gallery names
   read `<template>/<run id>/final/<file>` and an `output:` reference built from one

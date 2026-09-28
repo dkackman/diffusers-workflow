@@ -9,6 +9,7 @@ block, and every advance of it is a step.
 """
 
 import copy
+import tempfile
 
 import pytest
 from PIL import Image
@@ -105,7 +106,8 @@ def _events(fake, on_event=None):
             on_event(context, event)
 
     context = RunContext(on_event=sink)
-    _run(_pipeline_workflow(), context, fake=fake)
+    with tempfile.TemporaryDirectory() as output_dir:
+        _run(_pipeline_workflow(), context, output_dir, fake=fake)
     return collected
 
 

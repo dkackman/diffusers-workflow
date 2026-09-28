@@ -1,3 +1,4 @@
+import gc
 import pytest
 import os
 import tempfile
@@ -6,6 +7,14 @@ from PIL import Image
 
 # Suppress FutureWarnings from dependencies (e.g., timm library deprecated imports)
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    # The engine calls gc.collect() between steps; over the whole suite's heap
+    # each one costs ~0.2s, a third of the run. Freezing what earlier tests
+    # left behind keeps a collection to the objects this test creates.
+    gc.freeze()
 
 
 @pytest.fixture(autouse=True)

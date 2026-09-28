@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_pipeline_caching():
+def test_pipeline_caching(tmp_path):
     """Test that pipelines are reused from cache instead of being reloaded."""
 
     # Create a minimal workflow definition
@@ -47,7 +47,7 @@ def test_pipeline_caching():
         ],
     }
 
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
 
     # Create a pipeline cache (simulating worker's loaded_pipelines)
     pipeline_cache = {}
@@ -138,7 +138,7 @@ def test_pipeline_caching():
             logger.info("=" * 60)
 
 
-def test_pipeline_caching_different_steps():
+def test_pipeline_caching_different_steps(tmp_path):
     """Test that different steps create different cached pipelines."""
 
     workflow_def = {
@@ -163,7 +163,7 @@ def test_pipeline_caching_different_steps():
         ],
     }
 
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     pipeline_cache = {}
 
     load_call_count = 0
@@ -247,10 +247,10 @@ def _release_workflow_def():
     }
 
 
-def test_release_pipeline_evicts_after_step():
+def test_release_pipeline_evicts_after_step(tmp_path):
     """A step with release_pipeline drops its pipeline from the cache; others stay."""
 
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     pipeline_cache = {}
 
     def mock_pipeline_load(self, shared_components):
@@ -275,7 +275,7 @@ def test_release_pipeline_evicts_after_step():
     assert empty_cache.call_count == len(_release_workflow_def()["steps"]) + 1
 
 
-def test_release_pipeline_happens_before_the_result_is_written():
+def test_release_pipeline_happens_before_the_result_is_written(tmp_path):
     """A released pipeline is gone by the time the step writes its files.
 
     The write does not touch the pipeline - the result is already in host
@@ -283,7 +283,7 @@ def test_release_pipeline_happens_before_the_result_is_written():
     release that waits for the write holds ~10 GB of weights on the device
     for minutes after the last thing that needed them.
     """
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     pipeline_cache = {}
     cached_at_save = {}
 
@@ -337,11 +337,11 @@ def _release_models_workflow_def(release):
 
 
 @pytest.mark.parametrize("release,expect_cached", [(True, False), (False, True)])
-def test_release_models_evicts_task_models_after_step(release, expect_cached):
+def test_release_models_evicts_task_models_after_step(release, expect_cached, tmp_path):
     """release_models drops cached task models; without it they stay for the run."""
 
     workflow = Workflow(
-        _release_models_workflow_def(release), "/tmp/test_output", "test.json"
+        _release_models_workflow_def(release), str(tmp_path), "test.json"
     )
 
     def mock_pipeline_load(self, shared_components):
@@ -362,10 +362,10 @@ def test_release_models_evicts_task_models_after_step(release, expect_cached):
         clear_model_cache()
 
 
-def test_cache_hit_republishes_shared_components():
+def test_cache_hit_republishes_shared_components(tmp_path):
     """A warm sharing step must refill the fresh shared_components dict, or a
     later reusing step that missed the cache finds nothing."""
-    workflow = Workflow({"id": "share", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "share", "steps": []}, str(tmp_path), "t.json")
 
     sharing_def = {
         "name": "loader",
@@ -387,7 +387,7 @@ def test_cache_hit_republishes_shared_components():
     assert shared["transformer"] is cached.pipeline.transformer
 
 
-def test_redefined_step_evicts_prior_pipeline_before_loading():
+def test_redefined_step_evicts_prior_pipeline_before_loading(tmp_path):
     """The swap must never hold the old and new model stacks at once."""
     from dw.workflow import pipeline_cache_key
 
@@ -407,7 +407,7 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
     workflow._prior_step_keys = {"gen": old_key}
 
     seen_at_load = {}
@@ -449,7 +449,7 @@ def _load_with(workflow, step, cache, key):
     return seen_at_load["still_cached"]
 
 
-def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
+def test_a_pipeline_another_running_step_currently_maps_to_is_not_released(tmp_path):
     """#150 carries step->key across jobs. Two steps that resolved to the
     same pipeline last time, and a rerun that changes only the first: the
     old model is still the second step's cache hit THIS run - its current
@@ -463,7 +463,7 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
     changed_step = _model_step("gen", "new-model")
     cache = {shared_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
     workflow._prior_step_keys = {"gen": shared_key, "gen_again": shared_key}
     # gen_again still loads shared-model this run: its current key is the
     # one gen is about to leave behind
@@ -478,7 +478,7 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
     )
 
 
-def test_a_prior_key_no_running_step_currently_maps_to_is_released():
+def test_a_prior_key_no_running_step_currently_maps_to_is_released(tmp_path):
     """_prior_step_keys is merged across every job the worker has ever run
     and never pruned (Worker._record_step_keys), so it can carry a step
     name from an earlier, unrelated workflow that happened to resolve to
@@ -491,7 +491,7 @@ def test_a_prior_key_no_running_step_currently_maps_to_is_released():
     changed_step = _model_step("gen", "new-model")
     cache = {shared_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
     # stale_step mapped to shared_key in some earlier, different workflow's
     # run - it is not a step of the workflow this run executes
     workflow._prior_step_keys = {"gen": shared_key, "stale_step": shared_key}
@@ -505,7 +505,7 @@ def test_a_prior_key_no_running_step_currently_maps_to_is_released():
     )
 
 
-def test_a_prior_key_every_sharing_step_moved_off_is_released():
+def test_a_prior_key_every_sharing_step_moved_off_is_released(tmp_path):
     """Two steps (or a for_each group) reading one model variable, and a
     rerun that changes it: every step's PRIOR key is the old key and every
     step's current key is the new one. Judged on prior keys, the first
@@ -520,7 +520,7 @@ def test_a_prior_key_every_sharing_step_moved_off_is_released():
     new_key = pipeline_cache_key(changed_step["pipeline"])
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
     workflow._prior_step_keys = {"gen": old_key, "gen_again": old_key}
     workflow._running_pipeline_keys = {"gen": new_key, "gen_again": new_key}
 
@@ -529,7 +529,7 @@ def test_a_prior_key_every_sharing_step_moved_off_is_released():
     )
 
 
-def test_run_records_the_current_key_of_every_pipeline_step():
+def test_run_records_the_current_key_of_every_pipeline_step(tmp_path):
     """The wiring under the guard: Workflow.run records, from the realized
     steps it hands to create_step_action, the key each pipeline step loads
     under this run. create_step_action records the key it hashed per step
@@ -549,7 +549,7 @@ def test_run_records_the_current_key_of_every_pipeline_step():
             },
         ],
     }
-    workflow = Workflow(definition, "/tmp/test_output", "t.json")
+    workflow = Workflow(definition, str(tmp_path), "t.json")
     hashed_by_create_step_action = {}
     original = Workflow.create_step_action
 
@@ -579,7 +579,7 @@ def test_run_records_the_current_key_of_every_pipeline_step():
     )
 
 
-def test_pipeline_released_is_reported_on_the_event_stream():
+def test_pipeline_released_is_reported_on_the_event_stream(tmp_path):
     """The release is announced, and before the step's files are written.
 
     A consumer cannot time the release by polling memory: it happens inside
@@ -590,7 +590,7 @@ def test_pipeline_released_is_reported_on_the_event_stream():
     from dw.events import RunContext
 
     events = []
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
 
     def mock_pipeline_load(self, shared_components):
         self.pipeline = MagicMock()
@@ -620,7 +620,7 @@ def test_pipeline_released_is_reported_on_the_event_stream():
     )
 
 
-def test_superseded_release_is_reported_on_the_event_stream():
+def test_superseded_release_is_reported_on_the_event_stream(tmp_path):
     """A release the caller never asked for still reaches the event stream.
 
     Without it a reload on top of a resident model looks exactly like a cold
@@ -645,7 +645,7 @@ def test_superseded_release_is_reported_on_the_event_stream():
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
     workflow._prior_step_keys = {"gen": old_key}
 
     events = []
@@ -663,7 +663,7 @@ def test_superseded_release_is_reported_on_the_event_stream():
     assert released[0]["reason"] == "superseded"
 
 
-def test_release_pipeline_returns_host_caches_before_announcing_it():
+def test_release_pipeline_returns_host_caches_before_announcing_it(tmp_path):
     """The release hands pinned/arena host memory back then, not at job end.
 
     `pipeline_released` dropped the device memory but left ~10 GB of pinned
@@ -676,7 +676,7 @@ def test_release_pipeline_returns_host_caches_before_announcing_it():
 
     events = []
     pipeline_cache = {}
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     at_release = []
 
     def fake_release():
@@ -709,11 +709,9 @@ def test_release_pipeline_returns_host_caches_before_announcing_it():
     assert workflow._pipeline_keys_by_step["keep"] in pipeline_cache
 
 
-def test_release_models_returns_host_caches():
+def test_release_models_returns_host_caches(tmp_path):
     """release_models is the task-model sibling of release_pipeline (#368)."""
-    workflow = Workflow(
-        _release_models_workflow_def(True), "/tmp/test_output", "test.json"
-    )
+    workflow = Workflow(_release_models_workflow_def(True), str(tmp_path), "test.json")
     calls = []
 
     def mock_pipeline_load(self, shared_components):
@@ -737,7 +735,7 @@ def test_release_models_returns_host_caches():
     assert calls == [False], "emptied once, after the task models were dropped"
 
 
-def test_superseded_release_returns_host_caches():
+def test_superseded_release_returns_host_caches(tmp_path):
     """A redefined step's old pipeline hands its host memory back before the
     new one loads, not once the job ends (#368)."""
     from dw.workflow import pipeline_cache_key
@@ -757,7 +755,7 @@ def test_superseded_release_returns_host_caches():
     }
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
     workflow._prior_step_keys = {"gen": old_key}
     order = []
 
@@ -775,11 +773,11 @@ def test_superseded_release_returns_host_caches():
     assert order == [("release", False), "load"]
 
 
-def test_release_host_caches_runs_for_real_on_the_release_path():
+def test_release_host_caches_runs_for_real_on_the_release_path(tmp_path):
     """The unmocked call is harmless where there is no CUDA or glibc."""
     from dw.host_memory import release_host_caches
 
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
 
     def mock_pipeline_load(self, shared_components):
         self.pipeline = MagicMock()

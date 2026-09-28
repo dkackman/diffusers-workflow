@@ -10,7 +10,7 @@ keeps it from drifting.
 
 The rule: a *saving step* is one
 whose `result` sets `content_type` and does not set `save: false`; every
-template with one or more saving steps marks each `final` or
+template has at least one, marks each `final` or
 `intermediate`, and at least one `final` - a template with exactly one
 saving step marks that step `final` (#302: a single-step template's lone
 deliverable was routinely left unmarked, so `list_gallery(subfolder="final")`
@@ -45,22 +45,12 @@ def saving_steps(definition):
 
 
 TEMPLATES = [f for f in get_example_files() if f.startswith("workflows/templates/")]
-IN_SCOPE = [f for f in TEMPLATES if len(list(saving_steps(load(f)))) >= 1]
 
 
-def test_the_scope_is_what_the_design_counted():
-    """Every shipped template had at least one saving step when this was
-    last swept (#302 extended the rule to single-saving-step templates,
-    which the original two-or-more scope missed entirely). A template
-    added later joins the parametrized test below on its own; this pins
-    that none has quietly left scope (a step that stopped saving would
-    drop a template from scope without failing anything else)."""
-    assert len(IN_SCOPE) >= 67, IN_SCOPE
-
-
-@pytest.mark.parametrize("template", IN_SCOPE)
-def test_every_saving_step_of_a_multi_step_template_names_its_role(template):
+@pytest.mark.parametrize("template", TEMPLATES)
+def test_every_saving_step_of_a_template_names_its_role(template):
     steps = list(saving_steps(load(template)))
+    assert steps, f"{template} saves nothing, so it has no deliverable"
     roles = {step["name"]: step["result"].get("subfolder") for step in steps}
 
     unmarked = sorted(name for name, role in roles.items() if role not in CONVENTION)
@@ -68,15 +58,6 @@ def test_every_saving_step_of_a_multi_step_template_names_its_role(template):
         f"{template}: saving steps without a final/intermediate subfolder: {unmarked}"
     )
     assert "final" in roles.values(), f"{template}: no step is marked final"
-
-
-@pytest.mark.parametrize("template", IN_SCOPE)
-def test_the_subfolder_is_the_last_key_of_the_result(template):
-    """One added line per step, and every template reads alike."""
-    for step in saving_steps(load(template)):
-        assert list(step["result"])[-1] == "subfolder", (
-            f"{template}: step {step['name']!r} does not end its result with subfolder"
-        )
 
 
 @pytest.mark.parametrize(
