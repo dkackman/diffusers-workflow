@@ -567,6 +567,23 @@ def record_run_versions(identity_dir, exclude=None):
     return versions
 
 
+# Where open_run's locks live: never inside the output tree, so claiming a
+# run leaves nothing behind for a sweep to trip over once every run under an
+# identity is gone - see open_run. Keyed on the identity directory's real
+# path rather than nested under it, one file per identity, in a directory
+# any run of any workflow shares
+_RUN_LOCK_DIR_NAME = "dw-run-locks"
+
+
+def _run_lock_path(identity_dir):
+    """Where the lock for one workflow identity's runs lives, outside the
+    output tree entirely - see open_run for why."""
+    lock_dir = os.path.join(tempfile.gettempdir(), _RUN_LOCK_DIR_NAME)
+    os.makedirs(lock_dir, exist_ok=True)
+    digest = hashlib.sha256(os.path.realpath(identity_dir).encode()).hexdigest()
+    return os.path.join(lock_dir, f"{digest}.lock")
+
+
 def open_run(output_dir, file_spec, workflow_id, run_id):
     """Claim this execution's directory and its ordinal together.
 
@@ -579,11 +596,20 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     held across both operations is what makes 'the run has a directory and
     a number' atomic rather than two hopeful reads.
 
-    The lock lives beside the runs it guards, not inside any of them -
-    `<identity>/.run.lock` - so it survives whichever run directory ends up
-    winning the name. `_run_ids` (and everything built on it) already
-    requires a name to match RUN_ID_PATTERN, so a lock file never reads as
-    a run.
+    The lock lives outside the output tree - under the system temp
+    directory, keyed on the identity directory's real path - rather than
+    beside the runs it guards. A lock file living in `<identity>/` would be
+    a permanent, non-run file there, and the sweep that removes an identity
+    directory once every run under it is gone (`_prune_empty_run_directory`
+    / `delete_output` in dw/server/app.py) walks upward with a plain
+    `os.rmdir`, which only succeeds on a directory holding nothing at all.
+    A run opening therefore leaves *nothing* in the identity directory but
+    the run directory itself.
+
+    The identity directory is created inside the lock, immediately before
+    the run directory is claimed - not once up front - so a sweep that
+    removes it between two opens cannot leave a later opener trying to
+    claim a run directory under a path that no longer exists.
 
     The directory is claimed with an exclusive `os.mkdir` before the
     version is computed, and its own name is then excluded from the
@@ -592,13 +618,20 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     manifest is written before the lock is released, so the claim and the
     number are both visible to the very next opener.
 
+    A disk error while any of this is happening (the identity directory or
+    the run directory cannot be created) is raised rather than swallowed:
+    unlike the manifest writes elsewhere in this module, which are best
+    effort because the run's files already exist without them, a run that
+    cannot claim its directory has nowhere to write its outputs at all, so
+    there is nothing to be best-effort about.
+
     Returns:
         (run_dir, version)
     """
     identity = workflow_identity(file_spec, workflow_id)
     identity_dir = os.path.join(output_dir, identity)
-    os.makedirs(identity_dir, exist_ok=True)
-    with FileLock(os.path.join(identity_dir, ".run.lock")):
+    with FileLock(_run_lock_path(identity_dir)):
+        os.makedirs(identity_dir, exist_ok=True)
         candidate = os.path.join(identity_dir, run_id)
         counter = 1
         while True:
@@ -612,7 +645,8 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
         versions = record_run_versions(identity_dir, exclude=name)
         version = max(versions.values(), default=0) + 1
         write_manifest(
-            candidate, {"run_id": name, "version": version, "status": "running"}
+            candidate,
+            {"run_id": name, RUN_VERSION_KEY: version, "status": "running"},
         )
     return candidate, version
 

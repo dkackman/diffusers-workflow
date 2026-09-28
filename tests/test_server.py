@@ -1331,26 +1331,6 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
-def test_gallery_does_not_list_a_runs_lock_file(server, tmp_path):
-    """open_run claims a run's directory and version under a '.run.lock'
-    file beside the identity's run directories (dw/runs.py). It is a real,
-    permanent file - not a leftover to prune - so it must never surface as
-    a gallery entry the way a stray sidecar would."""
-    from PIL import Image
-
-    with server(success_script) as client:
-        outputs = tmp_path / "outputs"
-        identity = outputs / "Gyre" / "20260928-120000-aaaaaaaa"
-        identity.mkdir(parents=True)
-        Image.new("RGB", (4, 4)).save(identity / "still.png")
-        (outputs / "Gyre" / ".run.lock").write_bytes(b"")
-
-        listing = client.get("/api/gallery").json()
-        names = {f["name"] for f in listing["files"]}
-        assert names == {"Gyre/20260928-120000-aaaaaaaa/still.png"}
-        assert not any(".run.lock" in name for name in names)
-
-
 def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
     """A generated mp3 answered metadata: null and nothing else, so every
     duration and level check was ffprobe by hand. The route now says what
@@ -5562,6 +5542,39 @@ def test_deleting_the_last_output_of_a_run_sweeps_its_run_directory(server, tmp_
         # and the workflow folder above it, now that it holds no runs
         assert not (outputs / "t2i").exists()
         assert outputs.exists()
+
+
+def test_deleting_a_run_opened_through_open_run_still_sweeps_the_identity_folder(
+    server, tmp_path
+):
+    """open_run (dw/runs.py) used to leave a permanent '.run.lock' file
+    inside the identity directory, which meant the sweep above could never
+    finish: os.rmdir only succeeds on a truly empty directory, and a run
+    opened for real - not hand-built the way the test above builds one -
+    would leave that lock file behind forever. The lock now lives outside
+    the output tree entirely, so a run opened through open_run sweeps clean
+    exactly like a hand-built one."""
+    from PIL import Image
+
+    from dw.runs import open_run
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run_dir, _version = open_run(
+            str(outputs), None, "t2i", "20260913-120000-aabbccdd"
+        )
+        final = os.path.join(run_dir, "final")
+        os.makedirs(final)
+        Image.new("RGB", (2, 2)).save(os.path.join(final, "still-0.png"))
+
+        result = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-0.png"
+        ).json()
+        assert result["run_swept"] == "20260913-120000-aabbccdd"
+        assert not os.path.exists(run_dir)
+        # nothing - not even open_run's lock - is left for the identity
+        # folder above it to hold
+        assert not (outputs / "t2i").exists()
 
 
 def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):

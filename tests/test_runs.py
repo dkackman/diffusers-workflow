@@ -28,19 +28,6 @@ from dw.runs import (
 )
 
 
-def _run_dirs(directory):
-    """The run directories directly under an identity folder, sorted.
-
-    open_run claims its directory and version under a '.run.lock' file that
-    sits beside them - a real, permanent sibling, not a run - so a bare
-    `iterdir()` over an identity folder no longer names only run
-    directories. Tests that want "the run directory this workflow wrote"
-    filter on is_dir() rather than adding a lock-file exception per call
-    site.
-    """
-    return sorted(path for path in directory.iterdir() if path.is_dir())
-
-
 class TestIdentity:
     @pytest.mark.parametrize(
         "file_spec,expected",
@@ -288,7 +275,7 @@ class TestRunDirectories:
         )
         second.run({})
 
-        runs = _run_dirs(tmp_path / "Gyre")
+        runs = sorted((tmp_path / "Gyre").iterdir())
         # Even started in the same second with the same spec, which is what a
         # quick rerun is: the second run never writes into the first's
         # directory
@@ -319,7 +306,7 @@ class TestRunDirectories:
         changed["steps"][0]["pipeline"]["arguments"]["prompt"] = "different"
         Workflow(changed, str(tmp_path), "/w/workflows/Gyre.json").run({})
 
-        runs = _run_dirs(tmp_path / "Gyre")
+        runs = sorted((tmp_path / "Gyre").iterdir())
         assert len(runs) == 2
         for run in runs:
             assert any(name.suffix == ".png" for name in run.iterdir())
@@ -332,7 +319,7 @@ class TestRunDirectories:
         )
         workflow.run({"prompt": "a cat"})
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["workflow"]["identity"] == "ltx2/Gyre"
@@ -369,7 +356,7 @@ class TestRunDirectories:
         class SecondStepPipeline:
             def __call__(self, *args, **kwargs):
                 # The run directory is the only one this workflow wrote
-                run_dir = _run_dirs(tmp_path / "Gyre")[0]
+                run_dir = next((tmp_path / "Gyre").iterdir())
                 manifest = json.loads((run_dir / "manifest.json").read_text())
                 seen["status"] = manifest["status"]
                 seen["steps"] = [entry["step"] for entry in manifest["steps"]]
@@ -433,7 +420,7 @@ class TestRunDirectories:
         workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
         workflow.run({"prompt": "a cat"})
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert isinstance(manifest["seed"], int)
         # and the definition it was built from is untouched, so the next run
@@ -453,7 +440,7 @@ class TestRunDirectories:
         workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
         workflow.run({"prompt": "a cat"})
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert 0 <= manifest["seed"] < 2**53
 
@@ -469,7 +456,7 @@ class TestRunDirectories:
         workflow.validate()
         workflow.run({"seed": "1234"})  # as it arrives from the command line
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["seed"] == 1234
 
@@ -482,7 +469,7 @@ class TestRunDirectories:
         with pytest.raises(Exception):
             workflow.run({})
 
-        run_dir = _run_dirs(tmp_path / "Gyre")[0]
+        run_dir = next((tmp_path / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "failed"
         assert manifest["steps"][0]["step"] == "gen0"
@@ -520,7 +507,7 @@ class TestRunDirectories:
         assert result == []
 
         # Run directory should have been created with completed status
-        run_dir = _run_dirs(tmp_path / "empty")[0]
+        run_dir = next((tmp_path / "empty").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["workflow"]["id"] == "empty_steps_test"
@@ -537,7 +524,7 @@ class TestRealizedWorkflow:
             {"prompt": "a cat"}
         )
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         realized = json.loads((run_dir / "workflow.json").read_text())
         assert realized["variables"] == {"prompt": "a cat"}
         assert realized["seed"] == 7
@@ -553,7 +540,7 @@ class TestRealizedWorkflow:
             _workflow_definition(), str(tmp_path), "/w/workflows/ltx2/Gyre.json"
         ).run({})
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["workflow"]["realized"] == "workflow.json"
         assert manifest["workflow"]["prompts"] == []
@@ -566,7 +553,7 @@ class TestRealizedWorkflow:
         del definition["seed"]
         Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json").run({})
 
-        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
+        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
         realized = json.loads((run_dir / "workflow.json").read_text())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert isinstance(realized["seed"], int)
@@ -607,7 +594,7 @@ class TestSubfolders:
         Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         assert (run / "runs_test-gen0.0-0.0.png").is_file()
         assert not any(child.is_dir() for child in run.iterdir())
 
@@ -617,7 +604,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         assert (run / "final" / "runs_test-gen0.0-0.0.png").is_file()
         assert not (run / "runs_test-gen0.0-0.0.png").exists()
         # The manifest still sits at the root of the run
@@ -629,7 +616,7 @@ class TestSubfolders:
         Workflow(
             _foldered_definition("shots/act-1"), str(tmp_path), "/w/workflows/Gyre.json"
         ).run({})
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         assert (run / "shots" / "act-1" / "runs_test-gen0.0-0.0.png").is_file()
 
     def test_step_output_dir_is_the_run_directory_without_a_subfolder(self, tmp_path):
@@ -682,7 +669,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         manifest = json.loads((run / "manifest.json").read_text())
         (entry,) = manifest["steps"]
         assert entry["subfolder"] == "final"
@@ -696,7 +683,7 @@ class TestSubfolders:
         Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         manifest = json.loads((run / "manifest.json").read_text())
         assert manifest["steps"][0]["subfolder"] == ""
 
@@ -711,7 +698,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        first, second = _run_dirs(tmp_path / "Gyre")
+        first, second = sorted((tmp_path / "Gyre").iterdir())
         manifest = json.loads((second / "manifest.json").read_text())
         (entry,) = manifest["steps"]
         assert entry["reused"] is True
@@ -739,7 +726,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         resolved = resolve_output_reference(
             "output:Gyre/latest/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
         )
@@ -768,7 +755,7 @@ class TestSubfolders:
         ]
         step["result"]["subfolder"] = "item:dest"
         Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
-        (run,) = _run_dirs(tmp_path / "Gyre")
+        (run,) = (tmp_path / "Gyre").iterdir()
         assert (run / "shots" / "a" / "runs_test-gen0@a.0-0.0.png").is_file()
         assert (run / "out" / "runs_test-gen0@b.1-0.0.png").is_file()
         manifest = json.loads((run / "manifest.json").read_text())
@@ -821,7 +808,7 @@ class TestSubfolders:
             ],
         }
         Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
-        (run,) = _run_dirs(tmp_path / "out" / "Parent")
+        (run,) = (tmp_path / "out" / "Parent").iterdir()
         # The parent step's name leads a composed child's file names, so two
         # steps composing one workflow are told apart by the step that made
         # them rather than by a '-2' suffix (#92)
@@ -926,6 +913,20 @@ class TestRunVersions:
         # manifest-less directory must not be ranked as an older sibling
         _, version = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
         assert version == 1
+
+    def test_open_run_leaves_nothing_in_the_identity_directory_but_the_run(
+        self, tmp_path
+    ):
+        # The lock that makes the claim atomic lives outside the output
+        # tree entirely (under the system temp directory), so an identity
+        # directory holds only run directories - never a lock file or
+        # anything else - and a sweep that removes every run can remove the
+        # identity directory too, with nothing left behind to block it
+        run_dir, _version = open_run(
+            str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa"
+        )
+        identity_dir = os.path.dirname(run_dir)
+        assert os.listdir(identity_dir) == [os.path.basename(run_dir)]
 
     def test_the_first_run_of_a_workflow_is_version_one(self, tmp_path):
         assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 1
