@@ -93,3 +93,81 @@ def test_check_mode_exits_nonzero_on_a_regression(tmp_path):
     )
     assert result.returncode == 1
     assert "modules: 0 ->" in result.stdout
+
+
+def _branches(count):
+    body = "".join(f"    if x == {i}:\n        return {i}\n" for i in range(count))
+    return f"def branchy(x):\n{body}    return -1\n"
+
+
+def test_a_function_over_complexity_15_is_counted_and_one_at_15_is_not(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {"dw/a.py": _branches(15), "dw_mcp/b.py": _branches(14)},
+        )
+    )
+    # n ifs score n + 1: 16 is over the limit, 15 is not
+    assert metrics["complex_functions"] == 1
+
+
+def test_complexities_name_the_function_and_where_it_is(tmp_path):
+    found = _load().complexities(_tree(tmp_path, {"dw/a.py": _branches(3)}))
+    assert found == [(4, "dw/a.py:1", "branchy")]
+
+
+def test_community_pipelines_do_not_count_toward_complexity(tmp_path):
+    metrics = _load().measure(
+        _tree(tmp_path, {"dw/community_pipelines/p.py": _branches(20)})
+    )
+    assert metrics["complex_functions"] == 0
+
+
+def test_an_import_cycle_is_counted_with_its_modules(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/__init__.py": "",
+                "dw/a.py": "from . import b\n",
+                "dw/b.py": "def f():\n    from . import a\n",
+                "dw/c.py": "from . import a\n",
+            },
+        )
+    )
+    # a lazy import closes a cycle as surely as a top-level one; c only
+    # depends on it
+    assert metrics["import_cycles"] == 1
+    assert metrics["modules_in_import_cycles"] == 2
+
+
+def test_a_folder_without_an_init_is_still_in_the_graph(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/__init__.py": "",
+                "dw/a.py": "from .tasks import t\n",
+                "dw/tasks/t.py": "from .. import a\n",
+            },
+        )
+    )
+    assert metrics["import_cycles"] == 1
+    assert metrics["modules_in_import_cycles"] == 2
+
+
+def test_a_type_checking_import_does_not_close_a_cycle(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/__init__.py": "",
+                "dw/a.py": "from . import b\n",
+                "dw/b.py": (
+                    "from typing import TYPE_CHECKING\n"
+                    "if TYPE_CHECKING:\n    from . import a\n"
+                ),
+            },
+        )
+    )
+    assert metrics["import_cycles"] == 0

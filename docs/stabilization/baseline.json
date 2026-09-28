@@ -5,5 +5,8 @@
   "prefix_literals": 93,
   "test_dw_patch_targets": 285,
   "claude_md_lines": 964,
-  "duplicate_blocks": 21
+  "duplicate_blocks": 21,
+  "complex_functions": 21,
+  "import_cycles": 6,
+  "modules_in_import_cycles": 26
 }
