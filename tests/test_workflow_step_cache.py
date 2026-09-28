@@ -115,6 +115,8 @@ def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
             workflow.run({})
         assert call_count() == 1
         assert load.call_count == loads_first_run
+        # release_pipeline and the worker's prior-key map still address it
+        assert "generate" in workflow._pipeline_keys_by_step
     finally:
         for p in workflow._test_patcher:
             p.stop()
@@ -427,6 +429,39 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline(tmp_path):
         workflow.run({}, previous_pipelines=pipelines)
 
         assert pipelines == {}
+    finally:
+        for p in patchers:
+            p.stop()
+
+
+def test_release_pipeline_on_a_hit_that_loaded_nothing_emits_no_release(tmp_path):
+    """A hit whose pipeline was never loaded this run has nothing to release,
+    so it must not announce a pipeline_released on the event stream."""
+    step_cache.clear()
+    definition = _workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        cold_events = []
+        workflow.run({}, context=RunContext(on_event=cold_events.append))
+        warm_events = []
+        workflow.run({}, context=RunContext(on_event=warm_events.append))
+
+        def released(events):
+            return [e for e in events if e["event"] == "pipeline_released"]
+
+        assert released(cold_events)
+        assert released(warm_events) == []
     finally:
         for p in patchers:
             p.stop()

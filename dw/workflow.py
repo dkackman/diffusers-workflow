@@ -1599,10 +1599,20 @@ class Workflow:
                 # frame still holds is not freed, and it would otherwise stay
                 # resident through the next step's load, which is exactly when
                 # both models would be in memory at once
-                if step_data.get("release_pipeline", False):
+                release = step_data.get("release_pipeline", False)
+                released = (
+                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    if release
+                    else None
+                )
+                # A hit that loaded nothing holds nothing: announcing a
+                # release would report a drop that never happened. Not gated
+                # on the pop alone - a sub-workflow step has no pipeline key,
+                # and clearing step_action is what frees its child Workflow
+                if release and (released is not None or step_action is not None):
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     before = _allocated_mb()
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    released = None
                     step_action = None
                     gc.collect()
                     empty_device_cache()
@@ -1907,7 +1917,10 @@ class Workflow:
     ):
         """
         Creates the appropriate action object based on step type:
-        - Pipeline: Creates new pipeline or reuses cached one
+        - Pipeline: Creates new pipeline or reuses cached one. With
+          cache_hit (a step-cache hit no later step borrows from), a pipeline
+          that is not already resident is not loaded: its key is recorded and
+          touched, and None is returned
         - Pipeline reference: References existing pipeline
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
