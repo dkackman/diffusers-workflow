@@ -1605,14 +1605,20 @@ class Workflow:
                     )
 
                 if not reused:
-                    saved_files = (
-                        []
-                        if parent_saves_this
-                        else result.save(
+                    if parent_saves_this:
+                        # No file is written here - the parent owns that
+                        # (#92) - but this step's own declared fps and its
+                        # audio-to-frames fit must still land on the artifact
+                        # before it is handed up, or the parent (and any
+                        # previous_result: consumer) sees an unstamped one
+                        # and falls back to DEFAULT_VIDEO_FPS (#561)
+                        result.conform_artifacts()
+                        saved_files = []
+                    else:
+                        saved_files = result.save(
                             self.step_output_dir(step_data),
                             self.step_save_name(workflow_id, step.name, i),
                         )
-                    )
                     if is_cacheable:
                         step_cache.put(
                             workflow_id,

@@ -1189,17 +1189,17 @@ class Result:
             )
         return declared
 
-    def save_audio_video(self, artifact, output_path, content_type):
-        """Write a video and the audio generated with it into a single file.
+    def conform_artifact(self, artifact):
+        """Stamp this result's declared fps onto artifact and fit its audio
+        to its own frame count. Returns the resolved fps.
 
-        encode_video muxes the two into an h264/mp4 file with PyAV. When PyAV is missing,
-        the container is not mp4, or nothing told us the sample rate, the video is written
-        on its own and the audio is dropped.
-
-        Args:
-            artifact: AudioVideo holding the frames and their waveform
-            output_path: Path of the file to write
-            content_type: MIME type of the video being written
+        save_audio_video applies this right before writing. A composed
+        child's own last step never reaches that write when its parent owns
+        saving (#92, parent_saves_this in workflow.py) - so without this
+        method a child's declared fps, and its own audio-to-frames fit,
+        would never reach the artifact a later previous_result: consumer
+        (concat_videos, dissolve_videos, or the parent's own save) reads
+        (#561). Called from both places so the two cannot drift.
         """
         fps = self.video_fps(artifact)
         # A declared result.fps is the rate this video now plays at, so it is
@@ -1251,8 +1251,37 @@ class Result:
                 from .shots import measured_num_samples
 
                 measured_num_samples(artifact.shots, fitted.shape[axis])
-            audio = fitted
-            artifact.audio = audio
+            artifact.audio = fitted
+        return fps
+
+    def conform_artifacts(self):
+        """conform_artifact for every AudioVideo this result holds.
+
+        Called in place of a skipped save (parent_saves_this, workflow.py)
+        so a composed child that never writes its own file still leaves its
+        declared fps and frame-fitted audio on the artifacts it hands up.
+        """
+        for artifact in self.get_artifacts():
+            if isinstance(artifact, AudioVideo):
+                self.conform_artifact(artifact)
+
+    def save_audio_video(self, artifact, output_path, content_type):
+        """Write a video and the audio generated with it into a single file.
+
+        encode_video muxes the two into an h264/mp4 file with PyAV. When PyAV is missing,
+        the container is not mp4, or nothing told us the sample rate, the video is written
+        on its own and the audio is dropped.
+
+        Args:
+            artifact: AudioVideo holding the frames and their waveform
+            output_path: Path of the file to write
+            content_type: MIME type of the video being written
+        """
+        fps = self.conform_artifact(artifact)
+        sample_rate = self.result_definition.get(
+            "audio_sample_rate", artifact.sample_rate
+        )
+        audio = artifact.audio
 
         # Segment-backed frames (a chained step with save_segments) replay from
         # disk one segment at a time, so the final video is streamed instead of
