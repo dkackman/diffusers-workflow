@@ -129,6 +129,7 @@ dev = [
     "ruff>=0.15.0",
     "build",
     "mcp>=2.1.1",
+    "pylint>=3.3",
 ]
 
 [project.urls]
