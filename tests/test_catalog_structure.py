@@ -594,13 +594,40 @@ class TestLtxRefineClip:
         upscale = _step(definition, "upscale")["pipeline"]
         refine = _step(definition, "refine")["pipeline"]
 
-        assert upscale["arguments"]["video"] == "variable:source_video"
+        trim = _step(definition, "source_frames")["task"]
+
+        # The upsampler encodes every frame it is handed (num_frames is
+        # overwritten by len(video)), so the source is trimmed first (#549)
+        assert trim["command"] == "loop_frames"
+        assert trim["arguments"] == {
+            "video": "variable:source_video",
+            "num_frames": "variable:num_frames",
+        }
+        assert upscale["arguments"]["video"] == "previous_result:source_frames"
         assert upscale["arguments"]["output_type"] == "{latent}"
         assert refine["arguments"]["latents"] == "previous_result:upscale.frames"
         # No audio latents: the source's track is paired back instead
         assert "audio_latents" not in refine["arguments"]
         assert upscale["configuration"]["shared_components"] == ["vae"]
         assert refine["configuration"]["reused_components"] == ["vae"]
+
+    def test_the_trim_keeps_the_sources_opening_frames_in_order(self):
+        # The short arm of #549's bounce: a 130-frame source asked for 97
+        # must reach the upsampler as its first 97 frames, not all 130
+        import numpy
+
+        from dw.tasks.video_utils import loop_frames
+
+        source = numpy.arange(130, dtype=numpy.uint8)[:, None, None, None]
+        source = numpy.broadcast_to(source, (130, 4, 4, 3)).copy()
+
+        trimmed = loop_frames(source, 97)
+
+        assert trimmed.shape == (97, 4, 4, 3)
+        assert numpy.array_equal(
+            (trimmed[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
+            numpy.arange(97, dtype=numpy.uint8),
+        )
 
     def test_the_source_track_is_read_first_and_paired_at_minus_three(self):
         definition = self._definition()
