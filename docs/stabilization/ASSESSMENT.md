@@ -76,5 +76,7 @@ not more prose in agent context. Metrics ratchet against
 `docs/stabilization/baseline.json` (produced by `scripts/arch_metrics.py`):
 modules, files over 1,000 lines, functions over 150 lines, reference-prefix
 literals outside their owner, test patches of `dw.` paths, CLAUDE.md lines,
-duplicate-code blocks. A ticket is done when it works, no metric regressed,
+duplicate-code blocks, and from Phase 1 on, functions over cyclomatic
+complexity 15 and import cycles. Change coupling, package instability and
+LCOM4 are gate reports, not gates (ROADMAP.md, "Metrics"). A ticket is done when it works, no metric regressed,
 and it added no second copy of an existing rule.
