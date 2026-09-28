@@ -214,8 +214,13 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
 
     Args:
         video: The frames - a frame list, a frame array or tensor (or a
-            pipeline's batch of one of those, unwrapped), or an
-            AudioVideo whose own soundtrack is replaced by this one; the
+            pipeline's batch of one of those, unwrapped), an AudioVideo whose
+            own soundtrack is replaced by this one, or the path or URL of a
+            video file (or a {"location": ...} dict wrapping either - the
+            same idiom `get_last_frame(video=...)` and a pipeline's `image`
+            argument accept, #510) - loaded the same way `concat_videos`
+            loads one of its inputs, confined the same way `audio`'s own
+            path is (#553); the
             frames' own rate is carried through to the output, so set
             `result.fps` only to override it (a loaded file brings its rate
             along; frames that carry none are written at 8 fps)
@@ -268,6 +273,14 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
 
         audio = _Loaded(*load_audio(audio))
     waveform = getattr(audio, "audio", audio)
+
+    from .video_utils import is_video_location, load_audio_video
+
+    if is_video_location(video):
+        # A path/URL naming a video an earlier run wrote - confined the same
+        # way concat_videos loads one of its own inputs (#553)
+        video = load_audio_video(video)
+
     if waveform is None:
         raise ValueError(
             "pair_audio needs an audio track - the video it was given carries none"

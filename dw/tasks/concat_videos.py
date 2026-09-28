@@ -11,6 +11,8 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 import logging
 import os
 
+import numpy
+
 from ..events import emit_log, emit_warning
 from ..result import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
@@ -226,6 +228,18 @@ def concat_videos(
     # long shows up here as the samples it actually took (#378)
     shots = []
 
+    # Whether the joined track carries anything at all - decides whether a
+    # silent input among these gets silence of its own length or is skipped
+    # outright, matching join_into_song's rule that a shot with no track is
+    # silence for its length rather than a gap that shifts everything after
+    # it early (#513, #553)
+    has_audio = any(waveform is not None for waveform in waveforms)
+    silence_channels = (
+        next(waveform.shape[0] for waveform in waveforms if waveform is not None)
+        if has_audio
+        else None
+    )
+
     for index, (video, clip) in enumerate(zip(videos, clips)):
         head_trim = trim_frames if index > 0 else 0
         start_frame = len(frames)
@@ -236,7 +250,7 @@ def concat_videos(
             video_shots = nested_shots(
                 trimmed_shots(inner, head_trim),
                 start_frame,
-                start_sample if waveforms[index] is not None else None,
+                start_sample if has_audio else None,
                 getattr(video, "sample_rate", None),
                 sample_rate,
             )
@@ -258,13 +272,31 @@ def concat_videos(
             shot["source_index"] = index
         shots.extend(video_shots)
 
-        if waveforms[index] is None:
+        if not has_audio:
             continue
 
-        waveform = waveforms[index]
+        if waveforms[index] is None:
+            if fps is None:
+                raise ValueError(
+                    "concat_videos needs 'fps' to fill silence for a video "
+                    "with no audio track of its own"
+                )
+            waveform = numpy.zeros(
+                (silence_channels, frames_to_samples(len(clip), fps, sample_rate)),
+                dtype=numpy.float32,
+            )
+            emit_log(
+                f"concat_videos: {names[index]} carries no audio - filled with "
+                "silence",
+                command="concat_videos",
+                video=names[index],
+            )
+        else:
+            waveform = waveforms[index]
+
         if audio is None:
             audio = waveform
-            audio_native_rate = video.sample_rate
+            audio_native_rate = getattr(video, "sample_rate", None)
             continue
 
         if head_trim > 0 and fps is None:
@@ -294,7 +326,7 @@ def concat_videos(
                 crossfade_ms,
                 seam_fade_ms,
             )
-        audio_native_rate = video.sample_rate
+        audio_native_rate = getattr(video, "sample_rate", None)
 
     # The rate the caller declared, else the rate the first input carries -
     # either beats the result's 8 fps default (#84)

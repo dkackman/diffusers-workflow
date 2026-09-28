@@ -11,6 +11,7 @@ import sys
 import numpy
 import pytest
 import torch
+from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -97,6 +98,44 @@ def test_raises_when_the_named_result_carries_no_audio():
 def test_raises_when_no_sample_rate_can_be_established():
     with pytest.raises(ValueError, match="sample_rate"):
         pair_audio(["frame"], _waveform())
+
+
+def test_loads_a_string_video_path_the_same_way_concat_videos_does(tmp_path):
+    """#553: 'audio' already loaded a string path via load_audio; 'video' did
+    not, so a workflow naming its video by an asset:/output: path (resolved
+    to a plain string by the time the task runs) failed rather than loading
+    it the way concat_videos loads one of its own inputs."""
+    from diffusers.utils.export_utils import encode_video
+
+    path = tmp_path / "shot.mp4"
+    encode_video(
+        [Image.new("RGB", (16, 16)) for _ in range(4)],
+        fps=4,
+        output_path=str(path),
+    )
+
+    paired = pair_audio(str(path), _waveform(samples=40), sample_rate=24000)
+
+    assert isinstance(paired, AudioVideo)
+    assert len(paired.frames) == 4
+    assert paired.audio.shape == (2, 40)
+
+
+def test_loads_a_location_dict_video(tmp_path):
+    """The same {"location": ...} idiom concat_videos and get_last_frame accept."""
+    from diffusers.utils.export_utils import encode_video
+
+    path = tmp_path / "shot.mp4"
+    encode_video(
+        [Image.new("RGB", (16, 16)) for _ in range(4)],
+        fps=4,
+        output_path=str(path),
+    )
+
+    paired = pair_audio({"location": str(path)}, _waveform(samples=40), sample_rate=24000)
+
+    assert isinstance(paired, AudioVideo)
+    assert len(paired.frames) == 4
 
 
 def test_registered_as_a_task_command():
