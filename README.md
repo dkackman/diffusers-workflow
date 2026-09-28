@@ -176,13 +176,24 @@ pages and the HTTP API.
 
 ## The command line
 
-The engine also runs standalone, with no server involved:
+`dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
+its progress, and reports the run directory the server wrote to - start the
+server first.
 
 ```bash
+python -m dw.serve
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 python -m dw.validate workflows/models/flux-dev.json
 ```
+
+`dw.run` takes `WORKFLOW [name=value ...] [--server URL] [--workspace NAME]
+[--token TOKEN]` - `--server` defaults to `DW_MCP_URL`, else
+`http://127.0.0.1:8765`; `--token` to `DW_API_TOKEN`. Where the output lands,
+which workspace's `prompts:`/`asset:` references resolve, and the output
+layout are all `dw.serve` flags now (`--workspace`, `--output-dir`,
+`--prompt-dir`, `--asset-dir`, `--output-layout` on the server) - `dw.run`
+only says which server and which of its workspaces to run in.
 
 ## What's underneath
 

@@ -6,12 +6,20 @@ the exit codes a script checks - had no coverage at all.
 """
 
 import json
-import os
 
+import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from dw import run as run_module
 from dw import validate as validate_module
+from dw_mcp.client import DwClient
+from tests.test_server import (  # noqa: F401
+    failing_script,
+    server,
+    success_script,
+    valid_workflow,
+)
 
 
 @pytest.fixture
@@ -104,116 +112,131 @@ class TestValidateEntryPoint:
         assert "validated successfully" in capsys.readouterr().out
 
 
+def _bridge(app, calls=None):
+    """Wire a DwClient to a FastAPI app in-process, over a real httpx
+    transport that never opens a socket - the shape tests/test_server.py's
+    own `server` fixture builds, minus the process boundary. `calls`, when
+    given, collects each request's path, so a test can assert how many
+    requests dw.run actually made rather than only what the last one did."""
+    # The server's own host-check middleware only accepts a loopback name;
+    # "testserver" (TestClient's own default) isn't one, so this inner
+    # client is pinned to "localhost" the way tests/test_server.py's own
+    # `server` fixture is.
+    local = TestClient(app, base_url="http://localhost")
+
+    def handler(request):
+        if calls is not None:
+            calls.append(request.url.path)
+        headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
+        response = local.request(
+            request.method,
+            request.url.path,
+            params=request.url.params,
+            content=request.content,
+            headers=headers,
+        )
+        return httpx.Response(
+            response.status_code, headers=response.headers, content=response.content
+        )
+
+    # TestClient's own host, so host-checking middleware sees what it expects
+    return DwClient(
+        base_url="http://testserver", transport=httpx.MockTransport(handler)
+    )
+
+
 class TestRunEntryPoint:
-    def test_name_value_arguments_reach_the_workflow(
-        self, workflow_file, tmp_path, monkeypatch
-    ):
-        seen = {}
-
-        import dw.workflow
-
-        def capture(self, arguments, *args, **kwargs):
-            seen.update(arguments)
-            return []
-
-        monkeypatch.setattr(dw.workflow.Workflow, "run", capture)
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
-
-        code = invoke(
-            run_module,
-            monkeypatch,
-            [
-                "dw-run",
-                str(workflow_file),
-                "-o",
-                str(tmp_path / "outputs"),
-                "prompt=a cat",
-                "steps=4",
-            ],
-        )
+    def test_a_catalog_name_runs_and_exits_0(self, server, capsys):
+        with server(success_script) as local:
+            client = _bridge(local.app)
+            code = run_module.main(["Basic"], client=client)
         assert code == 0
-        # every override arrives as a string; set_variables converts by the
-        # type of the declared default
-        assert seen == {"prompt": "a cat", "steps": "4"}
+        assert "run_dir" in capsys.readouterr().out
 
-    def test_an_argument_without_an_equals_sign_is_rejected(
-        self, workflow_file, monkeypatch, capsys
-    ):
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
-        code = invoke(
-            run_module, monkeypatch, ["dw-run", str(workflow_file), "just_a_name"]
+    def test_name_value_pairs_arrive_as_arguments(self, server):
+        with server(success_script) as local:
+            client = _bridge(local.app)
+            code = run_module.main(["Basic", "prompt=a cat"], client=client)
+            assert code == 0
+            manager = local.app.state.job_manager
+            executes = [
+                c for c in manager.worker_manager.commands if c["type"] == "execute"
+            ]
+        assert len(executes) == 1
+        assert executes[0]["arguments"] == {"prompt": "a cat"}
+
+    def test_a_bad_pair_is_refused_before_any_request(self, capsys):
+        calls = []
+
+        def handler(request):
+            calls.append(request.url.path)
+            pytest.fail("no request should have been made for an invalid pair")
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
         )
+
+        code = run_module.main(["Basic", "oops"], client=client)
         assert code == 1
         assert "not in name=value format" in capsys.readouterr().out
+        assert calls == []
 
-    def test_an_invalid_variable_name_is_rejected(
-        self, workflow_file, monkeypatch, capsys
+    def test_a_file_the_server_cannot_reach_is_sent_inline_with_a_notice(
+        self, server, tmp_path, capsys
     ):
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
-        code = invoke(
-            run_module, monkeypatch, ["dw-run", str(workflow_file), "9bad=value"]
-        )
-        assert code == 1
-        assert "Invalid variable input" in capsys.readouterr().out
+        # Outside the server's workflow_dir (tmp_path/"workflows"), so
+        # resolve_workflow_reference can't confine it to a source
+        external = tmp_path / "external.json"
+        external.write_text(json.dumps(valid_workflow("external")))
 
-    def test_prompt_dir_is_exported_for_the_engine(
-        self, workflow_file, tmp_path, monkeypatch
-    ):
-        import dw.workflow
+        calls = []
+        with server(success_script) as local:
+            client = _bridge(local.app, calls=calls)
+            code = run_module.main([str(external)], client=client)
 
-        library = tmp_path / "library"
-        library.mkdir()
-        monkeypatch.delenv("DW_PROMPT_DIR", raising=False)
-        monkeypatch.setattr(dw.workflow.Workflow, "run", lambda *a, **k: [])
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
-
-        code = invoke(
-            run_module,
-            monkeypatch,
-            [
-                "dw-run",
-                str(workflow_file),
-                "-o",
-                str(tmp_path / "outputs"),
-                "--prompt-dir",
-                str(library),
-            ],
-        )
         assert code == 0
-        assert os.environ["DW_PROMPT_DIR"] == str(library)
+        # Two POST /api/jobs calls - workflow_path, then the inline retry -
+        # among whatever polling the run also did meanwhile
+        assert [c for c in calls if c == "/api/jobs"] == ["/api/jobs", "/api/jobs"]
+        out = capsys.readouterr().out
+        assert f"note: the server cannot read {external}" in out
 
-    def test_the_output_directory_is_created(
-        self, workflow_file, tmp_path, monkeypatch
+    def test_a_400_for_bad_arguments_on_a_local_file_is_not_resent_inline(
+        self, server, tmp_path, capsys
     ):
-        import dw.workflow
+        # Inside the server's workflow_dir, so the path itself resolves -
+        # the 400 here is about the arguments, not about reaching the file
+        local_file = tmp_path / "workflows" / "Basic.json"
 
-        outputs = tmp_path / "fresh" / "outputs"
-        monkeypatch.setattr(dw.workflow.Workflow, "run", lambda *a, **k: [])
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
+        calls = []
+        with server(success_script) as local:
+            client = _bridge(local.app, calls=calls)
+            code = run_module.main(
+                [str(local_file), "totally_bogus_variable=1"], client=client
+            )
 
-        code = invoke(
-            run_module,
-            monkeypatch,
-            ["dw-run", str(workflow_file), "-o", str(outputs)],
-        )
-        assert code == 0
-        assert outputs.is_dir()
-
-    def test_a_failing_run_exits_nonzero(
-        self, workflow_file, tmp_path, monkeypatch, capsys
-    ):
-        import dw.workflow
-
-        def explode(*args, **kwargs):
-            raise RuntimeError("the model is on fire")
-
-        monkeypatch.setattr(dw.workflow.Workflow, "run", explode)
-        monkeypatch.setattr(run_module, "startup", lambda level: None)
-
-        code = invoke(
-            run_module,
-            monkeypatch,
-            ["dw-run", str(workflow_file), "-o", str(tmp_path / "outputs")],
-        )
         assert code == 1
-        assert "the model is on fire" in capsys.readouterr().out
+        assert calls == ["/api/jobs"]
+        assert "totally_bogus_variable" in capsys.readouterr().out
+
+    def test_a_failed_job_exits_1_with_its_error(self, server, capsys):
+        with server(failing_script) as local:
+            client = _bridge(local.app)
+            code = run_module.main(["Basic"], client=client)
+        assert code == 1
+        assert "CUDA out of memory" in capsys.readouterr().out
+
+    def test_no_server_is_one_line_and_exit_2(self, capsys):
+        def handler(request):
+            raise httpx.ConnectError("refused")
+
+        client = DwClient(
+            base_url="http://127.0.0.1:19999",
+            transport=httpx.MockTransport(handler),
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        assert code == 2
+        out = capsys.readouterr().out
+        assert out.startswith("error: no dw.serve at")
+        assert "Traceback" not in out
