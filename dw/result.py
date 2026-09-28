@@ -1255,15 +1255,34 @@ class Result:
         return fps
 
     def conform_artifacts(self):
-        """conform_artifact for every AudioVideo this result holds.
+        """conform_artifact for every AudioVideo this result holds, and
+        replace result_list with the extracted, conformed artifacts.
 
         Called in place of a skipped save (parent_saves_this, workflow.py)
         so a composed child that never writes its own file still leaves its
         declared fps and frame-fitted audio on the artifacts it hands up.
+        Workflow.run returns this Result's result_list to the parent step's
+        Step.run, which folds it into its own, separate Result via
+        add_result - a fresh _artifact_cache, keyed by id() of the raw
+        pipeline output. Stamping only the artifact get_artifacts() returns
+        (as before) leaves result_list holding the original raw output
+        (frames/audio attributes, no fps of its own); the parent's own
+        get_artifact_list() then rebuilds a brand new, unstamped AudioVideo
+        from it and falls back to DEFAULT_VIDEO_FPS (#561, the deployed
+        #561 fix that didn't hold). Replacing result_list's entries with the
+        conformed artifacts themselves means the parent receives these exact
+        instances, and get_artifact_list's AudioVideo passthrough
+        (isinstance(result, AudioVideo): return [result]) hands them back
+        unchanged instead of re-extracting.
         """
-        for artifact in self.get_artifacts():
-            if isinstance(artifact, AudioVideo):
-                self.conform_artifact(artifact)
+        conformed = []
+        for result in self.result_list:
+            artifacts = self._artifacts_for(result)
+            for artifact in artifacts:
+                if isinstance(artifact, AudioVideo):
+                    self.conform_artifact(artifact)
+            conformed.extend(artifacts)
+        self.result_list = conformed
 
     def save_audio_video(self, artifact, output_path, content_type):
         """Write a video and the audio generated with it into a single file.
