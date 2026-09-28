@@ -240,3 +240,56 @@ class TestRunEntryPoint:
         out = capsys.readouterr().out
         assert out.startswith("error: no dw.serve at")
         assert "Traceback" not in out
+
+    def test_a_job_lost_mid_poll_exits_1_with_one_error_line(self, capsys):
+        """The server answers 404 on the first event-log poll after having
+        accepted the job - the way a job pruned or otherwise forgotten
+        mid-run would look. This must not escape main() as a raw
+        DwApiError."""
+
+        def handler(request):
+            if request.method == "POST" and request.url.path == "/api/jobs":
+                return httpx.Response(201, json={"id": "job123"})
+            if request.url.path == "/api/jobs/job123/event-log":
+                return httpx.Response(404, json={"detail": "Unknown job"})
+            raise AssertionError(
+                f"unexpected request: {request.method} {request.url.path}"
+            )
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        out = capsys.readouterr().out
+        assert code == 1
+        error_lines = [line for line in out.splitlines() if line.startswith("error:")]
+        assert len(error_lines) == 1
+        assert "job123" in error_lines[0]
+        assert "Traceback" not in out
+
+    def test_the_connection_is_lost_mid_poll_exits_2(self, capsys):
+        """The server accepted the job but then vanished before the first
+        poll - a connection error partway through, not at submission."""
+
+        def handler(request):
+            if request.method == "POST" and request.url.path == "/api/jobs":
+                return httpx.Response(201, json={"id": "job123"})
+            if request.url.path == "/api/jobs/job123/event-log":
+                raise httpx.ConnectError("refused")
+            raise AssertionError(
+                f"unexpected request: {request.method} {request.url.path}"
+            )
+
+        client = DwClient(
+            base_url="http://127.0.0.1:19999",
+            transport=httpx.MockTransport(handler),
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        out = capsys.readouterr().out
+        assert code == 2
+        error_lines = [line for line in out.splitlines() if line.startswith("error:")]
+        assert len(error_lines) == 1
+        assert "job123" in error_lines[0]
+        assert "Traceback" not in out

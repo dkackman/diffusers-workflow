@@ -213,6 +213,15 @@ def main(argv=None, client=None):
                 pass
             print("cancelled")
             return 130
+        except DwApiError as e:
+            if e.status_code is None:
+                print(
+                    f"error: lost the connection to dw.serve at "
+                    f"{client.base_url} while job {job_id} was running"
+                )
+                return 2
+            print(f"error: lost job {job_id} on the server: {e}")
+            return 1
 
         return _report(detail)
     finally:
