@@ -889,11 +889,30 @@ level check alone misses three things, each found on a real episode:
 | `max_candidates` | No | How many ranked candidates to return (default `5`) |
 
 Every window on a 50 ms grid, from `min_seconds` to `max_seconds` long, is
-kept only if it is quiet, not digital silence, free of ticks and not tonal or
-speech-like (the same flatness/harmonicity test `bleed_join` uses).
-Overlapping survivors are thinned to the steadiest, rejecting one mostly
-inside a span already found tonal without re-measuring it. Each survivor is
-then looped with `loop_audio`'s own crossfade to `loop_seconds` and measured:
+judged against four rules in order and counted in `rejected` under the first
+one it fails, so `rejected` is a tally of the whole grid:
+
+- `too_loud` — a 50 ms bin above `max_bin_dbfs`, or a mean above `max_mean_dbfs`.
+- `silent` — digital silence: a mean of zero, or a median 1 ms peak of zero
+  (more than half the window is exact zeros, whatever sits in the rest).
+- `spike` — its largest 1 ms peak more than `max_spike_db` above its median
+  1 ms peak. The largest peak is also looked for in the 5 ms just outside
+  each end, unless that neighbouring bin is itself too loud, so a window
+  ending on a click is thrown out rather than putting the click's onset at
+  the loop's seam.
+- `tonal` — the flatness/harmonicity test `bleed_join` uses, taken over every
+  0.2 s block inside the window (one per 50 ms step; the whole window when
+  `min_seconds` is shorter). A window is tonal when any block in it is. Faint
+  speech comes and goes, and over a whole window the pauses dilute a
+  syllable below the threshold; in the block it sits in, it is not diluted.
+  A candidate's `flatness` and `harmonicity` are the readings of its blocks
+  closest to failing (lowest flatness, highest harmonicity).
+
+The survivors are thinned so no two overlap, steadiest source first, to a
+pool of up to 200 (`LOOPED_POOL`). The pool does not depend on
+`max_candidates`, which only cuts the final ranking, so asking for one
+candidate returns the default run's first. Each one in the pool is then
+looped with `loop_audio`'s own crossfade to `loop_seconds` and measured:
 `ripple_db` (the 5-95% spread of the looped 50 ms bins), `envelope_peak_db`/
 `envelope_peak_hz` (the strongest level wobble) and `lap_component_db` (the
 wobble at the lap rate). Candidates are ranked by looped `ripple_db`, lowest

@@ -51,13 +51,20 @@ PEAKS_PER_BIN = 50
 # (relative to the envelope's mean) carries `lap_modulation`. The two field
 # winners read -21 and -19 dB
 LAP_MODULATION_WARN_DB = -15.0
-# How many survivors, per candidate asked for, are looped and measured
-LOOPED_PER_CANDIDATE = 4
+# How many non-overlapping survivors are looped and measured. Fixed rather
+# than scaled by max_candidates, so asking for fewer candidates returns the
+# head of the same ranking rather than a ranking of a smaller pool (#544)
+LOOPED_POOL = 200
 # The ripple spread, as percentiles of the 50 ms bins
 RIPPLE_PERCENTILES = (5.0, 95.0)
-# Tonality is only measured for windows reaching it in pre-rank order, and
-# this bounds how many are measured however much of the range is tonal
-MAX_TONAL_CHECKS = 400
+# Tonality is judged per block of this length, sliding on the 50 ms grid, and
+# a window is tonal when any block inside it is: faint speech comes and goes,
+# and a whole-window measurement averages a syllable into the pauses around
+# it (#544). Steady material reads the same either way
+TONAL_BLOCK_SECONDS = 0.2
+# A tick this close outside a window still counts against it: a window
+# ending on a click would put the click's edge at the loop's seam
+TICK_GUARD_PEAKS = 5
 
 REJECTION_RULES = ("too_loud", "silent", "spike", "tonal")
 
@@ -118,6 +125,27 @@ def _envelope(mono, sample_rate):
 
 def _bin_db(power):
     return 10.0 * numpy.log10(numpy.maximum(power, 1e-20))
+
+
+def _tonal_blocks(searched, bin_length, sample_rate, block_bins, needed):
+    """bleed_join's flatness/harmonicity test over every block of
+    `block_bins` bins, one per starting bin: (flatness, harmonicity, tonal)
+    arrays. Only blocks marked `needed` are measured - a block holding a loud
+    or silent bin lies only inside windows already thrown out - and the rest
+    read as noise (flatness 1, harmonicity 0), never as tonal."""
+    count = needed.shape[0]
+    flatness = numpy.ones(count)
+    harmonicity = numpy.zeros(count)
+    for block in numpy.flatnonzero(needed):
+        segment = searched[block * bin_length : (block + block_bins) * bin_length][
+            numpy.newaxis, :
+        ]
+        flatness[block] = _spectral_flatness(segment)
+        harmonicity[block] = _harmonicity(segment, sample_rate)
+    tonal = (flatness < TONAL_FLATNESS_THRESHOLD) | (
+        harmonicity >= HARMONICITY_THRESHOLD
+    )
+    return flatness, harmonicity, tonal
 
 
 def _looped(segment, sample_rate, crossfade_ms, loop_seconds):
@@ -222,9 +250,11 @@ def find_loop_bed(
     kept only if it is quiet (every 50 ms bin at or below max_bin_dbfs, its
     mean at or below max_mean_dbfs), not digital silence, free of ticks (its
     largest 1 ms peak at most max_spike_db over its median 1 ms peak) and not
-    tonal or speech-like (bleed_join's flatness and harmonicity test).
-    Overlapping survivors are thinned to the steadiest, and each remaining
-    one is looped with loop_audio's own crossfade to loop_seconds and
+    tonal or speech-like (bleed_join's flatness and harmonicity test, over
+    every 0.2 s block inside it); `rejected` counts each window under the
+    first of those it fails. Overlapping survivors are thinned to the
+    steadiest, up to a pool that max_candidates does not shrink, and each
+    remaining one is looped with loop_audio's own crossfade to loop_seconds and
     measured: `ripple_db` (the 5-95 % spread of the looped 50 ms bins),
     `envelope_peak_db`/`envelope_peak_hz` (the strongest level wobble) and
     `lap_component_db` (the wobble at the lap rate). Candidates are ranked by
@@ -338,35 +368,63 @@ def find_loop_bed(
     mean_threshold = 10.0 ** (max_mean_dbfs / 10.0)
     spike_ratio = 10.0 ** (max_spike_db / 20.0)
 
-    # Step 2 and 3, vectorised per window length: every (start, length) pair
-    # is judged at once for loudness, silence and ticks, and each survivor
-    # carries its source ripple for the pre-rank
+    # The tonal test's blocks, measured once over the range: a block is only
+    # worth measuring when every bin in it is quiet and not silent, since any
+    # window holding one of the others is thrown out before tonality
+    block_bins = max(1, min(shortest, int(round(TONAL_BLOCK_SECONDS / bin_seconds))))
+    usable = (power <= bin_threshold) & (power > 0.0)
+    needed = numpy.zeros(count, dtype=bool)
+    if count >= block_bins:
+        needed[: count - block_bins + 1] = _sliding(usable, block_bins).all(axis=1)
+    block_flatness, block_harmonicity, block_tonal = _tonal_blocks(
+        searched, bin_length, sample_rate, block_bins, needed
+    )
+
+    # A tick just outside a window: the loudest few 1 ms peaks at the tail of
+    # the bin before each start and the head of the bin after each end. A
+    # neighbour loud enough to be thrown out on its own is louder material,
+    # not a tick, and the window stops short of it
+    edge_quiet = power <= bin_threshold
+    tails = numpy.where(edge_quiet, peaks[:, -TICK_GUARD_PEAKS:].max(axis=1), 0.0)
+    heads = numpy.where(edge_quiet, peaks[:, :TICK_GUARD_PEAKS].max(axis=1), 0.0)
+    before = numpy.concatenate(([0.0], tails[:-1]))
+    after = numpy.concatenate((heads[1:], [0.0]))
+
+    # Steps 2 to 4, vectorised per window length: every (start, length) pair
+    # is judged at once and counted under the first rule it fails - loudness,
+    # silence, ticks, tonality - so `rejected` is a tally of every window on
+    # the grid, and each survivor carries its source ripple for the pre-rank
     survivors = []  # (source ripple, start bin, length in bins, readings)
     for length in range(shortest, longest + 1):
         windows = _sliding(power, length)  # (starts, length)
         loudest = windows.max(axis=1)
         mean = windows.mean(axis=1)
         loud = (loudest > bin_threshold) | (mean > mean_threshold)
-        silent = ~loud & (mean <= 0.0)
+        peak_windows = _sliding(peaks, length).reshape(windows.shape[0], -1)
+        median = numpy.median(peak_windows, axis=1)
+        # More than half the window's 1 ms peaks at zero is digital silence
+        # with something in it, not room tone - and would read every
+        # sample of that something as a tick
+        silent = ~loud & ((mean <= 0.0) | (median <= 0.0))
+        largest = numpy.maximum(
+            peak_windows.max(axis=1),
+            numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
+        )
+        ticked = ~loud & ~silent & (largest > spike_ratio * median)
+        blocks = _sliding(block_tonal, length - block_bins + 1)[: windows.shape[0]]
+        tonal = ~loud & ~silent & ~ticked & blocks.any(axis=1)
         rejected["too_loud"] += int(loud.sum())
         rejected["silent"] += int(silent.sum())
-        quiet = numpy.flatnonzero(~loud & ~silent)
-        if quiet.size == 0:
-            continue
-
-        peak_windows = _sliding(peaks, length)[quiet].reshape(quiet.size, -1)
-        largest = peak_windows.max(axis=1)
-        median = numpy.median(peak_windows, axis=1)
-        ticked = largest > spike_ratio * median
         rejected["spike"] += int(ticked.sum())
-        kept = quiet[~ticked]
+        rejected["tonal"] += int(tonal.sum())
+        kept = numpy.flatnonzero(~loud & ~silent & ~ticked & ~tonal)
         if kept.size == 0:
             continue
 
-        spikes = 20.0 * numpy.log10(largest[~ticked] / median[~ticked])
         in_db = _bin_db(windows[kept])
         low, high = numpy.percentile(in_db, RIPPLE_PERCENTILES, axis=1)
         for position, start in enumerate(kept):
+            inside = slice(start, start + length - block_bins + 1)
             survivors.append(
                 (
                     float(high[position] - low[position]),
@@ -375,43 +433,27 @@ def find_loop_bed(
                     {
                         "mean_dbfs": 10.0 * math.log10(float(mean[start])),
                         "max_bin_dbfs": 10.0 * math.log10(float(loudest[start])),
-                        "spike_db": float(spikes[position]),
+                        "spike_db": 20.0
+                        * math.log10(float(largest[start] / median[start])),
+                        # The block nearest to failing, which is what the
+                        # test judged
+                        "flatness": float(block_flatness[inside].min()),
+                        "harmonicity": float(block_harmonicity[inside].max()),
                     },
                 )
             )
 
-    # Steps 4 and 5: steadiest first, thinned so no two overlap. Tonality is
-    # measured only as a window is reached, and a window mostly inside one
-    # already found tonal inherits the verdict rather than being measured
-    # again - otherwise one tonal stretch costs a measurement per 50 ms shift
+    # Step 5: steadiest first, thinned so no two overlap, up to a pool that
+    # does not depend on how many candidates were asked for
     survivors.sort(key=lambda entry: (entry[0], -entry[2], entry[1]))
     kept = []
-    tonal_spans = []
-    checks = 0
-    wanted = LOOPED_PER_CANDIDATE * max_candidates
+    pool = max(LOOPED_POOL, max_candidates)
     for ripple, start, length, readings in survivors:
-        if len(kept) >= wanted:
+        if len(kept) >= pool:
             break
         end = start + length
         if any(start < k_end and k_start < end for k_start, k_end, _ in kept):
             continue
-        if any(
-            min(end, t_end) - max(start, t_start) > length / 2
-            for t_start, t_end in tonal_spans
-        ):
-            rejected["tonal"] += 1
-            continue
-        if checks >= MAX_TONAL_CHECKS:
-            break
-        checks += 1
-        segment = searched[start * bin_length : end * bin_length][numpy.newaxis, :]
-        flatness = _spectral_flatness(segment)
-        harmonicity = _harmonicity(segment, sample_rate)
-        if flatness < TONAL_FLATNESS_THRESHOLD or harmonicity >= HARMONICITY_THRESHOLD:
-            rejected["tonal"] += 1
-            tonal_spans.append((start, end))
-            continue
-        readings = {**readings, "flatness": flatness, "harmonicity": harmonicity}
         kept.append((start, end, readings))
 
     # Steps 6 and 7: loop each, measure the bed, rank by its ripple

@@ -201,6 +201,127 @@ class TestTonal:
         assert result["rejected"]["tonal"] >= 1
 
 
+class TestIntermittentVoice:
+    """Speech under a bed comes and goes: 250 ms harmonic syllables every
+    400 ms, at the bed's own level. Measured over a whole 0.5-2 s window the
+    pauses dilute the voice below the harmonicity threshold (about 0.37-0.40
+    here, against 0.45); each syllable is tonal in the block it sits in, so
+    the voiced stretch yields no candidate and the tonal tally rises against
+    the same bed without it (#544)."""
+
+    VOICED = (5.0, 9.65)  # first onset, last syllable's end
+
+    @staticmethod
+    def _bed(voiced):
+        rng = numpy.random.default_rng(11)
+        waveform = noise(rng, 15 * SR, -78.0)
+        if voiced:
+            t = numpy.arange(int(0.25 * SR)) / SR
+            syllable = sum(
+                numpy.sin(2 * math.pi * 150.0 * harmonic * t) / harmonic
+                for harmonic in range(1, 6)
+            )
+            syllable *= rms_amplitude(-78.0) / numpy.sqrt(numpy.mean(syllable**2))
+            for onset in numpy.arange(5.0, 9.5, 0.4):
+                at = int(round(onset * SR))
+                waveform[at : at + syllable.size] += syllable
+        return waveform
+
+    def test_no_candidate_covers_the_voice(self):
+        result = find_loop_bed(track(self._bed(voiced=True)), max_candidates=10)
+
+        first, last = self.VOICED
+        assert result["candidates"]
+        for candidate in result["candidates"]:
+            assert (
+                candidate["end_seconds"] <= first + 1e-6
+                or candidate["start_seconds"] >= last - 1e-6
+            )
+
+    def test_the_voice_raises_the_tonal_tally(self):
+        voiced = find_loop_bed(track(self._bed(voiced=True)))["rejected"]
+        control = find_loop_bed(track(self._bed(voiced=False)))["rejected"]
+
+        assert voiced["tonal"] > control["tonal"]
+
+
+class TestRejectedIsATallyOfEveryWindow:
+    """Every window on the grid is counted once, under the first rule it
+    fails, so the tally and the survivors together cover the grid."""
+
+    def test_the_counts_cover_the_grid(self):
+        rng = numpy.random.default_rng(12)
+        waveform = noise(rng, 4 * SR, -78.0)
+        waveform[: 2 * SR] = noise(rng, 2 * SR, -40.0)
+
+        result = find_loop_bed(track(waveform), min_seconds=0.5, max_seconds=1.0)
+
+        bins = 4 * SR // BIN_LENGTH
+        windows = sum(bins - length + 1 for length in range(10, 21))
+        rejected = sum(result["rejected"].values())
+        assert 0 < rejected < windows
+        assert result["rejected"]["too_loud"] > 0
+
+
+class TestDigitalSilenceIsSilent:
+    """A window that is mostly exact zeros is silence with something in it,
+    not a tick in room tone."""
+
+    def test_a_mostly_zero_window_counts_as_silent(self):
+        waveform = numpy.zeros(4 * SR)
+        rng = numpy.random.default_rng(13)
+        # a little noise in the first 10 ms of every bin, zeros after it
+        for start in range(0, waveform.size, BIN_LENGTH):
+            waveform[start : start + 480] = noise(rng, 480, -78.0)
+
+        result = find_loop_bed(track(waveform))
+
+        assert result["rejected"]["silent"] > 0
+        assert result["rejected"]["spike"] == 0
+        assert result["candidates"] == []
+
+
+class TestATickAtTheEdge:
+    """A window ending exactly where a click starts would put the click's
+    onset at the loop's seam, so the click counts against it."""
+
+    def test_no_candidate_ends_on_the_click(self):
+        rng = numpy.random.default_rng(14)
+        waveform = noise(rng, 10 * SR, -78.0)
+        click = 5 * SR  # the first sample of a bin
+        waveform[click : click + 24] = 30.0 * rms_amplitude(-78.0)
+
+        result = find_loop_bed(track(waveform), max_candidates=50)
+
+        assert result["candidates"]
+        for candidate in result["candidates"]:
+            assert not (candidate["start_seconds"] <= 5.0 <= candidate["end_seconds"])
+
+
+class TestMaxCandidatesOnlyTruncates:
+    """Asking for fewer candidates returns the head of the same ranking,
+    not the ranking of a smaller pool (#544)."""
+
+    @staticmethod
+    def _unranked(candidate):
+        return {key: value for key, value in candidate.items() if key != "rank"}
+
+    def test_fewer_candidates_are_the_head_of_the_default_run(self):
+        rng = numpy.random.default_rng(15)
+        waveform = noise(rng, 30 * SR, -78.0)
+        # uneven level second to second, so the pre-rank and the looped
+        # ranking disagree
+        for second in range(30):
+            waveform[second * SR : (second + 1) * SR] *= 1.0 + 0.4 * rng.random()
+
+        full = find_loop_bed(track(waveform), max_candidates=10)["candidates"]
+        for count in (1, 3):
+            head = find_loop_bed(track(waveform), max_candidates=count)["candidates"]
+            assert [self._unranked(c) for c in head] == [
+                self._unranked(c) for c in full[:count]
+            ]
+
+
 class TestLapModulation:
     """A candidate whose level ramps across the window becomes a sawtooth
     once looped, and that sawtooth should be visible in the measurement."""
