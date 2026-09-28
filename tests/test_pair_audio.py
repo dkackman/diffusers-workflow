@@ -23,6 +23,25 @@ def _waveform(samples=100, channels=2):
     return numpy.zeros((channels, samples), dtype=numpy.float32)
 
 
+@pytest.fixture
+def warnings_emitted():
+    """The messages of the warning events a call emits - what a consumer over
+    the API or MCP actually reads, rather than the server's log (#82)."""
+    from dw.events import RunContext, activate_context, deactivate_context
+
+    messages = []
+
+    def record(event):
+        if event["event"] == "warning":
+            messages.append(event["message"])
+
+    token = activate_context(RunContext(on_event=record))
+    try:
+        yield messages
+    finally:
+        deactivate_context(token)
+
+
 def test_pairs_frames_with_a_soundtrack_read_from_a_file(tmp_path):
     import soundfile
 
@@ -182,6 +201,91 @@ def test_registered_as_a_task_command():
     from dw.tasks.task import _COMMAND_REGISTRY
 
     assert "pair_audio" in _COMMAND_REGISTRY
+
+
+def test_warns_when_a_real_measured_shot_position_is_regridded(warnings_emitted):
+    """#563: assemble-and-score's 'film' step pairs the picture from
+    concat_videos (real measured shots.start_sample) with an audio track that
+    is a pointwise transform of that same audio (resample/fade/mix/normalize)
+    rather than a track built shot by shot. remeasured_shots regrids every
+    interior shot onto the frame grid regardless, silently discarding a real
+    drift a join measured - shot 'b' here sits 31.67 ms off the grid, the
+    kind of number an inner concat_videos seam actually reported."""
+    fps = 24
+    native_rate = 48000
+    shots = [
+        {"name": "a", "start_frame": 0, "num_frames": 40, "start_sample": 0},
+        {
+            "name": "b",
+            "start_frame": 40,
+            "num_frames": 40,
+            # On-grid would be round(40 / 24 * 48000) == 80000; this is a
+            # real measured position 1520 samples (31.67 ms) off it
+            "start_sample": 78480,
+        },
+        {"name": "c", "start_frame": 80, "num_frames": 40, "start_sample": 160000},
+    ]
+    video = AudioVideo(
+        [f"frame{i}" for i in range(120)],
+        _waveform(samples=5 * native_rate),
+        native_rate,
+        fps=fps,
+        shots=shots,
+    )
+    target_rate = 44100
+    track = _waveform(samples=5 * target_rate)
+
+    paired = pair_audio(video, track, sample_rate=target_rate)
+
+    assert paired.shots[1]["name"] == "b"
+    assert paired.shots[1]["start_sample"] == round(40 / fps * target_rate)
+    regridded = [w for w in warnings_emitted if "off the frame grid" in w]
+    assert len(regridded) == 1
+    assert "b (-31.67 ms)" in regridded[0]
+
+
+def test_a_shot_already_on_the_grid_is_not_warned_about(warnings_emitted):
+    """The ordinary case - a join's shots already sit where the frame grid
+    puts them - is not a false positive."""
+    fps = 24
+    rate = 44100
+    shots = [
+        {
+            "name": "a",
+            "start_frame": 0,
+            "num_frames": 40,
+            "start_sample": round(0 / fps * rate),
+        },
+        {
+            "name": "b",
+            "start_frame": 40,
+            "num_frames": 40,
+            "start_sample": round(40 / fps * rate),
+        },
+        {
+            "name": "c",
+            "start_frame": 80,
+            "num_frames": 40,
+            "start_sample": round(80 / fps * rate),
+        },
+    ]
+    video = AudioVideo(
+        [f"frame{i}" for i in range(120)],
+        _waveform(samples=5 * rate),
+        rate,
+        fps=fps,
+        shots=shots,
+    )
+
+    pair_audio(video, _waveform(samples=5 * rate), sample_rate=rate)
+
+    assert warnings_emitted == []
+
+
+def test_a_video_with_no_shots_is_not_warned_about(warnings_emitted):
+    pair_audio(["frame1", "frame2"], _waveform(), sample_rate=24000)
+
+    assert warnings_emitted == []
 
 
 def test_get_task_says_what_the_frame_rate_does():

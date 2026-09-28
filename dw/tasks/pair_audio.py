@@ -24,6 +24,40 @@ logger = logging.getLogger("dw")
 # the gap matters
 LENGTH_WARN_MS = 100.0
 
+# remeasured_shots regrids every interior shot onto the new track's frame
+# grid, discarding whatever real position a join (concat_videos,
+# dissolve_videos) had measured there. That is correct for a genuinely new
+# soundtrack, but wrong for one that is a pointwise transform of the same
+# audio the join already measured (#563: assemble-and-score's
+# resample/fade/mix/normalize chain). A regridded shot's position is
+# expected to differ from its real one by sub-sample rounding only - well
+# under a millisecond; this sits far below that and also below
+# 'sync_drift''s 40ms finding threshold (dw/assessment_rules.py), so a drift
+# this small is reported here rather than waiting on that probe to run
+REGRID_DRIFT_WARN_MS = 5.0
+
+
+def _regridded_drift(old_shots, native_rate, new_shots, rate):
+    """The interior shots whose real measured position pair_audio's regrid
+    overwrote by more than rounding noise, as (name, drift_ms) pairs.
+
+    The last shot is excluded: remeasured_shots pins it to the track's
+    actual end by design (#423), not to the frame grid, so comparing it here
+    would flag that intentional difference on every call.
+    """
+    if not old_shots or not new_shots or not native_rate or not rate:
+        return []
+    drifted = []
+    for old, new in zip(old_shots[:-1], new_shots[:-1]):
+        old_sample = old.get("start_sample")
+        new_sample = new.get("start_sample")
+        if old_sample is None or new_sample is None:
+            continue
+        drift_ms = old_sample / native_rate * 1000.0 - new_sample / rate * 1000.0
+        if abs(drift_ms) >= REGRID_DRIFT_WARN_MS:
+            drifted.append((old.get("name", "shot"), drift_ms))
+    return drifted
+
 
 def _one_video(frames):
     """The frames of one video, unwrapping a batch of one.
@@ -306,12 +340,28 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     )
     # The picture's shots survive; their samples are re-measured on the new
     # track, which was laid under whole rather than built shot by shot
+    old_shots = getattr(video, "shots", None)
+    new_shots = remeasured_shots(old_shots, frame_rate, rate, waveform.shape[1])
+    drifted = _regridded_drift(
+        old_shots, getattr(video, "sample_rate", None), new_shots, rate
+    )
+    if drifted:
+        named = ", ".join(f"{name} ({drift_ms:+.2f} ms)" for name, drift_ms in drifted)
+        emit_warning(
+            f"pair_audio: the video's own recorded shots placed {named} off "
+            f"the frame grid - a real seam position an earlier join measured. "
+            f"Regridding them onto this track discards that: the saved "
+            f"shots table will read as on-grid even though this track was "
+            f"not re-sliced at those seams. Trust the join's own shots for "
+            f"per-seam sync on this file, not this step's.",
+            kind="shot_position_regridded",
+            command="pair_audio",
+            shots=[name for name, _ in drifted],
+        )
     return AudioVideo(
         frames,
         waveform,
         rate,
         fps=getattr(video, "fps", None),
-        shots=remeasured_shots(
-            getattr(video, "shots", None), frame_rate, rate, waveform.shape[1]
-        ),
+        shots=new_shots,
     )
