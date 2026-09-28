@@ -109,7 +109,7 @@ def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
     workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
-        with patch("dw.pipeline_processors.pipeline.Pipeline.load") as load:
+        with patch.object(Pipeline, "load") as load:
             workflow.run({})
             loads_first_run = load.call_count
             workflow.run({})

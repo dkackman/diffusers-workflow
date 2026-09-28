@@ -615,13 +615,17 @@ class TestValidationSeesTheSnappedValue:
         assert expanded["variables"]["num_frames"] == 141
 
     def test_expanding_emits_no_warning_and_does_not_raise_on_a_refusal(self, tmp_path):
-        from unittest.mock import patch
+        from dw.events import RunContext, activate_context, deactivate_context
 
         workflow = workflow_from_definition(self._definition(), str(tmp_path))
-        with patch("dw.events.emit_warning") as emitted:
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
             workflow.expanded_definition({"num_frames": 130})
             workflow.expanded_definition({"num_frames": 61})
-        emitted.assert_not_called()
+        finally:
+            deactivate_context(token)
+        assert [e for e in events if e["event"] == "warning"] == []
 
     def test_a_list_entry_value_is_snapped_at_validate_time(self, tmp_path):
         definition = workflow_with_shots(
