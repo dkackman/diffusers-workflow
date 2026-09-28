@@ -1022,7 +1022,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `seam_click` | a longer `crossfade_ms` on the join | recut |
 | `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
 | `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
-| `shot_dead_air` | cut a room-tone bed from the take with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
+| `shot_dead_air` | `find_loop_bed` on the cut names a quiet stretch inside one shot and its gain; cut that bed with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
 

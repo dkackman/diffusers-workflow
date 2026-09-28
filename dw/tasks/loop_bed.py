@@ -87,26 +87,138 @@ def _round(value, places=2):
 
 
 def _read_source(audio):
-    """(waveform, rate) for the `audio` argument. A local video file is read
-    audio-only through media_audio - load_audio would decode every frame of
-    a cut to reach its soundtrack."""
+    """(waveform, rate, fps, carried shots, file path) for the `audio`
+    argument. A local video file is read audio-only through media_audio -
+    load_audio would decode every frame of a cut to reach its soundtrack -
+    and its frame rate comes off the container's headers. `fps` and the
+    carried shots are an in-memory video's own; `path` is the validated file
+    whose run manifest may record shots, None for anything in memory or
+    remote."""
+    from .video_utils import VideoFileReference
+
+    if isinstance(audio, VideoFileReference):
+        audio = audio.path
     if isinstance(audio, str) and not audio.startswith(("http://", "https://")):
         from ..locations import validate_media_path
         from ..security import ALLOWED_VIDEO_EXTENSIONS
 
+        path = validate_media_path(audio, None, "an audio argument")
         extension = os.path.splitext(audio)[1].lower()
         if extension in ALLOWED_VIDEO_EXTENSIONS:
-            from ..media_audio import NoSoundtrack, decode_soundtrack
+            from ..media_audio import NoSoundtrack, container_fps, decode_soundtrack
 
-            path = validate_media_path(audio, None, "an audio argument")
             try:
-                return decode_soundtrack(path)
+                waveform, rate = decode_soundtrack(path)
             except NoSoundtrack:
                 raise ValueError(
                     f"{COMMAND}: {audio} carries no audio track - a bed is "
                     "found in a soundtrack"
                 ) from None
-    return _waveform_and_rate(audio, None, COMMAND)
+            return waveform, rate, container_fps(path), None, path
+        waveform, rate = _waveform_and_rate(audio, None, COMMAND)
+        return waveform, rate, None, None, path
+    waveform, rate = _waveform_and_rate(audio, None, COMMAND)
+    return (
+        waveform,
+        rate,
+        getattr(audio, "fps", None),
+        getattr(audio, "shots", None),
+        None,
+    )
+
+
+def _resolve_shots(shots, carried, path):
+    """The shots to keep candidates inside, and where they came from - the
+    assessment probes' order (`resolve_shots`, dw/tasks/assess.py): the
+    argument, then the shots the video carries, then the run manifest beside
+    the file, else (None, None)."""
+    if shots:
+        return [dict(shot) for shot in shots], "argument"
+    if carried:
+        return [dict(shot) for shot in carried], "artifact"
+    if path is not None:
+        from ..runs import shots_beside
+
+        recorded = shots_beside(path)
+        if recorded:
+            return [dict(shot) for shot in recorded], "manifest"
+    return None, None
+
+
+def _check_shots(shots):
+    """Refuse a `shots` argument that is not a list of shot records."""
+    if not isinstance(shots, (list, tuple)):
+        raise ValueError(
+            f"{COMMAND}: 'shots' is a list of {{name, start_frame, num_frames}} "
+            f"records, not {type(shots).__name__}"
+        )
+    for index, shot in enumerate(shots):
+        if not isinstance(shot, dict) or not shot.get("name"):
+            raise ValueError(
+                f"{COMMAND}: shots[{index}] needs a 'name' - a candidate names "
+                "the shot it lies in"
+            )
+        for field in ("start_frame", "num_frames", "start_sample", "num_samples"):
+            value = shot.get(field)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"{COMMAND}: shots[{index}].{field} must be a number, not {value!r}"
+                )
+            if value < 0 or (field.startswith("num_") and value <= 0):
+                raise ValueError(
+                    f"{COMMAND}: shots[{index}].{field} must be "
+                    f"{'above' if field.startswith('num_') else 'at or above'} "
+                    f"zero, not {value!r}"
+                )
+
+
+def _shot_spans(shots, fps, sample_rate):
+    """Each shot's (name, first sample, end sample) in the source's samples.
+
+    A shot is placed by its frames (at `fps`) and by its recorded samples,
+    and where it has both it is the overlap of the two: the picture's cut
+    and the soundtrack's can sit a few samples apart (a shot's audio
+    overrun, dw/shots.py), and a window inside both crosses neither.
+    """
+    spans = []
+    for index, shot in enumerate(shots):
+        found = []
+        start_frame, num_frames = shot.get("start_frame"), shot.get("num_frames")
+        if fps and start_frame is not None and num_frames is not None:
+            found.append(
+                (
+                    start_frame / fps * sample_rate,
+                    (start_frame + num_frames) / fps * sample_rate,
+                )
+            )
+        start_sample, num_samples = shot.get("start_sample"), shot.get("num_samples")
+        if start_sample is not None and num_samples is not None:
+            found.append((start_sample, start_sample + num_samples))
+        if not found:
+            raise ValueError(
+                f"{COMMAND}: shot '{shot.get('name')}' (shots[{index}]) is placed "
+                "by its frames and the source has no frame rate - pass 'fps', "
+                "or give the shot start_sample/num_samples"
+            )
+        first = max(span[0] for span in found)
+        end = min(span[1] for span in found)
+        spans.append((str(shot["name"]), int(math.ceil(first)), int(end)))
+    return spans
+
+
+def _bin_shots(spans, offset, bin_length, count):
+    """Which shot each 50 ms bin of the searched range lies wholly inside, as
+    an index into `spans`; -1 for a bin a boundary cuts through or no shot
+    covers."""
+    owner = numpy.full(count, -1, dtype=numpy.int64)
+    starts = offset + numpy.arange(count) * bin_length
+    ends = starts + bin_length
+    for index, (_, first, end) in enumerate(spans):
+        inside = (starts >= first) & (ends <= end) & (owner < 0)
+        owner[inside] = index
+    return owner
 
 
 def _sliding(array, length):
@@ -251,7 +363,7 @@ def _empty_finding(rejected, criteria):
         message = "no window fit in the range; widen it or lower min_seconds"
         rule = None
     else:
-        rule = max(REJECTION_RULES, key=lambda name: rejected[name])
+        rule = max(rejected, key=lambda name: rejected[name])
         message = {
             "too_loud": (
                 f"nothing below {criteria['max_bin_dbfs']:g} dBFS per 50 ms "
@@ -267,6 +379,11 @@ def _empty_finding(rejected, criteria):
                 f"{criteria['max_spike_db']:g} dB over its median - a tick "
                 "that would recur once per lap; widen the range or raise "
                 "max_spike_db"
+            ),
+            "shot_boundary": (
+                "every window that fits crosses a shot boundary or lies "
+                "outside every shot - the shots in the range are shorter "
+                "than min_seconds; lower it or search another shot"
             ),
             "tonal": (
                 "every quiet window is tonal or speech-like - faint "
@@ -290,6 +407,8 @@ def find_loop_bed(
     loop_seconds=10.0,
     target_bed_dbfs=-60.0,
     max_candidates=5,
+    shots=None,
+    fps=None,
 ):
     """Task command: rank the windows of a recording worth looping into a
     room-tone bed, measured as they will sound looped.
@@ -311,6 +430,14 @@ def find_loop_bed(
 
     A candidate's start_seconds/duration_seconds are slice_audio's arguments
     and its gain is mix_audio's multiplier for reaching target_bed_dbfs.
+    With shot boundaries - the `shots` argument, else the shots a video from
+    an earlier step carries, else the ones the run manifest beside the file
+    records - no candidate crosses a boundary, each names the `shot` it lies
+    in, `source.shots_source` says which of the three the shots came from
+    (`argument`, `artifact`, `manifest`; null with none) and `rejected`
+    counts the windows a boundary cut through under `shot_boundary`. A
+    stretch no shot covers is not searched.
+
     Finding nothing is an answer: `candidates` is empty, `rejected` counts
     the windows each rule threw out, and one finding says which to relax.
     The result must be saved as application/json.
@@ -331,6 +458,11 @@ def find_loop_bed(
         loop_seconds: Length of the looped result that is measured
         target_bed_dbfs: The level each candidate's gain is computed to reach
         max_candidates: How many ranked candidates to return
+        shots: Shot boundaries, the assessment probes' shape: a list of
+            {name, start_frame, num_frames}, optionally with start_sample and
+            num_samples; overrides the shots a video carries or its run records
+        fps: Frame rate the shots' frames are counted at, for a source that
+            has none of its own (an audio file); a video's own rate otherwise
 
     Returns:
         A JSON-safe dict: source, criteria, candidates, rejected, findings
@@ -346,6 +478,9 @@ def find_loop_bed(
     loop_seconds = _as_number(loop_seconds, float, "loop_seconds", COMMAND)
     target_bed_dbfs = _as_number(target_bed_dbfs, float, "target_bed_dbfs", COMMAND)
     max_candidates = _as_number(max_candidates, int, "max_candidates", COMMAND)
+    fps = _as_number(fps, float, "fps", COMMAND)
+    if shots is not None:
+        _check_shots(shots)
     check_arguments(
         COMMAND,
         start_seconds=start_seconds,
@@ -359,6 +494,7 @@ def find_loop_bed(
         loop_seconds=loop_seconds,
         target_bed_dbfs=target_bed_dbfs,
         max_candidates=max_candidates,
+        fps=fps,
     )
     if min_seconds > max_seconds:
         raise ValueError(
@@ -366,7 +502,8 @@ def find_loop_bed(
             f"'max_seconds' ({max_seconds:g})"
         )
 
-    waveform, sample_rate = _read_source(audio)
+    waveform, sample_rate, source_fps, carried, path = _read_source(audio)
+    shots, shots_source = _resolve_shots(shots, carried, path)
     mono = numpy.asarray(waveform, dtype=numpy.float64)
     mono = mono.mean(axis=0) if mono.ndim == 2 else mono
     duration = mono.shape[0] / sample_rate
@@ -408,10 +545,16 @@ def find_loop_bed(
     bin_length, power, peaks = _envelope(searched, sample_rate)
     bin_seconds = bin_length / sample_rate
     count = power.shape[0]
+    spans = _shot_spans(shots, fps or source_fps, sample_rate) if shots else None
+    bin_shot = (
+        _bin_shots(spans, offset, bin_length, count) if spans is not None else None
+    )
 
     shortest = max(1, int(round(min_seconds / bin_seconds)))
     longest = min(count, int(round(max_seconds / bin_seconds)))
     rejected = dict.fromkeys(REJECTION_RULES, 0)
+    if spans is not None:
+        rejected["shot_boundary"] = 0
     bin_threshold = 10.0 ** (max_bin_dbfs / 10.0)
     mean_threshold = 10.0 ** (max_mean_dbfs / 10.0)
     spike_ratio = 10.0 ** (max_spike_db / 20.0)
@@ -458,28 +601,38 @@ def find_loop_bed(
         windows = _sliding(power, length)  # (starts, length)
         loudest = windows.max(axis=1)
         mean = windows.mean(axis=1)
-        loud = (loudest > bin_threshold) | (mean > mean_threshold)
+        if bin_shot is None:
+            crossing = numpy.zeros(windows.shape[0], dtype=bool)
+        else:
+            # A window is inside one shot when every bin it holds is: the
+            # same shot throughout, and none a boundary cuts or no shot covers
+            owners = _sliding(bin_shot, length)
+            crossing = (owners.min(axis=1) != owners.max(axis=1)) | (
+                owners.min(axis=1) < 0
+            )
+            rejected["shot_boundary"] += int(crossing.sum())
+        loud = ~crossing & ((loudest > bin_threshold) | (mean > mean_threshold))
         peak_windows = _sliding(peaks, length).reshape(windows.shape[0], -1)
         median = numpy.median(peak_windows, axis=1)
         # More than half the window's 1 ms peaks at zero is digital silence
         # with something in it, not room tone - and would read every
         # sample of that something as a tick
-        silent = ~loud & ((mean <= 0.0) | (median <= 0.0))
+        silent = ~crossing & ~loud & ((mean <= 0.0) | (median <= 0.0))
         largest = numpy.maximum(
             peak_windows.max(axis=1),
             numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
         )
-        ticked = ~loud & ~silent & (largest > spike_ratio * median)
+        ticked = ~crossing & ~loud & ~silent & (largest > spike_ratio * median)
         any_tonal = numpy.zeros(windows.shape[0], dtype=bool)
         for block_bins, _, _, block_tonal in scales:
             inside = _sliding(block_tonal, length - block_bins + 1)
             any_tonal |= inside[: windows.shape[0]].any(axis=1)
-        tonal = ~loud & ~silent & ~ticked & any_tonal
+        tonal = ~crossing & ~loud & ~silent & ~ticked & any_tonal
         rejected["too_loud"] += int(loud.sum())
         rejected["silent"] += int(silent.sum())
         rejected["spike"] += int(ticked.sum())
         rejected["tonal"] += int(tonal.sum())
-        kept = numpy.flatnonzero(~loud & ~silent & ~ticked & ~tonal)
+        kept = numpy.flatnonzero(~crossing & ~loud & ~silent & ~ticked & ~tonal)
         if kept.size == 0:
             continue
 
@@ -542,7 +695,7 @@ def find_loop_bed(
                 "start_seconds": round(start_at, 3),
                 "duration_seconds": round(seconds, 3),
                 "end_seconds": round(start_at + seconds, 3),
-                "shot": None,
+                "shot": None if bin_shot is None else spans[bin_shot[start]][0],
                 "mean_dbfs": _round(readings["mean_dbfs"]),
                 "max_bin_dbfs": _round(readings["max_bin_dbfs"]),
                 "spike_db": _round(readings["spike_db"]),
@@ -582,7 +735,21 @@ def find_loop_bed(
             "duration_seconds": round(duration, 3),
             "sample_rate": int(sample_rate),
             "searched": [round(first, 3), round(last, 3)],
-            "shots_source": None,
+            "shots_source": shots_source,
+            **(
+                {
+                    "shots": [
+                        {
+                            "name": name,
+                            "start_seconds": round(first / sample_rate, 3),
+                            "end_seconds": round(end / sample_rate, 3),
+                        }
+                        for name, first, end in spans
+                    ]
+                }
+                if spans is not None
+                else {}
+            ),
         },
         "criteria": criteria,
         "candidates": candidates,

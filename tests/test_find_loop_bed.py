@@ -7,6 +7,7 @@ amplitude via 10**(dbfs/20) (root-mean-square for noise, amplitude/sqrt(2)
 for a sine), matching the engine's own `10*log10(mean square)` bin reading.
 """
 
+import json
 import math
 
 import numpy
@@ -500,12 +501,13 @@ class TestRunTimeRefusals:
         assert "candidates" in result
 
 
-def _write_video(path, num_frames=8, fps=4, sample_rate=8000, audio=True):
+def _write_video(path, num_frames=8, fps=4, sample_rate=8000, audio=True, clip=None):
     from diffusers.utils.export_utils import encode_video
     from PIL import Image
 
     frames = [Image.new("RGB", (16, 16), (i, 0, 0)) for i in range(num_frames)]
-    clip = torch.full((2, int(num_frames / fps * sample_rate)), 0.25) if audio else None
+    if clip is None and audio:
+        clip = torch.full((2, int(num_frames / fps * sample_rate)), 0.25)
     encode_video(
         frames,
         fps=fps,
@@ -700,3 +702,219 @@ class TestDomainInAWorkflow:
         errors = workflow.validation_errors()
 
         assert any(e["path"] == "steps[0].task.arguments.min_seconds" for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Stage B (#545): shot boundaries
+# ---------------------------------------------------------------------------
+
+
+def _quiet_track(seconds=6.0, seed=11, dbfs=-72.0):
+    rng = numpy.random.default_rng(seed)
+    return track(noise(rng, int(seconds * SR), dbfs))
+
+
+# Three 2 s shots at 10 fps over a 6 s track
+SHOTS = [
+    {"name": "shot@a", "start_frame": 0, "num_frames": 20},
+    {"name": "shot@b", "start_frame": 20, "num_frames": 20},
+    {"name": "shot@c", "start_frame": 40, "num_frames": 20},
+]
+BOUNDS = {"shot@a": (0.0, 2.0), "shot@b": (2.0, 4.0), "shot@c": (4.0, 6.0)}
+
+
+def _assert_inside(result, bounds):
+    assert result["candidates"]
+    for candidate in result["candidates"]:
+        first, end = bounds[candidate["shot"]]
+        assert candidate["start_seconds"] >= first - 1e-6
+        assert candidate["end_seconds"] <= end + 1e-6
+
+
+class TestShotBoundaries:
+    def test_no_candidate_straddles_a_boundary(self):
+        result = find_loop_bed(_quiet_track(), shots=SHOTS, fps=10, max_candidates=20)
+
+        assert result["source"]["shots_source"] == "argument"
+        assert result["rejected"]["shot_boundary"] > 0
+        _assert_inside(result, BOUNDS)
+        assert [shot["name"] for shot in result["source"]["shots"]] == list(BOUNDS)
+
+    def test_without_shots_windows_do_cross_where_the_boundaries_would_be(self):
+        result = find_loop_bed(_quiet_track(), max_candidates=20)
+
+        assert result["source"]["shots_source"] is None
+        assert "shot_boundary" not in result["rejected"]
+        assert "shots" not in result["source"]
+        assert all(c["shot"] is None for c in result["candidates"])
+
+    def test_shots_shorter_than_min_seconds_find_nothing_and_say_why(self):
+        tiny = [
+            {"name": f"s{i}", "start_frame": i * 4, "num_frames": 4} for i in range(15)
+        ]
+        result = find_loop_bed(_quiet_track(), shots=tiny, fps=10)
+
+        assert result["candidates"] == []
+        assert result["findings"][0]["rejected_by"] == "shot_boundary"
+
+    def test_a_stretch_no_shot_covers_is_not_searched(self):
+        result = find_loop_bed(
+            _quiet_track(),
+            shots=[{"name": "only", "start_frame": 20, "num_frames": 20}],
+            fps=10,
+            max_candidates=20,
+        )
+
+        _assert_inside(result, {"only": (2.0, 4.0)})
+
+    def test_recorded_samples_narrow_a_shot(self):
+        shots = [
+            {
+                "name": "a",
+                "start_frame": 0,
+                "num_frames": 30,
+                "start_sample": 0,
+                "num_samples": 2 * SR,
+            },
+            {
+                "name": "b",
+                "start_frame": 30,
+                "num_frames": 30,
+                "start_sample": 3 * SR,
+                "num_samples": 3 * SR,
+            },
+        ]
+        result = find_loop_bed(_quiet_track(), shots=shots, fps=10, max_candidates=20)
+
+        _assert_inside(result, {"a": (0.0, 2.0), "b": (3.0, 6.0)})
+
+    def test_frames_without_a_frame_rate_are_refused(self):
+        with pytest.raises(ValueError, match="'fps'"):
+            find_loop_bed(_quiet_track(), shots=SHOTS)
+
+    def test_sample_placed_shots_need_no_frame_rate(self):
+        shots = [
+            {"name": "a", "start_sample": 0, "num_samples": 3 * SR},
+            {"name": "b", "start_sample": 3 * SR, "num_samples": 3 * SR},
+        ]
+        result = find_loop_bed(_quiet_track(), shots=shots, max_candidates=20)
+
+        _assert_inside(result, {"a": (0.0, 3.0), "b": (3.0, 6.0)})
+
+    @pytest.mark.parametrize(
+        "shots, match",
+        [
+            ("shot@a", "list"),
+            ([{"start_frame": 0, "num_frames": 10}], "name"),
+            ([{"name": "a", "start_frame": -1, "num_frames": 10}], "start_frame"),
+            ([{"name": "a", "start_frame": 0, "num_frames": 0}], "num_frames"),
+            ([{"name": "a", "start_frame": 0, "num_frames": "ten"}], "number"),
+        ],
+    )
+    def test_malformed_shots_are_refused(self, shots, match):
+        with pytest.raises(ValueError, match=match):
+            find_loop_bed(_quiet_track(), shots=shots, fps=10)
+
+    def test_fps_domain(self):
+        with pytest.raises(ValueError, match="'fps' above zero"):
+            find_loop_bed(_quiet_track(), shots=SHOTS, fps=0)
+
+    def test_fps_is_in_the_domain_table(self):
+        definition = {
+            "steps": [
+                _step(
+                    "bed",
+                    "find_loop_bed",
+                    arguments={"audio": "x.wav", "fps": -1},
+                )
+            ]
+        }
+        errors = task_argument_errors(definition)
+        assert any(e["path"].endswith("fps") for e in errors)
+
+
+class TestShotsResolution:
+    """argument > the video's carried shots > the run manifest > none."""
+
+    def _carried(self):
+        from dw.result import AudioVideo
+
+        rng = numpy.random.default_rng(11)
+        audio = noise(rng, 6 * SR, -72.0)[None, :].astype(numpy.float32)
+        frames = [numpy.zeros((8, 8, 3), dtype=numpy.uint8)] * 60
+        return AudioVideo(frames, audio, SR, fps=10, shots=SHOTS)
+
+    def test_carried_shots_are_used_with_the_videos_own_rate(self):
+        result = find_loop_bed(self._carried(), max_candidates=20)
+
+        assert result["source"]["shots_source"] == "artifact"
+        _assert_inside(result, BOUNDS)
+
+    def test_the_argument_beats_carried_shots(self):
+        mine = [{"name": "mine", "start_frame": 0, "num_frames": 60}]
+        result = find_loop_bed(self._carried(), shots=mine, max_candidates=20)
+
+        assert result["source"]["shots_source"] == "argument"
+        assert {c["shot"] for c in result["candidates"]} == {"mine"}
+
+    def _run_with_manifest(self, tmp_path, monkeypatch):
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.shots import shot_record
+
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+        run_dir = tmp_path / "demo-workflow" / "20260923-120000-abcdef01"
+        (run_dir / "final").mkdir(parents=True)
+        # 16 frames at 4 fps, 8 kHz: two 2 s shots
+        rng = numpy.random.default_rng(5)
+        room = torch.from_numpy(
+            numpy.stack([noise(rng, 32000, -40.0)] * 2).astype(numpy.float32)
+        )
+        path = _write_video(
+            run_dir / "final" / "cut.mp4", num_frames=16, fps=4, clip=room
+        )
+        recorded = [
+            shot_record("shot@a", 0, 8, 0, 16000),
+            shot_record("shot@b", 8, 8, 16000, 16000),
+        ]
+        manifest = {
+            "steps": [{"step": "join", "files": ["final/cut.mp4"], "shots": recorded}]
+        }
+        with open(run_dir / MANIFEST_FILE_NAME, "w") as handle:
+            json.dump(manifest, handle)
+        return path
+
+    def test_the_run_manifest_beside_the_file(self, tmp_path, monkeypatch):
+        path = self._run_with_manifest(tmp_path, monkeypatch)
+
+        result = find_loop_bed(path, max_bin_dbfs=0, max_mean_dbfs=0, max_candidates=20)
+
+        assert result["source"]["shots_source"] == "manifest"
+        assert [s["name"] for s in result["source"]["shots"]] == ["shot@a", "shot@b"]
+        assert result["candidates"], result["findings"]
+        for candidate in result["candidates"]:
+            assert candidate["shot"] in ("shot@a", "shot@b")
+        assert result["rejected"]["shot_boundary"] > 0
+
+    def test_the_argument_beats_the_manifest(self, tmp_path, monkeypatch):
+        path = self._run_with_manifest(tmp_path, monkeypatch)
+
+        result = find_loop_bed(
+            path,
+            shots=[{"name": "whole", "start_frame": 0, "num_frames": 16}],
+            max_bin_dbfs=0,
+            max_mean_dbfs=0,
+        )
+
+        assert result["source"]["shots_source"] == "argument"
+
+    def test_a_bare_audio_file_has_no_shots(self, tmp_path):
+        import soundfile
+
+        path = tmp_path / "room.wav"
+        rng = numpy.random.default_rng(3)
+        soundfile.write(path, noise(rng, 3 * SR, -72.0).astype(numpy.float32), SR)
+
+        result = find_loop_bed(str(path))
+
+        assert result["source"]["shots_source"] is None
+        assert "shot_boundary" not in result["rejected"]

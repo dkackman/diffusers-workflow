@@ -182,13 +182,13 @@ itself - or every shot inherits the portrait's composition.
    everywhere), a portrait imposing its framing on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. `get_output_audio` returns sound, not text; to
-   confirm a line rendered, use its docstring's transcription route
-   (`templates/transcribe-audio`, then `get_output_text`).
-   A `shot_dead_air` finding: bed with `slice_audio`->`loop_audio`->`mix_audio`
-   room tone, not silence. Then `get_gallery_metadata` for duration/audio
-   presence, and hand the user the gallery `url`
-   (`list_gallery`). `get_output_image` works only on image steps (the
-   Z-Image portraits and boards).
+   confirm a line, transcribe (`templates/transcribe-audio`,
+   `get_output_text`). Dialogue gaps (`shot_dead_air`) need room tone:
+   `find_loop_bed` the `output:` cut;
+   `slice_audio`->`loop_audio`->`mix_audio` its pick at its `gain`.
+   Then `get_gallery_metadata` for duration/audio presence, and hand the
+   user the gallery `url` (`list_gallery`). `get_output_image` works only on
+   image steps (the Z-Image portraits and boards).
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
    `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`

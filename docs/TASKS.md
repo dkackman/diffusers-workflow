@@ -887,6 +887,8 @@ level check alone misses three things, each found on a real episode:
 | `loop_seconds` | No | Length of the looped result that is measured (default `10.0`) |
 | `target_bed_dbfs` | No | The level each candidate's `gain` is computed to reach (default `-60`) |
 | `max_candidates` | No | How many ranked candidates to return (default `5`) |
+| `shots` | No | Shot boundaries, the assessment probes' shape: `[{name, start_frame, num_frames}]`, optionally with `start_sample`/`num_samples`; overrides the shots a video carries or its run records |
+| `fps` | No | Frame rate the shots' frames count at, for a source with none of its own (an audio file); a video's own rate otherwise |
 
 Every window on a 50 ms grid, from `min_seconds` to `max_seconds` long, is
 judged against four rules in order and counted in `rejected` under the first
@@ -912,6 +914,21 @@ one it fails, so `rejected` is a tally of the whole grid:
   material is, as `bleed_join`'s tail does (#198). A candidate's `flatness`
   and `harmonicity` are the readings of its blocks closest to failing
   (lowest flatness, highest harmonicity).
+
+On a cut, a bed must come from inside one shot: a window across a cut
+loops the seam's change of room as a once-per-lap step. Shots resolve in the
+probes' order - the `shots` argument (`shots_source: "argument"`), else the
+shots a video from an earlier step carries (`"artifact"`), else the ones the
+run manifest beside the file records (`"manifest"`, which is why
+`output:` the joined file finds them unasked), else none (`null`, the search
+above unchanged). With shots, a window that crosses a boundary, or lies where
+no shot covers, is counted under `rejected.shot_boundary` before the four
+rules (so theirs count only in-shot windows), each candidate names its
+`shot` (`shot@<name>` from a manifest), and `source.shots` lists each shot's
+`{name, start_seconds, end_seconds}` as placed in the soundtrack. A shot with
+both frames and recorded samples is placed at their overlap - the picture's
+cut and the audio's can sit a few samples apart. A shot placed by frames on
+a source with no frame rate is refused; pass `fps`.
 
 The survivors are thinned so no two overlap, steadiest source first, to a
 pool of up to 200 (`LOOPED_POOL`). The pool does not depend on
