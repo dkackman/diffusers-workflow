@@ -8,19 +8,21 @@ subset of the warnings. `dw.server.admission.admit` loads it once, checks it
 once, with the library active for all of it.
 """
 
-import json
+import copy
 import os
 
 import pytest
 from fastapi.testclient import TestClient
 
 from dw import assets
+from dw.server import admission as admission_module
 from dw.server.admission import admit
 from dw.server.app import create_app
 from dw.server.jobs import TERMINAL_STATES, JobManager
 from dw.workflow import Workflow
 from dw.workspace import Workspace
 
+from .test_prepare_pipeline import DEFINITION as prepare_definition
 from .test_server import (
     ScriptedWorkerManager,
     success_script,
@@ -153,6 +155,114 @@ def test_a_validate_without_arguments_expands_once(server, folds):
         assert len(folds) == 1
 
 
+def test_a_bound_submit_expands_once(server, folds):
+    """The bound acknowledgement's plan rides the admission's own fold."""
+    body = {
+        "workflow": for_each_workflow(),
+        "arguments": {"shots": [{"name": "x", "text": "X"}]},
+    }
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        folds.clear()
+
+        response = client.post(
+            "/api/jobs",
+            json={
+                **body,
+                "acknowledged_cost": {
+                    "fingerprint": plan["fingerprint"],
+                    "minutes": plan["estimate"]["minutes"],
+                    "downloads": plan["downloads_required"],
+                },
+            },
+        )
+
+        # A 409 (plan None) would be one fold too - so the 201 first
+        assert response.status_code == 201, response.text
+        assert response.json()["acknowledged"] == "bound"
+        assert len(folds) == 1
+
+
+def test_a_rerun_expands_once(server, folds):
+    with server() as client:
+        submitted = client.post(
+            "/api/jobs",
+            json={
+                "workflow": for_each_workflow(),
+                "arguments": {"shots": [{"name": "x", "text": "X"}]},
+            },
+        )
+        assert submitted.status_code == 201, submitted.text
+        job_id = submitted.json()["id"]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+        folds.clear()
+
+        rerun = client.post(f"/api/jobs/{job_id}/rerun")
+
+        assert rerun.status_code == 201, rerun.text
+        assert len(folds) == 1
+
+
+def test_a_warning_helper_that_raises_refuses_nothing(server, monkeypatch):
+    """A warning never refuses: a helper that fails is logged and skipped,
+    and the other helpers' warnings still reach validate and the job."""
+
+    def exploding(self, *args, **kwargs):
+        raise RuntimeError("probe exploded")
+
+    monkeypatch.setattr(Workflow, "shot_span_warnings", exploding)
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow()}
+        ).json()
+        assert answer["valid"] is True, answer
+        assert any("sets no 'seed'" in w for w in answer["warnings"])
+
+        submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        assert submitted.status_code == 201, submitted.text
+        assert any("sets no 'seed'" in w for w in submitted.json()["warnings"])
+
+
+def test_a_check_failing_after_loading_is_not_called_a_construction_failure(
+    server, monkeypatch
+):
+    """The Workflow was built; an argument check raising is the validator
+    failing, answered as such - not as a workflow that could not be
+    constructed."""
+
+    def exploding(*args, **kwargs):
+        raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(admission_module, "argument_reference_errors", exploding)
+    with server() as client:
+        response = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow()}
+        )
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["valid"] is False
+    assert "could not be validated" in answer["error"]
+    assert "constructed" not in answer["error"]
+
+
+def test_an_undeclared_frame_snap_through_a_variable_is_reported_at_its_path(
+    server,
+):
+    workflow = copy.deepcopy(prepare_definition)
+    workflow["variables"]["snap"] = "constraint:nope"
+    workflow["steps"][1]["task"]["arguments"]["frame_snap"] = "variable:snap"
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false", json={"workflow": workflow}
+        ).json()
+        assert answer["valid"] is False
+        assert [error["path"] for error in answer["errors"]] == [
+            "steps[1].task.arguments.frame_snap"
+        ]
+        assert "'constraint:nope' names no entry" in answer["errors"][0]["message"]
+
+
 def test_every_admission_check_sees_the_workspace_asset_library(
     server, root, monkeypatch
 ):
@@ -264,7 +374,12 @@ def test_admit_answers_a_schema_failure_with_no_warnings(root):
     assert not admission.ok
     assert admission.schema_errors
     assert admission.warnings == []
-    assert json.dumps(admission.errors)
+    assert admission.errors == [
+        {
+            "path": "steps[0]",
+            "message": "{'name': 's'} is not valid under any of the given schemas",
+        }
+    ]
 
 
 def test_admission_checks_content_type_against_the_callers_arguments(root):

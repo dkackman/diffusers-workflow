@@ -1800,11 +1800,14 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e))
         except Exception:
             # Anything else could carry internals in its message; the log
-            # keeps the detail, the client gets the category
-            logger.exception("Workflow could not be constructed for validation")
+            # keeps the detail, the client gets the category. What is left
+            # here is resolving the request and loading the workflow (and
+            # the catalog it is checked against) - a check that fails after
+            # loading is a ValidatorFailure, answered above
+            logger.exception("Workflow could not be loaded for validation")
             raise HTTPException(
                 status_code=400,
-                detail="Workflow could not be constructed - the server log "
+                detail="The workflow could not be loaded - the server log "
                 "has the detail",
             )
         if admission.schema_errors:
