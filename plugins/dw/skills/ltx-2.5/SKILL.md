@@ -1,6 +1,6 @@
 ---
 name: ltx-2.5
-description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
+description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
 ---
 
 # LTX-2.5 on a dw server
@@ -46,7 +46,9 @@ spec below.
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
   low-res pass, then an IC-LoRA re-renders it twice the size,
   inventing detail. `base_width`/`base_height` are the first render's size,
-  `width`/`height` the doubled target.
+  `width`/`height` the doubled target. For the user's own clip,
+  `templates/ltx2/upscale-clip`: `width`/`height` 2x the source's,
+  `num_frames` at most its length; its soundtrack is kept.
 - **Keeping a subject across a clip**: `templates/ltx2/reference-sheet`. The
   family's only identity route; the user must author the reference sheet
   - one composite image, a clean panel per character, prop and location, no
@@ -54,7 +56,7 @@ spec below.
   appear. `reference_frames` must stay at or above 121.
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
-  artefacts. Only these templates here read a clip dw didn't make. Each
+  artefacts. Each
   inverts one defect and no other - neither is an upscale, neither
   removes motion blur or grain - so name the defect and let
   the user correct you.

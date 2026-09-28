@@ -205,12 +205,16 @@ change both when one changes.
 
 ### LTX-2.5 IC-LoRAs
 
-The catalog's IC-LoRA templates are `templates/ltx2/generative-upscale` and three
+The catalog's IC-LoRA templates are two upscalers,
+`templates/ltx2/generative-upscale` and `upscale-clip`, and three
 conditioning templates, all through `LTX2InContextPipeline` +
 `LTX2ReferenceCondition`; the three run at `reference_downscale_factor: 1` (the
-upscaler's is 2). `reference-sheet`
-drives Ingredients — the family's only identity route, and the first two
-templates here whose reference is a file the workflow did not make; the sheet
+upscalers' is 2). `upscale-clip` runs the upscaler over the caller's own
+`source_video` and then `pair_audio`s that file's soundtrack back onto the
+upscale, so the `final/` deliverable carries the original track (a silent
+source fails there, after the upscale is saved in `intermediate/`).
+`reference-sheet` drives Ingredients — the family's only identity route, and
+one of the templates here whose reference is a file the workflow did not make; the sheet
 is a still, so a `loop_frames` step (`dw/tasks/video_utils.py`, the video
 analogue of `loop_audio`) laps it into the static video the LoRA reads
 through its 121-frame bucket. `restore-deblur` and `restore-decompression`
