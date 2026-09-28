@@ -4,9 +4,13 @@ its siblings, refused before the run when the sizes are already knowable.
 Both tasks join clips frame-by-frame (`check_same_frame_size`,
 `dw/tasks/video_utils.py`) and raise once every input has been decoded: "video
 N is WxH, video M is WxH". Unlike a sample-rate mismatch (#108/#287), which is
-auto-resampled with a warning, there is no reconciliation for a size mismatch
-- Don declined a resize/fit argument on the join tasks (#504, #512) - so the
-only thing to move earlier is the refusal itself.
+auto-resampled with a warning, neither join task resizes a mismatched video
+for you - Don declined a resize/fit argument on the join tasks themselves
+(#504, #512) - so the fix is upstream of the join: `video_frames` to get the
+odd video's frames, `resize_rescale`/`resize_center_crop` to the target size,
+then `pair_audio(fit="video")` to put its soundtrack back before passing it
+to `dissolve_videos`/`concat_videos` (#551). The only thing to move earlier
+is the refusal itself.
 
 Moved here, into `validation_errors`, for exactly the cases a size is
 knowable without running anything: an `asset:`/`output:` reference, a

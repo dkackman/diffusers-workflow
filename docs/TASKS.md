@@ -92,7 +92,7 @@ All accept an `image` argument with processing parameters:
 | Command | Description | Extra Arguments |
 | ------- | ----------- | --------------- |
 | `remove_background` | Remove image background | |
-| `resize_center_crop` | Resize with center crop | `width`, `height` |
+| `resize_center_crop` | Crop to a centered square, then stretch to width x height - distorts a non-square target | `width`, `height` |
 | `resize_resample` | Resample to nearest 64px multiple | |
 | `resize_rescale` | Resize to exact dimensions | `width`, `height` |
 | `resize_bucket` | Snap to closest model-native aspect ratio | `resolution`, `ratios`, `alignment` |
@@ -212,7 +212,7 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, this task does not resize one for you, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518). To fit the odd video: `video_frames` to get its frames, `resize_rescale`/`resize_center_crop` to the target size, then `pair_audio(fit="video")` to put its soundtrack back before passing it here (#551) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
@@ -358,7 +358,7 @@ montage cut to a score wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, this task does not resize one for you, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518). To fit the odd video: `video_frames` to get its frames, `resize_rescale`/`resize_center_crop` to the target size, then `pair_audio(fit="video")` to put its soundtrack back before passing it here (#551) |
 | `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
