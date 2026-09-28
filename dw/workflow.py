@@ -612,13 +612,21 @@ class Workflow:
                 )
         return errors
 
-    def sub_workflow_warnings(self, expanded=None):
+    def sub_workflow_warnings(self, arguments=None):
         """An argument a sub-workflow step passes down that the workflow it
         composes declares no variable for - dropped in silence at run time,
-        and composition is exactly where a name drifts (#89)."""
+        and composition is exactly where a name drifts (#89).
+
+        `arguments` are the caller's, folded in the same way every other
+        warning source uses them. Each entry is a string, `"path: message"`,
+        matching every other warnings source - and the path names the step
+        index the *author* wrote, not the index the step lands at after
+        `for_each` expansion.
+        """
         warnings = []
         try:
-            expanded = expanded if expanded is not None else self.expanded_definition()
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
         except Exception:
             return warnings
         for index, step in enumerate(expanded.get("steps", []) or []):
@@ -638,16 +646,13 @@ class Workflow:
                 # sub_workflow_errors - not a second complaint here
                 continue
             declared = child.workflow_definition.get("variables") or {}
+            source = source_indices[index] if index < len(source_indices) else index
             for name in sorted(set(passed) - set(declared)):
                 warnings.append(
-                    {
-                        "path": f"steps[{index}].workflow.arguments.{name}",
-                        "message": (
-                            f"'{reference['path']}' declares no variable "
-                            f"'{name}' - the value is dropped. Declared: "
-                            + (", ".join(sorted(declared)) or "<none>")
-                        ),
-                    }
+                    f"steps[{source}].workflow.arguments.{name}: "
+                    f"'{reference['path']}' declares no variable '{name}' - the "
+                    "value is dropped. Declared: "
+                    + (", ".join(sorted(declared)) or "<none>")
                 )
         return warnings
 
