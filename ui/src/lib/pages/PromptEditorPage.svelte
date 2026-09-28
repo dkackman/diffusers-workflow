@@ -390,10 +390,7 @@
     const path = savePath()!
     busy = true
     try {
-      await api.savePrompt(
-        path,
-        $state.snapshot(doc) as PromptDefinition,
-      )
+      await api.savePrompt(path, $state.snapshot(doc) as PromptDefinition)
       if (folder === '__new__') {
         folder = newFolder.trim()
         newFolder = ''

@@ -565,14 +565,16 @@ export const api = {
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{ name: string; workspace: string; origin: string; warnings: string[] }>(
-      `/api/workflows/${encodePath(name)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow }),
-      },
-    ),
+    request<{
+      name: string
+      workspace: string
+      origin: string
+      warnings: string[]
+    }>(`/api/workflows/${encodePath(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow }),
+    }),
   listPrompts: () =>
     request<{
       /** The writable library - where a save lands. */
@@ -596,14 +598,11 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string }>(
-      `/api/prompts/${encodePath(name)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      },
-    ),
+    request<{ name: string }>(`/api/prompts/${encodePath(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    }),
   deletePrompt: (name: string) =>
     request<{ name: string; deleted: boolean }>(
       `/api/prompts/${encodePath(name)}`,
