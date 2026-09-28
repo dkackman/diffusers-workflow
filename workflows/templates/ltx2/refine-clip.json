@@ -2,6 +2,14 @@
     "id": "LTX2RefineClip",
     "description": "Refines a clip from the asset library at exactly twice its size through LTX-2.5's stage-two path, starting from the clip's own latents rather than a reference: the latent upsampler VAE-encodes the source (resized, not cropped, to 'width' x 'height'), doubles the latents, and 'refine' renoises them at 0.909375 and runs the three stage-two distilled sigmas - two-stage's refine pass, fed a clip dw did not make. Composition and motion are the source's; fine texture is regenerated at that noise level, so it is not a faithful resize. Set 'width'/'height' to the source's own size, each divisible by 32: the output is exactly 2x them, and a source of a different aspect ratio is stretched to fit, not cropped or refused. 'num_frames' (8 * n + 1) must not exceed the source's length - the upsampler keeps only that many frames. Read the source's size, frame rate and length first with get_gallery_metadata('asset:...'). Defaults fit a 512x288, 121-frame, 24 fps source. Replace the default prompt with a description of the source's subject, setting, motion and lighting. The soundtrack is the source's own, not generated: its track is read and normalized to -3 dBFS as the first step, so a source with no soundtrack is refused there, before any pipeline loads, and the refined picture (saved to intermediate/) is paired with it, cut to the output length, in final/. Versus upscale-clip: that template re-renders with the source as an IC-LoRA reference (invented detail, center-crops a different aspect ratio, gated LoRA download); this one keeps the source's own latents, stretches rather than crops, needs no LoRA and denoises three sigmas rather than eight.",
     "summary": "2x latent refine of your own clip, soundtrack kept. width/height = the source's size; num_frames <= its length.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.9
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "width",
