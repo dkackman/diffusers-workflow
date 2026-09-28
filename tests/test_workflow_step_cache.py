@@ -7,6 +7,8 @@ import copy
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from dw.events import RunContext
 from dw.step_cache import step_cache
@@ -577,6 +579,79 @@ def test_a_cold_step_loads_a_deferred_chain_of_borrowed_components(tmp_path):
     )
     assert executed[1] == ["C"]
     assert loads[1] == ["model-a", "model-b", "model-c"]
+
+
+def test_a_released_deferred_hit_still_shares_its_components(tmp_path):
+    """release_pipeline frees a pipeline but keeps what it published: a cold
+    reuser after a released, deferred source loads the source, finds its
+    component, and the source does not stay resident."""
+    definition = _shared_components_workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    pipelines = {}
+    loads = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _loading_recorder(loads)),
+    ):
+        workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
+        pipelines.clear()
+        loads.clear()
+        workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+
+    assert loads == ["model-a", "model-b"]
+    assert workflow._pipeline_keys_by_step["A"] not in pipelines
+
+
+def test_a_reference_to_a_released_deferred_hit_still_says_it_was_released(
+    tmp_path,
+):
+    definition = _pipeline_reference_workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ):
+        with pytest.raises(ValueError, match="released"):
+            workflow.run({"prompt_b": "first"})
+        with pytest.raises(ValueError, match="released"):
+            workflow.run({"prompt_b": "second"})
+
+
+def test_a_cold_step_whose_pipeline_is_resident_loads_no_component_source(
+    tmp_path,
+):
+    """B's reused components are only resolved when B loads; a resident B
+    does not need A's weights for them."""
+    step_cache.clear()
+    workflow = Workflow(_shared_components_workflow_def(), str(tmp_path), "test.json")
+    pipelines = {}
+    loads = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _loading_recorder(loads)),
+    ):
+        workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
+        pipelines.pop(workflow._pipeline_keys_by_step["A"])
+        loads.clear()
+        workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+
+    assert loads == []
 
 
 def test_workflow_without_a_seed_skips_the_step_cache_entirely(tmp_path):

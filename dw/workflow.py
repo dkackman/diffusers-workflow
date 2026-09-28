@@ -1282,8 +1282,8 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
-        # Step name -> (step_data, seed) for each cache hit whose pipeline was
-        # not resident and so was not loaded. Per run: a persistent worker
+        # Step name -> {step_data, seed, released} for each cache hit whose
+        # pipeline was not resident and so was not loaded. Per run: a persistent worker
         # reuses this Workflow across jobs, and what one run deferred says
         # nothing about what the next has resident
         self._deferred_pipelines = {}
@@ -1608,10 +1608,11 @@ class Workflow:
                     if release
                     else None
                 )
-                if release:
-                    # A released step is not loaded for a later borrower,
-                    # exactly as its pipeline would not be there to borrow
-                    self._deferred_pipelines.pop(step.name, None)
+                if release and step.name in self._deferred_pipelines:
+                    # Release frees the pipeline but keeps what it published:
+                    # a later reuser still gets the components, and the
+                    # lazy load drops the pipeline again straight after
+                    self._deferred_pipelines[step.name]["released"] = True
                 # A hit that loaded nothing holds nothing: announcing a
                 # release would report a drop that never happened. Not gated
                 # on the pop alone - a sub-workflow step has no pipeline key,
@@ -1920,23 +1921,50 @@ class Workflow:
         any other: the loading phase, the touch, the superseded-key release
         and the shared_components publish all happen as they would have at
         the deferred step. A deferred step's own deferred borrows load first,
-        since its load resolves the components they share.
+        since its load resolves the components they share. A released entry
+        is loaded for its components only, then dropped again - what a cold
+        load followed by its release leaves behind.
         """
+        step = steps[index]
+        own_key = getattr(self, "_running_pipeline_keys", {}).get(step["name"])
+        if own_key is not None and own_key in pipelines:
+            # Reused components are resolved only inside load(), and a
+            # resident pipeline does not load
+            return
         deferred = getattr(self, "_deferred_pipelines", {})
         borrowed = borrowed_pipeline_keys(steps, index)
+        reference = step.get("pipeline_reference")
+        referenced_name = (
+            reference.get("reference_name") if isinstance(reference, dict) else None
+        )
         # Ascending, so a source's own earlier borrows never come later in
         # this list
         for source_index, source in enumerate(steps[:index]):
             name = source.get("name")
             if name not in borrowed or name not in deferred:
                 continue
+            if name == referenced_name and deferred[name]["released"]:
+                # A released pipeline cannot be referenced; loading it only
+                # to drop it would delay the error the reference raises
+                continue
             self._load_deferred_borrows(
                 steps, source_index, shared_components, pipelines
             )
-            step_data, step_seed = deferred.pop(name)
+            entry = deferred.pop(name)
             self.create_step_action(
-                step_data, shared_components, pipelines, step_seed, get_device()
+                entry["step_data"],
+                shared_components,
+                pipelines,
+                entry["seed"],
+                get_device(),
             )
+            if entry["released"]:
+                # Freed as the step's own release frees it, so the borrower
+                # does not load on top of it
+                pipelines.pop(self._pipeline_keys_by_step.get(name), None)
+                gc.collect()
+                empty_device_cache()
+                _release_host_caches(name)
 
     def create_step_action(
         self,
@@ -1975,7 +2003,11 @@ class Workflow:
                 # it, and that step loads it then
                 if not hasattr(self, "_deferred_pipelines"):
                     self._deferred_pipelines = {}
-                self._deferred_pipelines[step_name] = (step_definition, default_seed)
+                self._deferred_pipelines[step_name] = {
+                    "step_data": step_definition,
+                    "seed": default_seed,
+                    "released": False,
+                }
                 return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
