@@ -964,6 +964,53 @@ class TestSaveAudioVideo:
         export.assert_called_once()
 
 
+class TestConformArtifacts:
+    """#561: a composed child's own last step, when its parent owns saving
+    (parent_saves_this in workflow.py), never calls save() - so without a
+    way to reach the fps stamp-back and audio-to-frames fit outside of
+    save_audio_video, a child's declared fps never lands on the artifact it
+    hands up, and the parent (or a previous_result: consumer) falls back to
+    DEFAULT_VIDEO_FPS. conform_artifacts is workflow.py's replacement for
+    the skipped save() call."""
+
+    def test_declared_fps_is_stamped_without_a_save_call(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.fps == 24
+
+    def test_audio_is_fit_to_the_frame_count_without_a_save_call(self):
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.audio.shape == (2, 2000)
+
+    def test_every_audio_video_artifact_in_the_result_is_conformed(self):
+        first = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        second = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 30})
+        result.add_result([first, second])
+
+        result.conform_artifacts()
+
+        assert first.fps == 30
+        assert second.fps == 30
+
+    def test_a_non_audio_video_artifact_is_left_alone(self):
+        result = Result({"content_type": "image/png", "fps": 24})
+        result.add_result("not-an-audio-video")
+
+        result.conform_artifacts()  # must not raise
+
+
 class TestNormalizeAudio:
     """Test conversion of pipeline audio output into writable waveforms"""
 
