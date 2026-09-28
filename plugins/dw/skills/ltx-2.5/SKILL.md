@@ -46,9 +46,7 @@ spec below.
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
   low-res pass, then an IC-LoRA re-renders it twice the size,
   inventing detail. `base_width`/`base_height` are the first render's size,
-  `width`/`height` the doubled target. For the user's own clip,
-  `templates/ltx2/upscale-clip`: `width`/`height` 2x the source's,
-  `num_frames` at most its length; its soundtrack is kept.
+  `width`/`height` the doubled target. The user's clip: `templates/ltx2/upscale-clip`.
 - **Keeping a subject across a clip**: `templates/ltx2/reference-sheet`. The
   family's only identity route; the user must author the reference sheet
   - one composite image, a clean panel per character, prop and location, no
@@ -56,10 +54,11 @@ spec below.
   appear. `reference_frames` must stay at or above 121.
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
-  artefacts. Each
-  inverts one defect and no other - neither is an upscale, neither
-  removes motion blur or grain - so name the defect and let
-  the user correct you.
+  artefacts. Each inverts one defect and no other - neither upscales or
+  removes motion blur or grain - so name the defect and let the user
+  correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`,
+  `width`/`height` 2x the source's, `num_frames` at most its length,
+  soundtrack kept.
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
