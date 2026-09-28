@@ -596,3 +596,53 @@ class TestTheCatalogReportsAnEntrysBound:
             lists = derive_catalog_metadata(json.load(handle))["lists"]
 
         assert "constraints" not in lists["shots"]
+
+
+class TestValidationSeesTheSnappedValue:
+    """Validation must judge the value the run will use, not the one typed."""
+
+    def _definition(self):
+        definition = workflow_with({"num_frames": H3}, {"num_frames": 124})
+        definition["steps"][0]["task"]["arguments"] = {"n": "variable:num_frames"}
+        return definition
+
+    def test_expanded_definition_carries_the_snapped_value(self, tmp_path):
+        workflow = workflow_from_definition(self._definition(), str(tmp_path))
+        expanded = workflow.expanded_definition({"num_frames": 130})
+        assert expanded["steps"][0]["task"]["arguments"]["n"] == 141
+        # Checks that fall back to the workflow's variables (vram_estimate)
+        # must see the snapped value too
+        assert expanded["variables"]["num_frames"] == 141
+
+    def test_expanding_emits_no_warning_and_does_not_raise_on_a_refusal(self, tmp_path):
+        from unittest.mock import patch
+
+        workflow = workflow_from_definition(self._definition(), str(tmp_path))
+        with patch("dw.events.emit_warning") as emitted:
+            workflow.expanded_definition({"num_frames": 130})
+            workflow.expanded_definition({"num_frames": 61})
+        emitted.assert_not_called()
+
+    def test_a_list_entry_value_is_snapped_at_validate_time(self, tmp_path):
+        definition = workflow_with_shots(
+            {"num_frames": H3}, [{"name": "a", "num_frames": 130}]
+        )
+        workflow = workflow_from_definition(definition, str(tmp_path))
+        expanded = workflow.expanded_definition()
+        # The step reads the entry's `num_frames` field as `frames`
+        # (workflow_with_shots's fixed argument name), so the snapped value
+        # shows up there, not under the entry's own field name.
+        assert 141 in _values_under(expanded["steps"], "frames")
+
+
+def _values_under(node, key):
+    found = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == key:
+                found.append(v)
+            found.extend(_values_under(v, key))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_values_under(item, key))
+    return found

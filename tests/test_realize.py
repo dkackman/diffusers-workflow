@@ -344,3 +344,13 @@ class TestReadSubWorkflow:
         )
 
         assert json.loads(raw) == {"id": "c", "steps": []}
+
+
+def test_the_realized_record_carries_the_snapped_value():
+    from dw.realize import realize_workflow
+    from tests.test_variable_constraints import H3, workflow_with
+
+    realized, _ = realize_workflow(
+        workflow_with({"num_frames": H3}, {"num_frames": 124}), {"num_frames": 130}, 1
+    )
+    assert realized["variables"]["num_frames"] == 141

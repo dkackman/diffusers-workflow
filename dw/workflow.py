@@ -48,6 +48,7 @@ from .variable_constraints import (
     constraint_errors,
     constraint_reference_errors,
     resolve_constraint_references,
+    snap_constraints,
 )
 from .result_fps import fps_errors
 from .shots import duplicate_shot_names, shot_references, step_shots
@@ -518,6 +519,10 @@ class Workflow:
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
             variables = resolve_variable_values(variables)
+            # Validate what the run will use: a snap-up rule rounds before
+            # substitution there, so it must here too
+            snap_constraints(definition, variables)
+            definition["variables"] = variables
             definition = replace_variables(definition, variables)
         return expand_for_each(definition, source_indices)
 
