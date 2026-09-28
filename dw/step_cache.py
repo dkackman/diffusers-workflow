@@ -62,6 +62,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from .pipeline_processors.pipeline import component_names
+
 logger = logging.getLogger("dw")
 
 # Monotonic across the process: every put stamps its entry, and a downstream
@@ -109,7 +111,7 @@ def referenced_result_names(steps):
     return names
 
 
-def borrowed_pipeline_keys(steps, index):
+def borrowed_pipeline_keys(steps, index, pipeline_keys):
     """The earlier steps step `index` borrows its pipeline from, by name, to
     that step's pipeline_cache_key.
 
@@ -121,16 +123,15 @@ def borrowed_pipeline_keys(steps, index):
     model change a miss here too, rather than a stale hit that republishes a
     now-wrong pipeline.
 
-    Resolved statically from `steps[:index]`, the same list the run loop
-    iterates - cache_hits (the free probe) never populates a runtime
-    pipeline-key map, so this cannot depend on one.
+    The keys come from `pipeline_keys` (step name -> pipeline_cache_key),
+    computed from the definition before any step ran, never from
+    `steps[:index]` as they stand now: a load edits its own definition in
+    place, and a source step that loaded before this lookup (a cold run) and
+    one that did not (a deferred cache hit) would otherwise hash to
+    different keys, and the borrowing step would never match its own entry.
+    Which steps are borrowed is still resolved statically from
+    `steps[:index]`, the same list the run loop iterates.
     """
-    # Imported locally: dw.workflow imports step_cache at module level, and
-    # pipeline_cache_key lives in dw.workflow, so a module-level import here
-    # would be circular.
-    from .workflow import pipeline_cache_key
-    from .pipeline_processors.pipeline import component_names
-
     step = steps[index]
     earlier_steps = steps[:index]
     borrowed = {}
@@ -141,7 +142,7 @@ def borrowed_pipeline_keys(steps, index):
         if reference_name:
             for earlier in earlier_steps:
                 if earlier.get("name") == reference_name and "pipeline" in earlier:
-                    borrowed[reference_name] = pipeline_cache_key(earlier["pipeline"])
+                    borrowed[reference_name] = pipeline_keys[reference_name]
                     break
 
     pipeline_definition = step.get("pipeline")
@@ -152,7 +153,7 @@ def borrowed_pipeline_keys(steps, index):
                 if earlier_pipeline and name in component_names(
                     earlier_pipeline, "shared_components"
                 ):
-                    borrowed[earlier["name"]] = pipeline_cache_key(earlier_pipeline)
+                    borrowed[earlier["name"]] = pipeline_keys[earlier["name"]]
                     break
 
     return borrowed

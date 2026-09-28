@@ -259,6 +259,23 @@ def pipeline_cache_key(pipeline_definition):
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
+def step_pipeline_keys(steps):
+    """Step name -> pipeline_cache_key for every pipeline step, taken before
+    any step runs.
+
+    Pipeline.load edits the definition it is handed (placement resolves a
+    group_offload block in place, a LoRA entry is consumed), so a key hashed
+    after a step loaded is not the key the same step hashes to when it never
+    loaded - a deferred cache hit, or the cache_hits probe. A key that has to
+    agree across those cases is read from this table, not re-hashed.
+    """
+    return {
+        step_data["name"]: pipeline_cache_key(step_data["pipeline"])
+        for step_data in steps
+        if "pipeline" in step_data
+    }
+
+
 def _allocated_mb():
     """Device memory in use right now, for the pipeline_released event -
     None where the backend cannot say, so a reading is never confused with
@@ -1136,12 +1153,14 @@ class Workflow:
         step_seed,
         hits_this_run,
         cache_enabled,
+        pipeline_keys,
     ):
         """Whether the step cache serves step `index`, as (cached_result or
         None, the step_data snapshot the entry is keyed on or None, whether
         a later step still reads this one's result, the names later steps
         still reference). Shared by run() and cache_hits() - see
-        _prepare_definition for why.
+        _prepare_definition for why. `pipeline_keys` is step_pipeline_keys
+        of `steps`, taken before the first step ran.
         """
         # What later steps still read, which decides both whether this
         # step's result has to be kept alive after the step (release_unreferenced_results
@@ -1178,7 +1197,7 @@ class Workflow:
                 # model - only the source step's does - so without this a
                 # source model change would leave the borrowing step's
                 # snapshot unchanged and serve a stale hit
-                borrowed = borrowed_pipeline_keys(steps, index)
+                borrowed = borrowed_pipeline_keys(steps, index, pipeline_keys)
                 if borrowed:
                     step_data_snapshot["__borrowed_pipelines__"] = borrowed
             except Exception as ex:
@@ -1233,6 +1252,9 @@ class Workflow:
                 return []
             steps = workflow_def.get("steps", [])
             realize_args(steps, base_dir)
+            # The same table run() takes at the same point, so a borrowed
+            # key here is the key the run stored its entry under
+            pipeline_keys = step_pipeline_keys(steps)
             hits_this_run = set()
             hits = []
             for index, step_data in enumerate(steps):
@@ -1245,6 +1267,7 @@ class Workflow:
                     step_seed,
                     hits_this_run,
                     True,
+                    pipeline_keys,
                 )
                 if cached_result is not None:
                     hits_this_run.add(step_data["name"])
@@ -1471,12 +1494,9 @@ class Workflow:
             # last run (every step sharing a changed model variable has the
             # old key as its prior key and none has it as its current one),
             # and not a key some step of a past, unrelated workflow left in
-            # the cross-job _prior_step_keys map
-            self._running_pipeline_keys = {
-                step_data["name"]: pipeline_cache_key(step_data["pipeline"])
-                for step_data in steps
-                if "pipeline" in step_data
-            }
+            # the cross-job _prior_step_keys map. Taken before any load edits a
+            # definition, it is also the table every borrowed-key lookup reads
+            self._running_pipeline_keys = step_pipeline_keys(steps)
 
             run_context.emit(
                 "workflow_start",
@@ -1525,6 +1545,7 @@ class Workflow:
                         step_seed,
                         hits_this_run,
                         cache_enabled_this_run,
+                        self._running_pipeline_keys,
                     )
                 )
                 is_cacheable = step_data_snapshot is not None
@@ -1935,13 +1956,14 @@ class Workflow:
         load followed by its release leaves behind.
         """
         step = steps[index]
-        own_key = getattr(self, "_running_pipeline_keys", {}).get(step["name"])
+        running_keys = getattr(self, "_running_pipeline_keys", {})
+        own_key = running_keys.get(step["name"])
         if own_key is not None and own_key in pipelines:
             # Reused components are resolved only inside load(), and a
             # resident pipeline does not load
             return
         deferred = getattr(self, "_deferred_pipelines", {})
-        borrowed = borrowed_pipeline_keys(steps, index)
+        borrowed = borrowed_pipeline_keys(steps, index, running_keys)
         reference = step.get("pipeline_reference")
         referenced_name = (
             reference.get("reference_name") if isinstance(reference, dict) else None
