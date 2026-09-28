@@ -1331,6 +1331,26 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_does_not_list_a_runs_lock_file(server, tmp_path):
+    """open_run claims a run's directory and version under a '.run.lock'
+    file beside the identity's run directories (dw/runs.py). It is a real,
+    permanent file - not a leftover to prune - so it must never surface as
+    a gallery entry the way a stray sidecar would."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        identity = outputs / "Gyre" / "20260928-120000-aaaaaaaa"
+        identity.mkdir(parents=True)
+        Image.new("RGB", (4, 4)).save(identity / "still.png")
+        (outputs / "Gyre" / ".run.lock").write_bytes(b"")
+
+        listing = client.get("/api/gallery").json()
+        names = {f["name"] for f in listing["files"]}
+        assert names == {"Gyre/20260928-120000-aaaaaaaa/still.png"}
+        assert not any(".run.lock" in name for name in names)
+
+
 def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
     """A generated mp3 answered metadata: null and nothing else, so every
     duration and level check was ffprobe by hand. The route now says what

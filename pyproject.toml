@@ -113,6 +113,10 @@ dependencies = [
     "concurrent-log-handler>=0.9.29",
     "python-dotenv>=1.2.3",
     "packaging>=26.3",
+    # Cross-process lock for claiming a run's directory and version
+    # together (dw/runs.py open_run) - already installed transitively
+    # through huggingface-hub, declared directly since dw imports it too
+    "filelock>=3.12",
 ]
 
 [project.optional-dependencies]

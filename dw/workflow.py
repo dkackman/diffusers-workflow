@@ -70,13 +70,12 @@ from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
     activate_output_root,
-    assign_run_version,
     deactivate_output_root,
     workflow_identity,
     manifest_relative_files,
     new_run_id,
+    open_run,
     output_layout,
-    run_directory,
     write_manifest,
     write_realized_workflow,
 )
@@ -1361,18 +1360,18 @@ class Workflow:
                     run_id = new_run_id(
                         {"workflow": workflow_def, "arguments": arguments}
                     )
-                    self._run_dir = run_directory(
+                    # Directory and version are claimed together, under one
+                    # lock, so two processes opening a run of this workflow
+                    # at once - a CLI run beside a server job - cannot take
+                    # the same directory or the same number
+                    self._run_dir, self._run_version = open_run(
                         self.output_dir, self.file_spec, workflow_id, run_id
                     )
-                    # The run's ordinal among this workflow's runs, taken
-                    # once here and carried into the manifest. Assigning it
-                    # at run time rather than deriving it when the gallery
-                    # asks is what lets a sibling be deleted without
-                    # renumbering the runs that outlive it
-                    self._run_version = assign_run_version(
-                        self.output_dir,
-                        workflow_identity(self.file_spec, workflow_id),
-                    )
+                    # The claimed directory's own name, which may carry a
+                    # '-N' counter when run_id was already taken - the
+                    # manifest and the run_start event must carry the name
+                    # that was actually claimed
+                    run_id = os.path.basename(self._run_dir)
                     logger.debug(
                         f"Run directory: {self._run_dir} (v{self._run_version})"
                     )

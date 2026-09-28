@@ -11,7 +11,7 @@ import pytest
 from dw.runs import (
     FLAT_LAYOUT,
     MANIFEST_FILE_NAME,
-    assign_run_version,
+    open_run,
     record_run_versions,
     OUTPUT_LAYOUT_ENV_VAR,
     RUN_LAYOUT,
@@ -26,6 +26,19 @@ from dw.runs import (
     workflow_identity,
     write_manifest,
 )
+
+
+def _run_dirs(directory):
+    """The run directories directly under an identity folder, sorted.
+
+    open_run claims its directory and version under a '.run.lock' file that
+    sits beside them - a real, permanent sibling, not a run - so a bare
+    `iterdir()` over an identity folder no longer names only run
+    directories. Tests that want "the run directory this workflow wrote"
+    filter on is_dir() rather than adding a lock-file exception per call
+    site.
+    """
+    return sorted(path for path in directory.iterdir() if path.is_dir())
 
 
 class TestIdentity:
@@ -275,7 +288,7 @@ class TestRunDirectories:
         )
         second.run({})
 
-        runs = sorted((tmp_path / "Gyre").iterdir())
+        runs = _run_dirs(tmp_path / "Gyre")
         # Even started in the same second with the same spec, which is what a
         # quick rerun is: the second run never writes into the first's
         # directory
@@ -306,7 +319,7 @@ class TestRunDirectories:
         changed["steps"][0]["pipeline"]["arguments"]["prompt"] = "different"
         Workflow(changed, str(tmp_path), "/w/workflows/Gyre.json").run({})
 
-        runs = sorted((tmp_path / "Gyre").iterdir())
+        runs = _run_dirs(tmp_path / "Gyre")
         assert len(runs) == 2
         for run in runs:
             assert any(name.suffix == ".png" for name in run.iterdir())
@@ -319,7 +332,7 @@ class TestRunDirectories:
         )
         workflow.run({"prompt": "a cat"})
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["workflow"]["identity"] == "ltx2/Gyre"
@@ -356,7 +369,7 @@ class TestRunDirectories:
         class SecondStepPipeline:
             def __call__(self, *args, **kwargs):
                 # The run directory is the only one this workflow wrote
-                run_dir = next((tmp_path / "Gyre").iterdir())
+                run_dir = _run_dirs(tmp_path / "Gyre")[0]
                 manifest = json.loads((run_dir / "manifest.json").read_text())
                 seen["status"] = manifest["status"]
                 seen["steps"] = [entry["step"] for entry in manifest["steps"]]
@@ -420,7 +433,7 @@ class TestRunDirectories:
         workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
         workflow.run({"prompt": "a cat"})
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert isinstance(manifest["seed"], int)
         # and the definition it was built from is untouched, so the next run
@@ -440,7 +453,7 @@ class TestRunDirectories:
         workflow = Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json")
         workflow.run({"prompt": "a cat"})
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert 0 <= manifest["seed"] < 2**53
 
@@ -456,7 +469,7 @@ class TestRunDirectories:
         workflow.validate()
         workflow.run({"seed": "1234"})  # as it arrives from the command line
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["seed"] == 1234
 
@@ -469,7 +482,7 @@ class TestRunDirectories:
         with pytest.raises(Exception):
             workflow.run({})
 
-        run_dir = next((tmp_path / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "failed"
         assert manifest["steps"][0]["step"] == "gen0"
@@ -507,7 +520,7 @@ class TestRunDirectories:
         assert result == []
 
         # Run directory should have been created with completed status
-        run_dir = next((tmp_path / "empty").iterdir())
+        run_dir = _run_dirs(tmp_path / "empty")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["workflow"]["id"] == "empty_steps_test"
@@ -524,7 +537,7 @@ class TestRealizedWorkflow:
             {"prompt": "a cat"}
         )
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         realized = json.loads((run_dir / "workflow.json").read_text())
         assert realized["variables"] == {"prompt": "a cat"}
         assert realized["seed"] == 7
@@ -540,7 +553,7 @@ class TestRealizedWorkflow:
             _workflow_definition(), str(tmp_path), "/w/workflows/ltx2/Gyre.json"
         ).run({})
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["workflow"]["realized"] == "workflow.json"
         assert manifest["workflow"]["prompts"] == []
@@ -553,7 +566,7 @@ class TestRealizedWorkflow:
         del definition["seed"]
         Workflow(definition, str(tmp_path), "/w/workflows/ltx2/Gyre.json").run({})
 
-        run_dir = next((tmp_path / "ltx2" / "Gyre").iterdir())
+        run_dir = _run_dirs(tmp_path / "ltx2" / "Gyre")[0]
         realized = json.loads((run_dir / "workflow.json").read_text())
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert isinstance(realized["seed"], int)
@@ -594,7 +607,7 @@ class TestSubfolders:
         Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         assert (run / "runs_test-gen0.0-0.0.png").is_file()
         assert not any(child.is_dir() for child in run.iterdir())
 
@@ -604,7 +617,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         assert (run / "final" / "runs_test-gen0.0-0.0.png").is_file()
         assert not (run / "runs_test-gen0.0-0.0.png").exists()
         # The manifest still sits at the root of the run
@@ -616,7 +629,7 @@ class TestSubfolders:
         Workflow(
             _foldered_definition("shots/act-1"), str(tmp_path), "/w/workflows/Gyre.json"
         ).run({})
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         assert (run / "shots" / "act-1" / "runs_test-gen0.0-0.0.png").is_file()
 
     def test_step_output_dir_is_the_run_directory_without_a_subfolder(self, tmp_path):
@@ -669,7 +682,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         manifest = json.loads((run / "manifest.json").read_text())
         (entry,) = manifest["steps"]
         assert entry["subfolder"] == "final"
@@ -683,7 +696,7 @@ class TestSubfolders:
         Workflow(_workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         manifest = json.loads((run / "manifest.json").read_text())
         assert manifest["steps"][0]["subfolder"] == ""
 
@@ -698,7 +711,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        first, second = sorted((tmp_path / "Gyre").iterdir())
+        first, second = _run_dirs(tmp_path / "Gyre")
         manifest = json.loads((second / "manifest.json").read_text())
         (entry,) = manifest["steps"]
         assert entry["reused"] is True
@@ -726,7 +739,7 @@ class TestSubfolders:
         Workflow(_foldered_definition(), str(tmp_path), "/w/workflows/Gyre.json").run(
             {}
         )
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         resolved = resolve_output_reference(
             "output:Gyre/latest/final/runs_test-gen0.0-0.0.png", root=str(tmp_path)
         )
@@ -755,7 +768,7 @@ class TestSubfolders:
         ]
         step["result"]["subfolder"] = "item:dest"
         Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
-        (run,) = (tmp_path / "Gyre").iterdir()
+        (run,) = _run_dirs(tmp_path / "Gyre")
         assert (run / "shots" / "a" / "runs_test-gen0@a.0-0.0.png").is_file()
         assert (run / "out" / "runs_test-gen0@b.1-0.0.png").is_file()
         manifest = json.loads((run / "manifest.json").read_text())
@@ -808,7 +821,7 @@ class TestSubfolders:
             ],
         }
         Workflow(parent, str(tmp_path / "out"), str(tree / "Parent.json")).run({})
-        (run,) = (tmp_path / "out" / "Parent").iterdir()
+        (run,) = _run_dirs(tmp_path / "out" / "Parent")
         # The parent step's name leads a composed child's file names, so two
         # steps composing one workflow are told apart by the step that made
         # them rather than by a '-2' suffix (#92)
@@ -865,14 +878,63 @@ class TestRunVersions:
             json.dump(manifest, file)
         return run_dir
 
+    @staticmethod
+    def _open(tmp_path, run_id):
+        """open_run against the 'ltx2/Gyre' identity the rest of this class
+        builds siblings under. workflow_identity(None, "ltx2/Gyre") would
+        flatten the slash, so a file_spec under a 'workflows/ltx2/' tree is
+        used instead, matching the identity 'ltx2/Gyre' _run()'s callers
+        build by hand."""
+        file_spec = str(tmp_path / "workflows" / "ltx2" / "Gyre.json")
+        return open_run(str(tmp_path), file_spec, None, run_id)
+
+    def test_two_runs_with_the_same_id_get_distinct_directories_and_versions(
+        self, tmp_path
+    ):
+        # A collision is what a quick rerun of one spec in the same second
+        # looks like: two opens naming the same run id must not share a
+        # directory or a number
+        first = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        second = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        assert first[0] != second[0]
+        assert (first[1], second[1]) == (1, 2)
+        assert os.path.isdir(first[0]) and os.path.isdir(second[0])
+
+    def test_concurrent_opens_never_share_a_version(self, tmp_path):
+        import threading
+
+        barrier = threading.Barrier(8)
+        results = []
+
+        def opener(i):
+            barrier.wait()
+            results.append(
+                open_run(str(tmp_path), None, "wf", f"20260928-120000-{i:08x}")
+            )
+
+        threads = [threading.Thread(target=opener, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert sorted(version for _, version in results) == list(range(1, 9))
+
+    def test_the_first_run_is_version_one_even_though_its_own_directory_exists(
+        self, tmp_path
+    ):
+        # The last test matters: the run's own freshly claimed,
+        # manifest-less directory must not be ranked as an older sibling
+        _, version = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        assert version == 1
+
     def test_the_first_run_of_a_workflow_is_version_one(self, tmp_path):
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 1
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 1
 
     def test_the_next_run_takes_the_number_after_the_newest(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
         self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
         self._run(str(identity), "20260902-120000-bbbbbbbb", version=2)
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 3
 
     def test_a_deleted_middle_run_leaves_a_gap_rather_than_renumbering(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -884,7 +946,7 @@ class TestRunVersions:
             "20260901-120000-aaaaaaaa": 1,
             "20260903-120000-cccccccc": 3,
         }
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 4
 
     def test_runs_started_in_the_same_second_still_number_upward(self, tmp_path):
         # Run ids are chronological only across seconds - within one second
@@ -893,7 +955,7 @@ class TestRunVersions:
         identity = tmp_path / "ltx2" / "Gyre"
         self._run(str(identity), "20260901-120000-dddddddd", version=1)
         self._run(str(identity), "20260901-120000-aaaaaaaa", version=2)
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 3
 
     def test_runs_predating_the_field_are_ranked_by_run_id(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -960,7 +1022,7 @@ class TestRunVersions:
             "20260901-120000-ffffffff": 5,
             "20260901-120005-aaaaaaaa": 7,
         }
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 8
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 8
 
     def test_a_rerun_counter_sorts_as_a_number(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -998,20 +1060,22 @@ class TestRunVersions:
         identity = tmp_path / "ltx2" / "Gyre"
         for day in (1, 2, 3):
             self._run(str(identity), f"2026090{day}-120000-aaaaaaaa")
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 4
         for day, version in ((1, 1), (2, 2), (3, 3)):
             manifest_path = identity / f"2026090{day}-120000-aaaaaaaa" / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
             assert manifest["version"] == version
             # the rest of the record is untouched
             assert manifest["status"] == "completed"
-        # now deleting the oldest renumbers nothing
+        # now deleting the oldest renumbers nothing - the run opened above
+        # is itself a sibling now, recorded at 4
         import shutil
 
         shutil.rmtree(str(identity / "20260901-120000-aaaaaaaa"))
         assert run_versions(str(identity)) == {
             "20260902-120000-aaaaaaaa": 2,
             "20260903-120000-aaaaaaaa": 3,
+            "20260904-120000-eeeeeeee": 4,
         }
 
     def test_an_output_reference_can_name_a_run_by_its_version(self, tmp_path):
