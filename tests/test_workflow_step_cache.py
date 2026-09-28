@@ -467,6 +467,118 @@ def test_release_pipeline_on_a_hit_that_loaded_nothing_emits_no_release(tmp_path
             p.stop()
 
 
+def _loading_recorder(names):
+    """A Pipeline.load stand-in that keeps the sharing contract and records
+    which pipeline loaded, by its model name, in order."""
+
+    def load(self, shared_components):
+        names.append(
+            self.pipeline_definition.get("from_pretrained_arguments", {}).get(
+                "model_name"
+            )
+        )
+        _mock_pipeline_load_with_sharing(self, shared_components)
+
+    return load
+
+
+def _run_recording_loads(tmp_path, definition, argument_sets):
+    """Runs the definition once per argument set with no pipelines carried
+    between runs, and returns (loads per run, executed steps per run)."""
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    loads, executed = [], []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        executed[-1].append(self.name)
+        return FakeResult()
+
+    with patch.object(Step, "run", fake_step_run):
+        for arguments in argument_sets:
+            loads.append([])
+            executed.append([])
+            with patch.object(Pipeline, "load", _loading_recorder(loads[-1])):
+                workflow.run(arguments)
+    return loads, executed
+
+
+def test_a_hit_whose_components_only_a_later_hit_reuses_loads_nothing(tmp_path):
+    """B reuses A's component, but B is itself a hit - nothing this run calls
+    either pipeline, so neither loads."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _shared_components_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "first"}],
+    )
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_a_deferred_hit_loads_before_a_cold_step_that_reuses_its_components(
+    tmp_path,
+):
+    """A hits and B misses: A's pipeline loads once, ahead of B, so B's load
+    finds the component A shares."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _shared_components_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "second"}],
+    )
+    assert executed[1] == ["B"]
+    assert loads[1] == ["model-a", "model-b"]
+
+
+def test_a_deferred_hit_loads_before_a_cold_step_that_references_its_pipeline(
+    tmp_path,
+):
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _pipeline_reference_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "second"}],
+    )
+    assert executed[1] == ["B"]
+    assert loads[1] == ["model-a"]
+
+
+def test_a_fully_cached_pipeline_reference_rerun_loads_nothing(tmp_path):
+    """A hit on the referencing step must not demand the referenced pipeline
+    when that pipeline was deferred - nothing will call it."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _pipeline_reference_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "first"}],
+    )
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_a_cold_step_loads_a_deferred_chain_of_borrowed_components(tmp_path):
+    """C reuses B's component and B reuses A's: loading B for C needs A's
+    component published first, even though C names only B."""
+    definition = _shared_components_workflow_def()
+    definition["variables"]["prompt_c"] = "x"
+    definition["steps"][1]["pipeline"]["shared_components"] = ["vae"]
+    definition["steps"][1]["pipeline"]["arguments"]["prompt"] = "fixed b"
+    definition["steps"].append(
+        {
+            "name": "C",
+            "pipeline": {
+                "configuration": {"component_type": "{MockPipeline}"},
+                "from_pretrained_arguments": {"model_name": "model-c"},
+                "reused_components": ["vae"],
+                "arguments": {"prompt": "variable:prompt_c"},
+            },
+        }
+    )
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        definition,
+        [{"prompt_c": "first"}, {"prompt_c": "second"}],
+    )
+    assert executed[1] == ["C"]
+    assert loads[1] == ["model-a", "model-b", "model-c"]
+
+
 def test_workflow_without_a_seed_skips_the_step_cache_entirely(tmp_path):
     """A workflow that names no seed draws a fresh one every run, so no
     step can ever hit - it must not pay the deepcopy or pin a Result."""

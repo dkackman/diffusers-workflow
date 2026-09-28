@@ -1282,6 +1282,11 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
+        # Step name -> (step_data, seed) for each cache hit whose pipeline was
+        # not resident and so was not loaded. Per run: a persistent worker
+        # reuses this Workflow across jobs, and what one run deferred says
+        # nothing about what the next has resident
+        self._deferred_pipelines = {}
         # Last run's step->key map: a redefined step's old model is evicted
         # BEFORE its replacement loads, or the transition holds both at once
         self._prior_step_keys = prior_step_keys or {}
@@ -1536,21 +1541,19 @@ class Workflow:
                 # shared_components for a later reusing step, and records the
                 # step's pipeline key for release_pipeline and
                 # pipeline_reference to address it by. Loading is not
-                # bookkeeping: a hit whose pipeline is not resident loads it
-                # only when a later step of this run borrows it (its
-                # pipeline, or components it shares), since nothing else
-                # will call it
-                hit_needs_no_pipeline = cached_result is not None and not any(
-                    step_data["name"] in borrowed_pipeline_keys(steps, j)
-                    for j in range(i + 1, len(steps))
-                )
+                # bookkeeping: a hit whose pipeline is not resident defers
+                # it, and it loads only when a step that actually runs
+                # borrows it - whether a later step will be a hit too is not
+                # known until that step's own lookup
+                if cached_result is None:
+                    self._load_deferred_borrows(steps, i, shared_components, pipelines)
                 step_action = self.create_step_action(
                     step_data,
                     shared_components,
                     pipelines,
                     step_seed,
                     get_device(),
-                    cache_hit=hit_needs_no_pipeline,
+                    cache_hit=cached_result is not None,
                 )
                 if isinstance(step_action, Workflow):
                     # The child reports into this run's counter rather than
@@ -1605,6 +1608,10 @@ class Workflow:
                     if release
                     else None
                 )
+                if release:
+                    # A released step is not loaded for a later borrower,
+                    # exactly as its pipeline would not be there to borrow
+                    self._deferred_pipelines.pop(step.name, None)
                 # A hit that loaded nothing holds nothing: announcing a
                 # release would report a drop that never happened. Not gated
                 # on the pop alone - a sub-workflow step has no pipeline key,
@@ -1906,6 +1913,31 @@ class Workflow:
             self._pipeline_keys_by_step = {}
         self._pipeline_keys_by_step[step_name] = cache_key
 
+    def _load_deferred_borrows(self, steps, index, shared_components, pipelines):
+        """Load, in step order, every deferred pipeline step `index` borrows.
+
+        Through create_step_action's cold path, so a lazy load is a load like
+        any other: the loading phase, the touch, the superseded-key release
+        and the shared_components publish all happen as they would have at
+        the deferred step. A deferred step's own deferred borrows load first,
+        since its load resolves the components they share.
+        """
+        deferred = getattr(self, "_deferred_pipelines", {})
+        borrowed = borrowed_pipeline_keys(steps, index)
+        # Ascending, so a source's own earlier borrows never come later in
+        # this list
+        for source_index, source in enumerate(steps[:index]):
+            name = source.get("name")
+            if name not in borrowed or name not in deferred:
+                continue
+            self._load_deferred_borrows(
+                steps, source_index, shared_components, pipelines
+            )
+            step_data, step_seed = deferred.pop(name)
+            self.create_step_action(
+                step_data, shared_components, pipelines, step_seed, get_device()
+            )
+
     def create_step_action(
         self,
         step_definition,
@@ -1918,10 +1950,12 @@ class Workflow:
         """
         Creates the appropriate action object based on step type:
         - Pipeline: Creates new pipeline or reuses cached one. With
-          cache_hit (a step-cache hit no later step borrows from), a pipeline
-          that is not already resident is not loaded: its key is recorded and
-          touched, and None is returned
-        - Pipeline reference: References existing pipeline
+          cache_hit (a step-cache hit), a pipeline that is not already
+          resident is not loaded: its key is recorded and touched, the step
+          is deferred for a later step that runs to load, and None is
+          returned
+        - Pipeline reference: References existing pipeline; on a cache hit
+          whose referenced pipeline is not resident, None
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
         """
@@ -1937,7 +1971,11 @@ class Workflow:
             if cache_hit and cache_key not in previous_pipelines:
                 # A hit needs the key recorded (release_pipeline and
                 # pipeline_reference address it by name), not the weights:
-                # nothing this run does will call the pipeline
+                # nothing calls the pipeline unless a step that runs borrows
+                # it, and that step loads it then
+                if not hasattr(self, "_deferred_pipelines"):
+                    self._deferred_pipelines = {}
+                self._deferred_pipelines[step_name] = (step_definition, default_seed)
                 return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
@@ -2058,6 +2096,10 @@ class Workflow:
             pipeline_reference = step_definition["pipeline_reference"]
             reference_name = pipeline_reference["reference_name"]
             referenced_key = self._pipeline_keys_by_step.get(reference_name)
+            if cache_hit and reference_name in getattr(self, "_deferred_pipelines", {}):
+                # The referenced step was a hit that deferred its load, and
+                # this step's result is cached too: nothing will call it
+                return None
             if referenced_key is None or referenced_key not in previous_pipelines:
                 raise ValueError(
                     f"pipeline_reference '{reference_name}' does not name an "
