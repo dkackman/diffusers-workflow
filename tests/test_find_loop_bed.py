@@ -19,7 +19,7 @@ from dw.result import AudioTrack
 from dw.scalar_result_validation import scalar_result_errors
 from dw.task_domains import task_argument_errors
 from dw.tasks.audio_utils import _PERIODICITY_MAX_HZ, _PERIODICITY_MIN_HZ, _harmonicity
-from dw.tasks.loop_bed import find_loop_bed
+from dw.tasks.loop_bed import _occupied_rate, find_loop_bed
 from dw.tasks.task import task_command_info
 from dw.workflow import Workflow
 
@@ -243,6 +243,41 @@ class TestIntermittentVoice:
         control = find_loop_bed(track(self._bed(voiced=False)))["rejected"]
 
         assert voiced["tonal"] > control["tonal"]
+
+
+class TestAnUpsampledBed:
+    """A bed resampled up to a mix's rate has an empty band above its own
+    Nyquist, which spectral flatness reads as tonal whatever the material:
+    a 16 kHz bed mixed at 24 kHz read tonal in every window, and a voice
+    under it filled the band and read as noise (#544). Flatness is measured
+    over the band the material occupies, as bleed_join's is (#198)."""
+
+    @staticmethod
+    def _upsampled(seed=21, seconds=4.0, native=SR // 2, dbfs=-78.0):
+        """Noise made at `native` and band-limited up to SR by zero-padding
+        its spectrum - what a resampler leaves above the old Nyquist."""
+        rng = numpy.random.default_rng(seed)
+        low = noise(rng, int(seconds * native), dbfs)
+        spectrum = numpy.fft.rfft(low)
+        length = int(seconds * SR)
+        padded = numpy.zeros(length // 2 + 1, dtype=complex)
+        padded[: spectrum.shape[0]] = spectrum
+        return numpy.fft.irfft(padded, n=length) * (SR / native)
+
+    def test_the_occupied_band_is_measured(self):
+        rate = _occupied_rate(self._upsampled(), SR)
+        assert rate is not None
+        assert SR // 2 <= rate < 0.6 * SR
+
+    def test_a_full_band_source_is_left_alone(self):
+        rng = numpy.random.default_rng(22)
+        assert _occupied_rate(noise(rng, 4 * SR, -78.0), SR) is None
+
+    def test_upsampled_noise_is_still_a_bed(self):
+        result = find_loop_bed(audio=track(self._upsampled()))
+        assert result["rejected"]["tonal"] == 0
+        assert result["candidates"]
+        assert all(c["flatness"] >= 0.3 for c in result["candidates"])
 
 
 class TestRejectedIsATallyOfEveryWindow:
