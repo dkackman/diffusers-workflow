@@ -212,16 +212,24 @@ def test_a_warning_helper_that_raises_refuses_nothing(server, monkeypatch):
         raise RuntimeError("probe exploded")
 
     monkeypatch.setattr(Workflow, "shot_span_warnings", exploding)
+    # The helper after the one that raises - its warning must still arrive
+    monkeypatch.setattr(
+        Workflow,
+        "inherited_vram_warnings",
+        lambda self, *args, **kwargs: ["sentinel after the failure"],
+    )
     with server() as client:
         answer = client.post(
             "/api/validate?sizes=false", json={"workflow": valid_workflow()}
         ).json()
         assert answer["valid"] is True, answer
         assert any("sets no 'seed'" in w for w in answer["warnings"])
+        assert "sentinel after the failure" in answer["warnings"]
 
         submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
         assert submitted.status_code == 201, submitted.text
         assert any("sets no 'seed'" in w for w in submitted.json()["warnings"])
+        assert "sentinel after the failure" in submitted.json()["warnings"]
 
 
 def test_a_check_failing_after_loading_is_not_called_a_construction_failure(

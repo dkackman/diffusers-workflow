@@ -19,8 +19,7 @@ belong, and generated media does not belong in a source tree at all.
 
 ## Which directory is used
 
-The workspace is resolved by whatever runs the work - `dw.serve` (and the
-in-process `dw.validate` / `dw.test`). `python -m dw.run` is a client of a
+The workspace is resolved by `dw.serve`. `python -m dw.run` is a client of a
 running `dw.serve`, so it resolves no directory of its own: its jobs land in
 the server's workspace. First match wins:
 
