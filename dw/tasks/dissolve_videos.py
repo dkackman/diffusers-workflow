@@ -63,9 +63,10 @@ def dissolve_videos(
             (asset:/output:/literal path) size disagreement is refused at
             validate; one only known at run time still fails there (#504).
             To fit the odd video: `video_frames` to get its frames,
-            `resize_rescale`/`resize_center_crop` to the target size, then
-            `pair_audio(fit="video")` to put its soundtrack back before
-            passing it here (#551). Soundtracks at different sample rates
+            `resize_rescale` to the target size (`resize_center_crop` squares
+            the frame first and then stretches it, distorting a non-square
+            target), then `pair_audio(fit="video")` to put its soundtrack
+            back before passing it here (#551). Soundtracks at different sample rates
             are not a constraint - see `sample_rate` below
         dissolve_frames: Frames of overlap at each seam. 0 is a hard cut
         fade_in_frames: Frames over which the first video rises out of

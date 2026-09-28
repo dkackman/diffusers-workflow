@@ -7,10 +7,13 @@ N is WxH, video M is WxH". Unlike a sample-rate mismatch (#108/#287), which is
 auto-resampled with a warning, neither join task resizes a mismatched video
 for you - Don declined a resize/fit argument on the join tasks themselves
 (#504, #512) - so the fix is upstream of the join: `video_frames` to get the
-odd video's frames, `resize_rescale`/`resize_center_crop` to the target size,
-then `pair_audio(fit="video")` to put its soundtrack back before passing it
-to `dissolve_videos`/`concat_videos` (#551). The only thing to move earlier
-is the refusal itself.
+odd video's frames, `resize_rescale` to the target size (`resize_center_crop`
+squares the frame first and then stretches it, distorting a non-square
+target), then `pair_audio(fit="video")` to put its soundtrack back before
+passing it to `dissolve_videos`/`concat_videos` (#551). The served error
+message names the route too, since a consumer runs into this at validate,
+not by reading this module. The only thing to move earlier is the refusal
+itself.
 
 Moved here, into `validation_errors`, for exactly the cases a size is
 knowable without running anything: an `asset:`/`output:` reference, a
@@ -102,11 +105,14 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
             if isinstance(name, str) and MEMBER_SEPARATOR in name
             else ""
         )
+        fit_width, fit_height = first_size
         errors.append(
             {
                 "path": render_path(("steps", source, "task", "arguments", "videos")),
                 "message": f"{command} needs every video at one size: "
-                f"{', '.join(problems)}{where}",
+                f"{', '.join(problems)}{where} - fit the odd one with "
+                f"video_frames → resize_rescale(width={fit_width}, "
+                f'height={fit_height}) → pair_audio(fit="video")',
             }
         )
     return errors
