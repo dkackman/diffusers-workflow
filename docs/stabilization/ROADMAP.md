@@ -35,6 +35,15 @@ Two kinds, kept small on purpose.
 
 Deliberately not adopted: function points, maintainability index, Halstead, coverage %, and comment density.
 
+**Every gate report carries the full metrics table.** It has one column per gate, starting with "before Phase 0" (`3afd70e9`), so the trend reads left to right. The rows are:
+
+- every ratchet;
+- functions over cyclomatic complexity 15 and over 30;
+- the complexity distribution (function count, median, mean, and how many functions exceed 10, 15, 20 and 30);
+- the ten most complex functions, with file:line.
+
+`scripts/arch_report.py` (Phase 1) produces it for any commit or tag. Until then it is computed by hand, the way gate 0's was.
+
 Each gate is tagged `stabilization-gate-N`, so any report can be recomputed for an earlier gate. Gate 0's reports are computed from its tag once `arch_report.py` exists.
 
 ## Gate reports
@@ -50,6 +59,38 @@ Each gate is tagged `stabilization-gate-N`, so any report can be recomputed for 
   - Task 12: borrowed-pipeline cache keys are hashed from the definition as written, because `Pipeline.load` edits its definition in place.
   Mocks could not see either. A real-model timing stays in every gate.
 - Change-coupling, instability and LCOM4 reports for this gate are computed from the tag once `scripts/arch_report.py` lands in Phase 1.
+
+| Metric (lower is better) | Before Phase 0 (`3afd70e9`) | Gate 0 (`fb03dae3`) |
+| --- | --- | --- |
+| Engine + MCP modules | 133 | 133 |
+| Modules over 1,000 lines | 10 | 10 |
+| Functions over 150 lines | 19 | 19 |
+| Functions over cyclomatic complexity 15 (ruff C901) | 21 | 21 |
+| Functions over cyclomatic complexity 30 (ruff C901) | 4 | 4 |
+| Duplicate-code blocks, cross-file (pylint symilar) | 21 | 21 |
+| Reference-prefix literals | 93 | 93 |
+| Test `patch("dw...")` targets | 284 | 285 |
+| CLAUDE.md lines, all files | 964 | 964 |
+| Import cycles | not measured | not measured (Phase 1) |
+
+The two columns match because Phase 0 fixed correctness, not structure. The 285 includes the metrics script's own test fixture.
+
+Complexity distribution at gate 0 (mccabe, 1,485 functions): median 3, mean 4.2. 69 functions are over 10, 27 over 15, 10 over 20 and 4 over 30. mccabe counts nested functions inside their parent, which is why it reports 27 over 15 where ruff reports 21. ruff scores each function separately, and it is the ratchet.
+
+The ten most complex (mccabe, with nested functions included):
+
+| Complexity | Function |
+| --- | --- |
+| 510 | dw/server/app.py:747 `create_app` |
+| 79 | dw_mcp/server.py:65 `build_server` |
+| 41 | dw/repl_commands.py:644 `WorkflowCommands._workflow_run` |
+| 35 | dw/workflow.py:1279 `Workflow.run` |
+| 28 | dw/arguments.py:103 `realize_args` |
+| 27 | dw/result.py:811 `Result.save_artifact` |
+| 24 | dw/media_info.py:19 `probe_media` |
+| 24 | dw/locations.py:612 `_walk` |
+| 22 | dw/tasks/loop_bed.py:397 `find_loop_bed` |
+| 21 | dw/teacache.py:89 `_create_flux_teacache_forward` |
 
 ## Working rules for the duration
 
