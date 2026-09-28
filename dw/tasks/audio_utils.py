@@ -41,6 +41,12 @@ SLICE_PAD_WARN_MS = 10.0
 SLICE_TRIM_WARN_SECONDS = 10.0
 SLICE_TRIM_WARN_FRACTION = 0.05
 
+# A remainder shorter than this is the rounding frame-aligned slicing
+# produces (or a sub-millisecond seconds-addressed remainder), not a
+# noticeable dropped tail - the same floor SLICE_PAD_WARN_MS applies on the
+# other side of a slice
+SLICE_TRIM_WARN_MIN_MS = 10.0
+
 
 def as_channels_samples(audio):
     """Normalize a waveform to a (channels, samples) float32 numpy array.
@@ -568,11 +574,15 @@ def slice_audio(
         if fps is None:
             raise ValueError("slice_audio needs 'fps' to address a slice in frames")
         start = frames_to_samples(start_frame or 0, fps, sample_rate)
-        length = (
-            max(total - start, 0)
-            if num_frames is None
-            else frames_to_samples(num_frames, fps, sample_rate)
-        )
+        if num_frames is None:
+            length = max(total - start, 0)
+        else:
+            # Round the end frame directly rather than adding two separately
+            # rounded halves - start's and num_frames' - which can each round
+            # down half a sample and together land one sample short of a
+            # slice meant to reach the source's exact end (#557)
+            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            length = end - start
     else:
         raise ValueError(
             "slice_audio needs either 'start_seconds'/'duration_seconds' or "
@@ -779,6 +789,8 @@ def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
     if remainder <= 0:
         return
     remainder_seconds = remainder / float(sample_rate)
+    if remainder_seconds * 1000.0 < SLICE_TRIM_WARN_MIN_MS:
+        return
     if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
         return
     if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:

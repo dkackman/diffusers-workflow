@@ -1377,6 +1377,66 @@ class TestSlicingPastTheEndOfATrack:
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
 
 
+class TestSliceEndingExactlyAtTheSourceReachesIt:
+    """#557: a frame-addressed slice used to round its start and its length
+    separately (round(start_frame) samples + round(num_frames) samples), so
+    a slice meant to reach the source's exact end could land a sample short
+    and fire a 'dropping its tail' warning whose own figures read 0.00 s.
+    The end is now rounded once - round(end_frame * sr / fps) - so a slice
+    whose start_frame + num_frames is the source's own frame count reaches
+    its last sample exactly and warns about nothing.
+    """
+
+    def events_from(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = call()
+        finally:
+            deactivate_context(token)
+        return result, [e for e in events if e.get("kind") == "slice_trimmed_tail"]
+
+    def tone(self, count, rate, channels=1):
+        return numpy.full((channels, count), 0.5, dtype=numpy.float32)
+
+    def test_the_557_repro_lands_exactly_and_warns_nothing(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        # 294 frames @ 24 fps, 44.1 kHz -> 540225 samples total; the second
+        # half (147..294) is exactly the tail the #557 repro sliced
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(540225, 44100),
+                start_frame=147,
+                num_frames=147,
+                fps=24,
+                sample_rate=44100,
+            )
+        )
+
+        assert samples(sliced).shape == (270113, 1)
+        assert warnings == []
+
+    def test_a_sub_ten_millisecond_remainder_says_nothing(self):
+        """Even outside the frame-addressed case, a remainder too short to
+        act on is rounding noise, not a dropped tail worth flagging."""
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(10000, 1000),
+                start_seconds=0,
+                duration_seconds=9.9955,
+                sample_rate=1000,
+            )
+        )
+
+        assert samples(sliced).shape == (9996, 1)
+        assert warnings == []
+
+
 class TestSliceAudioCarriesSourceLevel:
     """#309: a slice out of already-quiet source material (room tone) is not
     a defect the slice introduced - slice_audio measures the source's own
