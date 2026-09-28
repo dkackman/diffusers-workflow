@@ -1,5 +1,5 @@
 """
-Worker process management for REPL.
+Worker process management: the GPU worker's lifecycle for JobManager.
 
 Handles starting, stopping, and communicating with the worker process
 that keeps models loaded in GPU memory.
@@ -14,7 +14,7 @@ from .worker import worker_main
 
 logger = logging.getLogger("dw")
 
-# REPL constants
+# Worker lifecycle timeouts
 WORKER_SHUTDOWN_TIMEOUT_SECONDS = 10
 WORKER_TERMINATE_TIMEOUT_SECONDS = 5
 

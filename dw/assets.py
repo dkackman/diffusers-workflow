@@ -33,8 +33,8 @@ ASSET_DIR_ENV_VAR = "DW_ASSET_DIR"
 # workspaces and each has its own assets, so this cannot be a process-wide
 # environment variable there the way the prompt library can - there is one
 # prompt library, shared, but assets belong to a workspace. Set per job by
-# the worker; unset for the CLI and REPL, which have one workspace per
-# process and read the environment below
+# the worker; unset for the CLI, which has one workspace per
+# process and reads the environment below
 _active_asset_dir = contextvars.ContextVar("dw_asset_dir", default=None)
 
 

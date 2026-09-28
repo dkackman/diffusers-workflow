@@ -1259,8 +1259,8 @@ MiniMax H3 example uses on-demand VAEs for this reason.
 
 #### Releasing a pipeline mid-workflow
 
-Pipelines stay loaded for the whole run (and across REPL runs) so repeated steps reuse
-them. When a workflow chains two large models that cannot both fit - generate with one,
+Pipelines stay loaded for the whole run (and across runs, in the server's persistent
+worker) so repeated steps reuse them. When a workflow chains two large models that cannot both fit - generate with one,
 upscale with another - release the first once its step completes instead of configuring
 offload on everything:
 
@@ -1273,8 +1273,8 @@ offload on everything:
 ```
 
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
-saved. A later `pipeline_reference` to a released step is an error, and the REPL's
-cross-run cache will not retain it.
+saved. A later `pipeline_reference` to a released step is an error, and the process-wide
+step cache will not retain it.
 
 #### Releasing task models mid-workflow
 
@@ -1895,7 +1895,7 @@ beside `minimax-music3` hides half a shelf, and `tests/test_prompt_library.py` s
 the repo's library for a variant.
 
 The library's location is resolved in order: the `DW_PROMPT_DIR` environment
-variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then
+variable (which `--prompt-dir` on `dw.serve` sets), then
 `./prompts` in the working directory when it exists, then the first `prompts/`
 folder found walking up from the workflow file's own directory - which is how
 a repo workflow run from any working directory still reaches the library beside
@@ -1934,7 +1934,7 @@ a `from_file`, a list of any of them, or a task argument that names a file. What
 the path is unchanged; only where the path comes from is.
 
 The library's location is resolved in order: the `DW_ASSET_DIR` environment variable
-(which `--asset-dir` on both `dw.run` and `dw.serve` sets), then the workspace's
+(which `--asset-dir` on `dw.serve` sets), then the workspace's
 `assets/` when a workspace was named explicitly, then `./assets` in the working
 directory when it exists, then the first `assets/` folder found walking up from the
 workflow file's own directory. See [Workspaces](WORKSPACES.md).

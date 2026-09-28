@@ -2,7 +2,7 @@
 results are all unchanged since the last run in this process.
 
 Reusing a loaded pipeline (Workflow.run's previous_pipelines) is only half
-of what makes REPL iteration fast - the other half is not re-running a
+of what makes iteration on the server's persistent worker fast - the other half is not re-running a
 step's forward pass at all when nothing feeding it changed, the way
 Mellon's NodeBase skips a node whose resolved params match its last call
 (deep value equality, not just identity - a step's arguments are plain

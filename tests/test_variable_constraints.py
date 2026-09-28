@@ -349,7 +349,7 @@ class TestAConstraintReachesAListEntry:
         definition["variables"]["tail_len"] = 130  # off the 17n+5 grid; snaps up to 141
         workflow = Workflow(definition, str(tmp_path), "listed.json")
 
-        prepared, _seed = workflow._prepare_definition(
+        prepared, _seed, _recorded = workflow._prepare_definition(
             copy.deepcopy(definition), {}, str(tmp_path)
         )
 

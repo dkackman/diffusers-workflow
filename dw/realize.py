@@ -9,7 +9,9 @@ run 'output:.../latest/...' picked. Everything else - 'asset:', 'constant:',
 'previous_result:', 'builtin:' and a sub-workflow's path - is a name whose
 meaning is pinned by something already recorded (the asset library, the
 manifest's dw_version, the file itself), so it is kept as written and, for a
-local sub-workflow, digested into the manifest instead.
+local sub-workflow, digested into the manifest instead. The one exception is
+the variables block, which records the values the run folded - a variable
+defaulted to a 'constant:' holds the value it realized to there.
 
 Two rules hold this module together. It never mutates its input: the caller
 hands it the definition the run is about to work from. And it never fails a
@@ -33,8 +35,6 @@ from .runs import (
 )
 from .security import SecurityError, validate_workflow_path
 from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
-from .variable_constraints import snap_constraints
-from .variables import set_variables
 
 logger = logging.getLogger("dw")
 
@@ -44,7 +44,7 @@ VARIABLE_PREFIX = "variable:"
 
 def realize_workflow(
     definition,
-    arguments,
+    variables,
     seed,
     base_dir=None,
     prompt_dir=None,
@@ -57,8 +57,11 @@ def realize_workflow(
     Args:
         definition: The workflow as loaded, before Workflow.run's deep copy.
             Never mutated.
-        arguments: The run's argument dict, folded into the variable defaults
-            exactly as `set_variables` folds them for the run itself.
+        variables: The variables as the run folded them - arguments set,
+            list entries' references resolved, snap-up rules applied
+            (`Workflow._prepare_definition`'s recorded variables, or
+            `Workflow.folded_variables`) - or None when none are declared.
+            Recorded as given; the definition stays unexpanded.
         seed: The seed the run resolved - an integer, never None, because
             `Workflow.run` draws one when the workflow names none.
         base_dir: The workflow file's directory, anchoring prompt discovery
@@ -81,14 +84,12 @@ def realize_workflow(
     annotations = {"prompts": [], "sub_workflows": {}}
     realized = copy.deepcopy(definition)
 
+    if isinstance(realized.get("variables"), dict) and isinstance(variables, dict):
+        # Exactly what the run computed - folded by the same stage that
+        # prepared the run, so the record left beside the run's manifest
+        # matches what it used
+        realized["variables"] = copy.deepcopy(variables)
     variables = realized.get("variables")
-    if isinstance(variables, dict):
-        # Exactly what the run computed: set_variables coerces each value to
-        # the type of the declared default and rejects an undeclared name
-        set_variables(arguments or {}, variables)
-        # ...and what the run will actually use once a snap-up rule rounds
-        # it, so the record left beside the run's manifest matches
-        snap_constraints(realized, variables)
 
     realized["seed"] = seed
     # A definition can point its top-level seed at a declared variable

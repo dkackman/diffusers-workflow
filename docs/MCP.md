@@ -1,6 +1,6 @@
 # MCP Server
 
-A fourth way to drive the engine, alongside `dw.run`, `dw.repl`, and
+A third way to drive the engine, alongside `dw.run` and
 `dw.serve`: a stdio [MCP](https://modelcontextprotocol.io) server that lets
 an MCP client — Claude Code first — author, validate, save, run and diagnose
 workflows without shell access or a repo checkout.

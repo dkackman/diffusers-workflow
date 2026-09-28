@@ -1095,7 +1095,7 @@ def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
 def test_submit_job_checks_a_dissolve_asset_against_the_named_workspace(
     tmp_path, monkeypatch
 ):
-    """The same gap as /api/validate, in the pre-queue check _candidate_for
+    """The same gap as /api/validate, in the pre-queue check admission
     runs for POST /api/jobs (and /rerun) - a bad dissolve must be refused
     with a 400 naming the workspace's own asset, not queued because the
     check looked at the pinned default workspace instead."""

@@ -17,8 +17,9 @@ _FORMATTER = logging.Formatter(
 
 def setup_logging(log_path, log_level="INFO", log_to_console=False):
     """Configure the 'dw' logger. Safe to call more than once - existing
-    handlers are replaced, not stacked, so a reconfiguring caller (the REPL
-    worker between runs) does not multiply every line."""
+    handlers are replaced, not stacked, so a reconfiguring caller (the
+    server's persistent worker, configuring again after `import dw` already
+    did) does not multiply every line."""
     logger = logging.getLogger("dw")
     logger.setLevel(LOG_LEVELS.get(log_level, logging.INFO))
 

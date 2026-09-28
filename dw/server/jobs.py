@@ -1,7 +1,7 @@
 """Job queue over the persistent worker process.
 
-One runner thread executes jobs FIFO against the single GPU worker - the
-same WorkerManager the REPL uses. Jobs collect their progress events with
+One runner thread executes jobs FIFO against the single GPU worker, managed
+by WorkerManager. Jobs collect their progress events with
 sequence numbers so an SSE client can attach late (or reconnect) and replay
 from where it left off.
 """
@@ -17,13 +17,9 @@ import uuid
 import logging
 import threading
 
-from ..assets import activate_asset_dir, deactivate_asset_dir
 from ..download_watch import format_progress
-from ..repl_worker import WorkerManager
-from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
-from ..introspection import workflow_argument_warnings
-from ..schema import format_validation_errors
-from ..variables import argument_errors
+from ..worker_manager import WorkerManager
+from ..workflow import SEED_BITS
 from ..security import (
     SecurityError,
     validate_json_size,
@@ -769,23 +765,6 @@ class JobManager:
 
     # ------------------------------------------------------------- submission
 
-    @staticmethod
-    def _validation_errors(loaded, arguments, asset_dir):
-        """`loaded.validation_errors` with this job's asset library active.
-
-        validation_errors() resolves 'asset:' references itself, through
-        dw.assets' default discovery, which dw.serve pins to the default
-        workspace's library - so a named workspace's job would be checked
-        against another workspace's files of the same name. The route's
-        _candidate_for and the worker's execute path activate the same way.
-        """
-        token = activate_asset_dir(asset_dir) if asset_dir else None
-        try:
-            return loaded.validation_errors(arguments=arguments)
-        finally:
-            if token is not None:
-                deactivate_asset_dir(token)
-
     def submit(
         self,
         workflow_path=None,
@@ -800,9 +779,13 @@ class JobManager:
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
+        workflow_name=None,
     ):
-        """Validate a job request and queue it. Raises ValueError on a bad
-        request so the HTTP layer can answer 400 before anything runs.
+        """Record a job request and queue it.
+
+        Callers admit first (`dw.server.admission.admit`). submit records
+        and queues; it does not re-check. Raises ValueError only when the
+        request names neither or both of `workflow_path` and `workflow`.
 
         `workflow_dir` overrides this job's confinement root for a workflow
         that lives outside the writable directory - an example or a builtin,
@@ -822,9 +805,11 @@ class JobManager:
         (none/boolean/bound) and `acknowledged_cost` the bound object - both
         recorded, neither checked here; the route checks (#85).
 
-        `warnings` are the caller's own, added to the job's - the route's
-        inherited VRAM ceiling (#502), which needs the catalog this manager
-        does not hold.
+        `warnings` are the admission's (`Admission.warnings`) - every warning
+        /api/validate reports for this request - recorded on the job.
+
+        `workflow_name` is the admitted workflow's name (`Workflow.name`);
+        without one, an inline definition's `id` and a file's base name.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -837,38 +822,21 @@ class JobManager:
         os.makedirs(job_output_dir, exist_ok=True)
 
         if workflow_path is not None:
-            # Loads and schema-validates now - a bad path or file fails the
-            # request, not the queue. Checked against the caller's arguments,
-            # not the document alone - a bare validate() checks the document
-            # with no arguments and so could refuse a run _candidate_for had
-            # already accepted for the same call (#415, the run_workflow
-            # mirror of #414)
-            loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
-            errors = self._validation_errors(loaded, arguments, asset_dir)
-            if errors:
-                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow_path": workflow_path,
-                "workflow_name": loaded.name,
+                "workflow_name": workflow_name
+                or os.path.splitext(os.path.basename(workflow_path))[0],
                 "arguments": arguments,
                 "workflow_dir": confinement,
             }
         else:
-            # workflow_from_definition validates base_dir - it is HTTP-supplied
-            # path input and goes through the security layer like every path
-            loaded = workflow_from_definition(
-                copy.deepcopy(workflow), job_output_dir, base_dir, confinement
-            )
-            errors = self._validation_errors(loaded, arguments, asset_dir)
-            if errors:
-                raise Exception(format_validation_errors(errors))
             spec = {
                 "workflow": workflow,
                 # Must match workflow_from_definition's fallback - the worker
                 # re-validates this against workflow_dir
                 "base_dir": base_dir
                 or (os.path.abspath(confinement) if confinement else os.getcwd()),
-                "workflow_name": loaded.name,
+                "workflow_name": workflow_name or workflow.get("id", "unknown"),
                 "arguments": arguments,
                 # Must be the same root the worker re-validates base_dir
                 # against (workflow_from_definition -> validate_path) - this
@@ -891,29 +859,7 @@ class JobManager:
         spec["output_dir"] = job_output_dir
         if asset_dir:
             spec["asset_dir"] = asset_dir
-
-        # The caller's own arguments, checked against the variables this
-        # workflow declares. set_variables makes the same check at the top of
-        # the run, so a bad name failed a job that had already been queued -
-        # and a workflow declaring no variables dropped every argument in
-        # silence. Refused here instead, while it is still a 400
-        problems = argument_errors(loaded.workflow_definition, arguments)
-        if problems:
-            raise ValueError(
-                "; ".join(
-                    f"{problem['path']}: {problem['message']}" for problem in problems
-                )
-            )
-
-        # Signature-level check of pipeline arguments - the typo that would
-        # otherwise be a TypeError after the model loads becomes a warning
-        # the client sees at submission
-        spec["warnings"] = workflow_argument_warnings(
-            loaded.workflow_definition, arguments
-        )
-        # What the caller worked out and this manager cannot - a VRAM ceiling
-        # inherited from the catalog needs the workspace's search path (#502)
-        spec["warnings"] += list(warnings or [])
+        spec["warnings"] = list(warnings or [])
 
         job = Job(spec)
         with self._lock:
@@ -1018,50 +964,28 @@ class JobManager:
         name = seed.removeprefix(VARIABLE_PREFIX)
         return name if name in (definition.get("variables") or {}) else None
 
-    def rerun_spec(self, job_id):
+    def rerun_spec(self, job_id, new_seed=False):
         """The spec and arguments a rerun of `job_id` would submit, as
         (spec, arguments), or None for an unknown job - split from rerun()
-        so a route can plan the run before queuing it (#85)."""
+        so a route can admit the run before queuing it (#85).
+
+        `new_seed` draws a fresh seed into the workflow's seed variable
+        (see rerun). Raises ValueError when it cannot, and when the named
+        workspace the job ran in is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
             spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
-            return spec, job.spec.get("arguments", {})
-        historical = self.history.get(job_id)
-        if historical is None:
-            return None
-        spec = {
-            key: historical["spec"][key]
-            for key in RERUN_SPEC_KEYS
-            if key in historical["spec"]
-        }
-        return spec, historical["arguments"]
-
-    def rerun(
-        self, job_id, new_seed=False, acknowledged=ACK_NONE, acknowledged_cost=None
-    ):
-        """Queue a fresh job from a previous job's spec.
-
-        Every root the original ran against (workflow_dir/output_dir/
-        asset_dir/workspace) rides along, not just the workflow identity -
-        otherwise a rerun of a job from a named workspace would fall back to
-        the manager's process-wide default and silently run somewhere else.
-
-        `new_seed` draws a fresh seed into the workflow's seed variable. A
-        plain rerun of a seeded workflow repeats its arguments exactly, which
-        makes every step a step-cache hit: it republishes the earlier run's
-        files in a fraction of a second and generates nothing. That is the
-        cache doing its job - the same seed and the same inputs would produce
-        the same pixels - so the way to actually get another image is to
-        change the seed, and this is that.
-
-        `acknowledged` and `acknowledged_cost` are this request's own; the
-        original's bound object rides along in the spec for the record when
-        the request brought none.
-        """
-        prepared = self.rerun_spec(job_id)
-        if prepared is None:
-            return None
-        spec, arguments = prepared
+            arguments = job.spec.get("arguments", {})
+        else:
+            historical = self.history.get(job_id)
+            if historical is None:
+                return None
+            spec = {
+                key: historical["spec"][key]
+                for key in RERUN_SPEC_KEYS
+                if key in historical["spec"]
+            }
+            arguments = historical["arguments"]
 
         if new_seed:
             variable = self.seed_variable(job_id)
@@ -1083,16 +1007,57 @@ class JobManager:
             and not os.path.isdir(spec["output_dir"])
         ):
             raise ValueError(f"Workspace '{workspace}' the job ran in no longer exists")
+        return spec, arguments
 
+    def rerun(
+        self,
+        job_id,
+        new_seed=False,
+        acknowledged=ACK_NONE,
+        acknowledged_cost=None,
+        warnings=None,
+        arguments=None,
+        workflow_name=None,
+    ):
+        """Queue a fresh job from a previous job's spec.
+
+        Every root the original ran against (workflow_dir/output_dir/
+        asset_dir/workspace) rides along, not just the workflow identity -
+        otherwise a rerun of a job from a named workspace would fall back to
+        the manager's process-wide default and silently run somewhere else.
+
+        `new_seed` draws a fresh seed into the workflow's seed variable. A
+        plain rerun of a seeded workflow repeats its arguments exactly, which
+        makes every step a step-cache hit: it republishes the earlier run's
+        files in a fraction of a second and generates nothing. That is the
+        cache doing its job - the same seed and the same inputs would produce
+        the same pixels - so the way to actually get another image is to
+        change the seed, and this is that.
+
+        Like submit, rerun does not re-check: callers admit first. The route
+        admits the arguments `rerun_spec(job_id, new_seed)` answered and
+        passes them back as `arguments`, with the admission's `warnings` and
+        `workflow_name`, so what is queued is what was admitted - the seed
+        is not drawn twice.
+
+        `acknowledged` and `acknowledged_cost` are this request's own; the
+        original's bound object rides along in the spec for the record when
+        the request brought none.
+        """
+        prepared = self.rerun_spec(job_id, new_seed=new_seed and arguments is None)
+        if prepared is None:
+            return None
+        spec, recorded = prepared
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
-            arguments=arguments,
+            workflow_name=workflow_name,
+            arguments=recorded if arguments is None else arguments,
             base_dir=spec.get("base_dir"),
             workflow_dir=spec.get("workflow_dir"),
             output_dir=spec.get("output_dir"),
             asset_dir=spec.get("asset_dir"),
-            workspace=workspace,
+            workspace=spec.get("workspace"),
             catalog_name=spec.get("catalog_name"),
             acknowledged=acknowledged,
             acknowledged_cost=(
@@ -1100,6 +1065,7 @@ class JobManager:
                 if acknowledged_cost is not None
                 else spec.get("acknowledged_cost")
             ),
+            warnings=warnings,
         )
 
     def queue_position(self, job_id):
@@ -1560,9 +1526,8 @@ class JobManager:
         memory reading taken right after. Callers must check `is_busy()`
         first - this does not itself refuse a running/queued job, and racing
         one would clear state a queued run still expects resident. The
-        30s timeout (vs. `memory_status`'s 5s) matches the REPL's `memory
-        clear` (`repl_commands.py`): actually freeing CUDA memory takes
-        longer than reading a counter does.
+        30s timeout (vs. `memory_status`'s 5s) allows for this: actually
+        freeing CUDA memory takes longer than reading a counter does.
 
         Returns the reading taken after the clear, or None when there was no
         worker to clear - nothing was resident in that case."""

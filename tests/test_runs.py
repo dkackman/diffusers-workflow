@@ -1148,3 +1148,38 @@ class TestRunVersions:
             "20260902-120000-bbbbbbbb": 2,
         }
         assert not (killed / "manifest.json").exists()
+
+    def test_a_parent_swept_between_makedirs_and_the_claim_is_recreated(
+        self, tmp_path, monkeypatch
+    ):
+        # A sibling identity's sweep can remove the empty parent folder
+        # between open_run's os.makedirs(identity_dir) and os.mkdir(candidate).
+        # The claim is retried with the identity directory recreated.
+        import os
+
+        from dw import runs
+
+        RUN_ID = "20260928T000000Z-deadbeef"
+        real_mkdir = os.mkdir
+        swept = []
+
+        def sweep_then_claim(path, *args, **kwargs):
+            # Only the claim itself: os.makedirs calls os.mkdir too
+            if not swept and os.path.basename(path) == RUN_ID:
+                identity_dir = os.path.dirname(path)
+                # what a sibling identity's sweep does to the empty folders
+                os.rmdir(identity_dir)
+                os.rmdir(os.path.dirname(identity_dir))
+                swept.append(identity_dir)
+            return real_mkdir(path, *args, **kwargs)
+
+        monkeypatch.setattr(runs.os, "mkdir", sweep_then_claim)
+        run_dir, version = runs.open_run(
+            str(tmp_path / "outputs"),
+            str(tmp_path / "workflows" / "ltx2" / "b.json"),
+            "b",
+            RUN_ID,
+        )
+        assert swept
+        assert os.path.isdir(run_dir)
+        assert version == 1

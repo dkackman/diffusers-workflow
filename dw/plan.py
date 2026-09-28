@@ -5,9 +5,10 @@ fingerprint over the work, so an acknowledgement can be bound to it and a
 run whose shape changed after consent refused (#85, stage 2).
 
 Everything here is derived from the same resolvers the run uses -
-`realize_workflow` folds the arguments and inlines the prompts, and
-`Workflow.expanded_definition` substitutes and expands `for_each` - so the
-plan describes the run and not an approximation of it. Nothing here knows a
+`Workflow.expanded_definition` folds the arguments, substitutes and expands
+`for_each` through the stages the run prepares with, and `realize_workflow`
+records those folded variables and inlines the prompts - so the plan
+describes the run and not an approximation of it. Nothing here knows a
 model: every minute comes from a `cost` block and every repo name from a
 `from_pretrained_arguments`.
 """
@@ -31,7 +32,6 @@ from .realize import (
     realize_workflow,
 )
 from .security import validate_url
-from .workflow import Workflow
 
 logger = logging.getLogger("dw")
 
@@ -61,7 +61,8 @@ def build_plan(
         candidate: The Workflow the route built - it carries the file spec
             (so base_dir), the output root and the confinement a run has.
         arguments: The caller's arguments, already past `argument_errors`;
-            an undeclared name or an uncoercible value raises here.
+            like validation, bad ones would be left unfolded (the defaults
+            planned) rather than raised here.
         device: The backend that is serving - 'cuda', 'mps' or 'cpu'.
         prompt_dir: The prompt library, for inlining.
         cache_dir: The hub cache to check downloads against; None for the
@@ -93,7 +94,7 @@ def build_plan(
     )
     realized, annotations = realize_workflow(
         definition,
-        arguments,
+        candidate.folded_variables(arguments),
         seed=0,
         base_dir=base_dir,
         prompt_dir=prompt_dir,
@@ -101,11 +102,9 @@ def build_plan(
         workflow_dir=candidate.workflow_dir,
         pin_outputs=False,
     )
-    # Arguments are already folded into the realized variables, so the
-    # expansion takes none; it substitutes and expands exactly as the run
-    expanded = Workflow(
-        realized, candidate.output_dir, candidate.file_spec, candidate.workflow_dir
-    ).expanded_definition()
+    # The expansion validation took, which folds and expands exactly as
+    # the run does (Workflow._fold, Workflow._expand)
+    expanded = candidate.expanded_definition(arguments)
     # The plan is what the run does, and a run does not execute a step
     # nothing reads (dw/elision.py, #122) - so the step count, the downloads
     # and the fingerprint are all taken after elision, and the acknowledged
@@ -115,8 +114,21 @@ def build_plan(
     measured_entries = list_entries(definition, definition)
     step_count = len(expanded.get("steps") or [])
     cache_hits = cached_steps(definition, realized, arguments, cache_probe)
+    # The work includes the text a stored prompt holds now, not only its
+    # name - so the fingerprint is taken over the expansion with each
+    # 'prompt:' inlined, as realization inlines it into the record
+    work, _ = realize_workflow(
+        expanded,
+        None,
+        seed=0,
+        base_dir=base_dir,
+        prompt_dir=prompt_dir,
+        output_root=candidate.output_dir,
+        workflow_dir=candidate.workflow_dir,
+        pin_outputs=False,
+    )
     return {
-        "fingerprint": fingerprint(expanded, definition, annotations),
+        "fingerprint": fingerprint(work, definition, annotations),
         "steps": step_count,
         "elided_steps": elided,
         "list_entries": entries,

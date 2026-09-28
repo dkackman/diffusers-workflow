@@ -117,7 +117,7 @@ def format_validation_errors(errors):
     One error keeps the line every caller already shows -
     'Validation error at <path>: <message>'. Several are listed one per
     line under a single heading, so the text 'Validation error' still
-    appears once per failure (the CLI and the REPL count on that).
+    appears once per failure (the CLI counts on that).
     """
     if len(errors) == 1:
         path, message = errors[0]["path"], errors[0]["message"]

@@ -644,6 +644,11 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
         os.makedirs(identity_dir, exist_ok=True)
         candidate = os.path.join(identity_dir, run_id)
         counter = 1
+        # A sibling identity's sweep can remove the empty parent folder
+        # between os.makedirs and the mkdir claim. Retry on FileNotFoundError
+        # by recreating the identity directory.
+        attempts = 0
+        max_attempts = 3
         while True:
             try:
                 os.mkdir(candidate)
@@ -651,6 +656,11 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
             except FileExistsError:
                 counter += 1
                 candidate = os.path.join(identity_dir, f"{run_id}-{counter}")
+            except FileNotFoundError:
+                attempts += 1
+                if attempts >= max_attempts:
+                    raise
+                os.makedirs(identity_dir, exist_ok=True)
         name = os.path.basename(candidate)
         versions = record_run_versions(identity_dir, exclude=name)
         version = max(versions.values(), default=0) + 1

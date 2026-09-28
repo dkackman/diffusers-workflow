@@ -384,6 +384,19 @@ def apply_constraints(definition, variables):
             raise ValueError(f"{variable}[{index}]: {message}")
 
 
+class ConstraintReferenceError(ValueError):
+    """A `frame_snap: "constraint:x"` naming nothing declared, found while
+    resolving - with the JSON `path` it sits at and the `message`
+    constraint_reference_errors gives it, so validation can report it as a
+    finding. It is only reachable there when the name arrived through a
+    'variable:', which the pre-expansion check cannot see."""
+
+    def __init__(self, path, message):
+        super().__init__(f"{path}: {message}")
+        self.path = path
+        self.message = message
+
+
 def resolve_constraint_references(definition):
     """Replace every `"frame_snap": "constraint:<name>"` with the declared
     constraint's numbers, in place.
@@ -392,8 +405,11 @@ def resolve_constraint_references(definition):
     reports it and validation checks it - rather than twice, with a chain
     step's copy free to drift from it. A name that is not declared is an
     error rather than a silently absent constraint: a chain that snapped to
-    nothing would stitch segments the pipeline refuses.
+    nothing would stitch segments the pipeline refuses. Raises
+    ConstraintReferenceError, at the first such name's path.
     """
+    for problem in constraint_reference_errors(definition):
+        raise ConstraintReferenceError(problem["path"], problem["message"])
     constraints = declared_constraints(definition)
 
     def walk(node):
@@ -405,14 +421,9 @@ def resolve_constraint_references(definition):
             return
         reference = node.get("frame_snap")
         if isinstance(reference, str) and reference.startswith(CONSTRAINT_PREFIX):
-            name = reference[len(CONSTRAINT_PREFIX) :]
-            if name not in constraints:
-                raise ValueError(
-                    f"'frame_snap': '{reference}' names no entry of this "
-                    f"workflow's 'variable_constraints'. Declared: "
-                    + (", ".join(sorted(constraints)) or "<none>")
-                )
-            node["frame_snap"] = snap_block(constraints[name])
+            node["frame_snap"] = snap_block(
+                constraints[reference[len(CONSTRAINT_PREFIX) :]]
+            )
         for value in node.values():
             walk(value)
 

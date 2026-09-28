@@ -12,8 +12,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install
 bash ./install.sh && source ./activate
 
-# Run a workflow - templates/text-to-image.json uses a small, ungated model and a literal
-# prompt, so it needs no Hugging Face login and downloads only a few GB
+# HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
+python -m dw.serve
+
+# Run a workflow - dw.run is a thin client of dw.serve, above; it queues the
+# job over HTTP and never runs one itself. templates/text-to-image.json uses
+# a small, ungated model and a literal prompt, so it needs no Hugging Face
+# login and downloads only a few GB
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 
@@ -25,19 +30,13 @@ python -m dw.validate workflows/models/z-image.json
 
 # System test - downloads SD 1.5 (a few GB) and generates one image
 python -m dw.test
-
-# Interactive REPL
-python -m dw.repl
-
-# HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
-python -m dw.serve
 ```
 
 ## Architecture
 
 ### Server & Web UI
 
-`dw/serve.py` runs a FastAPI app over the same persistent worker the REPL uses,
+`dw/serve.py` runs a FastAPI app over a persistent worker process,
 queueing jobs FIFO and persisting history to `~/.diffusers_helper/jobs.sqlite`.
 See docs/SERVER.md, `dw/server/CLAUDE.md` and `ui/CLAUDE.md`.
 
@@ -58,11 +57,9 @@ code; every number a skill states is pinned to a diffusers symbol by
 `tests/test_plugin_skills.py`. `plugin.json`'s version is the engine's, bumped by
 `scripts/release.sh`. Adding or re-auditing a family is `.claude/skills/model-family-onboarding/`.
 
-### REPL Architecture
+### Worker
 
-The REPL (`dw/repl.py`) uses a **persistent worker subprocess** (`dw/worker.py`) to keep GPU models cached between runs. Communication is via `multiprocessing.Queue`. Worker management is in `dw/repl_worker.py`, command handlers in `dw/repl_commands.py`.
-
-**Critical**: Uses `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
+A **persistent worker subprocess** (`dw/worker.py`), managed by `dw/worker_manager.py`, keeps GPU models cached between runs for `JobManager`. Communication is via `multiprocessing.Queue`, with `multiprocessing.set_start_method("spawn")` for CUDA/MPS compatibility.
 
 ### Workspaces on the server
 
@@ -303,8 +300,8 @@ same reason - default setup cannot load a pack.
   `templates/minimax/dialogue-short` and `music-video` have no per-shot
   variables; a scripted caller passes `shots` (entries
   `{name, prompt, references, num_frames}` and `{name, prompt, start_frame}`).
-  The members are `shot@<name>` in the manifest and the gallery. The CLI and REPL only
-  take `name=value` strings, and a string handed to a list variable is
+  The members are `shot@<name>` in the manifest and the gallery. The CLI only
+  takes `name=value` strings, and a string handed to a list variable is
   comma-split - so `shots` can only be supplied over the API/MCP (a JSON
   body); `python -m dw.run` runs the templates' default list
 - **A reference name is checked for its shape before the queue, and `@` is
@@ -647,7 +644,7 @@ same reason - default setup cannot load a pack.
   without `boundaries`. The mp4 itself carries nothing yet
 - **Step cache**: a process-wide singleton (`dw/step_cache.py`) consulted by every `Workflow.run`, including server jobs; entries are keyed by `(workflow id, step name)` and validated against the output
   *root*, never the per-run directory - a run directory is new every execution and would
-  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `memory clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
+  defeat the cache; disabled entirely when the workflow sets no `seed`; a hit reports the earlier run's files with `reused: true` and writes nothing new; `POST /api/memory/clear` drops it. This is why "Run again" on a seeded workflow finishes instantly and generates nothing - the job page says so when every step was reused, and `POST /api/jobs/{id}/rerun` with `{"new_seed": true}` (MCP `rerun_job(new_seed=True)`) draws a fresh seed into the workflow's seed variable, which is the way to get a different image
 - **Assessment probes measure a finished file and say where to look, and
   decide nothing** (`dw/tasks/assess.py`) - `analyze_shots`,
   `analyze_seams` and `analyze_sync_drift` each read a video streaming

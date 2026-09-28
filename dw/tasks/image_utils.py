@@ -6,7 +6,7 @@ import torch
 
 # cv2, controlnet_aux, transformers and the model-backed task modules are imported
 # inside the functions that use them - at module scope they add seconds to every
-# startup (including the REPL worker spawn and dw.validate) for workflows that
+# startup (including the worker process spawn and dw.validate) for workflows that
 # never touch an image-processing task
 
 

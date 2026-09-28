@@ -2,9 +2,9 @@
 
 This is a declarative workflow engine for the HuggingFace Diffusers library that executes AI model pipelines via JSON configuration files.
 
-## REPL Worker Architecture (NEW)
+## Worker Architecture
 
-The REPL uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
+`dw.serve` uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
 - Worker keeps models loaded in GPU across multiple runs
 - Automatic workflow file change detection (SHA256 hash)
 - Aggressive memory cleanup between runs (gc.collect + torch.cuda.empty_cache)
@@ -14,7 +14,7 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 
 **Key modules:**
 - `dw/worker.py` - Worker process with command loop and memory management
-- `dw/repl.py` - REPL with worker lifecycle (start/stop/restart)
+- `dw/worker_manager.py` - Worker lifecycle (start/stop/restart) for `JobManager`
 - Communication via `multiprocessing.Queue` (command_queue, result_queue)
 
 **Worker commands:** execute, shutdown, ping, clear_memory, memory_status
@@ -97,7 +97,7 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 - **Command safety**: Sanitizes subprocess arguments, blocks shell metacharacters, enforces `shell=False`
 - **URL validation**: Restricts to http/https schemes only
 
-All entry points (run.py, validate.py, repl.py) use security validation. When adding features:
+All entry points (run.py, validate.py, serve.py) use security validation. When adding features:
 - Always validate paths with `validate_path()` or `validate_workflow_path()`
 - Use `validate_variable_name()` for user-provided variable names
 - Sanitize URLs with `validate_url()` before remote loading

@@ -87,8 +87,8 @@ class WorkflowWorker:
         Initialize the worker with communication queues.
 
         Args:
-            command_queue: Queue for receiving commands from REPL
-            result_queue: Queue for sending results back to REPL
+            command_queue: Queue for receiving commands from the parent process
+            result_queue: Queue for sending results back to the parent process
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         """
         self.command_queue = command_queue
@@ -137,7 +137,7 @@ class WorkflowWorker:
         try:
             while True:
                 try:
-                    # Wait for a command from the REPL, but poll with a
+                    # Wait for a command from the parent process, but poll with a
                     # timeout rather than blocking forever. If nothing
                     # arrives, check whether the parent process is still
                     # alive - if it has died (e.g. crashed or was killed)

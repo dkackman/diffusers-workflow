@@ -10,6 +10,13 @@ import pytest
 from dw.realize import realize_workflow, strings_with_prefix
 from dw.runs import new_run_id
 from dw.schema import load_schema, validate_data
+from dw.workflow import Workflow
+
+
+def folded(source, arguments=None):
+    """The variables a run of `source` with `arguments` folds - what the
+    run hands realize_workflow to record."""
+    return Workflow(copy.deepcopy(source), "outputs", None).folded_variables(arguments)
 
 
 def definition():
@@ -55,16 +62,20 @@ def output_root(tmp_path):
 
 class TestVariablesAndSeed:
     def test_arguments_become_the_variable_defaults(self):
-        realized, _ = realize_workflow(definition(), {"prompt": "a cat", "steps": 4}, 7)
+        realized, _ = realize_workflow(
+            definition(), folded(definition(), {"prompt": "a cat", "steps": 4}), 7
+        )
         assert realized["variables"] == {"prompt": "a cat", "steps": 4}
 
     def test_variable_references_are_left_alone(self):
-        realized, _ = realize_workflow(definition(), {"prompt": "a cat"}, 7)
+        realized, _ = realize_workflow(
+            definition(), folded(definition(), {"prompt": "a cat"}), 7
+        )
         arguments = realized["steps"][0]["pipeline"]["arguments"]
         assert arguments["prompt"] == "variable:prompt"
 
     def test_the_seed_is_written_even_when_the_definition_had_none(self):
-        realized, _ = realize_workflow(definition(), {}, 991)
+        realized, _ = realize_workflow(definition(), folded(definition(), {}), 991)
         assert realized["seed"] == 991
 
     def test_a_seed_pinned_through_a_variable_reference_updates_that_variable(self):
@@ -72,7 +83,7 @@ class TestVariablesAndSeed:
         source["seed"] = "variable:seed_arg"
         source["variables"]["seed_arg"] = None
 
-        realized, _ = realize_workflow(source, {}, 991)
+        realized, _ = realize_workflow(source, folded(source, {}), 991)
 
         assert realized["seed"] == 991
         assert realized["variables"]["seed_arg"] == 991
@@ -80,7 +91,7 @@ class TestVariablesAndSeed:
     def test_the_input_definition_is_not_mutated(self):
         original = definition()
         before = copy.deepcopy(original)
-        realize_workflow(original, {"prompt": "a cat"}, 7)
+        realize_workflow(original, folded(original, {"prompt": "a cat"}), 7)
         assert original == before
 
 
@@ -90,7 +101,7 @@ class TestPrompts:
         source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
 
         realized, annotations = realize_workflow(
-            source, {}, 7, prompt_dir=prompt_library
+            source, folded(source, {}), 7, prompt_dir=prompt_library
         )
 
         arguments = realized["steps"][0]["pipeline"]["arguments"]
@@ -104,7 +115,9 @@ class TestPrompts:
             "prompt:scenic/dusk"
         )
 
-        _, annotations = realize_workflow(source, {}, 7, prompt_dir=prompt_library)
+        _, annotations = realize_workflow(
+            source, folded(source, {}), 7, prompt_dir=prompt_library
+        )
 
         assert annotations["prompts"] == ["scenic/dusk"]
 
@@ -113,7 +126,7 @@ class TestPrompts:
         source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:missing"
 
         realized, annotations = realize_workflow(
-            source, {}, 7, prompt_dir=prompt_library
+            source, folded(source, {}), 7, prompt_dir=prompt_library
         )
 
         assert realized["steps"][0]["pipeline"]["arguments"]["prompt"] == (
@@ -130,7 +143,7 @@ class TestOutputReferences:
             "output:ltx2/Gyre/latest/still.png"
         )
 
-        realized, _ = realize_workflow(source, {}, 7, output_root=root)
+        realized, _ = realize_workflow(source, folded(source, {}), 7, output_root=root)
 
         assert realized["steps"][0]["pipeline"]["arguments"]["image"] == (
             f"output:ltx2/Gyre/{run_id}/still.png"
@@ -145,7 +158,7 @@ class TestOutputReferences:
             "output:ltx2/Gyre/v1/still.png"
         )
 
-        realized, _ = realize_workflow(source, {}, 7, output_root=root)
+        realized, _ = realize_workflow(source, folded(source, {}), 7, output_root=root)
 
         assert realized["steps"][0]["pipeline"]["arguments"]["image"] == (
             f"output:ltx2/Gyre/{run_id}/still.png"
@@ -157,7 +170,7 @@ class TestOutputReferences:
         source = definition()
         source["steps"][0]["pipeline"]["arguments"]["image"] = written
 
-        realized, _ = realize_workflow(source, {}, 7, output_root=root)
+        realized, _ = realize_workflow(source, folded(source, {}), 7, output_root=root)
 
         assert realized["steps"][0]["pipeline"]["arguments"]["image"] == written
 
@@ -167,7 +180,7 @@ class TestOutputReferences:
         source = definition()
         source["steps"][0]["pipeline"]["arguments"]["image"] = written
 
-        realized, _ = realize_workflow(source, {}, 7, output_root=root)
+        realized, _ = realize_workflow(source, folded(source, {}), 7, output_root=root)
 
         assert realized["steps"][0]["pipeline"]["arguments"]["image"] == written
 
@@ -185,7 +198,7 @@ class TestReferencesThatAreKept:
         source = definition()
         source["steps"][0]["pipeline"]["arguments"]["thing"] = value
 
-        realized, _ = realize_workflow(source, {}, 7)
+        realized, _ = realize_workflow(source, folded(source, {}), 7)
 
         assert realized["steps"][0]["pipeline"]["arguments"]["thing"] == value
 
@@ -203,7 +216,7 @@ class TestSubWorkflows:
         )
 
         realized, annotations = realize_workflow(
-            source, {}, 7, base_dir=str(tree), workflow_dir=str(tree)
+            source, folded(source, {}), 7, base_dir=str(tree), workflow_dir=str(tree)
         )
 
         assert realized["steps"][1]["workflow"]["path"] == "steps/upscale.json"
@@ -217,7 +230,7 @@ class TestSubWorkflows:
         source["steps"].append({"name": "up", "workflow": {"path": "gone.json"}})
 
         _, annotations = realize_workflow(
-            source, {}, 7, base_dir=str(tree), workflow_dir=str(tree)
+            source, folded(source, {}), 7, base_dir=str(tree), workflow_dir=str(tree)
         )
 
         assert annotations["sub_workflows"] == {"gone.json": None}
@@ -228,7 +241,7 @@ class TestSubWorkflows:
             {"name": "up", "workflow": {"path": "builtin:upscale.json"}}
         )
 
-        realized, annotations = realize_workflow(source, {}, 7)
+        realized, annotations = realize_workflow(source, folded(source, {}), 7)
 
         assert realized["steps"][1]["workflow"]["path"] == "builtin:upscale.json"
         assert annotations["sub_workflows"] == {}
@@ -238,7 +251,9 @@ def test_the_realized_file_validates_against_the_schema(prompt_library):
     source = definition()
     source["steps"][0]["pipeline"]["arguments"]["prompt"] = "prompt:scenic/dusk"
 
-    realized, _ = realize_workflow(source, {"steps": 4}, 991, prompt_dir=prompt_library)
+    realized, _ = realize_workflow(
+        source, folded(source, {"steps": 4}), 991, prompt_dir=prompt_library
+    )
 
     ok, message = validate_data(realized, load_schema("workflow"))
     assert ok, message
@@ -265,7 +280,9 @@ class TestUnpinnedOutputs:
         spec["steps"][0]["pipeline"]["arguments"]["image"] = (
             "output:ltx2/Gyre/latest/still.png"
         )
-        realized, _ = realize_workflow(spec, {}, 7, output_root=root, pin_outputs=False)
+        realized, _ = realize_workflow(
+            spec, folded(spec, {}), 7, output_root=root, pin_outputs=False
+        )
         assert (
             realized["steps"][0]["pipeline"]["arguments"]["image"]
             == "output:ltx2/Gyre/latest/still.png"
@@ -275,7 +292,7 @@ class TestUnpinnedOutputs:
         spec = definition()
         spec["variables"]["prompt"] = "prompt:scenic/dusk"
         realized, annotations = realize_workflow(
-            spec, {}, 7, prompt_dir=prompt_library, pin_outputs=False
+            spec, folded(spec, {}), 7, prompt_dir=prompt_library, pin_outputs=False
         )
         assert realized["variables"]["prompt"] == "a harbour at dusk"
         assert annotations["prompts"] == ["scenic/dusk"]
@@ -350,7 +367,6 @@ def test_the_realized_record_carries_the_snapped_value():
     from dw.realize import realize_workflow
     from tests.test_variable_constraints import H3, workflow_with
 
-    realized, _ = realize_workflow(
-        workflow_with({"num_frames": H3}, {"num_frames": 124}), {"num_frames": 130}, 1
-    )
+    source = workflow_with({"num_frames": H3}, {"num_frames": 124})
+    realized, _ = realize_workflow(source, folded(source, {"num_frames": 130}), 1)
     assert realized["variables"]["num_frames"] == 141

@@ -43,7 +43,7 @@ just doesn't use any of it - it was built against the coarse `GET
 /api/jobs/{id}` status field, not the event log the SSE route already reads.
 
 A worker OOM-kill is, separately, already detected reliably:
-`WorkerManager.crash_details()` (`dw/repl_worker.py`) inspects the dead
+`WorkerManager.crash_details()` (`dw/worker_manager.py`) inspects the dead
 worker's exit code and identifies a negative code consistent with SIGKILL
 within one liveness-poll interval (~1s) of the process dying; `_consume_results`
 (`dw/server/jobs.py:1019-1082`) converts that into a `failed` job with a

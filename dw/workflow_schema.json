@@ -212,7 +212,7 @@
                     "format": "int64"
                 },
                 "release_pipeline": {
-                    "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the REPL's cross-run cache will not retain it.",
+                    "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the persistent worker's cross-run model cache will not retain it.",
                     "type": "boolean"
                 },
                 "release_models": {
