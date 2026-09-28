@@ -25,6 +25,7 @@ from urllib.parse import quote, urlparse
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from filelock import FileLock
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -108,6 +109,7 @@ from ..runs import (
     MANIFEST_FILE_NAME,
     OUTPUT_PREFIX,
     REALIZED_FILE_NAME,
+    _run_lock_path,
     is_output_reference,
     is_run_id,
     kept_provenance,
@@ -3751,6 +3753,23 @@ def create_app(
     # describe the run, and the gallery - which lists media - never shows them
     RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
 
+    def _remove_empty_identity_folders(run_dir, root):
+        """Remove the folders above a deleted run, up to `root`, while empty.
+
+        Under the run lock open_run takes: it creates the identity folder
+        and then claims a run inside it, and removing the folder between
+        the two would fail that run on a path that no longer exists.
+        """
+        identity_dir = os.path.dirname(run_dir)
+        with FileLock(_run_lock_path(identity_dir)):
+            parent = identity_dir
+            while os.path.normpath(parent) != os.path.normpath(root):
+                try:
+                    os.rmdir(parent)
+                except OSError:
+                    break
+                parent = os.path.dirname(parent)
+
     def _prune_empty_run_directory(name, root):
         """Drop the run directory a just-deleted output belonged to, once no
         media is left in it.
@@ -3795,13 +3814,7 @@ def create_app(
         shutil.rmtree(run_dir, ignore_errors=True)
         # And the identity folders above it, while they are empty - a swept
         # workspace should not keep one directory per workflow it once ran
-        parent = os.path.dirname(run_dir)
-        while os.path.normpath(parent) != os.path.normpath(root):
-            try:
-                os.rmdir(parent)
-            except OSError:
-                break
-            parent = os.path.dirname(parent)
+        _remove_empty_identity_folders(run_dir, root)
         logger.info(f"Swept empty run directory {relative}")
         return run_id
 
@@ -3839,13 +3852,7 @@ def create_app(
             # before one of them goes
             record_run_versions(os.path.dirname(run_dir))
             shutil.rmtree(run_dir, ignore_errors=True)
-            parent = os.path.dirname(run_dir)
-            while os.path.normpath(parent) != os.path.normpath(ws.outputs):
-                try:
-                    os.rmdir(parent)
-                except OSError:
-                    break
-                parent = os.path.dirname(parent)
+            _remove_empty_identity_folders(run_dir, ws.outputs)
             logger.info(f"Deleted run directory {name}")
             forget_workspace_usage()
             return {

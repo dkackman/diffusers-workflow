@@ -5718,6 +5718,53 @@ def test_deleting_a_run_opened_through_open_run_still_sweeps_the_identity_folder
         assert not (outputs / "t2i").exists()
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "t2i/20260913-120000-aabbccdd/still-0.png",
+        "t2i/20260913-120000-aabbccdd",
+    ],
+    ids=["last-output", "whole-run"],
+)
+def test_the_sweep_waits_for_a_run_opening_before_removing_the_identity_folder(
+    server, tmp_path, target
+):
+    """open_run creates the identity folder and then claims a run inside it
+    under a lock; a sweep that removed the emptied folder in between would
+    fail that run with FileNotFoundError. So the sweep takes the same lock
+    around the folder's removal."""
+    import threading
+
+    from filelock import FileLock
+    from PIL import Image
+
+    from dw.runs import _run_lock_path
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        identity = outputs / "t2i"
+        run = identity / "20260913-120000-aabbccdd"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "still-0.png")
+        (run / "manifest.json").write_text("{}")
+
+        responses = []
+        with FileLock(_run_lock_path(str(identity))):
+            deleting = threading.Thread(
+                target=lambda: responses.append(client.delete(f"/api/gallery/{target}"))
+            )
+            deleting.start()
+            deleting.join(0.5)
+            # a run opening holds the lock: the folder must still be there
+            assert deleting.is_alive()
+            assert identity.is_dir()
+        deleting.join(5)
+
+        assert not deleting.is_alive()
+        assert responses[0].status_code == 200
+        assert not identity.exists()
+
+
 def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):
     """Only the sidecars may remain: anything else is still something the
     manifest describes, so the directory stays."""
