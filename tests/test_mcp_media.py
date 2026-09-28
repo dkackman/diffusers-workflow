@@ -1046,6 +1046,20 @@ def test_two_selectors_are_refused_before_any_request():
         get_output_frames(client, "x.mp4", at=[0.0], count=4)
 
 
+def test_names_without_seams_is_refused_before_any_request():
+    seen = []
+    client = frames_server([], seen)
+
+    with pytest.raises(DwApiError, match="only appl.* alongside `seams`"):
+        get_output_frames(client, "x.mp4", names=["a", "b"], count=3)
+    with pytest.raises(DwApiError, match="only appl.* alongside `seams`"):
+        get_output_frames(client, "x.mp4", boundaries=[8], at=[0.0])
+    with pytest.raises(DwApiError, match="only appl.* alongside `seams`"):
+        get_output_frames(client, "x.mp4", boundaries=[8], names=["a", "b"], count=3)
+
+    assert seen == []  # refused before any request reached the server
+
+
 def test_tiles_over_budget_are_shrunk_together_and_say_so():
     # three noisy 2048x1024 tiles: well over 4MB base64 between them
     tiles = []
