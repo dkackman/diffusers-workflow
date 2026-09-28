@@ -66,10 +66,17 @@ arguments; the prompt format is MiniMax's, from their text not here.
   audio reference, not a repeated description. Duck a score burying
   voice-over rather than raising the world track - a `gain_audio` step per
   shot, negative `gain_db`.
+- **Dialogue into a song**, not a concat: sing each shot to a `slice_audio`
+  slice, the first at `cue_seconds` (song time on the first sung frame; it
+  enters that long before the cut), each next where the last ended; then
+  `join_into_song` (dialogue, `song_shots`, unbroken `song`, same
+  `cue_seconds`), `normalize_audio` to -3 dBFS, `pair_audio`. Recipe:
+  `workflows` guide, "A spoken scene breaking into a song".
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry, no shared cast, no concat. `keep_output` each
   clip, then `templates/assemble-and-score` cuts and scores.
-- **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3` skill.
+- **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3`
+  skill - its `audio_duration` is a ceiling, not a length.
 
 If none fits, compose from `list_tasks` before authoring a new workflow, and
 read the `workflows` guide's authoring section first.
@@ -126,10 +133,7 @@ read the `workflows` guide's authoring section first.
   SIGKILL near the end where a fresh one would not.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
-- Music3's `audio_duration` is a ceiling: ask for more than needed and trim
-  with `templates/audio-trim-fade`.
-- Write the prompt for the length generated: timestamps should span the
-  duration.
+- Write the prompt for the length generated: timestamps span the duration.
 
 ## Prompts
 
@@ -179,16 +183,12 @@ itself - or every shot inherits the portrait's composition.
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. `get_output_audio` returns sound, not text; to
    confirm a line rendered, use its docstring's transcription route
-   (`validate_workflow` on `templates/transcribe-audio`, `run_workflow` with
-   `acknowledged_cost` bound, `get_output_text`, `delete_output`) - `basis:
-   "unknown"`, quote seconds not minutes.
+   (`templates/transcribe-audio`, then `get_output_text`).
    A `shot_dead_air` finding: bed with `slice_audio`->`loop_audio`->`mix_audio`
-   room tone, not silence.
-   Then `get_gallery_metadata` for duration/audio presence,
-   and hand the user the gallery `url`
-   (`list_gallery`). `get_output_image` works only on image steps - the
-   Z-Image portraits and boards of `dialogue-short`, `storyboard`,
-   `generated-subject-reference` and `music-video`.
+   room tone, not silence. Then `get_gallery_metadata` for duration/audio
+   presence, and hand the user the gallery `url`
+   (`list_gallery`). `get_output_image` works only on image steps (the
+   Z-Image portraits and boards).
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
    `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`

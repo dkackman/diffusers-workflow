@@ -756,6 +756,78 @@ workflow.
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
 
+### A spoken scene breaking into a song
+
+A musical number: spoken shots, each carrying its own dialogue audio, then
+shots lip-synced to one song, with the song entering under the last spoken
+line. A `concat_videos` join is wrong here - it keeps each sung shot's own
+audio, the separate slices it was generated against, where the number wants
+the song unbroken. The task for it is
+[`join_into_song`](TASKS.md#join_into_song) (`get_guide("tasks",
+section="join_into_song")`), and the recipe is four parts:
+
+1. **Pick `cue_seconds`**: the song time that lands on the first sung shot's
+   frame 0. The song enters that long before the cut, under the last line;
+   `0` starts it exactly at the cut. It may not be longer than the dialogue.
+2. **Generate the sung shots against `slice_audio` slices of the song**, as
+   `templates/minimax/music-video` does (its `slice` and `shot` steps). The
+   first slice starts at `cue_seconds`, and each next one starts where the one
+   before it ended, so the slices tile the song with no gap: `start_seconds`
+   is `cue_seconds` plus the length of every sung shot before it
+   (`num_frames / fps` - 24 fps for H3), `duration_seconds` its own length.
+   The shots, not the slices, are what the join reads.
+3. **`join_into_song`** with the dialogue shots, the sung shots, the
+   *unbroken* song and the same `cue_seconds`. It measures the joined
+   dialogue at run time and places the song so `cue_seconds` lands on the
+   first sung frame, ducks the dialogue under it, and discards the sung
+   shots' own audio. It does not set the output level.
+4. **`normalize_audio` to -3 dBFS, then `pair_audio`**, as every template
+   that muxes to video does - the encoder can add up to ~2 dB, and the
+   written-peak warning reads the file.
+
+The tail, with the shots from earlier runs (`output:` or `asset:`) or from
+earlier steps of the same workflow (`previous_result:`, `gather:`):
+
+```json
+{
+    "name": "joined",
+    "task": {
+        "command": "join_into_song",
+        "arguments": {
+            "dialogue": ["asset:scene/line-1.mp4", "asset:scene/line-2.mp4"],
+            "song_shots": ["asset:scene/sung-1.mp4", "asset:scene/sung-2.mp4"],
+            "song": "asset:scene/song.mp3",
+            "cue_seconds": 1.5
+        }
+    }
+},
+{
+    "name": "balanced",
+    "task": {
+        "command": "normalize_audio",
+        "arguments": { "audio": "previous_result:joined", "peak_dbfs": -3.0 }
+    }
+},
+{
+    "name": "number",
+    "task": {
+        "command": "pair_audio",
+        "arguments": {
+            "video": "previous_result:joined",
+            "audio": "previous_result:balanced",
+            "fit": "video"
+        }
+    },
+    "result": { "content_type": "video/mp4", "subfolder": "final" }
+}
+```
+
+`joined` and `balanced` save nothing and are read by later steps, so they run
+and write no file of their own; `number` is the deliverable, and its shot map
+(`get_gallery_metadata`'s `media.shots`) names one shot per input. The frame
+rate comes from the shots themselves - pass `fps` to the join only when none
+of its inputs carries one.
+
 ### Saying which output is the deliverable
 
 A run writes everything into one directory, so a finished episode sits
