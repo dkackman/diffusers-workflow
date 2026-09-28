@@ -70,7 +70,13 @@ from ..prompts import (
     RESERVED_TEXT_PREFIXES,
     resolve_prompt_reference,
 )
-from ..assets import ASSET_PREFIX, is_asset_reference, resolve_asset_reference
+from ..assets import (
+    ASSET_PREFIX,
+    activate_asset_dir,
+    deactivate_asset_dir,
+    is_asset_reference,
+    resolve_asset_reference,
+)
 from ..variable_constraints import constraint_errors, constraint_warnings
 from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
@@ -1131,7 +1137,13 @@ def create_app(
             )
 
     def _candidate_for(
-        workflow_path, workflow, base_dir, output_dir, workflow_dir, arguments
+        workflow_path,
+        workflow,
+        base_dir,
+        output_dir,
+        workflow_dir,
+        arguments,
+        asset_dir=None,
     ):
         """The Workflow a job spec names, built and checked as submit() will
         build and check it - schema first, then the caller's arguments -
@@ -1154,7 +1166,19 @@ def create_app(
         # candidate.validate() checked the document with no arguments and so
         # queued a job validate_workflow had already refused for the same
         # call (#414)
-        problems = candidate.validation_errors(arguments=arguments)
+        #
+        # validation_errors() resolves 'asset:' references itself
+        # (dissolve_frame_errors, video_size_errors) through dw.assets'
+        # default discovery, which a real deployment's DW_ASSET_DIR pins to
+        # the default workspace - so this job's own workspace has to be made
+        # the active library for the length of the call, the same ContextVar
+        # dw/worker.py's execute path activates before running the same check
+        asset_token = activate_asset_dir(asset_dir) if asset_dir else None
+        try:
+            problems = candidate.validation_errors(arguments=arguments)
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
         problems += argument_errors(candidate.workflow_definition, arguments)
         # A value outside a rule the workflow declares, refused before the
         # job id rather than after the weights are loaded (#96)
@@ -1192,6 +1216,7 @@ def create_app(
                 workspace.outputs,
                 source.root if source else workspace.workflows,
                 request.arguments,
+                asset_dir=workspace.assets,
             )
             # The same reference check POST /api/validate makes, because a
             # caller who skipped the free pre-flight should still not get a
@@ -1370,6 +1395,7 @@ def create_app(
                     spec.get("output_dir") or manager.output_dir,
                     spec.get("workflow_dir"),
                     arguments,
+                    asset_dir=spec.get("asset_dir"),
                 )
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
@@ -1858,26 +1884,36 @@ def create_app(
         caller_arguments = (
             request.arguments if "arguments" in request.model_fields_set else None
         )
+        # See _candidate_for's activate_asset_dir comment: validation_errors()
+        # resolves 'asset:' references itself, through discovery a pinned
+        # DW_ASSET_DIR would otherwise point at the default workspace
+        # regardless of which one this request names
+        asset_token = activate_asset_dir(workspace.assets) if workspace.assets else None
         try:
-            # The caller's list is the one a for_each expands over, so the
-            # pre-flight checks the step set that will actually run
-            errors = candidate.validation_errors(arguments=caller_arguments)
-        except Exception:
-            # An error here is not the schema's verdict on the workflow -
-            # validation_errors() reports that by returning it. It is the
-            # validator itself failing, and its message could carry
-            # internals, so the log keeps the detail and the client is told
-            # the category, as above
-            logger.exception("Workflow could not be validated")
-            detail = (
-                "The workflow could not be validated - the server log has the detail"
-            )
-            return {
-                "valid": False,
-                "error": detail,
-                "errors": [{"path": None, "message": detail}],
-                "warnings": [],
-            }
+            try:
+                # The caller's list is the one a for_each expands over, so
+                # the pre-flight checks the step set that will actually run
+                errors = candidate.validation_errors(arguments=caller_arguments)
+            except Exception:
+                # An error here is not the schema's verdict on the workflow -
+                # validation_errors() reports that by returning it. It is the
+                # validator itself failing, and its message could carry
+                # internals, so the log keeps the detail and the client is told
+                # the category, as above
+                logger.exception("Workflow could not be validated")
+                detail = (
+                    "The workflow could not be validated - the server log "
+                    "has the detail"
+                )
+                return {
+                    "valid": False,
+                    "error": detail,
+                    "errors": [{"path": None, "message": detail}],
+                    "warnings": [],
+                }
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
         if errors:
             return {
                 "valid": False,

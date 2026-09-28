@@ -232,9 +232,25 @@ class WorkflowWorker:
         # Bound for the same reason: the failure path evicts against what the
         # run touched, and a run can fail before it has a context at all
         context = None
+        # Bound so the outermost finally can always deactivate whatever this
+        # execute activated, however far it got
+        asset_token = None
 
         try:
             set_log_level(log_level)
+
+            # Which workspace's assets this job's 'asset:' references resolve
+            # against. A server holds several workspaces and each has its own
+            # library, so the root travels with the job rather than being
+            # pinned in the environment the way the shared prompt library is.
+            # Activated before validate() - validation runs steps like
+            # dissolve_videos and location policy that resolve asset:
+            # references, and those must see this job's own library too
+            asset_token = (
+                activate_asset_dir(command["asset_dir"])
+                if command.get("asset_dir")
+                else None
+            )
 
             workflow, identity = self._load_workflow(command, output_dir)
             workflow.validate(arguments=arguments)
@@ -294,15 +310,6 @@ class WorkflowWorker:
 
             context = RunContext(on_event=_on_event)
             watcher = self._watch_commands(context)
-            # Which workspace's assets this job's 'asset:' references resolve
-            # against. A server holds several workspaces and each has its own
-            # library, so the root travels with the job rather than being
-            # pinned in the environment the way the shared prompt library is
-            asset_token = (
-                activate_asset_dir(command["asset_dir"])
-                if command.get("asset_dir")
-                else None
-            )
             try:
                 workflow.run(
                     arguments,
@@ -313,8 +320,6 @@ class WorkflowWorker:
             finally:
                 self._record_step_keys(workflow)
                 watcher.stop()
-                if asset_token is not None:
-                    deactivate_asset_dir(asset_token)
 
             self._evict_untouched_pipelines(context)
 
@@ -378,6 +383,9 @@ class WorkflowWorker:
             self._evict_untouched_pipelines(context)
             self._cleanup_between_runs()
             self.result_queue.put(failure)
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
         """Build the Workflow a command names, and its cache identity."""

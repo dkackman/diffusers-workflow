@@ -445,6 +445,33 @@ def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_pat
     assert (tmp_path / files[0]).read_text() == "<b>x</b>"
 
 
+class AssetRecordingWorkflow(StubWorkflow):
+    def validate(self, arguments=None):
+        from dw.assets import get_asset_dir
+
+        self.asset_dir_at_validate = get_asset_dir()
+
+
+def test_validation_sees_the_jobs_asset_directory(tmp_path):
+    """B8: validation runs steps like dissolve_videos and location policy that
+    resolve asset: references, so it must see the job's own workspace asset
+    directory - not whatever the default discovery would find - or a job
+    against a non-default workspace validates against the wrong library."""
+    worker = _make_worker()
+    workflow = AssetRecordingWorkflow()
+    _execute(
+        worker,
+        workflow,
+        {
+            "workflow_path": "x.json",
+            "arguments": {},
+            "output_dir": str(tmp_path),
+            "asset_dir": str(tmp_path / "assets"),
+        },
+    )
+    assert workflow.asset_dir_at_validate == str(tmp_path / "assets")
+
+
 def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
     """#368: a job's own cleanup left ~10GB resident that only clear_memory
     reclaimed - the pinned-host staging buffers of group_offload and the

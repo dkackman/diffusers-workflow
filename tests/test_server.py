@@ -1001,6 +1001,72 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
         assert not any("cached_steps" in w for w in result["warnings"])
 
 
+def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """B8: /api/validate's candidate.validation_errors() runs dissolve_frame_errors,
+    which resolves an 'asset:' input through fetch_asset() with no explicit
+    asset_dir - so it falls back to dw.assets.get_asset_dir()'s discovery. In
+    a real deployment dw.serve pins DW_ASSET_DIR to the *default* workspace's
+    own library at startup (dw/serve.py), and that explicit env var wins
+    outright over any base_dir-relative walk - so unless the server process
+    activates the named workspace's own library first (the ContextVar
+    dw/worker.py's execute path already uses), a dissolve check against a
+    non-default workspace silently looks at the default workspace's assets
+    instead and never sees a too-short input that exists only in its own
+    library."""
+    from dw.workspace import Workspace
+
+    from .test_dissolve_frame_errors import dissolve_workflow, write_mp4
+
+    root = Workspace(tmp_path / "studio", "flag").ensure()
+    # Mirrors dw.serve's own startup behavior: DW_ASSET_DIR pinned globally
+    # to the default workspace's library, for the CLI/REPL and any worker
+    # that inherits the environment rather than being told which workspace's
+    # assets to use for this particular job
+    monkeypatch.setenv("DW_ASSET_DIR", root.assets)
+
+    manager = JobManager(
+        root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=root.workflows,
+    )
+    app = create_app(
+        workflow_dir=root.workflows,
+        output_dir=root.outputs,
+        job_manager=manager,
+        prompt_dir=root.prompts,
+        asset_dir=root.assets,
+        workspace=root.root,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+
+        shots_assets = os.path.join(root.root, "shots", "assets")
+        # Too short for the dissolve declared below - the same fixture shape
+        # test_dissolve_frame_errors.py uses for the un-scoped version of
+        # this check
+        write_mp4(os.path.join(shots_assets, "a.mp4"), frames=124)
+        write_mp4(os.path.join(shots_assets, "b.mp4"), frames=124)
+        # Nothing of the same name in the default workspace - if validation
+        # resolves against the pinned default library instead of the named
+        # one, it finds no file at all and dissolve_frame_errors silently
+        # reports nothing, rather than correctly flagging the overlap
+        assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+
+        workflow = dissolve_workflow(
+            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
+        )
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+
+    assert result["valid"] is False
+    assert "124 frames" in result["error"]
+
+
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()
