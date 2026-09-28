@@ -132,7 +132,9 @@ def test_loads_a_location_dict_video(tmp_path):
         output_path=str(path),
     )
 
-    paired = pair_audio({"location": str(path)}, _waveform(samples=40), sample_rate=24000)
+    paired = pair_audio(
+        {"location": str(path)}, _waveform(samples=40), sample_rate=24000
+    )
 
     assert isinstance(paired, AudioVideo)
     assert len(paired.frames) == 4

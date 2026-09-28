@@ -286,8 +286,7 @@ def concat_videos(
                 dtype=numpy.float32,
             )
             emit_log(
-                f"concat_videos: {names[index]} carries no audio - filled with "
-                "silence",
+                f"concat_videos: {names[index]} carries no audio - filled with silence",
                 command="concat_videos",
                 video=names[index],
             )
