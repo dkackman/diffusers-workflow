@@ -1001,6 +1001,147 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
         assert not any("cached_steps" in w for w in result["warnings"])
 
 
+def _shots_workspace_with_short_dissolve_assets(
+    tmp_path, monkeypatch, shots_frames=124, default_frames=None
+):
+    """A server whose default workspace's DW_ASSET_DIR is pinned (mirroring
+    dw.serve's real startup, dw/serve.py:145) and whose named 'shots'
+    workspace holds two mp4 assets too short for a dissolve_frames=130
+    dissolve - so a dissolve_videos check against 'shots' must be answered
+    from its own library, not the pinned default's.
+
+    Returns (client, workflow): client is a TestClient already inside its
+    lifespan context (the caller uses it directly, no further `with`), and
+    workflow is the dissolve_videos definition referencing the two assets.
+    """
+    from dw.workspace import Workspace
+
+    from .test_dissolve_frame_errors import dissolve_workflow, write_mp4
+
+    root = Workspace(tmp_path / "studio", "flag").ensure()
+    # Mirrors dw.serve's own startup behavior: DW_ASSET_DIR pinned globally
+    # to the default workspace's library, for the CLI/REPL and any worker
+    # that inherits the environment rather than being told which workspace's
+    # assets to use for this particular job
+    monkeypatch.setenv("DW_ASSET_DIR", root.assets)
+
+    manager = JobManager(
+        root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=root.workflows,
+    )
+    app = create_app(
+        workflow_dir=root.workflows,
+        output_dir=root.outputs,
+        job_manager=manager,
+        prompt_dir=root.prompts,
+        asset_dir=root.assets,
+        workspace=root.root,
+    )
+    client = TestClient(app, base_url="http://localhost")
+    client.__enter__()
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+
+    shots_assets = os.path.join(root.root, "shots", "assets")
+    # Too short for the dissolve declared below - the same fixture shape
+    # test_dissolve_frame_errors.py uses for the un-scoped version of
+    # this check
+    write_mp4(os.path.join(shots_assets, "a.mp4"), frames=shots_frames)
+    write_mp4(os.path.join(shots_assets, "b.mp4"), frames=shots_frames)
+    if default_frames is None:
+        # Nothing of the same name in the default workspace - if validation
+        # resolves against the pinned default library instead of the named
+        # one, it finds no file at all and dissolve_frame_errors silently
+        # reports nothing, rather than correctly flagging the overlap
+        assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+    else:
+        # The same names in the default library, so a check that looked
+        # there instead of at the named workspace reaches a different answer
+        write_mp4(os.path.join(root.assets, "a.mp4"), frames=default_frames)
+        write_mp4(os.path.join(root.assets, "b.mp4"), frames=default_frames)
+
+    workflow = dissolve_workflow(["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130)
+    return client, workflow
+
+
+def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """B8: /api/validate's candidate.validation_errors() runs dissolve_frame_errors,
+    which resolves an 'asset:' input through fetch_asset() with no explicit
+    asset_dir - so it falls back to dw.assets.get_asset_dir()'s discovery. In
+    a real deployment dw.serve pins DW_ASSET_DIR to the *default* workspace's
+    own library at startup (dw/serve.py), and that explicit env var wins
+    outright over any base_dir-relative walk - so unless the server process
+    activates the named workspace's own library first (the ContextVar
+    dw/worker.py's execute path already uses), a dissolve check against a
+    non-default workspace silently looks at the default workspace's assets
+    instead and never sees a too-short input that exists only in its own
+    library."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+
+    assert result["valid"] is False
+    assert "124 frames" in result["error"]
+
+
+def test_submit_job_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """The same gap as /api/validate, in the pre-queue check _candidate_for
+    runs for POST /api/jobs (and /rerun) - a bad dissolve must be refused
+    with a 400 naming the workspace's own asset, not queued because the
+    check looked at the pinned default workspace instead."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+
+    assert response.status_code == 400
+    assert "124 frames" in response.json()["detail"]
+
+
+def test_a_named_workspace_asset_shadowing_a_default_one_is_checked_in_its_own_library(
+    tmp_path, monkeypatch
+):
+    """The job manager's own pre-queue check, not only the route's, resolves
+    'asset:' against the job's workspace. With the same names in the pinned
+    default library at a length too short for the dissolve, a check that
+    looked there would refuse a submission (and its rerun) that validate
+    accepts."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch, shots_frames=400, default_frames=124
+    )
+    with client:
+        verdict = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+        assert verdict["valid"] is True, verdict
+
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+        assert submitted.status_code == 201, submitted.json()
+        job_id = submitted.json()["id"]
+        assert wait_for_status(client, job_id, ["succeeded"])
+
+        rerun = client.post(f"/api/jobs/{job_id}/rerun")
+        assert rerun.status_code == 201, rerun.json()
+
+
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()
@@ -5544,6 +5685,86 @@ def test_deleting_the_last_output_of_a_run_sweeps_its_run_directory(server, tmp_
         assert outputs.exists()
 
 
+def test_deleting_a_run_opened_through_open_run_still_sweeps_the_identity_folder(
+    server, tmp_path
+):
+    """open_run (dw/runs.py) used to leave a permanent '.run.lock' file
+    inside the identity directory, which meant the sweep above could never
+    finish: os.rmdir only succeeds on a truly empty directory, and a run
+    opened for real - not hand-built the way the test above builds one -
+    would leave that lock file behind forever. The lock now lives outside
+    the output tree entirely, so a run opened through open_run sweeps clean
+    exactly like a hand-built one."""
+    from PIL import Image
+
+    from dw.runs import open_run
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run_dir, _version = open_run(
+            str(outputs), None, "t2i", "20260913-120000-aabbccdd"
+        )
+        final = os.path.join(run_dir, "final")
+        os.makedirs(final)
+        Image.new("RGB", (2, 2)).save(os.path.join(final, "still-0.png"))
+
+        result = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-0.png"
+        ).json()
+        assert result["run_swept"] == "20260913-120000-aabbccdd"
+        assert not os.path.exists(run_dir)
+        # nothing - not even open_run's lock - is left for the identity
+        # folder above it to hold
+        assert not (outputs / "t2i").exists()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "t2i/20260913-120000-aabbccdd/still-0.png",
+        "t2i/20260913-120000-aabbccdd",
+    ],
+    ids=["last-output", "whole-run"],
+)
+def test_the_sweep_waits_for_a_run_opening_before_removing_the_identity_folder(
+    server, tmp_path, target
+):
+    """open_run creates the identity folder and then claims a run inside it
+    under a lock; a sweep that removed the emptied folder in between would
+    fail that run with FileNotFoundError. So the sweep takes the same lock
+    around the folder's removal."""
+    import threading
+
+    from filelock import FileLock
+    from PIL import Image
+
+    from dw.runs import _run_lock_path
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        identity = outputs / "t2i"
+        run = identity / "20260913-120000-aabbccdd"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "still-0.png")
+        (run / "manifest.json").write_text("{}")
+
+        responses = []
+        with FileLock(_run_lock_path(str(identity))):
+            deleting = threading.Thread(
+                target=lambda: responses.append(client.delete(f"/api/gallery/{target}"))
+            )
+            deleting.start()
+            deleting.join(0.5)
+            # a run opening holds the lock: the folder must still be there
+            assert deleting.is_alive()
+            assert identity.is_dir()
+        deleting.join(5)
+
+        assert not deleting.is_alive()
+        assert responses[0].status_code == 200
+        assert not identity.exists()
+
+
 def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):
     """Only the sidecars may remain: anything else is still something the
     manifest describes, so the directory stays."""
@@ -5739,3 +5960,41 @@ def test_gallery_audio_serves_a_whole_wav_as_audio_wav_whatever_mimetypes_says(
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/wav"
+
+
+class TestDetailCachePruning:
+    """Request threads share the module-level detail caches."""
+
+    def test_an_insert_during_the_scan_does_not_raise(self):
+        from unittest.mock import patch
+
+        from dw.server import app as app_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_inserts(path):
+            cache[f"/new/{len(cache)}.json"] = 0
+            return False
+
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_inserts
+        ):
+            app_module._prune_missing(cache)
+        assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
+
+    def test_an_entry_another_thread_already_pruned_is_not_an_error(self):
+        from unittest.mock import patch
+
+        from dw.server import app as app_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_prunes(path):
+            cache.pop("/gone/b.json", None)
+            return False
+
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_prunes
+        ):
+            app_module._prune_missing(cache)
+        assert cache == {}

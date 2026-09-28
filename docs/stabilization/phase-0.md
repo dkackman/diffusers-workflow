@@ -947,4 +947,4 @@ The mount is stateless HTTP by design (`dw/server/mcp_mount.py`, "single-user"; 
 - [ ] **Step 4:** Whole-branch review (`superpowers:requesting-code-review`), then merge `stabilization/phase-0` into `develop` and push.
 - [ ] **Step 5:** Deploy to lem (`scripts/deploy.sh`) and run the smoke checks from `docs/RELEASING.md`.
 - [ ] **Step 6:** B2 "after" timing on lem: the same template and arguments as Step 0. Record both wall-clock times in the ROADMAP status row.
-- [ ] **Step 7:** Refresh `ASSESSMENT.md` bug statuses, set Phase 0 to `done` in `ROADMAP.md`, and move `hot-zone.txt` to the Phase 1 file list. Commit and push.
+- [ ] **Step 7:** Refresh `ASSESSMENT.md` bug statuses, set Phase 0 to `done` in `ROADMAP.md`, and move `hot-zone.txt` to the Phase 1 file list. Commit and push. Tag the merge commit `stabilization-gate-0` and push the tag. Gate reports are computed from the tag once Phase 1 adds `scripts/arch_report.py`.

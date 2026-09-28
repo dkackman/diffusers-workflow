@@ -1,0 +1,9 @@
+{
+  "modules": 133,
+  "modules_over_1000_lines": 10,
+  "functions_over_150_lines": 19,
+  "prefix_literals": 93,
+  "test_dw_patch_targets": 285,
+  "claude_md_lines": 964,
+  "duplicate_blocks": 21
+}

@@ -29,6 +29,8 @@ import re
 import tempfile
 from datetime import datetime, timezone
 
+from filelock import FileLock
+
 logger = logging.getLogger("dw")
 
 RUN_LAYOUT = "run"
@@ -73,7 +75,7 @@ def version_selector(segment):
 # The pattern is not only documentation - the gallery reads it to group a
 # workflow's runs under one folder rather than listing every run separately
 # The trailing counter appears only when two runs of the same spec start in
-# the same second - see run_directory
+# the same second - see open_run
 RUN_ID_PATTERN = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$")
 
 # Characters allowed in a path segment derived from a workflow's name or file
@@ -450,13 +452,18 @@ def _recorded_version(run_dir):
     return version
 
 
-def _run_ids(identity_dir):
+def _run_ids(identity_dir, exclude=None):
     """Every run directory under one workflow identity, oldest first.
 
     Run ids sort by their UTC timestamp, so this order is chronological
     to the second - the same property `latest` relies on. Within one second
     the spec digest decides, which is arbitrary but stable; nothing here
     needs finer ordering than that.
+
+    `exclude` drops one name from the listing - the directory `open_run`
+    just claimed, whose manifest is not written yet. Without it, a run
+    opening would count its own bare directory as an unrecorded sibling and
+    rank itself one number too high.
     """
     try:
         entries = os.listdir(identity_dir)
@@ -466,15 +473,17 @@ def _run_ids(identity_dir):
         (
             name
             for name in entries
-            if is_run_id(name) and os.path.isdir(os.path.join(identity_dir, name))
+            if name != exclude
+            and is_run_id(name)
+            and os.path.isdir(os.path.join(identity_dir, name))
         ),
         key=run_id_sort_key,
     )
 
 
-def _ranked_versions(identity_dir):
+def _ranked_versions(identity_dir, exclude=None):
     """({run id: version}, {run id: recorded version or None})."""
-    run_ids = _run_ids(identity_dir)
+    run_ids = _run_ids(identity_dir, exclude=exclude)
     recorded = {
         run_id: _recorded_version(os.path.join(identity_dir, run_id))
         for run_id in run_ids
@@ -523,7 +532,7 @@ def run_versions(identity_dir):
     return _ranked_versions(identity_dir)[0]
 
 
-def record_run_versions(identity_dir):
+def record_run_versions(identity_dir, exclude=None):
     """Write each ranked number into the manifest of a run that has one but
     records no version, and return every run's ordinal.
 
@@ -534,9 +543,11 @@ def record_run_versions(identity_dir):
     is left alone - writing one would invent a record of a run nobody
     recorded - and stays ranked.
 
+    `exclude` is passed straight to `_run_ids` - see there.
+
     Best effort: a manifest that cannot be rewritten keeps its ranked number.
     """
-    versions, recorded = _ranked_versions(identity_dir)
+    versions, recorded = _ranked_versions(identity_dir, exclude=exclude)
     for run_id, version in versions.items():
         if recorded[run_id] is not None:
             continue
@@ -556,43 +567,98 @@ def record_run_versions(identity_dir):
     return versions
 
 
-def assign_run_version(output_dir, identity):
-    """The ordinal the run about to open under `identity` takes.
+# Where open_run's locks live: never inside the output tree, so claiming a
+# run leaves nothing behind for a sweep to trip over once every run under an
+# identity is gone - see open_run. Keyed on the identity directory's real
+# path rather than nested under it, one file per identity, in a directory
+# any run of any workflow shares
+_RUN_LOCK_DIR_NAME = "run-locks"
 
-    One past the highest ordinal any sibling holds - not one past the newest
-    run's, because run ids are chronological only across seconds: two runs
-    started in the same second are ordered by their spec digest, so the last
-    id is not reliably the highest number. Three quick reruns are exactly
-    that case.
 
-    Pins the ranked numbers of older runs on the way (`record_run_versions`),
-    so history that predates the field stops moving once a new run joins it.
-    Sharing that ranking rather than deriving the maximum separately is what
-    keeps the number assigned here and the number the gallery reports from
-    drifting apart.
+def _run_lock_path(identity_dir):
+    """Where the lock for one workflow identity's runs lives, outside the
+    output tree entirely - see open_run for why.
 
-    Best effort, like everything else that writes a run's bookkeeping: a
-    directory that cannot be read yields 1 rather than failing the run.
+    Under dw's settings directory rather than the system temp directory:
+    a shared /tmp directory created by one OS user refuses every other
+    user's lock file, and TMPDIR or a systemd PrivateTmp would give the
+    server and a CLI run two different lock directories for the same
+    outputs."""
+    from .settings import get_settings_dir
+
+    lock_dir = os.path.join(get_settings_dir(), _RUN_LOCK_DIR_NAME)
+    os.makedirs(lock_dir, exist_ok=True)
+    digest = hashlib.sha256(os.path.realpath(identity_dir).encode()).hexdigest()
+    return os.path.join(lock_dir, f"{digest}.lock")
+
+
+def open_run(output_dir, file_spec, workflow_id, run_id):
+    """Claim this execution's directory and its ordinal together.
+
+    Both used to be computed independently and only written down later -
+    `run_directory` picked a free name, `assign_run_version` separately
+    read the siblings for the next number - so two processes opening a run
+    of the same workflow at once (a CLI run beside a server job) could take
+    the same directory, or compute the same version before either had
+    written anything to say it was taken. Claiming both under one lock
+    held across both operations is what makes 'the run has a directory and
+    a number' atomic rather than two hopeful reads.
+
+    The lock lives outside the output tree - under dw's settings
+    directory, keyed on the identity directory's real path - rather than
+    beside the runs it guards. A lock file living in `<identity>/` would be
+    a permanent, non-run file there, and the sweep that removes an identity
+    directory once every run under it is gone (`_prune_empty_run_directory`
+    / `delete_output` in dw/server/app.py) walks upward with a plain
+    `os.rmdir`, which only succeeds on a directory holding nothing at all.
+    A run opening therefore leaves *nothing* in the identity directory but
+    the run directory itself. The limit that follows: the lock serialises
+    processes of one OS user on one host - two users, or two hosts sharing
+    an output directory, each lock under their own settings directory.
+
+    The identity directory is created inside the lock, immediately before
+    the run directory is claimed - not once up front - so a sweep that
+    removes it between two opens cannot leave a later opener trying to
+    claim a run directory under a path that no longer exists.
+
+    The directory is claimed with an exclusive `os.mkdir` before the
+    version is computed, and its own name is then excluded from the
+    ranking - otherwise a run would count its own bare, manifest-less
+    directory as an unrecorded sibling and rank one number too high. A stub
+    manifest is written before the lock is released, so the claim and the
+    number are both visible to the very next opener.
+
+    A disk error while any of this is happening (the identity directory or
+    the run directory cannot be created) is raised rather than swallowed:
+    unlike the manifest writes elsewhere in this module, which are best
+    effort because the run's files already exist without them, a run that
+    cannot claim its directory has nowhere to write its outputs at all, so
+    there is nothing to be best-effort about.
+
+    Returns:
+        (run_dir, version)
     """
-    versions = record_run_versions(os.path.join(output_dir, identity))
-    return max(versions.values(), default=0) + 1
-
-
-def run_directory(output_dir, file_spec, workflow_id, run_id):
-    """Where one execution writes: <output_dir>/<identity>/<run id>.
-
-    One execution gets one directory, so a run id already taken - two runs
-    of the same spec started in the same second, which is what a quick
-    rerun is - takes a counter rather than writing into the earlier run's
-    directory and burying its manifest.
-    """
-    base = os.path.join(output_dir, workflow_identity(file_spec, workflow_id), run_id)
-    candidate = base
-    counter = 1
-    while os.path.exists(candidate):
-        counter += 1
-        candidate = f"{base}-{counter}"
-    return candidate
+    identity = workflow_identity(file_spec, workflow_id)
+    identity_dir = os.path.join(output_dir, identity)
+    with FileLock(_run_lock_path(identity_dir)):
+        os.makedirs(identity_dir, exist_ok=True)
+        candidate = os.path.join(identity_dir, run_id)
+        counter = 1
+        while True:
+            try:
+                os.mkdir(candidate)
+                break
+            except FileExistsError:
+                counter += 1
+                candidate = os.path.join(identity_dir, f"{run_id}-{counter}")
+        name = os.path.basename(candidate)
+        versions = record_run_versions(identity_dir, exclude=name)
+        version = max(versions.values(), default=0) + 1
+        write_manifest(
+            candidate,
+            {"run_id": name, RUN_VERSION_KEY: version, "status": "running"},
+        )
+    return candidate, version
 
 
 def write_manifest(run_dir, manifest):

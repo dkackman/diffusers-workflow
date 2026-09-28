@@ -102,6 +102,26 @@ def test_second_run_with_unchanged_step_reuses_cached_result(tmp_path):
             p.stop()
 
 
+def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
+    """Two runs that share no pipelines dict are the released-pipeline case:
+    the second run's hit must not load a model nothing will call."""
+    step_cache.clear()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
+
+    try:
+        with patch.object(Pipeline, "load") as load:
+            workflow.run({})
+            loads_first_run = load.call_count
+            workflow.run({})
+        assert call_count() == 1
+        assert load.call_count == loads_first_run
+        # release_pipeline and the worker's prior-key map still address it
+        assert "generate" in workflow._pipeline_keys_by_step
+    finally:
+        for p in workflow._test_patcher:
+            p.stop()
+
+
 def test_second_run_with_changed_variable_recomputes_that_step(tmp_path):
     step_cache.clear()
     workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
@@ -278,6 +298,58 @@ def _shared_components_workflow_def():
     }
 
 
+def _run_twice_recording_order(tmp_path, definition, argument_sets):
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    order = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        order.append(self.name)
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        for arguments in argument_sets:
+            workflow.run(arguments)
+    finally:
+        for p in patchers:
+            p.stop()
+    return order
+
+
+def test_a_step_borrowing_a_pipeline_misses_when_the_source_model_changes(tmp_path):
+    definition = _pipeline_reference_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order == ["A", "B", "A", "B"]
+
+
+def test_a_step_reusing_components_misses_when_the_sharing_model_changes(tmp_path):
+    definition = _shared_components_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order[len(order) // 2 :] == order[: len(order) // 2]
+
+
 def _mock_pipeline_load_with_sharing(self, shared_components):
     """Stand-in for Pipeline.load that keeps the sharing contract: a fresh
     load resolves what it reuses and publishes what it shares."""
@@ -357,6 +429,39 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline(tmp_path):
         workflow.run({}, previous_pipelines=pipelines)
 
         assert pipelines == {}
+    finally:
+        for p in patchers:
+            p.stop()
+
+
+def test_release_pipeline_on_a_hit_that_loaded_nothing_emits_no_release(tmp_path):
+    """A hit whose pipeline was never loaded this run has nothing to release,
+    so it must not announce a pipeline_released on the event stream."""
+    step_cache.clear()
+    definition = _workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        cold_events = []
+        workflow.run({}, context=RunContext(on_event=cold_events.append))
+        warm_events = []
+        workflow.run({}, context=RunContext(on_event=warm_events.append))
+
+        def released(events):
+            return [e for e in events if e["event"] == "pipeline_released"]
+
+        assert released(cold_events)
+        assert released(warm_events) == []
     finally:
         for p in patchers:
             p.stop()

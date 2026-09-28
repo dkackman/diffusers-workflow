@@ -377,7 +377,7 @@ same reason - default setup cannot load a pack.
   is per *step*, so four runs of one workflow write four files with the same
   name; the run id tells them apart but is not something anyone says out
   loud, so the number is how an agent names one of them to a person. Every run
-  takes an ordinal, `assign_run_version` (`dw/runs.py`) at the moment
+  takes an ordinal, `open_run` (`dw/runs.py`) at the moment
   `Workflow.run` opens the run directory, recorded as `version` in
   `manifest.json` and read back by `run_versions`. Assigned once and never
   recomputed, which is the point: deleting a middle run leaves a gap rather

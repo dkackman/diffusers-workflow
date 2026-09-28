@@ -48,6 +48,7 @@ from .variable_constraints import (
     constraint_errors,
     constraint_reference_errors,
     resolve_constraint_references,
+    snap_constraints,
 )
 from .result_fps import fps_errors
 from .shots import duplicate_shot_names, shot_references, step_shots
@@ -64,18 +65,18 @@ from .step_cache import (
     referenced_result_names,
     reference_resolves_to,
     normalized_downstream,
+    borrowed_pipeline_keys,
 )
 from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
     activate_output_root,
-    assign_run_version,
     deactivate_output_root,
     workflow_identity,
     manifest_relative_files,
     new_run_id,
+    open_run,
     output_layout,
-    run_directory,
     write_manifest,
     write_realized_workflow,
 )
@@ -518,6 +519,10 @@ class Workflow:
             if arguments and not argument_errors(definition, arguments):
                 set_variables(arguments, variables)
             variables = resolve_variable_values(variables)
+            # Validate what the run will use: a snap-up rule rounds before
+            # substitution there, so it must here too
+            snap_constraints(definition, variables)
+            definition["variables"] = variables
             definition = replace_variables(definition, variables)
         return expand_for_each(definition, source_indices)
 
@@ -607,13 +612,21 @@ class Workflow:
                 )
         return errors
 
-    def sub_workflow_warnings(self, expanded=None):
+    def sub_workflow_warnings(self, arguments=None):
         """An argument a sub-workflow step passes down that the workflow it
         composes declares no variable for - dropped in silence at run time,
-        and composition is exactly where a name drifts (#89)."""
+        and composition is exactly where a name drifts (#89).
+
+        `arguments` are the caller's, folded in the same way every other
+        warning source uses them. Each entry is a string, `"path: message"`,
+        matching every other warnings source - and the path names the step
+        index the *author* wrote, not the index the step lands at after
+        `for_each` expansion.
+        """
         warnings = []
         try:
-            expanded = expanded if expanded is not None else self.expanded_definition()
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
         except Exception:
             return warnings
         for index, step in enumerate(expanded.get("steps", []) or []):
@@ -633,16 +646,13 @@ class Workflow:
                 # sub_workflow_errors - not a second complaint here
                 continue
             declared = child.workflow_definition.get("variables") or {}
+            source = source_indices[index] if index < len(source_indices) else index
             for name in sorted(set(passed) - set(declared)):
                 warnings.append(
-                    {
-                        "path": f"steps[{index}].workflow.arguments.{name}",
-                        "message": (
-                            f"'{reference['path']}' declares no variable "
-                            f"'{name}' - the value is dropped. Declared: "
-                            + (", ".join(sorted(declared)) or "<none>")
-                        ),
-                    }
+                    f"steps[{source}].workflow.arguments.{name}: "
+                    f"'{reference['path']}' declares no variable '{name}' - the "
+                    "value is dropped. Declared: "
+                    + (", ".join(sorted(declared)) or "<none>")
                 )
         return warnings
 
@@ -1164,6 +1174,13 @@ class Workflow:
                     # entry's result was never saved here, so a standalone
                     # hit on it would report no files
                     step_data_snapshot["__saved_by_parent__"] = True
+                # This step's own step_data never names a borrowed pipeline's
+                # model - only the source step's does - so without this a
+                # source model change would leave the borrowing step's
+                # snapshot unchanged and serve a stale hit
+                borrowed = borrowed_pipeline_keys(steps, index)
+                if borrowed:
+                    step_data_snapshot["__borrowed_pipelines__"] = borrowed
             except Exception as ex:
                 # A realized argument that cannot be deep-copied (an open
                 # handle, a live model object) just means this step is not
@@ -1351,18 +1368,18 @@ class Workflow:
                     run_id = new_run_id(
                         {"workflow": workflow_def, "arguments": arguments}
                     )
-                    self._run_dir = run_directory(
+                    # Directory and version are claimed together, under one
+                    # lock, so two processes opening a run of this workflow
+                    # at once - a CLI run beside a server job - cannot take
+                    # the same directory or the same number
+                    self._run_dir, self._run_version = open_run(
                         self.output_dir, self.file_spec, workflow_id, run_id
                     )
-                    # The run's ordinal among this workflow's runs, taken
-                    # once here and carried into the manifest. Assigning it
-                    # at run time rather than deriving it when the gallery
-                    # asks is what lets a sibling be deleted without
-                    # renumbering the runs that outlive it
-                    self._run_version = assign_run_version(
-                        self.output_dir,
-                        workflow_identity(self.file_spec, workflow_id),
-                    )
+                    # The claimed directory's own name, which may carry a
+                    # '-N' counter when run_id was already taken - the
+                    # manifest and the run_start event must carry the name
+                    # that was actually claimed
+                    run_id = os.path.basename(self._run_dir)
                     logger.debug(
                         f"Run directory: {self._run_dir} (v{self._run_version})"
                     )
@@ -1515,16 +1532,25 @@ class Workflow:
                 # A hit skips the step's work, never its bookkeeping:
                 # create_step_action is the only place that touches the
                 # step's pipeline (the worker evicts every pipeline a run did
-                # not touch), republishes a cached pipeline's
+                # not touch), republishes a resident pipeline's
                 # shared_components for a later reusing step, and records the
                 # step's pipeline key for release_pipeline and
-                # pipeline_reference to address it by
+                # pipeline_reference to address it by. Loading is not
+                # bookkeeping: a hit whose pipeline is not resident loads it
+                # only when a later step of this run borrows it (its
+                # pipeline, or components it shares), since nothing else
+                # will call it
+                hit_needs_no_pipeline = cached_result is not None and not any(
+                    step_data["name"] in borrowed_pipeline_keys(steps, j)
+                    for j in range(i + 1, len(steps))
+                )
                 step_action = self.create_step_action(
                     step_data,
                     shared_components,
                     pipelines,
                     step_seed,
                     get_device(),
+                    cache_hit=hit_needs_no_pipeline,
                 )
                 if isinstance(step_action, Workflow):
                     # The child reports into this run's counter rather than
@@ -1573,10 +1599,20 @@ class Workflow:
                 # frame still holds is not freed, and it would otherwise stay
                 # resident through the next step's load, which is exactly when
                 # both models would be in memory at once
-                if step_data.get("release_pipeline", False):
+                release = step_data.get("release_pipeline", False)
+                released = (
+                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    if release
+                    else None
+                )
+                # A hit that loaded nothing holds nothing: announcing a
+                # release would report a drop that never happened. Not gated
+                # on the pop alone - a sub-workflow step has no pipeline key,
+                # and clearing step_action is what frees its child Workflow
+                if release and (released is not None or step_action is not None):
                     logger.info(f"Releasing pipeline for step: {step.name}")
                     before = _allocated_mb()
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    released = None
                     step_action = None
                     gc.collect()
                     empty_device_cache()
@@ -1877,10 +1913,14 @@ class Workflow:
         previous_pipelines,
         default_seed,
         device,
+        cache_hit=False,
     ):
         """
         Creates the appropriate action object based on step type:
-        - Pipeline: Creates new pipeline or reuses cached one
+        - Pipeline: Creates new pipeline or reuses cached one. With
+          cache_hit (a step-cache hit no later step borrows from), a pipeline
+          that is not already resident is not loaded: its key is recorded and
+          touched, and None is returned
         - Pipeline reference: References existing pipeline
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
@@ -1893,6 +1933,12 @@ class Workflow:
             cache_key = pipeline_cache_key(step_definition["pipeline"])
             self._step_pipeline_key(step_name, cache_key)
             get_context().touch_pipeline(cache_key)
+
+            if cache_hit and cache_key not in previous_pipelines:
+                # A hit needs the key recorded (release_pipeline and
+                # pipeline_reference address it by name), not the weights:
+                # nothing this run does will call the pipeline
+                return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
             if cache_key in previous_pipelines:

@@ -33,6 +33,7 @@ from .runs import (
 )
 from .security import SecurityError, validate_workflow_path
 from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
+from .variable_constraints import snap_constraints
 from .variables import set_variables
 
 logger = logging.getLogger("dw")
@@ -85,6 +86,9 @@ def realize_workflow(
         # Exactly what the run computed: set_variables coerces each value to
         # the type of the declared default and rejects an undeclared name
         set_variables(arguments or {}, variables)
+        # ...and what the run will actually use once a snap-up rule rounds
+        # it, so the record left beside the run's manifest matches
+        snap_constraints(realized, variables)
 
     realized["seed"] = seed
     # A definition can point its top-level seed at a declared variable

@@ -11,7 +11,7 @@ import pytest
 from dw.runs import (
     FLAT_LAYOUT,
     MANIFEST_FILE_NAME,
-    assign_run_version,
+    open_run,
     record_run_versions,
     OUTPUT_LAYOUT_ENV_VAR,
     RUN_LAYOUT,
@@ -865,14 +865,94 @@ class TestRunVersions:
             json.dump(manifest, file)
         return run_dir
 
+    @staticmethod
+    def _open(tmp_path, run_id):
+        """open_run against the 'ltx2/Gyre' identity the rest of this class
+        builds siblings under. workflow_identity(None, "ltx2/Gyre") would
+        flatten the slash, so a file_spec under a 'workflows/ltx2/' tree is
+        used instead, matching the identity 'ltx2/Gyre' _run()'s callers
+        build by hand."""
+        file_spec = str(tmp_path / "workflows" / "ltx2" / "Gyre.json")
+        return open_run(str(tmp_path), file_spec, None, run_id)
+
+    def test_two_runs_with_the_same_id_get_distinct_directories_and_versions(
+        self, tmp_path
+    ):
+        # A collision is what a quick rerun of one spec in the same second
+        # looks like: two opens naming the same run id must not share a
+        # directory or a number
+        first = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        second = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        assert first[0] != second[0]
+        assert (first[1], second[1]) == (1, 2)
+        assert os.path.isdir(first[0]) and os.path.isdir(second[0])
+
+    def test_concurrent_opens_never_share_a_version(self, tmp_path):
+        import threading
+
+        barrier = threading.Barrier(8)
+        results = []
+
+        def opener(i):
+            barrier.wait()
+            results.append(
+                open_run(str(tmp_path), None, "wf", f"20260928-120000-{i:08x}")
+            )
+
+        threads = [threading.Thread(target=opener, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert sorted(version for _, version in results) == list(range(1, 9))
+
+    def test_the_first_run_is_version_one_even_though_its_own_directory_exists(
+        self, tmp_path
+    ):
+        # The last test matters: the run's own freshly claimed,
+        # manifest-less directory must not be ranked as an older sibling
+        _, version = open_run(str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa")
+        assert version == 1
+
+    def test_open_run_leaves_nothing_in_the_identity_directory_but_the_run(
+        self, tmp_path
+    ):
+        # The lock that makes the claim atomic lives outside the output
+        # tree entirely (under dw's settings directory), so an identity
+        # directory holds only run directories - never a lock file or
+        # anything else - and a sweep that removes every run can remove the
+        # identity directory too, with nothing left behind to block it
+        run_dir, _version = open_run(
+            str(tmp_path), None, "wf", "20260928-120000-aaaaaaaa"
+        )
+        identity_dir = os.path.dirname(run_dir)
+        assert os.listdir(identity_dir) == [os.path.basename(run_dir)]
+
+    def test_the_run_lock_lives_under_the_settings_directory(
+        self, tmp_path, monkeypatch
+    ):
+        # Not the system temp directory: that is shared between OS users
+        # and moves with TMPDIR / PrivateTmp, so a server and a CLI run
+        # could lock in two different places
+        from dw.runs import _run_lock_path
+
+        helper = tmp_path / "helper"
+        monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(helper))
+        run_dir, _version = open_run(
+            str(tmp_path / "outputs"), None, "wf", "20260928-120000-aaaaaaaa"
+        )
+        lock_path = _run_lock_path(os.path.dirname(run_dir))
+        assert os.path.dirname(lock_path) == str(helper / "run-locks")
+        assert os.path.isdir(helper / "run-locks")
+
     def test_the_first_run_of_a_workflow_is_version_one(self, tmp_path):
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 1
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 1
 
     def test_the_next_run_takes_the_number_after_the_newest(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
         self._run(str(identity), "20260901-120000-aaaaaaaa", version=1)
         self._run(str(identity), "20260902-120000-bbbbbbbb", version=2)
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 3
 
     def test_a_deleted_middle_run_leaves_a_gap_rather_than_renumbering(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -884,7 +964,7 @@ class TestRunVersions:
             "20260901-120000-aaaaaaaa": 1,
             "20260903-120000-cccccccc": 3,
         }
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 4
 
     def test_runs_started_in_the_same_second_still_number_upward(self, tmp_path):
         # Run ids are chronological only across seconds - within one second
@@ -893,7 +973,7 @@ class TestRunVersions:
         identity = tmp_path / "ltx2" / "Gyre"
         self._run(str(identity), "20260901-120000-dddddddd", version=1)
         self._run(str(identity), "20260901-120000-aaaaaaaa", version=2)
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 3
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 3
 
     def test_runs_predating_the_field_are_ranked_by_run_id(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -960,7 +1040,7 @@ class TestRunVersions:
             "20260901-120000-ffffffff": 5,
             "20260901-120005-aaaaaaaa": 7,
         }
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 8
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 8
 
     def test_a_rerun_counter_sorts_as_a_number(self, tmp_path):
         identity = tmp_path / "ltx2" / "Gyre"
@@ -998,20 +1078,22 @@ class TestRunVersions:
         identity = tmp_path / "ltx2" / "Gyre"
         for day in (1, 2, 3):
             self._run(str(identity), f"2026090{day}-120000-aaaaaaaa")
-        assert assign_run_version(str(tmp_path), "ltx2/Gyre") == 4
+        assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 4
         for day, version in ((1, 1), (2, 2), (3, 3)):
             manifest_path = identity / f"2026090{day}-120000-aaaaaaaa" / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
             assert manifest["version"] == version
             # the rest of the record is untouched
             assert manifest["status"] == "completed"
-        # now deleting the oldest renumbers nothing
+        # now deleting the oldest renumbers nothing - the run opened above
+        # is itself a sibling now, recorded at 4
         import shutil
 
         shutil.rmtree(str(identity / "20260901-120000-aaaaaaaa"))
         assert run_versions(str(identity)) == {
             "20260902-120000-aaaaaaaa": 2,
             "20260903-120000-aaaaaaaa": 3,
+            "20260904-120000-eeeeeeee": 4,
         }
 
     def test_an_output_reference_can_name_a_run_by_its_version(self, tmp_path):

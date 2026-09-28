@@ -25,6 +25,7 @@ from urllib.parse import quote, urlparse
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from filelock import FileLock
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -70,7 +71,13 @@ from ..prompts import (
     RESERVED_TEXT_PREFIXES,
     resolve_prompt_reference,
 )
-from ..assets import ASSET_PREFIX, is_asset_reference, resolve_asset_reference
+from ..assets import (
+    ASSET_PREFIX,
+    activate_asset_dir,
+    deactivate_asset_dir,
+    is_asset_reference,
+    resolve_asset_reference,
+)
 from ..variable_constraints import constraint_errors, constraint_warnings
 from .observed_cost import ObservedCosts, declared_drivers
 from ..variables import argument_errors
@@ -102,6 +109,7 @@ from ..runs import (
     MANIFEST_FILE_NAME,
     OUTPUT_PREFIX,
     REALIZED_FILE_NAME,
+    _run_lock_path,
     is_output_reference,
     is_run_id,
     kept_provenance,
@@ -224,17 +232,6 @@ RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.
 _workflow_detail_cache = {}
 
 
-def _prune_detail_cache(cache, directory, names):
-    """Forget files a listing no longer names - a long-lived server that
-    creates and deletes scratch files would otherwise grow the cache forever.
-
-    `names` are relative names under `directory`.
-    """
-    live = {os.path.join(directory, f"{name}.json") for name in names}
-    for stale in [path for path in cache if path not in live]:
-        del cache[stale]
-
-
 def _prune_missing(cache):
     """Forget cached files that are gone from disk.
 
@@ -243,9 +240,13 @@ def _prune_missing(cache):
     workspace's search path, so anything cached for another workspace would
     be thrown away and re-parsed on the next switch. Existence is the test
     that holds for all of them at once.
+
+    `list(cache)` copies the keys in one step, so a request thread inserting
+    meanwhile cannot break the scan, and `pop` tolerates an entry another
+    thread already pruned.
     """
-    for stale in [path for path in cache if not os.path.exists(path)]:
-        del cache[stale]
+    for stale in [path for path in list(cache) if not os.path.exists(path)]:
+        cache.pop(stale, None)
 
 
 def collect_prompt_references(value):
@@ -1138,7 +1139,13 @@ def create_app(
             )
 
     def _candidate_for(
-        workflow_path, workflow, base_dir, output_dir, workflow_dir, arguments
+        workflow_path,
+        workflow,
+        base_dir,
+        output_dir,
+        workflow_dir,
+        arguments,
+        asset_dir=None,
     ):
         """The Workflow a job spec names, built and checked as submit() will
         build and check it - schema first, then the caller's arguments -
@@ -1161,7 +1168,19 @@ def create_app(
         # candidate.validate() checked the document with no arguments and so
         # queued a job validate_workflow had already refused for the same
         # call (#414)
-        problems = candidate.validation_errors(arguments=arguments)
+        #
+        # validation_errors() resolves 'asset:' references itself
+        # (dissolve_frame_errors, video_size_errors) through dw.assets'
+        # default discovery, which a real deployment's DW_ASSET_DIR pins to
+        # the default workspace - so this job's own workspace has to be made
+        # the active library for the length of the call, the same ContextVar
+        # dw/worker.py's execute path activates before running the same check
+        asset_token = activate_asset_dir(asset_dir) if asset_dir else None
+        try:
+            problems = candidate.validation_errors(arguments=arguments)
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
         problems += argument_errors(candidate.workflow_definition, arguments)
         # A value outside a rule the workflow declares, refused before the
         # job id rather than after the weights are loaded (#96)
@@ -1199,6 +1218,7 @@ def create_app(
                 workspace.outputs,
                 source.root if source else workspace.workflows,
                 request.arguments,
+                asset_dir=workspace.assets,
             )
             # The same reference check POST /api/validate makes, because a
             # caller who skipped the free pre-flight should still not get a
@@ -1377,6 +1397,7 @@ def create_app(
                     spec.get("output_dir") or manager.output_dir,
                     spec.get("workflow_dir"),
                     arguments,
+                    asset_dir=spec.get("asset_dir"),
                 )
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
@@ -1865,6 +1886,11 @@ def create_app(
         caller_arguments = (
             request.arguments if "arguments" in request.model_fields_set else None
         )
+        # See _candidate_for's activate_asset_dir comment: validation_errors()
+        # resolves 'asset:' references itself, through discovery a pinned
+        # DW_ASSET_DIR would otherwise point at the default workspace
+        # regardless of which one this request names
+        asset_token = activate_asset_dir(workspace.assets) if workspace.assets else None
         try:
             # The caller's list is the one a for_each expands over, so the
             # pre-flight checks the step set that will actually run
@@ -1885,6 +1911,9 @@ def create_app(
                 "errors": [{"path": None, "message": detail}],
                 "warnings": [],
             }
+        finally:
+            if asset_token is not None:
+                deactivate_asset_dir(asset_token)
         if errors:
             return {
                 "valid": False,
@@ -1934,7 +1963,7 @@ def create_app(
             + candidate.null_variable_argument_warnings(caller_arguments)
             # An argument a sub-workflow step passes to a workflow that
             # declares no variable for it - dropped in silence at run time
-            + candidate.sub_workflow_warnings()
+            + candidate.sub_workflow_warnings(caller_arguments)
             # A slice_audio source whose real duration is already knowable
             # (an asset:/output: reference validate can already probe) and
             # whose requested slice reaches past it - zero-padded rather than
@@ -3724,6 +3753,23 @@ def create_app(
     # describe the run, and the gallery - which lists media - never shows them
     RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
 
+    def _remove_empty_identity_folders(run_dir, root):
+        """Remove the folders above a deleted run, up to `root`, while empty.
+
+        Under the run lock open_run takes: it creates the identity folder
+        and then claims a run inside it, and removing the folder between
+        the two would fail that run on a path that no longer exists.
+        """
+        identity_dir = os.path.dirname(run_dir)
+        with FileLock(_run_lock_path(identity_dir)):
+            parent = identity_dir
+            while os.path.normpath(parent) != os.path.normpath(root):
+                try:
+                    os.rmdir(parent)
+                except OSError:
+                    break
+                parent = os.path.dirname(parent)
+
     def _prune_empty_run_directory(name, root):
         """Drop the run directory a just-deleted output belonged to, once no
         media is left in it.
@@ -3768,13 +3814,7 @@ def create_app(
         shutil.rmtree(run_dir, ignore_errors=True)
         # And the identity folders above it, while they are empty - a swept
         # workspace should not keep one directory per workflow it once ran
-        parent = os.path.dirname(run_dir)
-        while os.path.normpath(parent) != os.path.normpath(root):
-            try:
-                os.rmdir(parent)
-            except OSError:
-                break
-            parent = os.path.dirname(parent)
+        _remove_empty_identity_folders(run_dir, root)
         logger.info(f"Swept empty run directory {relative}")
         return run_id
 
@@ -3812,13 +3852,7 @@ def create_app(
             # before one of them goes
             record_run_versions(os.path.dirname(run_dir))
             shutil.rmtree(run_dir, ignore_errors=True)
-            parent = os.path.dirname(run_dir)
-            while os.path.normpath(parent) != os.path.normpath(ws.outputs):
-                try:
-                    os.rmdir(parent)
-                except OSError:
-                    break
-                parent = os.path.dirname(parent)
+            _remove_empty_identity_folders(run_dir, ws.outputs)
             logger.info(f"Deleted run directory {name}")
             forget_workspace_usage()
             return {

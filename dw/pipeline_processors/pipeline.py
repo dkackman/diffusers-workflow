@@ -67,6 +67,24 @@ _NON_COMPONENT_KEYS = {
 }
 
 
+def component_names(pipeline_definition, key):
+    """The component names one of a pipeline definition's sharing lists holds.
+
+    The lists were only ever read off the pipeline itself, while the schema and
+    the guide put them in its configuration - a workflow written to the docs
+    shared nothing and said nothing about it. Both places are read now.
+
+    Args:
+        pipeline_definition: A pipeline's definition dict (`step["pipeline"]`)
+        key: 'shared_components' or 'reused_components'
+
+    Returns:
+        List of component names
+    """
+    configuration = pipeline_definition.get("configuration", {})
+    return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
+
+
 def declared_component_names(pipeline_definition):
     """The component names a pipeline definition can load or configure.
 
@@ -150,19 +168,13 @@ class Pipeline:
     def component_names(self, key):
         """The component names one of the sharing lists holds.
 
-        The lists were only ever read off the pipeline itself, while the schema and
-        the guide put them in its configuration - a workflow written to the docs
-        shared nothing and said nothing about it. Both places are read now.
-
         Args:
             key: 'shared_components' or 'reused_components'
 
         Returns:
             List of component names
         """
-        return list(self.pipeline_definition.get(key, [])) + list(
-            self.configuration.get(key, [])
-        )
+        return component_names(self.pipeline_definition, key)
 
     def resolve_reused_components(self, shared_components):
         """The components an earlier step shared that this one asks to reuse.

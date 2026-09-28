@@ -553,12 +553,12 @@ def test_run_records_the_current_key_of_every_pipeline_step(tmp_path):
     hashed_by_create_step_action = {}
     original = Workflow.create_step_action
 
-    def spy(self, step_definition, *args):
+    def spy(self, step_definition, *args, **kwargs):
         if "pipeline" in step_definition:
             hashed_by_create_step_action[step_definition["name"]] = pipeline_cache_key(
                 step_definition["pipeline"]
             )
-        return original(self, step_definition, *args)
+        return original(self, step_definition, *args, **kwargs)
 
     def mock_load(self, shared_components):
         self.pipeline = MagicMock()

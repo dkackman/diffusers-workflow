@@ -26,7 +26,7 @@ points. Bug #415 was fixed twice (`JobManager.submit` and
 | B3 | `sub_workflow_warnings` returns dicts among string warnings (UI shows `[object Object]`), reports expanded indices, ignores caller arguments | `dw/workflow.py`, `dw/server/app.py` | confirmed |
 | B4 | `_prune_detail_cache` iterates a live module dict shared by request threads | `dw/server/app.py` | confirmed |
 | B5 | `assign_run_version` is max+1 with no lock | `dw/runs.py` | confirmed |
-| B6 | `--mcp` mount shares one client, so `use_workspace` switches every session | `dw/server/mcp_mount.py` | reported |
+| B6 | `--mcp` mount shares one client, so `use_workspace` switches every session | `dw/server/mcp_mount.py` | confirmed; by design (single-user mount, stateless HTTP). Revisit in Phase 3 with the router split if multi-agent use of one server becomes a requirement |
 | B7 | Step-cache key ignores `pipeline_reference` / `reused_components` sources | `dw/step_cache.py` | reported |
 | B8 | Worker validates before activating the job's asset root | `dw/worker.py` | reported |
 | B9 | Media probes in validation decode whole files, uncached, per check (Phase 2) | `dw/media_info.py` + preflight modules | reported |
@@ -76,5 +76,7 @@ not more prose in agent context. Metrics ratchet against
 `docs/stabilization/baseline.json` (produced by `scripts/arch_metrics.py`):
 modules, files over 1,000 lines, functions over 150 lines, reference-prefix
 literals outside their owner, test patches of `dw.` paths, CLAUDE.md lines,
-duplicate-code blocks. A ticket is done when it works, no metric regressed,
+duplicate-code blocks, and from Phase 1 on, functions over cyclomatic
+complexity 15 and import cycles. Change coupling, package instability and
+LCOM4 are gate reports, not gates (ROADMAP.md, "Metrics"). A ticket is done when it works, no metric regressed,
 and it added no second copy of an existing rule.

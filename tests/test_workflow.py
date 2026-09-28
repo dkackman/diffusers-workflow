@@ -1433,5 +1433,50 @@ class TestSubWorkflowValidation:
 
         warnings = workflow.sub_workflow_warnings()
 
-        assert [w["path"] for w in warnings] == ["steps[0].workflow.arguments.promt"]
-        assert "declares no variable" in warnings[0]["message"]
+        assert all(isinstance(w, str) for w in warnings)
+        assert warnings and warnings[0].startswith(
+            "steps[0].workflow.arguments.promt: "
+        )
+        assert "declares no variable" in warnings[0]
+
+    def test_sub_workflow_warnings_are_strings_at_the_authors_step(self, tmp_path):
+        """The path in the warning names the step index the author wrote,
+        not the index the step lands at after for_each expansion (#89)."""
+        import json
+
+        workflows = self._tree(tmp_path)
+        (workflows / "child.json").write_text(
+            json.dumps(
+                {
+                    "id": "child",
+                    "variables": {"prompt": "a cat"},
+                    "steps": [
+                        {
+                            "name": "noop",
+                            "task": {
+                                "command": "compose_text",
+                                "arguments": {"parts": ["variable:prompt"]},
+                            },
+                            "result": {"content_type": "text/plain"},
+                        }
+                    ],
+                }
+            )
+        )
+        workflow = self._parent(workflows, "child", {"promt": "a dog"})
+        workflow.workflow_definition["steps"].insert(
+            0,
+            {
+                "name": "fan",
+                "for_each": [{"name": "a"}, {"name": "b"}],
+                "task": {"command": "no_op", "arguments": {}},
+                "result": {"content_type": "text/plain"},
+            },
+        )
+
+        warnings = workflow.sub_workflow_warnings()
+
+        assert all(isinstance(w, str) for w in warnings)
+        assert warnings and warnings[0].startswith(
+            "steps[1].workflow.arguments.promt: "
+        )
