@@ -60,6 +60,10 @@ remaining deferred fix is recorded in
   (holding the ceiling on the encoded film, true-peak in the post-encode
   check, `compress_audio`'s limit mode):
   `complete/normalize-audio-limiter-complete.md`.
+- **`join_into_song`, a spoken scene breaking into a song** (#486, stages
+  #513-#514), shipped 2026-09-27. Record, including what was deferred (a
+  template, register-external-output, the `concat_videos` silent-input
+  desync filed as #553): `complete/join-into-song-complete.md`.
 
 ## Declined
 
