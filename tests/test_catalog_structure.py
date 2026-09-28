@@ -408,7 +408,10 @@ def test_no_stale_entry_in_the_allowlist():
 # at 8_762 - the cost of a real diffusers refusal (not a floor like
 # `num_frames`) being checked before the pipeline loads rather than 80s
 # after it.
-COMPACT_BUDGET = 8_850
+# Then to 9_000 for `templates/ltx2/upscale-clip` (#548), measured at 8_910:
+# about 125 tokens, the same as each of its restore siblings - the only
+# catalog route to a generative upscale of a clip the caller brings.
+COMPACT_BUDGET = 9_000
 FILTERED_BUDGET = 1_500
 
 
