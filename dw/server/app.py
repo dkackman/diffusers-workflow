@@ -104,6 +104,7 @@ from ..runs import (
     REALIZED_FILE_NAME,
     is_output_reference,
     is_run_id,
+    kept_provenance,
     record_kept_shots,
     record_run_versions,
     resolve_output_reference,
@@ -2784,6 +2785,31 @@ def create_app(
             _resolution_roots(ws),
         )
 
+    def _job_provenance(name, ws):
+        """The job that wrote an output file, and which run and version -
+        `gallery_metadata`'s output branch and `keep_output_as_asset` (#556)
+        both need this, the latter so it can carry it into the kept asset's
+        sidecar before the run directory it came from is pruned."""
+        try:
+            # Scoped to this workspace: two workspaces can each write a
+            # file with the same relative name, and an unscoped lookup
+            # could attribute this one to the wrong workspace's job
+            job = manager.history.job_for_file(name, workspace=ws.name)
+        except Exception:
+            job = None
+        run_id, version = "", None
+        folder, run_id, _subfolder = split_run_path(name)
+        if run_id:
+            try:
+                identity_dir = validate_path(
+                    os.path.join(ws.outputs, folder), ws.outputs
+                )
+            except SecurityError:
+                identity_dir = None
+            if identity_dir:
+                version = run_versions(identity_dir).get(run_id)
+        return job, run_id, version
+
     def _static_files_for(root):
         """The StaticFiles instance bound to one root, built on first use and
         cached on app.state - see the comment where the cache is created."""
@@ -3156,37 +3182,35 @@ def create_app(
         what decide whether a call will work at all, and for a file the
         caller is about to *consume* they were previously unobtainable:
         the only way to read a wav's length was to run a job that copied it
-        into the output directory. `job` is null for an asset (nothing here
-        produced it) and `source` says which of the two roots answered."""
+        into the output directory. `job` is null for an asset with no
+        recorded provenance, and `source` says which of the two roots
+        answered.
+
+        A kept asset (`keep_output`) is not always provenance-blind: when
+        the file it was kept from still had a job in history, `keep_output`
+        recorded `{job, run_id, version}` beside it, and this route reads it
+        back the same way it reads a kept file's shots (#556). `run_id`/
+        `version` are that source run's own - `job.id` is still the one to
+        pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
+        of its own to reopen."""
         run_id, version = "", None
         name = _strip_output_prefix(name)
         if is_asset_reference(name):
             path = _asset_file(name, ws)
             source, job = "asset", None
+            kept = kept_provenance(path)
+            if kept:
+                job = kept.get("job")
+                run_id = kept.get("run_id") or ""
+                version = kept.get("version")
         else:
             path = _output_file(name, ws.outputs)
             source = "output"
-            try:
-                # Scoped to this workspace: two workspaces can each write a
-                # file with the same relative name, and an unscoped lookup
-                # could attribute this one to the wrong workspace's job
-                job = manager.history.job_for_file(name, workspace=ws.name)
-            except Exception:
-                job = None
             # Which run wrote it, and that run's ordinal - the same 'v4' the
             # listing reports. After "look at version 3" this is the next
             # call, so it confirms the right file was reached rather than
             # sending the caller back to the listing
-            folder, run_id, _subfolder = split_run_path(name)
-            if run_id:
-                try:
-                    identity_dir = validate_path(
-                        os.path.join(ws.outputs, folder), ws.outputs
-                    )
-                except SecurityError:
-                    identity_dir = None
-                if identity_dir:
-                    version = run_versions(identity_dir).get(run_id)
+            job, run_id, version = _job_provenance(name, ws)
         metadata = read_embedded_metadata(path)
         extension = os.path.splitext(path)[1].lower()
         media = (
@@ -4143,11 +4167,26 @@ def create_app(
 
         # The source run's shot boundaries - carrying bytes without them left
         # a kept multi-shot cut looking like one shot to every probe, with no
-        # sign anything was missing (#393)
+        # sign anything was missing (#393). Alongside them, the job and run
+        # that wrote the file: keep_output is the one place the server still
+        # knows which job produced it, since a plain asset has none (#556)
+        job, source_run_id, source_version = _job_provenance(kept_name, ws)
+        provenance = (
+            {
+                "job": job,
+                "run_id": source_run_id,
+                "version": source_version,
+                "workspace": ws.name,
+                "source": kept_name,
+            }
+            if job
+            else None
+        )
         record_kept_shots(
             os.path.dirname(destination),
             os.path.basename(destination),
             recorded_shots(ws.outputs, kept_name),
+            provenance,
         )
 
         logger.info(f"Kept output {request.name} as asset:{asset_name}")
