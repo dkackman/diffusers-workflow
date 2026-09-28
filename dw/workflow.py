@@ -44,6 +44,7 @@ from .video_size_errors import video_size_errors
 from .task_domains import task_argument_errors
 from .select_validation import select_errors
 from .variable_constraints import (
+    ConstraintReferenceError,
     apply_constraints,
     constraint_errors,
     constraint_reference_errors,
@@ -766,9 +767,10 @@ class Workflow:
         # such array to walk
         if errors:
             return errors
-        # Expansion resolves every 'constraint:' frame_snap and raises a
-        # bare ValueError on a name nothing declares - answered here, at the
-        # path it sits at, before expanding
+        # A 'constraint:' frame_snap naming nothing declared, every one of
+        # them at the path it sits at, before expanding. One that only
+        # becomes a 'constraint:' name once a variable substitutes is
+        # raised by expansion as ConstraintReferenceError, answered below
         errors = constraint_reference_errors(self.workflow_definition)
         if errors:
             return errors
@@ -779,6 +781,8 @@ class Workflow:
             return [{"path": e.path, "message": str(e)}]
         except ConstantError as e:
             return [{"path": e.path, "message": str(e)}]
+        except ConstraintReferenceError as e:
+            return [{"path": e.path, "message": e.message}]
         except VariableNotFoundError:
             # Every undeclared reference, not just the first one substitution
             # tripped over - and reported where each sits rather than as a

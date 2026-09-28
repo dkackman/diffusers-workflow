@@ -124,3 +124,25 @@ def test_an_undeclared_frame_snap_name_is_reported_at_its_path_not_raised(
         "message": "'constraint:nope' names no entry of this workflow's "
         "'variable_constraints'. Declared: num_frames",
     } in errors
+
+
+def test_an_undeclared_frame_snap_name_reached_through_a_variable_is_a_finding(
+    tmp_path,
+):
+    """The literal check runs on the definition as written, where this one
+    is still "variable:snap"; substitution makes it "constraint:nope" and
+    expansion must report it at the frame_snap's path, not raise."""
+    definition = copy.deepcopy(DEFINITION)
+    definition["variables"]["snap"] = "constraint:nope"
+    definition["steps"][1]["task"]["arguments"]["frame_snap"] = "variable:snap"
+    wf = workflow_from_definition(definition, str(tmp_path))
+
+    errors = wf.validation_errors({"num_frames": 108})
+
+    assert errors == [
+        {
+            "path": "steps[1].task.arguments.frame_snap",
+            "message": "'constraint:nope' names no entry of this workflow's "
+            "'variable_constraints'. Declared: num_frames",
+        }
+    ]
