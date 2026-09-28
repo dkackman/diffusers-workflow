@@ -826,9 +826,7 @@ class TestPerInputAudioConforming:
             frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
         )
 
-        result = concat_videos(
-            [audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4
-        )
+        result = concat_videos([audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4)
 
         third_shot = result.shots[-1]
         assert third_shot["start_sample"] == frames_to_samples(8, 4, 100)
