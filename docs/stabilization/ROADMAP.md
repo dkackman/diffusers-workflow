@@ -10,7 +10,7 @@ phase works on is what the earlier phases leave behind.
 
 | Phase | Scope | Gate | Plan | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Freeze, baseline metrics, fix B1-B8 | B1-B8 fixed with regression tests and deployed to lem; `baseline.json` committed | [phase-0.md](phase-0.md) | planned |
+| 0 | Freeze, baseline metrics, fix B1-B8 | B1-B5, B7, B8 fixed with regression tests; B6 documented as a design limit; deployed to lem; `baseline.json` committed | [phase-0.md](phase-0.md) | planned |
 | 1 | Metrics v2 first (see below); remove the REPL; one prepare pipeline; one admission service; `dw.run` becomes a thin client of `dw.serve` | Validation sees the definition the run sees; a submit validates once | written at gate 0 | - |
 | 2 | Seams in place: `references.py`, validation context + check registry, shared task rules, step cache, typed worker protocol | `validation_errors` is a registry loop; no prefix literals outside `references.py` | written at gate 1 | - |
 | 3 | Structural moves: `app.py` routers + services, `LibraryPath`, split `result.py` / `pipeline.py`, one media + dsp module | No module over 1,000 lines, no function over 150; suite and lem smoke green | written at gate 2 | - |
