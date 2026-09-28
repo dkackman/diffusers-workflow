@@ -1001,20 +1001,17 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
         assert not any("cached_steps" in w for w in result["warnings"])
 
 
-def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
-    tmp_path, monkeypatch
-):
-    """B8: /api/validate's candidate.validation_errors() runs dissolve_frame_errors,
-    which resolves an 'asset:' input through fetch_asset() with no explicit
-    asset_dir - so it falls back to dw.assets.get_asset_dir()'s discovery. In
-    a real deployment dw.serve pins DW_ASSET_DIR to the *default* workspace's
-    own library at startup (dw/serve.py), and that explicit env var wins
-    outright over any base_dir-relative walk - so unless the server process
-    activates the named workspace's own library first (the ContextVar
-    dw/worker.py's execute path already uses), a dissolve check against a
-    non-default workspace silently looks at the default workspace's assets
-    instead and never sees a too-short input that exists only in its own
-    library."""
+def _shots_workspace_with_short_dissolve_assets(tmp_path, monkeypatch):
+    """A server whose default workspace's DW_ASSET_DIR is pinned (mirroring
+    dw.serve's real startup, dw/serve.py:145) and whose named 'shots'
+    workspace holds two mp4 assets too short for a dissolve_frames=130
+    dissolve - so a dissolve_videos check against 'shots' must be answered
+    from its own library, not the pinned default's.
+
+    Returns (client, workflow): client is a TestClient already inside its
+    lifespan context (the caller uses it directly, no further `with`), and
+    workflow is the dissolve_videos definition referencing the two assets.
+    """
     from dw.workspace import Workspace
 
     from .test_dissolve_frame_errors import dissolve_workflow, write_mp4
@@ -1040,24 +1037,44 @@ def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
         asset_dir=root.assets,
         workspace=root.root,
     )
-    with TestClient(app, base_url="http://localhost") as client:
-        assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+    client = TestClient(app, base_url="http://localhost")
+    client.__enter__()
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
 
-        shots_assets = os.path.join(root.root, "shots", "assets")
-        # Too short for the dissolve declared below - the same fixture shape
-        # test_dissolve_frame_errors.py uses for the un-scoped version of
-        # this check
-        write_mp4(os.path.join(shots_assets, "a.mp4"), frames=124)
-        write_mp4(os.path.join(shots_assets, "b.mp4"), frames=124)
-        # Nothing of the same name in the default workspace - if validation
-        # resolves against the pinned default library instead of the named
-        # one, it finds no file at all and dissolve_frame_errors silently
-        # reports nothing, rather than correctly flagging the overlap
-        assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+    shots_assets = os.path.join(root.root, "shots", "assets")
+    # Too short for the dissolve declared below - the same fixture shape
+    # test_dissolve_frame_errors.py uses for the un-scoped version of
+    # this check
+    write_mp4(os.path.join(shots_assets, "a.mp4"), frames=124)
+    write_mp4(os.path.join(shots_assets, "b.mp4"), frames=124)
+    # Nothing of the same name in the default workspace - if validation
+    # resolves against the pinned default library instead of the named
+    # one, it finds no file at all and dissolve_frame_errors silently
+    # reports nothing, rather than correctly flagging the overlap
+    assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
 
-        workflow = dissolve_workflow(
-            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
-        )
+    workflow = dissolve_workflow(["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130)
+    return client, workflow
+
+
+def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """B8: /api/validate's candidate.validation_errors() runs dissolve_frame_errors,
+    which resolves an 'asset:' input through fetch_asset() with no explicit
+    asset_dir - so it falls back to dw.assets.get_asset_dir()'s discovery. In
+    a real deployment dw.serve pins DW_ASSET_DIR to the *default* workspace's
+    own library at startup (dw/serve.py), and that explicit env var wins
+    outright over any base_dir-relative walk - so unless the server process
+    activates the named workspace's own library first (the ContextVar
+    dw/worker.py's execute path already uses), a dissolve check against a
+    non-default workspace silently looks at the default workspace's assets
+    instead and never sees a too-short input that exists only in its own
+    library."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
         result = client.post(
             "/api/validate",
             json={"workflow": workflow, "workspace": "shots"},
@@ -1065,6 +1082,26 @@ def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
 
     assert result["valid"] is False
     assert "124 frames" in result["error"]
+
+
+def test_submit_job_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """The same gap as /api/validate, in the pre-queue check _candidate_for
+    runs for POST /api/jobs (and /rerun) - a bad dissolve must be refused
+    with a 400 naming the workspace's own asset, not queued because the
+    check looked at the pinned default workspace instead."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+
+    assert response.status_code == 400
+    assert "124 frames" in response.json()["detail"]
 
 
 def test_submission_carries_argument_warnings(server):

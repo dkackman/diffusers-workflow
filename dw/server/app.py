@@ -1890,27 +1890,25 @@ def create_app(
         # regardless of which one this request names
         asset_token = activate_asset_dir(workspace.assets) if workspace.assets else None
         try:
-            try:
-                # The caller's list is the one a for_each expands over, so
-                # the pre-flight checks the step set that will actually run
-                errors = candidate.validation_errors(arguments=caller_arguments)
-            except Exception:
-                # An error here is not the schema's verdict on the workflow -
-                # validation_errors() reports that by returning it. It is the
-                # validator itself failing, and its message could carry
-                # internals, so the log keeps the detail and the client is told
-                # the category, as above
-                logger.exception("Workflow could not be validated")
-                detail = (
-                    "The workflow could not be validated - the server log "
-                    "has the detail"
-                )
-                return {
-                    "valid": False,
-                    "error": detail,
-                    "errors": [{"path": None, "message": detail}],
-                    "warnings": [],
-                }
+            # The caller's list is the one a for_each expands over, so the
+            # pre-flight checks the step set that will actually run
+            errors = candidate.validation_errors(arguments=caller_arguments)
+        except Exception:
+            # An error here is not the schema's verdict on the workflow -
+            # validation_errors() reports that by returning it. It is the
+            # validator itself failing, and its message could carry
+            # internals, so the log keeps the detail and the client is told
+            # the category, as above
+            logger.exception("Workflow could not be validated")
+            detail = (
+                "The workflow could not be validated - the server log has the detail"
+            )
+            return {
+                "valid": False,
+                "error": detail,
+                "errors": [{"path": None, "message": detail}],
+                "warnings": [],
+            }
         finally:
             if asset_token is not None:
                 deactivate_asset_dir(asset_token)
