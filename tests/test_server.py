@@ -5739,3 +5739,41 @@ def test_gallery_audio_serves_a_whole_wav_as_audio_wav_whatever_mimetypes_says(
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/wav"
+
+
+class TestDetailCachePruning:
+    """Request threads share the module-level detail caches."""
+
+    def test_an_insert_during_the_scan_does_not_raise(self):
+        from unittest.mock import patch
+
+        from dw.server import app as app_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_inserts(path):
+            cache[f"/new/{len(cache)}.json"] = 0
+            return False
+
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_inserts
+        ):
+            app_module._prune_missing(cache)
+        assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
+
+    def test_an_entry_another_thread_already_pruned_is_not_an_error(self):
+        from unittest.mock import patch
+
+        from dw.server import app as app_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_prunes(path):
+            cache.pop("/gone/b.json", None)
+            return False
+
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_prunes
+        ):
+            app_module._prune_missing(cache)
+        assert cache == {}

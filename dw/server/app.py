@@ -224,17 +224,6 @@ RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.
 _workflow_detail_cache = {}
 
 
-def _prune_detail_cache(cache, directory, names):
-    """Forget files a listing no longer names - a long-lived server that
-    creates and deletes scratch files would otherwise grow the cache forever.
-
-    `names` are relative names under `directory`.
-    """
-    live = {os.path.join(directory, f"{name}.json") for name in names}
-    for stale in [path for path in cache if path not in live]:
-        del cache[stale]
-
-
 def _prune_missing(cache):
     """Forget cached files that are gone from disk.
 
@@ -243,9 +232,13 @@ def _prune_missing(cache):
     workspace's search path, so anything cached for another workspace would
     be thrown away and re-parsed on the next switch. Existence is the test
     that holds for all of them at once.
+
+    `list(cache)` copies the keys in one step, so a request thread inserting
+    meanwhile cannot break the scan, and `pop` tolerates an entry another
+    thread already pruned.
     """
-    for stale in [path for path in cache if not os.path.exists(path)]:
-        del cache[stale]
+    for stale in [path for path in list(cache) if not os.path.exists(path)]:
+        cache.pop(stale, None)
 
 
 def collect_prompt_references(value):
