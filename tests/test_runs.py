@@ -918,7 +918,7 @@ class TestRunVersions:
         self, tmp_path
     ):
         # The lock that makes the claim atomic lives outside the output
-        # tree entirely (under the system temp directory), so an identity
+        # tree entirely (under dw's settings directory), so an identity
         # directory holds only run directories - never a lock file or
         # anything else - and a sweep that removes every run can remove the
         # identity directory too, with nothing left behind to block it
@@ -927,6 +927,23 @@ class TestRunVersions:
         )
         identity_dir = os.path.dirname(run_dir)
         assert os.listdir(identity_dir) == [os.path.basename(run_dir)]
+
+    def test_the_run_lock_lives_under_the_settings_directory(
+        self, tmp_path, monkeypatch
+    ):
+        # Not the system temp directory: that is shared between OS users
+        # and moves with TMPDIR / PrivateTmp, so a server and a CLI run
+        # could lock in two different places
+        from dw.runs import _run_lock_path
+
+        helper = tmp_path / "helper"
+        monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(helper))
+        run_dir, _version = open_run(
+            str(tmp_path / "outputs"), None, "wf", "20260928-120000-aaaaaaaa"
+        )
+        lock_path = _run_lock_path(os.path.dirname(run_dir))
+        assert os.path.dirname(lock_path) == str(helper / "run-locks")
+        assert os.path.isdir(helper / "run-locks")
 
     def test_the_first_run_of_a_workflow_is_version_one(self, tmp_path):
         assert self._open(tmp_path, "20260904-120000-eeeeeeee")[1] == 1

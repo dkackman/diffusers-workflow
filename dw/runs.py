@@ -572,13 +572,21 @@ def record_run_versions(identity_dir, exclude=None):
 # identity is gone - see open_run. Keyed on the identity directory's real
 # path rather than nested under it, one file per identity, in a directory
 # any run of any workflow shares
-_RUN_LOCK_DIR_NAME = "dw-run-locks"
+_RUN_LOCK_DIR_NAME = "run-locks"
 
 
 def _run_lock_path(identity_dir):
     """Where the lock for one workflow identity's runs lives, outside the
-    output tree entirely - see open_run for why."""
-    lock_dir = os.path.join(tempfile.gettempdir(), _RUN_LOCK_DIR_NAME)
+    output tree entirely - see open_run for why.
+
+    Under dw's settings directory rather than the system temp directory:
+    a shared /tmp directory created by one OS user refuses every other
+    user's lock file, and TMPDIR or a systemd PrivateTmp would give the
+    server and a CLI run two different lock directories for the same
+    outputs."""
+    from .settings import get_settings_dir
+
+    lock_dir = os.path.join(get_settings_dir(), _RUN_LOCK_DIR_NAME)
     os.makedirs(lock_dir, exist_ok=True)
     digest = hashlib.sha256(os.path.realpath(identity_dir).encode()).hexdigest()
     return os.path.join(lock_dir, f"{digest}.lock")
@@ -596,7 +604,7 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     held across both operations is what makes 'the run has a directory and
     a number' atomic rather than two hopeful reads.
 
-    The lock lives outside the output tree - under the system temp
+    The lock lives outside the output tree - under dw's settings
     directory, keyed on the identity directory's real path - rather than
     beside the runs it guards. A lock file living in `<identity>/` would be
     a permanent, non-run file there, and the sweep that removes an identity
@@ -604,7 +612,9 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     / `delete_output` in dw/server/app.py) walks upward with a plain
     `os.rmdir`, which only succeeds on a directory holding nothing at all.
     A run opening therefore leaves *nothing* in the identity directory but
-    the run directory itself.
+    the run directory itself. The limit that follows: the lock serialises
+    processes of one OS user on one host - two users, or two hosts sharing
+    an output directory, each lock under their own settings directory.
 
     The identity directory is created inside the lock, immediately before
     the run directory is claimed - not once up front - so a sweep that
