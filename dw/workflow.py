@@ -1532,16 +1532,25 @@ class Workflow:
                 # A hit skips the step's work, never its bookkeeping:
                 # create_step_action is the only place that touches the
                 # step's pipeline (the worker evicts every pipeline a run did
-                # not touch), republishes a cached pipeline's
+                # not touch), republishes a resident pipeline's
                 # shared_components for a later reusing step, and records the
                 # step's pipeline key for release_pipeline and
-                # pipeline_reference to address it by
+                # pipeline_reference to address it by. Loading is not
+                # bookkeeping: a hit whose pipeline is not resident loads it
+                # only when a later step of this run borrows it (its
+                # pipeline, or components it shares), since nothing else
+                # will call it
+                hit_needs_no_pipeline = cached_result is not None and not any(
+                    step_data["name"] in borrowed_pipeline_keys(steps, j)
+                    for j in range(i + 1, len(steps))
+                )
                 step_action = self.create_step_action(
                     step_data,
                     shared_components,
                     pipelines,
                     step_seed,
                     get_device(),
+                    cache_hit=hit_needs_no_pipeline,
                 )
                 if isinstance(step_action, Workflow):
                     # The child reports into this run's counter rather than
@@ -1894,6 +1903,7 @@ class Workflow:
         previous_pipelines,
         default_seed,
         device,
+        cache_hit=False,
     ):
         """
         Creates the appropriate action object based on step type:
@@ -1910,6 +1920,12 @@ class Workflow:
             cache_key = pipeline_cache_key(step_definition["pipeline"])
             self._step_pipeline_key(step_name, cache_key)
             get_context().touch_pipeline(cache_key)
+
+            if cache_hit and cache_key not in previous_pipelines:
+                # A hit needs the key recorded (release_pipeline and
+                # pipeline_reference address it by name), not the weights:
+                # nothing this run does will call the pipeline
+                return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
             if cache_key in previous_pipelines:

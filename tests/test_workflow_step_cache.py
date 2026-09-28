@@ -102,6 +102,24 @@ def test_second_run_with_unchanged_step_reuses_cached_result(tmp_path):
             p.stop()
 
 
+def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
+    """Two runs that share no pipelines dict are the released-pipeline case:
+    the second run's hit must not load a model nothing will call."""
+    step_cache.clear()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
+
+    try:
+        with patch("dw.pipeline_processors.pipeline.Pipeline.load") as load:
+            workflow.run({})
+            loads_first_run = load.call_count
+            workflow.run({})
+        assert call_count() == 1
+        assert load.call_count == loads_first_run
+    finally:
+        for p in workflow._test_patcher:
+            p.stop()
+
+
 def test_second_run_with_changed_variable_recomputes_that_step(tmp_path):
     step_cache.clear()
     workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
