@@ -602,10 +602,19 @@ def test_a_released_deferred_hit_still_shares_its_components(tmp_path):
         workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
         pipelines.clear()
         loads.clear()
-        workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+        events = []
+        workflow.run(
+            {"prompt_b": "second"},
+            previous_pipelines=pipelines,
+            context=RunContext(on_event=events.append),
+        )
 
     assert loads == ["model-a", "model-b"]
     assert workflow._pipeline_keys_by_step["A"] not in pipelines
+    # The release A asked for happened, later - and says so, once
+    released = [e for e in events if e["event"] == "pipeline_released"]
+    assert [(e["step"], e["index"]) for e in released] == [("A", 0)]
+    assert "reason" not in released[0]
 
 
 def test_a_reference_to_a_released_deferred_hit_still_says_it_was_released(

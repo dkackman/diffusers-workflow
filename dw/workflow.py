@@ -1546,7 +1546,9 @@ class Workflow:
                 # borrows it - whether a later step will be a hit too is not
                 # known until that step's own lookup
                 if cached_result is None:
-                    self._load_deferred_borrows(steps, i, shared_components, pipelines)
+                    self._load_deferred_borrows(
+                        workflow_id, steps, i, shared_components, pipelines
+                    )
                 step_action = self.create_step_action(
                     step_data,
                     shared_components,
@@ -1622,31 +1624,7 @@ class Workflow:
                     before = _allocated_mb()
                     released = None
                     step_action = None
-                    gc.collect()
-                    empty_device_cache()
-                    # The device cache is not the only one the release fills:
-                    # the pinned-host staging buffers the pipeline offloaded
-                    # through and the heap arenas its weights were read into
-                    # stay in this process's RSS until they are handed back,
-                    # which otherwise waits for the end of the job - ~10 GB
-                    # held through every step after the release (#368)
-                    _release_host_caches(step.name)
-                    # Say so on the event stream. The release is otherwise
-                    # invisible to a consumer: it sits inside the sub-second
-                    # window between a step's generation and its files
-                    # appearing, which is too narrow to catch by polling
-                    # get_memory, and it is exactly the ordering this event
-                    # exists to make readable (it precedes the step's
-                    # step_end, and on a released card the figures show the
-                    # drop rather than implying it)
-                    run_context.emit(
-                        "pipeline_released",
-                        workflow=workflow_id,
-                        step=step.name,
-                        index=i,
-                        gpu_memory_allocated_mb=_allocated_mb(),
-                        gpu_memory_allocated_before_mb=before,
-                    )
+                    self._finish_release(workflow_id, step.name, i, before)
 
                 if not reused:
                     if parent_saves_this:
@@ -1914,7 +1892,38 @@ class Workflow:
             self._pipeline_keys_by_step = {}
         self._pipeline_keys_by_step[step_name] = cache_key
 
-    def _load_deferred_borrows(self, steps, index, shared_components, pipelines):
+    def _finish_release(self, workflow_id, step_name, index, before):
+        """Free what a popped pipeline held and announce the release.
+
+        `before` is measured by the caller ahead of dropping its own
+        references, which may free the pipeline on the spot.
+        """
+        gc.collect()
+        empty_device_cache()
+        # The device cache is not the only one the release fills: the
+        # pinned-host staging buffers the pipeline offloaded through and the
+        # heap arenas its weights were read into stay in this process's RSS
+        # until they are handed back, which otherwise waits for the end of
+        # the job - ~10 GB held through every step after the release (#368)
+        _release_host_caches(step_name)
+        # Say so on the event stream. The release is otherwise invisible to
+        # a consumer: it sits inside the sub-second window between a step's
+        # generation and its files appearing, which is too narrow to catch
+        # by polling get_memory, and it is exactly the ordering this event
+        # exists to make readable (it precedes the step's step_end, and on a
+        # released card the figures show the drop rather than implying it)
+        get_context().emit(
+            "pipeline_released",
+            workflow=workflow_id,
+            step=step_name,
+            index=index,
+            gpu_memory_allocated_mb=_allocated_mb(),
+            gpu_memory_allocated_before_mb=before,
+        )
+
+    def _load_deferred_borrows(
+        self, workflow_id, steps, index, shared_components, pipelines
+    ):
         """Load, in step order, every deferred pipeline step `index` borrows.
 
         Through create_step_action's cold path, so a lazy load is a load like
@@ -1948,7 +1957,7 @@ class Workflow:
                 # to drop it would delay the error the reference raises
                 continue
             self._load_deferred_borrows(
-                steps, source_index, shared_components, pipelines
+                workflow_id, steps, source_index, shared_components, pipelines
             )
             entry = deferred.pop(name)
             self.create_step_action(
@@ -1959,12 +1968,12 @@ class Workflow:
                 get_device(),
             )
             if entry["released"]:
-                # Freed as the step's own release frees it, so the borrower
-                # does not load on top of it
+                # The release the step asked for, happening now: freed and
+                # announced as its own release would have been, so the
+                # borrower does not load on top of it
+                before = _allocated_mb()
                 pipelines.pop(self._pipeline_keys_by_step.get(name), None)
-                gc.collect()
-                empty_device_cache()
-                _release_host_caches(name)
+                self._finish_release(workflow_id, name, source_index, before)
 
     def create_step_action(
         self,
