@@ -293,3 +293,113 @@ class TestRunEntryPoint:
         assert len(error_lines) == 1
         assert "job123" in error_lines[0]
         assert "Traceback" not in out
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_a_rejected_token_is_one_line_and_exit_2(self, status, capsys):
+        def handler(request):
+            return httpx.Response(status, json={"detail": "Invalid token"})
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        out = capsys.readouterr().out
+        assert code == 2
+        assert out.splitlines() == [
+            "error: the server refused the token (set DW_API_TOKEN or pass --token)"
+        ]
+        assert "Traceback" not in out
+
+    def test_a_timeout_is_reported_as_one_not_as_no_server(self, capsys):
+        """A slow admission is a server that is there - telling the user to
+        start one invites a retry that duplicates a job already queued."""
+
+        def handler(request):
+            raise httpx.ReadTimeout("slow")
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        out = capsys.readouterr().out
+        assert code == 2
+        assert out.splitlines() == [
+            "error: dw.serve at http://testserver did not answer in time"
+        ]
+
+    def test_ctrl_c_during_submit_is_cancelled_not_a_traceback(self, capsys):
+        def handler(request):
+            raise KeyboardInterrupt
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        code = run_module.main(["Basic"], client=client)
+        assert code == 130
+        assert capsys.readouterr().out.splitlines() == ["cancelled"]
+
+    def test_an_unreadable_file_for_the_inline_resend_is_one_error_line(
+        self, server, tmp_path, capsys
+    ):
+        # Outside the server's workflow_dir, so the inline fallback fires,
+        # and not JSON, so reading it for the resend fails
+        external = tmp_path / "external.json"
+        external.write_text("{ not json")
+
+        with server(success_script) as local:
+            client = _bridge(local.app)
+            code = run_module.main([str(external)], client=client)
+
+        out = capsys.readouterr().out
+        assert code == 1
+        error_lines = [line for line in out.splitlines() if line.startswith("error:")]
+        assert len(error_lines) == 1
+        assert str(external) in error_lines[0]
+
+    def test_a_failure_on_the_inline_resend_is_one_error_line(self, tmp_path, capsys):
+        external = tmp_path / "external.json"
+        external.write_text(json.dumps(valid_workflow("external")))
+        answers = iter(
+            [
+                httpx.Response(
+                    400,
+                    json={
+                        "detail": "workflow_path must name a workflow the "
+                        "server can reach"
+                    },
+                ),
+                httpx.Response(400, json={"detail": "steps[0]: broken"}),
+            ]
+        )
+
+        def handler(request):
+            return next(answers)
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        code = run_module.main([str(external)], client=client)
+        out = capsys.readouterr().out
+        assert code == 1
+        assert [line for line in out.splitlines() if not line.startswith("note:")] == [
+            "error: steps[0]: broken"
+        ]
+        assert "Traceback" not in out
+
+    def test_the_jobs_warnings_are_printed_once_it_ends(self, server, capsys):
+        # Basic sets no seed, so admission records the unseeded-cache
+        # warning on the job - nothing emits it as an event
+        with server(success_script) as local:
+            client = _bridge(local.app)
+            code = run_module.main(["Basic"], client=client)
+        assert code == 0
+        warnings = [
+            line
+            for line in capsys.readouterr().out.splitlines()
+            if line.startswith("warning:")
+        ]
+        assert any("sets no 'seed'" in line for line in warnings)

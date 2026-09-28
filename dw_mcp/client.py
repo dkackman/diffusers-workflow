@@ -108,6 +108,12 @@ class DwApiError(Exception):
         self.status_code = status_code
 
 
+class DwTimeoutError(DwApiError):
+    """The server was reached (or at least not refused) but did not answer
+    within the client's timeout - distinct from no server at all, since a
+    request that timed out may still have been acted on."""
+
+
 def resolve_token(explicit=None):
     """The bearer token dw.serve was started with, if any: the explicit
     value, else DW_API_TOKEN - the same variable dw.serve itself reads, so
@@ -356,7 +362,7 @@ class DwClient:
                 "and try again."
             )
         except httpx.TimeoutException:
-            raise DwApiError(
+            raise DwTimeoutError(
                 f"Request to {path} timed out after {self.timeout}s. The "
                 "server may be busy loading a model."
             )

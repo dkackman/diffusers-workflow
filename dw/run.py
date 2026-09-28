@@ -17,6 +17,7 @@ import time
 from dw_mcp.client import (
     DwApiError,
     DwClient,
+    DwTimeoutError,
     api_path,
     resolve_base_url,
     resolve_token,
@@ -120,8 +121,11 @@ def _submit(client, workflow_arg, arguments):
                 "definition inline - relative paths in it resolve against "
                 "the server's workflows/"
             )
-            with open(workflow_arg, "r", encoding="utf-8") as f:
-                definition = json.load(f)
+            try:
+                with open(workflow_arg, "r", encoding="utf-8") as f:
+                    definition = json.load(f)
+            except (OSError, ValueError) as read_error:
+                raise _CliError(f"error: cannot read {workflow_path}: {read_error}")
             return client.post_json(
                 api_path("api", "jobs"),
                 {"workflow": definition, "arguments": arguments},
@@ -129,17 +133,23 @@ def _submit(client, workflow_arg, arguments):
         raise
 
 
-def _print_event(event):
+def _print_event(event, printed):
     kind = event.get("event")
     if kind == "step_start":
+        printed["step"] = event.get("step")
         print(f"step_start: {event.get('step')}")
     elif kind == "step_end":
         print(f"step_end: {event.get('step')}")
     elif kind == "warning":
-        print(f"warning: {event.get('message')}")
+        message = event.get("message")
+        print(f"warning: {message}")
+        # How the job records it (JobState's step-prefixed form), so the
+        # job's own `warnings` list is not printed a second time
+        step = printed.get("step")
+        printed["warnings"].add(f"{step}: {message}" if step else message)
 
 
-def _wait_for_completion(client, job_id):
+def _wait_for_completion(client, job_id, printed):
     last_seq = -1
     while True:
         page = client.get_json(
@@ -147,14 +157,19 @@ def _wait_for_completion(client, job_id):
         )
         for event in page.get("events", []):
             last_seq = event.get("seq", last_seq)
-            _print_event(event)
+            _print_event(event, printed)
         if page.get("status") in TERMINAL_STATUSES:
             break
         time.sleep(POLL_SECONDS)
     return client.get_json(api_path("api", "jobs", job_id))
 
 
-def _report(detail):
+def _report(detail, printed):
+    # The job's warnings carry admission's as well as the run's - print
+    # those no event already did
+    for warning in detail.get("warnings") or []:
+        if warning not in printed["warnings"]:
+            print(f"warning: {warning}")
     status = detail.get("status")
     print(f"status: {status}")
     print(f"run_dir: {detail.get('run_dir')}")
@@ -164,6 +179,21 @@ def _report(detail):
     if status == "succeeded":
         return 0
     print(f"error: {detail.get('error')}")
+    return 1
+
+
+def _submit_failure(error, base_url):
+    """The one line and exit code for a submit that failed."""
+    if isinstance(error, DwTimeoutError):
+        print(f"error: dw.serve at {base_url} did not answer in time")
+        return 2
+    if error.status_code is None:
+        print(f"error: no dw.serve at {base_url} - start one with: python -m dw.serve")
+        return 2
+    if error.status_code in (401, 403):
+        print("error: the server refused the token (set DW_API_TOKEN or pass --token)")
+        return 2
+    print(f"error: {error}")
     return 1
 
 
@@ -188,24 +218,19 @@ def main(argv=None, client=None):
         try:
             job = _submit(client, args.workflow, arguments)
         except DwApiError as e:
-            if e.status_code is None:
-                print(
-                    f"error: no dw.serve at {client.base_url} - start one "
-                    "with: python -m dw.serve"
-                )
-                return 2
-            if e.status_code in (401, 403):
-                print(
-                    "error: the server refused the token (set DW_API_TOKEN "
-                    "or pass --token)"
-                )
-                return 2
-            print(f"Error: {e}")
+            return _submit_failure(e, client.base_url)
+        except _CliError as e:
+            print(e)
             return 1
+        except KeyboardInterrupt:
+            # No job id yet, so nothing to cancel
+            print("cancelled")
+            return 130
 
         job_id = job["id"]
+        printed = {"step": None, "warnings": set()}
         try:
-            detail = _wait_for_completion(client, job_id)
+            detail = _wait_for_completion(client, job_id, printed)
         except KeyboardInterrupt:
             try:
                 client.post_json(api_path("api", "jobs", job_id, "cancel"), {})
@@ -223,7 +248,7 @@ def main(argv=None, client=None):
             print(f"error: lost job {job_id} on the server: {e}")
             return 1
 
-        return _report(detail)
+        return _report(detail, printed)
     finally:
         if owns_client:
             client.close()
