@@ -1424,10 +1424,13 @@ def normalize_audio(
         limit: Hold peak_dbfs with a look-ahead limiter instead of capping the
             gain, so target_lufs can be reached past a transient that sets
             the peak. peak_dbfs becomes a true-peak (4x oversampled, BS.1770)
-            ceiling; the gain is target_lufs's alone (the limiter never adds
-            any), and limiting stops at 12 dB of reduction, past which
-            target_lufs is warned as capped. False (the default) leaves
-            behavior exactly as without it
+            ceiling; the limiter itself never adds gain, but the static gain
+            applied before it is searched for - not read off target_lufs
+            directly - since limiting takes back some of the loudness a
+            plain gain would have reached, more on dense material, so the
+            reported gain_db can run past target_lufs's own gain. Limiting
+            stops at 12 dB of reduction, past which target_lufs is warned as
+            capped. False (the default) leaves behavior exactly as without it
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
@@ -1666,10 +1669,13 @@ def _search_gain(
 
 
 def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
-    """normalize_audio(limit=True): the target's gain, applied uncapped, with
-    a true-peak limiter holding peak_dbfs. The limiter is never a gain stage
-    - makeup comes from target_lufs alone - and it stops at
-    LIMITER_MAX_REDUCTION_DB, past which the gain is what stops instead."""
+    """normalize_audio(limit=True): a static gain, applied uncapped, with a
+    true-peak limiter holding peak_dbfs. The limiter is never a gain stage -
+    it only tames what the static gain sends it - but that static gain is
+    searched for so the *limited* output lands on target_lufs, since
+    limiting takes back some of the loudness a plain target_lufs gain would
+    have reached; the search stops at LIMITER_MAX_REDUCTION_DB, past which
+    the gain is what stops instead."""
     ceiling = 10 ** (peak_dbfs / 20)
     envelope = _true_peak_envelope(waveform)
     input_peak_db = 20 * numpy.log10(float(envelope.max()))
