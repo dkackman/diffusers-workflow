@@ -897,6 +897,21 @@ class TestNormalizeAudioLimit:
         assert 0 < logs[0]["max_gain_reduction_db"] < 12.0
         assert logs[0]["limited_fraction"] > 0.3
 
+    def test_gain_db_is_the_searched_static_gain_not_the_plain_lufs_gain(self):
+        # #540: the limiter takes back loudness on dense material, so the
+        # static gain the search settles on to still land on target_lufs
+        # runs past the plain (unlimited) gain a naive target_lufs - measured
+        # would give - gain_db reports that searched gain, not the plain one
+        from dw.loudness import integrated_lufs
+
+        waveform = self._dense()
+        measured_lufs = integrated_lufs(waveform.T, self.RATE)
+        plain_gain_db = -12.0 - measured_lufs
+        track, logs, warnings = self._run(waveform, peak_dbfs=-3.0, target_lufs=-12.0)
+
+        assert "target_lufs_capped" not in warnings
+        assert logs[0]["gain_db"] > plain_gain_db + 0.1
+
     def test_a_target_the_cap_stops_short_of_says_by_how_much(self):
         # Past the cap the track lands short; the warning's shortfall is the
         # one the output actually has, not the gain's
