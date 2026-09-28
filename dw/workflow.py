@@ -407,6 +407,8 @@ class Workflow:
         # server passes its configured workflow_dir; CLI callers leave
         # it None since a locally-run workflow is not a trust boundary
         self.workflow_dir = workflow_dir
+        # expanded_definition's memo, keyed by the caller's arguments
+        self._expansions = {}
 
     @property
     def name(self):
@@ -497,11 +499,103 @@ class Workflow:
         os.makedirs(target, exist_ok=True)
         return target
 
+    def _fold(self, definition, arguments, *, fold_arguments, constrain):
+        """Stage one of preparing a definition, shared by validation, the
+        run and the record: constants realized, the caller's `arguments`
+        folded in when `fold_arguments`, list entries' own references
+        resolved, and `constrain` applied - snap_constraints for validation,
+        apply_constraints (which also warns and refuses) for the run.
+
+        Mutates `definition`, whose 'variables' block ends up holding the
+        folded values, and returns them - None when it declares none.
+
+        Raises ConstantError for a 'constant:' variable default that fails
+        to resolve, naming the variable.
+        """
+        variables = definition.get("variables")
+        if not isinstance(variables, dict):
+            return None
+        # a constant is the value a variable declares, so it resolves before
+        # anything is converted to the type of that declaration - and a list
+        # defaulted to a 'constant:' name must expand in validation as it
+        # does in the run: a name lookup, no download. Realizing a constant
+        # imports the module it names, so validating one runs the same
+        # trust gate (require_trusted_dotted_name) a run would - only the
+        # diffusers ecosystem allowlist, unless the caller trusts the
+        # workflow. Realized per top-level variable, not as one call over
+        # the whole dict, so a failure names the variable.
+        for name, value in variables.items():
+            try:
+                if is_constant_reference(value):
+                    variables[name] = fetch_constant(value)
+                else:
+                    realize_constants(value)
+            except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+                raise ConstantError(f"variables.{name}", str(e)) from e
+        if fold_arguments:
+            # set variable values from the arguments passed to the workflow;
+            # these may come from the command line or from a parent workflow
+            set_variables(arguments, variables)
+        # an entry of a list-valued variable may name another variable;
+        # resolve those before anything inside it is realized, so a
+        # reference type in an entry is a type name - and before the
+        # constraints pass, so an entry written as "variable:tail_len" is a
+        # number by the time the rule looks
+        variables = resolve_variable_values(variables)
+        # A value outside a rule the workflow declares is refused (by the
+        # run), and one the rule rounds is rounded - before anything loads,
+        # and before substitution puts the value everywhere it is
+        # referenced, so validation checks what the run will use
+        # (dw/variable_constraints.py, #96)
+        constrain(definition, variables)
+        definition["variables"] = variables
+        return variables
+
+    @staticmethod
+    def _expand(definition, variables, source_indices=None):
+        """Stage two of preparing a definition: every 'variable:'
+        substituted, every 'constraint:' frame_snap resolved and every
+        for_each expanded. Returns the new definition."""
+        if variables is not None:
+            # replace_variables returns a new structure rather than mutating
+            # in place, so the result must be captured here
+            definition = replace_variables(definition, variables)
+        # A chain step's `frame_snap` may name the declared constraint
+        # rather than repeating its numbers, so a template states the rule
+        # once (#96)
+        resolve_constraint_references(definition)
+        # One ordinary step per entry of every for_each list, before the
+        # seed, the run id and the realized workflow are computed, so each
+        # covers what actually runs. A ForEachError here fails the run
+        # before anything loads
+        return expand_for_each(definition, source_indices)
+
+    def _folded_and_expanded(self, arguments):
+        """(expanded definition, its source indices, folded variables) for
+        `arguments`, computed once per workflow and arguments - validation
+        and its six warning passes all ask for the same expansion. An
+        exception is raised again on the next call rather than cached."""
+        key = json.dumps(arguments, sort_keys=True, default=repr)
+        cache = self._expansions
+        if key not in cache:
+            definition = copy.deepcopy(self.workflow_definition)
+            variables = self._fold(
+                definition,
+                arguments,
+                fold_arguments=bool(arguments)
+                and not argument_errors(definition, arguments),
+                constrain=snap_constraints,
+            )
+            source_indices = []
+            expanded = self._expand(definition, variables, source_indices)
+            cache[key] = (expanded, source_indices, variables)
+        return cache[key]
+
     def expanded_definition(self, arguments=None, source_indices=None):
         """The definition as the run will see it: constants realized,
         variables substituted - the caller's `arguments` folded in when they
-        are all good, else the declared defaults - and every for_each step
-        expanded.
+        are all good, else the declared defaults - 'constraint:' names
+        resolved, and every for_each step expanded.
 
         Raises ForEachError for a for_each that cannot be expanded,
         ConstantError for a 'constant:' variable default that fails to
@@ -513,35 +607,18 @@ class Workflow:
         `source_indices`, when a list is passed, comes back holding the
         index in *this* definition's steps of every expanded step, so an
         error can be reported at a path in the file the author wrote.
+
+        Memoized per arguments; each call returns its own copy.
         """
-        definition = copy.deepcopy(self.workflow_definition)
-        variables = definition.get("variables")
-        if isinstance(variables, dict):
-            # the run realizes constants before folding arguments, and a
-            # list defaulted to a 'constant:' name must expand here as it
-            # does there - a name lookup, no download. Realizing a constant
-            # imports the module it names, so validating one runs the same
-            # trust gate (require_trusted_dotted_name) a run would - only
-            # the diffusers ecosystem allowlist, unless the caller trusts
-            # the workflow. Realized per top-level variable, not as one
-            # call over the whole dict, so a failure names the variable.
-            for name, value in variables.items():
-                try:
-                    if is_constant_reference(value):
-                        variables[name] = fetch_constant(value)
-                    else:
-                        realize_constants(value)
-                except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
-                    raise ConstantError(f"variables.{name}", str(e)) from e
-            if arguments and not argument_errors(definition, arguments):
-                set_variables(arguments, variables)
-            variables = resolve_variable_values(variables)
-            # Validate what the run will use: a snap-up rule rounds before
-            # substitution there, so it must here too
-            snap_constraints(definition, variables)
-            definition["variables"] = variables
-            definition = replace_variables(definition, variables)
-        return expand_for_each(definition, source_indices)
+        expanded, indices, _ = self._folded_and_expanded(arguments)
+        if source_indices is not None:
+            source_indices.extend(indices)
+        return copy.deepcopy(expanded)
+
+    def folded_variables(self, arguments=None):
+        """The variables as expanded_definition folded them - what the
+        realized workflow records - or None when none are declared."""
+        return copy.deepcopy(self._folded_and_expanded(arguments)[2])
 
     def resolve_sub_workflow_path(self, path):
         """Where one sub-workflow step's `path` resolves to, as
@@ -685,6 +762,12 @@ class Workflow:
         # Only once the shape is known good: the passes below walk the
         # steps array and a definition that fails the schema may have no
         # such array to walk
+        if errors:
+            return errors
+        # Expansion resolves every 'constraint:' frame_snap and raises a
+        # bare ValueError on a name nothing declares - answered here, at the
+        # path it sits at, before expanding
+        errors = constraint_reference_errors(self.workflow_definition)
         if errors:
             return errors
         source_indices = []
@@ -843,7 +926,6 @@ class Workflow:
             + constraint_errors(
                 self.workflow_definition, arguments, supplied=set(arguments or {})
             )
-            + constraint_reference_errors(self.workflow_definition)
             # An 'attn_processor_type' whose Hub kernel this machine has no
             # build variant for - validated clean and then died 88s into
             # loading, naming a torch/natten mismatch the construction alone
@@ -1043,39 +1125,36 @@ class Workflow:
         arguments folded into the variables, list entries' own references
         resolved, variable values realized (assets loaded), every
         'variable:' substituted, every for_each expanded, and the seed read
-        and coerced. Returns (workflow_def, default_seed) - the seed is
-        None when the workflow names none, and the caller decides what
-        that means (run() draws one; cache_hits() reports no hits).
+        and coerced. Returns (workflow_def, default_seed,
+        recorded_variables) - the seed is None when the workflow names none,
+        and the caller decides what that means (run() draws one;
+        cache_hits() reports no hits); recorded_variables are the folded
+        values taken before anything loads, what the realized workflow
+        records (None when none are declared).
 
         Shared by run() and cache_hits() so the probe prepares exactly what
         the run prepares - the step cache keys on the realized step, and a
         probe that prepared it differently would answer for a run that
-        never happens.
+        never happens. The fold and the expansion are the stages validation
+        runs too (expanded_definition), so what validates is what runs.
 
         Records the steps elision dropped on `self._elided_steps` (#122) -
         the same list run() warns about and writes into the manifest.
         """
         workflow_id = workflow_def["id"]
-        variables = workflow_def.get("variables", None)
+        logger.debug(f"Setting variables for workflow: {workflow_id}")
+        # A value outside a declared rule is refused here, and one the rule
+        # rounds is rounded with a warning saying so (apply_constraints)
+        variables = self._fold(
+            workflow_def, arguments, fold_arguments=True, constrain=apply_constraints
+        )
+        recorded_variables = copy.deepcopy(variables)
         if variables is not None:
-            logger.debug(f"Setting variables for workflow: {workflow_id}")
-            # a constant is the value a variable declares, so it resolves before
-            # anything is converted to the type of that declaration
-            realize_constants(variables)
-            # first set variable values base don the arguments passed to the workflow
-            # these may come form the command line or form a parent workflow
-            set_variables(arguments, variables)
-            # an entry of a list-valued variable may name another
-            # variable; resolve those before anything inside it is
-            # realized, so a reference type in an entry is a type name -
-            # and before the constraints pass, so an entry written as
-            # "variable:tail_len" is a number by the time the rule looks
-            variables = resolve_variable_values(variables)
-            # A value outside a rule the workflow declares is refused, and
-            # one the rule rounds is rounded with a warning saying so -
-            # before anything loads, and before substitution puts the value
-            # everywhere it is referenced (dw/variable_constraints.py, #96)
-            apply_constraints(workflow_def, variables)
+            # The definition carries the folded values rather than the
+            # loaded ones: realize_args below loads assets into `variables`,
+            # and substitution copies the variables block along with the
+            # steps
+            workflow_def["variables"] = recorded_variables
             # realize the variables - explicit references only (asset:,
             # output:, constant:, prompt:, a {media_type, location} dict).
             # Key-name conventions (an 'image'/'video'/'_type' argument) are
@@ -1085,21 +1164,9 @@ class Workflow:
             # was ever substituted in (#365). The step-level realize_args
             # passes below apply the conventions under the real argument key
             realize_args(variables, base_dir, apply_key_conventions=False)
-            ## then replace any variable references in the workflow definition with the actual values
-            # replace_variables returns a new structure rather than mutating in
-            # place, so the result must be captured here
-            workflow_def = replace_variables(workflow_def, variables)
-
-        # One ordinary step per entry of every for_each list, before the
-        # seed, the run id and the realized workflow are computed, so
-        # each covers what actually runs. A ForEachError here fails the
-        # run before anything loads
-        # A chain step's `frame_snap` may name the declared constraint
-        # rather than repeating its numbers, so a template states the rule
-        # once (#96)
-        resolve_constraint_references(workflow_def)
-
-        workflow_def = expand_for_each(workflow_def)
+        ## then replace any variable references in the workflow definition
+        # with the actual values, and expand
+        workflow_def = self._expand(workflow_def, variables)
 
         # A step a declared vram_estimate projects past the card 'cost' was
         # measured on - the run-time backstop for a caller that skips
@@ -1142,7 +1209,7 @@ class Workflow:
                     f"got {default_seed!r}"
                 )
             workflow_def["seed"] = default_seed
-        return workflow_def, default_seed
+        return workflow_def, default_seed, recorded_variables
 
     def _cache_lookup(
         self,
@@ -1245,7 +1312,7 @@ class Workflow:
                 if self.file_spec
                 else None
             )
-            workflow_def, default_seed = self._prepare_definition(
+            workflow_def, default_seed, _ = self._prepare_definition(
                 workflow_def, arguments or {}, base_dir
             )
             if default_seed is None or not self._cache_enabled_by_parent:
@@ -1348,7 +1415,7 @@ class Workflow:
                 else None
             )
 
-            workflow_def, default_seed = self._prepare_definition(
+            workflow_def, default_seed, recorded_variables = self._prepare_definition(
                 workflow_def, arguments, base_dir
             )
             # An adapter whose name says nothing about what it was trained
@@ -1420,7 +1487,7 @@ class Workflow:
                 try:
                     realized, annotations = realize_workflow(
                         self.workflow_definition,
-                        arguments,
+                        recorded_variables,
                         default_seed,
                         base_dir=base_dir,
                         output_root=self.output_dir,
