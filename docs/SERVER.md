@@ -22,7 +22,7 @@ python -m dw.serve --trust-workflows      # only if nothing untrusted can reach 
 Installed as a package, the same server is `dw-serve`. Interactive API docs
 (OpenAPI) are at `/docs`.
 
-The server keeps the REPL's persistent GPU worker underneath: models stay
+The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
 
@@ -554,7 +554,7 @@ The editor's forms come from these; they are just as usable from scripts:
   `device` and whether `mcp` is mounted, so a remote client can tell which
   machine answered
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
-  cache, the same mechanism as the REPL's `memory clear`, and returns the
+  cache (MCP `clear_memory`), and returns the
   memory reading taken right after. Refused with 409 while a job is running
   or queued - the queue is FIFO, so the caller retries once it finishes
   rather than this call blocking until it does

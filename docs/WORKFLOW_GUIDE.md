@@ -1259,8 +1259,8 @@ MiniMax H3 example uses on-demand VAEs for this reason.
 
 #### Releasing a pipeline mid-workflow
 
-Pipelines stay loaded for the whole run (and across REPL runs) so repeated steps reuse
-them. When a workflow chains two large models that cannot both fit - generate with one,
+Pipelines stay loaded for the whole run (and across runs, in the server's persistent
+worker) so repeated steps reuse them. When a workflow chains two large models that cannot both fit - generate with one,
 upscale with another - release the first once its step completes instead of configuring
 offload on everything:
 
@@ -1273,8 +1273,8 @@ offload on everything:
 ```
 
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
-saved. A later `pipeline_reference` to a released step is an error, and the REPL's
-cross-run cache will not retain it.
+saved. A later `pipeline_reference` to a released step is an error, and the process-wide
+step cache will not retain it.
 
 #### Releasing task models mid-workflow
 

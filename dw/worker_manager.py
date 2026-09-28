@@ -14,6 +14,7 @@ from .worker import worker_main
 
 logger = logging.getLogger("dw")
 
+# Worker lifecycle timeouts
 WORKER_SHUTDOWN_TIMEOUT_SECONDS = 10
 WORKER_TERMINATE_TIMEOUT_SECONDS = 5
 

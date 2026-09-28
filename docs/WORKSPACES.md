@@ -21,7 +21,7 @@ belong, and generated media does not belong in a source tree at all.
 
 First match wins:
 
-1. `--workspace <dir>` on `dw.run`, `dw.serve` (`config set workspace=` in the REPL)
+1. `--workspace <dir>` on `dw.run`, `dw.serve`
 2. the `DW_WORKSPACE` environment variable
 3. `"workspace"` in `~/.diffusers_helper/settings.json`
 4. the working directory, when it holds any of `workflows/`, `prompts/` or `outputs/`
@@ -222,8 +222,8 @@ are the reason to.
 
 ## Several workspaces on one server
 
-Everything above describes one workspace, which is all `dw.run` and the REPL
-ever see. `dw.serve` goes one step further: the workspace root can hold
+Everything above describes one workspace, which is all `dw.run`
+ever sees. `dw.serve` goes one step further: the workspace root can hold
 several, and a client picks which one it is working in.
 
 ```

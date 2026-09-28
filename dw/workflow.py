@@ -143,7 +143,7 @@ def workflow_from_file(file_spec, output_dir, workflow_dir=None):
     workflow_dir, when given, confines file_spec (and, via the returned
     Workflow, any sub-workflow steps it references) to that directory - the
     server passes its configured workflow_dir so a caller cannot escape it
-    via an inline workflow's base_dir or a sub-workflow step's path. CLI/REPL
+    via an inline workflow's base_dir or a sub-workflow step's path. CLI
     callers leave it None: a locally-run workflow file is not a trust
     boundary.
     """
@@ -404,7 +404,7 @@ class Workflow:
         self.output_dir = output_dir
         self.file_spec = file_spec
         # Confines sub-workflow step resolution (below) when set - the
-        # server passes its configured workflow_dir; CLI/REPL callers leave
+        # server passes its configured workflow_dir; CLI callers leave
         # it None since a locally-run workflow is not a trust boundary
         self.workflow_dir = workflow_dir
 
@@ -1022,7 +1022,7 @@ class Workflow:
     def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
 
-        Every violation is reported, one per line, so the CLI, the REPL
+        Every violation is reported, one per line, so the CLI
         and an agent iterating on a draft fix them in one pass rather than
         one per round trip. ``arguments``, when given, are folded in before
         checking - a caller's override (e.g. a content_type-driving variable)

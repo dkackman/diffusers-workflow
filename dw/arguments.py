@@ -286,8 +286,8 @@ def fetch_constant(reference):
 
     Mutable values are copied. The workflow holds the module's own object otherwise,
     and a pipeline that consumes its sigmas in place would edit the library's
-    constant for every later run in the process - the REPL keeps one alive for a
-    whole session.
+    constant for every later run in the process - the server's persistent worker
+    keeps one alive for a whole session.
 
     Args:
         reference: The 'constant:dotted.NAME' string
