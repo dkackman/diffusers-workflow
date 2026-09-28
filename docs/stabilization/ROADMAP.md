@@ -62,39 +62,108 @@ Each gate is tagged `stabilization-gate-N`, so any report can be recomputed for 
   - Task 11: a cached step defers its pipeline load until a step that actually runs borrows it.
   - Task 12: borrowed-pipeline cache keys are hashed from the definition as written, because `Pipeline.load` edits its definition in place.
   Mocks could not see either. A real-model timing stays in every gate.
-- Change-coupling, instability and LCOM4 reports for this gate are computed from the tag once `scripts/arch_report.py` lands in Phase 1.
 
-| Metric (lower is better) | Before Phase 0 (`3afd70e9`) | Gate 0 (`fb03dae3`) |
+#### Metrics
+
+| Metric (lower is better) | Before Phase 0 (`3afd70e9`) | Gate 0 (`stabilization-gate-0`) |
 | --- | --- | --- |
 | Engine + MCP modules | 133 | 133 |
 | Modules over 1,000 lines | 10 | 10 |
 | Functions over 150 lines | 19 | 19 |
-| Functions over cyclomatic complexity 15 (ruff C901) | 21 | 21 |
-| Functions over cyclomatic complexity 30 (ruff C901) | 4 | 4 |
-| Duplicate-code blocks, cross-file (pylint symilar) | 21 | 21 |
+| Functions over cyclomatic complexity 15 | 21 | 21 |
+| Functions over cyclomatic complexity 30 | 4 | 4 |
+| Import cycles | 6 | 6 |
+| Modules inside import cycles | 22 | 26 |
+| Duplicate-code blocks, cross-file | 21 | 21 |
 | Reference-prefix literals | 93 | 93 |
 | Test `patch("dw...")` targets | 284 | 285 |
 | CLAUDE.md lines, all files | 964 | 964 |
-| Import cycles | not measured | not measured (Phase 1) |
 
-The two columns match because Phase 0 fixed correctness, not structure. The 285 includes the metrics script's own test fixture.
+#### Complexity distribution (ruff C901)
 
-Complexity distribution at gate 0 (mccabe, 1,485 functions): median 3, mean 4.2. 69 functions are over 10, 27 over 15, 10 over 20 and 4 over 30. mccabe counts nested functions inside their parent, which is why it reports 27 over 15 where ruff reports 21. ruff scores each function separately, and it is the ratchet.
+|  | Before Phase 0 (`3afd70e9`) | Gate 0 (`stabilization-gate-0`) |
+| --- | --- | --- |
+| Functions | 1712 | 1719 |
+| Median complexity | 2.0 | 2 |
+| Mean complexity | 3.78 | 3.79 |
+| Over 10 | 64 | 64 |
+| Over 15 | 21 | 21 |
+| Over 20 | 11 | 11 |
+| Over 30 | 4 | 4 |
 
-The ten most complex (mccabe, with nested functions included):
+#### SLOC by layer (pygount code lines; reference only)
+
+| Layer | Before Phase 0 (`3afd70e9`) | Gate 0 (`stabilization-gate-0`) |
+| --- | --- | --- |
+| Engine | 19980 | 20102 |
+| API (dw/server + dw_mcp) | 6498 | 6525 |
+| UI (ui/src, tests excluded) | 2266 | 2266 |
+
+#### Package instability, I = Ce / (Ca + Ce)
+
+| Package | Before Phase 0 (`3afd70e9`) | Gate 0 (`stabilization-gate-0`) |
+| --- | --- | --- |
+| dw (core) | Ca 31 / Ce 10 / I 0.24 | Ca 31 / Ce 11 / I 0.26 |
+| dw.pipeline_processors | Ca 2 / Ce 4 / I 0.67 | Ca 3 / Ce 4 / I 0.57 |
+| dw.server | Ca 1 / Ce 8 / I 0.89 | Ca 1 / Ce 8 / I 0.89 |
+| dw.tasks | Ca 11 / Ce 20 / I 0.65 | Ca 11 / Ce 20 / I 0.65 |
+| dw_mcp | Ca 1 / Ce 0 / I 0.0 | Ca 1 / Ce 0 / I 0.0 |
+
+#### LCOM4 (components; 1 = cohesive)
+
+| Class | Before Phase 0 (`3afd70e9`) | Gate 0 (`stabilization-gate-0`) |
+| --- | --- | --- |
+| Workflow | 1 (28 methods) | 1 (30 methods) |
+| Pipeline | 1 (21 methods) | 1 (21 methods) |
+| Result | 1 (15 methods) | 1 (15 methods) |
+| JobManager | 1 (29 methods) | 1 (30 methods) |
+
+#### Ten most complex functions at Gate 0
 
 | Complexity | Function |
 | --- | --- |
-| 510 | dw/server/app.py:747 `create_app` |
+| 440 | dw/server/app.py:747 `create_app` |
 | 79 | dw_mcp/server.py:65 `build_server` |
-| 41 | dw/repl_commands.py:644 `WorkflowCommands._workflow_run` |
-| 35 | dw/workflow.py:1279 `Workflow.run` |
-| 28 | dw/arguments.py:103 `realize_args` |
-| 27 | dw/result.py:811 `Result.save_artifact` |
-| 24 | dw/media_info.py:19 `probe_media` |
+| 37 | dw/repl_commands.py:644 `_workflow_run` |
+| 34 | dw/workflow.py:1279 `run` |
+| 27 | dw/arguments.py:103 `realize_args` |
+| 26 | dw/result.py:811 `save_artifact` |
 | 24 | dw/locations.py:612 `_walk` |
+| 24 | dw/server/app.py:1679 `_argument_reference_errors` |
+| 22 | dw/media_info.py:19 `probe_media` |
 | 22 | dw/tasks/loop_bed.py:397 `find_loop_bed` |
-| 21 | dw/teacache.py:89 `_create_flux_teacache_forward` |
+
+#### Change coupling at Gate 0 (commits since 2026-08-01)
+
+| Shared commits | Degree % | File | File |
+| --- | --- | --- | --- |
+| 13 | 55 | dw/tasks/concat_videos.py | dw/tasks/dissolve_videos.py |
+| 5 | 45 | dw/security.py | dw/type_helpers.py |
+| 13 | 44 | dw/task_domains.py | dw/tasks/task.py |
+| 26 | 37 | dw_mcp/catalog.py | dw_mcp/server.py |
+| 44 | 33 | dw/server/app.py | dw_mcp/server.py |
+| 23 | 33 | dw_mcp/media.py | dw_mcp/server.py |
+| 7 | 32 | dw_mcp/authoring.py | dw_mcp/diagnose.py |
+| 21 | 31 | dw_mcp/diagnose.py | dw_mcp/server.py |
+| 8 | 30 | dw/tasks/concat_videos.py | dw/tasks/video_utils.py |
+| 8 | 30 | dw_mcp/client.py | dw_mcp/media.py |
+
+#### Hotspots at Gate 0 (churn x total complexity)
+
+| Score | Commits | Complexity | File |
+| --- | --- | --- | --- |
+| 154400 | 160 | 965 | dw/server/app.py |
+| 18537 | 111 | 167 | dw/workflow.py |
+| 16848 | 108 | 156 | dw_mcp/server.py |
+| 16576 | 56 | 296 | dw/pipeline_processors/pipeline.py |
+| 11224 | 61 | 184 | dw/result.py |
+| 10450 | 55 | 190 | dw/tasks/audio_utils.py |
+| 10089 | 57 | 177 | dw/server/jobs.py |
+| 4056 | 26 | 156 | dw/arguments.py |
+| 3912 | 24 | 163 | dw/introspection.py |
+| 3864 | 42 | 92 | dw/tasks/task.py |
+
+Regenerated by `scripts/arch_report.py` at Phase 1 Task 2. The complexity figures are ruff C901 throughout. The hand table this replaced used mccabe with nested functions folded in, which counted 1,485 functions and scored `create_app` at 510.
 
 ## Working rules for the duration
 
