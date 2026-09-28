@@ -588,7 +588,12 @@ class TestKeepingOutputs:
             created_at = 1.0
             started_at = 1.0
             finished_at = 2.0
-            manifest = [{"step": "generate", "files": ["Gyre/20260905-101500-bbbbbbbb/still.png"]}]
+            manifest = [
+                {
+                    "step": "generate",
+                    "files": ["Gyre/20260905-101500-bbbbbbbb/still.png"],
+                }
+            ]
             warnings = []
             error = None
             run_id = "20260905-101500-bbbbbbbb"
