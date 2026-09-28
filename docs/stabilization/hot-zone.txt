@@ -2,15 +2,23 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 0
+# Phase 1: metrics v2, REPL removal, one prepare pipeline, one admission
+# service, dw.run as a thin client of dw.serve
+dw/workflow.py
+dw/variables.py
+dw/for_each.py
 dw/realize.py
 dw/variable_constraints.py
-dw/runs.py
+dw/plan.py
 dw/step_cache.py
-dw/server/mcp_mount.py
 dw/worker.py
 dw/repl.py
 dw/repl_commands.py
 dw/repl_worker.py
+dw/run.py
+dw/validate.py
+dw/server/app.py
+dw/server/jobs.py
 scripts/arch_metrics.py
+scripts/arch_report.py
 docs/stabilization/

@@ -10,7 +10,7 @@ phase works on is what the earlier phases leave behind.
 
 | Phase | Scope | Gate | Plan | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Freeze, baseline metrics, fix B1-B8 | B1-B5, B7, B8 fixed with regression tests; B6 documented as a design limit; deployed to lem; `baseline.json` committed | [phase-0.md](phase-0.md) | planned |
+| 0 | Freeze, baseline metrics, fix B1-B8 | B1-B5, B7, B8 fixed with regression tests; B6 documented as a design limit; deployed to lem; `baseline.json` committed | [phase-0.md](phase-0.md) | done 2026-09-28 (`stabilization-gate-0`) |
 | 1 | Metrics v2 first (see below); remove the REPL; one prepare pipeline; one admission service; `dw.run` becomes a thin client of `dw.serve` | Validation sees the definition the run sees; a submit validates once | written at gate 0 | - |
 | 2 | Seams in place: `references.py`, validation context + check registry, shared task rules, step cache, typed worker protocol | `validation_errors` is a registry loop; no prefix literals outside `references.py` | written at gate 1 | - |
 | 3 | Structural moves: `app.py` routers + services, `LibraryPath`, split `result.py` / `pipeline.py`, one media + dsp module | No module over 1,000 lines, no function over 150; suite and lem smoke green | written at gate 2 | - |
@@ -40,6 +40,16 @@ Each gate is tagged `stabilization-gate-N`, so any report can be recomputed for 
 ## Gate reports
 
 (Filled at each gate: the metrics diff against the previous gate, the top change-coupling pairs and hotspots, package instability, and LCOM4 for the tracked classes from Phase 3 on.)
+
+### Gate 0 (2026-09-28, develop 6a88c746)
+
+- Ratchets: every Phase 0 metric equal to `baseline.json` (`--check` exit 0). Values: 133 modules, 10 over 1,000 lines, 19 functions over 150 lines, 93 prefix literals, 285 test patch targets, 964 CLAUDE.md lines, 21 duplicate blocks.
+- B2 on lem (RTX 3090), `templates/ltx2/two-stage` rerun with the same seed: 78.8 s before Phase 0, **0.77 s** after. A cold run is about 160-174 s throughout.
+- Two gate-time follow-ups came from that real-GPU timing, not from the tests:
+  - Task 11: a cached step defers its pipeline load until a step that actually runs borrows it.
+  - Task 12: borrowed-pipeline cache keys are hashed from the definition as written, because `Pipeline.load` edits its definition in place.
+  Mocks could not see either. A real-model timing stays in every gate.
+- Change-coupling, instability and LCOM4 reports for this gate are computed from the tag once `scripts/arch_report.py` lands in Phase 1.
 
 ## Working rules for the duration
 

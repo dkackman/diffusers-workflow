@@ -21,14 +21,14 @@ points. Bug #415 was fixed twice (`JobManager.submit` and
 
 | # | Defect | Where | Evidence |
 | --- | --- | --- | --- |
-| B1 | Validation (`expanded_definition`), the run (`_prepare_definition`) and the record (`realize_workflow`) prepare the definition three ways; a constraint-snapped value is validated and recorded pre-snap | `dw/workflow.py`, `dw/realize.py` | confirmed |
-| B2 | A step-cache hit still runs `create_step_action`, which loads a released pipeline just for bookkeeping | `dw/workflow.py` | confirmed in code |
-| B3 | `sub_workflow_warnings` returns dicts among string warnings (UI shows `[object Object]`), reports expanded indices, ignores caller arguments | `dw/workflow.py`, `dw/server/app.py` | confirmed |
-| B4 | `_prune_detail_cache` iterates a live module dict shared by request threads | `dw/server/app.py` | confirmed |
-| B5 | `assign_run_version` is max+1 with no lock | `dw/runs.py` | confirmed |
+| B1 | Validation (`expanded_definition`), the run (`_prepare_definition`) and the record (`realize_workflow`) prepare the definition three ways; a constraint-snapped value is validated and recorded pre-snap | `dw/workflow.py`, `dw/realize.py` | fixed, Phase 0 |
+| B2 | A step-cache hit still runs `create_step_action`, which loads a released pipeline just for bookkeeping | `dw/workflow.py` | fixed, Phase 0 |
+| B3 | `sub_workflow_warnings` returns dicts among string warnings (UI shows `[object Object]`), reports expanded indices, ignores caller arguments | `dw/workflow.py`, `dw/server/app.py` | fixed, Phase 0 |
+| B4 | `_prune_detail_cache` iterates a live module dict shared by request threads | `dw/server/app.py` | fixed, Phase 0 |
+| B5 | `assign_run_version` is max+1 with no lock | `dw/runs.py` | fixed, Phase 0 |
 | B6 | `--mcp` mount shares one client, so `use_workspace` switches every session | `dw/server/mcp_mount.py` | confirmed; by design (single-user mount, stateless HTTP). Revisit in Phase 3 with the router split if multi-agent use of one server becomes a requirement |
-| B7 | Step-cache key ignores `pipeline_reference` / `reused_components` sources | `dw/step_cache.py` | reported |
-| B8 | Worker validates before activating the job's asset root | `dw/worker.py` | reported |
+| B7 | Step-cache key ignores `pipeline_reference` / `reused_components` sources | `dw/step_cache.py` | fixed, Phase 0 |
+| B8 | Worker validates before activating the job's asset root | `dw/worker.py` | fixed, Phase 0 |
 | B9 | Media probes in validation decode whole files, uncached, per check (Phase 2) | `dw/media_info.py` + preflight modules | reported |
 | B10 | Broad `except Exception` hides warning-pass failures; `submit_job` maps all errors to 400 (Phase 2) | `dw/workflow.py`, `dw/server/app.py` | reported |
 

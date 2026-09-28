@@ -868,7 +868,7 @@ git commit -m "fix(step-cache): a step borrowing a pipeline misses when its sour
 
 ---
 
-### Task 8: B2 - a cache hit does not load a pipeline nobody needs
+### Task 8: B2 - a cache hit does not load a pipeline nobody needs (superseded by Tasks 11 and 12)
 
 **Files:**
 - Modify: `dw/workflow.py` (the run loop ~1500-1530 and `create_step_action` ~1873-2010)
