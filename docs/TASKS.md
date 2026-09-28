@@ -901,12 +901,17 @@ one it fails, so `rejected` is a tally of the whole grid:
   ending on a click is thrown out rather than putting the click's onset at
   the loop's seam.
 - `tonal` — the flatness/harmonicity test `bleed_join` uses, taken over every
-  0.2 s block inside the window (one per 50 ms step; the whole window when
-  `min_seconds` is shorter). A window is tonal when any block in it is. Faint
+  0.1 s and every 0.2 s block inside the window (one per 50 ms step; no
+  longer than `min_seconds`). A window is tonal when any block in it is. Faint
   speech comes and goes, and over a whole window the pauses dilute a
   syllable below the threshold; in the block it sits in, it is not diluted.
-  A candidate's `flatness` and `harmonicity` are the readings of its blocks
-  closest to failing (lowest flatness, highest harmonicity).
+  Two lengths, because 0.1 s sits inside one syllable and 0.2 s holds enough
+  periods of a low hum. Flatness is measured over the band the source
+  actually occupies: a source resampled up (a 16 kHz bed mixed at 24 kHz)
+  has an empty band above its own Nyquist that reads as tonal whatever the
+  material is, as `bleed_join`'s tail does (#198). A candidate's `flatness`
+  and `harmonicity` are the readings of its blocks closest to failing
+  (lowest flatness, highest harmonicity).
 
 The survivors are thinned so no two overlap, steadiest source first, to a
 pool of up to 200 (`LOOPED_POOL`). The pool does not depend on

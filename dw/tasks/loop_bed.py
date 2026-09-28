@@ -57,11 +57,20 @@ LAP_MODULATION_WARN_DB = -15.0
 LOOPED_POOL = 200
 # The ripple spread, as percentiles of the 50 ms bins
 RIPPLE_PERCENTILES = (5.0, 95.0)
-# Tonality is judged per block of this length, sliding on the 50 ms grid, and
-# a window is tonal when any block inside it is: faint speech comes and goes,
-# and a whole-window measurement averages a syllable into the pauses around
-# it (#544). Steady material reads the same either way
-TONAL_BLOCK_SECONDS = 0.2
+# The band flatness is measured over: the energy an upsampled source's empty
+# tail holds (band-limited interpolation leaves it ~60 dB and more down), and
+# how much of the band must be occupied before the whole of it is used
+OCCUPIED_BAND_FLOOR = 1e-6
+OCCUPIED_BAND_FULL = 0.95
+OCCUPIED_FRAME = 4096
+# Tonality is judged per block, sliding on the 50 ms grid, and a window is
+# tonal when any block inside it is: faint speech comes and goes, and a
+# whole-window measurement averages a syllable into the pauses around it
+# (#544). Two block lengths, because neither catches both: 0.1 s sits inside
+# one syllable, where a longer block averages the pause beside it back under
+# the threshold, and 0.2 s holds enough periods of a low hum that the
+# autocorrelation's shrinking overlap does not read it below the threshold
+TONAL_BLOCK_SECONDS = (0.1, 0.2)
 # A tick this close outside a window still counts against it: a window
 # ending on a click would put the click's edge at the loop's seam
 TICK_GUARD_PEAKS = 5
@@ -127,7 +136,46 @@ def _bin_db(power):
     return 10.0 * numpy.log10(numpy.maximum(power, 1e-20))
 
 
-def _tonal_blocks(searched, bin_length, sample_rate, block_bins, needed):
+def _occupied_rate(mono, sample_rate):
+    """The rate the material actually fills, read off its long-term spectrum:
+    twice the frequency below which all but OCCUPIED_BAND_FLOOR of its energy
+    sits, or None when that is the whole band.
+
+    Resampling up leaves the band above the original Nyquist empty, and an
+    empty band reads as tonal to spectral flatness whatever the material is
+    (#198) - a 16 kHz bed mixed at 24 kHz read tonal in every window, and a
+    voice under it filled the band and read as noise (#544). The source
+    carries no record of its native rate once mixed, so it is measured.
+    """
+    frame = min(OCCUPIED_FRAME, mono.shape[0])
+    frames = mono.shape[0] // frame
+    if frames < 1:
+        return None
+    spectrum = numpy.mean(
+        numpy.square(
+            numpy.abs(
+                numpy.fft.rfft(
+                    mono[: frames * frame].reshape(frames, frame)
+                    * numpy.hanning(frame),
+                    axis=1,
+                )
+            )
+        ),
+        axis=0,
+    )
+    total = spectrum.sum()
+    if total <= 0.0:
+        return None
+    above = numpy.cumsum(spectrum[::-1])[::-1] / total
+    occupied = int(numpy.flatnonzero(above > OCCUPIED_BAND_FLOOR)[-1]) + 1
+    if occupied >= OCCUPIED_BAND_FULL * spectrum.shape[0]:
+        return None
+    return sample_rate * occupied / (spectrum.shape[0] - 1)
+
+
+def _tonal_blocks(
+    searched, bin_length, sample_rate, block_bins, needed, native_rate=None
+):
     """bleed_join's flatness/harmonicity test over every block of
     `block_bins` bins, one per starting bin: (flatness, harmonicity, tonal)
     arrays. Only blocks marked `needed` are measured - a block holding a loud
@@ -140,7 +188,7 @@ def _tonal_blocks(searched, bin_length, sample_rate, block_bins, needed):
         segment = searched[block * bin_length : (block + block_bins) * bin_length][
             numpy.newaxis, :
         ]
-        flatness[block] = _spectral_flatness(segment)
+        flatness[block] = _spectral_flatness(segment, sample_rate, native_rate)
         harmonicity[block] = _harmonicity(segment, sample_rate)
     tonal = (flatness < TONAL_FLATNESS_THRESHOLD) | (
         harmonicity >= HARMONICITY_THRESHOLD
@@ -251,7 +299,7 @@ def find_loop_bed(
     mean at or below max_mean_dbfs), not digital silence, free of ticks (its
     largest 1 ms peak at most max_spike_db over its median 1 ms peak) and not
     tonal or speech-like (bleed_join's flatness and harmonicity test, over
-    every 0.2 s block inside it); `rejected` counts each window under the
+    every 0.1 s and 0.2 s block inside it); `rejected` counts each window under the
     first of those it fails. Overlapping survivors are thinned to the
     steadiest, up to a pool that max_candidates does not shrink, and each
     remaining one is looped with loop_audio's own crossfade to loop_seconds and
@@ -368,17 +416,28 @@ def find_loop_bed(
     mean_threshold = 10.0 ** (max_mean_dbfs / 10.0)
     spike_ratio = 10.0 ** (max_spike_db / 20.0)
 
-    # The tonal test's blocks, measured once over the range: a block is only
-    # worth measuring when every bin in it is quiet and not silent, since any
-    # window holding one of the others is thrown out before tonality
-    block_bins = max(1, min(shortest, int(round(TONAL_BLOCK_SECONDS / bin_seconds))))
+    # The tonal test's blocks, measured once over the range at each block
+    # length: a block is only worth measuring when every bin in it is quiet
+    # and not silent, since any window holding one of the others is thrown
+    # out before tonality
     usable = (power <= bin_threshold) & (power > 0.0)
-    needed = numpy.zeros(count, dtype=bool)
-    if count >= block_bins:
-        needed[: count - block_bins + 1] = _sliding(usable, block_bins).all(axis=1)
-    block_flatness, block_harmonicity, block_tonal = _tonal_blocks(
-        searched, bin_length, sample_rate, block_bins, needed
-    )
+    native_rate = _occupied_rate(searched, sample_rate)
+    scales = []  # (block length in bins, flatness, harmonicity, tonal)
+    for block_seconds in TONAL_BLOCK_SECONDS:
+        block_bins = max(1, min(shortest, int(round(block_seconds / bin_seconds))))
+        if any(block_bins == known[0] for known in scales):
+            continue
+        needed = numpy.zeros(count, dtype=bool)
+        if count >= block_bins:
+            needed[: count - block_bins + 1] = _sliding(usable, block_bins).all(axis=1)
+        scales.append(
+            (
+                block_bins,
+                *_tonal_blocks(
+                    searched, bin_length, sample_rate, block_bins, needed, native_rate
+                ),
+            )
+        )
 
     # A tick just outside a window: the loudest few 1 ms peaks at the tail of
     # the bin before each start and the head of the bin after each end. A
@@ -411,8 +470,11 @@ def find_loop_bed(
             numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
         )
         ticked = ~loud & ~silent & (largest > spike_ratio * median)
-        blocks = _sliding(block_tonal, length - block_bins + 1)[: windows.shape[0]]
-        tonal = ~loud & ~silent & ~ticked & blocks.any(axis=1)
+        any_tonal = numpy.zeros(windows.shape[0], dtype=bool)
+        for block_bins, _, _, block_tonal in scales:
+            inside = _sliding(block_tonal, length - block_bins + 1)
+            any_tonal |= inside[: windows.shape[0]].any(axis=1)
+        tonal = ~loud & ~silent & ~ticked & any_tonal
         rejected["too_loud"] += int(loud.sum())
         rejected["silent"] += int(silent.sum())
         rejected["spike"] += int(ticked.sum())
@@ -424,7 +486,16 @@ def find_loop_bed(
         in_db = _bin_db(windows[kept])
         low, high = numpy.percentile(in_db, RIPPLE_PERCENTILES, axis=1)
         for position, start in enumerate(kept):
-            inside = slice(start, start + length - block_bins + 1)
+            # The block nearest to failing, at either length, which is what
+            # the test judged
+            flatness = min(
+                float(flat[start : start + length - bins + 1].min())
+                for bins, flat, _, _ in scales
+            )
+            harmonicity = max(
+                float(harm[start : start + length - bins + 1].max())
+                for bins, _, harm, _ in scales
+            )
             survivors.append(
                 (
                     float(high[position] - low[position]),
@@ -435,10 +506,8 @@ def find_loop_bed(
                         "max_bin_dbfs": 10.0 * math.log10(float(loudest[start])),
                         "spike_db": 20.0
                         * math.log10(float(largest[start] / median[start])),
-                        # The block nearest to failing, which is what the
-                        # test judged
-                        "flatness": float(block_flatness[inside].min()),
-                        "harmonicity": float(block_harmonicity[inside].max()),
+                        "flatness": flatness,
+                        "harmonicity": harmonicity,
                     },
                 )
             )
