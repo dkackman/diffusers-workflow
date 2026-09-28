@@ -60,8 +60,9 @@ read.
 
 ### `--trust-workflows`
 
-`dw-run` and `dw-serve` both take a `--trust-workflows` flag,
-**off by default**. Untrusted (the default), `pre_load_modules` and any
+`dw-serve` takes a `--trust-workflows` flag (as does the in-process
+`dw-validate`), **off by default**. `dw-run` is a client of `dw-serve`, so
+the server's setting is the one its jobs run under. Untrusted (the default), `pre_load_modules` and any
 dotted `*_type`/`*_dtype`/`dtype`/`config_type` value are refused unless
 they resolve under a top-level package the tool already depends on for
 exactly this purpose - the framework packages (`diffusers`, `torch`,

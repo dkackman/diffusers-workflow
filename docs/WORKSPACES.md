@@ -19,9 +19,12 @@ belong, and generated media does not belong in a source tree at all.
 
 ## Which directory is used
 
-First match wins:
+The workspace is resolved by whatever runs the work - `dw.serve` (and the
+in-process `dw.validate` / `dw.test`). `python -m dw.run` is a client of a
+running `dw.serve`, so it resolves no directory of its own: its jobs land in
+the server's workspace. First match wins:
 
-1. `--workspace <dir>` on `dw.run`, `dw.serve`
+1. `--workspace <dir>` on `dw.serve`
 2. the `DW_WORKSPACE` environment variable
 3. `"workspace"` in `~/.diffusers_helper/settings.json`
 4. the working directory, when it holds any of `workflows/`, `prompts/` or `outputs/`
@@ -33,19 +36,25 @@ where it always has. Only a working directory with none of those folders falls
 through to the home workspace.
 
 Nothing is created just by resolving. A command that is about to write creates
-what it needs — `dw.run` creates its output directory, `dw.serve` creates the
-workspace's `workflows/` so the UI has somewhere to save.
+what it needs — `dw.serve` creates the workspace's `workflows/` so the UI has
+somewhere to save, and a run creates its output directory.
+
+`dw.run --workspace NAME` is a different thing: it names one of the server's
+workspaces (the `default` one, or a named one beside it), not a directory. A
+path there is refused as a workspace name rather than resolved.
 
 ## Overriding one folder
 
-The existing per-directory flags still work and each overrides exactly one
+The per-directory flags are `dw.serve`'s, and each overrides exactly one
 folder of the workspace:
 
 ```bash
-python -m dw.run workflows/templates/text-to-image.json -o /mnt/big-disk/renders
 python -m dw.serve --workspace ~/studio --output-dir /mnt/big-disk/renders
-python -m dw.run some.json --prompt-dir ~/shared-prompts
+python -m dw.serve --prompt-dir ~/shared-prompts
 ```
+
+`dw.run` takes none of them - every job it queues writes where the server
+does.
 
 `--output-dir` is the one people reach for most: video work fills disks, and
 the outputs folder is the one worth putting on another volume.
@@ -60,15 +69,18 @@ export DW_WORKSPACE=~/studio
 #   { "workspace": "/home/you/studio" }
 
 python -m dw.serve                       # serves ~/studio
-python -m dw.run ~/studio/workflows/x.json
+python -m dw.run ~/studio/workflows/x.json   # queued on that server
 ```
 
-An example from a checkout still runs by path, and writes into the workspace's
-outputs:
+An example from a checkout still runs by path, and writes into the server's
+workspace's outputs; `dw.run` itself does not read `DW_WORKSPACE`:
 
 ```bash
-DW_WORKSPACE=~/studio python -m dw.run ~/src/diffusers-workflow/workflows/templates/text-to-image.json
+python -m dw.run ~/src/diffusers-workflow/workflows/templates/text-to-image.json
 ```
+
+A file the server cannot read is sent to it inline, and its relative paths
+then resolve against the server's `workflows/`.
 
 The server reports what it resolved at `GET /api/server`, under
 `directories.workspace` alongside the three folder paths.
@@ -222,9 +234,9 @@ are the reason to.
 
 ## Several workspaces on one server
 
-Everything above describes one workspace, which is all `dw.run`
-ever sees. `dw.serve` goes one step further: the workspace root can hold
-several, and a client picks which one it is working in.
+Everything above describes one workspace. `dw.serve` goes one step
+further: the workspace root can hold several, and a client picks which one
+it is working in - `dw.run --workspace NAME` among them.
 
 ```
 <workspace root>/

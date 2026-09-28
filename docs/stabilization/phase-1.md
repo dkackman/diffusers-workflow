@@ -1459,7 +1459,7 @@ def test_a_parent_swept_between_makedirs_and_the_claim_is_recreated(
 - [ ] **Step 4: Tag.** Run `git tag stabilization-gate-1 && git push origin stabilization-gate-1`.
 - [ ] **Step 5: Report.** Run `venv/bin/python scripts/arch_report.py > /tmp/gate1.md`, which gives the columns Before Phase 0, Gate 0 and Gate 1. Add a "### Gate 1" section to ROADMAP.md's Gate reports with:
   - the timings;
-  - the list of surface changes: `dw.run` flags; `dw-repl` gone; jobs record the full warning set; rerun rechecks references; plan fingerprints shift once;
+  - the list of surface changes: `dw.run` flags (and `dw.run --workspace` now names a server workspace, not a directory; trust is `dw.serve --trust-workflows`); `dw-repl` gone; jobs record the full warning set; rerun rechecks references; plan fingerprints shift once;
   - the generated tables.
 
   Mark Phase 1 done in the phase table.
