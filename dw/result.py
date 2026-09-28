@@ -1202,6 +1202,14 @@ class Result:
             content_type: MIME type of the video being written
         """
         fps = self.video_fps(artifact)
+        # A declared result.fps is the rate this video now plays at, so it is
+        # written back onto the artifact the way the fitted audio below is: a
+        # later previous_result: consumer reads this same instance, and a 24
+        # fps shot written at 12 still told join_into_song it was 24 - its
+        # frames silently re-timed rather than refused (#513). A cache hit or
+        # an output: reload already reads the rate off the written file
+        if self.result_definition.get("fps") is not None:
+            artifact.fps = fps
         # The pipeline reports the sample rate of what it generated - the result
         # definition can still override it
         sample_rate = self.result_definition.get(

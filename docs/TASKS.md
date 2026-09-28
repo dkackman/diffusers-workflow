@@ -427,7 +427,10 @@ shots do not land early.
 
 Frames are joined one for one, so every video must share one frame size and
 one frame rate: a mismatch is refused rather than resampled, as is a join
-where no video carries a rate and `fps` is not given.
+where no video carries a rate and `fps` is not given, or an `fps` that
+contradicts the rate the videos carry. A step that wrote its video with
+`result.fps` hands that rate on, so a shot written at 12 fps from 24 fps frames
+is a 12 fps shot to the join, as it is when read back with `output:`.
 
 There is no final normalization here - what level a deliverable sits at is
 the workflow's to decide, with [`normalize_audio`](#normalize_audio) after

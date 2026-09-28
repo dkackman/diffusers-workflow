@@ -380,6 +380,45 @@ def test_refuses_mismatched_fps_among_the_inputs():
         join_into_song(dialogue, song_shots, song_track(1000, SR))
 
 
+def test_refuses_a_shot_a_previous_step_wrote_at_another_rate(tmp_path):
+    # The #513 bounce: pair_audio kept a 24 fps asset's rate, the step wrote
+    # it with result.fps 12, and the join read the in-memory 24 - so the shot
+    # was re-timed in silence. The saved step's rate is what the join sees
+    from unittest.mock import patch
+
+    from dw.result import Result
+
+    shot = AudioVideo(frames(4), None, SR, fps=24)
+    written = Result({"content_type": "video/mp4", "fps": 12})
+    written.add_result(shot)
+    with patch("dw.result.export_to_video"):
+        written.save(str(tmp_path), "co12")
+    [twelve] = written.get_artifacts()
+
+    dialogue = [AudioVideo(frames(4), None, SR, fps=24)]
+    song_shots = [twelve, AudioVideo(frames(4), None, SR, fps=24)]
+
+    with pytest.raises(ValueError, match=r"24 fps.*12 fps|12 fps.*24 fps"):
+        join_into_song(dialogue, song_shots, song_track(1000, SR))
+
+
+def test_refuses_an_fps_the_videos_contradict():
+    dialogue = [AudioVideo(frames(4), None, SR, fps=24)]
+    song_shots = [AudioVideo(frames(4), None, SR, fps=24)]
+
+    with pytest.raises(ValueError, match="given fps 12"):
+        join_into_song(dialogue, song_shots, song_track(1000, SR), fps=12)
+
+
+def test_an_fps_matching_the_carried_rate_is_accepted():
+    dialogue = [AudioVideo(frames(4), None, SR, fps=8)]
+    song_shots = [AudioVideo(frames(4), None, SR, fps=8)]
+
+    result = join_into_song(dialogue, song_shots, song_track(8000, SR), fps=8)
+
+    assert result.fps == 8
+
+
 def test_refuses_when_no_fps_is_available_anywhere():
     with pytest.raises(ValueError, match="needs 'fps'"):
         join_into_song([frames(4)], [frames(4)], song_track(1000, SR))
