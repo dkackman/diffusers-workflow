@@ -677,10 +677,13 @@ the entry an item needs.
    loads the same checkpoint, and its per-image figure times the number of
    images is the number to quote. Say "a few minutes" only when no entry with
    that pipeline has been measured.
-5. `wait_for_job` rather than a polling loop; call it again if it returns
-   `still_running: true`. One call blocks for at most 55 seconds whatever
-   `timeout_seconds` says, so a minutes-long render takes several - the
-   reply's `timeout_capped` and `waited_seconds` say which happened. A
+5. `wait_for_job` rather than a polling loop, asking for the job's
+   `plan.estimate` (in seconds, plus a margin) as `timeout_seconds`, so one
+   call can cover the whole run. The server caps a single call, and the
+   tool's description states the cap: the reply's
+   `timeout_applied_seconds` and `timeout_capped` say what you got, and
+   `waited_seconds` how long it took. Call it again if it returns
+   `still_running: true`. Without `timeout_seconds` a call waits 20 seconds. A
    running job's `progress` carries the step being run; the phase
    (`loading`, `generating`, `decoding`, `saving`) with the model it names in
    `phase_detail`; `seconds_in_phase`, time spent in that phase; and
@@ -712,7 +715,7 @@ the entry an item needs.
    arguments={"input_audio": "output:<name>"})` first (free; it takes an
    audio file or a video's muxed soundtrack directly), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
-   "downloads": [...]})` bound to that plan with `wait_seconds=55`, then
+   "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
    scratch run afterward. This workflow's plan comes back
    `basis: "unknown"` with `minutes: null` - nothing is curated or observed

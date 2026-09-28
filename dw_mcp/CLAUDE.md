@@ -73,7 +73,9 @@ changed since (`_acknowledgement_body` in `diagnose.py`; the 409 is rendered
 with the new estimate by `DwClient._format_detail`). The three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
 timeout; `run_workflow(wait_seconds=N)` then folds the first `wait_for_job`
-into the same call (same `MAX_WAIT_SECONDS` clamp, same budget fields), because
+into the same call (same `MAX_WAIT_SECONDS` clamp - 55 unless a deployment
+raises it with `DW_MCP_MAX_WAIT_SECONDS`, and interpolated into the tool
+descriptions, so no doc or skill quotes a number - same budget fields), because
 measured over ~1,400 agent-driven cases almost every run was followed by a
 wait turn of its own. `delete_output(job_id=...)` is the same economy for
 cleanup: the job record's `run_dir` is the `<workflow>/<run id>` the

@@ -31,6 +31,7 @@
 # Environment overrides, all optional:
 #   DW_DIR (checkout, default ~/diffusers-workflow), DW_TOKEN (default xyz),
 #   DW_PORT (8765), DW_WORKSPACE (~/diffusers-workspace), DW_HOST (0.0.0.0),
+#   DW_MCP_MAX_WAIT_SECONDS (1800, the per-call wait_for_job cap),
 #   DW_NODE_BIN (the directory holding npm, when it is not on a
 #   non-interactive PATH and not in one of the places find_npm looks).
 set -euo pipefail
@@ -40,6 +41,9 @@ DW_TOKEN="${DW_TOKEN:-xyz}"
 DW_PORT="${DW_PORT:-8765}"
 DW_HOST="${DW_HOST:-0.0.0.0}"
 DW_WORKSPACE="${DW_WORKSPACE:-$HOME/diffusers-workspace}"
+# One MCP wait_for_job call may block this long (dw_mcp/diagnose.py; the code
+# default is 55). #377: one call covers a long render.
+DW_MCP_MAX_WAIT_SECONDS="${DW_MCP_MAX_WAIT_SECONDS:-1800}"
 LOG="$HOME/dw-serve.log"
 SCREEN_SESSION="dw-serve"
 HEALTH="http://localhost:$DW_PORT/api/health"
@@ -172,7 +176,7 @@ else
 fi
 
 # start the new one in its own screen window
-cmd="cd $DW_DIR && source venv/bin/activate && exec python -m dw.serve --host $DW_HOST --port $DW_PORT --mcp --token $DW_TOKEN --workspace $DW_WORKSPACE --examples-dir $DW_DIR/workflows >> $LOG 2>&1"
+cmd="cd $DW_DIR && source venv/bin/activate && DW_MCP_MAX_WAIT_SECONDS=$DW_MCP_MAX_WAIT_SECONDS exec python -m dw.serve --host $DW_HOST --port $DW_PORT --mcp --token $DW_TOKEN --workspace $DW_WORKSPACE --examples-dir $DW_DIR/workflows >> $LOG 2>&1"
 if screen -ls | grep -q "\.${SCREEN_SESSION}[[:space:]]"; then
   screen -S "$SCREEN_SESSION" -X screen -t serve bash -c "$cmd"
 else
