@@ -64,6 +64,10 @@ remaining deferred fix is recorded in
   #513-#514), shipped 2026-09-27. Record, including what was deferred (a
   template, register-external-output, the `concat_videos` silent-input
   desync filed as #553): `complete/join-into-song-complete.md`.
+- **`find_loop_bed`, ranked room-tone loop windows** (#218, stages
+  #544-#545), shipped 2026-09-27. Record, including what was deferred (a
+  sync route, in-workflow wiring into `slice_audio`, thresholds for louder
+  rooms): `complete/find-loop-bed-complete.md`.
 
 ## Declined
 
