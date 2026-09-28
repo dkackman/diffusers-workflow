@@ -278,6 +278,58 @@ def _shared_components_workflow_def():
     }
 
 
+def _run_twice_recording_order(tmp_path, definition, argument_sets):
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    order = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        order.append(self.name)
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        for arguments in argument_sets:
+            workflow.run(arguments)
+    finally:
+        for p in patchers:
+            p.stop()
+    return order
+
+
+def test_a_step_borrowing_a_pipeline_misses_when_the_source_model_changes(tmp_path):
+    definition = _pipeline_reference_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order == ["A", "B", "A", "B"]
+
+
+def test_a_step_reusing_components_misses_when_the_sharing_model_changes(tmp_path):
+    definition = _shared_components_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order[len(order) // 2 :] == order[: len(order) // 2]
+
+
 def _mock_pipeline_load_with_sharing(self, shared_components):
     """Stand-in for Pipeline.load that keeps the sharing contract: a fresh
     load resolves what it reuses and publishes what it shares."""

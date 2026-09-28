@@ -109,6 +109,55 @@ def referenced_result_names(steps):
     return names
 
 
+def borrowed_pipeline_keys(steps, index):
+    """The earlier steps step `index` borrows its pipeline from, by name, to
+    that step's pipeline_cache_key.
+
+    A step that borrows another step's pipeline (`pipeline_reference`) or
+    components (`reused_components`, matched to an earlier step's
+    `shared_components`) has an unchanged step_data when only the source
+    step's model changes - its own definition never names the model. Folding
+    the source steps' cache keys into the lookup snapshot makes a source
+    model change a miss here too, rather than a stale hit that republishes a
+    now-wrong pipeline.
+
+    Resolved statically from `steps[:index]`, the same list the run loop
+    iterates - cache_hits (the free probe) never populates a runtime
+    pipeline-key map, so this cannot depend on one.
+    """
+    # Imported locally: dw.workflow imports step_cache at module level, and
+    # pipeline_cache_key lives in dw.workflow, so a module-level import here
+    # would be circular.
+    from .workflow import pipeline_cache_key
+    from .pipeline_processors.pipeline import component_names
+
+    step = steps[index]
+    earlier_steps = steps[:index]
+    borrowed = {}
+
+    pipeline_reference = step.get("pipeline_reference")
+    if isinstance(pipeline_reference, dict):
+        reference_name = pipeline_reference.get("reference_name")
+        if reference_name:
+            for earlier in earlier_steps:
+                if earlier.get("name") == reference_name and "pipeline" in earlier:
+                    borrowed[reference_name] = pipeline_cache_key(earlier["pipeline"])
+                    break
+
+    pipeline_definition = step.get("pipeline")
+    if isinstance(pipeline_definition, dict):
+        for name in component_names(pipeline_definition, "reused_components"):
+            for earlier in reversed(earlier_steps):
+                earlier_pipeline = earlier.get("pipeline")
+                if earlier_pipeline and name in component_names(
+                    earlier_pipeline, "shared_components"
+                ):
+                    borrowed[earlier["name"]] = pipeline_cache_key(earlier_pipeline)
+                    break
+
+    return borrowed
+
+
 # Tasks that reset a result's level before anything downstream ships it -
 # a result only these read is not itself a headroom concern (dw/result.py,
 # warn_without_headroom)

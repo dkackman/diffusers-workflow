@@ -65,6 +65,7 @@ from .step_cache import (
     referenced_result_names,
     reference_resolves_to,
     normalized_downstream,
+    borrowed_pipeline_keys,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -1173,6 +1174,13 @@ class Workflow:
                     # entry's result was never saved here, so a standalone
                     # hit on it would report no files
                     step_data_snapshot["__saved_by_parent__"] = True
+                # This step's own step_data never names a borrowed pipeline's
+                # model - only the source step's does - so without this a
+                # source model change would leave the borrowing step's
+                # snapshot unchanged and serve a stale hit
+                borrowed = borrowed_pipeline_keys(steps, index)
+                if borrowed:
+                    step_data_snapshot["__borrowed_pipelines__"] = borrowed
             except Exception as ex:
                 # A realized argument that cannot be deep-copied (an open
                 # handle, a live model object) just means this step is not
