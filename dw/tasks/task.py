@@ -311,6 +311,17 @@ def _handle_loop_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "find_loop_bed", implementation="dw.tasks.loop_bed.find_loop_bed", returns="json"
+)
+def _handle_find_loop_bed(task, arguments, previous_pipelines):
+    """Rank the quiet windows of a recording worth looping into a room-tone bed"""
+    logger.debug("Searching for a loop bed")
+    from .loop_bed import find_loop_bed
+
+    return find_loop_bed(**arguments)
+
+
+@register_command(
     "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
 )
 def _handle_stabilize_video(task, arguments, previous_pipelines):
