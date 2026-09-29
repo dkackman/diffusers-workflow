@@ -2,27 +2,42 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 1: metrics v2, REPL removal, one prepare pipeline, one admission
-# service, dw.run as a thin client of dw.serve
-dw/workflow.py
-dw/variables.py
+# Phase 2a: dw/references.py - one owner for the reference prefixes
+dw/references.py
+dw/arguments.py
+dw/locations.py
 dw/for_each.py
-dw/realize.py
-dw/variable_constraints.py
-dw/plan.py
+dw/prompts.py
+dw/variables.py
+dw/adapter_compatibility.py
+dw/reference_names.py
+dw/video_extensions.py
+dw/reference_limits.py
+dw/probe_paths.py
+dw/introspection.py
+dw/previous_results.py
+dw/subfolders.py
+dw/result_fps.py
+dw/content_types.py
+dw/kernel_availability.py
+dw/select_validation.py
 dw/step_cache.py
-dw/worker.py
-dw/repl.py
-dw/repl_commands.py
-dw/repl_worker.py
-dw/run.py
-dw/validate.py
-dw/worker_manager.py
+dw/realize.py
+dw/vram_estimate.py
+dw/vram_inheritance.py
+dw/assets.py
+dw/elision.py
 dw/runs.py
-dw/server/admission.py
-pyproject.toml
+dw/shots.py
+dw/variable_constraints.py
+dw/dissolve_frame_errors.py
+dw/null_media.py
+dw/scalar_result_validation.py
+dw/shot_span_preflight.py
+dw/slice_preflight.py
+dw/task_domains.py
+dw/video_size_errors.py
 dw/server/app.py
-dw/server/jobs.py
+dw/server/catalog_shape.py
 scripts/arch_metrics.py
-scripts/arch_report.py
 docs/stabilization/
