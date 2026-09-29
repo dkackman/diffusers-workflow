@@ -29,6 +29,7 @@ names and the partition each one denoises against are diffusers' own, and
 
 import logging
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 
 logger = logging.getLogger("dw")
@@ -52,10 +53,9 @@ MODEL_NAME_KEY = "model_name"
 WEIGHT_NAME_KEY = "weight_name"
 WORKFLOW_KEY = "workflow"
 FROM_PRETRAINED_KEY = "from_pretrained_arguments"
-VARIABLE_PREFIX = "variable:"
 # Values another pass resolves; one still spelled out here is not this
 # pass's complaint
-_UNRESOLVED_PREFIXES = ("variable:", "item:", "previous_result:", "gather:")
+_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _trained_for(weight_name):
@@ -184,9 +184,9 @@ def _path_for(written_steps, source, position, supplied, key=WEIGHT_NAME_KEY):
         return None
     entry = loras[position]
     reference = entry.get(key) if isinstance(entry, dict) else None
-    if not isinstance(reference, str) or not reference.startswith(VARIABLE_PREFIX):
+    if not isinstance(reference, str) or not reference.startswith(references.VARIABLE):
         return None
-    variable = reference.removeprefix(VARIABLE_PREFIX)
+    variable = reference.removeprefix(references.VARIABLE)
     return f"arguments.{variable}" if variable in (supplied or ()) else None
 
 

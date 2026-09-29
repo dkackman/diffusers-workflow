@@ -41,6 +41,7 @@ import os
 import socket
 from urllib.parse import urljoin, urlparse
 
+from . import references
 from .security import (
     InvalidInputError,
     PathTraversalError,
@@ -527,19 +528,7 @@ def _is_media_key(key):
 
 def _deferred(value):
     """Whether a location is resolved later rather than being one now."""
-    return value.startswith(
-        (
-            "variable:",
-            "previous_result:",
-            "item:",
-            "gather:",
-            "asset:",
-            "output:",
-            "prompt:",
-            "constant:",
-            "builtin:",
-        )
-    )
+    return value.startswith(references.DEFERRED)
 
 
 def _check(value, base_dir, what):

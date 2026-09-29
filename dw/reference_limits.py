@@ -22,6 +22,7 @@ import importlib
 import inspect
 import logging
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 
 logger = logging.getLogger("dw")
@@ -45,7 +46,7 @@ REFERENCE_TYPE_KEY = "reference_type"
 
 # Values substitution resolves before this pass runs; one still spelled out
 # is another pass's complaint, not this one's
-_UNRESOLVED_PREFIXES = ("variable:", "item:", "previous_result:", "gather:")
+_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _family(module_name):

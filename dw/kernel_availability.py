@@ -28,11 +28,12 @@ one.
 import functools
 import inspect
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 from .type_helpers import load_type_from_name
 
 ATTN_PROCESSOR_KEY = "attn_processor_type"
-_UNRESOLVED_PREFIXES = ("variable:", "item:")
+_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 KERNEL_FAULT_MARKER = "cannot be used on this machine"
 
 

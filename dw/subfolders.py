@@ -14,6 +14,7 @@ directory - is the engine's, at the moment it joins (see
 Workflow.step_output_dir).
 """
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 from .security import (
     InvalidInputError,
@@ -27,7 +28,7 @@ FILE_BASE_NAME_KEY = "file_base_name"
 # Reference prefixes substitution resolves before this pass runs. One still
 # spelled out here is one nothing resolved, and that is the undeclared-
 # variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = ("variable:", "item:")
+_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 
 
 def step_subfolder(step_definition):

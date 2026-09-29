@@ -16,6 +16,7 @@ Containment doesn't apply here - there's no path to join - so unlike
 subfolder_errors this only ever checks value shape.
 """
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 
 FPS_KEY = "fps"
@@ -23,7 +24,7 @@ FPS_KEY = "fps"
 # Reference prefixes substitution resolves before this pass runs. One still
 # spelled out here is one nothing resolved, and that is the undeclared-
 # variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = ("variable:", "item:")
+_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 
 
 def fps_errors(workflow_definition, source_indices=None):

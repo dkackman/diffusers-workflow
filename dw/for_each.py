@@ -28,14 +28,13 @@ member onto a different entry's cache line.
 
 import copy
 
+from . import references
 from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
 from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
-ITEM_PREFIX = "item:"
-GATHER_PREFIX = "gather:"
 MEMBER_SEPARATOR = "@"
 # Each entry is a full generation. Stated against the step cache's bound
 # (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
@@ -187,16 +186,16 @@ def _rewrite(value, path, groups, member):
     if isinstance(value, list):
         rebuilt = []
         for index, item in enumerate(value):
-            if isinstance(item, str) and item.startswith(GATHER_PREFIX):
+            if isinstance(item, str) and item.startswith(references.GATHER):
                 # A gather inside a list splices into it
                 rebuilt.extend(_gather(item, path + (index,), groups))
             else:
                 rebuilt.append(_rewrite(item, path + (index,), groups, member))
         return rebuilt
     if isinstance(value, str):
-        if value.startswith(GATHER_PREFIX):
+        if value.startswith(references.GATHER):
             return _gather(value, path, groups)
-        if value.startswith(ITEM_PREFIX):
+        if value.startswith(references.ITEM):
             return _item(value, path, member)
         if value.startswith(PREVIOUS_RESULT_PREFIX):
             reference = value[len(PREVIOUS_RESULT_PREFIX) :]
@@ -232,7 +231,7 @@ def _item(value, path, member):
         raise ForEachError(
             render_path(path), f"'{value}' is only meaningful inside a for_each step"
         )
-    field = value[len(ITEM_PREFIX) :]
+    field = value[len(references.ITEM) :]
     entry = member["entry"]
     if field == "":
         return _copy_leaf(entry)
@@ -252,7 +251,7 @@ def _item(value, path, member):
 
 
 def _gather(value, path, groups):
-    group = value[len(GATHER_PREFIX) :]
+    group = value[len(references.GATHER) :]
     if group not in groups:
         raise ForEachError(
             render_path(path),
@@ -289,7 +288,7 @@ def _rewrite_reference(reference, path, groups, member):
     raise ForEachError(
         render_path(path),
         f"'{reference}' names the for_each step '{group}' {where}. Use "
-        f"'{GATHER_PREFIX}{group}' for every member's result, or a reference "
+        f"'{references.GATHER}{group}' for every member's result, or a reference "
         f"from a for_each step over the same list for the same-keyed member",
     )
 
@@ -320,9 +319,9 @@ def list_fields(definition):
         entry = found.setdefault(variable, {"fields": set(), "steps": []})
         entry["steps"].append(step.get("name"))
         for value in _strings(step):
-            if not value.startswith(ITEM_PREFIX):
+            if not value.startswith(references.ITEM):
                 continue
-            field = value[len(ITEM_PREFIX) :]
+            field = value[len(references.ITEM) :]
             if field == "":
                 entry["fields"] = None
             elif entry["fields"] is not None:

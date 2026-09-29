@@ -24,6 +24,7 @@ import hashlib
 import logging
 import os
 
+from . import references
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .runs import (
     LATEST,
@@ -38,8 +39,8 @@ from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
 
-BUILTIN_PREFIX = "builtin:"
-VARIABLE_PREFIX = "variable:"
+BUILTIN_PREFIX = references.BUILTIN
+VARIABLE_PREFIX = references.VARIABLE
 
 
 def realize_workflow(

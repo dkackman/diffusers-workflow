@@ -27,18 +27,18 @@ always wins. There is no run-time backstop - the worker has no catalog, and
 the pre-queue check covers every server submission.
 """
 
+from . import references
 from .vram_estimate import KEY as ESTIMATE_KEY
 from .vram_estimate import vram_estimate_errors
 
 KIND = "vram_projection_inherited"
-_VARIABLE_PREFIX = "variable:"
 
 
 def _resolved(value, variables):
     """A `variable:` reference resolved against a template's own defaults -
     the index reads templates as written, not substituted."""
-    if isinstance(value, str) and value.startswith(_VARIABLE_PREFIX):
-        return variables.get(value[len(_VARIABLE_PREFIX) :])
+    if isinstance(value, str) and value.startswith(references.VARIABLE):
+        return variables.get(value[len(references.VARIABLE) :])
     return value
 
 

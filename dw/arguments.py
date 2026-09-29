@@ -5,6 +5,7 @@ import logging
 import tempfile
 from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
+from . import references
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
@@ -60,12 +61,12 @@ FROM_ARGUMENTS_KEY = "from_arguments"
 # The prefix marking a value as a reference to an earlier step's output. Those are
 # substituted once that step has run, so an object whose arguments hold one is
 # constructed then rather than at load time
-PREVIOUS_RESULT_PREFIX = "previous_result:"
+PREVIOUS_RESULT_PREFIX = references.PREVIOUS_RESULT
 
 # The prefix marking a value as a reference to a constant declared in python - the
 # schedule a distilled model was trained on, the negative prompt a model family ships.
 # Copying those into a workflow is how they go stale when the library moves on
-CONSTANT_PREFIX = "constant:"
+CONSTANT_PREFIX = references.CONSTANT
 
 
 class _Omitted:
@@ -268,12 +269,12 @@ def resolve_path_references(value, base_dir=None):
 
 def is_constant_reference(value):
     """Whether a value references a constant declared in python."""
-    return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+    return references.is_ref(references.CONSTANT, value)
 
 
 def is_prompt_reference(value):
     """Whether a value references a stored prompt in the prompt library."""
-    return isinstance(value, str) and value.startswith(PROMPT_PREFIX)
+    return references.is_ref(PROMPT_PREFIX, value)
 
 
 def fetch_constant(reference):

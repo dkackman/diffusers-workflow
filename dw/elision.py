@@ -45,9 +45,8 @@ unreferenced in turn, so it runs to a fixed point.
 
 import logging
 
+from . import references
 from .step_cache import reference_resolves_to, referenced_result_names
-
-VARIABLE_PREFIX = "variable:"
 
 logger = logging.getLogger("dw")
 
@@ -188,7 +187,7 @@ def overriding_variables(written, substituted_steps):
 
 def _reads_variable(tree, name):
     """Whether anything in `tree` references 'variable:<name>'."""
-    reference = VARIABLE_PREFIX + name
+    reference = references.VARIABLE + name
     if isinstance(tree, str):
         return tree == reference
     if isinstance(tree, dict):
