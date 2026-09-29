@@ -11,8 +11,8 @@ from dw import (
     reference_limits,
     reference_names,
     references,
-    result_fps,
     subfolders,
+    validation,
     video_extensions,
 )
 
@@ -26,7 +26,7 @@ def test_the_unresolved_checkers_share_one_set(module):
 
 
 @pytest.mark.parametrize(
-    "module", [content_types, kernel_availability, result_fps, subfolders]
+    "module", [content_types, kernel_availability, subfolders, validation]
 )
 def test_the_substituted_checkers_still_check_step_results(module):
     assert module._UNRESOLVED_PREFIXES is references.SUBSTITUTED

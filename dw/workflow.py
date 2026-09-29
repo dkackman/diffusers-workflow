@@ -32,7 +32,6 @@ from .previous_results import (
 )
 from .locations import location_errors
 from .reference_limits import reference_limit_errors
-from .null_media import null_media_errors
 from .adapter_compatibility import adapter_errors, warn_adapters
 from .elision import elide_definition, warn_elided
 from .introspection import (
@@ -52,9 +51,9 @@ from .variable_constraints import (
     resolve_constraint_references,
     snap_constraints,
 )
-from .result_fps import fps_errors
 from .shots import duplicate_shot_names, shot_references, step_shots
 from .subfolders import step_subfolder, subfolder_errors
+from .validation import fps_errors, null_media_errors
 from .reference_names import reference_name_errors
 from .video_extensions import video_extension_errors
 from .content_types import content_type_errors
@@ -865,7 +864,7 @@ class Workflow:
             # A for_each item's bare reference (not in a list, so nothing to
             # silently drop it from) whose media resolved null - realize_args
             # already refuses this at run time, a few seconds into the job
-            # (dw/null_media.py, #478)
+            # (dw/validation.py, #478)
             + null_media_errors(expanded, source_indices)
             # An adapter trained for the other checkpoint partition, which
             # the pipeline loads without complaint and answers worse for -

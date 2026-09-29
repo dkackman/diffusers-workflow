@@ -1,7 +1,7 @@
 import json
 import os
 
-from dw.result_fps import fps_errors
+from dw.validation import fps_errors
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHAINED_SEGMENTS = os.path.join(
