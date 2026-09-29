@@ -426,3 +426,54 @@ class TestProbeMetadata:
 
         assert info is not None
         assert info["kind"] == "video"
+
+    def test_a_codec_outside_the_allowlist_falls_back_to_a_decode(
+        self, tmp_path, monkeypatch
+    ):
+        # Demuxing counts one packet per frame exactly only for a codec dw
+        # actually writes; anything else must fall back to probe_media's
+        # real decode rather than trust a count that might not hold
+        # (review round 1, B9). `_video_codec_name` is its own function
+        # precisely so this can be exercised without a fixture encoded
+        # with a genuinely unlisted codec.
+        import dw.media_info as media_info_module
+
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+        monkeypatch.setattr(
+            media_info_module, "_video_codec_name", lambda video: "flv1"
+        )
+
+        info = probe_metadata(str(path))
+
+        assert info["frame_count"] == 12
+
+    def test_a_demux_failure_falls_back_to_a_decode(self, tmp_path, monkeypatch):
+        # A demux that raises partway through must not silently drop
+        # frame_count when probe_media could still supply it (review round
+        # 1, B9) - it falls back to a real decode instead. `decode()` itself
+        # calls `demux()` internally (proven empirically), so the fake only
+        # breaks the *first* call - probe_metadata's own attempt - and lets
+        # every later one (probe_media's fallback decode, on a freshly
+        # opened container) run for real; otherwise no fallback could ever
+        # succeed, decode and demux failing together.
+        import av
+
+        orig_demux = av.container.InputContainer.demux
+        state = {"failed_once": False}
+
+        def _boom_once(self, *args, **kwargs):
+            if not state["failed_once"]:
+                state["failed_once"] = True
+                raise RuntimeError("demux exploded")
+            return orig_demux(self, *args, **kwargs)
+
+        monkeypatch.setattr(av.container.InputContainer, "demux", _boom_once)
+
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+        info = probe_metadata(str(path))
+
+        assert state["failed_once"]
+        assert info["frame_count"] == 12

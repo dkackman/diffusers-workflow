@@ -202,6 +202,53 @@ def probe_media(path, envelope=False):
         return info
 
 
+# Codecs where demuxing (no decode) counts frames exactly - one packet per
+# encoded frame, no B-frame reordering or multi-packet-per-frame games -
+# because these are what dw's own pipelines actually write. Anything else
+# falls back to a real decode (`probe_media`) rather than risk trusting a
+# count that might not hold for it.
+_DEMUX_COUNTABLE_CODECS = frozenset(
+    {"h264", "hevc", "mpeg4", "vp8", "vp9", "av1", "mjpeg", "prores"}
+)
+
+
+def _video_codec_name(video):
+    """The video stream's codec name, or None - its own function so a test
+    can substitute an unlisted codec without needing a fixture genuinely
+    encoded with one."""
+    codec_context = getattr(video, "codec_context", None)
+    return getattr(codec_context, "name", None) if codec_context is not None else None
+
+
+def _demuxed_frame_count(path, container, video):
+    """The video stream's frame count when its header didn't carry one, or
+    None when it cannot be determined at all.
+
+    Demuxing packets without decoding them is exact only for a codec in
+    `_DEMUX_COUNTABLE_CODECS`; for anything else - or if the demux itself
+    raises partway through - this falls back to `probe_media`'s own decode,
+    which is always correct, at the cost of the very decode `probe_metadata`
+    otherwise avoids. `frame_count` must never come back silently missing
+    when `probe_media` could still supply it (review round 1, B9).
+    """
+    codec_name = _video_codec_name(video)
+    if codec_name in _DEMUX_COUNTABLE_CODECS:
+        try:
+            return sum(1 for packet in container.demux(video) if packet.size)
+        except Exception as e:
+            logger.debug(
+                f"Demux failed partway through {path}: {e} - "
+                "falling back to a decode for its frame count"
+            )
+    else:
+        logger.debug(
+            f"{path}: codec {codec_name!r} is not in the demux-safe "
+            "allowlist - falling back to a decode for its frame count"
+        )
+    decoded = probe_media(path)
+    return decoded.get("frame_count") if decoded else None
+
+
 def probe_metadata(path):
     """Header-level view of a media file, or None - what validation needs
     from `probe_media` without paying for what it does not: a full decode.
@@ -216,10 +263,12 @@ def probe_metadata(path):
     does) answers straight from that header - av.open() alone, no
     demuxing, no decoding. One that doesn't (0 means "count them"; mkv is
     the case dw hits) is counted by demuxing that stream's packets without
-    decoding them: `container.demux()` yields one packet per encoded frame,
-    exact for the codecs dw writes, plus a final empty flush packet once the
+    decoding them, exact for a codec in `_DEMUX_COUNTABLE_CODECS`: one
+    packet per encoded frame, plus a final empty flush packet once the
     stream is exhausted (`packet.size == 0`) that is not a frame and is not
-    counted.
+    counted. A codec outside that allowlist, or a demux that raises partway
+    through, falls back to `probe_media`'s real decode instead of risking a
+    wrong count (`_demuxed_frame_count`).
     """
     try:
         container = av.open(path)
@@ -248,14 +297,9 @@ def probe_metadata(path):
             if video.frames:
                 info["frame_count"] = int(video.frames)
             else:
-                try:
-                    info["frame_count"] = sum(
-                        1 for packet in container.demux(video) if packet.size
-                    )
-                except Exception as e:
-                    # Matches probe_media's precedent: a track damaged past
-                    # the header still reports what the header itself said.
-                    logger.debug(f"Demux failed partway through {path}: {e}")
+                frame_count = _demuxed_frame_count(path, container, video)
+                if frame_count is not None:
+                    info["frame_count"] = frame_count
         return info
 
 
