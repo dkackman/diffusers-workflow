@@ -44,3 +44,4 @@ docs/stabilization/
 dw/workflow.py
 dw/tasks/compose_text.py
 dw_mcp/server.py
+dw/tasks/voice_attribution.py
