@@ -41,3 +41,6 @@ dw/server/app.py
 dw/server/catalog_shape.py
 scripts/arch_metrics.py
 docs/stabilization/
+dw/workflow.py
+dw/tasks/compose_text.py
+dw_mcp/server.py
