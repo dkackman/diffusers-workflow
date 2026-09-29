@@ -12,9 +12,15 @@ static pass can never see.
 
 from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
+from .task_domains import SELECT_RULES, SELECT_THRESHOLD_RULES, select_rule_problems
 
-_RULES = {"argmax", "argmin", "first_above", "first_below", "index"}
-_THRESHOLD_RULES = {"first_above", "first_below"}
+
+def _problem_key(rule):
+    """The argument a select_rule_problems sentence is about: the rule when
+    it is unknown, else the one argument that rule needs."""
+    if rule not in SELECT_RULES:
+        return "rule"
+    return "threshold" if rule in SELECT_THRESHOLD_RULES else "index"
 
 
 def _where(name):
@@ -67,28 +73,36 @@ def select_errors(workflow_definition, source_indices=None):
             errors.append({"path": path, "message": f"{message}{where}."})
 
         rule = arguments.get("rule")
-        if isinstance(rule, str) and rule not in _RULES:
-            add("rule", f"select: unknown rule: {rule!r}")
-        elif isinstance(rule, str):
-            has_threshold = "threshold" in arguments
-            if rule in _THRESHOLD_RULES and not has_threshold:
-                add("threshold", f"select rule '{rule}' requires a threshold")
-            elif rule not in _THRESHOLD_RULES and has_threshold:
-                add(
-                    "threshold",
-                    f"select: 'threshold' is only meaningful for rule "
-                    f"'first_above'/'first_below', not {rule!r}",
+        if isinstance(rule, str):
+            # What the run itself refuses, in its own sentence - at most one,
+            # keyed to the argument it is about
+            problems = {
+                _problem_key(rule): problem
+                for problem in select_rule_problems(
+                    rule, arguments.get("threshold"), arguments.get("index")
                 )
-
-            has_index = "index" in arguments
-            if rule == "index" and not has_index:
-                add("index", "select rule 'index' requires an index")
-            elif rule != "index" and has_index:
-                add(
-                    "index",
-                    f"select: 'index' is only meaningful for rule 'index', "
-                    f"not {rule!r}",
-                )
+            }
+            if "rule" in problems:
+                add("rule", problems["rule"])
+            else:
+                # Beside it, what the run ignores and validation refuses
+                # anyway: an argument this rule does not read
+                if "threshold" in problems:
+                    add("threshold", problems["threshold"])
+                elif rule not in SELECT_THRESHOLD_RULES and "threshold" in arguments:
+                    add(
+                        "threshold",
+                        f"select: 'threshold' is only meaningful for rule "
+                        f"'first_above'/'first_below', not {rule!r}",
+                    )
+                if "index" in problems:
+                    add("index", problems["index"])
+                elif rule != "index" and "index" in arguments:
+                    add(
+                        "index",
+                        f"select: 'index' is only meaningful for rule 'index', "
+                        f"not {rule!r}",
+                    )
 
         candidates = arguments.get("candidates")
         scores = arguments.get("scores")

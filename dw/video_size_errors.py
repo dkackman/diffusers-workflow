@@ -31,6 +31,7 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
+from .task_domains import frame_size_mismatches
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
@@ -89,16 +90,9 @@ def video_size_errors(
             if size is None:
                 continue
             sizes[video_index] = size
-        if len(set(sizes.values())) < 2:
+        mismatches = frame_size_mismatches(sizes)
+        if mismatches is None:
             continue
-
-        first_index = next(iter(sizes))
-        first_size = sizes[first_index]
-        problems = [f"video {first_index} is {first_size[0]}x{first_size[1]}"]
-        for video_index, size in sizes.items():
-            if video_index == first_index or size == first_size:
-                continue
-            problems.append(f"video {video_index} is {size[0]}x{size[1]}")
 
         source = author_index(source_indices, index)
         name = step.get("name")
@@ -107,12 +101,12 @@ def video_size_errors(
             if isinstance(name, str) and MEMBER_SEPARATOR in name
             else ""
         )
-        fit_width, fit_height = first_size
+        fit_width, fit_height = next(iter(sizes.values()))
         errors.append(
             {
                 "path": render_path(("steps", source, "task", "arguments", "videos")),
                 "message": f"{command} needs every video at one size: "
-                f"{', '.join(problems)}{where} - fit the odd one with "
+                f"{mismatches}{where} - fit the odd one with "
                 f"video_frames → resize_rescale(width={fit_width}, "
                 f'height={fit_height}) → pair_audio(fit="video")',
             }

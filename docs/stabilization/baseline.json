@@ -8,5 +8,5 @@
   "duplicate_blocks": 5,
   "complex_functions": 19,
   "import_cycles": 6,
-  "modules_in_import_cycles": 26
+  "modules_in_import_cycles": 25
 }

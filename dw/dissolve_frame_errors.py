@@ -35,6 +35,7 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
+from .task_domains import dissolve_shortfalls
 
 
 def _frame_count(path, probe):
@@ -87,21 +88,11 @@ def dissolve_frame_errors(
         if dissolve_frames <= 0:
             continue
 
-        problems = []
-        for video_index, video in enumerate(videos):
+        frame_counts = []
+        for video in videos:
             path = resolve_probe_path(video, base_dir, "a video argument")
-            if path is None:
-                continue
-            frame_count = _frame_count(path, probe)
-            if frame_count is None:
-                continue
-            seams = (video_index > 0) + (video_index < len(videos) - 1)
-            needed = seams * dissolve_frames
-            if frame_count < needed:
-                problems.append(
-                    f"video {video_index} has {frame_count} frames, too few "
-                    f"for its {seams} dissolve(s) of {dissolve_frames} frames"
-                )
+            frame_counts.append(None if path is None else _frame_count(path, probe))
+        problems = dissolve_shortfalls(frame_counts, dissolve_frames)
         if not problems:
             continue
 

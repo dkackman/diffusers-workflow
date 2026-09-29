@@ -9,6 +9,10 @@ Every module that tests for, strips or builds one does it through this
 module, and no other module spells a prefix
 (`scripts/arch_metrics.py` counts any that do).
 
+It also holds how a reference's location is written: the separator in a
+for_each member's name (`<group>@<entry>`) and a JSON path to a value
+(`steps[3].task.arguments.videos[1]`).
+
 This module imports nothing from dw, so every module can import it.
 """
 
@@ -74,3 +78,20 @@ def author_index(source_indices, index):
     if source_indices is not None and index < len(source_indices):
         return source_indices[index]
     return index
+
+
+# A for_each member is named `<group>@<entry>`
+MEMBER_SEPARATOR = "@"
+
+
+def render_path(path):
+    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
+    rendered = ""
+    for part in path:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        elif rendered:
+            rendered += f".{part}"
+        else:
+            rendered = str(part)
+    return rendered

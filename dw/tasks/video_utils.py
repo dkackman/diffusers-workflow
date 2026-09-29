@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 
 from ..result import AudioVideo
+from ..task_domains import frame_size_mismatches
 
 logger = logging.getLogger("dw")
 
@@ -103,23 +104,21 @@ def check_same_frame_size(clips, task_name):
         task_name: Named in the error
 
     Joining is frame-by-frame concatenation, which either fails deep in numpy
-    or, for a PIL list, produces a film that changes size mid-cut. Naming the
-    two sizes points at the shot that was rendered differently rather than at
-    the join.
+    or, for a PIL list, produces a film that changes size mid-cut. Naming
+    every mismatched size, against the first known one by its real index,
+    points at each shot that was rendered differently rather than at the
+    join - the same sentence validate gives for sizes it can already probe
+    (dw/video_size_errors.py).
     """
-    sizes = []
-    for clip in clips:
+    sizes = {}
+    for index, clip in enumerate(clips):
         if isinstance(clip, numpy.ndarray):
-            sizes.append((int(clip.shape[2]), int(clip.shape[1])))
-        else:
-            sizes.append(tuple(clip[0].size) if len(clip) else None)
-    first = next((size for size in sizes if size is not None), None)
-    for index, size in enumerate(sizes):
-        if size is not None and size != first:
-            raise ValueError(
-                f"{task_name} needs every video at one size: video 0 is "
-                f"{first[0]}x{first[1]}, video {index} is {size[0]}x{size[1]}"
-            )
+            sizes[index] = (int(clip.shape[2]), int(clip.shape[1]))
+        elif len(clip):
+            sizes[index] = tuple(clip[0].size)
+    mismatches = frame_size_mismatches(sizes)
+    if mismatches is not None:
+        raise ValueError(f"{task_name} needs every video at one size: {mismatches}")
 
 
 def frames_as_pil_list(video):

@@ -865,7 +865,7 @@ class TestValidateTimeProbesStayInsideTheRoots:
     refuse to read contains, or whether it exists."""
 
     VIDEO = {"kind": "video", "frame_count": 7}
-    AUDIO = {"kind": "audio", "duration_seconds": 1.5}
+    AUDIO = {"kind": "audio", "duration_seconds": 1.5, "sample_rate": 8000}
 
     def test_a_dissolve_input_outside_the_roots_is_not_probed(
         self, untrusted, roots, monkeypatch

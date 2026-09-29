@@ -9,6 +9,8 @@ inside the workflow and replays. See docs/proposals/score-and-select.md.
 
 import logging
 
+from ..task_domains import SELECT_THRESHOLD_RULES, select_rule_problems
+
 logger = logging.getLogger("dw")
 
 
@@ -38,7 +40,10 @@ class Selected:
         return f"Selected(value={self.value!r}, position={self.position}, score={self.score!r})"
 
 
-_THRESHOLD_RULES = {
+# How each threshold rule tests a score. Which rules take a threshold, and
+# the sentences that refuse a rule missing what it needs, live in
+# dw/task_domains.py beside validate's copy of the same check
+_THRESHOLD_TESTS = {
     "first_above": lambda score, threshold: score >= threshold,
     "first_below": lambda score, threshold: score <= threshold,
 }
@@ -79,14 +84,16 @@ def select(candidates, scores, rule, threshold=None, index=None):
 
     parsed_scores = [_parse_score(i, s) for i, s in enumerate(scores)]
 
+    problems = select_rule_problems(rule, threshold, index)
+    if problems:
+        raise ValueError(problems[0])
+
     if rule in ("argmax", "argmin"):
         positions = range(len(parsed_scores))
         picker = max if rule == "argmax" else min
         position = picker(positions, key=lambda i: parsed_scores[i])
-    elif rule in _THRESHOLD_RULES:
-        if threshold is None:
-            raise ValueError(f"select rule '{rule}' requires a threshold")
-        passes = _THRESHOLD_RULES[rule]
+    elif rule in SELECT_THRESHOLD_RULES:
+        passes = _THRESHOLD_TESTS[rule]
         position = next(
             (i for i, s in enumerate(parsed_scores) if passes(s, threshold)), None
         )
@@ -94,16 +101,12 @@ def select(candidates, scores, rule, threshold=None, index=None):
             raise ValueError(
                 f"select: no candidate passes rule '{rule}' at threshold {threshold}"
             )
-    elif rule == "index":
-        if index is None:
-            raise ValueError("select rule 'index' requires an index")
+    else:  # "index" - select_rule_problems has refused anything else
         if index < 0 or index >= len(candidates):
             raise ValueError(
                 f"select: index {index} is out of range for {len(candidates)} candidates"
             )
         position = index
-    else:
-        raise ValueError(f"select: unknown rule: {rule!r}")
 
     logger.debug(f"select: rule={rule} chose position {position}")
     return Selected(
