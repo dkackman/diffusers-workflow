@@ -23,3 +23,5 @@ dw/server/app.py
 tests/data/
 scripts/arch_metrics.py
 docs/stabilization/
+dw/for_each.py
+dw/references.py
