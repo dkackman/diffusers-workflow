@@ -690,7 +690,9 @@ class Workflow:
             for error in child.validation_errors(composing=composing + [resolved]):
                 errors.append(
                     {
-                        "path": f"{where} -> {error['path']}",
+                        "path": where
+                        if error["path"] is None
+                        else f"{where} -> {error['path']}",
                         "message": f"Sub-workflow '{path}': {error['message']}",
                     }
                 )

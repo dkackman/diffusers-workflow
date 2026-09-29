@@ -11,6 +11,7 @@ different process with a different library activation.
 """
 
 import copy
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -28,6 +29,8 @@ from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 
+logger = logging.getLogger("dw")
+
 
 class ValidatorFailure(Exception):
     """The validator failing outright rather than answering: building the
@@ -37,7 +40,18 @@ class ValidatorFailure(Exception):
     single check that raises is not this - it is an internal finding, and
     the verdict is invalid (B10). The validate route answers it as an
     invalid workflow whose detail is in the server log; a submit answers
-    400 with the message, as it always has."""
+    400 with the message, which names the failure's exception type only -
+    its text can carry internals (a path, a value), so the log keeps it."""
+
+
+def _validator_failure(error):
+    """The ValidatorFailure for `error`, raised from inside its except
+    block: logged with its traceback, answered by its type alone (as a
+    check that raises is, B10)."""
+    logger.exception("Validation failed outright")
+    return ValidatorFailure(
+        f"validation failed ({type(error).__name__}) - the server log has the detail"
+    )
 
 
 @dataclass
@@ -136,7 +150,7 @@ def admit(
             context = candidate.validation_context(checked, ceiling_index=ceiling_index)
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
-            raise ValidatorFailure(str(e)) from e
+            raise _validator_failure(e) from e
         if admission.errors:
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
@@ -159,11 +173,11 @@ def admit(
                 prompt_roots=prompt_roots,
             )
         except Exception as e:
-            raise ValidatorFailure(str(e)) from e
+            raise _validator_failure(e) from e
         # A warning never refuses: a source that fails is logged and said
         # as one internal warning, and the others still report
         admission.warnings = to_warnings(
-            run_checks(context, validation.WARNING_CHECKS, WARNING)
+            run_checks(context, validation.WARNING_CHECKS, WARNING, loud=admission.ok)
         )
         if plan_for is not None and admission.ok:
             admission.plan = plan_for(candidate)

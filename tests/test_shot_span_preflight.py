@@ -61,6 +61,21 @@ class TestTheCheck:
         assert "'b'" in warnings[0]
         assert "176 past the file's 248 frames" in warnings[0]
 
+    def test_a_location_dict_video_is_probed(self, monkeypatch):
+        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+        definition = seams_workflow(
+            {"location": "asset:clip.mp4"},
+            [
+                {"name": "a", "start_frame": 0, "num_frames": 124},
+                {"name": "b", "start_frame": 124, "num_frames": 300},
+            ],
+        )
+
+        warnings = shot_span_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "176 past the file's 248 frames" in warnings[0]
+
     def test_shots_within_the_source_validate_clean(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
         definition = seams_workflow(

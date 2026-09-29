@@ -200,16 +200,26 @@ def _internal(check, error, severity):
     return Finding(severity, INTERNAL, None, message)
 
 
-def run_checks(context, checks, severity):
+def run_checks(context, checks, severity, *, loud=True):
     """Every check's findings, in registry order. A check that raises is
     logged with its traceback and becomes one `internal` finding of the
-    pass's own severity; the checks after it still run."""
+    pass's own severity; the checks after it still run.
+
+    `loud=False` logs that traceback at DEBUG rather than ERROR - for a
+    request already refused, where a check tripping over the arguments it
+    was refused for is expected. The internal finding is the same."""
     findings = []
     for check in checks:
         try:
             items = check.run(context)
         except Exception as e:
-            logger.exception("validation %s check '%s' failed", severity, check.name)
+            logger.log(
+                logging.ERROR if loud else logging.DEBUG,
+                "validation %s check '%s' failed",
+                severity,
+                check.name,
+                exc_info=True,
+            )
             findings.append(_internal(check, e, severity))
             continue
         findings.extend(_finding(item, check.name, severity) for item in items or [])
@@ -863,4 +873,7 @@ WARNING_CHECKS = [
 def warning_check(name):
     """The warning registry's entry called `name`, looked up at call time so
     a Workflow method runs whatever the registry currently holds."""
-    return next(check for check in WARNING_CHECKS if check.name == name)
+    check = next((check for check in WARNING_CHECKS if check.name == name), None)
+    if check is None:
+        raise KeyError(name)
+    return check

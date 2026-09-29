@@ -3,10 +3,13 @@ exception policy for every check (B10)."""
 
 import ast
 import copy
+import json
 import logging
 import os
 import pathlib
 import wave
+
+import pytest
 
 from dw import validation
 from dw.validation import (
@@ -264,6 +267,30 @@ def test_validation_errors_answers_a_raising_check_as_an_internal_error(
     ]
 
 
+def test_a_childs_pathless_finding_is_placed_at_the_sub_workflow_step(
+    tmp_path, monkeypatch
+):
+    """A child's internal finding has no path of its own; the parent names
+    where it came from, not "... -> None"."""
+    registry = list(validation.ERROR_CHECKS)
+    index = [check.name for check in registry].index("select")
+    registry[index] = Check("select", boom)
+    monkeypatch.setattr(validation, "ERROR_CHECKS", registry)
+    from dw.workflow import Workflow
+
+    (tmp_path / "child.json").write_text(json.dumps(_for_each_definition()))
+    parent = {
+        "id": "parent",
+        "steps": [{"name": "delegate", "workflow": {"path": "child.json"}}],
+    }
+    workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
+
+    paths = [error["path"] for error in workflow.validation_errors()]
+
+    assert "steps[0].workflow.path" in paths
+    assert not any(isinstance(p, str) and p.endswith("None") for p in paths)
+
+
 WARNING_ORDER = [
     "workflow_argument_warnings",
     "constraint_warnings",
@@ -356,3 +383,8 @@ def test_a_warning_method_on_an_unexpandable_definition_says_it_failed(tmp_path)
             f"internal: warning check '{name}' failed (ForEachError) - "
             "the server log has the detail"
         ], name
+
+
+def test_an_unknown_warning_check_name_is_a_key_error():
+    with pytest.raises(KeyError):
+        validation.warning_check("no_such_check")

@@ -80,6 +80,38 @@ class TestTheCheck:
         assert "124 frames" in problems[0]["message"]
         assert "130 frames" in problems[0]["message"]
 
+    def test_a_location_dict_too_short_for_its_dissolve_is_refused(self, monkeypatch):
+        # dissolve_videos accepts a {"location": ...} entry (#510), so the
+        # check must probe what it wraps rather than skip it
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 4))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", {"location": "asset:b.mp4"}], dissolve_frames=10
+        )
+
+        problems = dissolve_frame_errors(definition, base_dir=base_dir)
+
+        assert len(problems) == 1
+        assert "video 1 has 4 frames" in problems[0]["message"]
+
+    def test_a_location_dict_is_confined_like_a_plain_path(self, monkeypatch):
+        from dw.probe_paths import resolve_probe_path
+
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        outside = os.path.join(os.path.dirname(base_dir), "outside.mp4")
+        for value in (
+            "asset:a.mp4",
+            "assets/a.mp4",
+            "../outside.mp4",
+            outside,
+            "previous_result:make_a",
+            "asset:missing.mp4",
+        ):
+            plain = resolve_probe_path(value, base_dir)
+            assert resolve_probe_path({"location": value}, base_dir) == plain
+        assert resolve_probe_path({"location": "asset:a.mp4"}, base_dir) is not None
+        assert resolve_probe_path({"location": {"location": "a"}}, base_dir) is None
+        assert resolve_probe_path({"path": "asset:a.mp4"}, base_dir) is None
+
     def test_enough_frames_validates_clean(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
         definition = dissolve_workflow(

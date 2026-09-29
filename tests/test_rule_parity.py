@@ -13,15 +13,25 @@ still exist because the checkers only probe a path that resolves to one.
 """
 
 import os
-import tempfile
 import wave
 
 import numpy
 import pytest
 
+from dw import task_domains
 from dw.dissolve_frame_errors import dissolve_frame_errors
 from dw.validation import select_errors
 from dw.slice_preflight import slice_past_end_warnings
+from dw.task_domains import (
+    SELECT_RULES,
+    SELECT_THRESHOLD_RULES,
+    SLICE_PAD_WARN_MS,
+    dissolve_shortfalls,
+    frame_size_mismatches,
+    select_rule_problems,
+    slice_padding,
+)
+from dw.tasks import audio_utils
 from dw.tasks.audio_utils import slice_audio
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.select import select
@@ -29,8 +39,8 @@ from dw.tasks.video_utils import check_same_frame_size
 from dw.video_size_errors import video_size_errors
 
 
-def asset_dir_with(monkeypatch, *names):
-    base_dir = tempfile.mkdtemp()
+def asset_dir_with(tmp_path, monkeypatch, *names):
+    base_dir = str(tmp_path)
     asset_dir = os.path.join(base_dir, "assets")
     os.makedirs(asset_dir)
     for name in names:
@@ -67,8 +77,10 @@ def clip(frames, width=32, height=16):
 
 
 class TestDissolveOverlap:
-    def test_the_checker_and_the_task_name_the_same_short_video(self, monkeypatch):
-        base_dir = asset_dir_with(monkeypatch, "a.mp4", "b.mp4", "c.mp4")
+    def test_the_checker_and_the_task_name_the_same_short_video(
+        self, tmp_path, monkeypatch
+    ):
+        base_dir = asset_dir_with(tmp_path, monkeypatch, "a.mp4", "b.mp4", "c.mp4")
         counts = {"a.mp4": 8, "b.mp4": 5, "c.mp4": 8}
         probe = fake_probe(
             {name: {"kind": "video", "frame_count": n} for name, n in counts.items()}
@@ -88,8 +100,6 @@ class TestDissolveOverlap:
         assert len(problems) == 1
         assert str(raised.value) in problems[0]["message"]
 
-        from dw.task_domains import dissolve_shortfalls
-
         sentences = dissolve_shortfalls([8, 5, 8], 3)
         assert sentences == [
             "video 1 has 5 frames, too few for its 2 dissolve(s) of 3 frames"
@@ -98,16 +108,14 @@ class TestDissolveOverlap:
         assert str(raised.value) == sentences[0]
 
     def test_an_unknown_count_is_skipped_but_still_counts_as_a_seam(self):
-        from dw.task_domains import dissolve_shortfalls
-
         assert dissolve_shortfalls([None, 5, None], 3) == [
             "video 1 has 5 frames, too few for its 2 dissolve(s) of 3 frames"
         ]
 
 
 class TestFrameSize:
-    def test_every_mismatch_is_named_by_both(self, monkeypatch):
-        base_dir = asset_dir_with(monkeypatch, "a.mp4", "b.mp4", "c.mp4")
+    def test_every_mismatch_is_named_by_both(self, tmp_path, monkeypatch):
+        base_dir = asset_dir_with(tmp_path, monkeypatch, "a.mp4", "b.mp4", "c.mp4")
         probe = fake_probe(
             {
                 "a.mp4": {"kind": "video", "width": 32, "height": 16},
@@ -129,15 +137,13 @@ class TestFrameSize:
         assert str(raised.value) in problems[0]["message"]
         assert "video 2 is 48x24" in str(raised.value)
 
-        from dw.task_domains import frame_size_mismatches
-
         sentence = frame_size_mismatches({0: (32, 16), 1: (64, 32), 2: (48, 24)})
         assert sentence == "video 0 is 32x16, video 1 is 64x32, video 2 is 48x24"
         assert sentence in problems[0]["message"]
         assert sentence in str(raised.value)
 
-    def test_the_reference_is_named_by_its_real_index(self, monkeypatch):
-        base_dir = asset_dir_with(monkeypatch, "b.mp4", "c.mp4")
+    def test_the_reference_is_named_by_its_real_index(self, tmp_path, monkeypatch):
+        base_dir = asset_dir_with(tmp_path, monkeypatch, "b.mp4", "c.mp4")
         probe = fake_probe(
             {
                 "b.mp4": {"kind": "video", "width": 32, "height": 16},
@@ -159,8 +165,6 @@ class TestFrameSize:
         assert "video 1 is 32x16, video 2 is 64x32" in str(raised.value)
 
     def test_matching_sizes_are_no_sentence(self):
-        from dw.task_domains import frame_size_mismatches
-
         assert frame_size_mismatches({0: (32, 16), 2: (32, 16)}) is None
         assert frame_size_mismatches({}) is None
 
@@ -182,8 +186,8 @@ class TestSlicePadding:
     SAMPLES = 16587
     RATE = 8000
 
-    def _both(self, monkeypatch, caplog, **arguments):
-        base_dir = tempfile.mkdtemp()
+    def _both(self, tmp_path, monkeypatch, caplog, **arguments):
+        base_dir = str(tmp_path)
         asset_dir = os.path.join(base_dir, "assets")
         os.makedirs(asset_dir)
         write_wav_samples(os.path.join(asset_dir, "score.wav"), self.SAMPLES, self.RATE)
@@ -201,9 +205,11 @@ class TestSlicePadding:
         ]
         return checked, ran
 
-    def test_the_end_rounded_threshold_case_warns_in_both(self, monkeypatch, caplog):
+    def test_the_end_rounded_threshold_case_warns_in_both(
+        self, tmp_path, monkeypatch, caplog
+    ):
         checked, ran = self._both(
-            monkeypatch, caplog, start_frame=0, num_frames=50, fps=24
+            tmp_path, monkeypatch, caplog, start_frame=0, num_frames=50, fps=24
         )
 
         assert len(ran) == 1
@@ -211,9 +217,9 @@ class TestSlicePadding:
         assert "0.01 s past the end" in ran[0]
         assert "0.01 s past the end" in checked[0]
 
-    def test_a_seconds_slice_agrees(self, monkeypatch, caplog):
+    def test_a_seconds_slice_agrees(self, tmp_path, monkeypatch, caplog):
         checked, ran = self._both(
-            monkeypatch, caplog, start_seconds=1.0, duration_seconds=3.0
+            tmp_path, monkeypatch, caplog, start_seconds=1.0, duration_seconds=3.0
         )
 
         assert len(ran) == len(checked) == 1
@@ -221,18 +227,17 @@ class TestSlicePadding:
         assert "1.93 s past the end" in checked[0]
 
     def test_the_rule_is_the_padded_seconds_at_or_over_the_threshold(self):
-        from dw.task_domains import SLICE_PAD_WARN_MS, slice_padding
-
-        assert SLICE_PAD_WARN_MS == 10.0
-        assert slice_padding(16587, 0, 16667, 8000) == pytest.approx(0.010)
-        assert slice_padding(16588, 0, 16667, 8000) is None
+        # Exactly the threshold's worth of padding warns; one sample short
+        # of it does not - whatever the threshold is
+        pad = round(SLICE_PAD_WARN_MS * self.RATE / 1000.0)
+        assert slice_padding(self.SAMPLES, 0, self.SAMPLES + pad, self.RATE) == (
+            pytest.approx(pad / self.RATE)
+        )
+        assert slice_padding(self.SAMPLES + 1, 0, self.SAMPLES + pad, self.RATE) is None
         assert slice_padding(100, 0, 50, 8000) is None
         assert slice_padding(100, 0, 500, 0) is None
 
     def test_frames_to_samples_has_one_home(self):
-        from dw import task_domains
-        from dw.tasks import audio_utils
-
         assert audio_utils.frames_to_samples is task_domains.frames_to_samples
         assert audio_utils.SLICE_PAD_WARN_MS == task_domains.SLICE_PAD_WARN_MS
 
@@ -262,18 +267,10 @@ class TestSelectRules:
         assert problems[0]["path"] == f"steps[0].task.arguments.{key}"
         assert str(raised.value) in problems[0]["message"]
 
-        from dw.task_domains import select_rule_problems
-
         sentences = select_rule_problems(arguments["rule"], None, None)
         assert sentences == [str(raised.value)]
 
     def test_a_rule_given_what_it_needs_has_no_problem(self):
-        from dw.task_domains import (
-            SELECT_RULES,
-            SELECT_THRESHOLD_RULES,
-            select_rule_problems,
-        )
-
         assert SELECT_THRESHOLD_RULES < SELECT_RULES
         assert select_rule_problems("argmax", None, None) == []
         assert select_rule_problems("first_above", 0.5, None) == []

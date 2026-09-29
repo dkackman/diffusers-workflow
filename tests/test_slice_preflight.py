@@ -67,6 +67,23 @@ class TestTheCheck:
         assert "4.96 s source" in warnings[0]
         assert "past the end" in warnings[0]
 
+    def test_a_string_sample_rate_is_not_taken_as_a_relabel(self, monkeypatch):
+        # The run hands a string rate on uncoerced and cannot slice at it,
+        # so validation works at the file's own rate rather than float()ing
+        # the string into a relabel the run would never make
+        base_dir = workflow_dir_with_asset(monkeypatch, "score.wav", seconds=2.0)
+        definition = slice_workflow(
+            "asset:score.wav",
+            start_seconds=0.0,
+            duration_seconds=3.0,
+            sample_rate="16000",
+        )
+
+        warnings = slice_past_end_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "1.00 s past the end of a 2.00 s source" in warnings[0]
+
     def test_a_seconds_based_slice_past_a_short_asset_is_warned(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, "voice.wav", seconds=2.0)
         definition = slice_workflow(

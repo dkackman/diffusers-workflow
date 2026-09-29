@@ -81,8 +81,6 @@ def video_size_errors(
 
         sizes = {}
         for video_index, video in enumerate(videos):
-            if isinstance(video, dict):
-                video = video.get("location")
             path = resolve_probe_path(video, base_dir, "a video argument")
             if path is None:
                 continue

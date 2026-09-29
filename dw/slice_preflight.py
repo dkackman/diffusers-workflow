@@ -137,8 +137,13 @@ def slice_past_end_warnings(
             continue
         total, sample_rate = probed
         # A literal sample_rate relabels the file's samples at that rate, as
-        # it does in the run (#180) - same samples, different seconds
-        override = _as_number(task_args.get("sample_rate"), float)
+        # it does in the run (#180) - same samples, different seconds. Only a
+        # number: the run hands a string rate on uncoerced and cannot slice
+        # at it, so a string is no relabel validation can reason about
+        override = task_args.get("sample_rate")
+        if isinstance(override, str):
+            override = None
+        override = _as_number(override, float)
         if override and override > 0:
             sample_rate = override
 

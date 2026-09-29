@@ -485,6 +485,75 @@ def test_a_crashing_check_admits_no_job(server, monkeypatch):
         assert client.get("/api/jobs").json()["jobs"] == []
 
 
+SECRET = "/srv/secret/workspace/x.json"
+
+
+def _raise_with_a_path(*_args, **_kwargs):
+    raise RuntimeError(f"cannot read {SECRET}")
+
+
+@pytest.mark.parametrize(
+    "target, name",
+    [(Workflow, "validation_context"), (admission_module, "argument_errors")],
+    ids=["context", "argument_errors"],
+)
+def test_a_failing_gate_names_only_its_exception_type(
+    server, monkeypatch, caplog, target, name
+):
+    """The 400 a submit answers when validation itself fails carries the
+    exception's type, not its text - which can name a server path - and the
+    log keeps the text with its traceback."""
+    monkeypatch.setattr(target, name, _raise_with_a_path)
+    with caplog.at_level("ERROR", logger="dw"):
+        with server() as client:
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+            assert response.status_code == 400, response.text
+            assert SECRET not in response.text
+            assert "RuntimeError" in response.json()["detail"]
+            assert client.get("/api/jobs").json()["jobs"] == []
+    assert any(
+        record.exc_info and SECRET in str(record.exc_info[1])
+        for record in caplog.records
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments, level",
+    [({}, "ERROR"), ({"undeclared": 1}, "DEBUG")],
+    ids=["admissible", "refused"],
+)
+def test_a_failing_warning_source_logs_loudly_only_when_admissible(
+    root, monkeypatch, caplog, arguments, level
+):
+    """A warning source tripping over arguments already refused is expected,
+    so it logs at DEBUG; on an otherwise admissible request it is a bug worth
+    an ERROR. The internal warning is said either way."""
+
+    def boom(_context):
+        raise RuntimeError("warning exploded")
+
+    monkeypatch.setattr(validation, "WARNING_CHECKS", [validation.Check("noisy", boom)])
+    with caplog.at_level("DEBUG", logger="dw"):
+        admission = admit(
+            workflow_path=None,
+            workflow=valid_workflow(),
+            arguments=arguments,
+            base_dir=None,
+            workspace=root,
+            ceiling_index={},
+            output_dir=root.outputs,
+            workflow_dir=root.workflows,
+            asset_roots=[root.assets],
+            prompt_roots=[root.prompts],
+        )
+
+    assert admission.ok == (level == "ERROR")
+    assert [w for w in admission.warnings if "check 'noisy' failed" in w]
+    records = [r for r in caplog.records if "noisy" in r.getMessage()]
+    assert [r.levelname for r in records] == [level]
+    assert records[0].exc_info is not None
+
+
 def unexpandable_workflow():
     """Passes the schema; its for_each names a variable holding no list."""
     workflow = for_each_workflow()
