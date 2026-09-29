@@ -30,6 +30,16 @@ The smaller items carried from gate 1 go to the stage whose files they touch:
 - expansion memo invalidation → 2b;
 - the loose `JobManager` name fallbacks → 2c.
 
+## Release notes collected (for gate 2)
+
+- **2a:** reference prefixes are spelled in backticks instead of quotes in nine MCP tool descriptions and in `compose_text`'s `parts` description (served by `GET /api/tasks/compose_text` and MCP `get_task`). The wording is unchanged.
+- **2a:** `modules` 132 → 133 (`dw/references.py`, accepted by Don 2026-09-28).
+- **2a follow-ups:**
+  - `dw/workflow.py:747` could use `author_index`.
+  - Prefix tests are spelled three ways.
+  - Four import styles for `references`.
+  - Prefixes inside f-strings, which the metric does not count.
+
 ## Global Constraints (all stages)
 
 - Hard freeze: no net-new features or functionality. Surface may change only where the consolidation requires it, and every change is listed for the gate's release notes.
