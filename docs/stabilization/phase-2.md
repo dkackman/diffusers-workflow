@@ -25,9 +25,9 @@ Gate 2 follows 2d, with the same checks as gate 1:
 - deploy, tag and re-baseline.
 
 The smaller items carried from gate 1 go to the stage whose files they touch:
-- the `recorded_variables` media copy → 2b (Task 4's area);
+- the `recorded_variables` media copy → 2d (it is run-path code);
 - `dw.run` paging a truncated event tail → 2c;
-- expansion memo invalidation → 2b;
+- expansion memo invalidation → dropped (the definition is not mutated after construction; 2b Task 3 pins that);
 - the loose `JobManager` name fallbacks → 2c.
 
 ## Release notes collected (for gate 2)
@@ -409,3 +409,192 @@ def test_probe_paths_public_name_is_the_shared_set():
 - [ ] **Step 2.** The final whole-branch review over the stage, with its single fix pass.
 - [ ] **Step 3.** Merge `stabilization/phase-2a` to `develop` and push. Do not deploy: lem is Don's during the phase, and a stage merge is behavior-preserving. lem is deployed and timed once, at gate 2.
 - [ ] **Step 4.** Write stage 2b's detailed tasks in this file and set `hot-zone.txt` to stage 2b's files, in one commit, before 2b starts.
+
+---
+
+## Stage 2b: validation plumbing
+
+Work on branch `stabilization/phase-2b` in the worktree, from `develop` after stage 2a (`39a97862` or later).
+
+**What exists (survey, 2026-09-28).**
+
+- **Errors.** `Workflow.validation_errors` (`dw/workflow.py:757-943`) works in three steps:
+  1. It runs its gates: schema, then `constraint_reference_errors`, then the expansion with its five caught exceptions. Each returns early.
+  2. It sums 23 checks and `sub_workflow_errors` in a fixed order. Each check is a pure function returning `[{path, message}]`, with an extra `"variable"` key on some entries.
+  3. Nothing guards a single check, so one that raises loses the whole verdict. `admit()` turns that into `ValidatorFailure`, a 400.
+- **Warnings.** There are ten warning sources, all returning `list[str]` in the form `"path: message"`.
+  - Six are `Workflow` methods that each re-expand, the expansion memoized since Phase 1, inside `except Exception: return []`.
+  - `admit()`'s `_warnings` wraps each of the ten in its own `except Exception`: a failure is logged, and its warnings silently vanish. That is **B10**.
+- **Media.** Four probes run `probe_media`, which decodes whole files, fully and uncached: `dissolve_frame_errors._frame_count`, `video_size_errors._frame_size`, `slice_preflight._source_seconds` and `shot_span_preflight._frame_count`. One file referenced by two checks is decoded twice. That is **B9**.
+- **The four rules.** Two of them have already drifted apart:
+  - Frame size: validation lists every mismatched video, while the run stops at the first and always calls the reference "video 0".
+  - Slice region: validation lacks #557's end-frame rounding.
+  - Dissolve overlap is identical in both copies.
+  - Select: the rule table is duplicated, and the requires-threshold and requires-index messages are identical literals.
+  - `dw/task_domains.py` is the model: each domain is declared once, and `domain_violation` builds its message once. The run calls `check_arguments` and validation calls `task_argument_errors`. Tasks import it, and it imports no task, so there is no cycle risk.
+
+### Decisions (2b)
+
+- **`dw/validation.py` is the one new module.** It holds `Finding`, `ValidationContext`, the two registries and the runner with its exception policy.
+  - It pays for itself: three checker modules whose only importers are `dw/workflow.py` and their own test fold into it, keeping their function names.
+    - Task 2 folds `result_fps.py` (`fps_errors`) and `null_media.py` (`null_media_errors`) as it creates the module, so `modules` goes 133 → 132 in the same task and the ratchet holds after every task.
+    - Task 6 folds `select_validation.py` (`select_errors`) once Task 5 has moved its rules out, taking `modules` to 131.
+  - This is a small module move in a phase that otherwise forbids them, accepted by Don as part of 2b.
+  - If importing the check modules from `dw/validation.py` creates an import cycle, the two registry lists live in `dw/workflow.py`, which already imports every check. `dw/validation.py` then keeps only `Finding`, `ValidationContext`, `run_checks` and the serializers.
+  - `dw/validation.py` must not import `dw.workflow`. `ValidationContext` takes the `Workflow` instance as a value.
+- **Each of the four rules gets one home in `dw/task_domains.py`.** Both the check and the task call the same function, with the same message. Where the two copies differ today, the text says deliberately which one wins:
+  - **Slice:** the run's arithmetic wins, including #557's end rounding, because it is what executes.
+  - **Frame size:** validation's fuller report wins. Every mismatch is named with each video's real index, because it names every fix the caller must make. The run's error text gains the other mismatches, which goes in the release notes.
+- **One context per request.** `Workflow.validation_context(arguments=None, composing=())` builds a `ValidationContext`.
+  - `validation_errors(arguments=None, composing=None, *, context=None)` builds one only when none is passed.
+  - `admit()` calls the factory once and passes that context to the error pass and the warning pass, so there is one expansion and one probe cache per request.
+  - The six `Workflow.*_warnings` methods build their own when called directly.
+  - The context is never stored on the `Workflow`.
+- **The exception policy (B10).**
+  - A check that raises becomes one error finding: `path` None (the editor renders a null path as `root`; `ui/src/lib/pages/EditorPage.svelte:649`), `kind` `"internal"`, message `check '<name>' failed (<ExcType>: <msg>) - the server log has the traceback`. The traceback is logged at ERROR. Every other check still runs.
+  - The verdict is `valid: false`. An internal failure never admits a job that went unchecked, and it no longer turns into a 400 `ValidatorFailure`.
+  - A warning source that raises becomes one warning, `internal: warning check '<name>' failed (<ExcType>: <msg>)`, and is logged. It never refuses.
+  - Surface changes for the release notes: `/api/validate` answers `valid: false` with an internal finding where it used to 400, and a failed warning pass now shows as a warning.
+- **The response shapes are unchanged.** Errors serialize to `{path, message}` plus any extra keys they carry today. Warnings serialize to `"path: message"` strings, or the bare message when `path` is None. Serialization happens in one place, the runner's `to_errors()` and `to_warnings()`.
+- **Order is preserved.** The error registry lists the checks in today's concatenation order, and the warning registry follows `admit()`'s helper order. A test pins the order by name.
+- **B9 metadata probe.** `probe_metadata(path)` goes in `dw/media_info.py`. It reads the header values: kind, width, height, fps, sample rate, channels and duration. When the header lacks a video frame count, it counts that count by **demuxing packets without decoding**, which is exact for the codecs dw writes. It never runs the audio loudness analysis.
+  - `ValidationContext.probe(path)` memoizes it by real path for one validation.
+  - The four probing checks gain a keyword `probe=probe_metadata`, so their public call signatures keep working.
+- **Out of scope for 2b, moved to 2d:** the `recorded_variables` media copy, which is run-path code. Expansion-memo invalidation is dropped: the definition is not mutated after construction, and a test in Task 3 pins that.
+
+### Review Focus (2b)
+
+1. **Verdict parity.**
+   - For every catalog workflow in `workflows/templates/**`, validated with its defaults, `validation_errors` returns the same list before and after the migration, in the same order.
+   - A committed fixture would be machine-dependent (VRAM capacity, kernel availability and local assets differ between the Mac and lem). So Task 3 checks parity in one process before deleting the `+` chain: it runs the old chain and the registry loop over every template and asserts equality. That is a throwaway script whose output goes in the report.
+   - The committed net is the 27 existing validation test files.
+2. **A crashing check never admits a job.** The internal finding makes the verdict `valid: false`. `admit()` refuses the submit with 400 and the finding's message, not a `ValidatorFailure` 500 or 400.
+3. **The probe cache is per validation.** A cache that outlived the request would serve a replaced asset's old frame count. `ValidationContext` is built per call and never stored on the `Workflow`.
+4. **`probe_metadata` frame counts match `probe_media`'s decode counts** on the test fixtures, the video files under `tests/` and the assets the probing tests use. Any codec where they differ falls back to `probe_media`.
+5. **Rule messages.** A test calls the shared rule function and checks that the validation finding and the task's `ValueError` or warning carry the same sentence for the same inputs.
+
+### Task 1: `probe_metadata` and a per-validation probe cache (B9)
+
+**Files:** `dw/media_info.py` (add `probe_metadata`); `dw/dissolve_frame_errors.py`, `dw/video_size_errors.py`, `dw/slice_preflight.py` and `dw/shot_span_preflight.py` (each takes `probe=probe_metadata`); tests in `tests/test_media_info.py` (or the existing probe tests) and each checker's test file.
+
+**Interfaces:**
+- `probe_metadata(path) -> dict | None`, with the same keys `probe_media` returns for kind, width, height, fps, `frame_count`, `duration_seconds`, `sample_rate` and channels, and no loudness keys.
+- The checkers take `(..., probe=probe_metadata)`.
+
+**Tests, each RED first:**
+- **Parity.** `probe_metadata(p)["frame_count"] == probe_media(p)["frame_count"]` and the same `width`/`height`/`duration_seconds`, for every video fixture the checker tests already use (parametrize over them).
+- **No decode.** `probe_metadata` does not call `container.decode`. Assert it with a `patch.object` on the opened container, or by timing an injected fake container that raises on `decode`.
+- **Shared cache.** A checker called twice through one cache probes once: pass a counting `probe`.
+
+**Commit:** `perf(media): a metadata-only probe for validation (B9)`
+
+### Task 2: `dw/validation.py`: `Finding`, `ValidationContext` and the runner
+
+**Files:**
+- Create `dw/validation.py` and `tests/test_validation.py`.
+- Fold `fps_errors` (with `FPS_KEY`) and `null_media_errors` (with its helpers) into it, and delete `dw/result_fps.py` and `dw/null_media.py`.
+- Update `dw/workflow.py`'s imports, and the import line in `tests/test_result_fps.py` and `tests/test_null_media.py`.
+- Update `tests/test_reference_sets.py`, which pins `result_fps._UNRESOLVED_PREFIXES`, to pin the folded name.
+- After this task `modules` is 132; lower it in `baseline.json` by hand.
+
+**Interfaces (the implementer writes the bodies):**
+
+```python
+@dataclass(frozen=True)
+class Finding:
+    severity: str            # "error" | "warning"
+    kind: str                # the check's registry name, or "internal"
+    path: str | None
+    message: str
+    extra: dict = field(default_factory=dict)   # e.g. {"variable": ...} today
+
+@dataclass
+class ValidationContext:
+    workflow: object         # the Workflow; never imported here
+    arguments: dict | None
+    expanded: dict           # from workflow.expanded_definition (memoized)
+    source_indices: list
+    base_dir: str | None
+    composing: tuple = ()
+    # probe(path) -> memoized probe_metadata for this context only
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    run: Callable[[ValidationContext], list]   # returns legacy dicts or strings
+
+def run_checks(context, checks, severity) -> list[Finding]
+    # per-check try/except Exception -> internal Finding (see Decisions),
+    # logger.exception(...); legacy {path, message, **extra} dicts and
+    # "path: message" strings convert to Findings
+def to_errors(findings) -> list[dict]      # today's error shape
+def to_warnings(findings) -> list[str]     # today's warning shape
+```
+
+**Tests, each RED first:**
+- A check that raises yields exactly one internal finding and the other checks still run.
+- Legacy dicts, with `"variable"` kept in `extra`, and `"path: message"` strings round-trip through `to_errors` / `to_warnings` unchanged.
+- `ValidationContext.probe` memoizes per context: two contexts do not share entries.
+- `dw/validation.py` does not import `dw.workflow`: check its AST imports, the same way `test_references` checks its module.
+
+**Commit:** `feat(validation): Finding, ValidationContext and one exception policy`
+
+### Task 3: `validation_errors` is a registry loop
+
+**Files:** `dw/validation.py` (the `ERROR_CHECKS` registry), `dw/workflow.py` (`validation_errors`), and `tests/test_validation.py`, plus the template baseline fixture.
+
+- **Step 1:** the registry, holding the 23 checks plus `task_errors`, with its `arguments is None` variable filter, and `sub_workflow_errors`, in today's order, each a `Check(name, lambda ctx: <existing call>)`. `validation_errors` keeps its gates exactly and replaces the `+` chain with `to_errors(run_checks(ctx, ERROR_CHECKS, "error"))`.
+- **Step 2, before removing the `+` chain:** run the throwaway parity script (Review Focus 1). Put its output in the report, then remove the chain.
+- **Tests:**
+  - registry order pinned by name, with the docstring line "error order is part of the /api/validate response; a reorder changes what the editor shows first";
+  - a monkeypatched check raising → `valid: false` with the internal message, through `POST /api/validate`;
+  - the same through `POST /api/jobs` → 400 with that message, and nothing queued;
+  - the expansion memo: the definition object is unchanged after validation (the dropped invalidation item).
+- **Commit:** `refactor(validation): validation_errors is a loop over the check registry (B10 for errors)`
+
+### Task 4: One warning registry for `admit()` and the `Workflow` methods
+
+**Files:** `dw/validation.py` (`WARNING_CHECKS`), `dw/workflow.py` (the six `*_warnings` methods delegate and keep their names and signatures), and `dw/server/admission.py` (`_warnings` becomes one `run_checks` over one context).
+
+**Expected test changes:** tests that call `adapter_warnings` or `slice_past_end_warnings` directly on a broken input and assert `[]` now get an `internal:` warning. Change each such assertion deliberately and list it in the report.
+
+- The context is built once per admission and shared with the error pass, so there is one expansion and one probe cache per request.
+- **Tests:**
+  - A warning source that raises → an `internal:` warning in the validate response, and the job still queues.
+  - A workflow whose dissolve step and analyze step name the same asset probes it once per validate request (a counting `probe`).
+  - The existing admission fold-count tests still pass: one `_fold` per request.
+- **Commit:** `refactor(validation): one warning registry; a failed warning pass is visible (B10)`
+
+### Task 5: The four rules, one home each
+
+**Files:**
+- `dw/task_domains.py`, which gains the four rule functions;
+- `dw/dissolve_frame_errors.py`, `dw/video_size_errors.py`, `dw/slice_preflight.py` and `dw/select_validation.py`;
+- `dw/tasks/dissolve_videos.py`, `dw/tasks/video_utils.py` (`check_same_frame_size`), `dw/tasks/audio_utils.py` (`slice_audio` / `_warn_on_slice_past_end`) and `dw/tasks/select.py`.
+
+**Interfaces (names final, bodies per the survey):**
+- `dissolve_shortfalls(frame_counts, dissolve_frames) -> list[str]`: one sentence per short video, in today's wording.
+- `frame_size_mismatches(sizes) -> str | None`: `sizes` maps index to `(w, h)`, with a missing video absent. It returns the one sentence naming every mismatch against the first known size. Validation appends its remedy text; the run raises it as it stands.
+- `slice_padding(total_samples, start, length, sample_rate) -> float | None`: the padded seconds, when at or over `SLICE_PAD_WARN_MS`. `SLICE_PAD_WARN_MS` moves here. `audio_utils` re-exports it for its importers, and validation computes `start`/`length` in samples with the #557 end rounding: `frames_to_samples` moves or is imported so both sides call it.
+- `SELECT_RULES`, `SELECT_THRESHOLD_RULES`, `select_rule_problems(rule, threshold, index) -> list[str]`: the unknown-rule, requires-threshold and requires-index sentences. Validation's forbid-extraneous check and the gather-shape check stay validation-only.
+
+**Tests:** one parity test per rule. Its inputs go through both the checker and the task, and the rule's sentence appears in both, RED first where the copies differ today (frame size, slice rounding).
+
+**Commit:** `refactor(task_domains): the four rules written twice have one home each`
+
+### Task 6: Fold `select_validation` into `dw/validation.py`
+
+**Files:** move `select_errors`, which is validation-only once Task 5 has moved the rules to `task_domains`, into `dw/validation.py`; delete `dw/select_validation.py`; update `dw/workflow.py`'s import and the import line in `tests/test_select_validation.py`.
+
+- **The failing check is the ratchet:** `modules` 132. Afterwards it is 131; lower it in `baseline.json` by hand.
+- **Commit:** `refactor(validation): fold select_validation into dw/validation.py`
+
+### Task 7: Stage 2b merge
+
+The same steps as 2a's Task 5:
+1. The full suite and `--check`.
+2. The final review and its one fix pass.
+3. Merge and push, with no lem deploy.
+4. Write stage 2c's detail and its hot zone in one commit.
+
+Add 2b's surface changes to "Release notes collected".

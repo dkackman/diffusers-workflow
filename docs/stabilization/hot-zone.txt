@@ -2,46 +2,24 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 2a: dw/references.py - one owner for the reference prefixes
-dw/references.py
-dw/arguments.py
-dw/locations.py
-dw/for_each.py
-dw/prompts.py
-dw/variables.py
-dw/adapter_compatibility.py
-dw/reference_names.py
-dw/video_extensions.py
-dw/reference_limits.py
-dw/probe_paths.py
-dw/introspection.py
-dw/previous_results.py
-dw/subfolders.py
-dw/result_fps.py
-dw/content_types.py
-dw/kernel_availability.py
-dw/select_validation.py
-dw/step_cache.py
-dw/realize.py
-dw/vram_estimate.py
-dw/vram_inheritance.py
-dw/assets.py
-dw/elision.py
-dw/runs.py
-dw/shots.py
-dw/variable_constraints.py
+# Phase 2b: validation plumbing - one context, one registry, one exception policy
+dw/validation.py
+dw/workflow.py
+dw/media_info.py
 dw/dissolve_frame_errors.py
-dw/null_media.py
-dw/scalar_result_validation.py
-dw/shot_span_preflight.py
-dw/slice_preflight.py
-dw/task_domains.py
 dw/video_size_errors.py
+dw/slice_preflight.py
+dw/shot_span_preflight.py
+dw/task_domains.py
+dw/select_validation.py
+dw/result_fps.py
+dw/null_media.py
+dw/tasks/dissolve_videos.py
+dw/tasks/video_utils.py
+dw/tasks/audio_utils.py
+dw/tasks/select.py
+dw/server/admission.py
 dw/server/app.py
-dw/server/catalog_shape.py
+tests/data/
 scripts/arch_metrics.py
 docs/stabilization/
-dw/workflow.py
-dw/tasks/compose_text.py
-dw_mcp/server.py
-dw/tasks/voice_attribution.py
