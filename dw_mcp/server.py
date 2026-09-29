@@ -365,7 +365,7 @@ def build_server(client):
         subfolder the step chose (`final/episode.mp4`) - the form
         `get_output_image`, `get_output_text`, `download_output`,
         `keep_output` and `delete_output` all take, and the form an
-        "output:" reference in a later workflow is built from. Each entry
+        `output:` reference in a later workflow is built from. Each entry
         carries `folder` (the workflow) and `subfolder` (the part of the run:
         by convention `final` is the deliverable and `intermediate` the
         scratch work, '' when the step chose none); `subfolder=` filters on
@@ -433,7 +433,7 @@ def build_server(client):
         read - see `normalize_audio` under "Video Processing" in the tasks
         guide. A mux emits only the second.
 
-        `name` may be an "asset:" reference instead of a gallery name, and
+        `name` may be an `asset:` reference instead of a gallery name, and
         then it describes that input asset - how many frames a shot is,
         whether two shots share an fps, whether a score reaches the length
         of the cut it will lie under. Check before running: frame counts
@@ -685,7 +685,7 @@ def build_server(client):
         job_id: str | None = None,
     ) -> dict:
         """Permanently remove one generated file from the output directory.
-        Not recoverable (rerun the job to get it back), and any "output:"
+        Not recoverable (rerun the job to get it back), and any `output:`
         reference to it stops resolving; prefer `keep_output` if it is
         worth keeping. When it was the last media file of its run, the run
         directory goes with it, sidecars included. `name` may also be a run
@@ -717,7 +717,7 @@ def build_server(client):
         workspace selector - do not build an /outputs URL by hand). This is
         also not how a generated file becomes an input for a later
         workflow: use `keep_output`, which links it inside the workspace
-        under an "asset:" name, rather than writing into the server's asset
+        under an `asset:` name, rather than writing into the server's asset
         directory behind the API's back. Unlike the inline tools, this works
         for any file type, streams the body straight to disk rather than
         buffering it, and returns no content to the conversation - only
@@ -756,7 +756,7 @@ def build_server(client):
     # ---------------------------------------------------------------- assets
 
     def list_assets(detail: bool = False, workspace: str | None = None) -> dict:
-        """List the input media on the server, each with the "asset:"
+        """List the input media on the server, each with the `asset:`
         reference a workflow argument carries. Look here before asking for
         a file: what a workflow needs may already be there. Entries carry
         name, reference, kind, size and origin only - for duration, frame
@@ -777,7 +777,7 @@ def build_server(client):
         workspace: str | None = None,
     ) -> dict:
         """Put an image, video or audio file into the server's asset
-        library and get back the "asset:" reference to use in a workflow.
+        library and get back the `asset:` reference to use in a workflow.
         Pass exactly one of `file_path` or `content`.
 
         `file_path` is read from the machine this MCP server runs on and
@@ -818,7 +818,7 @@ def build_server(client):
         shared: bool = False,
         workspace: str | None = None,
     ) -> dict:
-        """Keep a generated file as an input asset under a stable "asset:"
+        """Keep a generated file as an input asset under a stable `asset:`
         name, so later workflows can rely on it - a run's own name moves
         ("latest") or breaks when outputs are pruned. `name` is a gallery
         name; `asset_name` defaults to the file's own. The copy happens on
@@ -838,10 +838,10 @@ def build_server(client):
 
     def delete_asset(name: str, workspace: str | None = None) -> dict:
         """Permanently remove one file from the asset library, by the name
-        `list_assets` reports (without the "asset:" prefix). Not
+        `list_assets` reports (without the `asset:` prefix). Not
         recoverable, and any workflow still carrying that reference stops
         loading. Deletes from whichever library holds it - this
-        workspace's own before the shared one, the order an "asset:"
+        workspace's own before the shared one, the order an `asset:`
         reference resolves in; one from a read-only examples library is
         refused.
 

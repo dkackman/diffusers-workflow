@@ -2,7 +2,7 @@
   "modules": 133,
   "modules_over_1000_lines": 10,
   "functions_over_150_lines": 17,
-  "prefix_literals": 93,
+  "prefix_literals": 0,
   "test_dw_patch_targets": 285,
   "claude_md_lines": 961,
   "duplicate_blocks": 19,

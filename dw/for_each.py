@@ -132,7 +132,7 @@ def _entry_keys(entries, path):
     """The key of every entry - its 'name' when it is an object carrying
     one, else its index - validated and unique."""
     if not isinstance(entries, list):
-        if isinstance(entries, str) and entries.startswith("variable:"):
+        if references.is_ref(references.VARIABLE, entries):
             hint = f" - '{entries}' was not substituted; is the variable declared?"
         else:
             hint = ""
@@ -267,7 +267,7 @@ def _gather(value, path, groups):
 def _rewrite_reference(reference, path, groups, member):
     """A previous_result reference (without its prefix) as the expanded
     definition spells it: unchanged unless it names a for_each group."""
-    if reference.startswith("variable:"):
+    if references.is_ref(references.VARIABLE, reference):
         return reference
     group = next((g for g in groups if reference_resolves_to(reference, g)), None)
     if group is None:
@@ -313,9 +313,9 @@ def list_fields(definition):
         if not isinstance(step, dict):
             continue
         target = step.get(FOR_EACH_KEY)
-        if not (isinstance(target, str) and target.startswith("variable:")):
+        if not references.is_ref(references.VARIABLE, target):
             continue
-        variable = target.removeprefix("variable:")
+        variable = references.ref_name(references.VARIABLE, target)
         entry = found.setdefault(variable, {"fields": set(), "steps": []})
         entry["steps"].append(step.get("name"))
         for value in _strings(step):

@@ -15,6 +15,7 @@ import re
 import inspect
 import logging
 import difflib
+from . import references
 from .variables import undeclared_variable_references
 
 logger = logging.getLogger("dw")
@@ -640,9 +641,9 @@ def _null_fed_variable(written_steps, source_index, key, declared_variables):
     if not isinstance(arguments, dict):
         return None
     value = arguments.get(key)
-    if not isinstance(value, str) or not value.startswith("variable:"):
+    name = references.ref_name(references.VARIABLE, value)
+    if name is None:
         return None
-    name = value[len("variable:") :]
     return name if name in declared_variables else None
 
 
@@ -1059,8 +1060,8 @@ def _resolved_value(arguments, key, values):
     if key not in arguments:
         return None
     value = arguments[key]
-    if isinstance(value, str) and value.startswith("variable:"):
-        value = values.get(value[len("variable:") :])
+    if references.is_ref(references.VARIABLE, value):
+        value = values.get(references.ref_name(references.VARIABLE, value))
     return value if isinstance(value, (int, float)) else None
 
 

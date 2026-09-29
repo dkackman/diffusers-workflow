@@ -1,6 +1,7 @@
 import logging
 from itertools import product
 
+from . import references
 from .arguments import (
     FROM_PREVIOUS_RESULT_KEY,
     PREVIOUS_RESULT_PREFIX,
@@ -171,7 +172,7 @@ def resolve_chain_prompts(step_action, previous_results):
     """Resolve a pipeline chain's per-segment prompts against previous results.
 
     A chain's "prompts" list is not part of the step's argument template, so the
-    cartesian pass that expands "previous_result:" everywhere else never reaches
+    cartesian pass that expands `previous_result:` everywhere else never reaches
     it. That matters for a chain whose opening segment is written by a different
     step from the ones that continue it - a continuation prompt declares a video
     reference the first segment does not have.
@@ -194,9 +195,9 @@ def resolve_chain_prompts(step_action, previous_results):
 
     resolved = []
     for entry in prompts:
-        if isinstance(entry, str) and entry.startswith("previous_result:"):
+        if isinstance(entry, str) and entry.startswith(PREVIOUS_RESULT_PREFIX):
             artifacts = get_previous_results(
-                previous_results, entry.removeprefix("previous_result:")
+                previous_results, entry.removeprefix(PREVIOUS_RESULT_PREFIX)
             )
             if not artifacts:
                 raise ValueError(f"Chain prompt reference '{entry}' produced no result")
@@ -214,7 +215,7 @@ def resolve_chain_prompts(step_action, previous_results):
 def find_previous_result_refs(arguments):
     """Find all values in an argument structure that reference previous results.
 
-    A reference is written either as a value with the "previous_result:" prefix, or
+    A reference is written either as a value with the `previous_result:` prefix, or
     as the step name a 'from_previous_result' object description is built from. Both
     are found at any depth: an argument that takes a constructed object holds it
     inside a list - MiniMax-H3's 'references' - so the reference is nested rather
@@ -400,7 +401,7 @@ def _collect_reference_paths(value, path, found):
     if isinstance(value, dict):
         for key, item in value.items():
             if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
-                if not item.startswith("variable:"):
+                if not references.is_ref(references.VARIABLE, item):
                     found[path + (key,)] = item
                 continue
             _collect_reference_paths(item, path + (key,), found)

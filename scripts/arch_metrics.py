@@ -35,6 +35,8 @@ REFERENCE_PREFIXES = frozenset(
         "constant:",
         "item:",
         "gather:",
+        "builtin:",
+        "constraint:",
     )
 )
 # Modules allowed to spell a reference prefix: the one owner (Phase 2a)
