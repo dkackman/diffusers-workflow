@@ -1,5 +1,5 @@
 {
-  "modules": 132,
+  "modules": 133,
   "modules_over_1000_lines": 10,
   "functions_over_150_lines": 17,
   "prefix_literals": 93,

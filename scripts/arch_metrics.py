@@ -37,9 +37,8 @@ REFERENCE_PREFIXES = frozenset(
         "gather:",
     )
 )
-# Modules allowed to spell a reference prefix. Empty until Phase 2 gives the
-# prefixes one owner (dw/references.py).
-PREFIX_OWNERS = frozenset()
+# Modules allowed to spell a reference prefix: the one owner (Phase 2a)
+PREFIX_OWNERS = frozenset({"dw/references.py"})
 EXCLUDED = ("community_pipelines", "node_modules", "venv", ".git")
 PACKAGES = ("dw", "dw_mcp")
 PATCH_TARGET = re.compile(r"""patch\(\s*["']dw[._]""")

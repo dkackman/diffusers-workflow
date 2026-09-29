@@ -171,3 +171,13 @@ def test_a_type_checking_import_does_not_close_a_cycle(tmp_path):
         )
     )
     assert metrics["import_cycles"] == 0
+
+
+def test_the_prefix_owner_may_spell_a_prefix(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {"dw/references.py": 'ASSET = "asset:"\n', "dw/a.py": 'X = "asset:"\n'},
+        )
+    )
+    assert metrics["prefix_literals"] == 1
