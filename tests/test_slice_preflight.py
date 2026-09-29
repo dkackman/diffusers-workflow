@@ -12,6 +12,7 @@ import wave
 
 import numpy
 
+from dw.media_info import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.slice_preflight import slice_past_end_warnings
 from dw.workflow import workflow_from_definition
@@ -130,6 +131,29 @@ class TestTheCheck:
 
     def test_nothing_is_reported_for_a_definition_with_no_slice_step(self):
         assert slice_past_end_warnings({"steps": [{"name": "a", "task": {}}]}) == []
+
+    def test_a_shared_cache_probes_the_source_once_across_two_calls(self, monkeypatch):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe the source only once, not once
+        # per call.
+        base_dir = workflow_dir_with_asset(monkeypatch, "score.wav", seconds=4.96)
+        definition = slice_workflow(
+            "asset:score.wav", start_frame=0, num_frames=372, fps=24
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        slice_past_end_warnings(definition, base_dir=base_dir, probe=counting_cache)
+        slice_past_end_warnings(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 1
 
 
 class TestWiredIntoTheWorkflow:

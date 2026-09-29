@@ -14,6 +14,7 @@ import tempfile
 import numpy
 
 from dw.dissolve_frame_errors import dissolve_frame_errors
+from dw.media_info import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.workflow import workflow_from_definition
 
@@ -126,6 +127,45 @@ class TestTheCheck:
         definition = dissolve_workflow(["asset:a.mp4"], dissolve_frames=130)
 
         assert dissolve_frame_errors(definition, base_dir=base_dir) == []
+
+    def test_a_caller_supplied_probe_is_used_instead_of_the_default(self, monkeypatch):
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
+        )
+        # A stub probe answering a frame count nothing on disk holds proves
+        # the check reads the `probe` argument rather than always reaching
+        # for probe_metadata itself.
+        problems = dissolve_frame_errors(
+            definition,
+            base_dir=base_dir,
+            probe=lambda path: {"kind": "video", "frame_count": 999},
+        )
+
+        assert problems == []
+
+    def test_a_shared_cache_probes_each_file_once_across_two_calls(self, monkeypatch):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe each distinct file only once,
+        # not once per call.
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        dissolve_frame_errors(definition, base_dir=base_dir, probe=counting_cache)
+        dissolve_frame_errors(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 2
 
 
 class TestTheValidationPass:

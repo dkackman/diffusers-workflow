@@ -8,14 +8,14 @@ correct message, but late when the slice sits downstream of a long render
 `score` asset, `validate_workflow` answering clean). Mirrors
 `dissolve_frame_errors.py` (#400): walk the expanded definition,
 `resolve_path_references` an `asset:`/`output:` audio into a real path, and
-`probe_media` it - the same resolution and decode the run itself would do,
-just ahead of the queue.
+`probe_metadata` it - the same resolution the run itself would do, and its
+duration without the decode (B9).
 
 Deliberately narrower than the run-time check, same as #400's: a
 `previous_result:` audio (nothing written yet), a remote URL, a literal path
 outside the directories the run may read (`dw/probe_paths.py` - a literal
 inside them is resolved against the workflow's directory and probed), or a
-source `probe_media` cannot read, all answer "unknown" rather than
+source `probe_metadata` cannot read, all answer "unknown" rather than
 guessing - silence here is correct, not a gap, since the run-time warning
 still fires once the file exists. `variable:` needs no hop of its own: by the
 time `validation_errors`/`adapter_warnings` hand this module the *expanded*
@@ -28,16 +28,16 @@ padding for the same arguments.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_media
+from .media_info import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
 from .tasks.audio_utils import SLICE_PAD_WARN_MS
 
 
-def _source_seconds(path):
+def _source_seconds(path, probe):
     """The duration `slice_audio` would see for this file, or None when it
     cannot be probed or carries no audio."""
-    info = probe_media(path)
+    info = probe(path)
     if info is None or info.get("kind") != "audio":
         return None
     return info.get("duration_seconds")
@@ -81,7 +81,9 @@ def _requested_region(task_args):
     return None
 
 
-def slice_past_end_warnings(workflow_definition, source_indices=None, base_dir=None):
+def slice_past_end_warnings(
+    workflow_definition, source_indices=None, base_dir=None, *, probe=probe_metadata
+):
     """Every `slice_audio` step whose source's real duration is already
     knowable and whose requested slice reaches past it, as messages.
 
@@ -89,6 +91,9 @@ def slice_past_end_warnings(workflow_definition, source_indices=None, base_dir=N
     `dissolve_frame_errors` follows: `source_indices` maps an expanded step
     back to the one the author wrote, and a path inside a `for_each` member
     names the member.
+
+    `probe` defaults to the metadata-only `probe_metadata` (B9); see
+    `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -108,7 +113,7 @@ def slice_past_end_warnings(workflow_definition, source_indices=None, base_dir=N
         path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")
         if path is None:
             continue
-        source_seconds = _source_seconds(path)
+        source_seconds = _source_seconds(path, probe)
         if not source_seconds:
             continue
 

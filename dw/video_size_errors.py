@@ -28,24 +28,26 @@ size is not known until the step that produces it runs.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_media
+from .media_info import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
 
-def _frame_size(path):
+def _frame_size(path, probe):
     """The (width, height) `dissolve_videos`/`concat_videos` would see for
     this file, or None when it cannot be probed or carries no video stream."""
-    info = probe_media(path)
+    info = probe(path)
     if info is None or info.get("kind") != "video":
         return None
     width, height = info.get("width"), info.get("height")
     return (width, height) if width and height else None
 
 
-def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
+def video_size_errors(
+    workflow_definition, source_indices=None, base_dir=None, *, probe=probe_metadata
+):
     """Every `dissolve_videos`/`concat_videos` step whose statically-resolvable
     inputs already disagree in frame size, as [{path, message}].
 
@@ -53,6 +55,9 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
     `dissolve_frame_errors` and `task_argument_errors` follow: `source_indices`
     maps an expanded step back to the one the author wrote, and a path inside
     a `for_each` member names the member.
+
+    `probe` defaults to the metadata-only `probe_metadata` (B9); see
+    `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -80,7 +85,7 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
             path = resolve_probe_path(video, base_dir, "a video argument")
             if path is None:
                 continue
-            size = _frame_size(path)
+            size = _frame_size(path, probe)
             if size is None:
                 continue
             sizes[video_index] = size
