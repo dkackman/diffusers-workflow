@@ -28,11 +28,12 @@ one.
 import functools
 import inspect
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 from .type_helpers import load_type_from_name
 
 ATTN_PROCESSOR_KEY = "attn_processor_type"
-_UNRESOLVED_PREFIXES = ("variable:", "item:")
+_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 KERNEL_FAULT_MARKER = "cannot be used on this machine"
 
 
@@ -179,11 +180,7 @@ def kernel_availability_errors(workflow_definition, source_indices=None):
             if fault is None:
                 continue
 
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = references.author_index(source_indices, index)
             name = step.get("name")
             where = (
                 f" in member '{name}'"

@@ -46,13 +46,13 @@ is an estimate of an estimate.
 
 import numbers
 
+from . import references as ref_prefixes
 from .arguments import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 
 KEY = "vram_estimate"
 REFERENCES_KEY = "references"
 _SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY)
-_VARIABLE_PREFIX = "variable:"
 
 
 def _as_number(value):
@@ -222,8 +222,8 @@ def _projections(definition, estimate, arguments):
 def _variable_names(value):
     """Every name a `variable:` reference inside `value` spells."""
     if isinstance(value, str):
-        if value.startswith(_VARIABLE_PREFIX):
-            yield value[len(_VARIABLE_PREFIX) :]
+        if value.startswith(ref_prefixes.VARIABLE):
+            yield value[len(ref_prefixes.VARIABLE) :]
     elif isinstance(value, dict):
         for item in value.values():
             yield from _variable_names(item)
@@ -264,8 +264,8 @@ def _where(estimate, index, step, supplied, source_indices, written):
             _entry_position(source_indices, index) if source_indices is not None else 0
         )
         entries = written_step[FOR_EACH_KEY]
-        if isinstance(entries, str) and entries.startswith(_VARIABLE_PREFIX):
-            name = entries[len(_VARIABLE_PREFIX) :]
+        if isinstance(entries, str) and entries.startswith(ref_prefixes.VARIABLE):
+            name = entries[len(ref_prefixes.VARIABLE) :]
             root = "arguments" if name in supplied else "variables"
             return f"{root}.{name}[{position}]"
         return render_path(("steps", source, FOR_EACH_KEY, position))

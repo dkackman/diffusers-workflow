@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 
 from filelock import FileLock
 
+from . import references
+
 logger = logging.getLogger("dw")
 
 RUN_LAYOUT = "run"
@@ -52,7 +54,7 @@ REALIZED_FILE_NAME = "workflow.json"
 # The prefix marking a value as a reference to a file an earlier run wrote.
 # Like 'asset:', it stands for a path - what a previous run made is an input
 # like any other, and multi-stage work is what a workflow engine is for
-OUTPUT_PREFIX = "output:"
+OUTPUT_PREFIX = references.OUTPUT
 
 # The segment that means "the newest run of this workflow that has the
 # file", so a workflow can name the stage before it without being edited
@@ -115,7 +117,7 @@ def output_root():
 
 def is_output_reference(value):
     """Whether a value references a file an earlier run wrote."""
-    return isinstance(value, str) and value.startswith(OUTPUT_PREFIX)
+    return references.is_ref(references.OUTPUT, value)
 
 
 def _runs_newest_first(directory):

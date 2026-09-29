@@ -23,6 +23,7 @@ names no records yet and is left to the run-time check.
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
 from .probe_paths import resolve_probe_path
+from .references import author_index
 
 PROBE_COMMANDS = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
 
@@ -93,11 +94,7 @@ def shot_span_warnings(workflow_definition, source_indices=None, base_dir=None):
         if not problems:
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 
+from . import references
 from .schema import load_schema, validate_data
 from .security import validate_prompt_path, validate_prompt_reference
 from .workspace import PROMPTS_SUBDIR, discover_library, library_fallbacks
@@ -20,17 +21,17 @@ logger = logging.getLogger("dw")
 # The prefix marking a value as a reference to a stored prompt. The name after it
 # is rooted at the prompt directory, not the workflow file - prompts are a shared
 # library, and the same reference means the same text from every workflow
-PROMPT_PREFIX = "prompt:"
+PROMPT_PREFIX = references.PROMPT
 
 # The prefixes a stored prompt's text may not begin with. Resolved text is
 # substituted where the reference stood, so text that itself looks like a
 # reference would be resolved again - or worse, expand a step's iterations
 RESERVED_TEXT_PREFIXES = (
-    "previous_result:",
-    "variable:",
-    "constant:",
-    "asset:",
-    "output:",
+    references.PREVIOUS_RESULT,
+    references.VARIABLE,
+    references.CONSTANT,
+    references.ASSET,
+    references.OUTPUT,
     PROMPT_PREFIX,
 )
 

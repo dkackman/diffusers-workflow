@@ -41,6 +41,7 @@ import os
 import socket
 from urllib.parse import urljoin, urlparse
 
+from . import references
 from .security import (
     InvalidInputError,
     PathTraversalError,
@@ -527,19 +528,7 @@ def _is_media_key(key):
 
 def _deferred(value):
     """Whether a location is resolved later rather than being one now."""
-    return value.startswith(
-        (
-            "variable:",
-            "previous_result:",
-            "item:",
-            "gather:",
-            "asset:",
-            "output:",
-            "prompt:",
-            "constant:",
-            "builtin:",
-        )
-    )
+    return value.startswith(references.DEFERRED)
 
 
 def _check(value, base_dir, what):
@@ -591,11 +580,7 @@ def location_errors(definition, source_indices=None, base_dir=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_suffixes(step))
     return errors
 

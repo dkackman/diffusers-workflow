@@ -30,6 +30,7 @@ padding for the same arguments.
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
 from .probe_paths import resolve_probe_path
+from .references import author_index
 from .tasks.audio_utils import SLICE_PAD_WARN_MS
 
 
@@ -121,11 +122,7 @@ def slice_past_end_warnings(workflow_definition, source_indices=None, base_dir=N
         if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

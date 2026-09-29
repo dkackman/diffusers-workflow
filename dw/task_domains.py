@@ -33,6 +33,7 @@ import logging
 import numbers
 
 from .for_each import MEMBER_SEPARATOR, render_path
+from .references import author_index
 
 logger = logging.getLogger("dw")
 
@@ -302,11 +303,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
         domains = TASK_ARGUMENT_DOMAINS.get(command)
         if not domains:
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

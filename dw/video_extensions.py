@@ -20,6 +20,7 @@ gates a URL's extension, so refusing one here would refuse something the run
 itself accepts.
 """
 
+from . import references
 from .arguments import (
     CONSTANT_PREFIX,
     PROMPT_PREFIX,
@@ -30,7 +31,7 @@ from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
 # Left to the run-time check: not yet resolved to anything an extension can
 # be read off, at the point validation walks the expanded definition
-_UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
+_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _is_video_key(key):
@@ -114,11 +115,7 @@ def video_extension_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

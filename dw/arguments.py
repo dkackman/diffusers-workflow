@@ -5,6 +5,7 @@ import logging
 import tempfile
 from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
+from . import references
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
@@ -60,12 +61,12 @@ FROM_ARGUMENTS_KEY = "from_arguments"
 # The prefix marking a value as a reference to an earlier step's output. Those are
 # substituted once that step has run, so an object whose arguments hold one is
 # constructed then rather than at load time
-PREVIOUS_RESULT_PREFIX = "previous_result:"
+PREVIOUS_RESULT_PREFIX = references.PREVIOUS_RESULT
 
 # The prefix marking a value as a reference to a constant declared in python - the
 # schedule a distilled model was trained on, the negative prompt a model family ships.
 # Copying those into a workflow is how they go stale when the library moves on
-CONSTANT_PREFIX = "constant:"
+CONSTANT_PREFIX = references.CONSTANT
 
 
 class _Omitted:
@@ -268,12 +269,12 @@ def resolve_path_references(value, base_dir=None):
 
 def is_constant_reference(value):
     """Whether a value references a constant declared in python."""
-    return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+    return references.is_ref(references.CONSTANT, value)
 
 
 def is_prompt_reference(value):
     """Whether a value references a stored prompt in the prompt library."""
-    return isinstance(value, str) and value.startswith(PROMPT_PREFIX)
+    return references.is_ref(PROMPT_PREFIX, value)
 
 
 def fetch_constant(reference):
@@ -413,7 +414,7 @@ def _names_no_media(value):
 
     It has to name a type, the way every object description does, and the
     key saying where its media comes from has to be there and be null -
-    which is what a "variable:" source resolves to when the variable is
+    which is what a `variable:` source resolves to when the variable is
     declared null. A dict missing the source key altogether is not this: it
     is whatever it always was, and is left alone.
     """
@@ -508,14 +509,14 @@ def realize_object(value, base_dir=None):
     if isinstance(location, str):
         # These resolve per step iteration, after objects are already built -
         # a clear error here beats a path-validation failure naming the wrong cause
-        if location.startswith("previous_result:"):
+        if references.is_ref(references.PREVIOUS_RESULT, location):
             raise ValueError(
                 f"'{FROM_FILE_KEY}' cannot reference a previous step's result - "
                 f"it names a file the object is constructed from. Use "
                 f"'{FROM_PREVIOUS_RESULT_KEY}' to build it from what a step "
                 f"generated instead"
             )
-        if location.startswith("variable:"):
+        if references.is_ref(references.VARIABLE, location):
             raise ValueError(
                 f"'{FROM_FILE_KEY}' references {location!r} but no such "
                 f"variable is defined"
@@ -1000,7 +1001,7 @@ def fetch_image(img_spec, base_dir=None):
         raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
 
     # Skip cross-step and variable references — these are resolved later during execution
-    if img_spec.startswith("previous_result:") or img_spec.startswith("variable:"):
+    if references.is_ref((references.PREVIOUS_RESULT, references.VARIABLE), img_spec):
         logger.debug(f"Skipping deferred reference: {img_spec}")
         return img_spec
 
@@ -1147,7 +1148,7 @@ def fetch_video(video_spec, base_dir=None):
         )
 
     # Skip cross-step and variable references — these are resolved later during execution
-    if video_spec.startswith("previous_result:") or video_spec.startswith("variable:"):
+    if references.is_ref((references.PREVIOUS_RESULT, references.VARIABLE), video_spec):
         logger.debug(f"Skipping deferred reference: {video_spec}")
         return video_spec
 
@@ -1211,8 +1212,8 @@ def _realize_lazy_frame_arguments(arguments, base_dir):
         video = arguments["video"]
         if is_path_reference(video) or isinstance(video, (list, dict)):
             video = resolve_path_references(video, base_dir)
-        deferred = isinstance(video, str) and (
-            video.startswith("previous_result:") or video.startswith("variable:")
+        deferred = references.is_ref(
+            (references.PREVIOUS_RESULT, references.VARIABLE), video
         )
         url = isinstance(video, str) and (
             video.startswith("http://") or video.startswith("https://")

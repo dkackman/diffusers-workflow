@@ -29,7 +29,7 @@ def compose_text(parts, separator="\n\n", skip_empty=True):
 
     Args:
         parts: The parts to join, in order. Each is a whole value - usually
-            a "variable:", "prompt:" or "previous_result:" reference the
+            a `variable:`, `prompt:` or `previous_result:` reference the
             engine has already resolved. Numbers are written out; None is
             dropped, so an optional part can be a variable left null
         separator: What goes between the parts. Defaults to a blank line,

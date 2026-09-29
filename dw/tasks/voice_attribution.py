@@ -31,6 +31,7 @@ import torch
 
 from ..events import emit_warning
 from ..for_each import MEMBER_SEPARATOR, render_path
+from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
 from .audio_utils import _waveform_and_rate, load_audio, resample_waveform
@@ -240,11 +241,7 @@ def voices_errors(workflow_definition, source_indices=None):
         try:
             parse_voices(voices, None, minimum)
         except ValueError as error:
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = author_index(source_indices, index)
             name = step.get("name")
             where = (
                 f" in member '{name}'"

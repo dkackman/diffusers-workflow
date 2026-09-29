@@ -11,13 +11,14 @@ refuses defers to the run, and `location_errors` reports the refusal.
 
 import os
 
+from . import references
 from .assets import fetch_asset, is_asset_reference
 from .locations import is_http_url, validate_media_path
 from .runs import fetch_output, is_output_reference
 
 # Left to the run-time check: not yet resolved to a real file at the point
 # validation walks the expanded definition.
-UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
+UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def resolve_probe_path(value, base_dir, what="a media argument"):

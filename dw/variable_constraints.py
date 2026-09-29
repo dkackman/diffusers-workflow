@@ -41,11 +41,11 @@ import logging
 import math
 import numbers
 
+from . import references
+
 logger = logging.getLogger("dw")
 
 CONSTRAINTS_KEY = "variable_constraints"
-# What a chain step's `frame_snap` writes instead of repeating the numbers
-CONSTRAINT_PREFIX = "constraint:"
 # The fields a `frame_snap` block carries, which are the fields a constraint
 # is checked on - the rest of a constraint says what to do about a violation
 SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
@@ -420,9 +420,9 @@ def resolve_constraint_references(definition):
         if not isinstance(node, dict):
             return
         reference = node.get("frame_snap")
-        if isinstance(reference, str) and reference.startswith(CONSTRAINT_PREFIX):
+        if isinstance(reference, str) and reference.startswith(references.CONSTRAINT):
             node["frame_snap"] = snap_block(
-                constraints[reference[len(CONSTRAINT_PREFIX) :]]
+                constraints[reference[len(references.CONSTRAINT) :]]
             )
         for value in node.values():
             walk(value)
@@ -450,8 +450,8 @@ def constraint_reference_errors(definition):
             if (
                 key == "frame_snap"
                 and isinstance(value, str)
-                and value.startswith(CONSTRAINT_PREFIX)
-                and value[len(CONSTRAINT_PREFIX) :] not in constraints
+                and value.startswith(references.CONSTRAINT)
+                and value[len(references.CONSTRAINT) :] not in constraints
             ):
                 errors.append(
                     {

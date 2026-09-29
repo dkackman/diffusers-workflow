@@ -62,6 +62,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from . import references
 from .pipeline_processors.pipeline import component_names
 
 logger = logging.getLogger("dw")
@@ -90,12 +91,12 @@ def referenced_result_names(steps):
     constructed object's 'from_previous_result', which names a step without
     the 'previous_result:' prefix.
     """
-    prefix = "previous_result:"
     names = set()
 
     def scan(value):
-        if isinstance(value, str) and value.startswith(prefix):
-            names.add(value[len(prefix) :])
+        name = references.ref_name(references.PREVIOUS_RESULT, value)
+        if name is not None:
+            names.add(name)
         elif isinstance(value, dict):
             reference = value.get("from_previous_result")
             if isinstance(reference, str):

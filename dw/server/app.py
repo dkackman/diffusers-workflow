@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from starlette.routing import Match, Route
 from starlette.background import BackgroundTask
 
+from ..references import ASSET, make_ref
 from ..security import (
     MAX_DECODE_PIXELS,
     contained,
@@ -3769,7 +3770,7 @@ def create_app(
         if shared or ws.assets:
             path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
             result = {
-                "reference": f"asset:{UPLOADS_SUBDIR}/{name}",
+                "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
                 "workspace": ws.name,
                 "url": _served_url(path, ws),
                 "shared": shared,
@@ -3859,7 +3860,7 @@ def create_app(
                     shadowed.append(
                         {
                             "name": relative,
-                            "reference": f"asset:{relative}",
+                            "reference": make_ref(ASSET, relative),
                             "folder": folder,
                             "kind": kind,
                             "size": stat.st_size,
@@ -3873,7 +3874,7 @@ def create_app(
                 asset_path = f"/inputs/{quote(relative)}"
                 asset_entry = {
                     "name": relative,
-                    "reference": f"asset:{relative}",
+                    "reference": make_ref(ASSET, relative),
                     "folder": folder,
                     "kind": kind,
                     "size": stat.st_size,
@@ -3973,8 +3974,8 @@ def create_app(
         if os.path.exists(destination) and not request.overwrite:
             raise HTTPException(
                 status_code=409,
-                detail=f"asset:{asset_name} already exists - pass overwrite=true "
-                f"to replace it",
+                detail=f"{make_ref(ASSET, asset_name)} already exists - pass "
+                f"overwrite=true to replace it",
             )
 
         os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -4017,7 +4018,7 @@ def create_app(
 
         logger.info(f"Kept output {request.name} as asset:{asset_name}")
         return {
-            "reference": f"asset:{asset_name}",
+            "reference": make_ref(ASSET, asset_name),
             "name": asset_name,
             "workspace": ws.name,
             "linked": linked,
@@ -4086,8 +4087,8 @@ def create_app(
             if origin == EXAMPLES_ORIGIN:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"asset:{relative} is read-only: it comes from an "
-                    f"examples library, not a library this server writes",
+                    detail=f"{make_ref(ASSET, relative)} is read-only: it comes "
+                    f"from an examples library, not a library this server writes",
                 )
             os.remove(path)
             logger.info(f"Deleted asset:{relative} ({path})")
@@ -4095,7 +4096,7 @@ def create_app(
             return {
                 "name": relative,
                 "workspace": ws.name,
-                "reference": f"asset:{relative}",
+                "reference": make_ref(ASSET, relative),
                 "deleted": True,
                 "origin": origin,
             }

@@ -16,13 +16,14 @@ import contextvars
 import logging
 import os
 
+from . import references
 from .security import validate_asset_reference, validate_path
 from .workspace import ASSETS_SUBDIR, discover_library, library_fallbacks
 
 logger = logging.getLogger("dw")
 
 # The prefix marking a value as a reference to a stored asset
-ASSET_PREFIX = "asset:"
+ASSET_PREFIX = references.ASSET
 
 # Set by an entry point from --asset-dir, and inherited by a spawned worker,
 # the way DW_PROMPT_DIR is
@@ -69,7 +70,7 @@ def get_asset_dir(base_dir=None):
 
 def is_asset_reference(value):
     """Whether a value references a file in the asset library."""
-    return isinstance(value, str) and value.startswith(ASSET_PREFIX)
+    return references.is_ref(references.ASSET, value)
 
 
 def asset_search_path(asset_dir=None, base_dir=None):

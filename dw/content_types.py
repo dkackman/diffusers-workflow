@@ -25,6 +25,7 @@ type it finds on disk under a `Content-Security-Policy: sandbox`, since a
 planted file never passes through here.
 """
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 from .result import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE
 from .security import InvalidInputError, validate_content_type
@@ -34,7 +35,7 @@ CONTENT_TYPE_KEY = "content_type"
 # Reference prefixes substitution resolves before this pass runs. One still
 # spelled out here is one nothing resolved, and that is the undeclared-
 # variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = ("variable:", "item:")
+_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 
 # Result types a browser would run as a document on the UI origin
 REFUSED_ACTIVE_CONTENT_TYPES = frozenset({"text/html", "text/xml"})
@@ -109,11 +110,7 @@ def content_type_errors(workflow_definition, source_indices=None):
         value = result[CONTENT_TYPE_KEY]
         if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

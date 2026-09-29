@@ -30,6 +30,7 @@ size is not known until the step that produces it runs.
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
 from .probe_paths import resolve_probe_path
+from .references import author_index
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
@@ -94,11 +95,7 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
                 continue
             problems.append(f"video {video_index} is {size[0]}x{size[1]}")
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

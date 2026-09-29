@@ -10,6 +10,7 @@ for a value arriving from a `variable:` or an earlier step, which this
 static pass can never see.
 """
 
+from . import references
 from .for_each import MEMBER_SEPARATOR, render_path
 
 _RULES = {"argmax", "argmin", "first_above", "first_below", "index"}
@@ -25,7 +26,7 @@ def _where(name):
 
 
 def _is_gather(value):
-    return isinstance(value, str) and value.startswith("gather:")
+    return references.is_ref(references.GATHER, value)
 
 
 def _is_expanded_gather(value):
@@ -36,7 +37,7 @@ def _is_expanded_gather(value):
     return (
         isinstance(value, list)
         and len(value) > 0
-        and all(isinstance(v, str) and v.startswith("previous_result:") for v in value)
+        and all(references.is_ref(references.PREVIOUS_RESULT, v) for v in value)
     )
 
 
@@ -57,11 +58,7 @@ def select_errors(workflow_definition, source_indices=None):
         if not isinstance(arguments, dict):
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = _where(name)
 

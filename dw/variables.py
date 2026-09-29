@@ -1,5 +1,6 @@
 import copy
 import logging
+from . import references
 from .arguments import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
@@ -14,7 +15,7 @@ from .security import (
 
 logger = logging.getLogger("dw")
 
-# The keys an object description names its media with. A "variable:" under one
+# The keys an object description names its media with. A `variable:` under one
 # of these that resolves to null has to stay present-and-null for
 # realize_object to read it as an omitted optional reference
 MEDIA_SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
@@ -38,8 +39,8 @@ def _resolve_variable_reference(value, variables):
         VariableNotFoundError: if the referenced name isn't in variables, naming the
             variables that are actually available.
     """
-    if isinstance(value, str) and value.startswith("variable:"):
-        variable_name = value.removeprefix("variable:")
+    variable_name = references.ref_name(references.VARIABLE, value)
+    if variable_name is not None:
         logger.debug(f"Replacing variable reference: {variable_name}")
         if variable_name not in variables:
             available = ", ".join(sorted(variables.keys())) or "<none>"
@@ -129,7 +130,7 @@ def resolve_variable_values(variables):
     reference type inside an entry is a type name by the time it is loaded.
 
     Only list and dict values are walked. A scalar value that begins with
-    "variable:" is passed through as it always was.
+    `variable:` is passed through as it always was.
 
     Raises:
         VariableNotFoundError: a reference names nothing declared
@@ -156,7 +157,7 @@ def resolve_variable_values(variables):
     def walk(node, chain):
         matched, _ = _resolve_variable_reference(node, variables)
         if matched:
-            return resolve(node.removeprefix("variable:"), chain)
+            return resolve(references.ref_name(references.VARIABLE, node), chain)
         if isinstance(node, list):
             return [walk(item, chain) for item in node]
         if isinstance(node, dict):
@@ -185,8 +186,8 @@ def undeclared_variable_references(definition):
     found = []
 
     def walk(node, path):
-        if isinstance(node, str) and node.startswith("variable:"):
-            name = node.removeprefix("variable:")
+        name = references.ref_name(references.VARIABLE, node)
+        if name is not None:
             if name not in declared:
                 found.append((path, name))
         elif isinstance(node, dict):

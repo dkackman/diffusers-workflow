@@ -8,6 +8,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
+from . import references
 from .arguments import (
     realize_args,
     realize_constants,
@@ -633,8 +634,8 @@ class Workflow:
         each carrying the message the run would have failed with.
         """
         confine_to = self.workflow_dir
-        if path.startswith("builtin:"):
-            builtin_name = path.replace("builtin:", "")
+        if references.is_ref(references.BUILTIN, path):
+            builtin_name = path.replace(references.BUILTIN, "")
             if (
                 not builtin_name.endswith(".json")
                 or "/" in builtin_name
@@ -2262,8 +2263,8 @@ class Workflow:
                 # workflow is (workflow_dir for a server-submitted run)
                 confine_to = self.workflow_dir
                 # Handle built-in workflows
-                if path.startswith("builtin:"):
-                    builtin_name = path.replace("builtin:", "")
+                if references.is_ref(references.BUILTIN, path):
+                    builtin_name = path.replace(references.BUILTIN, "")
                     # Validate builtin workflow name
                     if (
                         not builtin_name.endswith(".json")

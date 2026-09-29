@@ -1,11 +1,11 @@
 {
-  "modules": 132,
+  "modules": 133,
   "modules_over_1000_lines": 10,
   "functions_over_150_lines": 17,
-  "prefix_literals": 93,
+  "prefix_literals": 0,
   "test_dw_patch_targets": 285,
   "claude_md_lines": 961,
-  "duplicate_blocks": 19,
+  "duplicate_blocks": 5,
   "complex_functions": 19,
   "import_cycles": 6,
   "modules_in_import_cycles": 26
