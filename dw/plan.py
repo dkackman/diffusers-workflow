@@ -33,6 +33,10 @@ from .realize import (
 )
 from .security import validate_url
 
+# Moved to dw/validation.py (it is a warning source there); re-imported so
+# `from dw.plan import unseeded_cache_warnings` keeps working
+from .validation import _is_seeded, unseeded_cache_warnings  # noqa: F401
+
 logger = logging.getLogger("dw")
 
 FINGERPRINT_PREFIX = "sha256:"
@@ -206,56 +210,6 @@ def cached_steps(definition, realized, arguments, cache_probe):
         return None
     answer = cache_probe(arguments or {})
     return len(answer) if isinstance(answer, list) else None
-
-
-def unseeded_cache_warnings(definition, arguments=None):
-    """Say once, where a caller is already looking, that an unseeded workflow
-    gets no step cache at all.
-
-    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
-    there, and the difference is the one that matters: without a `seed` the
-    cache is off, so nothing is ever reused however many times the same
-    workflow runs (#107).
-
-    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
-    step: a task-only utility has no generative randomness a `seed` would
-    pin down in the first place, and each of its steps is a pure function of
-    its inputs - a repeat run is already free without one (#247)
-    """
-    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
-        return []
-    return [
-        "This workflow sets no 'seed', so the step cache is disabled and "
-        "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed': 'variable:seed' with a "
-        "declared default in 'variables' to make a repeat run reuse what it "
-        "already produced"
-    ]
-
-
-def _has_seedable_step(definition):
-    """Whether any step could consume a seed: a pipeline (inline or
-    referenced) or a sub-workflow, which may hold one in turn. A workflow
-    built entirely of `task` steps has nothing a seed would affect."""
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
-            return True
-    return False
-
-
-def _is_seeded(definition, arguments):
-    """Whether a run of this workflow has a seed before it draws one - read
-    from the definition as written and the caller's arguments, since
-    realization pins a seed of its own into the copy."""
-    seed = definition.get("seed")
-    if isinstance(seed, str) and seed.startswith(VARIABLE_PREFIX):
-        name = seed.removeprefix(VARIABLE_PREFIX)
-        if name in (arguments or {}):
-            return arguments[name] is not None
-        return (definition.get("variables") or {}).get(name) is not None
-    return seed is not None
 
 
 def fingerprint(expanded, definition, annotations=None):

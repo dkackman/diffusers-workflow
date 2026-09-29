@@ -34,14 +34,15 @@ from .arguments import (
     FROM_PREVIOUS_RESULT_KEY,
     _names_no_media,
 )
-from .adapter_compatibility import adapter_errors
+from .adapter_compatibility import adapter_errors, adapter_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import MEMBER_SEPARATOR, entry_field_warnings, render_path
 from .introspection import (
     component_name_errors,
     component_type_errors,
     task_signature_errors,
+    workflow_argument_warnings,
 )
 from .kernel_availability import kernel_availability_errors
 from .locations import location_errors
@@ -52,13 +53,16 @@ from .reference_names import reference_name_errors
 from .references import author_index
 from .scalar_result_validation import scalar_result_errors
 from .select_validation import select_errors
+from .shot_span_preflight import shot_span_warnings
+from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
 from .task_domains import task_argument_errors
 from .tasks.voice_attribution import voices_errors
-from .variable_constraints import constraint_errors
+from .variable_constraints import constraint_errors, constraint_warnings
 from .video_extensions import video_extension_errors
 from .video_size_errors import video_size_errors
 from .vram_estimate import vram_estimate_errors
+from .vram_inheritance import inherited_vram_warnings
 
 logger = logging.getLogger("dw")
 
@@ -83,23 +87,60 @@ class Finding:
     extra: dict = field(default_factory=dict)
 
 
-@dataclass
 class ValidationContext:
     """What one validation request's checks read. Built once per request
     (`Workflow.validation_context`) and handed to the error pass and the
-    warning pass alike; never stored on the Workflow."""
+    warning pass alike; never stored on the Workflow.
 
-    workflow: object
-    arguments: dict | None
-    expanded: dict
-    source_indices: list
-    base_dir: str | None
-    composing: tuple = ()
-    # What the device the request is validated for can hold - read by the
-    # factory from dw.workflow's own names, where the vram tests patch them
-    device_type: str | None = None
-    capacity_gb: float | None = None
-    _probes: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    The expansion is lazy: `expand`, when given, is called the first time a
+    check reads `expanded` or `source_indices`, so a context can be built
+    ahead of validation_errors' gates without raising what those gates
+    answer as a finding. A failed expansion is not remembered - the next
+    read raises it again, inside whichever check made it."""
+
+    def __init__(
+        self,
+        workflow,
+        arguments,
+        expanded=None,
+        source_indices=None,
+        base_dir=None,
+        composing=(),
+        # What the device the request is validated for can hold - read by
+        # the factory from dw.workflow's own names, where the vram tests
+        # patch them
+        device_type=None,
+        capacity_gb=None,
+        # The catalog's VRAM ceilings, for inherited_vram_warnings
+        ceiling_index=None,
+        expand=None,
+    ):
+        self.workflow = workflow
+        self.arguments = arguments
+        self.base_dir = base_dir
+        self.composing = tuple(composing or ())
+        self.device_type = device_type
+        self.capacity_gb = capacity_gb
+        self.ceiling_index = ceiling_index
+        self._expand = expand
+        self._expanded = expanded
+        self._source_indices = source_indices
+        self._probes = {}
+
+    def _expansion(self):
+        if self._expanded is None and self._expand is not None:
+            self._expanded, self._source_indices = self._expand()
+        return self._expanded, self._source_indices
+
+    @property
+    def expanded(self):
+        """The definition as the run will see it (substituted, expanded)."""
+        return self._expansion()[0]
+
+    @property
+    def source_indices(self):
+        """The written step index of every expanded step."""
+        return self._expansion()[1]
 
     @property
     def definition(self):
@@ -141,14 +182,17 @@ def _finding(item, kind, severity):
 
 
 def _internal(check, error, severity):
-    failure = f"{type(error).__name__}: {error}"
+    """The finding a check that raised becomes. It names the exception's
+    type only - its text may carry internals (a path, a value) and the log
+    has it with the traceback."""
+    failure = (
+        f"check '{check.name}' failed ({type(error).__name__}) - "
+        f"the server log has the detail"
+    )
     if severity == ERROR:
-        message = (
-            f"check '{check.name}' failed ({failure}) - "
-            f"the server log has the traceback"
-        )
+        message = failure
     else:
-        message = f"{INTERNAL}: {severity} check '{check.name}' failed ({failure})"
+        message = f"{INTERNAL}: {severity} {failure}"
     return Finding(severity, INTERNAL, None, message)
 
 
@@ -517,3 +561,179 @@ ERROR_CHECKS = [
         ),
     ),
 ]
+
+
+# --- Whether a run gets the step cache (was in dw/plan.py) ----------------
+#
+# unseeded_cache_warnings is a warning source; it and its two helpers live
+# here so the registry need not import dw.plan, which reaches dw.workflow.
+
+
+def unseeded_cache_warnings(definition, arguments=None):
+    """Say once, where a caller is already looking, that an unseeded workflow
+    gets no step cache at all.
+
+    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
+    there, and the difference is the one that matters: without a `seed` the
+    cache is off, so nothing is ever reused however many times the same
+    workflow runs (#107).
+
+    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
+    step: a task-only utility has no generative randomness a `seed` would
+    pin down in the first place, and each of its steps is a pure function of
+    its inputs - a repeat run is already free without one (#247)
+    """
+    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
+        return []
+    return [
+        "This workflow sets no 'seed', so the step cache is disabled and "
+        "'cached_steps' is 0 without being probed - every step regenerates "
+        "on every run. Set a top-level 'seed': 'variable:seed' with a "
+        "declared default in 'variables' to make a repeat run reuse what it "
+        "already produced"
+    ]
+
+
+def _has_seedable_step(definition):
+    """Whether any step could consume a seed: a pipeline (inline or
+    referenced) or a sub-workflow, which may hold one in turn. A workflow
+    built entirely of `task` steps has nothing a seed would affect."""
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
+            return True
+    return False
+
+
+def _is_seeded(definition, arguments):
+    """Whether a run of this workflow has a seed before it draws one - read
+    from the definition as written and the caller's arguments, since
+    realization pins a seed of its own into the copy."""
+    seed = definition.get("seed")
+    if references.is_ref(references.VARIABLE, seed):
+        name = references.ref_name(references.VARIABLE, seed)
+        if name in (arguments or {}):
+            return arguments[name] is not None
+        return (definition.get("variables") or {}).get(name) is not None
+    return seed is not None
+
+
+# --- The warning registry ----------------------------------------------------
+#
+# Every warning source admit() reports that does not need the plan, in the
+# order admit() listed them - the response's order. Each returns today's
+# "path: message" strings. A source that raises is one internal warning and
+# never refuses (B10); the six the Workflow also answers as methods run the
+# same entry, so a direct call and a request agree.
+#
+# Four read the definition as written, with the caller's arguments over its
+# defaults; the rest read the request's one expansion. `arguments` may be
+# None (the document is checked) where admit() used to pass {} - every
+# source reads the two alike (`arguments or {}`), except
+# null_variable_argument_warnings, which is exactly the one that draws the
+# line.
+
+
+def _null_variable_argument_warnings(context):
+    """A required task argument fed by `variable:name` whose value is null.
+    validation_errors drops that case when the document is checked with no
+    arguments (#364); here it is said, since a run left as-is would fail.
+    Empty once arguments are given - it is a hard error then."""
+    if context.arguments is not None:
+        return []
+    return [
+        f"{entry['path']}: {entry['message']}"
+        for entry in task_signature_errors(
+            context.expanded, context.source_indices, context.definition
+        )
+        if "variable" in entry
+    ]
+
+
+WARNING_CHECKS = [
+    Check(
+        "workflow_argument_warnings",
+        lambda c: workflow_argument_warnings(c.definition, c.arguments),
+    ),
+    # A value a declared constraint will round up - the silent half of #96:
+    # the run changed the caller's frame count and only the server's log
+    # said so
+    Check(
+        "constraint_warnings", lambda c: constraint_warnings(c.definition, c.arguments)
+    ),
+    Check(
+        "entry_field_warnings",
+        lambda c: entry_field_warnings(c.definition, c.arguments),
+    ),
+    # Why `plan.cached_steps` is 0 for a workflow with no seed - the cache is
+    # off, not empty
+    Check(
+        "unseeded_cache_warnings",
+        lambda c: unseeded_cache_warnings(c.definition, c.arguments),
+    ),
+    # An adapter whose file name says nothing about which checkpoint
+    # partition it was trained for: valid, since the name of a future
+    # checkpoint cannot be predicted, but nothing at run time would say it
+    # loaded onto the wrong one (#155)
+    Check(
+        "adapter_warnings",
+        lambda c: adapter_warnings(
+            c.expanded, c.source_indices, written=c.definition, supplied=c.supplied
+        ),
+    ),
+    Check("null_variable_argument_warnings", _null_variable_argument_warnings),
+    # An argument a sub-workflow step passes to a workflow that declares no
+    # variable for it - dropped in silence at run time (#89)
+    Check(
+        "sub_workflow_warnings",
+        lambda c: c.workflow.sub_workflow_argument_warnings(
+            c.expanded, c.source_indices
+        ),
+    ),
+    # A slice_audio source whose real duration is already knowable and whose
+    # requested slice reaches past it - zero-padded rather than refused
+    # (#402)
+    Check(
+        "slice_past_end_warnings",
+        lambda c: slice_past_end_warnings(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # An assessment probe's shots argument reaching past a statically-
+    # knowable video's real frame count - silently clipped (#425)
+    Check(
+        "shot_span_warnings",
+        lambda c: shot_span_warnings(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # A step loading a pipeline the catalog declares a VRAM ceiling for, in a
+    # workflow that declares none, projected past it - a warning, since this
+    # workflow's offload/quantization may be leaner than the template's
+    # (#502)
+    Check(
+        "inherited_vram_warnings",
+        # No index, nothing to inherit - and no expansion read for it
+        lambda c: (
+            []
+            if not c.ceiling_index
+            else inherited_vram_warnings(
+                c.expanded,
+                c.ceiling_index,
+                c.arguments,
+                supplied=c.supplied,
+                device_type=c.device_type,
+                capacity_gb=c.capacity_gb,
+                source_indices=c.source_indices,
+                written=c.definition,
+            )
+        ),
+    ),
+]
+
+
+def warning_check(name):
+    """The warning registry's entry called `name`, looked up at call time so
+    a Workflow method runs whatever the registry currently holds."""
+    return next(check for check in WARNING_CHECKS if check.name == name)

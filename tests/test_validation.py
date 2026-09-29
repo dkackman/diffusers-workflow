@@ -65,9 +65,10 @@ class TestExceptionPolicy:
         internal = findings[1]
         assert internal.severity == "error"
         assert internal.path is None
+        # the exception's type only: its text may carry internals, and the
+        # log has it
         assert internal.message == (
-            "check 'broken' failed (RuntimeError: disk on fire) - "
-            "the server log has the traceback"
+            "check 'broken' failed (RuntimeError) - the server log has the detail"
         )
         # the traceback goes to the log, at ERROR
         records = [r for r in caplog.records if "broken" in r.getMessage()]
@@ -81,7 +82,8 @@ class TestExceptionPolicy:
 
         assert [f.severity for f in findings] == ["warning", "warning"]
         assert to_warnings(findings) == [
-            "internal: warning check 'noisy' failed (RuntimeError: disk on fire)",
+            "internal: warning check 'noisy' failed (RuntimeError) - "
+            "the server log has the detail",
             "a.b: careful",
         ]
         assert to_errors([f for f in findings if f.severity == "error"]) == []
@@ -256,7 +258,101 @@ def test_validation_errors_answers_a_raising_check_as_an_internal_error(
     assert workflow.validation_errors() == [
         {
             "path": None,
-            "message": "check 'select' failed (RuntimeError: disk on fire) - "
-            "the server log has the traceback",
+            "message": "check 'select' failed (RuntimeError) - "
+            "the server log has the detail",
         }
     ]
+
+
+WARNING_ORDER = [
+    "workflow_argument_warnings",
+    "constraint_warnings",
+    "entry_field_warnings",
+    "unseeded_cache_warnings",
+    "adapter_warnings",
+    "null_variable_argument_warnings",
+    "sub_workflow_warnings",
+    "slice_past_end_warnings",
+    "shot_span_warnings",
+    "inherited_vram_warnings",
+]
+
+
+def test_the_warning_registry_runs_in_its_pinned_order():
+    """warning order is part of the /api/validate response - admit()'s
+    helper order before the registry existed"""
+    assert [check.name for check in validation.WARNING_CHECKS] == WARNING_ORDER
+
+
+def _unexpandable_definition():
+    """Passes the schema; its for_each names a variable holding no list,
+    which the expansion refuses."""
+    definition = _for_each_definition()
+    definition["variables"]["shots"] = "not a list"
+    return definition
+
+
+def test_building_a_context_does_not_expand(tmp_path):
+    """The gates in validation_errors answer an expansion failure as a
+    finding; a context built ahead of them (admit builds one per request)
+    must not raise that failure first."""
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _unexpandable_definition(), str(tmp_path), str(tmp_path), None
+    )
+
+    context = workflow.validation_context()
+    errors = workflow.validation_errors(context=context)
+
+    assert errors == workflow.validation_errors()
+    assert errors and errors[0]["path"] is not None
+    assert "check '" not in errors[0]["message"]
+
+
+def test_a_context_with_other_arguments_is_a_caller_bug(tmp_path):
+    import pytest
+
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _for_each_definition(), str(tmp_path), str(tmp_path), None
+    )
+    arguments = {"shots": [{"name": "x", "text": "X"}]}
+    context = workflow.validation_context(arguments)
+
+    # the context alone, or the context with the same arguments, is fine
+    assert workflow.validation_errors(context=context) == []
+    assert workflow.validation_errors(arguments, context=context) == []
+    with pytest.raises(ValueError):
+        workflow.validation_errors({"shots": []}, context=context)
+    with pytest.raises(ValueError):
+        workflow.validation_errors(composing=["/a.json"], context=context)
+
+
+def test_a_warning_method_on_an_unexpandable_definition_says_it_failed(tmp_path):
+    """Each Workflow warning method used to answer [] when its expansion
+    raised; it runs its registry check now, and a check that raises is one
+    internal warning (B10)."""
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _unexpandable_definition(), str(tmp_path), str(tmp_path), None
+    )
+    calls = {
+        "adapter_warnings": lambda: workflow.adapter_warnings(),
+        "null_variable_argument_warnings": (
+            lambda: workflow.null_variable_argument_warnings()
+        ),
+        "sub_workflow_warnings": lambda: workflow.sub_workflow_warnings(),
+        "slice_past_end_warnings": lambda: workflow.slice_past_end_warnings(),
+        "shot_span_warnings": lambda: workflow.shot_span_warnings(),
+        "inherited_vram_warnings": (
+            lambda: workflow.inherited_vram_warnings(None, {"identity": {}})
+        ),
+    }
+    for name, call in calls.items():
+        assert call() == [
+            f"internal: warning check '{name}' failed (ForEachError) - "
+            "the server log has the detail"
+        ], name
