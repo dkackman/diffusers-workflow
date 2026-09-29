@@ -158,7 +158,7 @@ def slice_samples(waveform, start, length):
 
 
 def equal_power_crossfade_join(
-    previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None
+    previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None, seam=None
 ):
     """Join two segments' audio at a seam without changing the total duration.
 
@@ -181,7 +181,7 @@ def equal_power_crossfade_join(
     )
 
     if window == 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms)
+        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
 
     fade_out, fade_in = _equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
@@ -278,6 +278,7 @@ def bleed_join(
     seam_fade_ms=None,
     gain_db=0.0,
     native_sample_rate=None,
+    seam=None,
 ):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
@@ -327,7 +328,7 @@ def bleed_join(
         following.shape[1],
     )
     if window <= 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms)
+        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
 
     tail = previous[:, ::-1][:, :window]
 
@@ -591,6 +592,15 @@ def slice_audio(
 
     _warn_on_slice_past_end(total, start, length, sample_rate)
     _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
+    if start:
+        emit_log(
+            f"slice_audio: starts {start / sample_rate:.2f} s in, "
+            f"{length / sample_rate:.2f} s long",
+            command="slice_audio",
+            start_seconds=round(start / sample_rate, 3),
+            seconds=round(length / sample_rate, 3),
+            start_frame=start_frame,
+        )
     # #309: a cut out of a source that was already near-silent (room tone,
     # a deliberate quiet bed) is not a defect the slice introduced - measure
     # the source before cutting it down, so save can tell the two apart from
@@ -892,8 +902,12 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     )
     waveform, sample_rate = _waveform_and_rate(audio, sample_rate, "resample_audio")
     resampled = resample_waveform(waveform, sample_rate, target_sample_rate)
+    noop = sample_rate == target_sample_rate
     emit_log(
-        f"resample_audio: {sample_rate} → {target_sample_rate} Hz, "
+        f"resample_audio: already {target_sample_rate} Hz, unchanged, "
+        f"{resampled.shape[-1] / target_sample_rate:.2f} s"
+        if noop
+        else f"resample_audio: {sample_rate} → {target_sample_rate} Hz, "
         f"{resampled.shape[-1] / target_sample_rate:.2f} s",
         command="resample_audio",
         source_sample_rate=sample_rate,
@@ -1355,7 +1369,7 @@ def _equal_power_ramps(window):
     return numpy.cos(theta, dtype=numpy.float32), numpy.sin(theta, dtype=numpy.float32)
 
 
-def _declick_join(previous, following, sample_rate, fade_ms=None):
+def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
     """Butt-join two waveforms with a fade on each side of the seam.
 
     The default is the few milliseconds that keep a butt-join from clicking.
@@ -1370,6 +1384,17 @@ def _declick_join(previous, following, sample_rate, fade_ms=None):
         following = following.copy()
         previous[:, -ramp:] *= fade_out  # cos: 1 down to ~0
         following[:, :ramp] *= fade_in  # sin: ~0 up to 1
+    if fade_ms is not None:
+        # A deliberate fade leaves a trace; the default declick is not asked for
+        where = "a seam" if seam is None else f"seam {seam}"
+        emit_log(
+            f"seam_fade: {ramp / sample_rate * 1000:.0f} ms each side of {where}"
+            f" (asked {fade_ms} ms)",
+            command="seam_fade",
+            seam=seam,
+            fade_ms=round(ramp / sample_rate * 1000, 1),
+            requested_ms=fade_ms,
+        )
     return numpy.concatenate([previous, following], axis=1)
 
 
@@ -1417,6 +1442,14 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
     fade_out = min(int(round(fade_out_ms / 1000 * sample_rate)), length)
     if fade_out:
         faded[:, length - fade_out :] *= _fade_curve(fade_out)
+    if fade_in or fade_out:
+        emit_log(
+            f"fade_audio: in {fade_in / sample_rate * 1000:.0f} ms, "
+            f"out {fade_out / sample_rate * 1000:.0f} ms",
+            command="fade_audio",
+            fade_in_ms=round(fade_in / sample_rate * 1000, 1),
+            fade_out_ms=round(fade_out / sample_rate * 1000, 1),
+        )
     return _as_track(faded, sample_rate, "fade_audio")
 
 
