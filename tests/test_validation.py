@@ -2,6 +2,7 @@
 exception policy for every check (B10)."""
 
 import ast
+import copy
 import logging
 import os
 import pathlib
@@ -166,3 +167,96 @@ def test_validation_does_not_import_the_workflow_module():
         elif isinstance(node, ast.Import):
             modules.extend(a.name for a in node.names)
     assert not [m for m in modules if m.split(".")[-1] == "workflow"], modules
+
+
+ERROR_ORDER = [
+    "previous_result_references",
+    "subfolders",
+    "fps",
+    "reference_names",
+    "video_extensions",
+    "content_types",
+    "scalar_results",
+    "locations",
+    "reference_limits",
+    "vram_estimate",
+    "null_media",
+    "adapters",
+    "task_argument_domains",
+    "voices",
+    "dissolve_frames",
+    "video_sizes",
+    "select",
+    "task_signatures",
+    "component_types",
+    "component_names",
+    "constraints",
+    "kernel_availability",
+    "sub_workflows",
+]
+
+
+def test_the_error_registry_runs_in_its_pinned_order():
+    """error order is part of the /api/validate response; a reorder changes
+    what the editor shows first"""
+    assert [check.name for check in validation.ERROR_CHECKS] == ERROR_ORDER
+
+
+def _for_each_definition():
+    return {
+        "id": "memo",
+        "variables": {"shots": [{"name": "a", "text": "A"}]},
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["item:text"]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+
+
+def test_validation_leaves_the_definition_and_its_expansion_memo_alone(tmp_path):
+    """The expansion is memoized per arguments with no invalidation, which
+    holds only because nothing mutates the definition after construction -
+    validation included."""
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _for_each_definition(), str(tmp_path), str(tmp_path), None
+    )
+    arguments = {"shots": [{"name": "x", "text": "X"}]}
+    written = copy.deepcopy(workflow.workflow_definition)
+    expanded = workflow.expanded_definition(arguments)
+
+    assert workflow.validation_errors(arguments=arguments) == []
+    assert workflow.validation_errors() == []
+
+    assert workflow.workflow_definition == written
+    assert workflow.expanded_definition(arguments) == expanded
+
+
+def test_validation_errors_answers_a_raising_check_as_an_internal_error(
+    tmp_path, monkeypatch
+):
+    registry = list(validation.ERROR_CHECKS)
+    index = [check.name for check in registry].index("select")
+    registry[index] = Check("select", boom)
+    monkeypatch.setattr(validation, "ERROR_CHECKS", registry)
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _for_each_definition(), str(tmp_path), str(tmp_path), None
+    )
+
+    assert workflow.validation_errors() == [
+        {
+            "path": None,
+            "message": "check 'select' failed (RuntimeError: disk on fire) - "
+            "the server log has the traceback",
+        }
+    ]

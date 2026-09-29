@@ -14,7 +14,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from dw import assets
+from dw import assets, validation
 from dw.server import admission as admission_module
 from dw.server.admission import admit
 from dw.server.app import create_app
@@ -425,3 +425,38 @@ def test_admission_checks_content_type_against_the_callers_arguments(root):
 
     assert admitted({"ct": "text/plain"}).ok
     assert not admitted({}).ok
+
+
+def _a_crashing_select_check(monkeypatch):
+    def boom(_context):
+        raise RuntimeError("check exploded")
+
+    registry = list(validation.ERROR_CHECKS)
+    index = [check.name for check in registry].index("select")
+    registry[index] = validation.Check("select", boom)
+    monkeypatch.setattr(validation, "ERROR_CHECKS", registry)
+
+
+CRASH_MESSAGE = "check 'select' failed (RuntimeError: check exploded)"
+
+
+def test_a_crashing_check_is_an_invalid_verdict_on_validate(server, monkeypatch):
+    _a_crashing_select_check(monkeypatch)
+    with server() as client:
+        response = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow()}
+        )
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["valid"] is False
+    assert [error["path"] for error in answer["errors"]] == [None]
+    assert CRASH_MESSAGE in answer["errors"][0]["message"]
+
+
+def test_a_crashing_check_admits_no_job(server, monkeypatch):
+    _a_crashing_select_check(monkeypatch)
+    with server() as client:
+        response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        assert response.status_code == 400, response.text
+        assert CRASH_MESSAGE in response.json()["detail"]
+        assert client.get("/api/jobs").json()["jobs"] == []

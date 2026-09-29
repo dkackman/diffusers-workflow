@@ -1,7 +1,7 @@
 {
   "modules": 132,
   "modules_over_1000_lines": 10,
-  "functions_over_150_lines": 17,
+  "functions_over_150_lines": 16,
   "prefix_literals": 0,
   "test_dw_patch_targets": 285,
   "claude_md_lines": 961,
