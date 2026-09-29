@@ -68,11 +68,7 @@ def reference_name_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

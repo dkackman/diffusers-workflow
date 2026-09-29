@@ -180,11 +180,7 @@ def kernel_availability_errors(workflow_definition, source_indices=None):
             if fault is None:
                 continue
 
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = references.author_index(source_indices, index)
             name = step.get("name")
             where = (
                 f" in member '{name}'"

@@ -364,11 +364,7 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = references.author_index(source_indices, index)
             location = render_path(("steps", source) + path)
             # Which expansion it was: the source path alone points at the one
             # step the author wrote, and every member reports the same path

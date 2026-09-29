@@ -30,6 +30,7 @@ named at save time (`Result.save_artifact`).
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
+from .references import author_index
 from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
@@ -116,11 +117,7 @@ def scalar_result_errors(workflow_definition, source_indices=None):
         else:
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

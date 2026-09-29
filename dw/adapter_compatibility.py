@@ -118,11 +118,7 @@ def _lora_problems(steps, source_indices, written=None, supplied=()):
         pipeline = step.get("pipeline")
         if not isinstance(pipeline, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
         workflow = (
             from_pretrained.get(WORKFLOW_KEY)
@@ -222,11 +218,7 @@ def _disabled_loras(steps, source_indices, written=None, supplied=()):
         loras = pipeline.get(LORAS_KEY) if isinstance(pipeline, dict) else None
         if not isinstance(loras, list):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

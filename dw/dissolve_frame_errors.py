@@ -33,6 +33,7 @@ already silent, shape of problem with no run-time error to move earlier.
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media_info import probe_media
 from .probe_paths import resolve_probe_path
+from .references import author_index
 
 
 def _frame_count(path):
@@ -96,11 +97,7 @@ def dissolve_frame_errors(workflow_definition, source_indices=None, base_dir=Non
         if not problems:
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

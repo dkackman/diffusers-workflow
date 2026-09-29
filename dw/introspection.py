@@ -719,11 +719,7 @@ def task_signature_errors(
         arguments = task.get("arguments")
         if not isinstance(command, str):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"
@@ -939,11 +935,7 @@ def component_type_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"
@@ -1016,11 +1008,7 @@ def component_name_errors(workflow_definition, source_indices=None):
         unknown = unknown_pipeline_components(component_type, component_names)
         if not unknown:
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

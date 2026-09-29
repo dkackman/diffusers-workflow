@@ -22,6 +22,7 @@ from .arguments import (
     _names_no_media,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
+from .references import author_index
 
 _FROM_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
 
@@ -70,11 +71,7 @@ def null_media_errors(workflow_definition, source_indices=None):
         arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
         if not isinstance(arguments, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

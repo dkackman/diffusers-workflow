@@ -580,11 +580,7 @@ def location_errors(definition, source_indices=None, base_dir=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_suffixes(step))
     return errors
 

@@ -188,11 +188,7 @@ def reference_limit_errors(workflow_definition, source_indices=None):
         arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
         if not isinstance(arguments, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"
