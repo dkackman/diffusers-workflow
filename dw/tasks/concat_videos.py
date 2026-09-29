@@ -343,6 +343,7 @@ def concat_videos(
                 seam_fade_ms,
                 audio_bleed_gain_db,
                 native_sample_rate=audio_native_rate,
+                seam=index,
             )
         else:
             audio = equal_power_crossfade_join(
@@ -352,6 +353,7 @@ def concat_videos(
                 sample_rate,
                 crossfade_ms,
                 seam_fade_ms,
+                seam=index,
             )
         audio_native_rate = getattr(video, "sample_rate", None)
 
