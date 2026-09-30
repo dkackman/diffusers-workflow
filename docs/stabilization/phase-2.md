@@ -39,6 +39,24 @@ The smaller items carried from gate 1 go to the stage whose files they touch:
   - Prefix tests are spelled three ways.
   - Four import styles for `references`.
   - Prefixes inside f-strings, which the metric does not count.
+- **2b, validation (B10):**
+  - A crashing error check becomes one finding with a null path, naming the check and the exception type only: `check '<name>' failed (<ExcType>) - the server log has the detail`. The verdict is `valid: false`, and every other check still reports.
+    - `/api/validate` already answered 200 `valid: false` on a crash; before, one crash replaced the whole verdict with a single generic line.
+    - The 400 detail on `POST /api/jobs` and rerun, `Workflow.validate()`, `python -m dw.validate`, the `PUT /api/workflows/{name}` 400 and the worker's re-validate message all carry that sentence instead of the raw exception text.
+  - When validation itself fails outright (context build, gates, argument checks), the submit and rerun 400 detail is `validation failed (<ExcType>) - the server log has the detail`.
+  - A crashing warning source becomes one `internal: warning check '<name>' failed (<ExcType>) - the server log has the detail` warning and never refuses. The save route (`PUT /api/workflows/{name}`) can now return one where it used to drop the failure.
+  - A crashing check inside a sub-workflow is reported at `steps[N].workflow.path`.
+  - A 400 detail for any null-path error no longer starts with `None: `.
+  - B10 is partly closed: `submit_job` still maps every exception to 400 (Phase 3, with the app.py routers).
+- **2b, the four rules written twice (one home each in `dw/task_domains.py`):**
+  - The run's frame-size error names every mismatched video by its real index. Before, it stopped at the first mismatch and always called the reference "video 0".
+  - Validate's slice past-end warning uses the run's sample arithmetic, including #557's end rounding, so a verdict at the 10 ms threshold can change; its "X s requested" figure is computed in samples.
+  - Validate's slice check honours a literal numeric `sample_rate` as a relabel, like the run (#180). A string `sample_rate` is ignored, and validation uses the file's own rate.
+  - Validate refuses a literal `null` `threshold` or `index` on `select`, which the run already refused.
+- **2b, media probing (B9):** validation reads header values and counts demuxed packets instead of decoding whole files, once per file per request. A `{"location": ...}` media entry is now probed like a plain path: a `dissolve_videos` input too short for its overlap is refused, and the slice past-end and shot-span warnings are raised, where before these entries were silently skipped.
+- **2b, internal:** `dw.result_fps`, `dw.null_media` and `dw.select_validation` are deleted; their functions are in `dw.validation`. `unseeded_cache_warnings` moved to `dw.validation` (`dw.plan` re-exports it). `MEMBER_SEPARATOR` and `render_path` moved to `dw.references` (`dw.for_each` re-exports them). `tasks.select._THRESHOLD_RULES` is renamed `_THRESHOLD_TESTS`.
+- **2b, metrics:** `modules` 133 → 131, `functions_over_150_lines` 17 → 16, `modules_in_import_cycles` 26 → 25.
+- **2b follow-ups:** `/api/validate` logs a gate failure twice (`admit()` and `app.py`); temp-dir leaks in the dissolve and shot-span test helpers; the frame-size prefix sentence is still written by both callers; the dissolve run raises only the first shortfall; the slice region arithmetic is still in both `slice_audio` and `slice_preflight`.
 
 ## Global Constraints (all stages)
 
@@ -454,7 +472,7 @@ Work on branch `stabilization/phase-2b` in the worktree, from `develop` after st
   - A check that raises becomes one error finding: `path` None (the editor renders a null path as `root`; `ui/src/lib/pages/EditorPage.svelte:649`), `kind` `"internal"`, message `check '<name>' failed (<ExcType>: <msg>) - the server log has the traceback`. The traceback is logged at ERROR. Every other check still runs.
   - The verdict is `valid: false`. An internal failure never admits a job that went unchecked, and it no longer turns into a 400 `ValidatorFailure`.
   - A warning source that raises becomes one warning, `internal: warning check '<name>' failed (<ExcType>: <msg>)`, and is logged. It never refuses.
-  - Surface changes for the release notes: `/api/validate` answers `valid: false` with an internal finding where it used to 400, and a failed warning pass now shows as a warning.
+  - Surface changes for the release notes: see "Release notes collected" (2b), corrected after the final review - `/api/validate` already answered `valid: false` on a crash.
 - **The response shapes are unchanged.** Errors serialize to `{path, message}` plus any extra keys they carry today. Warnings serialize to `"path: message"` strings, or the bare message when `path` is None. Serialization happens in one place, the runner's `to_errors()` and `to_warnings()`.
 - **Order is preserved.** The error registry lists the checks in today's concatenation order, and the warning registry follows `admit()`'s helper order. A test pins the order by name.
 - **B9 metadata probe.** `probe_metadata(path)` goes in `dw/media_info.py`. It reads the header values: kind, width, height, fps, sample rate, channels and duration. When the header lacks a video frame count, it counts that count by **demuxing packets without decoding**, which is exact for the codecs dw writes. It never runs the audio loudness analysis.
