@@ -193,12 +193,14 @@ def workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None)
     has changed (or vanished) since; file_spec still decides the run's
     identity, its output subfolder and where sub-workflow steps resolve.
 
-    file_spec is the validated path workflow_from_file stored (or an inline
-    definition's synthetic '__inline__.json'), passed through as it is so
-    every name derived from it matches admission's. workflow_dir, when
-    given, confines it again here: the command crossed a process boundary,
-    and a file_spec outside the root is refused as workflow_from_file
-    refuses the path.
+    The caller must pass an already-validated file_spec: the path
+    workflow_from_file stored, or an inline definition's synthetic
+    '__inline__.json' - admission normalizes it. It is passed through as it
+    is so every name derived from it matches admission's. workflow_dir,
+    when given, confines it again here: the command crossed a process
+    boundary, and a file_spec outside the root is refused as
+    workflow_from_file refuses the path. With workflow_dir None nothing
+    here normalizes or confines file_spec.
     """
     validated_output = validate_output_path(output_dir, None)
     if workflow_dir:

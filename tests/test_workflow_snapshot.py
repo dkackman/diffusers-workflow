@@ -10,7 +10,7 @@ import os
 import pytest
 
 from dw.runs import workflow_identity
-from dw.security import SecurityError
+from dw.security import PathTraversalError
 from dw.workflow import (
     workflow_from_file,
     workflow_from_snapshot,
@@ -57,7 +57,7 @@ def test_a_snapshot_outside_its_workflow_dir_is_refused(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(PathTraversalError, match="outside allowed directory"):
         workflow_from_snapshot(
             {"id": "escaped", "steps": []},
             str(tmp_path / "outputs"),

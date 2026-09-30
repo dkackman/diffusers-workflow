@@ -7,6 +7,8 @@ import queue
 import time
 from unittest.mock import patch
 
+import pytest
+
 from dw.events import WorkflowCancelled
 
 
@@ -465,36 +467,41 @@ def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
     assert "warm-component" in worker.shared_components
 
 
-def test_an_edited_file_runs_as_admitted(tmp_path):
+def _text_workflow(text):
+    return {
+        "id": "edited",
+        "steps": [
+            {
+                "name": "t",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": [text]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize("change", ["edited", "deleted"])
+def test_an_edited_file_runs_as_admitted(tmp_path, change):
     """Review Focus 2c/2: the job carries the definition admission checked,
     and the worker runs that - not whatever the file says by the time the
-    job reaches the front of the queue. The file is gone before the worker
-    sees the command, so any read of it would fail the run."""
+    job reaches the front of the queue. Edited, the file is still valid and
+    its run would write different text, so a read of it shows in the
+    output; deleted, any read of it fails the run."""
     from dw.workflow import workflow_from_file
 
     root = tmp_path / "workflows"
     root.mkdir()
     path = root / "edited.json"
-    path.write_text(
-        json.dumps(
-            {
-                "id": "edited",
-                "steps": [
-                    {
-                        "name": "t",
-                        "task": {
-                            "command": "compose_text",
-                            "arguments": {"parts": ["admitted"]},
-                        },
-                        "result": {"content_type": "text/plain"},
-                    }
-                ],
-            }
-        )
-    )
+    path.write_text(json.dumps(_text_workflow("admitted")))
     output_dir = tmp_path / "outputs"
     admitted = workflow_from_file(str(path), str(output_dir), str(root))
-    os.remove(path)
+    if change == "edited":
+        path.write_text(json.dumps(_text_workflow("edited after admission")))
+    else:
+        os.remove(path)
 
     worker = _make_worker()
     worker._handle_execute(
