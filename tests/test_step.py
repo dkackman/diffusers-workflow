@@ -381,10 +381,6 @@ class TestStep:
         assert result.metadata["model_name"] == "org/model"
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-
-
 def guard_stub_implementation(image):
     """The signature the stub command's arguments are read from."""
 
@@ -429,3 +425,7 @@ class TestTaskRequiredArgumentGuard:
 
         assert ran == [{"image": "a"}]
         assert str(caught.value).startswith("Task 'step_guard_stub' requires 'image'")
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -21,7 +21,7 @@ uses for the SPA. `dw_mcp/guides.py` is a proxy of these routes.
 it referenced - under `<workspace>/exports/<job id>/`. `EXPORTS_SUBDIR` lives
 in `dw/workspace.py` rather than here, since `RESERVED_WORKSPACE_NAMES` needs
 it and `dw/workspace.py` must not import from `dw.server`; this module
-re-imports it. `workspace.py` passes the names to `validate_workspace_name` as `reserved=`. `app.py`'s `POST /api/jobs/{id}/export` calls it and returns
+re-imports it. `app.py`'s `POST /api/jobs/{id}/export` calls it and returns
 the summary plus a `zip_url`; `GET /exports/{id}.zip` builds the archive on
 request from the same directory rather than keeping a second copy.
 
