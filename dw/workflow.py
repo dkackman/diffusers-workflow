@@ -34,7 +34,7 @@ from .variable_constraints import (
     resolve_constraint_references,
     snap_constraints,
 )
-from .shots import duplicate_shot_names, shot_references, step_shots
+from .shots import carries_shots, duplicate_shot_names, shot_references, step_shots
 from .subfolders import step_subfolder
 from . import validation
 from .validation import (
@@ -1625,7 +1625,14 @@ class Workflow:
                 )
                 if shots:
                     manifest_entry["shots"] = shots
-                    duplicates = duplicate_shot_names(shots)
+                    # Only the step that joined made the collision; a step
+                    # that carries an input's shots over (pair_audio,
+                    # interpolate_frames) repeats what the caller can only
+                    # act on at the join (#568)
+                    command = step_data.get("task", {}).get("command")
+                    duplicates = (
+                        None if carries_shots(command) else duplicate_shot_names(shots)
+                    )
                     if duplicates:
                         # Frames and samples stay exact either way - only a
                         # name-based lookup (a `shots=` argument, a finding)
@@ -1633,7 +1640,7 @@ class Workflow:
                         for file, names in duplicates.items():
                             extra = {"file": file} if file is not None else {}
                             emit_warning(
-                                f"{step.name}: joined shots share a name ("
+                                "joined shots share a name ("
                                 + ", ".join(names)
                                 + ") and can no longer be told apart by "
                                 "name - start_frame still disambiguates.",

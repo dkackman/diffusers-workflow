@@ -1207,4 +1207,14 @@ def test_workflow_run_warns_when_two_joined_inputs_share_inner_shot_names(tmp_pa
         if e["event"] == "warning" and e.get("kind") == "shot_name_collision"
     ]
     assert set(warning["names"]) == {"shot@accuse", "shot@deflect"}
-    assert "cut" in warning["message"]
+    assert warning["message"].startswith("joined shots share a name")
+    assert warning["command"] == "cut"
+
+
+def test_carrying_commands_do_not_own_a_name_collision():
+    from dw.shots import carries_shots
+
+    assert carries_shots("pair_audio")
+    assert carries_shots("interpolate_frames")
+    assert not carries_shots("concat_videos")
+    assert not carries_shots("dissolve_videos")

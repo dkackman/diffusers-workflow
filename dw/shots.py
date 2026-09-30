@@ -364,6 +364,16 @@ def step_shots(saved_shots, saved_files, references=None):
     ]
 
 
+def carries_shots(command):
+    """True for a task that passes an input's shots through without joining.
+
+    A name collision belongs to the step that joined the inputs; a step
+    that only carries the list over would repeat it where the caller can
+    do nothing about it (#568).
+    """
+    return command in ("pair_audio", "interpolate_frames")
+
+
 def duplicate_shot_names(shots):
     """Names that collide within one file's shot map, or None.
 
