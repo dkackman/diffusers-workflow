@@ -466,7 +466,7 @@ def named_workspace(workspace, name):
 
     if name is None or name == DEFAULT_WORKSPACE_NAME:
         return workspace
-    name = validate_workspace_name(name)
+    name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
     return Workspace(
         os.path.join(workspace.root, name),
         workspace.source,
@@ -485,7 +485,7 @@ def create_workspace(workspace, name):
     """
     from .security import validate_workspace_name
 
-    name = validate_workspace_name(name)
+    name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
     if name in workspace_names(workspace):
         raise FileExistsError(f"Workspace '{name}' already exists")
     return named_workspace(workspace, name).ensure()

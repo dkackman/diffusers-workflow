@@ -383,3 +383,49 @@ class TestStep:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def guard_stub_implementation(image):
+    """The signature the stub command's arguments are read from."""
+
+
+class TestTaskRequiredArgumentGuard:
+    """A task step missing a required argument fails in the validator's
+    wording, on the iteration that lacks it, before the command runs."""
+
+    def test_the_second_iteration_fails_after_the_first_ran(self, monkeypatch):
+        import dw.step as step_module
+        from dw.tasks import task as task_module
+
+        ran = []
+
+        @task_module.register_command(
+            "step_guard_stub", implementation=f"{__name__}.guard_stub_implementation"
+        )
+        def _handler(task, arguments, previous_pipelines):
+            ran.append(dict(arguments))
+            return "ran"
+
+        try:
+            task = task_module.Task(
+                {
+                    "command": "step_guard_stub",
+                    "arguments": {"image": "previous_result:images"},
+                },
+                "cpu",
+            )
+            step = Step({"name": "guarded", "result": {}}, default_seed=1)
+            # The second iteration's realized arguments lack the image
+            monkeypatch.setattr(
+                step_module,
+                "get_iterations",
+                lambda template, results: [{"image": "a"}, {}],
+            )
+            with pytest.raises(ValueError) as caught:
+                step.run({}, {}, task)
+        finally:
+            task_module._COMMAND_REGISTRY.pop("step_guard_stub", None)
+            task_module._COMMAND_INFO.pop("step_guard_stub", None)
+
+        assert ran == [{"image": "a"}]
+        assert str(caught.value).startswith("Task 'step_guard_stub' requires 'image'")

@@ -859,12 +859,16 @@ WORKSPACE_NAME_PATTERN = r"^[\w][\w.-]*\Z"
 MAX_WORKSPACE_NAME_LENGTH = 100
 
 
-def validate_workspace_name(name: str) -> str:
+def validate_workspace_name(name: str, *, reserved) -> str:
     """
     Validate a workspace name.
 
     Args:
         name: Workspace name to validate
+        reserved: The workspace root's own folder names, which no workspace
+            may take (workspace.RESERVED_WORKSPACE_NAMES). Required, with no
+            default - a validator must not quietly do less when a caller
+            forgets it - and passed in because security sits below workspace
 
     Returns:
         The validated name
@@ -872,8 +876,6 @@ def validate_workspace_name(name: str) -> str:
     Raises:
         InvalidInputError: If the name is not one a workspace can take
     """
-    from .workspace import RESERVED_WORKSPACE_NAMES
-
     _validate_name(
         name,
         WORKSPACE_NAME_PATTERN,
@@ -883,10 +885,10 @@ def validate_workspace_name(name: str) -> str:
         "letters, numbers, dot, dash or underscore",
     )
 
-    if name in RESERVED_WORKSPACE_NAMES:
+    if name in reserved:
         raise InvalidInputError(
             f"'{name}' is one of the workspace root's own folders "
-            f"({', '.join(RESERVED_WORKSPACE_NAMES)}) and cannot name a workspace"
+            f"({', '.join(reserved)}) and cannot name a workspace"
         )
 
     return name

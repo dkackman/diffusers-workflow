@@ -151,7 +151,7 @@ def main():
 
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
-    from .server.app import LOOPBACK_HOSTS
+    from .server.netinfo import LOOPBACK_HOSTS
 
     # A hard error, where the REST-only case below is a warning: an MCP
     # endpoint can author and run workflows, and unlike the web UI there is
