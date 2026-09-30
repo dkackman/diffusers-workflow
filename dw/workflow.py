@@ -26,41 +26,28 @@ from .events import (
     activate_context,
     deactivate_context,
 )
-from .previous_results import (
-    StepResults,
-    previous_result_reference_errors,
-)
-from .locations import location_errors
-from .reference_limits import reference_limit_errors
-from .null_media import null_media_errors
-from .adapter_compatibility import adapter_errors, warn_adapters
+from .previous_results import StepResults
+from .adapter_compatibility import warn_adapters
 from .elision import elide_definition, warn_elided
-from .introspection import (
-    task_signature_errors,
-    component_type_errors,
-    component_name_errors,
-)
-from .dissolve_frame_errors import dissolve_frame_errors
-from .video_size_errors import video_size_errors
-from .task_domains import task_argument_errors
-from .select_validation import select_errors
 from .variable_constraints import (
     ConstraintReferenceError,
     apply_constraints,
-    constraint_errors,
     constraint_reference_errors,
     resolve_constraint_references,
     snap_constraints,
 )
-from .result_fps import fps_errors
 from .shots import duplicate_shot_names, shot_references, step_shots
-from .subfolders import step_subfolder, subfolder_errors
-from .reference_names import reference_name_errors
-from .video_extensions import video_extension_errors
-from .content_types import content_type_errors
-from .scalar_result_validation import scalar_result_errors
-from .kernel_availability import kernel_availability_errors
-from .vram_estimate import apply_vram_estimate, vram_estimate_errors
+from .subfolders import step_subfolder
+from . import validation
+from .validation import (
+    ERROR,
+    WARNING,
+    ValidationContext,
+    run_checks,
+    to_errors,
+    to_warnings,
+)
+from .vram_estimate import apply_vram_estimate
 from .step import Step
 from .step_cache import (
     step_cache,
@@ -97,7 +84,6 @@ from .variables import (
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
-from .tasks.voice_attribution import voices_errors
 from . import (
     get_device,
     get_device_type,
@@ -704,7 +690,9 @@ class Workflow:
             for error in child.validation_errors(composing=composing + [resolved]):
                 errors.append(
                     {
-                        "path": f"{where} -> {error['path']}",
+                        "path": where
+                        if error["path"] is None
+                        else f"{where} -> {error['path']}",
                         "message": f"Sub-workflow '{path}': {error['message']}",
                     }
                 )
@@ -719,14 +707,16 @@ class Workflow:
         warning source uses them. Each entry is a string, `"path: message"`,
         matching every other warnings source - and the path names the step
         index the *author* wrote, not the index the step lands at after
-        `for_each` expansion.
+        `for_each` expansion. Runs the registry's `sub_workflow_warnings`
+        check; one that raises is an internal warning (B10).
         """
+        return self._warning_check("sub_workflow_warnings", arguments)
+
+    def sub_workflow_argument_warnings(self, expanded, source_indices=None):
+        """sub_workflow_warnings over an expansion already made - what the
+        registry check calls with the request's own."""
         warnings = []
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            return warnings
+        source_indices = source_indices or []
         for index, step in enumerate(expanded.get("steps", []) or []):
             reference = step.get("workflow")
             if not isinstance(reference, dict):
@@ -754,18 +744,72 @@ class Workflow:
                 )
         return warnings
 
-    def validation_errors(self, arguments=None, composing=None):
+    def validation_context(self, arguments=None, composing=(), *, ceiling_index=None):
+        """One validation request's ValidationContext: the expansion over
+        `arguments` (lazy and memoized, so the error pass and the warning
+        pass share it), where relative paths resolve from, the device the
+        request is checked against and the catalog's VRAM ceilings
+        (`ceiling_index`, for inherited_vram_warnings). Built per request
+        and never stored on the Workflow, so its probe cache cannot serve a
+        replaced file stale.
+
+        Building one expands nothing: the expansion runs the first time a
+        check reads it, so a context can be built ahead of
+        validation_errors' gates, which answer an expansion failure as a
+        finding.
+        """
+
+        def expand():
+            source_indices = []
+            expanded = self.expanded_definition(arguments, source_indices)
+            return expanded, source_indices
+
+        return ValidationContext(
+            workflow=self,
+            arguments=arguments,
+            base_dir=(
+                os.path.dirname(os.path.abspath(self.file_spec))
+                if self.file_spec
+                else None
+            ),
+            composing=composing,
+            device_type=get_device_type(),
+            capacity_gb=device_capacity_gb(),
+            ceiling_index=ceiling_index,
+            expand=expand,
+        )
+
+    def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
         empty when it validates. `arguments` are the caller's, so a
         for_each over a list the caller supplies is checked as it will run.
 
         `composing` carries the chain of sub-workflows above this one, so a
         workflow that composes itself is an error rather than a recursion.
+
+        `context`, when given, is the request's own ValidationContext - its
+        arguments and composing chain are the ones checked - so one request
+        expands and probes once. Otherwise one is built here. Passing a
+        context together with different `arguments` or `composing` is a
+        caller bug and raises ValueError.
+
+        Past the gates (schema, 'constraint:' references, the expansion)
+        every check in `validation.ERROR_CHECKS` runs, in order; one that
+        raises is an internal error rather than a lost verdict (B10).
         """
+        if context is None:
+            context = self.validation_context(arguments, composing)
+        elif (arguments is not None and arguments != context.arguments) or (
+            composing is not None and tuple(composing) != context.composing
+        ):
+            raise ValueError(
+                "validation_errors was given a context and different "
+                "arguments or composing - pass one or the other"
+            )
         errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the passes below walk the
-        # steps array and a definition that fails the schema may have no
-        # such array to walk
+        # Only once the shape is known good: the checks walk the steps
+        # array and a definition that fails the schema may have no such
+        # array to walk
         if errors:
             return errors
         # A 'constraint:' frame_snap naming nothing declared, every one of
@@ -775,9 +819,11 @@ class Workflow:
         errors = constraint_reference_errors(self.workflow_definition)
         if errors:
             return errors
-        source_indices = []
         try:
-            expanded = self.expanded_definition(arguments, source_indices)
+            # The context's expansion is lazy; run it here, where its
+            # failures are findings rather than an internal error in
+            # whichever check read it first
+            context.expanded
         except ForEachError as e:
             return [{"path": e.path, "message": str(e)}]
         except ConstantError as e:
@@ -785,185 +831,36 @@ class Workflow:
         except ConstraintReferenceError as e:
             return [{"path": e.path, "message": e.message}]
         except VariableNotFoundError:
-            # Every undeclared reference, not just the first one substitution
-            # tripped over - and reported where each sits rather than as a
-            # for_each whose list arrived unsubstituted, which is what a
-            # half-substituted definition used to look like from here
-            return self._undeclared_variable_errors(arguments)
+            # Every undeclared reference, not just the first one
+            # substitution tripped over - and reported where each sits
+            # rather than as a for_each whose list arrived unsubstituted
+            return self._undeclared_variable_errors(context.arguments)
         except VariableCycleError as e:
-            # resolve_variable_values raises this for a variable that
-            # references itself, directly or through others - there is
-            # no single path inside the definition to blame, so it is
-            # reported against 'variables' as a whole rather than escaping
-            # as an unhandled exception
+            # A variable that references itself, directly or through
+            # others - there is no single path inside the definition to
+            # blame, so it is reported against 'variables' as a whole
             return [{"path": "variables", "message": str(e)}]
-        base_dir = (
-            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
-        )
-        task_errors = task_signature_errors(
-            expanded, source_indices, self.workflow_definition
-        )
-        if arguments is None:
-            # A step that feeds a required argument from `variable:name` and
-            # a variable whose default is null is a fine document - the
-            # variable just hasn't been given a value yet, which is exactly
-            # what no-arguments means here (save_workflow, or
-            # validate_workflow called to check the document rather than a
-            # specific run). Downgraded to a warning
-            # (null_variable_argument_warnings) rather than dropped outright,
-            # since it is still true a run left as-is would fail (#364).
-            # Anything else task_signature_errors reports - a genuinely
-            # missing or unknown argument - stays a hard error regardless
-            task_errors = [e for e in task_errors if "variable" not in e]
-        return (
-            previous_result_reference_errors(expanded, source_indices)
-            + subfolder_errors(expanded, source_indices)
-            + fps_errors(expanded, source_indices)
-            # A reference name no workspace could ever resolve - the '@' a
-            # for_each member's own file carries, rejected after the queue
-            # by a message that named a valid form and not the objection
-            # (dw/reference_names.py, #162)
-            + reference_name_errors(expanded, source_indices)
-            # A still image handed to a 'video' argument by path or asset:/
-            # output: reference validated clean and then died inside
-            # fetch_video's extension gate in the first seconds of the run -
-            # refused here for the cases the extension is already knowable
-            # (dw/video_extensions.py, #347)
-            + video_extension_errors(expanded, source_indices)
-            # A result content_type no writer will accept - a bare word like
-            # "video" validated clean and then died inside the writer with a
-            # traceback naming neither the field nor the value
-            # (dw/content_types.py, #168)
-            + content_type_errors(expanded, source_indices)
-            # A 'result' block on a step whose command returns a scalar, not
-            # an artifact - judge's score validated clean and then died
-            # inside save_artifact with a bare TypeError after the fan-out
-            # ahead of it had already generated (dw/scalar_result_validation.py,
-            # #212)
-            + scalar_result_errors(expanded, source_indices)
-            # A location policy refuses before a model load is spent on the
-            # run rather than after it (dw/locations.py)
-            + location_errors(expanded, source_indices, base_dir)
-            # A reference set the pipeline would refuse costs a checkpoint
-            # load to find out about otherwise (dw/reference_limits.py, #136)
-            + reference_limit_errors(expanded, source_indices)
-            # A step a declared vram_estimate projects past the card 'cost'
-            # was measured on - per step, after expansion, so a for_each
-            # member is projected with its own frames and references, and
-            # refused here rather than found 90+ seconds into denoising on
-            # an OOM the caller had no way to see coming
-            # (dw/vram_estimate.py, #265, #479)
-            + vram_estimate_errors(
-                expanded,
-                arguments,
-                supplied=set(arguments or {}),
-                device_type=get_device_type(),
-                capacity_gb=device_capacity_gb(),
-                source_indices=source_indices,
-                written=self.workflow_definition,
-            )
-            # A for_each item's bare reference (not in a list, so nothing to
-            # silently drop it from) whose media resolved null - realize_args
-            # already refuses this at run time, a few seconds into the job
-            # (dw/null_media.py, #478)
-            + null_media_errors(expanded, source_indices)
-            # An adapter trained for the other checkpoint partition, which
-            # the pipeline loads without complaint and answers worse for -
-            # the one H3 mistake that never shows in the output
-            # (dw/adapter_compatibility.py, #155)
-            + adapter_errors(
-                expanded,
-                source_indices,
-                written=self.workflow_definition,
-                supplied=set(arguments or {}),
-            )
-            # A number outside a task argument's declared domain is refused
-            # here rather than interpreted at run time - a negative frame
-            # count was a Python slice from the end of the track and a zero
-            # sample rate a silent fallback to 44100 (dw/task_domains.py,
-            # #139, #140)
-            + task_argument_errors(expanded, source_indices)
-            # An attribute_voices `voices` it would refuse - one voice, a bad
-            # name, a reference too short - is knowable from the literal and
-            # was refused only on the step, a queued job in (#494)
-            + voices_errors(expanded, source_indices)
-            # A dissolve_videos overlap wider than a statically-resolvable
-            # input's real frame count decoded clean past the queue and
-            # failed only after every upstream step had already generated -
-            # refused here for a literal dissolve_frames against an asset:/
-            # output:/literal-path video, the cases the frame count is
-            # already knowable (dw/dissolve_frame_errors.py, #400)
-            + dissolve_frame_errors(expanded, source_indices, base_dir)
-            # A dissolve_videos/concat_videos size mismatch decoded clean
-            # past the queue and failed only after every upstream step had
-            # already generated - refused here for the cases the sizes are
-            # already knowable (dw/video_size_errors.py, #504)
-            + video_size_errors(expanded, source_indices, base_dir)
-            # A select step whose rule is misspelled, or whose
-            # threshold/index does not match its rule, validated clean and
-            # died on select's own run-time ValueError after the fan-out
-            # ahead of it had already generated (dw/select_validation.py,
-            # docs/proposals/score-and-select.md)
-            + select_errors(expanded, source_indices)
-            # A required task argument left unset validated as `valid: true`
-            # and then failed the job on Python's own signature error, which
-            # is the one mistake a free pre-flight most obviously exists for
-            # (dw/introspection.py, #141). When the step supplies it by
-            # `variable:name` and only the variable's value is null, the
-            # error carries a `variable` key (#364) so a caller checking the
-            # document itself - no arguments of its own - can tell "the
-            # variable needs a value at run time" apart from "the step is
-            # broken", and downgrade the former below
-            + task_errors
-            # A step's pipeline names a component_type/scheduler_type/
-            # config_type that does not exist (or is outside the trusted
-            # ecosystem entirely) - validated clean and died 3s into the run
-            # after a checkpoint the plan had already quoted for downloading
-            # (dw/introspection.py, #345)
-            + component_type_errors(expanded, source_indices)
-            # A step's pipeline configures a component (`configuration.
-            # components`) its component_type does not register - validated
-            # clean and died 3s into the run's `loading` phase, after a
-            # checkpoint (and for an IC-LoRA step, LoRA weights) the plan had
-            # already quoted for downloading (dw/introspection.py, #442)
-            + component_name_errors(expanded, source_indices)
-            # A value outside a rule the workflow declares - the bound that
-            # cost 138 s of loading to discover, refused for free at the
-            # path the value sits at (dw/variable_constraints.py, #96)
-            + constraint_errors(
-                self.workflow_definition, arguments, supplied=set(arguments or {})
-            )
-            # An 'attn_processor_type' whose Hub kernel this machine has no
-            # build variant for - validated clean and then died 88s into
-            # loading, naming a torch/natten mismatch the construction alone
-            # would have said in under two seconds (dw/kernel_availability.py,
-            # #178)
-            + kernel_availability_errors(expanded, source_indices)
-            + self.sub_workflow_errors(expanded, source_indices, composing)
-        )
+        return to_errors(run_checks(context, validation.ERROR_CHECKS, ERROR))
+
+    def _warning_check(self, name, arguments, **context_fields):
+        """The registry's warning check `name` over a context of this
+        call's own - how the warning methods below answer when called
+        directly rather than through admit(). An expansion that fails
+        raises inside the check, which makes it one internal warning."""
+        context = self.validation_context(arguments, **context_fields)
+        check = validation.warning_check(name)
+        return to_warnings(run_checks(context, [check], WARNING))
 
     def adapter_warnings(self, arguments=None):
         """Every adapter whose file name says nothing about which checkpoint
         partition it was trained for - valid, and worth saying, since
         nothing at run time will (#155).
 
-        Best effort: a definition the schema or the expander refuses has its
-        own errors to report and none of them are this one.
+        Runs the registry's check: a definition the expander refuses is one
+        internal warning, since its own errors are validation_errors' to
+        report.
         """
-        from .adapter_compatibility import adapter_warnings
-
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            logger.debug("No adapter warnings available", exc_info=True)
-            return []
-        return adapter_warnings(
-            expanded,
-            source_indices,
-            written=self.workflow_definition,
-            supplied=set(arguments or {}),
-        )
+        return self._warning_check("adapter_warnings", arguments)
 
     def inherited_vram_warnings(self, arguments=None, index=None):
         """Every catalog VRAM ceiling this workflow's expanded steps project
@@ -972,27 +869,12 @@ class Workflow:
         an error: the catalog's numbers were measured on the catalog's
         offload and quantization config (#479).
 
-        Best effort, like `adapter_warnings`.
+        Runs the registry's check, like `adapter_warnings`.
         """
-        from .vram_inheritance import inherited_vram_warnings
-
         if not index:
             return []
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            logger.debug("No inherited VRAM warnings available", exc_info=True)
-            return []
-        return inherited_vram_warnings(
-            expanded,
-            index,
-            arguments,
-            supplied=set(arguments or {}),
-            device_type=get_device_type(),
-            capacity_gb=device_capacity_gb(),
-            source_indices=source_indices,
-            written=self.workflow_definition,
+        return self._warning_check(
+            "inherited_vram_warnings", arguments, ceiling_index=index
         )
 
     def slice_past_end_warnings(self, arguments=None):
@@ -1001,21 +883,9 @@ class Workflow:
         with silence rather than refused, but worth saying before the run
         rather than only after it (#402).
 
-        Best effort: a definition the schema or the expander refuses has its
-        own errors to report and none of them are this one.
+        Runs the registry's check, like `adapter_warnings`.
         """
-        from .slice_preflight import slice_past_end_warnings
-
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            logger.debug("No slice_past_end warnings available", exc_info=True)
-            return []
-        base_dir = (
-            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
-        )
-        return slice_past_end_warnings(expanded, source_indices, base_dir)
+        return self._warning_check("slice_past_end_warnings", arguments)
 
     def shot_span_warnings(self, arguments=None):
         """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
@@ -1024,21 +894,9 @@ class Workflow:
         clipped to the file rather than refused, but worth saying before the
         run rather than only after it (#425).
 
-        Best effort: a definition the schema or the expander refuses has its
-        own errors to report and none of them are this one.
+        Runs the registry's check, like `adapter_warnings`.
         """
-        from .shot_span_preflight import shot_span_warnings
-
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            logger.debug("No shot_span warnings available", exc_info=True)
-            return []
-        base_dir = (
-            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
-        )
-        return shot_span_warnings(expanded, source_indices, base_dir)
+        return self._warning_check("shot_span_warnings", arguments)
 
     def null_variable_argument_warnings(self, arguments=None):
         """Every required task argument fed by `variable:name` where name's
@@ -1052,24 +910,9 @@ class Workflow:
         a hard error in `validation_errors`, since a real run or a validate
         call naming its own arguments needed the variable to hold something.
 
-        Best effort: a definition the schema or the expander refuses has its
-        own errors to report and none of them are this one.
+        Runs the registry's check, like `adapter_warnings`.
         """
-        if arguments is not None:
-            return []
-        try:
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-        except Exception:
-            logger.debug("No null-variable-argument warnings available", exc_info=True)
-            return []
-        return [
-            f"{entry['path']}: {entry['message']}"
-            for entry in task_signature_errors(
-                expanded, source_indices, self.workflow_definition
-            )
-            if "variable" in entry
-        ]
+        return self._warning_check("null_variable_argument_warnings", arguments)
 
     def _undeclared_variable_errors(self, arguments=None):
         """Every 'variable:' reference naming nothing the workflow declares.

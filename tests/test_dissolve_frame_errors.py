@@ -14,6 +14,7 @@ import tempfile
 import numpy
 
 from dw.dissolve_frame_errors import dissolve_frame_errors
+from dw.media_info import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.workflow import workflow_from_definition
 
@@ -79,6 +80,38 @@ class TestTheCheck:
         assert "124 frames" in problems[0]["message"]
         assert "130 frames" in problems[0]["message"]
 
+    def test_a_location_dict_too_short_for_its_dissolve_is_refused(self, monkeypatch):
+        # dissolve_videos accepts a {"location": ...} entry (#510), so the
+        # check must probe what it wraps rather than skip it
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 4))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", {"location": "asset:b.mp4"}], dissolve_frames=10
+        )
+
+        problems = dissolve_frame_errors(definition, base_dir=base_dir)
+
+        assert len(problems) == 1
+        assert "video 1 has 4 frames" in problems[0]["message"]
+
+    def test_a_location_dict_is_confined_like_a_plain_path(self, monkeypatch):
+        from dw.probe_paths import resolve_probe_path
+
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        outside = os.path.join(os.path.dirname(base_dir), "outside.mp4")
+        for value in (
+            "asset:a.mp4",
+            "assets/a.mp4",
+            "../outside.mp4",
+            outside,
+            "previous_result:make_a",
+            "asset:missing.mp4",
+        ):
+            plain = resolve_probe_path(value, base_dir)
+            assert resolve_probe_path({"location": value}, base_dir) == plain
+        assert resolve_probe_path({"location": "asset:a.mp4"}, base_dir) is not None
+        assert resolve_probe_path({"location": {"location": "a"}}, base_dir) is None
+        assert resolve_probe_path({"path": "asset:a.mp4"}, base_dir) is None
+
     def test_enough_frames_validates_clean(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
         definition = dissolve_workflow(
@@ -126,6 +159,45 @@ class TestTheCheck:
         definition = dissolve_workflow(["asset:a.mp4"], dissolve_frames=130)
 
         assert dissolve_frame_errors(definition, base_dir=base_dir) == []
+
+    def test_a_caller_supplied_probe_is_used_instead_of_the_default(self, monkeypatch):
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
+        )
+        # A stub probe answering a frame count nothing on disk holds proves
+        # the check reads the `probe` argument rather than always reaching
+        # for probe_metadata itself.
+        problems = dissolve_frame_errors(
+            definition,
+            base_dir=base_dir,
+            probe=lambda path: {"kind": "video", "frame_count": 999},
+        )
+
+        assert problems == []
+
+    def test_a_shared_cache_probes_each_file_once_across_two_calls(self, monkeypatch):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe each distinct file only once,
+        # not once per call.
+        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+        definition = dissolve_workflow(
+            ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        dissolve_frame_errors(definition, base_dir=base_dir, probe=counting_cache)
+        dissolve_frame_errors(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 2
 
 
 class TestTheValidationPass:

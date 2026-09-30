@@ -9,6 +9,7 @@ rather than a mock of it, mirroring tests/test_slice_preflight.py (#402).
 import os
 import tempfile
 
+from dw.media_info import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.shot_span_preflight import shot_span_warnings
 from dw.workflow import workflow_from_definition
@@ -60,6 +61,21 @@ class TestTheCheck:
         assert "'b'" in warnings[0]
         assert "176 past the file's 248 frames" in warnings[0]
 
+    def test_a_location_dict_video_is_probed(self, monkeypatch):
+        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+        definition = seams_workflow(
+            {"location": "asset:clip.mp4"},
+            [
+                {"name": "a", "start_frame": 0, "num_frames": 124},
+                {"name": "b", "start_frame": 124, "num_frames": 300},
+            ],
+        )
+
+        warnings = shot_span_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "176 past the file's 248 frames" in warnings[0]
+
     def test_shots_within_the_source_validate_clean(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
         definition = seams_workflow(
@@ -102,6 +118,30 @@ class TestTheCheck:
 
     def test_nothing_is_reported_for_a_definition_with_no_probe_step(self):
         assert shot_span_warnings({"steps": [{"name": "a", "task": {}}]}) == []
+
+    def test_a_shared_cache_probes_the_source_once_across_two_calls(self, monkeypatch):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe the source only once, not once
+        # per call.
+        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+        definition = seams_workflow(
+            "asset:clip.mp4",
+            [{"name": "a", "start_frame": 0, "num_frames": 124}],
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        shot_span_warnings(definition, base_dir=base_dir, probe=counting_cache)
+        shot_span_warnings(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 1
 
 
 class TestWiredIntoTheWorkflow:

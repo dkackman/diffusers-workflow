@@ -14,7 +14,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from dw import assets
+from dw import assets, validation
 from dw.server import admission as admission_module
 from dw.server.admission import admit
 from dw.server.app import create_app
@@ -204,19 +204,36 @@ def test_a_rerun_expands_once(server, folds):
         assert len(folds) == 1
 
 
-def test_a_warning_helper_that_raises_refuses_nothing(server, monkeypatch):
-    """A warning never refuses: a helper that fails is logged and skipped,
-    and the other helpers' warnings still reach validate and the job."""
+def _swap_warning_check(monkeypatch, name, run):
+    """Replace one entry of the warning registry for this test."""
+    registry = list(validation.WARNING_CHECKS)
+    index = [check.name for check in registry].index(name)
+    original = registry[index]
+    registry[index] = validation.Check(name, run)
+    monkeypatch.setattr(validation, "WARNING_CHECKS", registry)
+    return original
 
-    def exploding(self, *args, **kwargs):
+
+WARNING_CRASH = (
+    "internal: warning check 'shot_span_warnings' failed (RuntimeError) - "
+    "the server log has the detail"
+)
+
+
+def test_a_warning_source_that_raises_is_said_and_refuses_nothing(server, monkeypatch):
+    """A warning never refuses, and a source that fails is no longer
+    silently dropped (B10): it is one internal warning, and the sources
+    after it still report - on validate and on the queued job alike."""
+
+    def exploding(_context):
         raise RuntimeError("probe exploded")
 
-    monkeypatch.setattr(Workflow, "shot_span_warnings", exploding)
-    # The helper after the one that raises - its warning must still arrive
-    monkeypatch.setattr(
-        Workflow,
+    _swap_warning_check(monkeypatch, "shot_span_warnings", exploding)
+    # The source after the one that raises - its warning must still arrive
+    _swap_warning_check(
+        monkeypatch,
         "inherited_vram_warnings",
-        lambda self, *args, **kwargs: ["sentinel after the failure"],
+        lambda _context: ["sentinel after the failure"],
     )
     with server() as client:
         answer = client.post(
@@ -224,11 +241,15 @@ def test_a_warning_helper_that_raises_refuses_nothing(server, monkeypatch):
         ).json()
         assert answer["valid"] is True, answer
         assert any("sets no 'seed'" in w for w in answer["warnings"])
+        assert WARNING_CRASH in answer["warnings"]
         assert "sentinel after the failure" in answer["warnings"]
+        # the exception's own text stays in the log
+        assert not any("probe exploded" in w for w in answer["warnings"])
 
         submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
         assert submitted.status_code == 201, submitted.text
         assert any("sets no 'seed'" in w for w in submitted.json()["warnings"])
+        assert WARNING_CRASH in submitted.json()["warnings"]
         assert "sentinel after the failure" in submitted.json()["warnings"]
 
 
@@ -275,13 +296,13 @@ def test_every_admission_check_sees_the_workspace_asset_library(
     server, root, monkeypatch
 ):
     seen = []
-    original = Workflow.shot_span_warnings
+    original = None
 
-    def spy(self, *args, **kwargs):
+    def spy(context):
         seen.append(assets._active_asset_dir.get())
-        return original(self, *args, **kwargs)
+        return original.run(context)
 
-    monkeypatch.setattr(Workflow, "shot_span_warnings", spy)
+    original = _swap_warning_check(monkeypatch, "shot_span_warnings", spy)
     shots_assets = os.path.join(root.root, "shots", "assets")
     with server() as client:
         client.post("/api/workspaces", json={"name": "shots"})
@@ -425,3 +446,204 @@ def test_admission_checks_content_type_against_the_callers_arguments(root):
 
     assert admitted({"ct": "text/plain"}).ok
     assert not admitted({}).ok
+
+
+def _a_crashing_select_check(monkeypatch):
+    def boom(_context):
+        raise RuntimeError("check exploded")
+
+    registry = list(validation.ERROR_CHECKS)
+    index = [check.name for check in registry].index("select")
+    registry[index] = validation.Check("select", boom)
+    monkeypatch.setattr(validation, "ERROR_CHECKS", registry)
+
+
+CRASH_MESSAGE = "check 'select' failed (RuntimeError) - the server log has the detail"
+
+
+def test_a_crashing_check_is_an_invalid_verdict_on_validate(server, monkeypatch):
+    _a_crashing_select_check(monkeypatch)
+    with server() as client:
+        response = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow()}
+        )
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["valid"] is False
+    assert [error["path"] for error in answer["errors"]] == [None]
+    assert CRASH_MESSAGE in answer["errors"][0]["message"]
+
+
+def test_a_crashing_check_admits_no_job(server, monkeypatch):
+    _a_crashing_select_check(monkeypatch)
+    with server() as client:
+        response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        assert response.status_code == 400, response.text
+        # a finding with no path is its bare message, not "None: ..."
+        assert response.json()["detail"] == CRASH_MESSAGE
+        assert "check exploded" not in response.text
+        assert client.get("/api/jobs").json()["jobs"] == []
+
+
+SECRET = "/srv/secret/workspace/x.json"
+
+
+def _raise_with_a_path(*_args, **_kwargs):
+    raise RuntimeError(f"cannot read {SECRET}")
+
+
+@pytest.mark.parametrize(
+    "target, name",
+    [(Workflow, "validation_context"), (admission_module, "argument_errors")],
+    ids=["context", "argument_errors"],
+)
+def test_a_failing_gate_names_only_its_exception_type(
+    server, monkeypatch, caplog, target, name
+):
+    """The 400 a submit answers when validation itself fails carries the
+    exception's type, not its text - which can name a server path - and the
+    log keeps the text with its traceback."""
+    monkeypatch.setattr(target, name, _raise_with_a_path)
+    with caplog.at_level("ERROR", logger="dw"):
+        with server() as client:
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+            assert response.status_code == 400, response.text
+            assert SECRET not in response.text
+            assert "RuntimeError" in response.json()["detail"]
+            assert client.get("/api/jobs").json()["jobs"] == []
+    assert any(
+        record.exc_info and SECRET in str(record.exc_info[1])
+        for record in caplog.records
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments, level",
+    [({}, "ERROR"), ({"undeclared": 1}, "DEBUG")],
+    ids=["admissible", "refused"],
+)
+def test_a_failing_warning_source_logs_loudly_only_when_admissible(
+    root, monkeypatch, caplog, arguments, level
+):
+    """A warning source tripping over arguments already refused is expected,
+    so it logs at DEBUG; on an otherwise admissible request it is a bug worth
+    an ERROR. The internal warning is said either way."""
+
+    def boom(_context):
+        raise RuntimeError("warning exploded")
+
+    monkeypatch.setattr(validation, "WARNING_CHECKS", [validation.Check("noisy", boom)])
+    with caplog.at_level("DEBUG", logger="dw"):
+        admission = admit(
+            workflow_path=None,
+            workflow=valid_workflow(),
+            arguments=arguments,
+            base_dir=None,
+            workspace=root,
+            ceiling_index={},
+            output_dir=root.outputs,
+            workflow_dir=root.workflows,
+            asset_roots=[root.assets],
+            prompt_roots=[root.prompts],
+        )
+
+    assert admission.ok == (level == "ERROR")
+    assert [w for w in admission.warnings if "check 'noisy' failed" in w]
+    records = [r for r in caplog.records if "noisy" in r.getMessage()]
+    assert [r.levelname for r in records] == [level]
+    assert records[0].exc_info is not None
+
+
+def unexpandable_workflow():
+    """Passes the schema; its for_each names a variable holding no list."""
+    workflow = for_each_workflow()
+    workflow["variables"]["shots"] = "not a list"
+    return workflow
+
+
+def undeclared_workflow():
+    workflow = valid_workflow()
+    workflow["steps"][0]["pipeline"]["arguments"]["prompt"] = "variable:nope"
+    return workflow
+
+
+@pytest.mark.parametrize(
+    "workflow, path",
+    [
+        (unexpandable_workflow(), "steps[0].for_each"),
+        (undeclared_workflow(), "steps[0].pipeline.arguments.prompt"),
+    ],
+    ids=["for_each", "undeclared_variable"],
+)
+def test_an_expansion_failure_is_a_finding_on_both_routes(server, workflow, path):
+    """The request's one context is built ahead of the gates, and must not
+    turn what the gates answer as a finding into a validator failure."""
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false", json={"workflow": workflow}
+        ).json()
+        assert answer["valid"] is False
+        assert [error["path"] for error in answer["errors"]] == [path]
+        assert "could not be validated" not in answer["errors"][0]["message"]
+
+        response = client.post("/api/jobs", json={"workflow": workflow})
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"].startswith(f"{path}: ")
+        assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_one_request_probes_a_file_once_across_errors_and_warnings(
+    server, root, monkeypatch
+):
+    """A dissolve (the error pass) and an analyze step (the warning pass)
+    naming one asset share the request's probe cache (B9)."""
+    import av
+
+    from .test_dissolve_frame_errors import write_mp4
+
+    for name in ("a.mp4", "b.mp4"):
+        write_mp4(os.path.join(root.assets, name), frames=24)
+    workflow = {
+        "id": "probed",
+        "steps": [
+            {
+                "name": "join",
+                "task": {
+                    "command": "dissolve_videos",
+                    "arguments": {
+                        "videos": ["asset:a.mp4", "asset:b.mp4"],
+                        "dissolve_frames": 6,
+                    },
+                },
+                "result": {"content_type": "video/mp4", "fps": 6},
+            },
+            {
+                "name": "seams",
+                "task": {
+                    "command": "analyze_seams",
+                    "arguments": {
+                        "video": "asset:a.mp4",
+                        "shots": [{"name": "s", "start_frame": 0, "num_frames": 30}],
+                    },
+                },
+                "result": {"content_type": "application/json"},
+            },
+        ],
+    }
+    opened = []
+    real_open = av.open
+
+    def counting_open(file, *args, **kwargs):
+        opened.append(os.path.basename(str(file)))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(av, "open", counting_open)
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false", json={"workflow": workflow}
+        ).json()
+
+    assert answer["valid"] is True, answer
+    # the warning pass read the probe: the shots record reaches past a.mp4
+    assert any("past the file's 24 frames" in w for w in answer["warnings"]), answer
+    assert opened.count("a.mp4") == 1, opened

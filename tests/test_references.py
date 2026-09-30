@@ -19,6 +19,7 @@ from dw.references import (
     is_ref,
     make_ref,
     ref_name,
+    render_path,
 )
 
 
@@ -82,3 +83,8 @@ def test_references_imports_nothing_from_dw():
         if isinstance(node, (ast.Import, ast.ImportFrom))
     ]
     assert imported == []
+
+
+def test_render_path_writes_a_json_path_the_way_schema_errors_do():
+    path = ["steps", 3, "task", "arguments", "videos", 1]
+    assert render_path(path) == "steps[3].task.arguments.videos[1]"

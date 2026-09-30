@@ -29,13 +29,14 @@ member onto a different entry's cache line.
 import copy
 
 from . import references
+from .references import MEMBER_SEPARATOR as MEMBER_SEPARATOR
+from .references import render_path as render_path
 from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
 from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
-MEMBER_SEPARATOR = "@"
 # Each entry is a full generation. Stated against the step cache's bound
 # (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
 # evicts its own earlier members, so this is kept well under it
@@ -393,16 +394,3 @@ def _strings(value):
         for key, item in value.items():
             if key != FOR_EACH_KEY:
                 yield from _strings(item)
-
-
-def render_path(path):
-    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
-    rendered = ""
-    for part in path:
-        if isinstance(part, int):
-            rendered += f"[{part}]"
-        elif rendered:
-            rendered += f".{part}"
-        else:
-            rendered = str(part)
-    return rendered

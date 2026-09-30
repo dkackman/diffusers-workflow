@@ -28,24 +28,27 @@ size is not known until the step that produces it runs.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_media
+from .media_info import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
+from .task_domains import frame_size_mismatches
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
 
-def _frame_size(path):
+def _frame_size(path, probe):
     """The (width, height) `dissolve_videos`/`concat_videos` would see for
     this file, or None when it cannot be probed or carries no video stream."""
-    info = probe_media(path)
+    info = probe(path)
     if info is None or info.get("kind") != "video":
         return None
     width, height = info.get("width"), info.get("height")
     return (width, height) if width and height else None
 
 
-def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
+def video_size_errors(
+    workflow_definition, source_indices=None, base_dir=None, *, probe=probe_metadata
+):
     """Every `dissolve_videos`/`concat_videos` step whose statically-resolvable
     inputs already disagree in frame size, as [{path, message}].
 
@@ -53,6 +56,9 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
     `dissolve_frame_errors` and `task_argument_errors` follow: `source_indices`
     maps an expanded step back to the one the author wrote, and a path inside
     a `for_each` member names the member.
+
+    `probe` defaults to the metadata-only `probe_metadata` (B9); see
+    `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -75,25 +81,16 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
 
         sizes = {}
         for video_index, video in enumerate(videos):
-            if isinstance(video, dict):
-                video = video.get("location")
             path = resolve_probe_path(video, base_dir, "a video argument")
             if path is None:
                 continue
-            size = _frame_size(path)
+            size = _frame_size(path, probe)
             if size is None:
                 continue
             sizes[video_index] = size
-        if len(set(sizes.values())) < 2:
+        mismatches = frame_size_mismatches(sizes)
+        if mismatches is None:
             continue
-
-        first_index = next(iter(sizes))
-        first_size = sizes[first_index]
-        problems = [f"video {first_index} is {first_size[0]}x{first_size[1]}"]
-        for video_index, size in sizes.items():
-            if video_index == first_index or size == first_size:
-                continue
-            problems.append(f"video {video_index} is {size[0]}x{size[1]}")
 
         source = author_index(source_indices, index)
         name = step.get("name")
@@ -102,12 +99,12 @@ def video_size_errors(workflow_definition, source_indices=None, base_dir=None):
             if isinstance(name, str) and MEMBER_SEPARATOR in name
             else ""
         )
-        fit_width, fit_height = first_size
+        fit_width, fit_height = next(iter(sizes.values()))
         errors.append(
             {
                 "path": render_path(("steps", source, "task", "arguments", "videos")),
                 "message": f"{command} needs every video at one size: "
-                f"{', '.join(problems)}{where} - fit the odd one with "
+                f"{mismatches}{where} - fit the odd one with "
                 f"video_frames → resize_rescale(width={fit_width}, "
                 f'height={fit_height}) → pair_audio(fit="video")',
             }

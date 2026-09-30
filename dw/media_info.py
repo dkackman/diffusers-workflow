@@ -202,6 +202,107 @@ def probe_media(path, envelope=False):
         return info
 
 
+# Codecs where demuxing (no decode) counts frames exactly - one packet per
+# encoded frame, no B-frame reordering or multi-packet-per-frame games -
+# because these are what dw's own pipelines actually write. Anything else
+# falls back to a real decode (`probe_media`) rather than risk trusting a
+# count that might not hold for it.
+_DEMUX_COUNTABLE_CODECS = frozenset(
+    {"h264", "hevc", "mpeg4", "vp8", "vp9", "av1", "mjpeg", "prores"}
+)
+
+
+def _video_codec_name(video):
+    """The video stream's codec name, or None - its own function so a test
+    can substitute an unlisted codec without needing a fixture genuinely
+    encoded with one."""
+    codec_context = getattr(video, "codec_context", None)
+    return getattr(codec_context, "name", None) if codec_context is not None else None
+
+
+def _demuxed_frame_count(path, container, video):
+    """The video stream's frame count when its header didn't carry one, or
+    None when it cannot be determined at all.
+
+    Demuxing packets without decoding them is exact only for a codec in
+    `_DEMUX_COUNTABLE_CODECS`; for anything else - or if the demux itself
+    raises partway through - this falls back to `probe_media`'s own decode,
+    which is always correct, at the cost of the very decode `probe_metadata`
+    otherwise avoids. `frame_count` must never come back silently missing
+    when `probe_media` could still supply it (review round 1, B9).
+    """
+    codec_name = _video_codec_name(video)
+    if codec_name in _DEMUX_COUNTABLE_CODECS:
+        try:
+            return sum(1 for packet in container.demux(video) if packet.size)
+        except Exception as e:
+            logger.debug(
+                f"Demux failed partway through {path}: {e} - "
+                "falling back to a decode for its frame count"
+            )
+    else:
+        logger.debug(
+            f"{path}: codec {codec_name!r} is not in the demux-safe "
+            "allowlist - falling back to a decode for its frame count"
+        )
+    decoded = probe_media(path)
+    return decoded.get("frame_count") if decoded else None
+
+
+def probe_metadata(path):
+    """Header-level view of a media file, or None - what validation needs
+    from `probe_media` without paying for what it does not: a full decode.
+
+    Reports the same `kind`, `width`, `height`, `fps`, `frame_count`,
+    `duration_seconds`, `sample_rate` and `channels` `probe_media` does, for
+    a video or an audio file, and nothing else - no loudness analysis, and
+    the soundtrack of a video is never decoded here either, since validation
+    only asks about frame counts and shapes.
+
+    A muxer that writes a video stream's frame count into its header (mp4
+    does) answers straight from that header - av.open() alone, no
+    demuxing, no decoding. One that doesn't (0 means "count them"; mkv is
+    the case dw hits) is counted by demuxing that stream's packets without
+    decoding them, exact for a codec in `_DEMUX_COUNTABLE_CODECS`: one
+    packet per encoded frame, plus a final empty flush packet once the
+    stream is exhausted (`packet.size == 0`) that is not a frame and is not
+    counted. A codec outside that allowlist, or a demux that raises partway
+    through, falls back to `probe_media`'s real decode instead of risking a
+    wrong count (`_demuxed_frame_count`).
+    """
+    try:
+        container = av.open(path)
+    except Exception as e:
+        logger.debug(f"Not probeable as media: {path}: {e}")
+        return None
+    with container:
+        video = container.streams.video[0] if container.streams.video else None
+        audio = container.streams.audio[0] if container.streams.audio else None
+        if video is None and audio is None:
+            return None
+        info = {}
+        if video is not None:
+            info["kind"] = "video"
+            info["fps"] = float(video.average_rate) if video.average_rate else None
+            info["width"] = int(video.width)
+            info["height"] = int(video.height)
+        else:
+            info["kind"] = "audio"
+        if container.duration is not None:
+            info["duration_seconds"] = float(container.duration / av.time_base)
+        if audio is not None:
+            info["sample_rate"] = int(audio.rate)
+            info["channels"] = int(audio.channels)
+        if video is not None:
+            if video.frames:
+                info["frame_count"] = int(video.frames)
+            else:
+                frame_count = _demuxed_frame_count(path, container, video)
+                if frame_count is not None:
+                    info["frame_count"] = frame_count
+        return info
+
+
 def _as_frame_samples(samples, channels):
     """One decoded audio frame as a (samples, channels) array.
 

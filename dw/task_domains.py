@@ -32,8 +32,7 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 import logging
 import numbers
 
-from .for_each import MEMBER_SEPARATOR, render_path
-from .references import author_index
+from .references import MEMBER_SEPARATOR, author_index, render_path
 
 logger = logging.getLogger("dw")
 
@@ -327,3 +326,108 @@ def task_argument_errors(workflow_definition, source_indices=None):
                 }
             )
     return errors
+
+
+# The four rules a checker and a task both apply. Each was written twice -
+# once where validate refuses it for free and once where the task refuses it
+# at run time - and two of the copies drifted (the run's frame-size refusal
+# stopped at the first mismatch and called its reference "video 0"; the
+# checker's slice arithmetic lacked #557's end rounding). Each now has one
+# home here, and both sides call it: the checker for the inputs it can know
+# before the run, the task for the ones it is actually handed.
+
+
+def dissolve_shortfalls(frame_counts, dissolve_frames):
+    """One sentence per video too short for its share of the overlaps.
+
+    `frame_counts` is one entry per video in join order, None where the count
+    is not known (validation cannot probe a `previous_result:`) - such an
+    entry is skipped but still counts as a neighbour, since a seam is a seam
+    whether or not its other side has been measured. An inner video carries
+    two dissolves, an end one carries one.
+    """
+    last = len(frame_counts) - 1
+    shortfalls = []
+    for index, frame_count in enumerate(frame_counts):
+        if frame_count is None:
+            continue
+        seams = (index > 0) + (index < last)
+        if frame_count < seams * dissolve_frames:
+            shortfalls.append(
+                f"video {index} has {frame_count} frames, too few for its "
+                f"{seams} dissolve(s) of {dissolve_frames} frames"
+            )
+    return shortfalls
+
+
+def frame_size_mismatches(sizes):
+    """The sentence naming every video whose frame size disagrees with the
+    first known one, or None when they all agree.
+
+    `sizes` maps a video's index in the join to its (width, height); a video
+    whose size is not known is absent. The reference is named by its real
+    index, and every mismatch is listed, because each one is a fix the caller
+    has to make - a report stopping at the first sends them back for the
+    next.
+    """
+    if not sizes:
+        return None
+    first_index = next(iter(sizes))
+    first_size = sizes[first_index]
+    parts = [f"video {first_index} is {first_size[0]}x{first_size[1]}"]
+    for index, size in sizes.items():
+        if index != first_index and size != first_size:
+            parts.append(f"video {index} is {size[0]}x{size[1]}")
+    return ", ".join(parts) if len(parts) > 1 else None
+
+
+# Padding shorter than this at the end of a slice is the rounding that
+# frame-aligned slicing produces, not a slice that overran its source
+SLICE_PAD_WARN_MS = 10.0
+
+
+def frames_to_samples(frames, fps, sample_rate):
+    """The number of audio samples spanning a run of video frames."""
+    return int(round(frames / fps * sample_rate))
+
+
+def slice_padding(total_samples, start, length, sample_rate):
+    """The seconds of silence a slice pads past its source's end, or None
+    when there is none worth saying - under `SLICE_PAD_WARN_MS`, which is
+    frame-aligned rounding rather than a slice that overran.
+
+    `start` and `length` are in samples, computed the way `slice_audio`
+    computes them (a frame-addressed end rounded directly, #557), so the
+    checker and the run agree on the same figure for the same arguments.
+    """
+    if not sample_rate:
+        return None
+    available = max(0, min(total_samples - start, length))
+    padded = length - available
+    if padded <= 0:
+        return None
+    padded_seconds = padded / float(sample_rate)
+    if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
+        return None
+    return padded_seconds
+
+
+SELECT_RULES = frozenset({"argmax", "argmin", "first_above", "first_below", "index"})
+SELECT_THRESHOLD_RULES = frozenset({"first_above", "first_below"})
+
+
+def select_rule_problems(rule, threshold, index):
+    """Why `select` cannot run this rule with these arguments, one sentence
+    each: an unknown rule, a threshold rule with no threshold, or the index
+    rule with no index. Empty when the rule has what it needs.
+
+    Only what the run itself refuses - an argument a rule does not use is
+    validation's own complaint, since the run ignores it.
+    """
+    if rule not in SELECT_RULES:
+        return [f"select: unknown rule: {rule!r}"]
+    if rule in SELECT_THRESHOLD_RULES and threshold is None:
+        return [f"select rule '{rule}' requires a threshold"]
+    if rule == "index" and index is None:
+        return ["select rule 'index' requires an index"]
+    return []

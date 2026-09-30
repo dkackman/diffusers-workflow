@@ -20,6 +20,7 @@ from PIL import Image
 from ..events import emit_log, emit_warning
 from ..result import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
+from ..task_domains import dissolve_shortfalls
 from .audio_utils import (
     as_channels_samples,
     crossfade_concat,
@@ -107,13 +108,11 @@ def dissolve_videos(
     clips = [frames_as_array(v).astype(numpy.float32) for v in loaded]
     check_same_frame_size(clips, "dissolve_videos")
 
-    for index, clip in enumerate(clips):
-        seams = (index > 0) + (index < len(clips) - 1)
-        if len(clip) < seams * dissolve_frames:
-            raise ValueError(
-                f"video {index} has {len(clip)} frames, too few for its "
-                f"{seams} dissolve(s) of {dissolve_frames} frames"
-            )
+    # The rule validate applies to a statically-resolvable input
+    # (dw/dissolve_frame_errors.py), here for the frames actually decoded
+    shortfalls = dissolve_shortfalls([len(clip) for clip in clips], dissolve_frames)
+    if shortfalls:
+        raise ValueError(shortfalls[0])
 
     joined = clips[0]
     # Where each clip's first frame landed - the start of its dissolve

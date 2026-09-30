@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from dw.null_media import null_media_errors
+from dw.validation import null_media_errors
 from dw.workflow import Workflow
 
 H3 = "diffusers.modular_pipelines.minimax_h3"

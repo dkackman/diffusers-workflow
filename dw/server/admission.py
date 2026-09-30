@@ -22,12 +22,10 @@ from ..assets import (
     is_asset_reference,
     resolve_asset_reference,
 )
-from ..for_each import entry_field_warnings
-from ..introspection import workflow_argument_warnings
-from ..plan import unseeded_cache_warnings
+from .. import validation
 from ..prompts import PROMPT_PREFIX, resolve_prompt_reference
 from ..runs import is_output_reference, resolve_output_reference
-from ..variable_constraints import constraint_warnings
+from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 
@@ -35,10 +33,25 @@ logger = logging.getLogger("dw")
 
 
 class ValidatorFailure(Exception):
-    """validation_errors or the argument checks raised - not the schema's
-    verdict on the workflow but the validator failing. The validate route answers it as an
+    """The validator failing outright rather than answering: building the
+    request's validation context, the gates validation_errors runs before
+    its checks (schema, 'constraint:' references, the expansion) or the
+    argument checks raised something they do not answer as a finding. A
+    single check that raises is not this - it is an internal finding, and
+    the verdict is invalid (B10). The validate route answers it as an
     invalid workflow whose detail is in the server log; a submit answers
-    400 with the message, as it always has."""
+    400 with the message, which names the failure's exception type only -
+    its text can carry internals (a path, a value), so the log keeps it."""
+
+
+def _validator_failure(error):
+    """The ValidatorFailure for `error`, raised from inside its except
+    block: logged with its traceback, answered by its type alone (as a
+    check that raises is, B10)."""
+    logger.exception("Validation failed outright")
+    return ValidatorFailure(
+        f"validation failed ({type(error).__name__}) - the server log has the detail"
+    )
 
 
 @dataclass
@@ -61,7 +74,10 @@ class Admission:
     def message(self):
         """The errors as one line, the form a 400 has always carried."""
         return "; ".join(
-            f"{problem['path']}: {problem['message']}" for problem in self.errors
+            problem["message"]
+            if problem.get("path") is None
+            else f"{problem['path']}: {problem['message']}"
+            for problem in self.errors
         )
 
 
@@ -91,9 +107,15 @@ def admit(
     'asset:' and 'prompt:' references resolve over; `ceiling_index` is the
     catalog's VRAM ceilings for inherited_vram_warnings.
 
+    One ValidationContext serves the whole request: the error pass and the
+    warning pass (`validation.WARNING_CHECKS`) read one expansion and one
+    media probe cache. A check that raises is an internal finding - an
+    invalid verdict for an error check, one `internal:` warning for a
+    warning source, which never refuses (B10).
+
     Raises what constructing the Workflow raises (ValueError, SecurityError,
-    ...) and ValidatorFailure when validation_errors or the argument checks
-    themselves fail. A warning helper that fails is logged and skipped.
+    ...) and ValidatorFailure when building the context, validation_errors'
+    gates or the argument checks themselves fail.
     """
     if (workflow_path is None) == (workflow is None):
         raise ValueError("Provide exactly one of workflow_path or workflow")
@@ -122,10 +144,13 @@ def admit(
             # Checked against the caller's arguments, not the document alone:
             # a content_type (or reference_name, ...) that only becomes
             # active once a 'variable:' resolves is caught here (#414, #415),
-            # and the caller's list is the one a for_each expands over
-            admission.errors = candidate.validation_errors(arguments=checked)
+            # and the caller's list is the one a for_each expands over. The
+            # context expands lazily, inside validation_errors' gates, so an
+            # expansion failure is still answered there as a finding
+            context = candidate.validation_context(checked, ceiling_index=ceiling_index)
+            admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
-            raise ValidatorFailure(str(e)) from e
+            raise _validator_failure(e) from e
         if admission.errors:
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
@@ -148,11 +173,11 @@ def admit(
                 prompt_roots=prompt_roots,
             )
         except Exception as e:
-            raise ValidatorFailure(str(e)) from e
-        # A warning never refuses: each helper that fails is logged and
-        # skipped, and the others still report
-        admission.warnings = _warnings(
-            candidate, arguments, checked, ceiling_index, loud=admission.ok
+            raise _validator_failure(e) from e
+        # A warning never refuses: a source that fails is logged and said
+        # as one internal warning, and the others still report
+        admission.warnings = to_warnings(
+            run_checks(context, validation.WARNING_CHECKS, WARNING, loud=admission.ok)
         )
         if plan_for is not None and admission.ok:
             admission.plan = plan_for(candidate)
@@ -160,83 +185,6 @@ def admit(
     finally:
         if token is not None:
             deactivate_asset_dir(token)
-
-
-def _warnings(candidate, arguments, checked, ceiling_index, *, loud=True):
-    """Every warning /api/validate reports that does not need the plan.
-
-    A helper that raises is skipped rather than failing the request - a
-    warning must never refuse a job, and several helpers probe media and
-    may trip over it. Logged with its name when the request is admissible
-    (`loud`); at debug when it is refused anyway, since a warning pass
-    tripping over arguments already reported as bad is expected."""
-    definition = candidate.workflow_definition
-    helpers = (
-        (
-            "workflow_argument_warnings",
-            lambda: workflow_argument_warnings(definition, arguments),
-        ),
-        # A value a declared constraint will round up - the silent half of
-        # #96: the run changed the caller's frame count and only the
-        # server's log said so
-        ("constraint_warnings", lambda: constraint_warnings(definition, arguments)),
-        ("entry_field_warnings", lambda: entry_field_warnings(definition, arguments)),
-        # Why `plan.cached_steps` is 0 for a workflow with no seed - the
-        # cache is off, not empty
-        (
-            "unseeded_cache_warnings",
-            lambda: unseeded_cache_warnings(definition, arguments),
-        ),
-        # An adapter whose file name says nothing about which checkpoint
-        # partition it was trained for: valid, since the name of a future
-        # checkpoint cannot be predicted, but nothing at run time would say
-        # it loaded onto the wrong one (#155)
-        ("adapter_warnings", lambda: candidate.adapter_warnings(arguments)),
-        # A required task argument fed by variable:name where name's default
-        # is null - a fine document, but a run left as-is would fail; empty
-        # once the caller names any arguments, since that condition is a
-        # hard error in validation_errors instead (#364)
-        (
-            "null_variable_argument_warnings",
-            lambda: candidate.null_variable_argument_warnings(checked),
-        ),
-        # An argument a sub-workflow step passes to a workflow that declares
-        # no variable for it - dropped in silence at run time
-        ("sub_workflow_warnings", lambda: candidate.sub_workflow_warnings(checked)),
-        # A slice_audio source whose real duration is already knowable and
-        # whose requested slice reaches past it - zero-padded rather than
-        # refused, but previously said only by the run itself (#402)
-        (
-            "slice_past_end_warnings",
-            lambda: candidate.slice_past_end_warnings(arguments),
-        ),
-        # An assessment probe's shots argument reaching past a
-        # statically-knowable video's real frame count - silently clipped
-        # rather than refused (#425)
-        ("shot_span_warnings", lambda: candidate.shot_span_warnings(arguments)),
-        # A step loading a pipeline the catalog declares a VRAM ceiling for,
-        # in a workflow that declares none, projected past it - a warning,
-        # since this workflow's offload/quantization may be leaner than the
-        # template's (#502)
-        (
-            "inherited_vram_warnings",
-            lambda: candidate.inherited_vram_warnings(arguments, ceiling_index),
-        ),
-    )
-    warnings = []
-    for name, helper in helpers:
-        try:
-            warnings += helper()
-        except Exception:
-            if loud:
-                logger.exception("Warning helper %s failed; skipped", name)
-            else:
-                logger.debug(
-                    "Warning helper %s skipped for a refused request",
-                    name,
-                    exc_info=True,
-                )
-    return warnings
 
 
 def argument_reference_errors(

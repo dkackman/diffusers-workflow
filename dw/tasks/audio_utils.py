@@ -18,7 +18,13 @@ import torch
 
 from ..events import emit_log, emit_warning
 from ..loudness import TRUE_PEAK_OVERSAMPLE, integrated_lufs
-from ..task_domains import as_number, check_arguments
+from ..task_domains import (
+    SLICE_PAD_WARN_MS as SLICE_PAD_WARN_MS,
+    as_number,
+    check_arguments,
+    frames_to_samples as frames_to_samples,
+    slice_padding,
+)
 from ..security import (
     validate_file_extension,
     ALLOWED_AUDIO_EXTENSIONS,
@@ -30,9 +36,9 @@ logger = logging.getLogger("dw")
 # discontinuity does not click
 DECLICK_MS = 3.0
 
-# Padding shorter than this at the end of a slice is the rounding that
-# frame-aligned slicing produces, not a slice that overran its source
-SLICE_PAD_WARN_MS = 10.0
+# SLICE_PAD_WARN_MS and frames_to_samples live in dw/task_domains.py, shared
+# with validate's slice check; imported above and re-exported from here for
+# the modules that already import them from this one
 
 # A dropped tail is only the "almost reached the end" signature this warning
 # exists for when it is both short next to the slice and short in absolute
@@ -75,11 +81,6 @@ def as_channels_samples(audio):
         audio = audio.T
 
     return numpy.ascontiguousarray(audio)
-
-
-def frames_to_samples(frames, fps, sample_rate):
-    """The number of audio samples spanning a run of video frames."""
-    return int(round(frames / fps * sample_rate))
 
 
 def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
@@ -753,14 +754,11 @@ def _warn_on_slice_past_end(total, start, length, sample_rate):
     behalf, and a caller reading the job over the API or MCP sees the
     warnings list and nothing else (#82, #108).
     """
-    available = max(0, min(total - start, length))
-    padded = length - available
-    if padded <= 0 or not sample_rate:
-        return
-    padded_seconds = padded / float(sample_rate)
-    if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
-        # Frame-aligned slicing lands a sample or two past the end routinely;
-        # that is rounding, not a decision anyone can act on
+    # Frame-aligned slicing lands a sample or two past the end routinely;
+    # that is rounding, not a decision anyone can act on, and slice_padding
+    # answers None for it - the same rule validate's slice check applies
+    padded_seconds = slice_padding(total, start, length, sample_rate)
+    if padded_seconds is None:
         return
     emit_warning(
         f"slice_audio: the requested slice runs "

@@ -285,10 +285,16 @@ class TestMatch:
     def test_an_empty_index_warns_nothing(self):
         assert _warnings(_inline(_h3_step("shot")), index={}) == []
 
-    def test_a_definition_that_does_not_expand_warns_nothing(self):
+    def test_a_definition_that_does_not_expand_says_the_check_failed(self):
+        # It used to warn nothing: the expansion's failure is
+        # validation_errors' to report, but a warning source that cannot
+        # run now says so rather than going quiet (B10)
         step = _h3_step("shot")
         step["for_each"] = []
-        assert _warnings(_inline(step)) == []
+        assert _warnings(_inline(step)) == [
+            "internal: warning check 'inherited_vram_warnings' failed "
+            "(ForEachError) - the server log has the detail"
+        ]
 
 
 def test_the_pure_function_skips_a_declared_estimate():
