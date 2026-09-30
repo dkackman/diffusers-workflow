@@ -11,7 +11,7 @@ import tempfile
 from unittest.mock import patch
 from PIL import Image
 from dw.tasks.gather import gather_images, gather_videos, gather_inputs
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.security import SecurityError
 
 

@@ -43,7 +43,7 @@ class TestInterpolateFrames:
     @patch("dw.tasks.interpolate_frames._load_rife_model")
     def test_an_audio_video_unwraps_to_its_frames(self, mock_load):
         """A concat or dissolve step's AudioVideo interpolates like a frame list."""
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.interpolate_frames import interpolate_frames
 
         mock_model = MagicMock(side_effect=lambda a, b: a)

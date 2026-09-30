@@ -763,7 +763,7 @@ class AudioReference:
 
 def audio_video(frames=None, audio=None, sample_rate=None):
     """A generated video artifact, the shape a pipeline's audio+video output takes"""
-    from dw.result import AudioVideo
+    from dw.media_types import AudioVideo
 
     if frames is None:
         frames = [Image.new("RGB", (8, 8))]
@@ -908,7 +908,7 @@ class TestBuildObjects:
         # reference declare one that may not match
         import numpy
 
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         arguments = {
             "reference": {
@@ -941,7 +941,7 @@ class TestBuildObjects:
         # name the mismatch, not fail inside the frame helper
         import numpy
 
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         arguments = {
             "reference": {

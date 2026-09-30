@@ -463,7 +463,7 @@ def test_contact_sheet_cells_are_stamped_with_their_timestamp(tmp_path):
 
     sheet = contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=64)
 
-    columns = 2  # _default_columns(4)
+    columns = 2  # default_columns(4)
     for cell in range(4):
         row, col = divmod(cell, columns)
         corner = sheet["image"].crop((col * 64, row * 32, col * 64 + 32, row * 32 + 16))

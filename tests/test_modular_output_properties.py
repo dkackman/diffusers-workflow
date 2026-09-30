@@ -16,7 +16,8 @@ import torch
 from PIL import Image
 
 from dw.previous_results import get_iterations, get_previous_results
-from dw.result import AudioVideo, Result
+from dw.media_types import AudioVideo
+from dw.result import Result
 from dw.tasks.pair_audio import pair_audio
 
 SAMPLE_RATE = 48000

@@ -21,7 +21,7 @@ from dw.pipeline_processors.chain import (
     snap_frames,
     validate_frame_snap,
 )
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 
 MINIMAX_SNAP = {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 345}
 

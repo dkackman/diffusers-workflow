@@ -15,7 +15,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.tasks.pair_audio import pair_audio
 
 

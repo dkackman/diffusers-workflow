@@ -151,7 +151,7 @@ class TestMixAudio:
         # (#287) - a rate disagreement among tracks carries no editorial
         # meaning, so it is converted (to the highest rate found) rather
         # than raised, with a warning naming which
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         low = AudioVideo([], _tone(100, 0.2), 32000)
         high = AudioVideo([], _tone(100, 0.3), 44100)

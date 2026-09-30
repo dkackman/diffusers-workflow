@@ -22,7 +22,7 @@ import torch
 from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
-from ..result import AudioTrack
+from ..media_types import AudioTrack
 from .audio_utils import as_channels_samples, load_audio, resample_waveform
 from .model_cache import cached_model, hf_pipeline_placement
 

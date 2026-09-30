@@ -8,14 +8,20 @@ to pull a single frame out of any of them, always as a PIL image.
 """
 
 import logging
-import math
 import re
 
 import numpy
 import torch
 from PIL import Image
 
-from ..result import AudioVideo
+from ..media_frames import (
+    compose_grid,
+    default_columns,
+    evenly_spaced_indices,
+    frames_at,
+    grid_tile,
+)
+from ..media_types import AudioVideo, fit_codec_padding
 from ..task_domains import frame_size_mismatches
 
 logger = logging.getLogger("dw")
@@ -69,8 +75,6 @@ def get_frame(video, frame_index=0):
         The frame as a PIL image
     """
     if isinstance(video, VideoFileReference):
-        from ..media_frames import frames_at
-
         return frames_at(video.path, [f"frame:{frame_index}"])[0]["image"]
     return extract_frame(video, frame_index)
 
@@ -252,15 +256,15 @@ def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
     count = min(count, total)
     fps = getattr(video, "fps", None)
 
-    indices = _evenly_spaced_indices(total, count)
+    indices = evenly_spaced_indices(total, count)
     tiles = [
-        _grid_tile(extract_frame(video, index), index, fps, tile_width, label)
+        grid_tile(extract_frame(video, index), index, fps, tile_width, label)
         for index in indices
     ]
 
     if columns is None:
-        columns = _default_columns(len(tiles))
-    return _compose_grid(tiles, columns)
+        columns = default_columns(len(tiles))
+    return compose_grid(tiles, columns)
 
 
 def _positive_int(value, command, name):
@@ -276,63 +280,6 @@ def _positive_int(value, command, name):
     if value < 1:
         raise ValueError(f"{command} needs '{name}' of at least 1, got {value}")
     return value
-
-
-def _evenly_spaced_indices(total, count):
-    """`count` frame indices spaced evenly across [0, total - 1], inclusive
-    of both ends. Rounding can coincide two spacings on one index in a short
-    clip; those collapse rather than repeating the same frame as a tile."""
-    if count == 1:
-        return [0]
-    raw = numpy.linspace(0, total - 1, num=count)
-    seen = []
-    for value in raw.round().astype(int).tolist():
-        if not seen or seen[-1] != value:
-            seen.append(value)
-    return seen
-
-
-def _default_columns(count):
-    """A grid biased wide: rows no more than columns, columns >= sqrt(count)."""
-    rows = math.isqrt(count) or 1
-    return math.ceil(count / rows)
-
-
-def _grid_tile(frame, index, fps, tile_width, label):
-    tile_height = max(1, round(frame.height * tile_width / frame.width))
-    tile = frame.resize((tile_width, tile_height), Image.LANCZOS).convert("RGB")
-    if not label:
-        return tile
-
-    from PIL import ImageDraw, ImageFont
-
-    text = _format_timestamp(index, fps) if fps else f"#{index}"
-    draw = ImageDraw.Draw(tile)
-    font_size = max(10, tile_width // 16)
-    try:
-        font = ImageFont.truetype("Arial", font_size)
-    except (IOError, OSError):
-        font = ImageFont.load_default(size=font_size)
-    draw.text(
-        (4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black"
-    )
-    return tile
-
-
-def _format_timestamp(index, fps):
-    seconds = index / fps
-    minutes, remainder = divmod(seconds, 60)
-    return f"{int(minutes):02d}:{remainder:04.1f}"
-
-
-def _compose_grid(tiles, columns):
-    tile_width, tile_height = tiles[0].size
-    rows = math.ceil(len(tiles) / columns)
-    grid = Image.new("RGB", (columns * tile_width, rows * tile_height), (0, 0, 0))
-    for position, tile in enumerate(tiles):
-        row, col = divmod(position, columns)
-        grid.paste(tile, (col * tile_width, row * tile_height))
-    return grid
 
 
 def is_video(value):
@@ -560,7 +507,7 @@ def _decode_audio_video(handle):
 
     audio = numpy.concatenate(chunks, axis=1).astype(numpy.float32) if chunks else None
     if audio is not None and frame_rate:
-        audio = _fit_audio_to_frames(audio, len(frames), frame_rate, sample_rate)
+        audio = fit_codec_padding(audio, len(frames), frame_rate, sample_rate)
     logger.debug(
         f"Decoded {len(frames)} frames and "
         f"{audio.shape[1] if audio is not None else 0} audio samples"
@@ -572,66 +519,3 @@ def _decode_audio_video(handle):
     return AudioVideo(
         frames, audio, sample_rate if audio is not None else None, fps=frame_rate
     )
-
-
-# How far a decoded track may be off the frames' own duration and still be
-# treated as codec padding rather than a track of its own length. AAC codes
-# 1024 samples at a time, so a file's audio runs up to one such block long -
-# a hundredth of a second, which accumulates into visible lip-sync drift once
-# a dozen shots are joined end to end
-AUDIO_FIT_TOLERANCE_SECONDS = 0.25
-
-
-def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
-    """Trim or pad a decoded track to exactly the frames' own duration.
-
-    Only when the difference is codec padding. A track that genuinely runs to
-    a different length than the picture - a song laid over a short clip - is
-    left alone.
-
-    `audio` may be a numpy array (the decode path) or a torch tensor still on
-    its generating device (an in-memory pipeline output, #197) - the pad and
-    trim below keep whichever type and device it arrived with rather than
-    forcing a host round trip the caller may not want yet.
-    """
-    axis = _sample_axis(audio)
-    if axis is None:
-        return audio
-
-    expected = round(frame_count / frame_rate * sample_rate)
-    difference = audio.shape[axis] - expected
-    if difference == 0 or abs(difference) > AUDIO_FIT_TOLERANCE_SECONDS * sample_rate:
-        return audio
-
-    logger.debug(
-        f"Fitting decoded audio to {frame_count} frames ({difference:+} samples)"
-    )
-    if difference > 0:
-        trim = [slice(None)] * audio.ndim
-        trim[axis] = slice(None, expected)
-        return audio[tuple(trim)]
-    if isinstance(audio, torch.Tensor):
-        # torch.nn.functional.pad takes its pairs from the last axis backwards
-        padding = [0, 0] * audio.ndim
-        padding[2 * (audio.ndim - 1 - axis) + 1] = -difference
-        return torch.nn.functional.pad(audio, padding)
-    widths = [(0, 0)] * audio.ndim
-    widths[axis] = (0, -difference)
-    return numpy.pad(audio, widths)
-
-
-def _sample_axis(audio):
-    """The axis a waveform's samples run along, or None if it has no such axis.
-
-    Not a fixed index: a generated track arrives in any of the layouts
-    _as_stereo reads - (channels, samples), (samples, channels), or a bare
-    (samples,) - and a mono one written (samples,) or (samples, 1) used to
-    reach shape[1] here and either raise IndexError or fit the wrong axis
-    into a silent no-op. Channels are few and samples are many, so the
-    longer axis is the sample axis.
-    """
-    if audio.ndim == 1:
-        return 0
-    if audio.ndim != 2:
-        return None
-    return 0 if audio.shape[0] > audio.shape[1] else 1

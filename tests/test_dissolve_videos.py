@@ -7,7 +7,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.tasks.dissolve_videos import dissolve_videos
 
 

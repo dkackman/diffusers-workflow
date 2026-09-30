@@ -24,7 +24,8 @@ import numpy
 from PIL import Image
 
 from dw.pipeline_processors.chain import run_chain
-from dw.result import AudioVideo, Result
+from dw.media_types import AudioVideo
+from dw.result import Result
 from dw.runs import MANIFEST_FILE_NAME, recorded_shots
 from dw.shots import (
     carried_shots,

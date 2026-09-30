@@ -30,7 +30,7 @@ import numpy
 
 from ..events import emit_log, emit_warning
 from ..loudness import MIN_LUFS_SECONDS, integrated_lufs
-from ..result import AudioVideo
+from ..media_types import AudioVideo
 from ..shots import measured_num_samples, shot_record
 from ..task_domains import check_arguments
 from .audio_utils import (

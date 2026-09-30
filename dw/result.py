@@ -20,6 +20,14 @@ from .content_types import (
     refuse_active_content_type,
 )
 from .events import emit_log, emit_phase, emit_warning
+from .media_types import (
+    AUDIO_FIT_TOLERANCE_SECONDS,
+    AudioTrack,
+    AudioVideo,
+    fit_codec_padding,
+    sample_axis,
+    warn_on_rate_override,
+)
 from .security import (
     MAX_DECODE_PIXELS,
     SecurityError,
@@ -430,69 +438,6 @@ MODULAR_AUDIO_KEYS = ("audio",)
 MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
 
 
-class AudioVideo:
-    """A generated video together with the audio track generated alongside it.
-
-    Pipelines like LTX-2 return audio next to their frames. Keeping the two paired lets
-    the result mux them into one file instead of dropping the audio on the floor.
-    """
-
-    def __init__(self, frames, audio, sample_rate, fps=None, shots=None):
-        """
-        Args:
-            frames: The video, as PIL images or an array of frames
-            audio: Waveform for this video, shaped (channels, samples)
-            sample_rate: Sample rate of the waveform, or None if the pipeline did not report one
-            fps: Frame rate these frames are meant to play at, when something
-                knows it - a joined video's own rate, or the rate of the file
-                a task read. Carried for the same reason AudioTrack carries
-                its sample rate: `result.fps` defaults to 8, and a step that
-                joins 24 fps shots writing them at 8 is three times slow with
-                its audio still the right length (#84). A declared
-                `result.fps` still wins over this
-            shots: Where each input landed, for a video a step joined from
-                several - a list of shot records (dw/shots.py), or None for a
-                video that is one shot. Carried into the step's manifest
-                entry when the video is saved (#378)
-        """
-        self.frames = frames
-        self.audio = audio
-        self.sample_rate = sample_rate
-        self.fps = fps
-        self.shots = shots
-
-
-class AudioTrack:
-    """A generated waveform together with the rate it was generated at.
-
-    A step that produces audio alone usually returns the waveform by itself, and
-    the workflow declares the rate - which is fine where the rate is a property of
-    the workflow (a slice of a file it named) rather than of the model. It is not
-    fine for a generated track: every text-to-speech model has its own rate, and a
-    declared 44100 against a 24 kHz model plays the speech fast without failing.
-
-    Carrying the rate with the waveform is what lets a workflow say nothing about
-    it. Everything downstream of audio already reads '.audio' and '.sample_rate'
-    off whatever it is handed - slice_audio, fade_audio, pair_audio and the H3
-    audio references all accept one of these - and a rate the workflow does declare
-    still wins over the one carried here.
-    """
-
-    def __init__(self, audio, sample_rate, source_mean_dbfs=None):
-        """
-        Args:
-            audio: The waveform, shaped (channels, samples)
-            sample_rate: Sample rate the waveform was generated at
-            source_mean_dbfs: The mean level of the material this track was
-                taken from, when a task (slice_audio) measured one before
-                cutting it down - lets a save skip the near-silent warning
-                for a slice whose source was already this quiet (#309)
-        """
-        self.audio = audio
-        self.sample_rate = sample_rate
-        self.source_mean_dbfs = source_mean_dbfs
-
-
 class Result:
     """Manages and stores results from workflow steps.
 
@@ -895,9 +840,7 @@ class Result:
                     and carried_rate is not None
                     and declared_rate != carried_rate
                 ):
-                    from .tasks.audio_utils import _warn_on_rate_override
-
-                    _warn_on_rate_override("save_artifact", carried_rate, declared_rate)
+                    warn_on_rate_override("save_artifact", carried_rate, declared_rate)
                 sample_rate = declared_rate or carried_rate or DEFAULT_AUDIO_SAMPLE_RATE
                 # A batched waveform holds several songs - save each one separately
                 if len(waveforms) > 1:
@@ -1029,13 +972,11 @@ class Result:
                         round(frame_count / video_fps * probed_info["sample_rate"])
                     )
                     shortfall = expected_samples - written_samples
-                    # Only a residual the save-time fit (_fit_audio_to_frames)
+                    # Only a residual the save-time fit (fit_codec_padding)
                     # would have padded: past its tolerance the track was
                     # left at its own length, audio_video_length_mismatch
                     # already names that gap, and "the mux trimmed it" would
                     # misexplain it.
-                    from .tasks.video_utils import AUDIO_FIT_TOLERANCE_SECONDS
-
                     tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
                     if 0 < shortfall < probed_info["sample_rate"] / video_fps:
                         # Under a frame: the encoder's alignment on every
@@ -1207,10 +1148,8 @@ class Result:
             and fps
             and not hasattr(artifact.frames, "cleanup")
         ):
-            from .tasks.video_utils import _fit_audio_to_frames, _sample_axis
-
-            fitted = _fit_audio_to_frames(audio, len(artifact.frames), fps, sample_rate)
-            axis = _sample_axis(audio)
+            fitted = fit_codec_padding(audio, len(artifact.frames), fps, sample_rate)
+            axis = sample_axis(audio)
             if (
                 axis is not None
                 and fitted.shape[axis] != audio.shape[axis]

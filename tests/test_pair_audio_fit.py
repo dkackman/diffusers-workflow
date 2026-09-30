@@ -14,7 +14,7 @@ import pathlib
 import numpy
 import pytest
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.tasks.pair_audio import pair_audio
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent

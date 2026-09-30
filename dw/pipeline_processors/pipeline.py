@@ -2010,7 +2010,7 @@ def _diagnose_image_crf_error(error, arguments):
     if "image_crf" not in str(error) or "re-compression requires" not in str(error):
         return None
 
-    from ..result import AudioVideo
+    from ..media_types import AudioVideo
 
     offending = [
         name for name, value in arguments.items() if isinstance(value, AudioVideo)

@@ -466,7 +466,7 @@ def _per_frame(image, process):
     one frame at a time and comes back as one video artifact, its soundtrack
     carried through untouched. A single image is processed as itself.
     """
-    from ..result import AudioVideo
+    from ..media_types import AudioVideo
     from ..shots import carried_shots
     from .video_utils import frames_as_pil_list, is_video
 
