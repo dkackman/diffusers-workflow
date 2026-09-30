@@ -11,7 +11,7 @@ import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
 
-# Twin of dw.server.app.LOOPBACK_HOSTS. Duplicated rather than imported:
+# Twin of dw/server/netinfo.py's LOOPBACK_HOSTS. Duplicated rather than imported:
 # importing anything under dw/ runs dw/__init__.py and pulls in torch, which
 # this pure HTTP client must not do (tests/test_mcp_server.py guards that).
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})

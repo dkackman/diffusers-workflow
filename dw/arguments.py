@@ -6,6 +6,11 @@ import tempfile
 from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
 from . import references
+from .references import (
+    FROM_ARGUMENTS_KEY,
+    FROM_FILE_KEY,
+    FROM_PREVIOUS_RESULT_KEY,
+)
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
@@ -46,27 +51,6 @@ class EscapedString(str):
 def is_escaped(value):
     """Whether a value is a type reference escaped with {} braces"""
     return isinstance(value, str) and value.startswith("{") and value.endswith("}")
-
-
-# The key naming the file an argument object is constructed from
-FROM_FILE_KEY = "from_file"
-
-# The key naming the step whose output an argument object is constructed from
-FROM_PREVIOUS_RESULT_KEY = "from_previous_result"
-
-# The key holding the arguments an argument object is constructed from, for a type
-# that takes its contents as plain fields rather than opening media itself
-FROM_ARGUMENTS_KEY = "from_arguments"
-
-# The prefix marking a value as a reference to an earlier step's output. Those are
-# substituted once that step has run, so an object whose arguments hold one is
-# constructed then rather than at load time
-PREVIOUS_RESULT_PREFIX = references.PREVIOUS_RESULT
-
-# The prefix marking a value as a reference to a constant declared in python - the
-# schedule a distilled model was trained on, the negative prompt a model family ships.
-# Copying those into a workflow is how they go stale when the library moves on
-CONSTANT_PREFIX = references.CONSTANT
 
 
 class _Omitted:
@@ -300,7 +284,7 @@ def fetch_constant(reference):
         ValueError: If the name resolves to nothing, or to something callable
         InvalidInputError: If the name is not a dotted python name
     """
-    name = validate_constant_name(reference.removeprefix(CONSTANT_PREFIX).strip())
+    name = validate_constant_name(reference.removeprefix(references.CONSTANT).strip())
 
     try:
         value = load_constant_from_name(name)
@@ -313,7 +297,7 @@ def fetch_constant(reference):
     if callable(value):
         raise ValueError(
             f"'{name}' is a {type(value).__name__}, not a constant - "
-            f"'{CONSTANT_PREFIX}' reads a value, and a type is named with a "
+            f"'{references.CONSTANT}' reads a value, and a type is named with a "
             f"'_type' argument instead"
         )
 
@@ -679,7 +663,7 @@ def names_a_previous_result(value):
         return any(names_a_previous_result(item) for item in value.values())
     if isinstance(value, list):
         return any(names_a_previous_result(item) for item in value)
-    return isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX)
+    return isinstance(value, str) and value.startswith(references.PREVIOUS_RESULT)
 
 
 def construct_object(object_type, arguments):

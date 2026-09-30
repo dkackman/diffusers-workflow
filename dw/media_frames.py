@@ -13,14 +13,6 @@ import av
 import numpy
 from PIL import Image
 
-from .tasks.video_utils import (
-    _compose_grid,
-    _default_columns,
-    _evenly_spaced_indices,
-    _format_timestamp,
-    _grid_tile,
-)
-
 logger = logging.getLogger("dw")
 
 # Each cell of a contact sheet and each side of a seam pair is a seek, a
@@ -112,7 +104,7 @@ def contact_sheet(path, count, tile_width=320, shape=None, crop_box=None):
             f"count {count} is more than a contact sheet holds "
             f"({MAX_CONTACT_SHEET_FRAMES}); ask for a smaller one, or `at` for moments"
         )
-    indexes = _evenly_spaced_indices(shape["frame_count"], count)
+    indexes = evenly_spaced_indices(shape["frame_count"], count)
 
     def fit(image, index):
         if crop_box:
@@ -121,7 +113,7 @@ def contact_sheet(path, count, tile_width=320, shape=None, crop_box=None):
 
     images = _read_frames(path, indexes, fit=fit)
     tiles = [images[index] for index in indexes]
-    grid = _compose_grid(tiles, _default_columns(len(tiles)))
+    grid = compose_grid(tiles, default_columns(len(tiles)))
     return {
         "label": f"contact sheet, {len(tiles)} frames",
         "frame": indexes[0],
@@ -193,7 +185,7 @@ def seam_tiles(
     for seam, boundary in chosen:
         before = images[boundary - 1]
         after = images[boundary]
-        pair = _compose_grid([before, after], 2)
+        pair = compose_grid([before, after], 2)
         difference = float(
             numpy.abs(
                 numpy.asarray(before, dtype=numpy.int16)
@@ -264,7 +256,7 @@ def _seconds(index, shape):
 
 def _tile(index, image, shape):
     fps = shape["fps"]
-    stamp = _format_timestamp(index, fps) if fps else f"#{index}"
+    stamp = format_timestamp(index, fps) if fps else f"#{index}"
     return {
         "label": f"{stamp} (frame {index})",
         "frame": index,
@@ -277,7 +269,7 @@ def _stamped_tile(image, index, fps, tile_width):
     """A contact-sheet cell: fitted like `_fit_width` (never upscaled) and
     stamped with its timestamp by `frame_grid`'s own tile maker, so the
     sheet says which cell is which without the text part."""
-    return _grid_tile(image, index, fps, min(int(tile_width), image.width), label=True)
+    return grid_tile(image, index, fps, min(int(tile_width), image.width), label=True)
 
 
 def _fit_width(image, tile_width):
@@ -365,3 +357,60 @@ def _read_frames(path, indexes, fit=None):
         if missing:
             raise ValueError(f"could not decode frame(s) {missing} of {path}")
     return found
+
+
+def evenly_spaced_indices(total, count):
+    """`count` frame indices spaced evenly across [0, total - 1], inclusive
+    of both ends. Rounding can coincide two spacings on one index in a short
+    clip; those collapse rather than repeating the same frame as a tile."""
+    if count == 1:
+        return [0]
+    raw = numpy.linspace(0, total - 1, num=count)
+    seen = []
+    for value in raw.round().astype(int).tolist():
+        if not seen or seen[-1] != value:
+            seen.append(value)
+    return seen
+
+
+def default_columns(count):
+    """A grid biased wide: rows no more than columns, columns >= sqrt(count)."""
+    rows = math.isqrt(count) or 1
+    return math.ceil(count / rows)
+
+
+def grid_tile(frame, index, fps, tile_width, label):
+    tile_height = max(1, round(frame.height * tile_width / frame.width))
+    tile = frame.resize((tile_width, tile_height), Image.LANCZOS).convert("RGB")
+    if not label:
+        return tile
+
+    from PIL import ImageDraw, ImageFont
+
+    text = format_timestamp(index, fps) if fps else f"#{index}"
+    draw = ImageDraw.Draw(tile)
+    font_size = max(10, tile_width // 16)
+    try:
+        font = ImageFont.truetype("Arial", font_size)
+    except (IOError, OSError):
+        font = ImageFont.load_default(size=font_size)
+    draw.text(
+        (4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black"
+    )
+    return tile
+
+
+def format_timestamp(index, fps):
+    seconds = index / fps
+    minutes, remainder = divmod(seconds, 60)
+    return f"{int(minutes):02d}:{remainder:04.1f}"
+
+
+def compose_grid(tiles, columns):
+    tile_width, tile_height = tiles[0].size
+    rows = math.ceil(len(tiles) / columns)
+    grid = Image.new("RGB", (columns * tile_width, rows * tile_height), (0, 0, 0))
+    for position, tile in enumerate(tiles):
+        row, col = divmod(position, columns)
+        grid.paste(tile, (col * tile_width, row * tile_height))
+    return grid

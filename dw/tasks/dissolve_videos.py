@@ -18,7 +18,7 @@ import numpy
 from PIL import Image
 
 from ..events import emit_log, emit_warning
-from ..result import AudioVideo
+from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
 from ..task_domains import dissolve_shortfalls
 from .audio_utils import (

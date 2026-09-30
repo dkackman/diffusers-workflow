@@ -10,7 +10,7 @@ Model weights are downloaded from HuggingFace Hub on first use.
 import logging
 import torch
 
-from ..result import AudioVideo
+from ..media_types import AudioVideo
 from ..shots import rescaled_shots
 from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
 from .video_utils import frames_as_pil_list

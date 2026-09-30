@@ -321,7 +321,7 @@ def test_set_variables_already_realized_object_passes_through_a_string_default()
     coercing it through the declared variable's own type (a string
     'asset:...' default) called str() on the object and produced its Python
     repr, which a downstream task then tried to read as a file path (#404)."""
-    from dw.result import AudioTrack
+    from dw.media_types import AudioTrack
 
     track = AudioTrack(audio=[0.0, 0.1, 0.2], sample_rate=44100)
     variables = {"score": "asset:score.wav"}

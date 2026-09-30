@@ -774,7 +774,7 @@ class TestImageCrfMismatchDiagnosis:
         }
 
     def test_an_audiovideo_argument_is_named_in_the_rewritten_error(self, monkeypatch):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         def _raise(self, arguments):
             raise ValueError("re-compression requires you to set `image_crf`")
@@ -789,7 +789,7 @@ class TestImageCrfMismatchDiagnosis:
             pipeline.run({"image": video})
 
     def test_names_every_offending_argument(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
 
         video = AudioVideo(frames=[], audio=None, sample_rate=None)

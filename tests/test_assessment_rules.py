@@ -27,7 +27,7 @@ from dw.assessment_rules import (
     rules_for,
 )
 from dw.introspection import list_tasks
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.shots import shot_record
 from dw.tasks.assess import analyze_seams, analyze_shots, analyze_sync_drift
 from dw.tasks.audio_utils import LEVEL_SPREAD_WARN_DB

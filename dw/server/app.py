@@ -157,7 +157,7 @@ from .jobs import (
     RUNNING,
     TERMINAL_STATES,
 )
-from .netinfo import local_addresses
+from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS, local_addresses
 from .updater import DiffusersUpdater
 from .sysinfo import runtime_info
 from .catalog_shape import derive_catalog_metadata, project_listing
@@ -674,13 +674,6 @@ def _historical_log_note(stored):
     return None
 
 
-#  Host header values a locally-bound server accepts by default, regardless
-# of what --host is configured to - a loopback request always presents one
-# of these regardless of the server's own bind address.
-LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
-# Bind addresses that mean "every interface" - a request never carries one
-# of these as its Host, so they define no allowlist
-WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 # Where the MCP endpoint is mounted when --mcp is given (see the mcp block
 # at the bottom of create_app) - the Server page quotes it in the command
 # it tells you to run on the other machine

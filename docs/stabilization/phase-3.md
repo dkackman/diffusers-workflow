@@ -105,6 +105,13 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
 
 (Each stage adds its user-visible changes here at merge.)
 
+- **3a (merged 2026-09-30):** no user-visible change.
+  - Internal: import cycles 5 → 0 and modules inside cycles 19 → 0, both ratcheted at 0. `modules` went 131 → 132 (`dw/media_types.py`).
+  - A task step missing a required argument is now refused by `Step.run`, not `Task.run`. The message is unchanged. It now comes before the step's task phase event, which a refused task never needed.
+  - Merge notes:
+    - `dw/server/app.py` lost its two host-set constants to `netinfo.py` without being in the 3a hot zone. No harness edit conflicted.
+    - Task 3's "update `dw/server/CLAUDE.md:22`" step was moot: that line never explained the lazy import.
+
 ## Global Constraints (all stages)
 
 - Hard freeze: no net-new features or functionality. Surface may change only where the consolidation requires it (3c), and every change is listed for the gate's release notes.
@@ -301,7 +308,7 @@ Phase 2 worked the same way: the harness must not edit `result.py` or `video_uti
   - `fit_codec_padding(audio, frame_count, frame_rate, sample_rate)`, the old `_fit_audio_to_frames`, with the body unchanged;
   - `sample_axis(audio)`;
   - `warn_on_rate_override(command, actual_rate, given_rate)`.
-- `media_frames` keeps the five helpers' names. They were private to `video_utils`, and they stay module-private in their new home, since `video_utils.frame_grid` is their only outside caller. Rename them public (`compose_grid`, `default_columns`, `evenly_spaced_indices`, `format_timestamp`, `grid_tile`) because two modules now use them.
+- `media_frames` takes the five helpers under public names (`compose_grid`, `default_columns`, `evenly_spaced_indices`, `format_timestamp`, `grid_tile`), because two modules now use them: `media_frames` itself and `video_utils.frame_grid`.
 
 - [ ] **Step 1: Create `dw/media_types.py`.**
   - Module docstring: "The values steps hand each other, and the audio rules that belong to them. A leaf: numpy, torch and events only, so the result writer and the tasks both sit above it."

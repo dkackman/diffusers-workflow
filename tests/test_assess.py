@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 
 from dw.assessment_rules import RULES_BY_NAME
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.runs import MANIFEST_FILE_NAME, shots_beside
 from dw.shots import shot_record
 from dw.tasks.assess import (

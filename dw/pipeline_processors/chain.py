@@ -35,8 +35,8 @@ import torch
 from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
+from ..media_types import AudioVideo, fit_codec_padding
 from ..result import (
-    AudioVideo,
     frames_for_encoding,
     get_artifact_list,
     output_file_path,
@@ -48,7 +48,7 @@ from ..tasks.audio_utils import (
     frames_to_samples,
     slice_samples,
 )
-from ..tasks.video_utils import _fit_audio_to_frames, extract_frame, frames_as_pil_list
+from ..tasks.video_utils import extract_frame, frames_as_pil_list
 
 logger = logging.getLogger("dw")
 
@@ -360,7 +360,7 @@ def run_chain(pipeline, chain_definition, arguments):
         # neither of those, so the shortfall was surviving here uncorrected
         # and compounding once per segment (#408).
         if segment_audio is not None and segment_rate and config.fps:
-            segment_audio = _fit_audio_to_frames(
+            segment_audio = fit_codec_padding(
                 segment_audio, len(segment_frames), config.fps, segment_rate
             )
 

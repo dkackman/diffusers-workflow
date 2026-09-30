@@ -13,7 +13,6 @@ from .arguments import (
     realize_constants,
     fetch_constant,
     is_constant_reference,
-    PREVIOUS_RESULT_PREFIX,
 )
 from .events import (
     RunContext,
@@ -302,9 +301,9 @@ def selected_field(step_data, selected):
         if isinstance(position, int) and 0 <= position < len(candidates):
             candidate = candidates[position]
             if isinstance(candidate, str) and candidate.startswith(
-                PREVIOUS_RESULT_PREFIX
+                references.PREVIOUS_RESULT
             ):
-                field["entry"] = candidate[len(PREVIOUS_RESULT_PREFIX) :]
+                field["entry"] = candidate[len(references.PREVIOUS_RESULT) :]
     return field
 
 

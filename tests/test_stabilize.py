@@ -9,7 +9,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.tasks.stabilize import _pair_shift, stabilize_video
 
 
@@ -98,7 +98,7 @@ class TestStabilizeVideoFromAFile:
     def test_a_path_is_loaded_with_its_audio(self, monkeypatch):
         import numpy as np
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks import stabilize as stabilize_module
 
         clip = AudioVideo(

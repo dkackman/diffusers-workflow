@@ -27,6 +27,16 @@ GATHER = "gather:"
 BUILTIN = "builtin:"
 CONSTRAINT = "constraint:"
 
+# The key naming the file an argument object is constructed from
+FROM_FILE_KEY = "from_file"
+
+# The key naming the step whose output an argument object is constructed from
+FROM_PREVIOUS_RESULT_KEY = "from_previous_result"
+
+# The key holding the arguments an argument object is constructed from, for a type
+# that takes its contents as plain fields rather than opening media itself
+FROM_ARGUMENTS_KEY = "from_arguments"
+
 # Still to be substituted: what the variable and for_each passes replace.
 # A check that runs on the substituted definition skips a value still
 # spelled this way - it is an entry field or a variable those passes left

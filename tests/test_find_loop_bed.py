@@ -16,7 +16,7 @@ import torch
 
 from dw.introspection import list_tasks
 from dw.media_audio import decode_soundtrack
-from dw.result import AudioTrack
+from dw.media_types import AudioTrack
 from dw.scalar_result_validation import scalar_result_errors
 from dw.task_domains import task_argument_errors
 from dw.tasks.audio_utils import _PERIODICITY_MAX_HZ, _PERIODICITY_MIN_HZ, _harmonicity
@@ -837,7 +837,7 @@ class TestShotsResolution:
     """argument > the video's carried shots > the run manifest > none."""
 
     def _carried(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         rng = numpy.random.default_rng(11)
         audio = noise(rng, 6 * SR, -72.0)[None, :].astype(numpy.float32)

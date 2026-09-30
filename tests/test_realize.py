@@ -457,7 +457,7 @@ class CountingMedia:
     def __new__(cls):
         from PIL import Image
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         class Counted(AudioVideo):
             def __deepcopy__(self, memo):

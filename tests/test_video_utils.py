@@ -11,10 +11,9 @@ import pytest
 import torch
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo, fit_codec_padding
 from dw.tasks.task import _VIDEO_PROCESSOR_COMMANDS, Task
 from dw.tasks.video_utils import (
-    _fit_audio_to_frames,
     extract_frame,
     frame_count,
     get_frame,
@@ -271,7 +270,7 @@ class TestFramesAsArray:
         assert array.dtype == numpy.uint8
 
     def test_an_audio_video_gives_its_frames(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import frames_as_array
 
         video = AudioVideo([Image.new("RGB", (8, 8))] * 2, "waveform", 24000)
@@ -518,7 +517,7 @@ class TestIsVideoLocation:
     def test_an_already_loaded_video_is_not(self):
         from PIL import Image
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import is_video_location
 
         assert not is_video_location(AudioVideo([Image.new("RGB", (2, 2))], None, None))
@@ -647,7 +646,7 @@ class TestIsVideo:
         import torch
         from PIL import Image
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import is_video
 
         assert is_video(AudioVideo([Image.new("RGB", (2, 2))], None, None))
@@ -916,7 +915,7 @@ class TestFitAudioToFrames:
     FRAMES, FPS, RATE, EXPECTED = 24, 24.0, 48000, 48000
 
     def fit(self, audio):
-        return _fit_audio_to_frames(audio, self.FRAMES, self.FPS, self.RATE)
+        return fit_codec_padding(audio, self.FRAMES, self.FPS, self.RATE)
 
     @pytest.mark.parametrize(
         "shape, axis",

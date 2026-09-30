@@ -1282,7 +1282,7 @@ class TestSubWorkflowPreviousResultArgument:
         self, tmp_path, monkeypatch
     ):
         """This used to raise: 'Refusing to read an audio argument at
-        <dw.result.AudioTrack object at 0x...>: it resolves outside every
+        <dw.media_types.AudioTrack object at 0x...>: it resolves outside every
         directory this workflow may read' (#404)."""
         workflow = self._compose(tmp_path, monkeypatch)
 

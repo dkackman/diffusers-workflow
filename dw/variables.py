@@ -1,7 +1,7 @@
 import copy
 import logging
 from . import references
-from .arguments import (
+from .references import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
     FROM_PREVIOUS_RESULT_KEY,

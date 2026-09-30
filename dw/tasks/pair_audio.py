@@ -10,7 +10,7 @@ this does: it puts the two back together for the step that saves them.
 import logging
 
 from ..events import emit_warning
-from ..result import AudioVideo
+from ..media_types import AudioVideo
 from ..shots import remeasured_shots
 from .audio_utils import as_channels_samples
 

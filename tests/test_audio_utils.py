@@ -1034,7 +1034,7 @@ class TestAudioTasksTakeAnAudioVideo:
     soundtrack, and takes the sample rate that video carries."""
 
     def video(self, level=1.0, rate=100, samples=400):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         return AudioVideo(
             [], numpy.full((2, samples), level, dtype=numpy.float32), rate
@@ -1157,7 +1157,7 @@ class TestAudioTasksTakeAnAudioVideo:
             crossfade_audio([self.video(), numpy.ones((2, 100))])
 
     def test_a_silent_video_is_refused(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.audio_utils import fade_audio
 
         with pytest.raises(ValueError, match="carries none"):
@@ -1227,7 +1227,7 @@ class TestLoopAudio:
         assert steps.max() < 0.1
 
     def test_it_takes_the_rate_from_a_generated_video(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.audio_utils import loop_audio
 
         video = AudioVideo([], numpy.zeros((2, 400), dtype=numpy.float32), 100)

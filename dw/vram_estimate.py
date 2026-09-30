@@ -33,7 +33,7 @@ video estimate beside it just because both name `width`/`height`. Which
 identity the estimate describes is inferred rather than declared twice: the
 one every step that names *all* of the estimate's `voxel_variables` in its
 own pipeline arguments shares (`_estimate_identity`, using
-`vram_inheritance.pipeline_identity`). When that comes out ambiguous - no
+`pipeline_identity`). When that comes out ambiguous - no
 step owns every voxel variable directly, more than one identity does, or the
 steps carry no pipeline identity metadata at all, as every workflow before
 #516 and most of this module's own tests do - projection falls back to every
@@ -47,12 +47,47 @@ is an estimate of an estimate.
 import numbers
 
 from . import references as ref_prefixes
-from .arguments import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
+from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 
 KEY = "vram_estimate"
 REFERENCES_KEY = "references"
 _SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY)
+
+
+def _resolved(value, variables):
+    """A `variable:` reference resolved against a template's own defaults -
+    the index reads templates as written, not substituted."""
+    if isinstance(value, str) and value.startswith(ref_prefixes.VARIABLE):
+        return variables.get(value[len(ref_prefixes.VARIABLE) :])
+    return value
+
+
+def pipeline_identity(step, variables=None):
+    """(component_type, model_name, workflow) for a step that loads a
+    pipeline, or None for a step that does not."""
+    pipeline = step.get("pipeline") if isinstance(step, dict) else None
+    if not isinstance(pipeline, dict):
+        return None
+    variables = variables or {}
+    configuration = pipeline.get("configuration")
+    from_pretrained = pipeline.get("from_pretrained_arguments")
+    configuration = configuration if isinstance(configuration, dict) else {}
+    from_pretrained = from_pretrained if isinstance(from_pretrained, dict) else {}
+    identity = tuple(
+        _resolved(value, variables)
+        for value in (
+            configuration.get("component_type"),
+            from_pretrained.get("model_name"),
+            from_pretrained.get("workflow"),
+        )
+    )
+    if not all(isinstance(part, (str, type(None))) for part in identity):
+        return None
+    if identity[1] is None:
+        # No checkpoint named - nothing to match a catalog entry on
+        return None
+    return identity
 
 
 def _as_number(value):
@@ -152,8 +187,6 @@ def _estimate_identity(steps, variables, names):
     """
     if not names:
         return None
-    from .vram_inheritance import pipeline_identity
-
     identities = set()
     for step in steps:
         if not isinstance(step, dict):
@@ -196,13 +229,11 @@ def _projections(definition, estimate, arguments):
         return
     names = estimate.get("voxel_variables", [])
     identity = _estimate_identity(steps, variables, names)
-    if identity is not None:
-        from .vram_inheritance import pipeline_identity as _pipeline_identity
     for index, step in enumerate(steps):
         pipeline = step.get("pipeline") if isinstance(step, dict) else None
         if not isinstance(pipeline, dict):
             continue
-        if identity is not None and _pipeline_identity(step, variables) != identity:
+        if identity is not None and pipeline_identity(step, variables) != identity:
             continue
         step_arguments = pipeline.get("arguments")
         if not isinstance(step_arguments, dict):

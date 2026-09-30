@@ -17,8 +17,8 @@ import torch
 from PIL import Image
 from unittest.mock import patch
 from dw.previous_results import get_previous_results
+from dw.media_types import AudioVideo
 from dw.result import (
-    AudioVideo,
     Result,
     as_audio_track,
     get_artifact_list,
@@ -99,7 +99,7 @@ class TestResult:
     def test_get_artifact_properties_reads_audio_video_attributes(self):
         # How a step hands one half of a video-with-audio artifact to the next -
         # LTX-2's frames into a latent upsampler, its soundtrack into the mux
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         result = Result({})
         result.add_result([AudioVideo(["frame"], "waveform", 24000)])
@@ -111,7 +111,7 @@ class TestResult:
     def test_get_artifact_properties_keeps_an_attribute_holding_none(self):
         # A pipeline that reported no sample rate carries None, which is the
         # answer - not a missing property
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         result = Result({})
         result.add_result([AudioVideo(["frame"], "waveform", None)])
@@ -405,7 +405,7 @@ class TestGetArtifactList:
     def test_audios_with_a_recorded_rate_become_audio_tracks(self):
         # attach_audio_sample_rate put the rate on the output; each item
         # carries it from here on, so a workflow declares nothing
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         class MockResult:
             audios = numpy.zeros((2, 2, 100), dtype=numpy.float32)
@@ -539,7 +539,7 @@ class TestModularOutputs:
 
     def test_generated_audio_is_muxed_into_the_video(self):
         # A frame count far longer than the audio keeps the mismatch outside
-        # _fit_audio_to_frames's codec-padding tolerance, so the audio passes
+        # fit_codec_padding's codec-padding tolerance, so the audio passes
         # through unchanged and this test stays about muxing, not fitting.
         outputs = {
             "videos": [["frame"] * 1000],
@@ -1119,7 +1119,8 @@ class TestSaveAudio:
             assert sample_rate == 44100
 
     def test_saving_a_silent_video_as_audio_names_the_problem(self):
-        from dw.result import AudioVideo, normalize_audio
+        from dw.media_types import AudioVideo
+        from dw.result import normalize_audio
 
         with pytest.raises(ValueError, match="carries no audio"):
             normalize_audio(AudioVideo([], None, None))
@@ -1127,7 +1128,7 @@ class TestSaveAudio:
     def test_a_track_saves_at_the_rate_it_carries(self):
         # A generated track knows its own rate - generate_speech produces one at
         # whatever its model runs at - so the workflow does not have to declare it
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav"})
@@ -1145,7 +1146,7 @@ class TestSaveAudio:
         # save_artifact per waveform - the recursion must keep re-wrapping as an
         # AudioTrack by checking for a carried sample_rate, not by isinstance, so
         # a batch saved this way still saves at the rate it carries
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav"})
@@ -1168,7 +1169,7 @@ class TestSaveAudio:
         # even though the task-argument-level guard (#180) had nothing to
         # object to.
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav", "sample_rate": 44100})
@@ -1193,7 +1194,7 @@ class TestSaveAudio:
 
     def test_a_declared_rate_matching_the_carried_rate_is_not_a_warning(self):
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav", "sample_rate": 24000})
@@ -1887,7 +1888,8 @@ class TestNoHeadroom:
             result.save(temp_dir, "song")
 
     def save_muxed(self, waveform):
-        from dw.result import AudioVideo, Result
+        from dw.media_types import AudioVideo
+        from dw.result import Result
 
         result = Result({"content_type": "video/mp4"})
         result.add_result(AudioVideo("frames", waveform, 48000))

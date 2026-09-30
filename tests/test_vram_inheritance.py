@@ -20,12 +20,12 @@ from fastapi.testclient import TestClient
 import dw.workflow
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
+from dw.vram_estimate import pipeline_identity
 from dw.vram_inheritance import (
     KIND,
     build_index,
     declarations,
     inherited_vram_warnings,
-    pipeline_identity,
 )
 from dw.workflow import workflow_from_definition
 from dw.workflow_sources import listing, workflow_sources

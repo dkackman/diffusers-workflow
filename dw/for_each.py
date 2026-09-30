@@ -31,7 +31,7 @@ import copy
 from . import references
 from .references import MEMBER_SEPARATOR as MEMBER_SEPARATOR
 from .references import render_path as render_path
-from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
+from .references import FROM_PREVIOUS_RESULT_KEY
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
 from .variables import argument_errors, set_variables
@@ -198,9 +198,9 @@ def _rewrite(value, path, groups, member):
             return _gather(value, path, groups)
         if value.startswith(references.ITEM):
             return _item(value, path, member)
-        if value.startswith(PREVIOUS_RESULT_PREFIX):
-            reference = value[len(PREVIOUS_RESULT_PREFIX) :]
-            return PREVIOUS_RESULT_PREFIX + _rewrite_reference(
+        if value.startswith(references.PREVIOUS_RESULT):
+            reference = value[len(references.PREVIOUS_RESULT) :]
+            return references.PREVIOUS_RESULT + _rewrite_reference(
                 reference, path, groups, member
             )
         return value
@@ -260,7 +260,7 @@ def _gather(value, path, groups):
             f"for_each steps available here: {sorted(groups)}",
         )
     return [
-        PREVIOUS_RESULT_PREFIX + member_name(group, key)
+        references.PREVIOUS_RESULT + member_name(group, key)
         for key in groups[group]["keys"]
     ]
 
