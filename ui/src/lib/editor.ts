@@ -69,7 +69,7 @@ export function mediaKindFor(
 
 /** The file path or URL a media argument's value names, whichever shape it
  * is in: a bare string, or the `{ location: ... }` object the engine also
- * accepts (see dw/arguments.py's FROM_FILE_KEY) - optionally alongside a
+ * accepts (see dw/references.py's FROM_FILE_KEY) - optionally alongside a
  * `media_type`. */
 export function mediaLocation(value: unknown): string {
   if (typeof value === 'string') return value
