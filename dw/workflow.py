@@ -4,7 +4,6 @@ import json
 import torch
 import copy
 import gc
-import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -55,6 +54,8 @@ from .step_cache import (
     reference_resolves_to,
     normalized_downstream,
     borrowed_pipeline_keys,
+    pipeline_cache_key,
+    step_pipeline_keys,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -244,46 +245,6 @@ def catalog_root_dir(file_spec):
     the resolver (dw/workflow_sources.py) confines to exactly this root.
     """
     return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
-
-
-def pipeline_cache_key(pipeline_definition):
-    """Stable identity for a loaded pipeline.
-
-    Hashes everything that shapes loading - configuration, components,
-    quantization, loras - and excludes what varies per call (arguments, seed,
-    chain), so a cache hit means "this exact model stack is already loaded".
-    Keying the cache by identity instead of step name means two workflows
-    whose steps happen to share a name can no longer collide, and a rerun of
-    an edited workflow keeps every pipeline whose definition did not change.
-
-    Computed after variable substitution but the excluded keys keep realized
-    per-run values (images, generators) out of the hash; realized types and
-    dtypes stringify stably via default=str.
-    """
-    load_definition = {
-        k: v
-        for k, v in pipeline_definition.items()
-        if k not in ("arguments", "seed", "chain")
-    }
-    serialized = json.dumps(load_definition, sort_keys=True, default=str)
-    return hashlib.sha256(serialized.encode()).hexdigest()
-
-
-def step_pipeline_keys(steps):
-    """Step name -> pipeline_cache_key for every pipeline step, taken before
-    any step runs.
-
-    Pipeline.load edits the definition it is handed (placement resolves a
-    group_offload block in place, a LoRA entry is consumed), so a key hashed
-    after a step loaded is not the key the same step hashes to when it never
-    loaded - a deferred cache hit, or the cache_hits probe. A key that has to
-    agree across those cases is read from this table, not re-hashed.
-    """
-    return {
-        step_data["name"]: pipeline_cache_key(step_data["pipeline"])
-        for step_data in steps
-        if "pipeline" in step_data
-    }
 
 
 def _allocated_mb():
@@ -1936,6 +1897,20 @@ class Workflow:
                 pipelines.pop(self._pipeline_keys_by_step.get(name), None)
                 self._finish_release(workflow_id, name, source_index, before)
 
+    def _load_key(self, step_definition):
+        """The pipeline cache key a pipeline step loads under.
+
+        Read from the run's table (step_pipeline_keys, taken by run() before
+        anything loaded) - a load edits the definition it is handed, so a
+        key re-hashed from it could disagree with the one the table, a
+        deferred hit and the cache_hits probe use. Hashed here only for a
+        step driven outside run(), which has no table.
+        """
+        running_keys = getattr(self, "_running_pipeline_keys", None)
+        if running_keys is not None and step_definition["name"] in running_keys:
+            return running_keys[step_definition["name"]]
+        return pipeline_cache_key(step_definition["pipeline"])
+
     def create_step_action(
         self,
         step_definition,
@@ -1962,7 +1937,7 @@ class Workflow:
             step_name = step_definition["name"]
 
             # Pipelines are cached by what they load, not what step loads them
-            cache_key = pipeline_cache_key(step_definition["pipeline"])
+            cache_key = self._load_key(step_definition)
             self._step_pipeline_key(step_name, cache_key)
             get_context().touch_pipeline(cache_key)
 

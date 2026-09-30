@@ -376,7 +376,7 @@ def test_cache_hit_republishes_shared_components(tmp_path):
             "arguments": {},
         },
     }
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
     cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
@@ -389,7 +389,7 @@ def test_cache_hit_republishes_shared_components(tmp_path):
 
 def test_redefined_step_evicts_prior_pipeline_before_loading(tmp_path):
     """The swap must never hold the old and new model stacks at once."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -457,7 +457,7 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released(tmp_p
     resident model, and holds both stacks while the first step's
     replacement loads, the exact transition #150 avoids. The end-of-run
     sweep (_evict_untouched_pipelines) drops it if nothing touched it."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -485,7 +485,7 @@ def test_a_prior_key_no_running_step_currently_maps_to_is_released(tmp_path):
     the same pipeline. That name is not a step this run executes, so no
     running step's current key is the old key - it must not save the key
     from release."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -513,7 +513,7 @@ def test_a_prior_key_every_sharing_step_moved_off_is_released(tmp_path):
     its replacement loaded - the OOM transition #150 fixed. Judged on the
     siblings' current keys, nobody is on the old key and it is released
     before the load."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_key = pipeline_cache_key(_model_step("x", "old-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -535,7 +535,7 @@ def test_run_records_the_current_key_of_every_pipeline_step(tmp_path):
     under this run. create_step_action records the key it hashed per step
     (_pipeline_keys_by_step), so the two maps must be identical - computed
     by the same function over the same dicts."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     definition = {
         "id": "keys",
@@ -627,7 +627,7 @@ def test_superseded_release_is_reported_on_the_event_stream(tmp_path):
     load, which is what made #150 take three jobs to diagnose.
     """
     from dw.events import RunContext, activate_context, deactivate_context
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -738,7 +738,7 @@ def test_release_models_returns_host_caches(tmp_path):
 def test_superseded_release_returns_host_caches(tmp_path):
     """A redefined step's old pipeline hands its host memory back before the
     new one loads, not once the job ends (#368)."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},

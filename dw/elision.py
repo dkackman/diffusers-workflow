@@ -46,7 +46,11 @@ unreferenced in turn, so it runs to a fixed point.
 import logging
 
 from . import references
-from .step_cache import reference_resolves_to, referenced_result_names
+from .step_cache import (
+    pipeline_cache_key,
+    reference_resolves_to,
+    referenced_result_names,
+)
 
 logger = logging.getLogger("dw")
 
@@ -128,8 +132,6 @@ def _carry_release(elided, kept):
     the last step that ran before this one is exactly where it belongs. With
     nothing before it, nothing was loaded and the flag is dropped.
     """
-    from .workflow import pipeline_cache_key
-
     if not kept:
         return False
     predecessor = kept[-1]

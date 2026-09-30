@@ -1,3 +1,6 @@
+import json
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -572,3 +575,275 @@ def test_normalized_downstream_false_when_nothing_references_it():
         },
     ]
     assert not normalized_downstream(steps, "write_song")
+
+
+# Every template's step_pipeline_keys, recorded at 1f94c2a0 - before
+# pipeline identity moved from dw/workflow.py into dw/step_cache.py - by
+# hashing each template's expanded_definition() (declared defaults folded,
+# constants resolved, for_each expanded; not realize_args-realized, so a
+# component_type is still its name). A pipeline's key names what is loaded
+# and resident, and a worker compares this run's key against the last run's:
+# a hash that moved would reload every resident model once and miss every
+# step-cache entry that recorded a borrowed key. A template added since has
+# no row and fails until one is recorded; a constant a diffusers upgrade
+# changed is a row to regenerate, not a parity failure.
+TEMPLATE_PIPELINE_KEYS = {
+    "assemble-and-score.json": {},
+    "attention-processor.json": {
+        "generate_with_sdpa": "8dc3e92052c445d5dbf20bf6e8b6fe91794cfa3772bb7366e2390889b4e99459"
+    },
+    "audio-trim-fade.json": {},
+    "base-and-refiner.json": {
+        "main": "6eec2c027bcdbf483aaebb5d3ec73bed86dcfa909593e0df674e19bce0588050",
+        "sdxl_base": "5d64d980c2fb69c77b5547b8d8bd32d7de0e8e469ba7cc6ca73a60ad0e0b9058",
+    },
+    "best-of-n-to-video.json": {
+        "still@0": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
+        "still@1": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
+        "still@2": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
+        "still@3": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
+    },
+    "community-pipeline.json": {
+        "invert": "7013cd33f88d6c850c7775f0bdf6d7be74ef427bf6fdf34c3663ddd793028a25"
+    },
+    "compose-workflows.json": {},
+    "consistent-set.json": {
+        "base": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+        "first": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+        "second": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+        "third": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+    },
+    "controlnet-component.json": {
+        "main": "23e479d111c0c2883755e0d32ef48b686d89f8967b535524ed8c6cb6f863bb9d"
+    },
+    "controlnet.json": {
+        "FluxCanny": "cfe38a8a886222292666951457910698f54fb42d631de87009f4319e267bb6f4"
+    },
+    "depth-marigold.json": {
+        "depth": "9338475d3fb48eab6e3dc8eb53cb07a916470906e338bb02a71e3ed0416a447b"
+    },
+    "describe-and-regenerate.json": {},
+    "dissolve-between-shots.json": {},
+    "embed-metadata.json": {
+        "generate": "ba05817f175f71163f8007c8e9af3073686df61dbb090a8dd45f26a9dd502fa2"
+    },
+    "expand-prompt.json": {},
+    "generate-speech.json": {},
+    "image-edit.json": {
+        "edit": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1"
+    },
+    "image-processors.json": {},
+    "image-to-image.json": {
+        "main": "bf8dcfe42d46a7031793e8aea4460cef13b511ca93b1a40cb78b50a98c50f4f8"
+    },
+    "image-to-text.json": {},
+    "image-variation.json": {
+        "main": "eb340f983349eb499e6fe01e29c65baf3fefd807e1f6a6a74f561768225fc496",
+        "prior": "3253c892afe8ff8d02c464e2b175c519cfac4585fef0e9d2231683719db61a81",
+    },
+    "inpaint.json": {
+        "fill": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+    },
+    "interpolate-frames.json": {
+        "generate_video": "e35d0272e90c76b6730987d5c60a8dfda18290ef71276eb72246e1468ad16dfb"
+    },
+    "ip-adapter.json": {
+        "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
+    },
+    "lora-styles.json": {
+        "couple": "e0d4d24cbe4caec22ee9e2afc43e9cfd772971430ed633cd289ff362e8213816",
+        "font-design": "8f28fcccd557b862030508fa1db006f365afbf9b394f981488673df4c46eb548",
+        "home-decoration": "8f0b0e4608b143d62d89641cddb7a4ff8b97c0d3cd4ba476f973fe6701bc36cc",
+        "portrait-illustration": "23e72f3a1c737781910ef385cfc156730bfbe9ecc36a67c53249c70e5dbfa404",
+        "portrait-photography": "6fd461304bdd784ecd9e94aea9a2f06f66ef61426ff9dc6cb552bf08e69d0520",
+        "ppt-templates": "b03b08bd86d82d633a07ce1e62326223609340ba17db59b8aebaa9c43a9db8b5",
+        "sandstorm-visual-effect": "0ec17d1beaaa8edafcbc5df532db4bef528694619f398fdaaf19f772c0d44871",
+        "sparklers-visual-effect": "d7dec11561b3645b6c316159e06acd20c6ff84883712c5ba1b252c1de88424ae",
+        "storyboard": "25c647a6d3e2013861ffafc783d8e15232f344f0c8579030e9d46b94bc5383d4",
+        "visual-identity-design": "004a829d2a7c1d55b36f279ffc67057a165ecbf8a109da55f93f6acb09545afa",
+    },
+    "lora.json": {
+        "txt2img": "47aba88047464c927983d4666abacb74ea253bb310c847e3e955f4e02658b277"
+    },
+    "ltx2/chained-segments.json": {
+        "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
+    },
+    "ltx2/diffusion-decode.json": {
+        "diffusion_decode": "127a7f5e3740bab50724eda1d06c465446cb4d47fb14868b82b8dc8c62ecdd37",
+        "latents": "9c52ab1464a239a6e192ec36ffb4687b3dd61a66363886f38bb7ab5ceb83d638",
+    },
+    "ltx2/enhance-prompt.json": {
+        "enhanced_image_to_video": "91126ea32e5fca936be3a03ddb4f1ec1488d95614b127730b6bb417a8dc5a93e"
+    },
+    "ltx2/extend-clip.json": {
+        "extended": "7102a40f1655f06fd5173c45ea4989b877dc336221c4ab219fa0d0d9d845a69b",
+        "opening": "9c52ab1464a239a6e192ec36ffb4687b3dd61a66363886f38bb7ab5ceb83d638",
+    },
+    "ltx2/generative-upscale.json": {
+        "low_resolution": "fab6e3ec8feb0909dc44660990636418bdccbbb045154e1a56b26f235435acf0",
+        "upscaled": "2b6ad00f7b894611eb98c24ec819af68b5f9b6cf2b78bf425142dc5acc2e48e7",
+    },
+    "ltx2/image-to-video.json": {
+        "image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
+    },
+    "ltx2/keyframes.json": {
+        "keyframes_to_video": "ea27aeb8d07376a1295ea2d102ddc61a8d64fa70aeae26e02f6f48e825a6d9ee"
+    },
+    "ltx2/reference-sheet.json": {
+        "shot": "f561e8c08eb096c02bcd252244e6dc94c6eb82f133fea559221c4acce364b3f8"
+    },
+    "ltx2/refine-clip.json": {
+        "refine": "d0fc8bdeda29f32080216d60640349c58559d520015d0c52da6e6f447c90facc",
+        "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
+    },
+    "ltx2/restore-deblur.json": {
+        "restored": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396"
+    },
+    "ltx2/restore-decompression.json": {
+        "restored": "afcb2e67a7c03447b5860bfe19f4785480e214eb54a39a61a53ccbf0e51717f6"
+    },
+    "ltx2/text-to-video.json": {
+        "text_to_video": "c4da9234234392f4df1a76b9d3ffb2cbff735540e278709da11e43f9b4bc7313"
+    },
+    "ltx2/two-stage.json": {
+        "base": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
+        "refine": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
+        "upscale": "dbebdb9f9a882a7e6fd8fbb777044ad91eaa45f4127f2f2c272f7d38f7ee51db",
+    },
+    "ltx2/upscale-clip.json": {
+        "upscaled": "0f0195201e3be833527a0bc1ef04d29a1dd048a8877678ab1769f663fd27575f"
+    },
+    "minimax/chain-matched-and-aligned.json": {
+        "audio_aligned_chained_reference_to_video_audio": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8"
+    },
+    "minimax/chain-matched-to-audio.json": {
+        "chained_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+    },
+    "minimax/chain-video-continuity.json": {
+        "chained_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+    },
+    "minimax/chained-segments.json": {
+        "chained_keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+    },
+    "minimax/composable-references.json": {
+        "video_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+    },
+    "minimax/dialogue-short.json": {
+        "draw_character_a": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "draw_character_b": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "shot@button": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@cold_open": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@deflect": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@react": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@tag": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+    },
+    "minimax/enhance-prompt-with-image.json": {
+        "keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+    },
+    "minimax/enhance-prompt.json": {
+        "text_to_video_audio": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9"
+    },
+    "minimax/first-and-last-frame.json": {
+        "first_and_last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+    },
+    "minimax/generated-subject-reference.json": {
+        "draw_subject": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600",
+    },
+    "minimax/image-to-video.json": {
+        "keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+    },
+    "minimax/last-frame-only.json": {
+        "last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+    },
+    "minimax/music-video.json": {
+        "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "shot@closeup": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@finale": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@room": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "shot@wide_open": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "write_song": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
+    },
+    "minimax/music.json": {
+        "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
+    },
+    "minimax/reference-to-video.json": {
+        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+    },
+    "minimax/shots-batch.json": {
+        "shot@shot_1": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "shot@shot_2": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "shot@shot_3": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "shot@shot_4": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "shot@shot_5": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+    },
+    "minimax/storyboard.json": {
+        "board_1_launch": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "board_2_gutter": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "board_3_shore": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "voyage": "ee8e8884e8f049bf7de6aabe053a8c389ab6cd0c42108a04cc6fd1049e671300",
+    },
+    "minimax/video-with-audio-768p.json": {
+        "text_to_video_audio": "748d703dd1745057386c6a167578c2f1b31ddad3df102364a5ec5389bcc5b001"
+    },
+    "minimax/video-with-audio.json": {
+        "text_to_video_audio": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9"
+    },
+    "minimax/voice-timbre-reference.json": {
+        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+    },
+    "multi-image-reference.json": {
+        "txt2img": "6e563b308f1508e0f24a660dcf25636774e2b70c4ccc723e8975421a7224b48d"
+    },
+    "outpaint.json": {
+        "outpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+    },
+    "prompt-weighting.json": {
+        "txt2img": "5d31f1fa9f9fa65e19e82f6a5e9634ae4c5f2a0f4a7880b5f186ccd43860f560"
+    },
+    "qr-code.json": {
+        "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
+    },
+    "recenter-crop.json": {},
+    "restore-faces.json": {
+        "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
+    },
+    "segment-and-inpaint.json": {
+        "inpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+    },
+    "segment.json": {},
+    "step-caching.json": {
+        "txt2img": "ee477459eb2c2860c84b8da2913bf9c891666cc9c99d271e6255853539726786"
+    },
+    "sub-workflow.json": {},
+    "surface-normals.json": {
+        "normals": "5f0d7e4762dd0483a2bdc767b3bff57502323ff231940cb817634b38d1709b64"
+    },
+    "text-to-image.json": {
+        "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"
+    },
+    "transcribe-audio.json": {},
+    "upscale-diffusion.json": {},
+    "upscale-spandrel.json": {},
+}
+
+TEMPLATES_DIR = pathlib.Path(__file__).resolve().parents[1] / "workflows" / "templates"
+
+
+@pytest.mark.parametrize(
+    "template",
+    sorted(
+        p.relative_to(TEMPLATES_DIR).as_posix() for p in TEMPLATES_DIR.rglob("*.json")
+    ),
+)
+def test_every_template_keeps_its_pipeline_keys(template, tmp_path):
+    from dw.step_cache import step_pipeline_keys
+    from dw.workflow import Workflow
+
+    assert template in TEMPLATE_PIPELINE_KEYS, (
+        f"{template} has no recorded keys - add its step_pipeline_keys row"
+    )
+    path = TEMPLATES_DIR / template
+    workflow = Workflow(json.loads(path.read_text()), str(tmp_path), str(path))
+    keys = step_pipeline_keys(workflow.expanded_definition()["steps"])
+    assert keys == TEMPLATE_PIPELINE_KEYS[template]

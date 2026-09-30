@@ -16,7 +16,8 @@ from dw.events import RunContext, WorkflowCancelled, get_context, current_contex
 from dw.log_setup import setup_logging
 from dw.result import Result
 from dw.runs import is_run_id
-from dw.workflow import Workflow, pipeline_cache_key
+from dw.step_cache import pipeline_cache_key
+from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
 
 

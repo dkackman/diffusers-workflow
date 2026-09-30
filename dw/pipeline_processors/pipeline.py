@@ -28,6 +28,7 @@ from diffusers import attention_backend
 
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from .. import download_watch
+from ..step_cache import component_names
 from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
@@ -65,24 +66,6 @@ _NON_COMPONENT_KEYS = {
     "seed",
     "remote_text_encoder",
 }
-
-
-def component_names(pipeline_definition, key):
-    """The component names one of a pipeline definition's sharing lists holds.
-
-    The lists were only ever read off the pipeline itself, while the schema and
-    the guide put them in its configuration - a workflow written to the docs
-    shared nothing and said nothing about it. Both places are read now.
-
-    Args:
-        pipeline_definition: A pipeline's definition dict (`step["pipeline"]`)
-        key: 'shared_components' or 'reused_components'
-
-    Returns:
-        List of component names
-    """
-    configuration = pipeline_definition.get("configuration", {})
-    return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
 
 
 def declared_component_names(pipeline_definition):

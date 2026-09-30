@@ -53,7 +53,9 @@ same way the entry cap keeps the newest-used count under one, oldest first.
 
 import copy
 import dataclasses
+import hashlib
 import itertools
+import json
 import logging
 import os
 from collections import OrderedDict
@@ -63,7 +65,6 @@ import torch
 from PIL import Image
 
 from . import references
-from .pipeline_processors.pipeline import component_names
 
 logger = logging.getLogger("dw")
 
@@ -110,6 +111,64 @@ def referenced_result_names(steps):
     for step in steps:
         scan(step)
     return names
+
+
+def component_names(pipeline_definition, key):
+    """The component names one of a pipeline definition's sharing lists holds.
+
+    The lists were only ever read off the pipeline itself, while the schema and
+    the guide put them in its configuration - a workflow written to the docs
+    shared nothing and said nothing about it. Both places are read now.
+
+    Args:
+        pipeline_definition: A pipeline's definition dict (`step["pipeline"]`)
+        key: 'shared_components' or 'reused_components'
+
+    Returns:
+        List of component names
+    """
+    configuration = pipeline_definition.get("configuration", {})
+    return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
+
+
+def pipeline_cache_key(pipeline_definition):
+    """Stable identity for a loaded pipeline.
+
+    Hashes everything that shapes loading - configuration, components,
+    quantization, loras - and excludes what varies per call (arguments, seed,
+    chain), so a cache hit means "this exact model stack is already loaded".
+    Keying the cache by identity instead of step name means two workflows
+    whose steps happen to share a name can no longer collide, and a rerun of
+    an edited workflow keeps every pipeline whose definition did not change.
+
+    Computed after variable substitution but the excluded keys keep realized
+    per-run values (images, generators) out of the hash; realized types and
+    dtypes stringify stably via default=str.
+    """
+    load_definition = {
+        k: v
+        for k, v in pipeline_definition.items()
+        if k not in ("arguments", "seed", "chain")
+    }
+    serialized = json.dumps(load_definition, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def step_pipeline_keys(steps):
+    """Step name -> pipeline_cache_key for every pipeline step, taken before
+    any step runs.
+
+    Pipeline.load edits the definition it is handed (placement resolves a
+    group_offload block in place, a LoRA entry is consumed), so a key hashed
+    after a step loaded is not the key the same step hashes to when it never
+    loaded - a deferred cache hit, or the cache_hits probe. A key that has to
+    agree across those cases is read from this table, not re-hashed.
+    """
+    return {
+        step_data["name"]: pipeline_cache_key(step_data["pipeline"])
+        for step_data in steps
+        if "pipeline" in step_data
+    }
 
 
 def borrowed_pipeline_keys(steps, index, pipeline_keys):
