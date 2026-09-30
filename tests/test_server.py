@@ -5478,13 +5478,11 @@ class TestBoundAcknowledgement:
 
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
         import dw.server.admission as admission_module
-        import dw.server.app as app_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
         monkeypatch.setattr(admission_module, "build_plan", boom)
-        monkeypatch.setattr(app_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
