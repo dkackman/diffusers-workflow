@@ -2,26 +2,21 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 2b: validation plumbing - one context, one registry, one exception policy
-dw/validation.py
+# Phase 2c: typed worker protocol; the worker runs the admitted snapshot
+dw/worker.py
+dw/worker_manager.py
 dw/workflow.py
-dw/media_info.py
-dw/dissolve_frame_errors.py
-dw/video_size_errors.py
-dw/slice_preflight.py
-dw/shot_span_preflight.py
-dw/task_domains.py
-dw/select_validation.py
-dw/result_fps.py
-dw/null_media.py
-dw/tasks/dissolve_videos.py
-dw/tasks/video_utils.py
-dw/tasks/audio_utils.py
-dw/tasks/select.py
+dw/run.py
+dw/server/jobs.py
 dw/server/admission.py
 dw/server/app.py
-tests/data/
+tests/test_worker.py
+tests/test_worker_execute.py
+tests/test_worker_manager.py
+tests/test_server_jobs.py
+tests/test_server.py
+tests/test_rerun_new_seed.py
+tests/test_cli.py
+tests/test_admission.py
 scripts/arch_metrics.py
 docs/stabilization/
-dw/for_each.py
-dw/references.py

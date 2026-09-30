@@ -616,3 +616,147 @@ The same steps as 2a's Task 5:
 4. Write stage 2c's detail and its hot zone in one commit.
 
 Add 2b's surface changes to "Release notes collected".
+
+---
+
+## Stage 2c: typed worker protocol, and a worker that trusts admission
+
+Work on branch `stabilization/phase-2c` in the worktree, from `develop` after stage 2b (`72be3f70` or later).
+
+**What exists (survey, 2026-09-30, at `72be3f70`).**
+
+- **Commands, parent to worker** (dicts on a `multiprocessing.Queue`): `execute`, `cancel`, `shutdown`, `ping`, `clear_memory`, `memory_status`, `probe_cache`.
+  - `execute` is built in `JobManager._run_job` (`dw/server/jobs.py:1202-1241`) from `job.spec`.
+  - `probe_cache` is execute-shaped plus a `probe_id`. It is built by `_probe_command_for` (`dw/server/app.py:1626-1642`) and sent by `JobManager.probe_cache` (`jobs.py:1433`).
+  - Nothing in `dw` sends `ping`. Its `pong` reply and `shutdown_complete` have no reader outside `tests/test_worker.py` and `tests/test_worker_manager.py`.
+- **Replies, worker to parent:** `workflow_loaded`, `output`, `progress` (the event splatted into the dict), `memory_info`, `success`, `cancelled`, `error`, `worker_crashed`, `memory_status`, `memory_cleared`, `probe_cache`, `pong` and `shutdown_complete`.
+- **Four reply readers, all in `jobs.py`:** `_consume_results` (1293-1383), `probe_cache` (1433-1477), `memory_status` (1479-1522) and `clear_memory` (1524-1552). Only `probe_cache` matches its reply by id.
+  - A probe reply that arrives after its reader gave up stays on the queue. The next `memory_status` then reads it, answers `worker_unreachable`, and leaves the real `memory_status` reply for `_consume_results`, which logs "Unknown worker message type".
+- **The worker re-reads and re-validates.**
+  - `_load_workflow` (`dw/worker.py:390-402`) calls `workflow_from_file` for a path job, which opens the file again, or `workflow_from_definition` for an inline one.
+  - `_handle_execute` then calls `workflow.validate(arguments=...)` (`worker.py:256`), which is `validation_errors` plus a raise (`dw/workflow.py:954-971`, with no side effects).
+  - Admission (`dw/server/admission.py:84`) has already built that `Workflow` and checked it. `submit_job`, rerun and enhance forward only its `name` and warnings (`app.py:1197`, `1355`, `2464`), so the admitted instance is discarded.
+  - The consequence: a file edited between queue and run runs as edited, is validated a second time, and can fail in the worker with a message admission never gave.
+- **`file_spec` is load-bearing** beyond reading the file:
+  - `workflow_output_subfolder` (flat layout, `workflow.py:189`);
+  - `workflow_identity`, the run directory's name (`workflow.py:1321`, `1373`, `1797`);
+  - sub-workflow resolution through `dirname(file_spec)` and `catalog_root_dir` (`workflow.py:642`, `2148`);
+  - the worker's pipeline-flush identity, `("path", p)` or `("inline", id)` (`worker.py:396`, `402`).
+- **Name fallbacks.** `submit` falls back to a file's base name (`jobs.py:827-828`) or an inline `id` / `"unknown"` (`835-839`), and `Job.__init__` falls back to `"unknown"` (`504`). Every caller in `dw` now passes `admission.workflow.name`. Seventeen direct `submit` calls in `tests/test_server.py` (13) and `tests/test_server_jobs.py` (4) rely on the fallbacks. History rows are dicts and never reach `Job.__init__`.
+- **`dw.run` paging.** `_wait_for_completion` (`dw/run.py:152-164`) sleeps between pages and stops at a terminal status even when the page it just read was `truncated`. So a job that ends with more than one page of events unread (`limit` defaults to 200) loses the rest. It never prints `note`, the route's explanation of what history trimmed (`app.py:1491-1530`).
+  - A live job's in-memory event list is not trimmed (`Job.add_event`, `jobs.py:550`), so paging recovers everything for a live job. For a restored one it recovers only the persisted tail (`MAX_PERSISTED_EVENTS`), which is what `note` says.
+
+### Decisions (2c)
+
+- **The job carries the admitted snapshot, and the worker builds from it.**
+  - `JobManager.submit` and `rerun` take the admitted `Workflow` as a required keyword `admitted`. The spec records:
+    - `definition`: `admitted.workflow_definition`, the copy admission already holds;
+    - `file_spec`: `admitted.file_spec`, the validated path or the synthetic `__inline__.json`;
+    - `workflow_name`: `admitted.name`.
+  - The `workflow_name` parameter and all three fallbacks go.
+  - `workflow_path`, `workflow` and `base_dir` stay in the spec for rerun and `definition()`. `RERUN_SPEC_KEYS`, and so what history persists, does not change. The snapshot is not persisted.
+  - A rerun still admits afresh from the path, so it runs the file as it is now. That is unchanged.
+- **One construction path in the worker:** `workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir)` in `dw/workflow.py`.
+  - It validates `output_dir` (`validate_output_path`) and, when `workflow_dir` is set, confines `dirname(file_spec)` to it (`validate_path`). Filesystem access keeps going through a validator; see CLAUDE.md, Security Rules.
+  - It never opens `file_spec`.
+  - `_handle_execute` and `_handle_probe_cache` both use it. The worker no longer imports `workflow_from_file` or `workflow_from_definition`, and it has no `validate()` call.
+  - The pipeline-flush identity is `("path", file_spec)` for a job that came from a file and `("inline", definition.get("id"))` otherwise. It is carried as a `source` field (`"path"` / `"inline"`).
+- **The execute and probe commands carry** `definition`, `file_spec`, `source`, `workflow_dir`, `output_dir`, `asset_dir`, `arguments` and `log_level`. `_probe_command_for` builds its command from the candidate the same way. `workflow_path`, `workflow` and `base_dir` leave the commands.
+- **Typed messages, dict wire.**
+  - One frozen dataclass per command and per reply. Each has `to_wire() -> dict` and a `from_wire(dict)` classmethod, and the wire keeps today's dict shapes and `type` strings.
+  - The queue keeps carrying dicts. Spawn-pickling a dataclass requires the class to be importable identically in the child, and 23 assertions in `tests/test_worker*.py` read raw reply dicts.
+  - `parse_reply(dict)` is the one place a dict becomes a type. An unknown `type` becomes an `UnknownReply`, which is logged once, where `_consume_results` logs it today.
+- **Ruling: the message types live in `dw/worker.py`, not a new module.**
+  - `modules` stays 131. A new `dw/worker_protocol.py` would ratchet it up to 132, and `worker.py` cannot import from `worker_manager.py`, which imports `worker_main` from it: that is a cycle.
+  - `jobs.py` reaching `dw.worker` adds no strongly connected component, because `jobs → worker_manager → worker` already exists.
+  - Cost if wrong: Phase 3 moves about 120 lines out of `worker.py` into their own module. Don may veto this before Task 2 starts.
+- **One reply dispatcher on `WorkerManager`:** `request(command, timeout) -> Reply`. It sends the command, then reads replies until one with the command's `request_id` arrives, discarding (and logging at DEBUG) every reply that is not its own.
+  - Every request/reply command (`memory_status`, `clear_memory`, `probe_cache`) carries a `request_id`. `probe_id` becomes `request_id`.
+  - `_consume_results` reads through `parse_reply` and handles only the run's reply types. A stray request reply is discarded at DEBUG instead of logged as unknown.
+  - The three `JobManager` request methods call `request()`. Their locking, timeouts and crash handling are unchanged.
+- **`ping`, `pong` and `shutdown_complete` are removed.**
+  - Nothing sends `ping` or reads the other two, and `shutdown_worker` joins the process rather than reading a reply.
+  - `_watch_commands` keeps handling `cancel` and `shutdown`.
+  - The tests that exercise them (`tests/test_worker.py:113`, `118` and `tests/test_worker_manager.py:39-40`) are rewritten to exercise a reply that still exists.
+- **Out of scope:** `JobManager.definition()` still re-reads a path job's file; for a live job it could answer from the snapshot. That is a follow-up for Phase 3. The `recorded_variables` media copy stays 2d's.
+
+### Review Focus (2c)
+
+1. **Snapshot parity.**
+   - For every template in `workflows/templates/**`, `workflow_from_snapshot(w.workflow_definition, out, w.file_spec, root)` matches `w = workflow_from_file(path, out, root)` on `workflow_definition`, `file_spec`, `workflow_dir`, `output_dir`, `name`, `workflow_output_subfolder(file_spec)` and `workflow_identity(file_spec, name)`.
+   - A committed test, parametrized over the templates.
+2. **An edited file runs as admitted.** Queue a path job, rewrite the file before the worker picks it up, and the worker runs the admitted definition. A committed test at the `_handle_execute` level, with no file read (the test deletes the file).
+3. **A stale reply cannot poison the next request.** A late `probe_cache` reply on the queue, then `memory_status`: the answer is `live: true`, and `_consume_results` for the next job logs nothing unknown.
+4. **A worker death mid-request** still marks the crash and answers the way it does today (`worker_unreachable`, or `FAILED` with `crash_details()`).
+5. **Confinement.** A snapshot whose `file_spec` directory lies outside `workflow_dir` is refused by `workflow_from_snapshot` with `SecurityError`, as `workflow_from_file` refuses the path today.
+6. **`dw.run` drains a truncated tail:** a job that ends with 450 events unread prints all 450, in order, and prints a `note` once.
+
+### Task 1: The worker builds from the admitted snapshot
+
+**Files:**
+- `dw/workflow.py`: add `workflow_from_snapshot`.
+- `dw/worker.py`: `_load_workflow` → the snapshot factory; delete the `validate()` call; update `_handle_probe_cache`.
+- `dw/server/jobs.py`: `submit` and `rerun` take `admitted`; remove the fallbacks at 827-828, 835-839 and 504; update `_run_job`'s command.
+- `dw/server/app.py`: 1197, 1355, 2464 and `_probe_command_for`.
+- Tests: `tests/test_worker_execute.py` (retarget its `dw.worker.workflow_from_file` / `workflow_from_definition` patches to `dw.worker.workflow_from_snapshot`; the count of string targets must not rise), `tests/test_server.py`, `tests/test_server_jobs.py` and `tests/test_rerun_new_seed.py`, plus new tests for Review Focus 1, 2 and 5.
+
+**Interfaces:**
+- `workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None) -> Workflow`.
+- `JobManager.submit(*, admitted, workflow_path=None, workflow=None, arguments=None, base_dir=None, workflow_dir=None, output_dir=None, asset_dir=None, workspace=None, catalog_name=None, acknowledged=ACK_NONE, acknowledged_cost=None, warnings=None)`. `rerun(job_id, *, admitted, ...)` loses `workflow_name` the same way.
+- Tests that called `submit` without admitting get one fixture helper that admits (through `admit()` or `workflow_from_file` / `workflow_from_definition`) and submits. No new string patch target.
+
+- [ ] **Step 1: Failing tests.** Review Focus 1, 2 and 5. Focus 2 fails today, because the worker re-reads the file and fails on the deleted path.
+- [ ] **Step 2: Implement.** Follow the Decisions: the spec keys, the command fields and the factory.
+- [ ] **Step 3: Verify.**
+  - `grep -n "validate(\|workflow_from_file\|workflow_from_definition" dw/worker.py` prints nothing.
+  - `grep -n '"unknown"' dw/server/jobs.py` prints nothing.
+  - The full suite and `--check` pass. Report `test_dw_patch_targets`, which must not rise.
+- [ ] **Step 4: Commit** `refactor(worker): run the admitted snapshot; no re-read, no re-validate`
+
+### Task 2: Typed messages and one reply dispatcher
+
+**Files:**
+- `dw/worker.py`: the dataclasses, `parse_reply`, and each `put` through `to_wire()`; remove `ping`, `pong` and `shutdown_complete`.
+- `dw/worker_manager.py`: `request()`.
+- `dw/server/jobs.py`: `_consume_results`, `probe_cache`, `memory_status` and `clear_memory`.
+- Tests: `tests/test_worker.py`, `tests/test_worker_manager.py` and `tests/test_server_jobs.py`, plus new tests for Review Focus 3 and 4.
+
+**Interfaces:**
+- Commands: `Execute`, `ProbeCache` (`Execute`'s fields plus `request_id`), `Cancel`, `Shutdown`, `ClearMemory(request_id)`, `MemoryStatus(request_id)`.
+- Replies: `WorkflowLoaded`, `Output`, `Progress(event: dict)`, `MemoryInfo`, `Succeeded`, `Cancelled`, `Failed`, `WorkerCrashed`, `MemoryStatusReply`, `MemoryCleared`, `ProbeCacheReply`, `UnknownReply`. The last four request replies carry `request_id`.
+- `WorkerManager.request(command, timeout) -> Reply`, which raises what `get_result` raises today (`RuntimeError`, `queue.Empty`).
+
+- [ ] **Step 1: Failing tests.** Review Focus 3 fails today. Add a round-trip test: `from_wire(to_wire(x)) == x` for every message type, and `to_wire()` equals today's dict for one example of each.
+- [ ] **Step 2: Implement.** Follow the Decisions.
+- [ ] **Step 3: Verify.**
+  - `grep -n 'get("type")\|\["type"\]' dw/server/jobs.py` prints nothing: the type is read in `parse_reply` only.
+  - The full suite and `--check` pass.
+- [ ] **Step 4: Commit** `refactor(worker): typed messages, one reply dispatcher with request ids`
+
+### Task 3: `dw.run` drains a truncated event tail
+
+**Files:** `dw/run.py` (`_wait_for_completion`); `tests/test_cli.py`.
+
+- It pages again at once while the last page was `truncated`, sleeping only when it was not.
+- It stops only on a terminal status from a page that was not truncated.
+- It prints the page's `note` once, the first time one appears.
+
+- [ ] **Step 1: Failing test** (Review Focus 6). A fake client serves a terminal job's events as three truncated pages and one final page, with a `note`.
+- [ ] **Step 2: Implement.**
+- [ ] **Step 3: Verify.** The full suite and `--check` pass.
+- [ ] **Step 4: Commit** `fix(run): page a finished job's event tail to the end`
+
+### Task 4: Stage 2c merge
+
+The same steps as 2b's Task 7:
+1. The full suite and `--check`.
+2. The final review and its one fix pass.
+3. Merge and push, with no lem deploy.
+4. Write stage 2d's detail and its hot zone in one commit.
+
+Add 2c's surface changes to "Release notes collected":
+- A job runs the definition admission checked, even if its file is edited while the job waits. The worker no longer re-validates, so its re-validate failure message is gone.
+- `probe_cache` answers on the admitted definition.
+- A stale worker reply is discarded at DEBUG instead of logged as an unknown type.
+- `ping`, `pong` and `shutdown_complete` are removed from the internal protocol.
+- `python -m dw.run` prints every event of a job whose tail ran past one page, and prints the history `note`.
