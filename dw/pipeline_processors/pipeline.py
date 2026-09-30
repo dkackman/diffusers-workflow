@@ -28,6 +28,7 @@ from diffusers import attention_backend
 
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from .. import download_watch
+from ..step_cache import component_names, copy_containers
 from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
@@ -67,24 +68,6 @@ _NON_COMPONENT_KEYS = {
 }
 
 
-def component_names(pipeline_definition, key):
-    """The component names one of a pipeline definition's sharing lists holds.
-
-    The lists were only ever read off the pipeline itself, while the schema and
-    the guide put them in its configuration - a workflow written to the docs
-    shared nothing and said nothing about it. Both places are read now.
-
-    Args:
-        pipeline_definition: A pipeline's definition dict (`step["pipeline"]`)
-        key: 'shared_components' or 'reused_components'
-
-    Returns:
-        List of component names
-    """
-    configuration = pipeline_definition.get("configuration", {})
-    return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
-
-
 def declared_component_names(pipeline_definition):
     """The component names a pipeline definition can load or configure.
 
@@ -104,6 +87,31 @@ def declared_component_names(pipeline_definition):
             logger.info(f"Treating '{key}' as a component definition")
             names.append(key)
     return names
+
+
+def _loading_copy(pipeline_definition):
+    """The copy of a step's pipeline definition a Pipeline works on.
+
+    Loading edits what it reads: group offload replaces device names with
+    torch.device objects and drops the stream flags off CUDA, load_loras and
+    load_ip_adapter pop their keys, and load sets 'generator' on the argument
+    template. The definition belongs to the workflow - the step cache
+    snapshots it, embedded metadata records it, a deferred step loads from it
+    later - so none of that may reach it.
+
+    Every edit load makes is to a container - a key assigned or popped - and
+    none to a leaf in place, so the containers are copied and the leaves are
+    shared: a realized type or dtype, or media, is the object the workflow
+    holds, not a duplicate of it. 'arguments' is copied one level only; its
+    values may be realized media, and the generator is set at its top.
+    """
+    copied = {}
+    for key, value in pipeline_definition.items():
+        if key == "arguments":
+            copied[key] = dict(value) if isinstance(value, dict) else value
+        else:
+            copied[key] = copy_containers(value)
+    return copied
 
 
 class Pipeline:
@@ -135,7 +143,7 @@ class Pipeline:
             file_prefix: Naming prefix for those files, matching the step's
                 result naming (workflow id + step name)
         """
-        self.pipeline_definition = pipeline_definition
+        self.pipeline_definition = _loading_copy(pipeline_definition)
         self.default_seed = default_seed
         # A step can pin itself to a device, overriding the one dw is running on. It
         # becomes the default for this pipeline's components as well, and is

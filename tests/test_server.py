@@ -5795,7 +5795,7 @@ def test_the_sweep_waits_for_a_run_opening_before_removing_the_identity_folder(
     from filelock import FileLock
     from PIL import Image
 
-    from dw.runs import _run_lock_path
+    from dw.runs import run_lock_path
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
@@ -5806,7 +5806,7 @@ def test_the_sweep_waits_for_a_run_opening_before_removing_the_identity_folder(
         (run / "manifest.json").write_text("{}")
 
         responses = []
-        with FileLock(_run_lock_path(str(identity))):
+        with FileLock(run_lock_path(str(identity))):
             deleting = threading.Thread(
                 target=lambda: responses.append(client.delete(f"/api/gallery/{target}"))
             )

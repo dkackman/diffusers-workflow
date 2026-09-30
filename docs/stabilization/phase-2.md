@@ -70,6 +70,31 @@ The smaller items carried from gate 1 go to the stage whose files they touch:
   - `ping`, `pong` and `shutdown_complete` are removed.
 - **2c, `dw.run`:** `python -m dw.run` prints every event of a job whose tail ran past one page, and prints the history `note` once.
 - **2c follow-ups:** `JobManager.definition()` still re-reads a path job's file (Phase 3); `dw/worker.py` is 12 lines under the 1000-line limit until Phase 3 moves the message types out; the snapshot parity test is close to tautological; `workflow_from_snapshot` passes `file_spec` through unnormalized when `workflow_dir` is None (server jobs always set it).
+- **2d, borrow chains are part of pipeline identity (bug fix):**
+  - A pipeline that reuses another step's components is identified by every pipeline definition in its reuse closure. The closure includes intermediate steps that pass a component on.
+  - A step that `pipeline_reference`s such a pipeline is identified the same way.
+  - A change anywhere up the chain now reloads the reusing pipeline and misses the step cache below it. Before, a stale resident pipeline, still holding the old shared component, was reused, and a stale cached result was republished.
+  - Identical pass-through steps (for example `for_each` members that reuse and re-share one component) still share one pipeline. Two steps with the same own definition that borrow from different sources are now two pipelines.
+  - One-time cost after the deploy: the reusing step misses and reloads once in `base-and-refiner` (`main`), `ltx2/generative-upscale` (`upscaled`), `ltx2/refine-clip` (`refine`) and `ltx2/two-stage` (`upscale`).
+  - An elided step's `release_pipeline` carries to its predecessor only when their effective keys match.
+- **2d, loading never edits the workflow's definition:**
+  - `Pipeline` keeps its own container copy of the definition.
+  - Embedded image metadata no longer carries a `"generator": "<torch._C.Generator …>"` string. Its `workflow` block keeps `loras` and `ip_adapter`, which a load used to pop, so "open as workflow" from the gallery works for adapter steps.
+- **2d, media copies:**
+  - Variables are resolved, substituted, recorded and realized without deep-copying media leaves.
+  - A composed child copies only the arguments it declares, once, on entry, so an in-place write inside the child (`conform_artifact` restamping `fps`) never reaches the parent's result.
+  - Python API only: an object a top-level caller passes to `Workflow.run` is the object the steps use, so an in-place write to it is visible to the caller. Server, MCP and CLI callers pass JSON and are unaffected.
+- **2d, Python import surface:**
+  - `dw.runs._run_lock_path` is renamed `run_lock_path`.
+  - `pipeline_cache_key` and `step_pipeline_keys` moved from `dw.workflow` to `dw.step_cache`, and `component_names` from `dw.pipeline_processors.pipeline`. None is re-exported.
+  - `step_pipeline_keys` returns effective keys.
+  - A step missing from its run's key table raises an internal error rather than re-hashing.
+- **2d, metrics:** `import_cycles` 6 → 5, `modules_in_import_cycles` 25 → 19.
+- **2d follow-ups:**
+  - The three scanners of `previous_result:` shapes.
+  - `for_each._copy_leaf` and the step-cache snapshot still copy media leaves.
+  - A child handed media through a substituted variable stores it in its `argument_template`, which is copied again by validation.
+  - The elision carry assumes dict pipelines.
 
 ## Global Constraints (all stages)
 

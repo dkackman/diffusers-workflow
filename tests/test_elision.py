@@ -206,6 +206,34 @@ class TestReleasesMoveRatherThanDisappearing:
         assert names(kept) == ["other", "last"]
         assert "release_pipeline" not in kept[0]
 
+    def test_a_release_carries_between_identical_steps_passing_a_component_on(
+        self,
+    ):
+        """'a' and 'b' have one definition, each reusing vae and sharing it
+        on. Keyed by their reuse closure - {source, the shared definition}
+        for both - they are one loaded pipeline, so the elided 'b''s release
+        belongs on 'a' exactly as it would between two plain identical
+        steps."""
+        sharing = {"shared_components": ["vae"], "reused_components": ["vae"]}
+        steps = [
+            step(
+                "source",
+                pipeline={
+                    "configuration": {"component_type": "FluxPipeline"},
+                    "shared_components": ["vae"],
+                },
+                result={"content_type": "image/png"},
+            ),
+            self.draw("a", "one", result={"content_type": "image/png"}),
+            self.draw("b", "one", release_pipeline=True),
+            task("last", result={"content_type": "audio/wav"}),
+        ]
+        steps[1]["pipeline"].update(copy.deepcopy(sharing))
+        steps[2]["pipeline"].update(copy.deepcopy(sharing))
+        kept, _ = elide_unreferenced_steps(steps)
+        assert names(kept) == ["source", "a", "last"]
+        assert kept[1]["release_pipeline"] is True
+
     def test_release_models_always_carries(self):
         """It frees the process-wide task-model cache rather than one
         pipeline, so the step that ran before is exactly where it belongs."""

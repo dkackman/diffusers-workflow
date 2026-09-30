@@ -376,7 +376,7 @@ def test_cache_hit_republishes_shared_components(tmp_path):
             "arguments": {},
         },
     }
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
     cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
@@ -389,7 +389,7 @@ def test_cache_hit_republishes_shared_components(tmp_path):
 
 def test_redefined_step_evicts_prior_pipeline_before_loading(tmp_path):
     """The swap must never hold the old and new model stacks at once."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -457,7 +457,7 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released(tmp_p
     resident model, and holds both stacks while the first step's
     replacement loads, the exact transition #150 avoids. The end-of-run
     sweep (_evict_untouched_pipelines) drops it if nothing touched it."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -485,7 +485,7 @@ def test_a_prior_key_no_running_step_currently_maps_to_is_released(tmp_path):
     the same pipeline. That name is not a step this run executes, so no
     running step's current key is the old key - it must not save the key
     from release."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -513,7 +513,7 @@ def test_a_prior_key_every_sharing_step_moved_off_is_released(tmp_path):
     its replacement loaded - the OOM transition #150 fixed. Judged on the
     siblings' current keys, nobody is on the old key and it is released
     before the load."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_key = pipeline_cache_key(_model_step("x", "old-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
@@ -535,7 +535,7 @@ def test_run_records_the_current_key_of_every_pipeline_step(tmp_path):
     under this run. create_step_action records the key it hashed per step
     (_pipeline_keys_by_step), so the two maps must be identical - computed
     by the same function over the same dicts."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     definition = {
         "id": "keys",
@@ -627,7 +627,7 @@ def test_superseded_release_is_reported_on_the_event_stream(tmp_path):
     load, which is what made #150 take three jobs to diagnose.
     """
     from dw.events import RunContext, activate_context, deactivate_context
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -738,7 +738,7 @@ def test_release_models_returns_host_caches(tmp_path):
 def test_superseded_release_returns_host_caches(tmp_path):
     """A redefined step's old pipeline hands its host memory back before the
     new one loads, not once the job ends (#368)."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -793,3 +793,127 @@ def test_release_host_caches_runs_for_real_on_the_release_path(tmp_path):
                 workflow.run({}, previous_pipelines={})
 
     assert real.call_count == 1
+
+
+def _sharing_step(name, model_name, shares=(), reuses=()):
+    pipeline = {
+        "configuration": {"component_type": "{MockPipeline}"},
+        "from_pretrained_arguments": {"model_name": model_name},
+        "arguments": {"prompt": f"fixed {name}"},
+    }
+    if shares:
+        pipeline["shared_components"] = list(shares)
+    if reuses:
+        pipeline["reused_components"] = list(reuses)
+    return {"name": name, "pipeline": pipeline}
+
+
+def _loads_per_run(tmp_path, definition, argument_sets):
+    """Runs an unseeded definition (no step cache) once per argument set,
+    carrying the pipeline dict between runs as the worker does, and returns
+    the model names each run loaded, in order."""
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    pipeline_cache = {}
+    loads = []
+
+    def mock_pipeline_load(self, shared_components):
+        loads[-1].append(self.pipeline_definition["from_pretrained_arguments"])
+        self.resolve_reused_components(shared_components)
+        self.pipeline = MagicMock()
+        self.publish_shared_components(shared_components)
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            for arguments in argument_sets:
+                loads.append([])
+                workflow.run(arguments, previous_pipelines=pipeline_cache)
+    return [[load["model_name"] for load in run] for run in loads]
+
+
+def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
+    tmp_path,
+):
+    """A shares its vae and B reuses it on its own pipeline. Only a fresh
+    load resolves reused components, so a B still resident from a run where
+    A was another model holds that model's vae: when A's model changes, B
+    has to load again rather than be handed back from the pipeline cache."""
+    definition = {
+        "id": "test_borrow_chain_pipeline_cache",
+        "variables": {"model_a": "m1"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "model-b", reuses=["vae"]),
+        ],
+    }
+    loads = _loads_per_run(tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}])
+    assert loads[1] == ["m2", "model-b"]
+
+
+def _multi_hop_definition():
+    """A shares vae, B reuses it and shares it on, D reuses B's."""
+    return {
+        "id": "test_multi_hop_pipeline_cache",
+        "variables": {"model_a": "m1", "model_b": "model-b"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "variable:model_b", shares=["vae"], reuses=["vae"]),
+            _sharing_step("D", "model-d", reuses=["vae"]),
+        ],
+    }
+
+
+def test_a_change_at_the_origin_of_a_multi_hop_borrow_reloads_every_borrower(
+    tmp_path,
+):
+    loads = _loads_per_run(
+        tmp_path, _multi_hop_definition(), [{"model_a": "m1"}, {"model_a": "m2"}]
+    )
+    assert loads[1] == ["m2", "model-b", "model-d"]
+
+
+def test_a_change_to_an_intermediate_borrower_reloads_every_step_below_it(
+    tmp_path,
+):
+    """B's own definition decides what it passes on (its placement and
+    optimizations act on the component in place), so D, which reuses from B,
+    reloads when B changes; A, above it, stays resident."""
+    loads = _loads_per_run(
+        tmp_path,
+        _multi_hop_definition(),
+        [{"model_b": "model-b"}, {"model_b": "model-b2"}],
+    )
+    assert loads[1] == ["model-b2", "model-d"]
+
+
+def test_identical_steps_passing_a_component_on_share_one_pipeline(tmp_path):
+    """Three identical steps (for_each members, say) that each reuse vae and
+    share it on hold the same loaded pipeline, as they did before a borrow
+    chain was part of identity - one resident copy, not one per member."""
+    from dw.step_cache import step_pipeline_keys
+
+    definition = {
+        "id": "test_identical_pass_through",
+        "steps": [_sharing_step("S", "model-s", shares=["vae"])]
+        + [
+            {
+                **_sharing_step("m", "model-m", shares=["vae"], reuses=["vae"]),
+                "name": f"m{index}",
+            }
+            for index in range(3)
+        ],
+    }
+    keys = step_pipeline_keys(definition["steps"])
+    assert keys["m0"] == keys["m1"] == keys["m2"]
+    assert _loads_per_run(tmp_path, definition, [{}]) == [["model-s", "model-m"]]
+
+
+def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):
+    """The table holds effective keys, which a step's own definition cannot
+    give, so a step it lacks is never quietly re-hashed."""
+    workflow = Workflow({"id": "table", "steps": []}, str(tmp_path), "t.json")
+    workflow._running_pipeline_keys = {"other": "k"}
+
+    with pytest.raises(RuntimeError, match="'gen' is not in this run's pipeline"):
+        workflow.create_step_action(_model_step("gen", "m"), {}, {}, 1, "cpu")

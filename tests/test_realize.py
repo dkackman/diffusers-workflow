@@ -370,3 +370,244 @@ def test_the_realized_record_carries_the_snapped_value():
     source = workflow_with({"num_frames": H3}, {"num_frames": 124})
     realized, _ = realize_workflow(source, folded(source, {"num_frames": 130}), 1)
     assert realized["variables"]["num_frames"] == 141
+
+
+class Undeepcopyable:
+    """A stand-in for realized media - an image, a frame list's tensor - that
+    a record must share rather than duplicate: copying it deeply raises."""
+
+    def __deepcopy__(self, memo):
+        raise AssertionError("a variable's leaf was deep-copied")
+
+
+def media_definition():
+    """A child-shaped workflow: a variable that a composing parent fills with
+    media it has already realized, and a step that reads it."""
+    source = definition()
+    source["variables"]["image"] = None
+    source["variables"]["frames"] = []
+    source["steps"][0]["pipeline"]["arguments"]["reference"] = "variable:image"
+    return source
+
+
+class TestRecordedVariablesShareTheirLeaves:
+    def test_realize_workflow_records_the_object_itself(self):
+        media = Undeepcopyable()
+        variables = {"prompt": "a cat", "steps": 4, "image": media, "frames": [media]}
+
+        realized, _ = realize_workflow(media_definition(), variables, 7)
+
+        assert realized["variables"]["image"] is media
+        assert realized["variables"]["frames"][0] is media
+        # The containers are the record's own
+        assert realized["variables"] is not variables
+        assert realized["variables"]["frames"] is not variables["frames"]
+
+    def test_prepare_definition_records_the_object_itself(self, tmp_path):
+        media = Undeepcopyable()
+        frames = [media, (media, media)]
+        wf = Workflow(media_definition(), str(tmp_path), None)
+
+        prepared, _, recorded = wf._prepare_definition(
+            copy.deepcopy(wf.workflow_definition),
+            {"image": media, "frames": frames},
+            str(tmp_path),
+        )
+
+        assert recorded["image"] is media
+        assert recorded["frames"][0] is media
+        assert recorded["frames"][1][0] is media
+        assert isinstance(recorded["frames"][1], tuple)
+        assert recorded["frames"] is not frames
+        assert prepared["steps"][0]["pipeline"]["arguments"]["reference"] is media
+
+    def test_a_composed_child_s_record_realizes_without_copying_media(self, tmp_path):
+        """What a composed child prepares from: arguments carrying media -
+        already the child's own copy, taken once where the parent hands them
+        over (TestAComposedChildOwnsItsMedia) - folded and then recorded
+        with no further copy, so the record holds that same object."""
+        media = Undeepcopyable()
+        wf = Workflow(media_definition(), str(tmp_path), None)
+
+        _, _, recorded = wf._prepare_definition(
+            copy.deepcopy(wf.workflow_definition),
+            {"image": media, "frames": [media]},
+            str(tmp_path),
+        )
+        realized, _ = realize_workflow(wf.workflow_definition, recorded, 7)
+
+        assert realized["variables"]["image"] is media
+        assert realized["variables"]["frames"][0] is media
+
+    def test_cache_hits_prepares_without_copying_media(self, tmp_path):
+        media = Undeepcopyable()
+        source = media_definition()
+        source["seed"] = 3
+        wf = Workflow(source, str(tmp_path), None)
+
+        assert wf.cache_hits({"image": media, "frames": [media]}) == []
+
+
+class CountingMedia:
+    """A realized video handed down to a composed child: an AudioVideo that
+    counts how often it is deep-copied."""
+
+    copies = 0
+
+    def __new__(cls):
+        from PIL import Image
+
+        from dw.result import AudioVideo
+
+        class Counted(AudioVideo):
+            def __deepcopy__(self, memo):
+                CountingMedia.copies += 1
+                return Counted(
+                    [frame.copy() for frame in self.frames],
+                    self.audio,
+                    self.sample_rate,
+                    fps=self.fps,
+                )
+
+        frames = [Image.new("RGB", (16, 16), (i * 40, 0, 0)) for i in range(4)]
+        return Counted(frames, None, None, fps=24)
+
+
+class TestAComposedChildOwnsItsMedia:
+    """A parent's realized media passed into a child through the workflow
+    step's arguments is the child's own copy: a child step that writes onto
+    its artifact in place - `select` hands its candidate back by identity, and
+    a declared `result.fps` is stamped onto that artifact (conform_artifact)
+    - restamps the child's copy, never the parent's object."""
+
+    def run_parent(self, tmp_path, clip):
+        child = {
+            "id": "child",
+            "variables": {"clips": []},
+            "steps": [
+                {
+                    "name": "pick",
+                    "task": {
+                        "command": "select",
+                        "arguments": {
+                            "candidates": "variable:clips",
+                            "scores": [1],
+                            "rule": "index",
+                            "index": 0,
+                        },
+                    },
+                    "result": {"content_type": "video/mp4", "fps": 12},
+                }
+            ],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "variables": {"clip": None},
+            "steps": [
+                # The parent's own step result, as a generating step would
+                # leave it: the clip itself, by identity
+                {
+                    "name": "shot",
+                    "task": {
+                        "command": "select",
+                        "arguments": {
+                            "candidates": ["variable:clip"],
+                            "scores": [1],
+                            "rule": "index",
+                            "index": 0,
+                        },
+                    },
+                },
+                {
+                    "name": "compose",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"clips": ["previous_result:shot"]},
+                    },
+                    "result": {"content_type": "video/mp4"},
+                },
+            ],
+        }
+        parent_file = tmp_path / "parent.json"
+        parent_file.write_text(json.dumps(parent))
+        from dw.workflow import workflow_from_file
+
+        outputs = tmp_path / "outputs"
+        outputs.mkdir()
+        wf = workflow_from_file(str(parent_file), str(outputs), str(tmp_path))
+        wf.run({"clip": clip})
+
+    def test_the_parent_s_object_is_not_restamped(self, tmp_path):
+        clip = CountingMedia()
+
+        self.run_parent(tmp_path, clip)
+
+        assert clip.fps == 24
+
+    def test_the_child_copies_what_it_is_handed_once(self, tmp_path):
+        clip = CountingMedia()
+        CountingMedia.copies = 0
+
+        self.run_parent(tmp_path, clip)
+
+        assert CountingMedia.copies == 1
+
+
+class Bomb:
+    """An argument value deepcopy refuses."""
+
+    def __deepcopy__(self, memo):
+        raise TypeError("cannot deepcopy a Bomb")
+
+
+def composed_child(variables):
+    definition = {
+        "id": "child",
+        "steps": [
+            {
+                "name": "pick",
+                "task": {
+                    "command": "select",
+                    "arguments": {
+                        "candidates": ["x"],
+                        "scores": [1],
+                        "rule": "index",
+                        "index": 0,
+                    },
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+    if variables is not None:
+        definition["variables"] = variables
+    return definition
+
+
+class TestAComposedChildCopiesWithinItsCleanupAndOnlyWhatItDeclares:
+    def run_child(self, tmp_path, variables, arguments, context=None):
+        wf = Workflow(composed_child(variables), str(tmp_path), None)
+        wf._composed = True
+        return wf.run(arguments, context=context)
+
+    def test_a_failed_copy_unwinds_the_run_context(self, tmp_path):
+        from dw.events import RunContext
+
+        ctx = RunContext()
+
+        with pytest.raises(TypeError, match="Bomb"):
+            self.run_child(tmp_path, {"clips": []}, {"clips": Bomb()}, ctx)
+
+        assert ctx._run_depth == 0
+        assert ctx._watchdog_thread is None
+
+    def test_an_undeclared_argument_is_not_copied_and_is_refused_by_name(
+        self, tmp_path
+    ):
+        with pytest.raises(ValueError, match="Unknown variable 'extra'"):
+            self.run_child(tmp_path, {"clips": []}, {"extra": Bomb()})
+
+    def test_a_child_declaring_no_variables_copies_nothing(self, tmp_path):
+        # Its arguments are ignored, so a value deepcopy refuses is no failure
+        self.run_child(tmp_path, None, {"clips": Bomb()})

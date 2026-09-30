@@ -4,7 +4,6 @@ import json
 import torch
 import copy
 import gc
-import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -55,6 +54,9 @@ from .step_cache import (
     reference_resolves_to,
     normalized_downstream,
     borrowed_pipeline_keys,
+    pipeline_cache_key,
+    step_pipeline_keys,
+    copy_containers,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -246,46 +248,6 @@ def catalog_root_dir(file_spec):
     return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
-def pipeline_cache_key(pipeline_definition):
-    """Stable identity for a loaded pipeline.
-
-    Hashes everything that shapes loading - configuration, components,
-    quantization, loras - and excludes what varies per call (arguments, seed,
-    chain), so a cache hit means "this exact model stack is already loaded".
-    Keying the cache by identity instead of step name means two workflows
-    whose steps happen to share a name can no longer collide, and a rerun of
-    an edited workflow keeps every pipeline whose definition did not change.
-
-    Computed after variable substitution but the excluded keys keep realized
-    per-run values (images, generators) out of the hash; realized types and
-    dtypes stringify stably via default=str.
-    """
-    load_definition = {
-        k: v
-        for k, v in pipeline_definition.items()
-        if k not in ("arguments", "seed", "chain")
-    }
-    serialized = json.dumps(load_definition, sort_keys=True, default=str)
-    return hashlib.sha256(serialized.encode()).hexdigest()
-
-
-def step_pipeline_keys(steps):
-    """Step name -> pipeline_cache_key for every pipeline step, taken before
-    any step runs.
-
-    Pipeline.load edits the definition it is handed (placement resolves a
-    group_offload block in place, a LoRA entry is consumed), so a key hashed
-    after a step loaded is not the key the same step hashes to when it never
-    loaded - a deferred cache hit, or the cache_hits probe. A key that has to
-    agree across those cases is read from this table, not re-hashed.
-    """
-    return {
-        step_data["name"]: pipeline_cache_key(step_data["pipeline"])
-        for step_data in steps
-        if "pipeline" in step_data
-    }
-
-
 def _allocated_mb():
     """Device memory in use right now, for the pipeline_released event -
     None where the backend cannot say, so a reading is never confused with
@@ -408,6 +370,15 @@ class Workflow:
     # (#92). A child whose parent declares nothing still saves, since
     # otherwise the output would exist nowhere
     _final_save_owned_by_parent = False
+    # Whether this workflow was composed by a parent's `workflow` step, whose
+    # arguments hand down the parent's own objects - a previous_result:
+    # artifact, a realized image. The child takes one copy of them on entry
+    # (run, below), so a child step that writes onto its artifact in place -
+    # conform_artifact stamping a declared fps onto what `select` handed back
+    # by identity - edits the child's copy and never the parent's result.
+    # Past that boundary nothing copies a leaf: variables are resolved,
+    # substituted and recorded sharing it
+    _composed = False
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -1020,7 +991,7 @@ class Workflow:
         variables = self._fold(
             workflow_def, arguments, fold_arguments=True, constrain=apply_constraints
         )
-        recorded_variables = copy.deepcopy(variables)
+        recorded_variables = copy_containers(variables)
         if variables is not None:
             # The definition carries the folded values rather than the
             # loaded ones: realize_args below loads assets into `variables`,
@@ -1215,6 +1186,20 @@ class Workflow:
         finally:
             deactivate_output_root(output_root_token)
 
+    def _owned_arguments(self, arguments):
+        """The composed child's own copy of what its parent handed it
+        (_composed) - only of the names its fold keeps, the ones its
+        `variables` block declares. An undeclared name is left for
+        set_variables to refuse by name, and a child declaring nothing
+        ignores its arguments, so neither is worth a copy that could fail."""
+        declared = self.workflow_definition.get("variables")
+        if not isinstance(declared, dict) or not isinstance(arguments, dict):
+            return arguments
+        return {
+            name: copy.deepcopy(value) if name in declared else value
+            for name, value in arguments.items()
+        }
+
     def run(
         self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
     ):
@@ -1244,6 +1229,9 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
+        # This run's key table, set before the first step (below); cleared
+        # here so a reused Workflow never serves _load_key last run's table
+        self._running_pipeline_keys = None
         # Step name -> {step_data, seed, released} for each cache hit whose
         # pipeline was not resident and so was not loaded. Per run: a persistent worker
         # reuses this Workflow across jobs, and what one run deferred says
@@ -1273,6 +1261,8 @@ class Workflow:
         annotations = {"prompts": [], "sub_workflows": {}}
         started_at = datetime.now(timezone.utc).isoformat()
         try:
+            if self._composed:
+                arguments = self._owned_arguments(arguments)
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
             # This allows the workflow to be run multiple times with different arguments
             workflow_def = copy.deepcopy(self.workflow_definition)
@@ -1895,7 +1885,7 @@ class Workflow:
         load followed by its release leaves behind.
         """
         step = steps[index]
-        running_keys = getattr(self, "_running_pipeline_keys", {})
+        running_keys = getattr(self, "_running_pipeline_keys", None) or {}
         own_key = running_keys.get(step["name"])
         if own_key is not None and own_key in pipelines:
             # Reused components are resolved only inside load(), and a
@@ -1936,6 +1926,29 @@ class Workflow:
                 pipelines.pop(self._pipeline_keys_by_step.get(name), None)
                 self._finish_release(workflow_id, name, source_index, before)
 
+    def _load_key(self, step_definition):
+        """The pipeline cache key a pipeline step loads under.
+
+        Read from the run's table (step_pipeline_keys, taken by run() before
+        anything loaded) - a load edits the definition it is handed, so a
+        key re-hashed from it could disagree with the one the table, a
+        deferred hit and the cache_hits probe use. The table also holds the
+        effective key - a step that reuses components folds in its sources'
+        keys - which the step's own definition cannot give. Hashed here only
+        for a step driven outside run(), which has no table; a table that
+        lacks the step is an internal error, never a silent re-hash.
+        """
+        running_keys = getattr(self, "_running_pipeline_keys", None)
+        if running_keys is None:
+            return pipeline_cache_key(step_definition["pipeline"])
+        step_name = step_definition["name"]
+        if step_name not in running_keys:
+            raise RuntimeError(
+                f"Internal error: pipeline step '{step_name}' is not in this "
+                "run's pipeline key table"
+            )
+        return running_keys[step_name]
+
     def create_step_action(
         self,
         step_definition,
@@ -1962,7 +1975,7 @@ class Workflow:
             step_name = step_definition["name"]
 
             # Pipelines are cached by what they load, not what step loads them
-            cache_key = pipeline_cache_key(step_definition["pipeline"])
+            cache_key = self._load_key(step_definition)
             self._step_pipeline_key(step_name, cache_key)
             get_context().touch_pipeline(cache_key)
 
@@ -2037,7 +2050,7 @@ class Workflow:
             # earlier, unrelated workflow does not count either - it is not
             # among the running steps. If nothing touches the key this run,
             # the end-of-run sweep drops it.
-            running_keys = getattr(self, "_running_pipeline_keys", {})
+            running_keys = getattr(self, "_running_pipeline_keys", None) or {}
             still_shared = any(
                 other != step_name and key == prior_key
                 for other, key in running_keys.items()
@@ -2198,6 +2211,9 @@ class Workflow:
             # step of the child can ever hit - the child must not pay the
             # cache's deepcopy and Result pinning for it
             workflow._cache_enabled_by_parent = self._cache_enabled_this_run
+            # The parent's objects arrive as this child's arguments; the child
+            # copies them once on entry rather than editing the parent's
+            workflow._composed = True
             # One execution, one directory: the child writes into the
             # parent's run directory and leaves no manifest of its own - its
             # steps roll up into the parent's manifest already

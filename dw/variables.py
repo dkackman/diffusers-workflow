@@ -112,15 +112,21 @@ def replace_variables(data, variables):
                 result[k] = replace_variables(v, variables)
         return result
 
-    # Scalars (and anything else) pass through unchanged. copy.deepcopy guards
-    # against a caller mutating a returned mutable leaf (e.g. a PIL.Image or a
-    # list-typed variable's value) and having that reach back into `variables`.
-    return copy.deepcopy(data)
+    # Scalars (and anything else) pass through unchanged and shared. Every dict
+    # and list above is rebuilt, which is all the no-mutation promise needs,
+    # and a leaf here can be realized media that copying would duplicate (or
+    # fail on). A substituted value is shared the same way, as it always was.
+    # Where a leaf can be edited in place - conform_artifact stamps fps and
+    # fitted audio onto an artifact - isolation is the composed-child
+    # boundary's job: a child copies what its parent hands it once, on entry
+    # (Workflow._composed), so sharing past that point edits only its own copy
+    return data
 
 
 def resolve_variable_values(variables):
     """A copy of `variables` in which every "variable:name" inside a list-
-    or dict-valued variable is replaced by that variable's value.
+    or dict-valued variable is replaced by that variable's value. The copy's
+    dicts and lists are its own; its leaves are shared with `variables`.
 
     A list-driven step reads its entries from a variable, and an entry that
     says "from_file": "variable:character_a_voice" is how one variable sets
@@ -149,8 +155,6 @@ def resolve_variable_values(variables):
         value = variables[name]
         if isinstance(value, (list, dict)):
             value = walk(value, chain + [name])
-        else:
-            value = copy.deepcopy(value)
         resolved[name] = value
         return value
 
@@ -162,7 +166,9 @@ def resolve_variable_values(variables):
             return [walk(item, chain) for item in node]
         if isinstance(node, dict):
             return {key: walk(item, chain) for key, item in node.items()}
-        return copy.deepcopy(node)
+        # A leaf is shared, not copied: the containers above are the copy's
+        # own, and a leaf can be media a composing parent already realized
+        return node
 
     for name in variables:
         resolve(name, [])

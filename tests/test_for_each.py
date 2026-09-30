@@ -677,7 +677,7 @@ class TestMusicVideoTemplate:
     def test_every_shot_is_the_same_pipeline(self):
         """Full pipeline blocks rather than pipeline_reference: the identity
         cache reuses the loaded model, so this costs no reload."""
-        from dw.workflow import pipeline_cache_key
+        from dw.step_cache import pipeline_cache_key
 
         got = steps_by_name(self.expanded())
         keys = {pipeline_cache_key(got[f"shot@{k}"]["pipeline"]) for k in self.KEYS}
@@ -770,7 +770,7 @@ class TestDialogueShortTemplate:
         assert frames == [124, 124, 124, 124, 141]
 
     def test_every_shot_is_the_same_pipeline(self):
-        from dw.workflow import pipeline_cache_key
+        from dw.step_cache import pipeline_cache_key
 
         got = steps_by_name(self.expanded())
         assert (

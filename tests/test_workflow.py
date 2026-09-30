@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 from dw.workflow import (
     Workflow,
     workflow_from_file,
-    pipeline_cache_key,
     referenced_result_names,
     release_unreferenced_results,
     workflow_output_subfolder,
 )
 from dw.pipeline_processors.pipeline import Pipeline
+from dw.step_cache import pipeline_cache_key
 import os
 
 # Referenced by test_validation_realizes_a_constant_default_list via

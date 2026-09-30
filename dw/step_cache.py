@@ -53,7 +53,9 @@ same way the entry cap keeps the newest-used count under one, oldest first.
 
 import copy
 import dataclasses
+import hashlib
 import itertools
+import json
 import logging
 import os
 from collections import OrderedDict
@@ -63,7 +65,6 @@ import torch
 from PIL import Image
 
 from . import references
-from .pipeline_processors.pipeline import component_names
 
 logger = logging.getLogger("dw")
 
@@ -112,26 +113,129 @@ def referenced_result_names(steps):
     return names
 
 
+def component_names(pipeline_definition, key):
+    """The component names one of a pipeline definition's sharing lists holds.
+
+    The lists were only ever read off the pipeline itself, while the schema and
+    the guide put them in its configuration - a workflow written to the docs
+    shared nothing and said nothing about it. Both places are read now.
+
+    Args:
+        pipeline_definition: A pipeline's definition dict (`step["pipeline"]`)
+        key: 'shared_components' or 'reused_components'
+
+    Returns:
+        List of component names
+    """
+    configuration = pipeline_definition.get("configuration", {})
+    return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
+
+
+def pipeline_cache_key(pipeline_definition):
+    """Stable identity for a loaded pipeline.
+
+    Hashes everything that shapes loading - configuration, components,
+    quantization, loras - and excludes what varies per call (arguments, seed,
+    chain), so a cache hit means "this exact model stack is already loaded".
+    Keying the cache by identity instead of step name means two workflows
+    whose steps happen to share a name can no longer collide, and a rerun of
+    an edited workflow keeps every pipeline whose definition did not change.
+
+    Computed after variable substitution but the excluded keys keep realized
+    per-run values (images, generators) out of the hash; realized types and
+    dtypes stringify stably via default=str.
+    """
+    load_definition = {
+        k: v
+        for k, v in pipeline_definition.items()
+        if k not in ("arguments", "seed", "chain")
+    }
+    serialized = json.dumps(load_definition, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def step_pipeline_keys(steps):
+    """Step name -> effective pipeline key for every pipeline step, taken
+    before any step runs.
+
+    A step that reuses nothing keys by its pipeline_cache_key exactly. A
+    step that reuses components keys by the sorted, de-duplicated set of
+    pipeline_cache_keys over its reuse closure: itself and, transitively,
+    every step `component_source` resolves its reused names to, and theirs.
+    Only a fresh load resolves reused components, so the pipeline a reusing
+    step loaded holds its sources' components as they were then; its own
+    definition never names the source model, so a key hashed from that
+    definition alone stayed the same when a source changed, and the
+    pipeline cache handed back a pipeline holding the old component while
+    the step cache served a step referencing it a stale hit. With the
+    closure, a change to any definition up a borrow chain - the origin's, or
+    an intermediate's that passes a component on - changes every key below
+    it. It is a set rather than a chain so that identical steps passing one
+    component along (for_each members that each reuse and share `vae`)
+    close over the same definitions and keep sharing one loaded pipeline.
+
+    Pipeline.load edits the definition it is handed (placement resolves a
+    group_offload block in place, a LoRA entry is consumed), so a key hashed
+    after a step loaded is not the key the same step hashes to when it never
+    loaded - a deferred cache hit, or the cache_hits probe. A key that has to
+    agree across those cases is read from this table, not re-hashed.
+    """
+    keys = {}
+    # Step name -> the own pipeline_cache_keys of its reuse closure
+    closures = {}
+    for index, step_data in enumerate(steps):
+        if "pipeline" not in step_data:
+            continue
+        pipeline_definition = step_data["pipeline"]
+        own_key = pipeline_cache_key(pipeline_definition)
+        closure = {own_key}
+        reused = component_names(pipeline_definition, "reused_components")
+        for name in reused:
+            source = component_source(steps[:index], name)
+            if source is not None:
+                closure |= closures[source["name"]]
+        closures[step_data["name"]] = closure
+        if reused:
+            serialized = json.dumps(sorted(closure))
+            keys[step_data["name"]] = hashlib.sha256(serialized.encode()).hexdigest()
+        else:
+            keys[step_data["name"]] = own_key
+    return keys
+
+
+def component_source(earlier_steps, name):
+    """The latest of `earlier_steps` whose pipeline shares component `name`
+    - the step a `reused_components` entry resolves to - or None."""
+    for earlier in reversed(earlier_steps):
+        earlier_pipeline = earlier.get("pipeline")
+        if earlier_pipeline and name in component_names(
+            earlier_pipeline, "shared_components"
+        ):
+            return earlier
+    return None
+
+
 def borrowed_pipeline_keys(steps, index, pipeline_keys):
     """The earlier steps step `index` borrows its pipeline from, by name, to
-    that step's pipeline_cache_key.
+    that step's effective pipeline key.
 
     A step that borrows another step's pipeline (`pipeline_reference`) or
     components (`reused_components`, matched to an earlier step's
     `shared_components`) has an unchanged step_data when only the source
     step's model changes - its own definition never names the model. Folding
-    the source steps' cache keys into the lookup snapshot makes a source
-    model change a miss here too, rather than a stale hit that republishes a
-    now-wrong pipeline.
+    the source steps' keys into the lookup snapshot makes a source model
+    change a miss here too, rather than a stale hit that republishes a
+    now-wrong pipeline. The keys are effective keys (step_pipeline_keys), so
+    a change further up a borrow chain than the direct source is a miss too.
 
-    The keys come from `pipeline_keys` (step name -> pipeline_cache_key),
-    computed from the definition before any step ran, never from
-    `steps[:index]` as they stand now: a load edits its own definition in
-    place, and a source step that loaded before this lookup (a cold run) and
-    one that did not (a deferred cache hit) would otherwise hash to
-    different keys, and the borrowing step would never match its own entry.
-    Which steps are borrowed is still resolved statically from
-    `steps[:index]`, the same list the run loop iterates.
+    The keys come from `pipeline_keys` (step_pipeline_keys), computed from
+    the definition before any step ran, never from `steps[:index]` as they
+    stand now: a load edits its own definition in place, and a source step
+    that loaded before this lookup (a cold run) and one that did not (a
+    deferred cache hit) would otherwise hash to different keys, and the
+    borrowing step would never match its own entry. Which steps are
+    borrowed is still resolved statically from `steps[:index]`, the same
+    list the run loop iterates.
     """
     step = steps[index]
     earlier_steps = steps[:index]
@@ -149,13 +253,9 @@ def borrowed_pipeline_keys(steps, index, pipeline_keys):
     pipeline_definition = step.get("pipeline")
     if isinstance(pipeline_definition, dict):
         for name in component_names(pipeline_definition, "reused_components"):
-            for earlier in reversed(earlier_steps):
-                earlier_pipeline = earlier.get("pipeline")
-                if earlier_pipeline and name in component_names(
-                    earlier_pipeline, "shared_components"
-                ):
-                    borrowed[earlier["name"]] = pipeline_keys[earlier["name"]]
-                    break
+            source = component_source(earlier_steps, name)
+            if source is not None:
+                borrowed[source["name"]] = pipeline_keys[source["name"]]
 
     return borrowed
 
@@ -192,6 +292,34 @@ def normalized_downstream(steps, name):
         ):
             return True
     return False
+
+
+def copy_containers(value):
+    """A copy of `value` whose dicts, lists and tuples are its own and whose
+    leaves are shared.
+
+    For a structure that is about to be edited by replacing entries - a
+    key assigned or popped, an item replaced - but never by changing a leaf
+    in place: the edits stay in the copy, while a leaf that is realized
+    media (an image, a frame list's tensor, a loaded type) is the object the
+    original holds rather than a duplicate of it, and a leaf that cannot be
+    deep-copied at all is no reason to fail. A tuple is copied as a tuple.
+
+    Only the exact built-in types are containers here: a subclass - an
+    OrderedDict, a namedtuple, a torch.Size - is a leaf, since rebuilding it
+    as its base type would change what it is.
+    A dict or list subclass is shared as a leaf too, so a caller copying a
+    definition relies on its containers being plain dicts and lists, which
+    parsed JSON is.
+    """
+    kind = type(value)
+    if kind is dict:
+        return {key: copy_containers(item) for key, item in value.items()}
+    if kind is list:
+        return [copy_containers(item) for item in value]
+    if kind is tuple:
+        return tuple(copy_containers(item) for item in value)
+    return value
 
 
 def deep_equal(a, b):
