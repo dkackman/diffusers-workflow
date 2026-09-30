@@ -6,6 +6,7 @@ record, which is a store concern rather than a routing one.
 """
 
 import json
+import logging
 import time
 
 import pytest
@@ -13,7 +14,13 @@ import pytest
 from dw.runs import REALIZED_FILE_NAME, new_run_id
 from dw.server.jobs import TERMINAL_STATES, JobHistory, JobManager
 
-from .test_server import ScriptedWorkerManager, admitted_for, valid_workflow
+from .test_server import (
+    DyingWorkerManager,
+    ScriptedWorkerManager,
+    admitted_for,
+    success_script,
+    valid_workflow,
+)
 
 RUN_ID = new_run_id({"workflow": "spec"})
 RUN_DIR = f"server_test/{RUN_ID}"
@@ -321,3 +328,147 @@ def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
         assert manager.history.get(job.id)["manifest"] == job.manifest
     finally:
         manager.shutdown()
+
+
+def _wait_terminal(job):
+    deadline = time.time() + 5
+    while job.status not in TERMINAL_STATES and time.time() < deadline:
+        time.sleep(0.01)
+    return job
+
+
+def _unknown_type_warnings(caplog):
+    return [r for r in caplog.records if "Unknown worker message" in r.getMessage()]
+
+
+def test_a_late_probe_reply_cannot_poison_the_next_request(tmp_path, caplog):
+    """Review Focus 3. A probe that gave up still answers eventually, onto
+    the queue the next request reads. The next memory_status must discard
+    it and answer live, and the job after that must find no stray reply."""
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        manager.worker_manager.ensure_worker()
+        manager.worker_manager._results.put(
+            {"type": "probe_cache", "request_id": "gave-up", "cached": ["stale"]}
+        )
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            status = manager.memory_status()
+            assert status["live"] is True
+            assert status["reason"] is None
+            assert status["info"] == {"gpu_available": True}
+
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        assert _unknown_type_warnings(caplog) == []
+    finally:
+        manager.shutdown()
+
+
+def stray_reply_script(command):
+    """A run whose reply stream carries a request reply nobody waited for -
+    a memory_status answer whose reader timed out before it landed."""
+    yield {"type": "memory_status", "request_id": "gave-up", "info": {}}
+    yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+
+def test_a_stray_request_reply_during_a_run_is_discarded_quietly(tmp_path, caplog):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(stray_reply_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        assert _unknown_type_warnings(caplog) == []
+        assert any(
+            r.levelno == logging.DEBUG and "memory_status" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        manager.shutdown()
+
+
+def unknown_reply_script(command):
+    yield {"type": "no_such_reply"}
+    yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+
+def test_an_unknown_reply_type_is_still_a_warning(tmp_path, caplog):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(unknown_reply_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        [warning] = _unknown_type_warnings(caplog)
+        assert warning.levelno == logging.WARNING
+        assert "no_such_reply" in warning.getMessage()
+    finally:
+        manager.shutdown()
+
+
+class TestAWorkerThatDiesMidRequest:
+    """Review Focus 4: the reply dispatcher changes how a reply is read, not
+    what a dead worker means - the crash is still marked, and each request
+    answers the way it did."""
+
+    @pytest.fixture
+    def dying(self, tmp_path):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=DyingWorkerManager(),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=str(tmp_path),
+        )
+        manager.worker_manager.worker_active = True
+        manager.last_memory = {"gpu_available": True, "used": 42}
+        yield manager
+        manager.shutdown()
+
+    def test_memory_status_marks_the_crash_and_answers_unreachable(self, dying):
+        status = dying.memory_status()
+        assert status["live"] is False
+        assert status["reason"] == "worker_unreachable"
+        assert status["info"] == {"gpu_available": True, "used": 42}
+        assert dying.worker_manager.crashed is True
+
+    def test_a_probe_is_unknown(self, dying):
+        probe = {
+            "definition": {"id": "x", "steps": []},
+            "file_spec": "/w/x.json",
+            "source": "path",
+            "arguments": {},
+            "output_dir": "/tmp",
+        }
+        assert dying.probe_cache(probe) is None
+
+    def test_clear_memory_raises_for_the_route_to_answer_503(self, dying):
+        with pytest.raises(RuntimeError, match="died"):
+            dying.clear_memory()

@@ -84,7 +84,7 @@ def worker_process():
     test, and unconditionally tear the worker down afterward.
 
     Teardown never assumes the test left things in a clean state: it first
-    tries a graceful "shutdown" command (short join), then escalates to
+    sends a graceful "shutdown" command (short join), then escalates to
     terminate() and finally kill() if the process is still alive. This runs
     in a `finally` so an assertion failure - or any other exception - can
     never orphan the child.
@@ -107,10 +107,9 @@ def worker_process():
         if worker.is_alive():
             try:
                 cmd_queue.put({"type": "shutdown"})
-                res_queue.get(timeout=COMMAND_TIMEOUT)
             except Exception:
                 pass  # best-effort; escalation below handles a stuck worker
-            worker.join(timeout=5)
+            worker.join(timeout=COMMAND_TIMEOUT)
 
         if worker.is_alive():
             worker.terminate()
@@ -125,20 +124,20 @@ def worker_process():
 
 
 def test_worker_lifecycle(worker_process):
-    """Worker starts, responds to ping, and shuts down gracefully."""
+    """Worker starts, answers a request with its id, and shuts down
+    gracefully - the process exiting is the shutdown's whole answer."""
     cmd_queue, res_queue, worker = worker_process
 
-    cmd_queue.put({"type": "ping"})
+    cmd_queue.put({"type": "memory_status", "request_id": "r-1"})
     result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
-    assert result["type"] == "pong"
-    assert result["run_count"] == 0
+    assert result["type"] == "memory_status"
+    assert result["request_id"] == "r-1"
+    assert result["info"]["run_count"] == 0
 
     cmd_queue.put({"type": "shutdown"})
-    result = res_queue.get(timeout=COMMAND_TIMEOUT)
-    assert result["type"] == "shutdown_complete"
-
     worker.join(timeout=COMMAND_TIMEOUT)
     assert not worker.is_alive()
+    assert res_queue.empty()
 
 
 def test_worker_memory_status(worker_process):

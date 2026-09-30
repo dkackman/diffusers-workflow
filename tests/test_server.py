@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dw.server.jobs import JobManager, TERMINAL_STATES
+from dw.worker_manager import WorkerManager
 from dw.server.app import create_app
 
 
@@ -81,10 +82,13 @@ def video_workflow(job_id, with_cost=False):
     return workflow
 
 
-class ScriptedWorkerManager:
-    """Answers execute commands with a scripted message sequence."""
+class ScriptedWorkerManager(WorkerManager):
+    """Answers execute commands with a scripted message sequence. A
+    WorkerManager with the process and its queues replaced, so request()
+    and crash_details() are the real ones."""
 
     def __init__(self, script=None):
+        super().__init__()
         self.script = script
         self.commands = []
         self.worker_active = False
@@ -105,13 +109,17 @@ class ScriptedWorkerManager:
             self._results.put({"type": "cancelled", "message": "cancelled"})
         elif command["type"] == "memory_status":
             self._results.put(
-                {"type": "memory_status", "info": {"gpu_available": True}}
+                {
+                    "type": "memory_status",
+                    "request_id": command.get("request_id"),
+                    "info": {"gpu_available": True},
+                }
             )
         elif command["type"] == "probe_cache":
             self._results.put(
                 {
                     "type": "probe_cache",
-                    "probe_id": command.get("probe_id"),
+                    "request_id": command.get("request_id"),
                     "cached": list(self.cached_steps),
                 }
             )
@@ -5205,7 +5213,7 @@ class TestProbeCache:
                     worker._results.put(
                         {
                             "type": "probe_cache",
-                            "probe_id": late["probe_id"],
+                            "request_id": late["request_id"],
                             "cached": ["stale"],
                         }
                     )

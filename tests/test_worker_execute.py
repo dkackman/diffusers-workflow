@@ -292,12 +292,12 @@ def test_probe_cache_answers_with_the_workflows_hits():
     worker = _make_worker()
     workflow = ProbableWorkflow(["gen"])
     command = snapshot_command(
-        type="probe_cache", probe_id="p-1", arguments={"prompt": "p"}
+        type="probe_cache", request_id="p-1", arguments={"prompt": "p"}
     )
     with patch("dw.worker.workflow_from_snapshot", return_value=workflow):
         worker._handle_probe_cache(command)
     assert _drain(worker.result_queue) == [
-        {"type": "probe_cache", "probe_id": "p-1", "cached": ["gen"]}
+        {"type": "probe_cache", "request_id": "p-1", "cached": ["gen"]}
     ]
     assert workflow.probed_with == {"prompt": "p"}
 
@@ -308,7 +308,7 @@ def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
         worker._handle_probe_cache(snapshot_command(type="probe_cache"))
     [answer] = _drain(worker.result_queue)
     assert answer["type"] == "probe_cache"
-    assert answer["probe_id"] is None  # echoed even when the command had none
+    assert answer["request_id"] is None  # echoed even when the command had none
     assert answer["cached"] is None
     assert "bad file" in answer["error"]
 

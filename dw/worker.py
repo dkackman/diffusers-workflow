@@ -9,7 +9,8 @@ import queue
 import logging
 import threading
 import traceback
-from typing import Dict, Any
+from dataclasses import dataclass, fields
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -76,6 +77,237 @@ MEMORY_GROWTH_THRESHOLD_MB = 500  # Warn if GPU memory grows by more than this
 COMMAND_POLL_TIMEOUT_SECONDS = 5
 
 
+# ------------------------------------------------------------------ protocol
+#
+# One frozen dataclass per command and per reply. The queue keeps carrying
+# the dicts it always carried - spawn-pickling a dataclass needs the class
+# importable identically in the child, and a dict needs nothing - so each
+# type has to_wire() (exactly the dict of before) and from_wire(dict).
+# parse_reply is the one place a reply dict becomes a type. Every
+# request/reply command carries a request_id and its reply echoes it, which
+# is how WorkerManager.request tells its own answer from one that arrived
+# after an earlier reader gave up.
+
+
+@dataclass(frozen=True)
+class _Message:
+    """Wire mapping shared by every message: `TYPE` is the dict's "type",
+    each field is a key, and a field named in `OPTIONAL` is left off the
+    wire while it is None - the keys that were only ever sent when set."""
+
+    TYPE: ClassVar[str] = ""
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ()
+
+    def to_wire(self) -> Dict[str, Any]:
+        wire = {"type": self.TYPE}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None and f.name in self.OPTIONAL:
+                continue
+            wire[f.name] = value
+        return wire
+
+    @classmethod
+    def from_wire(cls, wire: Dict[str, Any]):
+        return cls(**{f.name: wire.get(f.name) for f in fields(cls)})
+
+
+# Commands, parent to worker
+
+
+@dataclass(frozen=True)
+class Execute(_Message):
+    """Run the admitted snapshot (see _handle_execute)."""
+
+    TYPE: ClassVar[str] = "execute"
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir",)
+    definition: Dict[str, Any]
+    file_spec: str
+    source: str
+    workflow_dir: Optional[str]
+    output_dir: str
+    arguments: Dict[str, Any]
+    log_level: str
+    asset_dir: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ProbeCache(_Message):
+    """Execute's snapshot, asking which steps the step cache would serve."""
+
+    TYPE: ClassVar[str] = "probe_cache"
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir", "log_level")
+    request_id: str
+    definition: Dict[str, Any]
+    file_spec: str
+    source: str
+    output_dir: str
+    arguments: Dict[str, Any]
+    workflow_dir: Optional[str] = None
+    asset_dir: Optional[str] = None
+    log_level: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Cancel(_Message):
+    TYPE: ClassVar[str] = "cancel"
+
+
+@dataclass(frozen=True)
+class Shutdown(_Message):
+    TYPE: ClassVar[str] = "shutdown"
+
+
+@dataclass(frozen=True)
+class ClearMemory(_Message):
+    TYPE: ClassVar[str] = "clear_memory"
+    request_id: str
+
+
+@dataclass(frozen=True)
+class MemoryStatus(_Message):
+    TYPE: ClassVar[str] = "memory_status"
+    request_id: str
+
+
+# Replies, worker to parent
+
+
+@dataclass(frozen=True)
+class WorkflowLoaded(_Message):
+    TYPE: ClassVar[str] = "workflow_loaded"
+    workflow_name: str
+
+
+@dataclass(frozen=True)
+class Output(_Message):
+    TYPE: ClassVar[str] = "output"
+    message: str
+
+
+@dataclass(frozen=True)
+class Progress(_Message):
+    """A run event, whose keys sit beside "type" on the wire."""
+
+    TYPE: ClassVar[str] = "progress"
+    event: Dict[str, Any]
+
+    def to_wire(self) -> Dict[str, Any]:
+        return {"type": self.TYPE, **self.event}
+
+    @classmethod
+    def from_wire(cls, wire: Dict[str, Any]):
+        return cls(event={k: v for k, v in wire.items() if k != "type"})
+
+
+@dataclass(frozen=True)
+class MemoryInfo(_Message):
+    TYPE: ClassVar[str] = "memory_info"
+    info: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Succeeded(_Message):
+    TYPE: ClassVar[str] = "success"
+    message: str
+    run_count: int
+    manifest: List[Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class Cancelled(_Message):
+    TYPE: ClassVar[str] = "cancelled"
+    message: str
+    manifest: List[Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class Failed(_Message):
+    """A run's failure, or a command the worker could not handle. It carries
+    a request_id only when it answers a request, so the reader waiting on
+    that id gets it rather than timing out."""
+
+    TYPE: ClassVar[str] = "error"
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("traceback", "manifest", "request_id")
+    message: str
+    traceback: Optional[str] = None
+    manifest: Optional[List[Dict[str, Any]]] = None
+    request_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class WorkerCrashed(_Message):
+    TYPE: ClassVar[str] = "worker_crashed"
+    message: str
+    traceback: str
+
+
+@dataclass(frozen=True)
+class MemoryStatusReply(_Message):
+    TYPE: ClassVar[str] = "memory_status"
+    request_id: Optional[str]
+    info: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MemoryCleared(_Message):
+    TYPE: ClassVar[str] = "memory_cleared"
+    request_id: Optional[str]
+    info: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ProbeCacheReply(_Message):
+    TYPE: ClassVar[str] = "probe_cache"
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("error",)
+    request_id: Optional[str]
+    cached: Optional[List[str]]
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class UnknownReply(_Message):
+    """A reply dict whose type no class claims, kept whole."""
+
+    message: Dict[str, Any]
+
+    @property
+    def type(self):
+        return self.message.get("type")
+
+    def to_wire(self) -> Dict[str, Any]:
+        return dict(self.message)
+
+    @classmethod
+    def from_wire(cls, wire: Dict[str, Any]):
+        return cls(message=dict(wire))
+
+
+_REPLY_TYPES = {
+    reply.TYPE: reply
+    for reply in (
+        WorkflowLoaded,
+        Output,
+        Progress,
+        MemoryInfo,
+        Succeeded,
+        Cancelled,
+        Failed,
+        WorkerCrashed,
+        MemoryStatusReply,
+        MemoryCleared,
+        ProbeCacheReply,
+    )
+}
+
+
+def parse_reply(wire: Dict[str, Any]):
+    """The typed reply a worker message dict is - an UnknownReply for a type
+    no class claims, never an exception."""
+    reply_type = _REPLY_TYPES.get(wire.get("type"), UnknownReply)
+    return reply_type.from_wire(wire)
+
+
 class WorkflowWorker:
     """
     Persistent worker that keeps workflows and models loaded in memory.
@@ -136,6 +368,7 @@ class WorkflowWorker:
 
         try:
             while True:
+                command = None
                 try:
                     # Wait for a command from the parent process, but poll with a
                     # timeout rather than blocking forever. If nothing
@@ -172,20 +405,15 @@ class WorkflowWorker:
                     elif command_type == "shutdown":
                         self._handle_shutdown()
                         break
-                    elif command_type == "ping":
-                        self._handle_ping()
                     elif command_type == "clear_memory":
-                        self._handle_clear_memory()
+                        self._handle_clear_memory(command)
                     elif command_type == "memory_status":
-                        self._handle_memory_status()
+                        self._handle_memory_status(command)
                     elif command_type == "probe_cache":
                         self._handle_probe_cache(command)
                     else:
-                        self.result_queue.put(
-                            {
-                                "type": "error",
-                                "message": f"Unknown command type: {command_type}",
-                            }
+                        self._reply(
+                            Failed(message=f"Unknown command type: {command_type}")
                         )
 
                 except KeyboardInterrupt:
@@ -193,12 +421,18 @@ class WorkflowWorker:
                     break
                 except Exception as e:
                     logger.error(f"Error processing command: {e}", exc_info=True)
-                    self.result_queue.put(
-                        {
-                            "type": "error",
-                            "message": f"Command processing error: {str(e)}",
-                            "traceback": traceback.format_exc(),
-                        }
+                    # Echoes a request's id, so a request whose handler
+                    # raised is answered rather than left to time out
+                    self._reply(
+                        Failed(
+                            message=f"Command processing error: {str(e)}",
+                            traceback=traceback.format_exc(),
+                            request_id=(
+                                command.get("request_id")
+                                if isinstance(command, dict)
+                                else None
+                            ),
+                        )
                     )
 
         finally:
@@ -259,26 +493,14 @@ class WorkflowWorker:
             # what runs out of memory
             if identity != self.workflow_identity:
                 if self.workflow_identity is not None:
-                    self.result_queue.put(
-                        {
-                            "type": "output",
-                            "message": "Workflow changed - releasing cached models...",
-                        }
+                    self._reply(
+                        Output(message="Workflow changed - releasing cached models...")
                     )
-                    self.result_queue.put(
-                        {"type": "output", "message": self._cleanup_all()}
-                    )
+                    self._reply(Output(message=self._cleanup_all()))
                 self.workflow_identity = identity
 
-            self.result_queue.put(
-                {"type": "workflow_loaded", "workflow_name": workflow.name}
-            )
-            self.result_queue.put(
-                {
-                    "type": "output",
-                    "message": f"Executing workflow: {workflow.name}",
-                }
-            )
+            self._reply(WorkflowLoaded(workflow_name=workflow.name))
+            self._reply(Output(message=f"Executing workflow: {workflow.name}"))
 
             # Progress events stream to the client as they happen; the
             # watcher thread keeps the command queue live so cancel works
@@ -290,7 +512,7 @@ class WorkflowWorker:
             job_baseline = {"peak_rss_mb": None, "job_peak_rss_mb": None}
 
             def _on_event(event):
-                self.result_queue.put({"type": "progress", **event})
+                self._reply(Progress(event=event))
                 if event.get("event") == "phase":
                     memory_info = self._get_memory_info()
                     if job_baseline["peak_rss_mb"] is None:
@@ -305,7 +527,7 @@ class WorkflowWorker:
                     memory_info["host_memory_job_peak_rss_mb"] = job_baseline[
                         "job_peak_rss_mb"
                     ]
-                    self.result_queue.put({"type": "memory_info", "info": memory_info})
+                    self._reply(MemoryInfo(info=memory_info))
 
             context = RunContext(on_event=_on_event)
             watcher = self._watch_commands(context)
@@ -338,37 +560,34 @@ class WorkflowWorker:
                 job_baseline["peak_rss_mb"],
                 job_baseline["job_peak_rss_mb"],
             )
-            self.result_queue.put({"type": "memory_info", "info": memory_info})
+            self._reply(MemoryInfo(info=memory_info))
 
-            self.result_queue.put(
-                {
-                    "type": "success",
-                    "message": "Workflow completed successfully",
-                    "run_count": self.run_count,
-                    "manifest": getattr(workflow, "manifest", []),
-                }
+            self._reply(
+                Succeeded(
+                    message="Workflow completed successfully",
+                    run_count=self.run_count,
+                    manifest=getattr(workflow, "manifest", []),
+                )
             )
 
         except WorkflowCancelled:
             self._cleanup_between_runs()
-            self.result_queue.put(
-                {
-                    "type": "cancelled",
-                    "message": "Workflow run cancelled",
-                    "manifest": getattr(workflow, "manifest", []),
-                }
+            self._reply(
+                Cancelled(
+                    message="Workflow run cancelled",
+                    manifest=getattr(workflow, "manifest", []),
+                )
             )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
-            failure = {
-                "type": "error",
-                "message": f"Workflow execution error: {str(e)}",
-                "traceback": traceback.format_exc(),
+            failure = Failed(
+                message=f"Workflow execution error: {str(e)}",
+                traceback=traceback.format_exc(),
                 # The files the steps before the failure wrote are on
                 # disk; reporting them is what keeps a run that died at
                 # step five from looking like one that produced nothing
-                "manifest": getattr(workflow, "manifest", []),
-            }
+                manifest=getattr(workflow, "manifest", []),
+            )
             # The exception's traceback reaches every frame between here and
             # the failure, and those frames hold whatever a half-finished load
             # had built - so a collection that runs while the exception is
@@ -381,7 +600,7 @@ class WorkflowWorker:
             # stayed resident and the next attempt loaded on top of them
             self._evict_untouched_pipelines(context)
             self._cleanup_between_runs()
-            self.result_queue.put(failure)
+            self._reply(failure)
         finally:
             if asset_token is not None:
                 deactivate_asset_dir(asset_token)
@@ -398,10 +617,15 @@ class WorkflowWorker:
             return workflow, ("path", file_spec)
         return workflow, ("inline", definition.get("id"))
 
-    def _watch_commands(self, context):
-        """Watch the command queue during a run so cancel and ping still work.
+    def _reply(self, reply):
+        """Put one typed reply on the result queue, as its wire dict."""
+        self.result_queue.put(reply.to_wire())
 
-        Returns an object with stop(); anything that is not cancel, ping or
+    def _watch_commands(self, context):
+        """Watch the command queue during a run so cancel and shutdown still
+        work.
+
+        Returns an object with stop(); anything that is not cancel or
         shutdown is refused, since one workflow runs at a time.
         """
         stop_event = threading.Event()
@@ -417,22 +641,18 @@ class WorkflowWorker:
                 if command_type == "cancel":
                     logger.info("Cancel requested")
                     context.cancel()
-                    worker.result_queue.put(
-                        {"type": "output", "message": "Cancelling..."}
-                    )
-                elif command_type == "ping":
-                    worker._handle_ping()
+                    worker._reply(Output(message="Cancelling..."))
                 elif command_type == "shutdown":
                     # Stop the run, then let the main loop see the shutdown
                     context.cancel()
                     worker.pending_shutdown = True
                 else:
-                    worker.result_queue.put(
-                        {
-                            "type": "error",
-                            "message": f"Cannot handle '{command_type}' while a "
+                    worker._reply(
+                        Failed(
+                            message=f"Cannot handle '{command_type}' while a "
                             "workflow is running",
-                        }
+                            request_id=command.get("request_id"),
+                        )
                     )
 
         thread = threading.Thread(target=watch, daemon=True, name="command-watcher")
@@ -449,23 +669,24 @@ class WorkflowWorker:
         """Handle graceful shutdown request."""
         logger.info("Shutdown requested")
         self._cleanup_all()
-        self.result_queue.put({"type": "shutdown_complete"})
 
-    def _handle_ping(self):
-        """Respond to ping to prove worker is alive."""
-        self.result_queue.put({"type": "pong", "run_count": self.run_count})
-
-    def _handle_clear_memory(self):
+    def _handle_clear_memory(self, command: Dict[str, Any]):
         """Handle explicit memory clear request."""
         logger.info("Memory clear requested")
         self._cleanup_all()
-        memory_info = self._get_memory_info()
-        self.result_queue.put({"type": "memory_cleared", "info": memory_info})
+        self._reply(
+            MemoryCleared(
+                request_id=command.get("request_id"), info=self._get_memory_info()
+            )
+        )
 
-    def _handle_memory_status(self):
+    def _handle_memory_status(self, command: Dict[str, Any]):
         """Report current memory usage."""
-        memory_info = self._get_memory_info()
-        self.result_queue.put({"type": "memory_status", "info": memory_info})
+        self._reply(
+            MemoryStatusReply(
+                request_id=command.get("request_id"), info=self._get_memory_info()
+            )
+        )
 
     def _handle_probe_cache(self, command: Dict[str, Any]):
         """Which steps the step cache would serve for a run of this command
@@ -473,10 +694,10 @@ class WorkflowWorker:
         builds the candidate admission checked, executes nothing. A failure
         answers cached: null with the reason rather than an error message, since
         an unknown answer is a valid plan and a crashed probe is not. The
-        command's probe_id is echoed so a reply that arrives after its
-        caller gave up is not read as the answer to the next probe.
+        command's request_id is echoed so a reply that arrives after its
+        caller gave up is not read as the answer to the next request.
         """
-        probe_id = command.get("probe_id")
+        request_id = command.get("request_id")
         try:
             workflow, _ = self._load_workflow(command, command["output_dir"])
             asset_token = (
@@ -489,18 +710,11 @@ class WorkflowWorker:
             finally:
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)
-            self.result_queue.put(
-                {"type": "probe_cache", "probe_id": probe_id, "cached": cached}
-            )
+            self._reply(ProbeCacheReply(request_id=request_id, cached=cached))
         except Exception as e:
             logger.debug(f"Cache probe failed: {e}")
-            self.result_queue.put(
-                {
-                    "type": "probe_cache",
-                    "probe_id": probe_id,
-                    "cached": None,
-                    "error": str(e),
-                }
+            self._reply(
+                ProbeCacheReply(request_id=request_id, cached=None, error=str(e))
             )
 
     def _record_step_keys(self, workflow):
@@ -756,11 +970,9 @@ def worker_main(command_queue, result_queue, log_level="INFO"):
         logger.error(f"Worker crashed: {e}", exc_info=True)
         try:
             result_queue.put(
-                {
-                    "type": "worker_crashed",
-                    "message": str(e),
-                    "traceback": traceback.format_exc(),
-                }
+                WorkerCrashed(
+                    message=str(e), traceback=traceback.format_exc()
+                ).to_wire()
             )
         except (OSError, RuntimeError) as queue_error:
             logger.error(f"Failed to send crash notification to queue: {queue_error}")
