@@ -5071,12 +5071,12 @@ class TestValidatePlan:
         assert "plan" not in result
 
     def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         def boom(*a, **k):
             raise RuntimeError("planner broke")
 
-        monkeypatch.setattr(app_module, "build_plan", boom)
+        monkeypatch.setattr(jobs_routes, "build_plan", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate", json={"workflow": valid_workflow("v")}
@@ -5085,7 +5085,7 @@ class TestValidatePlan:
         assert result["plan"] is None
 
     def test_sizes_reaches_the_planner(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         seen = []
 
@@ -5093,7 +5093,7 @@ class TestValidatePlan:
             seen.append(kwargs["lookup_sizes"])
             return dict(EMPTY_PLAN)
 
-        monkeypatch.setattr(app_module, "build_plan", spy)
+        monkeypatch.setattr(jobs_routes, "build_plan", spy)
         with server(success_script) as client:
             client.post("/api/validate", json={"workflow": valid_workflow("v")})
             client.post(

@@ -12,21 +12,19 @@ import shutil
 import io
 import zipfile
 import tempfile
-import copy
 import json
 import re
 import uuid
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from urllib.parse import quote
-from typing import Any, Dict, Optional, Union
+from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from filelock import FileLock
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
+from fastapi.responses import Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.routing import Route
@@ -39,43 +37,18 @@ from ..security import (
     validate_asset_reference,
     validate_path,
     validate_output_path,
-    validate_prompt_reference,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
-    validate_commit_hash,
     InvalidInputError,
     PathTraversalError,
     SecurityError,
-    workflows_are_trusted,
-)
-from ..introspection import (
-    describe_class,
-    list_classes,
-    list_pipelines,
-    describe_pipeline,
-    list_tasks,
-    describe_task,
-    workflow_argument_warnings,
-)
-from ..events import select_kinds
-from ..schema import (
-    load_schema,
-    schema_section,
-    validate_data,
-    format_validation_errors,
-    SchemaSectionError,
-)
-from ..prompts import (
-    RESERVED_TEXT_PREFIXES,
 )
 from ..assets import (
     ASSET_PREFIX,
     is_asset_reference,
 )
 from .observed_cost import ObservedCosts
-from ..workflow import Workflow
-from .enhancers import build_enhance_workflow, preset_descriptions
-from .exports import export_directory, export_job
+from .exports import export_directory
 from .assess import assess, unknown_probe
 from ..result import read_embedded_metadata
 from ..media_info import probe_media
@@ -94,9 +67,7 @@ from ..media_frames import (
     seam_tiles,
     video_shape,
 )
-from ..hub_cache import scan_models, delete_model, DownloadManager
-from ..host_memory_projection import CEILING_FRACTION, host_memory_warnings
-from ..plan import build_plan, gate_warnings
+from ..hub_cache import DownloadManager
 from ..runs import (
     MANIFEST_FILE_NAME,
     OUTPUT_PREFIX,
@@ -114,74 +85,36 @@ from ..runs import (
 )
 from ..workspace import (
     ASSETS_SUBDIR,
-    DEFAULT_WORKSPACE_NAME,
     PROMPTS_SUBDIR,
     ConfiguredWorkspace,
-    NotAWorkspaceError,
     Workspace,
-    _holds_a_workspace,
-    create_workspace,
-    delete_workspace,
     example_libraries,
     forget_workspace_usage,
-    named_workspace,
-    workspace_contents,
-    workspace_names,
-    workspace_usage,
 )
 from ..workflow_sources import (
     COMMON_ORIGIN,
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
-    listing,
-    resolve_sub_workflow,
-    workflow_names,
-    workflow_sources,
-    SubWorkflowNotFound,
 )
-from .admission import (
-    ACKNOWLEDGED_COST_FIELD,
-    AcknowledgedCost,
-    JobRequest,
-    ValidatorFailure,
-    acknowledgement_form,
-    admit,
-    bound_plan_for,
-    check_bound_acknowledgement,
+from .deps import selected_workspace
+from .outputs import (
+    absolute_served_url,
+    asset_roots,
+    common_assets,
+    resolution_roots,
+    served_url,
 )
-from .catalog import (
-    _matching_prompts,
-    catalog_name_from_root,
-    attach_observed,
-    catalog_name_for,
-    prompt_details,
-    resolve_prompt_name,
-    resolve_readable_workflow,
-    resolve_workflow_reference,
-    resolve_writable_workflow,
-    workflow_details,
-)
+from .routes import include_routers
 from .http_security import (
     ACTIVE_DOCUMENT_TYPES,
     install_middleware,
     query_token_ok,
 )
 from .jobs import (
-    ACK_BOUND,
     JobManager,
-    MAX_PERSISTED_EVENTS,
-    QUEUED,
-    RUNNING,
-    TERMINAL_STATES,
 )
-from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS, local_addresses
+from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
 from .updater import DiffusersUpdater
-from .sysinfo import runtime_info
-from .catalog_shape import derive_catalog_metadata, project_listing
-from ..vram_inheritance import build_index
-from . import guides
-from .guides import GuideError
-from .. import settings
 
 logger = logging.getLogger("dw")
 
@@ -213,32 +146,6 @@ def default_ui_dir():
         if os.path.isfile(os.path.join(candidate, "index.html")):
             return candidate
     return None
-
-
-def _historical_log_note(stored):
-    """What a restored job's event page has to admit about itself.
-
-    History keeps only the last MAX_PERSISTED_EVENTS of a run, so a page can
-    be complete as a page and still be missing the start of the job. The
-    first stored event's seq is the direct signal: anything above zero means
-    the head was dropped at record time. Length is not the signal - a job
-    that emitted exactly MAX_PERSISTED_EVENTS events lost nothing.
-    """
-    if not stored:
-        return "This job kept no event log - events were not retained with job history."
-    if stored[0].get("seq", 0) > 0:
-        return (
-            f"Only the last {MAX_PERSISTED_EVENTS} events of this job were "
-            f"retained; everything before seq {stored[0]['seq']} was dropped "
-            "when the job was recorded."
-        )
-    return None
-
-
-# Where the MCP endpoint is mounted when --mcp is given (see the mcp block
-# at the bottom of create_app) - the Server page quotes it in the command
-# it tells you to run on the other machine
-MCP_PATH = "/mcp"
 
 
 def create_app(
@@ -375,1420 +282,12 @@ def create_app(
     app.state.wildcard_bind = wildcard_bind
     app.state.allowed_hosts = allowed_hosts
     app.state.examples_dirs = examples_dirs
+    app.state.downloads = download_manager or DownloadManager()
+    app.state.updater = diffusers_updater or DiffusersUpdater()
+    # One index per distinct listing, per app (see deps.ceiling_index)
+    app.state.ceiling_indexes = {}
     install_middleware(app)
-
-    # -------------------------------------------------------- workspace lookup
-
-    def _workspace_root():
-        root = app.state.workspace_root
-        if root is None:
-            raise HTTPException(
-                status_code=409,
-                detail="This server has no workspace root - it was started "
-                "with individual directory overrides, so it has one "
-                "workspace and cannot create others",
-            )
-        return root
-
-    def _workspace_for(name):
-        """The Workspace a request names.
-
-        No name, or the default name, is the server's own configuration -
-        the directories it was started with - so every call that predates
-        workspaces keeps working unchanged. A named one resolves under the
-        root, and must already exist: creating a workspace by mentioning it
-        would turn a typo into a directory. Checked by looking at the one
-        candidate directory rather than listing the whole root - this runs
-        on every gallery thumbnail request.
-        """
-        if not name or name == DEFAULT_WORKSPACE_NAME:
-            return app.state.default_workspace
-        root = _workspace_root()
-        try:
-            selected = named_workspace(root, name)
-        except SecurityError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if not _holds_a_workspace(selected.root):
-            raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
-        return selected
-
-    def selected_workspace(workspace: Optional[str] = None) -> Workspace:
-        """FastAPI dependency form of _workspace_for, reading the name from
-        the `?workspace=` query parameter every scoped route already takes -
-        used as `ws: Workspace = Depends(selected_workspace)`."""
-        return _workspace_for(workspace)
-
-    def _sources_for(ws):
-        """The workflow search path of one workspace: its own workflows
-        first, then the same read-only roots every workspace shares."""
-        return workflow_sources(ws.workflows, examples_dirs)
-
-    # One index per distinct listing - keyed by every file's path and mtime,
-    # so an edited, added or removed template rebuilds it and nothing else does
-    ceiling_indexes = app.state.ceiling_indexes = {}
-
-    def _ceiling_index(ws):
-        """The catalog's VRAM ceilings by pipeline identity, as this
-        workspace's search path lists them (`dw/vram_inheritance.py`, #502).
-        A file that cannot be read contributes nothing."""
-        paths = []
-        for name, source in sorted(listing(_sources_for(ws)).items()):
-            path = os.path.join(source.root, f"{name}.json")
-            try:
-                paths.append((name, path, os.path.getmtime(path)))
-            except OSError:
-                continue
-        signature = tuple(paths)
-        cached = ceiling_indexes.get(ws.name)
-        if cached and cached[0] == signature:
-            return cached[1]
-        catalog = []
-        for name, path, _ in paths:
-            try:
-                with open(path, "r") as file:
-                    catalog.append((name, json.load(file)))
-            except (OSError, ValueError):
-                continue
-        index = build_index(catalog)
-        ceiling_indexes[ws.name] = (signature, index)
-        return index
-
-    # ------------------------------------------------------------------ jobs
-
-    def _admit(workspace, **request):
-        """`admit()` with this server's view of `workspace` - the asset and
-        prompt search paths and the catalog's VRAM ceilings, which live in
-        this closure rather than in the request."""
-        return admit(
-            workspace=workspace,
-            ceiling_index=_ceiling_index(workspace),
-            asset_roots=_resolution_roots(workspace),
-            prompt_roots=_prompt_roots(),
-            **request,
-        )
-
-    @app.post("/api/jobs", status_code=201)
-    def submit_job(request: JobRequest, ws: Workspace = Depends(selected_workspace)):
-        """Queue a workflow. The workspace it runs in comes from the body or,
-        for a client that scopes every call the same way, the query string -
-        the body wins when both are given."""
-        try:
-            workspace = _workspace_for(request.workspace or ws.name)
-            resolved, source = resolve_workflow_reference(
-                request.workflow_path, _sources_for(workspace)
-            )
-            # The root this run is confined to: the source the workflow came
-            # from, so an example runs where it lives while an inline
-            # definition stays held to this workspace's own workflows
-            workflow_dir = source.root if source else workspace.workflows
-            form = acknowledgement_form(request.acknowledged_cost)
-            # Everything POST /api/validate checks, so a caller who skipped
-            # the free pre-flight still gets no job id for a run that cannot
-            # start - and a bound acknowledgement is checked against the plan
-            # of the run admitted, before anything is queued (#85)
-            admission = _admit(
-                workspace,
-                workflow_path=resolved,
-                workflow=request.workflow,
-                arguments=request.arguments,
-                base_dir=request.base_dir,
-                output_dir=workspace.outputs,
-                workflow_dir=workflow_dir,
-                plan_for=(
-                    bound_plan_for(request.arguments, workspace)
-                    if form == ACK_BOUND
-                    else None
-                ),
-            )
-            if not admission.ok:
-                raise ValueError(admission.message())
-            if form == ACK_BOUND:
-                check_bound_acknowledgement(
-                    admission.plan, request.acknowledged_cost, workspace
-                )
-            job = manager.submit(
-                # The Workflow admission built and checked - what the job
-                # runs, whatever happens to the file while it waits
-                admitted=admission.workflow,
-                workflow_path=resolved,
-                workflow=request.workflow,
-                arguments=request.arguments,
-                base_dir=request.base_dir,
-                workflow_dir=workflow_dir,
-                # The roots this job runs against, so it stays in its
-                # workspace however many others the server serves meanwhile
-                output_dir=workspace.outputs,
-                asset_dir=workspace.assets,
-                workspace=workspace.name,
-                # The listing name, when the request came as one - what a
-                # later runtime-by-workflow report joins on. Derived from
-                # the resolved path rather than echoing what was asked
-                # for, so 'Basic', 'Basic.json' and an absolute path
-                # inside the source all record the one catalog name
-                catalog_name=catalog_name_for(resolved, source),
-                acknowledged=form,
-                acknowledged_cost=(
-                    request.acknowledged_cost.model_dump()
-                    if form == ACK_BOUND
-                    else None
-                ),
-                # The job carries every warning validate would have answered
-                warnings=admission.warnings,
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            # workflow_from_file / validate / the security layer all raise for
-            # bad requests - every failure here is the client's fault
-            raise HTTPException(status_code=400, detail=str(e))
-        return manager.describe(job)
-
-    @app.get("/api/jobs")
-    def list_jobs(
-        workspace: Optional[str] = None,
-        status: Optional[str] = None,
-        limit: Optional[int] = None,
-    ):
-        """All jobs by default - a plain filter, not `selected_workspace`,
-        since the jobs list spans every workspace the server holds unless a
-        caller asks to narrow it.
-
-        `status` narrows to one state or a comma-separated set of them.
-        `limit` keeps the newest N, and `total` always reports how many
-        matched before the cut, so a caller can tell a bounded answer from a
-        complete one. The default is still every matching job, oldest first -
-        what the web UI polls."""
-        statuses = [part.strip() for part in status.split(",")] if status else None
-        statuses = [part for part in statuses if part] if statuses else None
-        if statuses:
-            unknown = [
-                state
-                for state in statuses
-                if state not in (QUEUED, RUNNING, *TERMINAL_STATES)
-            ]
-            if unknown:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown job status {', '.join(unknown)} - one of "
-                    f"{', '.join((QUEUED, RUNNING, *TERMINAL_STATES))}",
-                )
-        jobs = manager.list(workspace=workspace, statuses=statuses)
-        total = len(jobs)
-        if limit is not None:
-            if limit < 0:
-                raise HTTPException(
-                    status_code=400, detail="limit must not be negative"
-                )
-            # the newest are the interesting ones, and the list is oldest
-            # first - so the cut comes off the front, not the back. max(0, ...)
-            # because a limit above what matched is no cut at all: a bare
-            # negative start would be read from the end instead, and answer a
-            # limit of 12 against 9 matching jobs with the last 3 of them
-            jobs = jobs[max(0, len(jobs) - limit) :] if limit else []
-        return {"jobs": jobs, "total": total}
-
-    @app.get("/api/jobs/{job_id}")
-    def get_job(job_id: str):
-        job = manager.get(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        # a historical job is already a detail dict; a live one renders itself
-        return job if isinstance(job, dict) else manager.describe(job)
-
-    @app.get("/api/jobs/{job_id}/workflow")
-    def get_job_workflow(job_id: str):
-        """The workflow this job ran, for the read-only graph on the job page
-        and for `get_job_workflow` over MCP.
-
-        `realized: true` means every mutable input is pinned - the copy the
-        run itself wrote. `false` means the job predates run tracking (or its
-        run directory is gone) and this is the definition as submitted. 404
-        when neither is readable - the job itself still is."""
-        if manager.get(job_id) is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        realized = manager.realized(job_id)
-        definition = realized if realized is not None else manager.definition(job_id)
-        if definition is None:
-            raise HTTPException(
-                status_code=404, detail="No workflow definition for this job"
-            )
-        return {
-            "id": job_id,
-            "definition": definition,
-            "realized": realized is not None,
-            # Which variable a new-seed rerun would draw into, or null when
-            # there is none - read from the workflow as written, since the
-            # realized copy above has its seed pinned to the integer it used
-            "seed_variable": manager.seed_variable(job_id),
-        }
-
-    class RerunRequest(BaseModel):
-        new_seed: bool = Field(
-            default=False,
-            description="Draw a fresh seed into the workflow's seed variable. "
-            "Without it a rerun repeats the original arguments exactly, which "
-            "the step cache serves from the earlier run - the same seed and "
-            "inputs would produce the same files.",
-        )
-        acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = (
-            ACKNOWLEDGED_COST_FIELD
-        )
-
-    @app.post("/api/jobs/{job_id}/rerun", status_code=201)
-    def rerun_job(job_id: str, body: RerunRequest = RerunRequest()):
-        """Queue a fresh job from a previous job's stored spec, admitted as
-        a new submission would be - a reference that resolved when the
-        original ran may not any more. Takes `acknowledged_cost` as POST
-        /api/jobs does; a bound one is checked against the stored spec's
-        plan - the fresh seed of `new_seed` does not change a fingerprint."""
-        form = acknowledgement_form(body.acknowledged_cost)
-        try:
-            prepared = manager.rerun_spec(job_id, new_seed=body.new_seed)
-            if prepared is None:
-                raise HTTPException(status_code=404, detail="Unknown job")
-            spec, arguments = prepared
-            workspace = _workspace_for(spec.get("workspace"))
-            admission = _admit(
-                workspace,
-                workflow_path=spec.get("workflow_path"),
-                workflow=spec.get("workflow"),
-                arguments=arguments,
-                base_dir=spec.get("base_dir"),
-                output_dir=spec.get("output_dir") or manager.output_dir,
-                workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
-                plan_for=(
-                    bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
-                ),
-            )
-            if not admission.ok:
-                raise ValueError(admission.message())
-            if form == ACK_BOUND:
-                check_bound_acknowledgement(
-                    admission.plan, body.acknowledged_cost, workspace
-                )
-            job = manager.rerun(
-                job_id,
-                acknowledged=form,
-                acknowledged_cost=(
-                    body.acknowledged_cost.model_dump() if form == ACK_BOUND else None
-                ),
-                warnings=admission.warnings,
-                # The arguments admitted - the fresh seed already drawn
-                arguments=arguments,
-                admitted=admission.workflow,
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        return manager.describe(job)
-
-    @app.post("/api/jobs/{job_id}/export", status_code=201)
-    def export_job_route(
-        job_id: str,
-        overwrite: bool = False,
-        ws: Workspace = Depends(selected_workspace),
-    ):
-        """Gather one finished job into '<workspace>/exports/<job id>/': the
-        workflow it ran, the run's manifest, the job row, the media it used
-        and the media it made, plus a README. 404 for an unknown job, 409 for
-        one still running or for an export that already exists without
-        `overwrite`.
-
-        The three JSON files come back inline as well as on disk - the
-        directory is on the server, and a client on another machine has no
-        other way to read them without fetching the zip."""
-        try:
-            summary = export_job(
-                manager,
-                job_id,
-                ws.root,
-                _asset_roots_for_job(job_id, ws),
-                overwrite=overwrite,
-            )
-        except FileExistsError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-        except ValueError as e:
-            message = str(e)
-            if message.startswith("Unknown job"):
-                raise HTTPException(status_code=404, detail=message)
-            raise HTTPException(status_code=409, detail=message)
-        body = summary.as_dict()
-        zip_path = f"/exports/{quote(job_id)}.zip"
-        body["zip_url"] = _served_url(zip_path, ws)
-        absolute_zip_url = _absolute_served_url(zip_path, ws)
-        if absolute_zip_url is not None:
-            body["absolute_zip_url"] = absolute_zip_url
-        # Same rule get_server_info's field states (#353): whether the zip
-        # URL above needs a bearer token an MCP-only agent has no way to
-        # attach itself, which is what tells the caller whether to fetch it
-        # or hand it to the person.
-        body["auth_required"] = bool(token)
-        for key, name in (
-            ("workflow", "workflow.json"),
-            ("manifest", "manifest.json"),
-            ("job", "job.json"),
-        ):
-            try:
-                with open(os.path.join(summary.directory, name), "r") as file:
-                    body[key] = json.load(file)
-            except (OSError, ValueError):
-                body[key] = None
-        return body
-
-    class MoveRequest(BaseModel):
-        direction: str = Field(description="up, down, front, or back")
-
-    @app.post("/api/jobs/{job_id}/move")
-    def move_job(job_id: str, body: MoveRequest):
-        """Reorder a queued job. 409 once it is running or finished -
-        only the waiting portion of the queue can be rearranged."""
-        if manager.get(job_id) is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        try:
-            order = manager.move(job_id, body.direction)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if order is None:
-            raise HTTPException(
-                status_code=409, detail="Job is not queued - only queued jobs move"
-            )
-        return {"id": job_id, "queue": order}
-
-    @app.post("/api/jobs/{job_id}/cancel")
-    def cancel_job(job_id: str):
-        status = manager.cancel(job_id)
-        if status is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        return {"id": job_id, "status": status}
-
-    @app.get("/api/jobs/{job_id}/events")
-    @query_token_ok
-    async def job_events(request: Request, job_id: str, after: int = -1):
-        """Server-sent events: every progress event from `after` (exclusive)
-        until the job reaches a terminal state. Reconnect with the last seen
-        seq (or let EventSource send Last-Event-ID) to resume without loss."""
-        job = manager.get(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        if isinstance(job, dict):
-            # historical jobs carry no event log - an immediately-closed
-            # stream lets clients treat them uniformly
-            return StreamingResponse(iter(()), media_type="text/event-stream")
-
-        last_event_id = request.headers.get("last-event-id")
-        if last_event_id is not None:
-            try:
-                after = max(after, int(last_event_id))
-            except ValueError:
-                pass
-
-        async def stream():
-            last_seq = after
-            while True:
-                events = job.events_after(last_seq)
-                for event in events:
-                    last_seq = event["seq"]
-                    yield f"id: {event['seq']}\ndata: {json.dumps(event)}\n\n"
-                if job.status in TERMINAL_STATES and not job.events_after(last_seq):
-                    return
-                await asyncio.to_thread(job.wait_for_event, last_seq, SSE_POLL_SECONDS)
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    @app.get("/api/jobs/{job_id}/event-log")
-    def job_event_log(
-        job_id: str,
-        after: int = -1,
-        limit: int = 200,
-        kinds: list[str] | None = Query(None),
-    ):
-        """Job events as one JSON page rather than a stream, for clients that
-        poll instead of holding a connection open (the MCP server). `after` is
-        exclusive, matching the SSE route's parameter of the same name.
-        `kinds` restricts the page to events whose `event` or `kind` is one
-        of the named values (e.g. `log`, `warning`, `phase_stall`) - a consumer confirming what a step applied wants
-        those two and not the `memory`/bookkeeping events that otherwise
-        dominate the payload."""
-        job = manager.get(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        limit = max(1, min(limit, 1000))
-        if isinstance(job, dict):
-            # A job restored from sqlite: history persists a bounded tail of
-            # its events, so it can still explain itself after a restart
-            status = job.get("status")
-            stored = manager.history.events_for(job_id) or []
-            pending = [event for event in stored if event.get("seq", -1) > after]
-            note = _historical_log_note(stored)
-        else:
-            status = job.status
-            pending = job.events_after(after)
-            note = None
-        pending = select_kinds(pending, kinds)
-        page = pending[:limit]
-        return {
-            "id": job_id,
-            "status": status,
-            "events": page,
-            "last_seq": page[-1]["seq"] if page else max(after, -1),
-            # this page is cut short; `note` covers what record time dropped
-            "truncated": len(pending) > len(page),
-            "note": note,
-        }
-
-    # ---------------------------------------------------------- introspection
-
-    @app.get("/api/pipelines")
-    def pipelines():
-        """Every pipeline class the installed diffusers exports."""
-        return {"pipelines": list_pipelines()}
-
-    @app.get("/api/pipelines/{name}")
-    def pipeline_description(name: str):
-        """A pipeline's __call__ argument schema, for form generation."""
-        try:
-            return describe_pipeline(name)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            # A pipeline whose import fails on this install (missing extra
-            # dependency) is absent, not a server error
-            raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
-
-    @app.get("/api/tasks")
-    def tasks():
-        """Every task command a workflow's task step can name."""
-        return list_tasks()
-
-    @app.get("/api/tasks/{command}")
-    def get_task(command: str):
-        """A task command's argument schema - the registered implementation
-        function's real signature, in the same shape as a class description."""
-        try:
-            return describe_task(command)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-
-    @app.get("/api/classes")
-    def classes(kind: str):
-        """Class names of one kind (pipelines, models, schedulers,
-        quantization) - the pickers' data source."""
-        try:
-            return {"kind": kind, "classes": list_classes(kind)}
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @app.get("/api/classes/{name:path}")
-    def class_description(name: str, target: str = "init"):
-        """A class's argument schema: target=call reads __call__, init reads
-        __init__, load reads from_pretrained plus the curated loading knobs."""
-        try:
-            return describe_class(name, target=target)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
-
-    @app.get("/api/schema")
-    def workflow_schema(section: Optional[str] = None):
-        """The workflow JSON schema, for schema-aware JSON editing.
-
-        `?section=` answers one part of it - `steps`, `pipelines`, `tasks`,
-        `result`, `variables` or `configuration` - as
-        `{section, sections, elsewhere, schema}`, for a reader that wants
-        the shape of a result block and not 36 KB of quantization configs
-        (#101). Additive: the no-argument call is the whole schema, as it
-        was. An unknown section is a 404 naming the ones that exist."""
-        schema = load_schema("workflow")
-        if section is None:
-            return JSONResponse(schema)
-        try:
-            return JSONResponse(schema_section(schema, section))
-        except SchemaSectionError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-
-    # ------------------------------------------------------------ guides
-
-    @app.get("/api/guides")
-    def list_guides():
-        """The documentation that bears on choosing a capability: each
-        guide's name, what it covers, and its section headings. Served by
-        the engine rather than read from an MCP client's install, so the
-        guides an agent reads are the guides for the engine it drives."""
-        return guides.list_guides()
-
-    @app.get("/api/guides/{name}")
-    def get_guide(name: str, section: Optional[str] = None):
-        """One guide from /api/guides, whole or one section of it. A
-        section name is matched loosely - case and punctuation dropped -
-        so a heading copied approximately still resolves, and also reaches
-        a `###` subsection not listed at the top level, by its own heading
-        or by a term inside it. An unknown name or section is a 404 whose
-        detail lists what exists."""
-        try:
-            return guides.get_guide(name, section=section)
-        except GuideError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-
-    def _probe_command_for(candidate, request, workspace, workflow_dir):
-        """The execute-shaped command a cache probe of this validate request
-        needs - the same fields _run_job sends, built from the candidate
-        admission checked, so the worker builds the workflow exactly as a
-        job would. Its keys must be ProbeCache's fields (dw/worker.py):
-        JobManager.probe_cache builds ProbeCache(**command), so a key that
-        is not one raises TypeError there and the plan comes back null."""
-        command = {
-            "definition": candidate.workflow_definition,
-            "file_spec": candidate.file_spec,
-            "source": "path" if request.workflow_path is not None else "inline",
-            "arguments": request.arguments,
-            "output_dir": workspace.outputs,
-            "workflow_dir": workflow_dir,
-        }
-        if workspace.assets:
-            command["asset_dir"] = workspace.assets
-        return command
-
-    def _validation_plan(candidate, request, workspace, source, catalog_name, sizes):
-        """The plan a valid /api/validate answer carries: what the run will
-        execute for these arguments, fingerprinted so an acknowledgement can
-        be bound to it (#85). Best effort - None when it cannot be built,
-        since the verdict is the schema's and the planner may not change it.
-        """
-        source_root = source.root if source else workspace.workflows
-        definition = candidate.workflow_definition
-        try:
-            from .. import get_device, get_device_type
-
-            command = _probe_command_for(candidate, request, workspace, source_root)
-
-            def observed_for_child(path, child_definition, arguments=None):
-                """A composed child's own observed figure, keyed by the
-                catalog name it resolves to - so a parent with no figure of
-                its own can quote what this box's runs of the *child* took
-                rather than falling back to unknown (#268).
-
-                `arguments` are the composing step's own overrides - the
-                same role `arguments` plays for the top-level `observed`
-                callback - so a child whose composing step shifted a
-                declared scalar `cost_driver` (#341) is bucketed against
-                *that* value rather than always the child's stored
-                defaults, which silently answered the default bucket's
-                history for every override."""
-                base_dir = (
-                    os.path.dirname(os.path.abspath(candidate.file_spec))
-                    if candidate.file_spec
-                    else None
-                )
-                try:
-                    child_path, child_root = resolve_sub_workflow(
-                        path, base_dir or ".", candidate.workflow_dir
-                    )
-                except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
-                    return None
-                child_name = catalog_name_from_root(child_path, child_root)
-                if not child_name:
-                    return None
-                # resolve_sub_workflow hands back a bare root string, not a
-                # Source, so writability is inferred the way that root was
-                # built: the workspace's own workflows/ is the writable one
-                # (#274)
-                child_workspace = (
-                    workspace.name if child_root == workspace.workflows else None
-                )
-                return _observed_for_name(
-                    child_name, child_definition, arguments, workspace=child_workspace
-                )
-
-            return build_plan(
-                candidate,
-                request.arguments,
-                device=get_device_type(get_device()),
-                prompt_dir=workspace.prompts,
-                lookup_sizes=sizes,
-                cache_probe=lambda arguments: manager.probe_cache(
-                    {**command, "arguments": arguments}
-                ),
-                # What this box's own runs of this shape took, which is what
-                # the estimate quotes ahead of a curated figure (#154) - the
-                # same aggregate the listing reports, asked with the
-                # caller's arguments rather than the defaults
-                observed=(
-                    (
-                        lambda arguments: _observed_for_name(
-                            catalog_name,
-                            definition,
-                            arguments,
-                            workspace=workspace.name if source.writable else None,
-                        )
-                    )
-                    if catalog_name
-                    else None
-                ),
-                observed_for_child=observed_for_child,
-            )
-        except Exception:
-            logger.exception("Plan could not be built")
-            return None
-
-    @app.post("/api/validate")
-    def validate_workflow(
-        request: JobRequest,
-        ws: Workspace = Depends(selected_workspace),
-        sizes: bool = Query(
-            True,
-            description="Ask the hub how large each missing model is; false "
-            "skips the network for a faster answer",
-        ),
-    ):
-        """Schema-validate a workflow and check its pipeline arguments
-        against real signatures, without queuing anything. Give either an
-        inline workflow or a workflow_path - a path on the server or a
-        stored workflow name from /api/workflows. The workspace it resolves
-        in comes from the body or the query string, body first. A valid
-        answer also carries a plan: the fingerprint of the work these
-        arguments produce, the step count, the list lengths, the model
-        repos not in the cache, and an estimate from the workflow's cost
-        block."""
-        if (request.workflow is None) == (request.workflow_path is None):
-            raise HTTPException(
-                status_code=400,
-                detail="Provide exactly one of workflow or workflow_path",
-            )
-        try:
-            workspace = _workspace_for(request.workspace or ws.name)
-            # Built from the file so relative paths inside it resolve against
-            # its own directory, exactly as a run would; (None, None) for an
-            # inline definition
-            resolved, source = resolve_workflow_reference(
-                request.workflow_path, _sources_for(workspace)
-            )
-            # The listing name the job history is keyed on, so the plan can
-            # quote what this box's own runs of it took (#154); an inline
-            # definition has none, so no history
-            catalog_name = catalog_name_for(resolved, source) if resolved else None
-            admission = _admit(
-                workspace,
-                workflow_path=resolved,
-                workflow=request.workflow,
-                arguments=request.arguments,
-                base_dir=request.base_dir,
-                output_dir=workspace.outputs,
-                # Confined to the source it came from, not to the writable
-                # root - an example is read where it lives
-                workflow_dir=source.root if source else workspace.workflows,
-                # `arguments` defaults to `{}` on the model, so an omitted
-                # field and an explicit `{}` are otherwise indistinguishable
-                # here - and the two mean different things: omitted is
-                # "check the document", explicit is "check a run with these
-                # arguments" (#364)
-                supplied="arguments" in request.model_fields_set,
-                plan_for=lambda candidate: _validation_plan(
-                    candidate, request, workspace, source, catalog_name, sizes
-                ),
-            )
-        except HTTPException:
-            raise
-        except ValidatorFailure:
-            # Not the schema's verdict on the workflow - validation_errors()
-            # reports that by returning it. It is the validator itself
-            # failing, and its message could carry internals, so the log
-            # keeps the detail and the client is told the category
-            logger.exception("Workflow could not be validated")
-            detail = (
-                "The workflow could not be validated - the server log has the detail"
-            )
-            return {
-                "valid": False,
-                "error": detail,
-                "errors": [{"path": None, "message": detail}],
-                "warnings": [],
-            }
-        except SecurityError as e:
-            # Messages the security layer writes itself - safe to surface
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception:
-            # Anything else could carry internals in its message; the log
-            # keeps the detail, the client gets the category. What is left
-            # here is resolving the request and loading the workflow (and
-            # the catalog it is checked against) - a check that fails after
-            # loading is a ValidatorFailure, answered above
-            logger.exception("Workflow could not be loaded for validation")
-            raise HTTPException(
-                status_code=400,
-                detail="The workflow could not be loaded - the server log "
-                "has the detail",
-            )
-        if admission.schema_errors:
-            return {
-                "valid": False,
-                "error": format_validation_errors(admission.errors),
-                "errors": admission.errors,
-                "warnings": [],
-            }
-        if not admission.ok:
-            # The arguments a caller is about to run with, checked the way
-            # the run would check them. The warnings are the expansion's
-            # over the defaults, since the arguments did not fold
-            return {
-                "valid": False,
-                "error": format_validation_errors(admission.errors),
-                "errors": admission.errors,
-                "warnings": admission.warnings,
-                "checked_arguments": sorted(request.arguments or {}),
-            }
-        answer = {
-            "valid": True,
-            "error": None,
-            "errors": [],
-            "warnings": list(admission.warnings),
-        }
-        if request.arguments:
-            # Naming what was checked is the difference between 'the stored
-            # definition is valid' and 'the values you are about to pass are'
-            answer["checked_arguments"] = sorted(request.arguments)
-        answer["plan"] = admission.plan
-        if answer["plan"]:
-            # cached_steps is 0 both when nothing hit and when the probe ran
-            # against the wrong workspace's output root (#184) - echoing
-            # what it was actually probed against turns the second case
-            # from a silent miss into something a caller can read
-            answer["plan"]["workspace"] = workspace.name
-            answer["plan"]["output_dir"] = workspace.outputs
-            answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
-            if catalog_name:
-                answer["warnings"] += _host_memory_warnings(
-                    catalog_name,
-                    admission.workflow.workflow_definition,
-                    answer["plan"]["list_entries"],
-                    workspace=workspace.name if source.writable else None,
-                )
-        return answer
-
-    def _host_memory_warnings(name, definition, list_entries, *, workspace=None):
-        """Whether this box's own history says the requested list is
-        projected to exceed host RAM (#243) - best effort, since a warning
-        that 500s the free pre-flight would be worse than skipping it."""
-        costs = getattr(app.state, "observed_costs", None)
-        if costs is None:
-            return []
-        try:
-            from ..host_memory import host_memory_stats
-
-            rows = costs.rows_for(name, workspace=workspace)
-            ceiling_mb = (host_memory_stats().get("total_mb") or 0) * CEILING_FRACTION
-            return host_memory_warnings(definition, list_entries, rows, ceiling_mb)
-        except Exception:
-            logger.debug("host memory projection failed for %s", name, exc_info=True)
-            return []
-
-    # ------------------------------------------------------------ workspaces
-
-    class WorkspaceRequest(BaseModel):
-        name: str = Field(description="Name for the new workspace")
-
-    @app.get("/api/workspaces")
-    def list_workspaces():
-        """Every workspace on this server, the default first.
-
-        A workspace is a namespace, not a security boundary: the API token
-        is all-or-nothing, so anything that can list these can reach all of
-        them.
-        """
-        root = app.state.workspace_root
-        # workspace_names lists the whole root once; everything after the
-        # first entry (always the default, see its docstring) is a named
-        # workspace to describe individually
-        names = workspace_names(root)[1:] if root else []
-        listed = [app.state.default_workspace]
-        for name in names:
-            listed.append(named_workspace(root, name))
-        described = []
-        for space in listed:
-            entry = space.describe()
-            # Roughly how much disk it holds, cached for a minute inside
-            # workspace_usage - a listing is a glance, and a job writing
-            # into outputs moves the number continuously anyway
-            entry["usage"] = workspace_usage(space)
-            described.append(entry)
-        return {
-            "workspace_root": root.root if root else None,
-            "default": DEFAULT_WORKSPACE_NAME,
-            "workspaces": described,
-        }
-
-    @app.post("/api/workspaces", status_code=201)
-    def add_workspace(request: WorkspaceRequest):
-        """Create a workspace: its own workflows, assets and outputs, sharing
-        this server's one prompt library."""
-        root = _workspace_root()
-        try:
-            created = create_workspace(root, request.name)
-        except SecurityError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except FileExistsError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-        forget_workspace_usage()
-        logger.info(f"Created workspace {request.name} at {created.root}")
-        return created.describe()
-
-    @app.delete("/api/workspaces/{name}")
-    def remove_workspace(name: str, acknowledged: bool = False):
-        """Delete a workspace and everything in it.
-
-        Answers what it would remove and refuses until `acknowledged=true`:
-        this deletes generated work, and a count is what makes it an
-        informed choice rather than a surprise. The unacknowledged message
-        names only what would be removed - how to proceed is left to the
-        caller, since the MCP surface tells its own callers to acknowledge
-        through a differently-named parameter (`acknowledged_cost`).
-        """
-        root = _workspace_root()
-        if name == DEFAULT_WORKSPACE_NAME:
-            raise HTTPException(
-                status_code=400,
-                detail="The default workspace cannot be deleted - it is the "
-                "workspace root itself, and holds the shared prompt library",
-            )
-        if name not in workspace_names(root):
-            raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
-
-        contents = workspace_contents(named_workspace(root, name))
-        if not acknowledged:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": f"Deleting workspace '{name}' removes these "
-                    f"files permanently.",
-                    "contents": contents,
-                },
-            )
-        with manager._lock:
-            queued = [
-                job
-                for job in manager.jobs.values()
-                if job.status not in TERMINAL_STATES
-                and job.spec.get("workspace") == name
-            ]
-        if queued:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Workspace '{name}' has {len(queued)} job(s) queued or "
-                f"running - cancel them first",
-            )
-        try:
-            delete_workspace(root, name)
-        except NotAWorkspaceError as e:
-            # The directory holds more than a workspace - refused outright,
-            # since what else it holds is not the caller's to acknowledge away
-            raise HTTPException(
-                status_code=409, detail={"message": str(e), "entries": e.entries}
-            )
-        except (ValueError, FileNotFoundError) as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        forget_workspace_usage()
-        logger.info(f"Deleted workspace {name}")
-        return {"name": name, "deleted": True, "contents": contents}
-
-    # ------------------------------------------------------------- workflows
-
-    # How much of a long variable default the variables route shows before
-    # cutting it: enough to recognize a prompt by, far short of carrying one
-    VARIABLE_VALUE_PREVIEW = 200
-
-    @app.get("/api/workflows")
-    def list_workflows(
-        ws: Workspace = Depends(selected_workspace),
-        shape: Optional[str] = None,
-        traits: Optional[str] = None,
-        configures: Optional[str] = None,
-        include_models: bool = False,
-        view: Optional[str] = None,
-    ):
-        """Every workflow the search path offers, each detail saying which
-        source it came from and whether it can be written to. 'workflow_dir'
-        stays the writable one - what a save targets.
-
-        `shape`, `traits` (comma-separated, all must match) and `configures`
-        narrow the listing; `view=compact` is the agent's view - summaries
-        rather than descriptions, templates rather than model configs
-        unless `include_models` asks for them. `workflows` always names
-        exactly the entries `details` holds.
-        """
-        sources = _sources_for(ws)
-        found = listing(sources)
-        try:
-            details = project_listing(
-                attach_observed(
-                    workflow_details(found),
-                    getattr(app.state, "observed_costs", None),
-                    ws.name,
-                ),
-                shape=shape,
-                traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
-                configures=configures,
-                include_models=include_models,
-                view=view,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        return {
-            "workspace": ws.name,
-            "workflow_dir": ws.workflows,
-            "sources": [source.to_dict() for source in sources],
-            "workflows": sorted(details),
-            "details": details,
-            # What a `cost` is, and so what a null one means. Curated:
-            # figures a maintainer measured once on the devices named and
-            # wrote into the workflow - nothing derives them from this
-            # server's own job history, so null means nobody wrote one
-            # down, not that the run is cheap or that this box has never
-            # run it (#91). A detail's `observed` block, when present, is the
-            # other kind of number: this box's own finished runs of that
-            # workflow, derived rather than claimed, and never a substitute
-            # for `cost` (#93)
-            "cost_basis": "curated",
-        }
-
-    @app.put("/api/workflows/{name:path}")
-    def save_workflow(
-        name: str, request: JobRequest, ws: Workspace = Depends(selected_workspace)
-    ):
-        """Write a workflow into the writable workflow directory. The
-        definition must be schema-valid - the editor validates before saving,
-        and a save that silently wrote a broken file would betray both.
-
-        A name that currently resolves to a read-only source (an example, a
-        builtin) is not overwritten: the copy lands in the writable source
-        and shadows it from then on.
-        """
-        if request.workflow is None:
-            raise HTTPException(
-                status_code=400,
-                detail='Provide the definition as {"workflow": {...}}',
-            )
-        path, source = resolve_writable_workflow(_sources_for(ws), name)
-        candidate = Workflow(
-            copy.deepcopy(request.workflow),
-            ws.outputs,
-            path,
-            ws.workflows,
-        )
-        try:
-            candidate.validate()
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as file:
-            json.dump(request.workflow, file, indent=2)
-            file.write("\n")
-        logger.info(f"Saved workflow {name} to {path}")
-        # What the catalog will say about it, so the author sees the match
-        # it just created. An empty summary is a warning, never a refusal:
-        # a workflow with no description still runs, it is just invisible
-        # to shape-first discovery
-        metadata = derive_catalog_metadata(request.workflow)
-        warnings = list(workflow_argument_warnings(request.workflow))
-        warnings += candidate.null_variable_argument_warnings()
-        if not metadata["summary"]:
-            warnings.append(
-                "No summary: add a 'description' (its first sentence becomes "
-                "the catalog summary) or a 'summary' so the listing can say "
-                "what this workflow is for"
-            )
-        return {
-            "name": name,
-            "workspace": ws.name,
-            "origin": source.origin,
-            "warnings": warnings,
-            "shape": metadata["shape"],
-            "traits": metadata["traits"],
-            "summary": metadata["summary"],
-        }
-
-    @app.delete("/api/workflows/{name:path}")
-    def delete_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
-        """Remove a workflow file from the writable workflow directory.
-
-        A read-only source is refused rather than silently ignored: an
-        example or a builtin is not the caller's to delete, and saying so
-        is more useful than a 404 that reads like the file is missing.
-        """
-        path, source = resolve_readable_workflow(_sources_for(ws), name)
-        if not source.writable:
-            raise HTTPException(
-                status_code=403,
-                detail=f"'{name}' comes from the read-only {source.origin} "
-                f"directory {source.root} and cannot be deleted",
-            )
-        os.remove(path)
-        logger.info(f"Deleted workflow {name} ({path})")
-        forget_workspace_usage()
-        # This identity's job history goes with it (#274) - otherwise a name
-        # reused in this workspace, including by a regression cycle that
-        # deletes and recreates the same workflow, would inherit the deleted
-        # copy's observed figures and host-memory history
-        manager.history.orphan_workflow_history(ws.name, name)
-        return {
-            "name": name,
-            "workspace": ws.name,
-            "origin": source.origin,
-            "deleted": True,
-        }
-
-    @app.get("/api/workflows/{name:path}/download")
-    @query_token_ok
-    def download_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
-        """Serve a workflow definition as a forced download."""
-        path, _source = resolve_readable_workflow(_sources_for(ws), name)
-        return FileResponse(
-            path, filename=os.path.basename(path), media_type="application/json"
-        )
-
-    # Declared before the catch-all below, which would otherwise swallow
-    # '<name>/variables' as a workflow called that
-    @app.get("/api/workflows/{name:path}/variables")
-    def get_workflow_variables(
-        name: str, full: bool = False, ws: Workspace = Depends(selected_workspace)
-    ):
-        """A workflow's variables and the values they default to.
-
-        The listing says which variables a workflow has; confirming what one
-        of them defaults to meant fetching the whole definition, quantization
-        blocks and all, to read a single integer. This answers that question
-        by itself.
-
-        Long strings - a shot's prompt runs to kilobytes, and a list-driven
-        workflow's default list holds several - are cut to their first 200
-        characters wherever they sit and named in `truncated`
-        (`shots[0].prompt`), so the answer stays small for the numbers and
-        names it is usually asked about; `full=true` returns them whole, and
-        `GET /api/workflows/{name}` is still the definition itself.
-        """
-        path, source = resolve_readable_workflow(_sources_for(ws), name)
-        try:
-            with open(path, "r") as file:
-                definition = json.load(file)
-        except (OSError, json.JSONDecodeError) as e:
-            raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
-
-        def preview(value, path):
-            if isinstance(value, str) and len(value) > VARIABLE_VALUE_PREVIEW:
-                truncated.append(path)
-                return value[:VARIABLE_VALUE_PREVIEW]
-            if isinstance(value, list):
-                return [preview(item, f"{path}[{i}]") for i, item in enumerate(value)]
-            if isinstance(value, dict):
-                return {
-                    key: preview(item, f"{path}.{key}") for key, item in value.items()
-                }
-            return value
-
-        variables = definition.get("variables") or {}
-        values, truncated = {}, []
-        for variable, value in variables.items():
-            values[variable] = value if full else preview(value, variable)
-        answer = {
-            "name": name,
-            "variables": values,
-            "truncated": truncated,
-            "seed": definition.get("seed"),
-            "origin": source.origin,
-        }
-        # The rule beside the default it constrains: a consumer reading
-        # `num_frames: 124` with no range picked 61 and paid 138 s of
-        # loading to be told the rule was 17n + 5 from 124 (#96)
-        constraints = definition.get("variable_constraints")
-        if isinstance(constraints, dict) and constraints:
-            answer["constraints"] = constraints
-        # What an entry of each list-driven variable carries, with any rule
-        # that reaches one of its fields stated beside that field: a caller
-        # reading what a `shots` entry takes reads the bound for
-        # `num_frames` there, rather than having to match it to a key of
-        # `constraints` that names no top-level variable (#145)
-        lists = derive_catalog_metadata(definition).get("lists")
-        if lists:
-            answer["lists"] = lists
-        # What this box's own runs of it actually took, beside the defaults
-        # they were run with - derived, never the curated `cost` (#93)
-        observed = _observed_for_name(
-            name, definition, workspace=ws.name if source.writable else None
-        )
-        if observed:
-            answer["observed"] = observed
-        return answer
-
-    def _observed_for_name(name, definition, arguments=None, *, workspace=None):
-        """One workflow's `observed` block, from the same aggregate the
-        listing uses - so the figure a caller reads in the listing and the
-        one they read here are the same figure.
-
-        `arguments` narrow it to the bucket the run being planned falls in;
-        without them it is the figure the stored defaults give, which is the
-        listing's. `workspace` scopes it to one workspace's own writable copy
-        (#274); omitted, it is a shared catalog entry's pooled figure (#154)."""
-        costs = getattr(app.state, "observed_costs", None)
-        return (
-            costs.observed(name, definition, arguments, workspace=workspace)
-            if costs
-            else None
-        )
-
-    @app.get("/api/workflows/{name:path}")
-    def get_workflow(name: str, ws: Workspace = Depends(selected_workspace)):
-        path, source = resolve_readable_workflow(_sources_for(ws), name)
-        try:
-            with open(path, "r") as file:
-                definition = json.load(file)
-        except (OSError, json.JSONDecodeError) as e:
-            raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
-        # Which root it came from and whether a save would land here or
-        # copy elsewhere - the editor reads these to offer save-in-place
-        # only for a writable source, save-a-copy otherwise
-        return JSONResponse(
-            definition,
-            headers={
-                "X-Workflow-Origin": source.origin,
-                "X-Workflow-Writable": "true" if source.writable else "false",
-            },
-        )
-
-    # --------------------------------------------------------------- prompts
-
-    class PromptRequest(BaseModel):
-        prompt: Dict[str, Any] = Field(description="The prompt definition to save")
-
-    @app.get("/api/prompt-schema")
-    def get_prompt_schema():
-        """The JSON schema for stored prompts - the editor's diagnostics.
-        Its own path, so a prompt named 'schema' cannot shadow it."""
-        return JSONResponse(load_schema("prompt"))
-
-    def referenceable(name):
-        try:
-            validate_prompt_reference(name)
-            return True
-        except InvalidInputError:
-            return False
-
-    def _prompt_roots():
-        """The prompt search path: the library this server writes to, then
-        the read-only ones an --examples-dir tree brought with it. A name in
-        an earlier root shadows the same name later, as on the workflow
-        search path."""
-        roots = [app.state.prompt_dir]
-        primary = os.path.abspath(app.state.prompt_dir)
-        for root in app.state.example_prompt_dirs:
-            if os.path.abspath(root) != primary:
-                roots.append(root)
-        return roots
-
-    def _find_prompt(name):
-        """(path, writable) for the first root on the search path that holds
-        this name. 404s when no root does, the way resolve_prompt_name does
-        for a name that cannot be referenced at all."""
-        for index, root in enumerate(_prompt_roots()):
-            try:
-                # allow_create so a name that is simply absent from this root
-                # is a miss to carry on from, rather than a 404 raised out of
-                # the middle of the search
-                path = resolve_prompt_name(root, name, allow_create=True)
-            except HTTPException as error:
-                # a name no workflow could reference is a miss too, not the
-                # 400 a save would get for it
-                raise HTTPException(status_code=404, detail=error.detail)
-            if os.path.isfile(path):
-                return path, index == 0
-        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
-
-    @app.get("/api/prompts")
-    def list_prompts(
-        tag: str | None = None,
-        intended_model: str | None = None,
-        include_text: bool = True,
-    ):
-        # A stray file too deep or oddly named can sit in the directory, but
-        # no workflow could reference it - listing it would only invite that
-        paths = {}
-        origins = {}
-        roots = _prompt_roots()
-        for index, root in enumerate(roots):
-            for name in workflow_names(root):
-                if referenceable(name) and name not in paths:
-                    paths[name] = os.path.join(root, f"{name}.json")
-                    origins[name] = WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN
-        details = prompt_details(paths)
-
-        # Narrowing happens after the details are read, since that is where a
-        # prompt says what it is for, and it narrows every parallel key at
-        # once: a `prompts` list and a `details` map that disagree is worse
-        # than no filter at all
-        wanted = _matching_prompts(details, tag, intended_model)
-        if wanted is not None:
-            details = {
-                name: detail for name, detail in details.items() if name in wanted
-            }
-        # The three parallel keys agree by construction, filter or no filter.
-        # `prompt_details` drops a path whose mtime it cannot read - the file
-        # went away between the walk and the read - and listing a name that
-        # carries no detail only tells a caller to go and get a 404.
-        origins = {name: origin for name, origin in origins.items() if name in details}
-
-        # The MCP listing cannot carry 44 prompt bodies - it exceeds a client's
-        # result cap and the listing becomes uncallable - but the editors read
-        # `text` as the card fallback, so the omission is opt-in and the size
-        # is reported in its place
-        if not include_text:
-            details = {
-                name: {
-                    **{key: value for key, value in detail.items() if key != "text"},
-                    "text_chars": len(detail.get("text") or ""),
-                }
-                for name, detail in details.items()
-            }
-
-        return {
-            # The writable library, unchanged: what a save is written to,
-            # and what a client that predates the search path expects
-            "prompt_dir": app.state.prompt_dir,
-            "prompt_dirs": roots,
-            "prompts": sorted(details),
-            "origins": origins,
-            "details": details,
-        }
-
-    @app.put("/api/prompts/{name:path}")
-    def save_prompt(name: str, request: PromptRequest):
-        """Write a prompt into the prompt directory. Like a workflow save,
-        the definition must be schema-valid before it lands on disk."""
-        status, message = validate_data(request.prompt, load_schema("prompt"))
-        if not status:
-            raise HTTPException(status_code=400, detail=message)
-        if str(request.prompt.get("text", "")).startswith(RESERVED_TEXT_PREFIXES):
-            raise HTTPException(
-                status_code=400,
-                detail="A prompt's text may not itself begin with a reference "
-                f"prefix ({', '.join(RESERVED_TEXT_PREFIXES)})",
-            )
-        path = resolve_prompt_name(app.state.prompt_dir, name, allow_create=True)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as file:
-            json.dump(request.prompt, file, indent=2)
-            file.write("\n")
-        logger.info(f"Saved prompt {name} to {path}")
-        return {"name": name}
-
-    @app.delete("/api/prompts/{name:path}")
-    def delete_prompt(name: str):
-        """Remove a prompt file from the prompt directory. A prompt that
-        came from a read-only examples library is not this server's to
-        delete - the same 403 a read-only workflow answers with."""
-        path, writable = _find_prompt(name)
-        if not writable:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Prompt {name} is read-only: it comes from an examples "
-                f"library, not this workspace's prompt directory",
-            )
-        os.remove(path)
-        logger.info(f"Deleted prompt {name} ({path})")
-        forget_workspace_usage()
-        return {"name": name, "deleted": True}
-
-    @app.get("/api/prompts/{name:path}/download")
-    @query_token_ok
-    def download_prompt(name: str):
-        """Serve a stored prompt as a forced download."""
-        path, _ = _find_prompt(name)
-        return FileResponse(
-            path, filename=os.path.basename(path), media_type="application/json"
-        )
-
-    @app.get("/api/prompts/{name:path}")
-    def get_prompt(name: str):
-        path, writable = _find_prompt(name)
-        try:
-            with open(path, "r") as file:
-                # Which library it came from, the way a workflow carries its
-                # source - the editor offers delete only for a prompt this
-                # server owns, and save-a-copy for a read-only one
-                return JSONResponse(
-                    json.load(file),
-                    headers={
-                        "X-Prompt-Origin": (
-                            WORKSPACE_ORIGIN if writable else EXAMPLES_ORIGIN
-                        ),
-                        "X-Prompt-Writable": "true" if writable else "false",
-                    },
-                )
-        except (OSError, json.JSONDecodeError) as e:
-            raise HTTPException(status_code=500, detail=f"Could not read prompt: {e}")
-
-    # ------------------------------------------------------------- enhancers
-
-    class EnhanceRequest(BaseModel):
-        idea: str = Field(description="The idea to expand into a full prompt")
-        preset: str = Field(default="h3", description="Enhancer preset key")
-        model_name: Optional[str] = Field(
-            default=None, description="LLM repo id; the preset's default when omitted"
-        )
-        device: Optional[str] = Field(
-            default=None,
-            description="Device for the language model; defaults to cpu, "
-            "keeping VRAM free for generation",
-        )
-
-    @app.get("/api/enhancers")
-    def list_enhancers():
-        return {"presets": preset_descriptions()}
-
-    @app.post("/api/enhance", status_code=201)
-    def enhance(request: EnhanceRequest, ws: Workspace = Depends(selected_workspace)):
-        """Queue a prompt enhancement as an ordinary job. The enhanced text
-        is the job's single manifest file once it succeeds.
-
-        Scoped like any other job: the caller reads the result back from the
-        workspace it asked in, so this has to write there too."""
-        try:
-            definition = build_enhance_workflow(
-                request.preset,
-                request.idea,
-                model_name=request.model_name,
-                device=request.device,
-            )
-            # Admitted like any other job - submit records and queues what
-            # was admitted, it does not check
-            admission = _admit(
-                ws,
-                workflow_path=None,
-                workflow=definition,
-                arguments={},
-                base_dir=None,
-                output_dir=ws.outputs,
-                workflow_dir=ws.workflows,
-            )
-            if not admission.ok:
-                raise ValueError(admission.message())
-            job = manager.submit(
-                admitted=admission.workflow,
-                workflow=definition,
-                arguments={},
-                workflow_dir=ws.workflows,
-                output_dir=ws.outputs,
-                asset_dir=ws.assets,
-                workspace=ws.name,
-                warnings=admission.warnings,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        return manager.describe(job)
+    include_routers(app)
 
     # --------------------------------------------------------------- gallery
 
@@ -1912,14 +411,14 @@ def create_app(
         """The file an 'asset:' reference names in this workspace, or a 404.
 
         Looked for down the same search path a run resolves 'asset:' in
-        (_asset_roots), so what the API can read is what a job would load.
+        (asset_roots), so what the API can read is what a job would load.
         A miss names every root that was searched, so the caller sees
         their own workspace library among them rather than just the last
         (often an examples directory they never wrote to).
         """
         return _asset_in(
             reference.removeprefix(ASSET_PREFIX).strip(),
-            _resolution_roots(ws),
+            resolution_roots(app.state, ws),
         )
 
     def _job_provenance(name, ws):
@@ -1956,104 +455,6 @@ def create_app(
             files = StaticFiles(directory=root)
             cache[root] = files
         return files
-
-    def _common_assets(ws):
-        """The library every workspace under this root shares, or None.
-
-        A recurring cast is not the property of the workspace that first
-        uploaded it, and a fresh workspace could not see it at all - the
-        prompt library has been shared from the start for the same reason.
-        """
-        return getattr(ws, "common_assets", None)
-
-    def _asset_roots(ws):
-        """The asset search path of one workspace: its own library, then the
-        one shared by every workspace under this root, then the read-only
-        ones an --examples-dir tree brought with it. The same order 'asset:'
-        resolves in (dw/assets.asset_search_path), so what the browser lists
-        is what a job would load."""
-        roots = []
-        for root in [ws.assets, _common_assets(ws), *app.state.example_asset_dirs]:
-            if not root:
-                continue
-            root = os.path.abspath(root)
-            if root not in roots and os.path.isdir(root):
-                roots.append(root)
-        return roots
-
-    def _resolution_roots(ws):
-        """`_asset_roots(ws)`, falling back to the workspace's own (possibly
-        nonexistent) library when the search path is empty.
-
-        A caller resolving a name still needs *somewhere* to fail against:
-        with no root at all the 404 would name no directory, leaving the
-        caller to guess where it looked. Naming the workspace's own
-        directory keeps the failure pointing at the library the caller
-        thinks they're working in, even when that library hasn't been
-        created yet.
-
-        Never `[None]`: a server configured with no asset library at all has
-        nothing to point at either, and `_asset_in` turns the resulting empty
-        list into the "no asset library" 404 rather than joining `None`.
-        """
-        roots = _asset_roots(ws)
-        if roots:
-            return roots
-        return [os.path.abspath(ws.assets)] if ws.assets else []
-
-    def _asset_roots_for_job(job_id, ws):
-        """The asset search path a job's own run used, for export: its spec's
-        `asset_dir` (or the historical row's), then the read-only example
-        libraries an --examples-dir tree brought with it - the same shape
-        `_asset_roots` builds for the selected workspace, but rooted at
-        wherever the job actually ran rather than at the workspace the
-        caller happens to be scoped to now. A job that ran in one workspace
-        while the caller exports it scoped to another must still find its
-        own 'asset:' files, not the other workspace's.
-
-        Falls back to `_asset_roots(ws)` when the job carries no asset_dir
-        of its own - an inline-workflow job, or one recorded before this
-        field existed."""
-        job = manager.get(job_id)
-        if job is None:
-            return _asset_roots(ws)
-        spec = (job.get("spec") or {}) if isinstance(job, dict) else job.spec
-        asset_dir = spec.get("asset_dir")
-        if not asset_dir:
-            return _asset_roots(ws)
-        roots = []
-        for root in [asset_dir, _common_assets(ws), *app.state.example_asset_dirs]:
-            if not root:
-                continue
-            root = os.path.abspath(root)
-            if root not in roots and os.path.isdir(root):
-                roots.append(root)
-        return roots
-
-    def _served_url(path, ws, version=None):
-        """The URL a served file is reachable at: the default workspace's
-        files keep the URL they have always had, a named one carries the
-        same selector its API calls do, so one route serves both. 'v=' is
-        cache-busting for a name reused by a rerun, not the workspace
-        selector, so it always comes last."""
-        url = path if ws.is_default else f"{path}?workspace={quote(ws.name)}"
-        if version is None:
-            return url
-        separator = "&" if "?" in url else "?"
-        return f"{url}{separator}v={version}"
-
-    def _absolute_served_url(path, ws, version=None):
-        """The same URL, made openable by a client with no other way to
-        learn this server's origin (#353) - an MCP-only agent, which is
-        never told a request's Host and must not guess one. `None` unless
-        an operator has configured `public_url` (or `DW_PUBLIC_URL`):
-        deriving an origin from request/forwarded headers would trust
-        whatever the caller claims to be, so a caller gets nothing rather
-        than a guess."""
-        origin = os.environ.get("DW_PUBLIC_URL") or settings.public_url
-        if not origin:
-            return None
-        return f"{origin.rstrip('/')}{_served_url(path, ws, version)}"
 
     def _iter_gallery_files(root, group_runs=True):
         """Every media file under a directory tree. Yields (relative_name,
@@ -2154,13 +555,13 @@ def create_app(
                 # changing (e.g. a manual overwrite outside the engine) -
                 # normal reruns get a fresh name instead, see
                 # dw/result.py's output_file_path
-                "url": _served_url(output_path, ws, int(stat.st_mtime)),
+                "url": served_url(output_path, ws, int(stat.st_mtime)),
                 "kind": kind,
                 "size": stat.st_size,
                 "mtime": stat.st_mtime,
                 "label": label,
             }
-            absolute_url = _absolute_served_url(output_path, ws, int(stat.st_mtime))
+            absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
             if absolute_url is not None:
                 entry["absolute_url"] = absolute_url
             entries.append(entry)
@@ -3045,7 +1446,7 @@ def create_app(
 
         library = ws.assets or ws.outputs
         if shared:
-            library = _common_assets(ws)
+            library = common_assets(ws)
             if not library:
                 raise HTTPException(
                     status_code=409,
@@ -3087,19 +1488,19 @@ def create_app(
             result = {
                 "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
                 "workspace": ws.name,
-                "url": _served_url(path, ws),
+                "url": served_url(path, ws),
                 "shared": shared,
             }
-            absolute_url = _absolute_served_url(path, ws)
+            absolute_url = absolute_served_url(path, ws)
             if absolute_url is not None:
                 result["absolute_url"] = absolute_url
             return result
         path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
         result = {
             "workspace": ws.name,
-            "url": _served_url(path, ws),
+            "url": served_url(path, ws),
         }
-        absolute_url = _absolute_served_url(path, ws)
+        absolute_url = absolute_served_url(path, ws)
         if absolute_url is not None:
             result["absolute_url"] = absolute_url
         return result
@@ -3111,12 +1512,12 @@ def create_app(
         one answers 403.
 
         By directory, never by position in the search path: the workspace's
-        own library drops out of `_asset_roots` until it exists, and the
+        own library drops out of `asset_roots` until it exists, and the
         examples tree that then sits first is still nobody's to write."""
         own = ws.assets
         if own and os.path.abspath(own) == root:
             return WORKSPACE_ORIGIN
-        common = _common_assets(ws)
+        common = common_assets(ws)
         if common and os.path.abspath(common) == root:
             return COMMON_ORIGIN
         return EXAMPLES_ORIGIN
@@ -3133,7 +1534,7 @@ def create_app(
         asset to be.
         """
         library = ws.assets
-        roots = _asset_roots(ws)
+        roots = asset_roots(app.state, ws)
         if not roots:
             return {
                 "asset_dir": library,
@@ -3197,9 +1598,9 @@ def create_app(
                     "origin": origin,
                     # For the editor's own preview - fetchable the same
                     # way an upload's URL is
-                    "url": _served_url(asset_path, ws),
+                    "url": served_url(asset_path, ws),
                 }
-                absolute_url = _absolute_served_url(asset_path, ws)
+                absolute_url = absolute_served_url(asset_path, ws)
                 if absolute_url is not None:
                     asset_entry["absolute_url"] = absolute_url
                 assets.append(asset_entry)
@@ -3251,7 +1652,7 @@ def create_app(
         multi-gigabyte video to reuse one frame would be paying for the
         round trip twice.
         """
-        library = _common_assets(ws) if request.shared else ws.assets
+        library = common_assets(ws) if request.shared else ws.assets
         if not library:
             raise HTTPException(
                 status_code=409,
@@ -3355,7 +1756,7 @@ def create_app(
         # The search path depends on the workspace, not on the name, so it is
         # built once rather than per name - each root's isdir check would
         # otherwise repeat once per name in the selection for no reason
-        roots = _resolution_roots(ws)
+        roots = resolution_roots(app.state, ws)
         # Stripped and deduped before resolving, so "iris.png" and
         # "iris.png " (or a name repeated by an eager client) become the one
         # zip entry rather than a collision on write
@@ -3381,7 +1782,7 @@ def create_app(
         the library (uploads, keep) had no counterpart and a mistake could
         only be cleaned up on the box (T014).
         """
-        roots = _asset_roots(ws)
+        roots = asset_roots(app.state, ws)
         if not roots:
             raise HTTPException(
                 status_code=409, detail="This server has no asset library"
@@ -3417,253 +1818,6 @@ def create_app(
             }
 
         raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
-
-    # ----------------------------------------------------------------- models
-
-    @app.get("/api/models")
-    def get_models():
-        """What the Hugging Face hub cache holds, largest repo first."""
-        return scan_models()
-
-    downloads = app.state.downloads = download_manager or DownloadManager()
-
-    class DownloadRequest(BaseModel):
-        repo_id: str = Field(description="Hub repo to download, e.g. org/model")
-
-    @app.post("/api/models/download", status_code=202)
-    def start_download(body: DownloadRequest):
-        """Start a background snapshot download into the hub cache."""
-        try:
-            return downloads.start(body.repo_id)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @app.get("/api/models/downloads")
-    def list_downloads():
-        return {"downloads": downloads.status_list()}
-
-    @app.post("/api/models/downloads/{download_id}/cancel")
-    def cancel_download(download_id: str):
-        """Request cancellation; takes effect at the next progress tick.
-        Partial files stay in the cache and resume on a retry."""
-        status = downloads.cancel(download_id)
-        if status is None:
-            raise HTTPException(status_code=404, detail="Unknown download")
-        return status
-
-    @app.delete("/api/models")
-    def delete_cached_model(repo: str):
-        """Delete every cached revision of one repo from the hub cache.
-
-        Refused while a job is running or queued: the worker may be reading
-        exactly the files a delete would remove out from under it."""
-        if manager.is_busy():
-            raise HTTPException(
-                status_code=409,
-                detail="A job is running or queued - deleting model files "
-                "out from under it would corrupt the run",
-            )
-        if downloads.is_active():
-            raise HTTPException(
-                status_code=409,
-                detail="A model download is in progress - deleting cache "
-                "files while it writes them would corrupt both",
-            )
-        try:
-            freed = delete_model(repo)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
-        return {"repo_id": repo, "deleted": True, "freed": freed}
-
-    # ------------------------------------------------------ diffusers update
-
-    updater = app.state.updater = diffusers_updater or DiffusersUpdater()
-
-    @app.get("/api/system/diffusers")
-    def diffusers_state():
-        """Installed diffusers version (with its git commit when installed
-        from git) and the state of any update."""
-        return updater.status()
-
-    class UpdateDiffusersRequest(BaseModel):
-        commit: Optional[str] = Field(
-            default=None,
-            description="Git commit hash to pin the install to (7-40 hex "
-            "characters) instead of tracking GitHub HEAD",
-        )
-        revert: bool = Field(
-            default=False,
-            description="Pin back to the known-good published release "
-            "(pyproject.toml's diffusers floor) instead of installing from "
-            "git. Mutually exclusive with commit.",
-        )
-
-    @app.post("/api/system/diffusers/update", status_code=202)
-    def update_diffusers(body: UpdateDiffusersRequest = UpdateDiffusersRequest()):
-        """Upgrade diffusers in the background: GitHub HEAD by default, a
-        pinned commit when `commit` is given, or a revert to the last
-        known-good published release when `revert` is true.
-
-        Refused while a job is running or queued: pip replacing package
-        files under a loaded pipeline is the model-delete hazard in another
-        form. On success the idle worker is shut down so the next job
-        imports the new version."""
-        if body.commit and body.revert:
-            raise HTTPException(
-                status_code=400,
-                detail="commit and revert are mutually exclusive",
-            )
-        commit = None
-        if body.commit:
-            try:
-                commit = validate_commit_hash(body.commit)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-        if manager.is_busy():
-            raise HTTPException(
-                status_code=409,
-                detail="A job is running or queued - updating diffusers "
-                "underneath it could corrupt the run",
-            )
-        if downloads.is_active():
-            raise HTTPException(
-                status_code=409,
-                detail="A model download is in progress - replacing package "
-                "files while it runs could corrupt the download",
-            )
-        try:
-            return updater.start(
-                on_success=manager.restart_worker_if_idle,
-                commit=commit,
-                revert=body.revert,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-
-    # --------------------------------------------------------- memory/health
-
-    @app.get("/api/memory")
-    def memory():
-        try:
-            return manager.memory_status()
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
-
-    @app.post("/api/memory/clear")
-    def clear_memory():
-        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-        without waiting for the next job to evict one model for another.
-
-        Refused while a job is running or queued (409) rather than blocked -
-        the queue is FIFO, so the caller should wait for the job to finish
-        and retry instead of this call stalling until it does.
-
-        A server with no worker process resident answers `cleared` with a
-        null `info` rather than a 503: the worker is on-demand, so its
-        absence means there was nothing loaded to clear."""
-        if manager.is_busy():
-            raise HTTPException(
-                status_code=409,
-                detail="A job is running or queued - clearing memory out "
-                "from under it would corrupt the run. Wait for it to finish.",
-            )
-        try:
-            info = manager.clear_memory()
-        except RuntimeError as e:
-            raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
-        return {"cleared": True, "info": info}
-
-    @app.get("/api/health")
-    def health():
-        import socket
-
-        from .. import __version__, get_device, get_device_type
-
-        worker = manager.worker_manager
-        return {
-            "status": "ok",
-            "version": __version__,
-            # on-demand subprocess: false on an idle server that hasn't run
-            # a job yet (or after a memory clear) is normal, not a fault -
-            # it means no model process is currently resident, not that the
-            # server is unhealthy (#206)
-            "worker_alive": bool(
-                worker.worker_active
-                and worker.worker_process is not None
-                and worker.worker_process.is_alive()
-            ),
-            "current_job": manager._current_job_id,
-            "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
-            # which machine answered - the thing a remote client cannot
-            # otherwise tell apart from a stale tunnel pointed at nothing
-            "hostname": socket.gethostname(),
-            "device": get_device_type(get_device()),
-            "mcp": bool(app.state.mcp_mounted),
-        }
-
-    @app.get("/api/server")
-    def server_info(ws: Workspace = Depends(selected_workspace)):
-        """How this server is reachable, for the UI's Server page: what it
-        is bound to, whether a token is needed, whether MCP is mounted, and
-        the addresses another machine could name it by.
-
-        No URL is composed here - the caller pairs an address with `port`
-        and `mcp.path` - and the token itself is never reported in any
-        form, only whether one is required. An interface enumeration
-        failure is not a server failure: `addresses` comes back empty.
-
-        `directories` is scoped to the `?workspace=` a caller names (or the
-        session's own pin, via `_scoped`) - a mounted `download_output`
-        confines a write to *that* workspace's output tree, so reporting
-        the server's own default here regardless of the selector sent a
-        caller pinned elsewhere writing into `default` without any error (#389).
-        """
-        import socket
-
-        from .. import __version__, get_device, get_device_type
-
-        try:
-            addresses = local_addresses()
-        except Exception:
-            logger.debug("Could not enumerate local addresses", exc_info=True)
-            addresses = []
-        return {
-            "hostname": socket.gethostname(),
-            "version": __version__,
-            "device": get_device_type(get_device()),
-            "bind_host": host,
-            "port": port,
-            "wildcard_bind": wildcard_bind,
-            "auth_required": bool(token),
-            # The posture a security check has to know it is testing: with
-            # this off, a workflow file is untrusted input - no arbitrary
-            # imports, no remote code, no location outside the workspace's
-            # roots. It is not a secret (the refusals name the flag), and
-            # without it the posture could only be inferred from behavior
-            # (#120)
-            "trust_workflows": workflows_are_trusted(),
-            "mcp": {"mounted": bool(app.state.mcp_mounted), "path": MCP_PATH},
-            "addresses": addresses,
-            # Python/torch/CUDA-driver/other-package versions - the detail
-            # neither this route's own `version` field nor `get_health`
-            # answers, e.g. whether bitsandbytes is even installed (#222)
-            "runtime": runtime_info(),
-            "directories": {
-                # ws's properties are already absolute (Workspace and
-                # ConfiguredWorkspace both resolve at construction). This
-                # "workspace" is the root path a mounted download_output
-                # confines a write to (dw_mcp/media.py's _remote_root) -
-                # None for a default workspace configured from individual
-                # directory overrides with no --workspace root, same as
-                # before this route was workspace-aware
-                "workspace": ws.root,
-                "workflows": ws.workflows,
-                "assets": ws.assets,
-                "outputs": ws.outputs,
-                "prompts": ws.prompts,
-            },
-        }
 
     # ---------------------------------------------------------------- outputs
 
@@ -3760,7 +1914,7 @@ def create_app(
         an uploaded or chosen asset - the workspace's own library first,
         then any read-only examples library, so an example workflow's media
         previews the way an upload does."""
-        roots = _asset_roots(ws)
+        roots = asset_roots(app.state, ws)
         if not roots:
             raise HTTPException(status_code=404, detail="no asset library")
         for root in roots:

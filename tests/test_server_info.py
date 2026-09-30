@@ -195,7 +195,7 @@ def test_enumeration_failure_degrades_to_empty_list(tmp_path, monkeypatch):
     def boom():
         raise OSError("no interfaces here")
 
-    monkeypatch.setattr("dw.server.app.local_addresses", boom)
+    monkeypatch.setattr("dw.server.routes.system.local_addresses", boom)
     with client(tmp_path) as c:
         response = c.get("/api/server")
     assert response.status_code == 200

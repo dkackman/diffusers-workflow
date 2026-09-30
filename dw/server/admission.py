@@ -33,7 +33,9 @@ from ..runs import is_output_reference, resolve_output_reference
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
+from .deps import ceiling_index, prompt_roots
 from .jobs import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
+from .outputs import resolution_roots
 
 logger = logging.getLogger("dw")
 
@@ -352,6 +354,19 @@ class JobRequest(BaseModel):
         description="Which workspace to run or resolve in; the default when omitted",
     )
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
+
+
+def admit_for(state, workspace, **request):
+    """`admit()` with this server's view of `workspace` - the asset and
+    prompt search paths and the catalog's VRAM ceilings, which live on the
+    app's state rather than in the request."""
+    return admit(
+        workspace=workspace,
+        ceiling_index=ceiling_index(state, workspace),
+        asset_roots=resolution_roots(state, workspace),
+        prompt_roots=prompt_roots(state),
+        **request,
+    )
 
 
 def acknowledgement_form(value):
