@@ -151,6 +151,7 @@ def _print_event(event, printed):
 
 def _wait_for_completion(client, job_id, printed):
     last_seq = -1
+    noted = False
     while True:
         page = client.get_json(
             api_path("api", "jobs", job_id, "event-log"), params={"after": last_seq}
@@ -158,6 +159,15 @@ def _wait_for_completion(client, job_id, printed):
         for event in page.get("events", []):
             last_seq = event.get("seq", last_seq)
             _print_event(event, printed)
+        note = page.get("note")
+        if note and not noted:
+            print(f"note: {note}")
+            noted = True
+        # A truncated page means more events wait behind it, whatever the
+        # job's status: read on at once, and stop only at the true end. A
+        # truncated page that carries no events makes no progress - sleep
+        if page.get("truncated") and page.get("events"):
+            continue
         if page.get("status") in TERMINAL_STATUSES:
             break
         time.sleep(POLL_SECONDS)

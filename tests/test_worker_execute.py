@@ -1,9 +1,13 @@
 """Worker behavior added in Phase 0: cancel mid-run, inline workflows,
 identity-based cache eviction, progress forwarding."""
 
+import json
+import os
 import queue
 import time
 from unittest.mock import patch
+
+import pytest
 
 from dw.events import WorkflowCancelled
 
@@ -21,9 +25,6 @@ class StubWorkflow:
     def __init__(self, behavior=None):
         self.behavior = behavior
         self.manifest = [{"step": "s", "files": ["/out/a.png"]}]
-
-    def validate(self, arguments=None):
-        pass
 
     def run(
         self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
@@ -51,13 +52,21 @@ def _drain(result_queue):
             return messages
 
 
-def _execute(worker, workflow, command=None):
-    command = command or {
-        "workflow_path": "x.json",
+def snapshot_command(file_spec="/w/x.json", source="path", **fields):
+    """An execute command carrying an admitted snapshot, as _run_job sends."""
+    return {
+        "definition": {"id": "stub", "steps": []},
+        "file_spec": file_spec,
+        "source": source,
         "arguments": {},
         "output_dir": "/tmp",
+        **fields,
     }
-    with patch("dw.worker.workflow_from_file", return_value=workflow):
+
+
+def _execute(worker, workflow, command=None):
+    command = command or snapshot_command()
+    with patch("dw.worker.workflow_from_snapshot", return_value=workflow):
         worker._handle_execute(command)
     return _drain(worker.result_queue)
 
@@ -96,27 +105,21 @@ def test_workflow_switch_evicts_cache_and_untouched_keys_dropped():
         _execute(
             worker,
             StubWorkflow(),
-            command={
-                "workflow_path": "other.json",
-                "arguments": {},
-                "output_dir": "/tmp",
-            },
+            command=snapshot_command("/w/other.json"),
         )
     cleanup.assert_called_once()
 
 
 def test_inline_workflow_definition_executes(tmp_path):
     worker = _make_worker()
-    with patch(
-        "dw.worker.workflow_from_definition",
-        lambda data, out, base_dir=None, workflow_dir=None: StubWorkflow(),
-    ):
+    with patch("dw.worker.workflow_from_snapshot", return_value=StubWorkflow()):
         worker._handle_execute(
-            {
-                "workflow": {"id": "inline_test", "steps": []},
-                "arguments": {},
-                "output_dir": str(tmp_path),
-            }
+            snapshot_command(
+                str(tmp_path / "__inline__.json"),
+                source="inline",
+                definition={"id": "inline_test", "steps": []},
+                output_dir=str(tmp_path),
+            )
         )
     types = [message["type"] for message in _drain(worker.result_queue)]
     assert "success" in types
@@ -195,10 +198,8 @@ def test_cancellation_carries_the_manifest_too():
 
 def test_a_failure_before_the_workflow_loads_reports_no_manifest():
     worker = _make_worker()
-    with patch("dw.worker.workflow_from_file", side_effect=OSError("no such file")):
-        worker._handle_execute(
-            {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
-        )
+    with patch("dw.worker.workflow_from_snapshot", side_effect=OSError("no such file")):
+        worker._handle_execute(snapshot_command())
     error = next(m for m in _drain(worker.result_queue) if m["type"] == "error")
     assert error["manifest"] == []
 
@@ -290,35 +291,24 @@ class ProbableWorkflow(StubWorkflow):
 def test_probe_cache_answers_with_the_workflows_hits():
     worker = _make_worker()
     workflow = ProbableWorkflow(["gen"])
-    command = {
-        "type": "probe_cache",
-        "probe_id": "p-1",
-        "workflow_path": "x.json",
-        "arguments": {"prompt": "p"},
-        "output_dir": "/tmp",
-    }
-    with patch("dw.worker.workflow_from_file", return_value=workflow):
+    command = snapshot_command(
+        type="probe_cache", request_id="p-1", arguments={"prompt": "p"}
+    )
+    with patch("dw.worker.workflow_from_snapshot", return_value=workflow):
         worker._handle_probe_cache(command)
     assert _drain(worker.result_queue) == [
-        {"type": "probe_cache", "probe_id": "p-1", "cached": ["gen"]}
+        {"type": "probe_cache", "request_id": "p-1", "cached": ["gen"]}
     ]
     assert workflow.probed_with == {"prompt": "p"}
 
 
 def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
     worker = _make_worker()
-    with patch("dw.worker.workflow_from_file", side_effect=ValueError("bad file")):
-        worker._handle_probe_cache(
-            {
-                "type": "probe_cache",
-                "workflow_path": "x.json",
-                "arguments": {},
-                "output_dir": "/tmp",
-            }
-        )
+    with patch("dw.worker.workflow_from_snapshot", side_effect=ValueError("bad file")):
+        worker._handle_probe_cache(snapshot_command(type="probe_cache"))
     [answer] = _drain(worker.result_queue)
     assert answer["type"] == "probe_cache"
-    assert answer["probe_id"] is None  # echoed even when the command had none
+    assert answer["request_id"] is None  # echoed even when the command had none
     assert answer["cached"] is None
     assert "bad file" in answer["error"]
 
@@ -334,15 +324,9 @@ def test_probe_cache_activates_the_jobs_asset_dir(tmp_path):
             seen["asset_dir"] = get_asset_dir()
             return []
 
-    with patch("dw.worker.workflow_from_file", return_value=AssetAwareWorkflow([])):
+    with patch("dw.worker.workflow_from_snapshot", return_value=AssetAwareWorkflow([])):
         worker._handle_probe_cache(
-            {
-                "type": "probe_cache",
-                "workflow_path": "x.json",
-                "arguments": {},
-                "output_dir": "/tmp",
-                "asset_dir": str(tmp_path),
-            }
+            snapshot_command(type="probe_cache", asset_dir=str(tmp_path))
         )
     assert seen["asset_dir"] == str(tmp_path)
 
@@ -390,25 +374,21 @@ def test_a_workflow_switch_forgets_the_prior_keys():
     _execute(
         worker,
         StubWorkflow(),
-        command={"workflow_path": "other.json", "arguments": {}, "output_dir": "/tmp"},
+        command=snapshot_command("/w/other.json"),
     )
     assert worker.prior_step_keys == {}
 
 
-def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_path):
+def test_execute_runs_the_callers_arguments_not_the_default(tmp_path):
     """#415: a document-default 'text/html' content_type that the caller's
     own argument overrides to 'text/plain' must actually run, not just queue.
 
     Admission (dw.server.admission.admit, where #415's first bounce was
-    fixed) checks the caller's arguments before the job is queued, but
-    _handle_execute
-    itself called workflow.validate() with none - so the job queued, then
-    failed at execution against the unsubstituted default. This drives a
-    real Workflow (not StubWorkflow, which stubs validate() to a no-op)
+    fixed) checks the caller's arguments before the job is queued; the
+    worker once re-validated with none and failed the job against the
+    unsubstituted default. This drives a real Workflow (not StubWorkflow)
     through the actual worker path, the one StubWorkflow-based tests above
     cannot catch."""
-    from dw.workflow import workflow_from_definition
-
     worker = _make_worker()
     definition = {
         "id": "se-415",
@@ -424,19 +404,15 @@ def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_pat
             }
         ],
     }
-    with patch(
-        "dw.worker.workflow_from_definition",
-        lambda data, out, base_dir=None, workflow_dir=None: workflow_from_definition(
-            data, out, base_dir, workflow_dir
-        ),
-    ):
-        worker._handle_execute(
-            {
-                "workflow": definition,
-                "arguments": {"ct": "text/plain"},
-                "output_dir": str(tmp_path),
-            }
+    worker._handle_execute(
+        snapshot_command(
+            str(tmp_path / "__inline__.json"),
+            source="inline",
+            definition=definition,
+            arguments={"ct": "text/plain"},
+            output_dir=str(tmp_path),
         )
+    )
     messages = _drain(worker.result_queue)
     types = [m["type"] for m in messages]
     assert "success" in types, messages
@@ -447,30 +423,26 @@ def test_execute_validates_against_the_callers_arguments_not_the_default(tmp_pat
 
 
 class AssetRecordingWorkflow(StubWorkflow):
-    def validate(self, arguments=None):
+    def run(self, arguments, *args, **kwargs):
         from dw.assets import get_asset_dir
 
-        self.asset_dir_at_validate = get_asset_dir()
+        self.asset_dir_at_run = get_asset_dir()
+        return super().run(arguments, *args, **kwargs)
 
 
-def test_validation_sees_the_jobs_asset_directory(tmp_path):
-    """B8: validation runs steps like dissolve_videos and location policy that
-    resolve asset: references, so it must see the job's own workspace asset
+def test_the_run_sees_the_jobs_asset_directory(tmp_path):
+    """B8: steps like dissolve_videos and location policy resolve asset:
+    references, so the run must see the job's own workspace asset
     directory - not whatever the default discovery would find - or a job
-    against a non-default workspace validates against the wrong library."""
+    against a non-default workspace reads the wrong library."""
     worker = _make_worker()
     workflow = AssetRecordingWorkflow()
     _execute(
         worker,
         workflow,
-        {
-            "workflow_path": "x.json",
-            "arguments": {},
-            "output_dir": str(tmp_path),
-            "asset_dir": str(tmp_path / "assets"),
-        },
+        snapshot_command(output_dir=str(tmp_path), asset_dir=str(tmp_path / "assets")),
     )
-    assert workflow.asset_dir_at_validate == str(tmp_path / "assets")
+    assert workflow.asset_dir_at_run == str(tmp_path / "assets")
 
 
 def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
@@ -493,3 +465,81 @@ def test_between_run_cleanup_releases_host_caches_without_clearing_pipelines():
     # the whole point: still-warm state for the next run survives this call
     assert "warm-key" in worker.loaded_pipelines
     assert "warm-component" in worker.shared_components
+
+
+def _text_workflow(text):
+    return {
+        "id": "edited",
+        "steps": [
+            {
+                "name": "t",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": [text]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize("change", ["edited", "deleted"])
+def test_an_edited_file_runs_as_admitted(tmp_path, change):
+    """Review Focus 2c/2: the job carries the definition admission checked,
+    and the worker runs that - not whatever the file says by the time the
+    job reaches the front of the queue. Edited, the file is still valid and
+    its run would write different text, so a read of it shows in the
+    output; deleted, any read of it fails the run."""
+    from dw.workflow import workflow_from_file
+
+    root = tmp_path / "workflows"
+    root.mkdir()
+    path = root / "edited.json"
+    path.write_text(json.dumps(_text_workflow("admitted")))
+    output_dir = tmp_path / "outputs"
+    admitted = workflow_from_file(str(path), str(output_dir), str(root))
+    if change == "edited":
+        path.write_text(json.dumps(_text_workflow("edited after admission")))
+    else:
+        os.remove(path)
+
+    worker = _make_worker()
+    worker._handle_execute(
+        {
+            "definition": admitted.workflow_definition,
+            "file_spec": admitted.file_spec,
+            "source": "path",
+            "workflow_dir": str(root),
+            "arguments": {},
+            "output_dir": str(output_dir),
+        }
+    )
+
+    messages = _drain(worker.result_queue)
+    success = next((m for m in messages if m["type"] == "success"), None)
+    assert success is not None, messages
+    [written] = success["manifest"][0]["files"]
+    assert (output_dir / written).read_text() == "admitted"
+    assert worker.workflow_identity == ("path", admitted.file_spec)
+
+
+@pytest.mark.parametrize("command_type", ["memory_status", "clear_memory"])
+def test_a_request_whose_handler_fails_is_answered_with_its_request_id(command_type):
+    """The command loop's error reply echoes the failed request's id, so
+    WorkerManager.request returns it at once - without the echo it would be
+    discarded as someone else's reply and the caller would wait out its
+    timeout (clear_memory's is 30s) instead of failing now."""
+    worker = _make_worker()
+
+    def broken_reading():
+        raise RuntimeError("no reading")
+
+    worker._get_memory_info = broken_reading
+    worker.command_queue.put({"type": command_type, "request_id": "r-7"})
+    worker.command_queue.put({"type": "shutdown"})
+    worker.run()
+
+    [answer] = _drain(worker.result_queue)
+    assert answer["type"] == "error"
+    assert answer["request_id"] == "r-7"
+    assert "no reading" in answer["message"]

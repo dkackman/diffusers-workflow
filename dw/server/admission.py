@@ -5,9 +5,10 @@
 loaded once, checked once - the schema and everything validation_errors
 derives from the expansion, the caller's arguments, the references they
 make - and warned about once, with the workspace's asset library active for
-all of it. JobManager.submit records and queues what was admitted; it does
-not re-check. The worker still validates what it loads, which is a
-different process with a different library activation.
+all of it. JobManager.submit records and queues what was admitted - the
+admitted Workflow's definition and file_spec travel with the job - and it
+does not re-check. The worker builds that snapshot (workflow_from_snapshot)
+and runs it without re-reading the file or validating it again.
 """
 
 import copy

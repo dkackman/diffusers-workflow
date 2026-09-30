@@ -9,8 +9,9 @@ import multiprocessing
 import queue as queue_module
 import logging
 import signal
+import time
 from typing import Optional
-from .worker import worker_main
+from .worker import Cancel, Shutdown, WorkerCrashed, parse_reply, worker_main
 
 logger = logging.getLogger("dw")
 
@@ -57,7 +58,7 @@ class WorkerManager:
             logger.info("Shutting down worker process...")
             try:
                 if self.command_queue:
-                    self.command_queue.put({"type": "shutdown"})
+                    self.command_queue.put(Shutdown().to_wire())
                 self.worker_process.join(timeout=WORKER_SHUTDOWN_TIMEOUT_SECONDS)
 
                 if self.worker_process.is_alive():
@@ -119,9 +120,43 @@ class WorkerManager:
                 if self.worker_process is None or not self.worker_process.is_alive():
                     raise RuntimeError("Worker process died while waiting for results")
 
+    def request(self, command, timeout: float):
+        """Send a request command and return the worker's typed reply to it.
+
+        Reads until the reply carrying the command's request_id arrives. A
+        reply that is not its own - one whose reader gave up before it landed
+        - is discarded and logged at DEBUG, so it can never be taken for this
+        request's answer. `timeout` bounds the whole wait, however many
+        stale replies are read on the way.
+
+        Raises:
+            RuntimeError: If the worker is not active, as get_result does
+            queue.Empty: If no reply of its own arrives within `timeout`
+        """
+        self.send_command(command.to_wire())
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise queue_module.Empty()
+            reply = parse_reply(self.get_result(timeout=remaining))
+            if getattr(reply, "request_id", None) == command.request_id:
+                return reply
+            if isinstance(reply, WorkerCrashed):
+                # A crash answers every waiting request: nobody else will
+                # read it, and the worker is gone
+                self.mark_crashed()
+                raise RuntimeError(f"Worker crashed: {reply.message}")
+            logger.debug(
+                "Discarding a worker reply that does not answer %s %s: %s",
+                command.TYPE,
+                command.request_id,
+                type(reply).__name__,
+            )
+
     def cancel(self):
         """Ask the worker to cancel the workflow it is running."""
-        self.send_command({"type": "cancel"})
+        self.send_command(Cancel().to_wire())
 
     def crash_details(self):
         """Why the worker process is gone, as far as the OS will say.

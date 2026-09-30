@@ -803,7 +803,8 @@ class TestRunning:
         record the manager's process-wide workflow_dir as its confinement
         while base_dir defaulted to the job's own workflow_dir - the worker
         then re-validated base_dir against a workflow_dir it did not match,
-        and a 201 always failed. base_dir and workflow_dir must agree."""
+        and a 201 always failed. The directory the job's file_spec names and
+        workflow_dir must agree."""
         with server() as client:
             client.post("/api/workspaces", json={"name": "shots"})
             response = client.post(
@@ -820,7 +821,9 @@ class TestRunning:
             shots_workflows = os.path.join(workspace_root.root, "shots", "workflows")
             assert command["workflow_dir"] == shots_workflows
             assert (
-                os.path.commonpath([command["base_dir"], shots_workflows])
+                os.path.commonpath(
+                    [os.path.dirname(command["file_spec"]), shots_workflows]
+                )
                 == shots_workflows
             )
 

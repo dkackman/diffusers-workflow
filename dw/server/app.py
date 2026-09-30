@@ -1195,9 +1195,11 @@ def create_app(
                     admission.plan, request.acknowledged_cost, workspace
                 )
             job = manager.submit(
+                # The Workflow admission built and checked - what the job
+                # runs, whatever happens to the file while it waits
+                admitted=admission.workflow,
                 workflow_path=resolved,
                 workflow=request.workflow,
-                workflow_name=admission.workflow.name,
                 arguments=request.arguments,
                 base_dir=request.base_dir,
                 workflow_dir=workflow_dir,
@@ -1361,7 +1363,7 @@ def create_app(
                 warnings=admission.warnings,
                 # The arguments admitted - the fresh seed already drawn
                 arguments=arguments,
-                workflow_name=admission.workflow.name,
+                admitted=admission.workflow,
             )
         except HTTPException:
             raise
@@ -1625,20 +1627,21 @@ def create_app(
 
     def _probe_command_for(candidate, request, workspace, workflow_dir):
         """The execute-shaped command a cache probe of this validate request
-        needs - the same fields _run_job sends, so the worker loads the
-        workflow exactly as a job would."""
+        needs - the same fields _run_job sends, built from the candidate
+        admission checked, so the worker builds the workflow exactly as a
+        job would. Its keys must be ProbeCache's fields (dw/worker.py):
+        JobManager.probe_cache builds ProbeCache(**command), so a key that
+        is not one raises TypeError there and the plan comes back null."""
         command = {
+            "definition": candidate.workflow_definition,
+            "file_spec": candidate.file_spec,
+            "source": "path" if request.workflow_path is not None else "inline",
             "arguments": request.arguments,
             "output_dir": workspace.outputs,
             "workflow_dir": workflow_dir,
         }
         if workspace.assets:
             command["asset_dir"] = workspace.assets
-        if request.workflow_path is not None:
-            command["workflow_path"] = candidate.file_spec
-        else:
-            command["workflow"] = request.workflow
-            command["base_dir"] = os.path.dirname(candidate.file_spec)
         return command
 
     def _validation_plan(candidate, request, workspace, source, catalog_name, sizes):
@@ -2462,8 +2465,8 @@ def create_app(
             if not admission.ok:
                 raise ValueError(admission.message())
             job = manager.submit(
+                admitted=admission.workflow,
                 workflow=definition,
-                workflow_name=admission.workflow.name,
                 arguments={},
                 workflow_dir=ws.workflows,
                 output_dir=ws.outputs,

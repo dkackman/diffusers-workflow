@@ -18,6 +18,24 @@ import logging
 import threading
 
 from ..download_watch import format_progress
+from ..worker import (
+    Cancelled,
+    ClearMemory,
+    Execute,
+    Failed,
+    MemoryCleared,
+    MemoryInfo,
+    MemoryStatus,
+    MemoryStatusReply,
+    Output,
+    ProbeCache,
+    Progress,
+    Succeeded,
+    UnknownReply,
+    WorkerCrashed,
+    WorkflowLoaded,
+    parse_reply,
+)
 from ..worker_manager import WorkerManager
 from ..workflow import SEED_BITS
 from ..security import (
@@ -501,7 +519,7 @@ class Job:
     def __init__(self, spec):
         self.id = uuid.uuid4().hex[:12]
         self.spec = spec
-        self.workflow_name = spec.get("workflow_name", "unknown")
+        self.workflow_name = spec["workflow_name"]
         self.catalog_name = spec.get("catalog_name")
         self.status = QUEUED
         self.created_at = time.time()
@@ -767,6 +785,8 @@ class JobManager:
 
     def submit(
         self,
+        *,
+        admitted,
         workflow_path=None,
         workflow=None,
         arguments=None,
@@ -779,19 +799,22 @@ class JobManager:
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
-        workflow_name=None,
     ):
         """Record a job request and queue it.
 
-        Callers admit first (`dw.server.admission.admit`). submit records
-        and queues; it does not re-check. Raises ValueError only when the
-        request names neither or both of `workflow_path` and `workflow`.
+        Callers admit first (`dw.server.admission.admit`) and pass the
+        admitted Workflow as `admitted`. submit records and queues; it does
+        not re-check. The job carries admission's snapshot - its definition,
+        file_spec and name - and the worker runs that, so a file edited
+        while the job waits runs as it was admitted. Raises ValueError only
+        when the request names neither or both of `workflow_path` and
+        `workflow`.
 
         `workflow_dir` overrides this job's confinement root for a workflow
         that lives outside the writable directory - an example or a builtin,
         which the caller has already resolved against the search path. The
-        worker re-validates against whatever this job records, so the
-        override travels with the job rather than widening the manager.
+        worker confines the job's file_spec to whatever this job records, so
+        the override travels with the job rather than widening the manager.
 
         `output_dir`, `asset_dir` and `workspace` name which workspace this
         job runs in. They travel with the job for the same reason: one
@@ -808,8 +831,9 @@ class JobManager:
         `warnings` are the admission's (`Admission.warnings`) - every warning
         /api/validate reports for this request - recorded on the job.
 
-        `workflow_name` is the admitted workflow's name (`Workflow.name`);
-        without one, an inline definition's `id` and a file's base name.
+        `workflow_path`, `workflow` and `base_dir` are the request as the
+        caller made it, kept for a rerun (which admits afresh) and for
+        `definition()`; the snapshot is not persisted.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -822,29 +846,22 @@ class JobManager:
         os.makedirs(job_output_dir, exist_ok=True)
 
         if workflow_path is not None:
-            spec = {
-                "workflow_path": workflow_path,
-                "workflow_name": workflow_name
-                or os.path.splitext(os.path.basename(workflow_path))[0],
-                "arguments": arguments,
-                "workflow_dir": confinement,
-            }
+            spec = {"workflow_path": workflow_path, "source": "path"}
         else:
+            # Without one, the directory admission resolved relative paths
+            # against - the synthetic file_spec's own - kept so a rerun
+            # admits against the same directory
             spec = {
                 "workflow": workflow,
-                # Must match workflow_from_definition's fallback - the worker
-                # re-validates this against workflow_dir
-                "base_dir": base_dir
-                or (os.path.abspath(confinement) if confinement else os.getcwd()),
-                "workflow_name": workflow_name or workflow.get("id", "unknown"),
-                "arguments": arguments,
-                # Must be the same root the worker re-validates base_dir
-                # against (workflow_from_definition -> validate_path) - this
-                # job's own confinement, not the manager's process-wide
-                # default, or a named workspace's inline job fails after a
-                # 201 the moment base_dir and workflow_dir disagree
-                "workflow_dir": confinement,
+                "base_dir": base_dir or os.path.dirname(admitted.file_spec),
+                "source": "inline",
             }
+        # The snapshot admission checked: what the worker builds and runs
+        spec["definition"] = admitted.workflow_definition
+        spec["file_spec"] = admitted.file_spec
+        spec["workflow_name"] = admitted.name
+        spec["arguments"] = arguments
+        spec["workflow_dir"] = confinement
 
         # Which workspace this job runs in, and the roots that follow from
         # it - recorded on the job so history, the worker command and a
@@ -1012,12 +1029,13 @@ class JobManager:
     def rerun(
         self,
         job_id,
+        *,
+        admitted,
         new_seed=False,
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
         arguments=None,
-        workflow_name=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -1037,8 +1055,8 @@ class JobManager:
         Like submit, rerun does not re-check: callers admit first. The route
         admits the arguments `rerun_spec(job_id, new_seed)` answered and
         passes them back as `arguments`, with the admission's `warnings` and
-        `workflow_name`, so what is queued is what was admitted - the seed
-        is not drawn twice.
+        its Workflow as `admitted`, so what is queued is what was admitted -
+        the seed is not drawn twice.
 
         `acknowledged` and `acknowledged_cost` are this request's own; the
         original's bound object rides along in the spec for the record when
@@ -1051,7 +1069,7 @@ class JobManager:
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
-            workflow_name=workflow_name,
+            admitted=admitted,
             arguments=recorded if arguments is None else arguments,
             base_dir=spec.get("base_dir"),
             workflow_dir=spec.get("workflow_dir"),
@@ -1210,23 +1228,21 @@ class JobManager:
             job.add_event({"event": "job_status", "status": RUNNING})
             try:
                 self.worker_manager.ensure_worker(self.log_level)
-                command = {
-                    "type": "execute",
-                    "arguments": job.spec["arguments"],
+                command = Execute(
+                    # The snapshot admission checked, which the worker runs
+                    # as it is rather than reading the file again
+                    definition=job.spec.get("definition"),
+                    file_spec=job.spec.get("file_spec"),
+                    source=job.spec.get("source"),
+                    workflow_dir=job.spec.get("workflow_dir"),
                     # The job's own roots, so a job queued for one workspace
                     # still runs in it after the manager has served another
-                    "output_dir": job.spec.get("output_dir") or self.output_dir,
-                    "log_level": self.log_level,
-                }
-                if job.spec.get("asset_dir"):
-                    command["asset_dir"] = job.spec["asset_dir"]
-                if "workflow_path" in job.spec:
-                    command["workflow_path"] = job.spec["workflow_path"]
-                else:
-                    command["workflow"] = job.spec["workflow"]
-                    command["base_dir"] = job.spec["base_dir"]
-                command["workflow_dir"] = job.spec.get("workflow_dir")
-                self.worker_manager.send_command(command)
+                    output_dir=job.spec.get("output_dir") or self.output_dir,
+                    arguments=job.spec["arguments"],
+                    log_level=self.log_level,
+                    asset_dir=job.spec.get("asset_dir") or None,
+                )
+                self.worker_manager.send_command(command.to_wire())
                 outcome = self._consume_results(job)
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
@@ -1240,7 +1256,7 @@ class JobManager:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _record_manifest(self, job, message):
+    def _record_manifest(self, job, manifest):
         """What the run wrote, named the way clients address outputs.
 
         Recorded for a failed or cancelled run as well as a successful one -
@@ -1249,7 +1265,7 @@ class JobManager:
         produced nothing" and "this run produced four of five shots"
         (T015)."""
         job.manifest = self._relative_manifest(
-            message.get("manifest", []), job.spec.get("output_dir")
+            manifest if manifest is not None else [], job.spec.get("output_dir")
         )
 
     def _relative_manifest(self, manifest, output_dir=None):
@@ -1311,76 +1327,86 @@ class JobManager:
                 reason = f"Worker process died: {detail or e}"
                 logger.error(f"Job {job.id}: {reason}")
                 return (FAILED, reason, None)
-            message_type = message.get("type")
+            reply = parse_reply(message)
 
-            if message_type == "progress":
-                event = {k: v for k, v in message.items() if k != "type"}
-                if "files" in event:
-                    event["files"] = self._relative_output_names(
-                        event["files"], job.spec.get("output_dir")
-                    )
-                if "manifest" in event:
-                    # workflow_end carries the run's full manifest nested
-                    # under this key - it must match get_job's rendering of
-                    # the same list rather than leaking absolute paths (#284)
-                    event["manifest"] = self._relative_manifest(
-                        event["manifest"], job.spec.get("output_dir")
-                    )
-                if event.get("event") == "run_start":
-                    job.run_id = event.get("run_id")
-                    job.run_dir = event.get("run_dir")
-                    job.run_version = event.get("version")
-                job.add_event(event)
-            elif message_type in ("output", "workflow_loaded"):
-                text = message.get("message") or message.get("workflow_name", "")
-                job.add_event({"event": "log", "message": text})
-            elif message_type == "memory_info":
-                # One per phase boundary now, not just once post-run (#273) -
-                # each folds into the cached reading memory_status() answers
-                # from while the job is busy, which is what makes that call
-                # fresh instead of a refusal for the run's whole duration
-                self._record_memory(message.get("info"))
-                job.add_event({"event": "memory", "info": self.last_memory})
-                # The worker's own high-water mark, latest reading wins (it
-                # is monotonic for the process' life) - persisted as a real
-                # column rather than only inside the trimmed event tail (#243)
-                info = message.get("info") or {}
-                peak = info.get("host_memory_peak_rss_mb")
-                if peak is not None:
-                    job.host_memory_peak_rss_mb = peak
-                # This job's own contribution to that process-lifetime peak,
-                # computed against its own baseline (#272) - max() is
-                # defensive; by construction each reading only grows
-                job_peak = info.get("host_memory_job_peak_rss_mb")
-                if job_peak is not None:
-                    job.host_memory_job_peak_rss_mb = max(
-                        job_peak, job.host_memory_job_peak_rss_mb or 0
-                    )
-            elif message_type == "success":
-                self._record_manifest(job, message)
+            if isinstance(reply, Progress):
+                self._record_progress(job, dict(reply.event))
+            elif isinstance(reply, Output):
+                job.add_event({"event": "log", "message": reply.message or ""})
+            elif isinstance(reply, WorkflowLoaded):
+                job.add_event({"event": "log", "message": reply.workflow_name or ""})
+            elif isinstance(reply, MemoryInfo):
+                self._record_run_memory(job, reply.info)
+            elif isinstance(reply, Succeeded):
+                self._record_manifest(job, reply.manifest)
                 return (SUCCEEDED, None, None)
-            elif message_type == "cancelled":
-                self._record_manifest(job, message)
+            elif isinstance(reply, Cancelled):
+                self._record_manifest(job, reply.manifest)
                 return (CANCELLED, None, None)
-            elif message_type == "error":
+            elif isinstance(reply, Failed) and reply.request_id is None:
                 # A failed run's steps too: the ones before the failure wrote
                 # real files, and a job that reports an empty manifest hides
                 # them behind the error that stopped the run
-                self._record_manifest(job, message)
-                return (
-                    FAILED,
-                    message.get("message"),
-                    message.get("traceback"),
-                )
-            elif message_type == "worker_crashed":
+                self._record_manifest(job, reply.manifest)
+                return (FAILED, reply.message, reply.traceback)
+            elif isinstance(reply, WorkerCrashed):
                 self.worker_manager.mark_crashed()
                 return (
                     FAILED,
-                    f"Worker crashed: {message.get('message')}",
-                    message.get("traceback"),
+                    f"Worker crashed: {reply.message}",
+                    reply.traceback,
                 )
+            elif isinstance(reply, UnknownReply):
+                logger.warning(f"Unknown worker message type: {reply.type}")
             else:
-                logger.warning(f"Unknown worker message type: {message_type}")
+                # A request's reply (memory_status, memory_cleared,
+                # probe_cache, or an error answering one) whose reader gave
+                # up before it landed - nobody is waiting for it now
+                logger.debug(f"Discarding a stray worker reply: {reply.TYPE}")
+
+    def _record_progress(self, job, event):
+        """One run event onto the job, its file names relativised the way
+        clients address outputs."""
+        if "files" in event:
+            event["files"] = self._relative_output_names(
+                event["files"], job.spec.get("output_dir")
+            )
+        if "manifest" in event:
+            # workflow_end carries the run's full manifest nested under this
+            # key - it must match get_job's rendering of the same list rather
+            # than leaking absolute paths (#284)
+            event["manifest"] = self._relative_manifest(
+                event["manifest"], job.spec.get("output_dir")
+            )
+        if event.get("event") == "run_start":
+            job.run_id = event.get("run_id")
+            job.run_dir = event.get("run_dir")
+            job.run_version = event.get("version")
+        job.add_event(event)
+
+    def _record_run_memory(self, job, info):
+        """A memory reading the run reported. One per phase boundary now,
+        not just once post-run (#273) - each folds into the cached reading
+        memory_status() answers from while the job is busy, which is what
+        makes that call fresh instead of a refusal for the run's whole
+        duration."""
+        self._record_memory(info)
+        job.add_event({"event": "memory", "info": self.last_memory})
+        # The worker's own high-water mark, latest reading wins (it is
+        # monotonic for the process' life) - persisted as a real column
+        # rather than only inside the trimmed event tail (#243)
+        info = info or {}
+        peak = info.get("host_memory_peak_rss_mb")
+        if peak is not None:
+            job.host_memory_peak_rss_mb = peak
+        # This job's own contribution to that process-lifetime peak, computed
+        # against its own baseline (#272) - max() is defensive; by
+        # construction each reading only grows
+        job_peak = info.get("host_memory_job_peak_rss_mb")
+        if job_peak is not None:
+            job.host_memory_job_peak_rss_mb = max(
+                job_peak, job.host_memory_job_peak_rss_mb or 0
+            )
 
     def is_busy(self):
         """True while a job is running or queued - the window in which the
@@ -1448,32 +1474,19 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             return None
         # A probe that timed out still answers eventually, onto the same
-        # queue the next probe reads - so each carries an id and a reader
+        # queue the next request reads - so each carries an id and request()
         # discards every reply that is not its own, rather than reporting
         # the previous workflow's hit list as this plan's
-        probe_id = uuid.uuid4().hex
-        deadline = time.monotonic() + timeout
         try:
-            self.worker_manager.send_command(
-                {"type": "probe_cache", "probe_id": probe_id, **command}
+            reply = self.worker_manager.request(
+                ProbeCache(request_id=uuid.uuid4().hex, **command), timeout
             )
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                result = self.worker_manager.get_result(timeout=remaining)
-                if (
-                    result.get("type") == "probe_cache"
-                    and result.get("probe_id") == probe_id
-                ):
-                    break
-                logger.debug(f"Discarding a stale worker message: {result.get('type')}")
         except (RuntimeError, queue.Empty) as e:
             logger.debug(f"Worker did not answer the cache probe: {e}")
             return None
         finally:
             self._worker_lock.release()
-        cached = result.get("cached")
+        cached = getattr(reply, "cached", None)
         return list(cached) if isinstance(cached, list) else None
 
     def memory_status(self, timeout=5):
@@ -1493,8 +1506,9 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             return self._cached_memory("worker_busy")
         try:
-            self.worker_manager.send_command({"type": "memory_status"})
-            result = self.worker_manager.get_result(timeout=timeout)
+            reply = self.worker_manager.request(
+                MemoryStatus(request_id=uuid.uuid4().hex), timeout
+            )
         except (RuntimeError, queue.Empty) as e:
             # A dead worker is exactly when the last reading taken before it
             # died is worth the most, so report that rather than failing the
@@ -1510,8 +1524,8 @@ class JobManager:
             return self._cached_memory("worker_unreachable")
         finally:
             self._worker_lock.release()
-        if result.get("type") == "memory_status":
-            self._record_memory(result.get("info"))
+        if isinstance(reply, MemoryStatusReply):
+            self._record_memory(reply.info)
             return {
                 "live": True,
                 "info": self.last_memory,
@@ -1542,11 +1556,12 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             raise RuntimeError("worker busy")
         try:
-            self.worker_manager.send_command({"type": "clear_memory"})
-            result = self.worker_manager.get_result(timeout=timeout)
+            reply = self.worker_manager.request(
+                ClearMemory(request_id=uuid.uuid4().hex), timeout
+            )
         finally:
             self._worker_lock.release()
-        if result.get("type") != "memory_cleared":
-            raise RuntimeError(f"unexpected worker reply: {result.get('type')}")
-        self._record_memory(result.get("info"))
+        if not isinstance(reply, MemoryCleared):
+            raise RuntimeError(f"unexpected worker reply: {reply.TYPE}")
+        self._record_memory(reply.info)
         return self.last_memory
