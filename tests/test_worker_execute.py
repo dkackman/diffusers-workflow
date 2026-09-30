@@ -521,3 +521,25 @@ def test_an_edited_file_runs_as_admitted(tmp_path, change):
     [written] = success["manifest"][0]["files"]
     assert (output_dir / written).read_text() == "admitted"
     assert worker.workflow_identity == ("path", admitted.file_spec)
+
+
+@pytest.mark.parametrize("command_type", ["memory_status", "clear_memory"])
+def test_a_request_whose_handler_fails_is_answered_with_its_request_id(command_type):
+    """The command loop's error reply echoes the failed request's id, so
+    WorkerManager.request returns it at once - without the echo it would be
+    discarded as someone else's reply and the caller would wait out its
+    timeout (clear_memory's is 30s) instead of failing now."""
+    worker = _make_worker()
+
+    def broken_reading():
+        raise RuntimeError("no reading")
+
+    worker._get_memory_info = broken_reading
+    worker.command_queue.put({"type": command_type, "request_id": "r-7"})
+    worker.command_queue.put({"type": "shutdown"})
+    worker.run()
+
+    [answer] = _drain(worker.result_queue)
+    assert answer["type"] == "error"
+    assert answer["request_id"] == "r-7"
+    assert "no reading" in answer["message"]

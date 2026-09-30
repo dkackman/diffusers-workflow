@@ -84,8 +84,9 @@ def worker_process():
     test, and unconditionally tear the worker down afterward.
 
     Teardown never assumes the test left things in a clean state: it first
-    sends a graceful "shutdown" command (short join), then escalates to
-    terminate() and finally kill() if the process is still alive. This runs
+    sends a graceful "shutdown" command and joins for up to COMMAND_TIMEOUT,
+    then escalates to terminate() and finally kill() if the process is
+    still alive. This runs
     in a `finally` so an assertion failure - or any other exception - can
     never orphan the child.
     """

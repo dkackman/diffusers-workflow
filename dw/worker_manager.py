@@ -143,8 +143,10 @@ class WorkerManager:
             if getattr(reply, "request_id", None) == command.request_id:
                 return reply
             logger.debug(
-                f"Discarding a worker reply that does not answer "
-                f"{command.TYPE} {command.request_id}: {reply.to_wire().get('type')}"
+                "Discarding a worker reply that does not answer %s %s: %s",
+                command.TYPE,
+                command.request_id,
+                type(reply).__name__,
             )
 
     def cancel(self):

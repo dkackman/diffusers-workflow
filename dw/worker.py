@@ -78,15 +78,9 @@ COMMAND_POLL_TIMEOUT_SECONDS = 5
 
 
 # ------------------------------------------------------------------ protocol
-#
-# One frozen dataclass per command and per reply. The queue keeps carrying
-# the dicts it always carried - spawn-pickling a dataclass needs the class
-# importable identically in the child, and a dict needs nothing - so each
-# type has to_wire() (exactly the dict of before) and from_wire(dict).
-# parse_reply is the one place a reply dict becomes a type. Every
-# request/reply command carries a request_id and its reply echoes it, which
-# is how WorkerManager.request tells its own answer from one that arrived
-# after an earlier reader gave up.
+# One frozen dataclass per command and reply; the queue carries their wire
+# dicts (to_wire/from_wire), and parse_reply is where a reply dict becomes a
+# type. A request's reply echoes its request_id (see WorkerManager.request).
 
 
 @dataclass(frozen=True)
