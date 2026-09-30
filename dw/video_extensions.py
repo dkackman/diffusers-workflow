@@ -22,7 +22,6 @@ itself accepts.
 
 from . import references
 from .arguments import (
-    CONSTANT_PREFIX,
     PROMPT_PREFIX,
     is_media_reference,
 )
@@ -47,7 +46,7 @@ def _extension_problem(value):
         return None
     if value.startswith(_UNRESOLVED_PREFIXES):
         return None
-    if value.startswith(CONSTANT_PREFIX) or value.startswith(PROMPT_PREFIX):
+    if value.startswith(references.CONSTANT) or value.startswith(PROMPT_PREFIX):
         return None
     ext = value.rsplit(".", 1)
     if len(ext) != 2 or not ext[1] or "/" in ext[1]:

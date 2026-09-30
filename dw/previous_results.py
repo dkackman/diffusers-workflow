@@ -3,10 +3,9 @@ from itertools import product
 
 from . import references
 from .arguments import (
-    FROM_PREVIOUS_RESULT_KEY,
-    PREVIOUS_RESULT_PREFIX,
     build_objects,
 )
+from .references import FROM_PREVIOUS_RESULT_KEY
 from .for_each import MEMBER_SEPARATOR, render_path
 from .step_cache import reference_resolves_to
 
@@ -37,10 +36,10 @@ def get_iterations(argument_template, previous_results):
     if isinstance(argument_template, list):
         iterations = []
         for entry in argument_template:
-            if isinstance(entry, str) and entry.startswith(PREVIOUS_RESULT_PREFIX):
+            if isinstance(entry, str) and entry.startswith(references.PREVIOUS_RESULT):
                 iterations.extend(
                     get_previous_results(
-                        previous_results, entry[len(PREVIOUS_RESULT_PREFIX) :]
+                        previous_results, entry[len(references.PREVIOUS_RESULT) :]
                     )
                 )
             elif isinstance(entry, dict):
@@ -195,9 +194,9 @@ def resolve_chain_prompts(step_action, previous_results):
 
     resolved = []
     for entry in prompts:
-        if isinstance(entry, str) and entry.startswith(PREVIOUS_RESULT_PREFIX):
+        if isinstance(entry, str) and entry.startswith(references.PREVIOUS_RESULT):
             artifacts = get_previous_results(
-                previous_results, entry.removeprefix(PREVIOUS_RESULT_PREFIX)
+                previous_results, entry.removeprefix(references.PREVIOUS_RESULT)
             )
             if not artifacts:
                 raise ValueError(f"Chain prompt reference '{entry}' produced no result")
@@ -249,8 +248,8 @@ def _collect_refs(value, path, found):
         for index, item in enumerate(value):
             _collect_refs(item, path + (index,), found)
 
-    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
-        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+    elif isinstance(value, str) and value.startswith(references.PREVIOUS_RESULT):
+        found[path] = value[len(references.PREVIOUS_RESULT) :]
 
 
 def substitute_at_path(container, path, value):
@@ -404,5 +403,5 @@ def _collect_reference_paths(value, path, found):
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _collect_reference_paths(item, path + (index,), found)
-    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
-        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+    elif isinstance(value, str) and value.startswith(references.PREVIOUS_RESULT):
+        found[path] = value[len(references.PREVIOUS_RESULT) :]

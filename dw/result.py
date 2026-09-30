@@ -13,6 +13,12 @@ from diffusers.utils import (
     is_av_available,
 )
 from collections.abc import Mapping
+from .content_types import (
+    AUDIO_FORMATS,
+    LOSSY_AUDIO_CONTENT_TYPES,
+    MUXED_VIDEO_CONTENT_TYPE,
+    refuse_active_content_type,
+)
 from .events import emit_log, emit_phase, emit_warning
 from .security import (
     MAX_DECODE_PIXELS,
@@ -400,42 +406,11 @@ def _dedupe_existing_path(path):
         counter += 1
 
 
-# Audio content types soundfile can write, mapped to their file extension and to any
-# write arguments the extension alone does not imply. Opus has no extension of its own
-# in libsndfile - it is a subtype of the ogg container.
-AUDIO_FORMATS = {
-    "audio/wav": (".wav", {}),
-    "audio/x-wav": (".wav", {}),
-    "audio/aiff": (".aiff", {}),
-    "audio/flac": (".flac", {}),
-    "audio/x-flac": (".flac", {}),
-    "audio/mpeg": (".mp3", {}),
-    "audio/mp3": (".mp3", {}),
-    "audio/ogg": (".ogg", {}),
-    "audio/vorbis": (".ogg", {}),
-    "audio/opus": (".ogg", {"format": "OGG", "subtype": "OPUS"}),
-}
-
-# Formats whose write is a lossy re-encode, distinct from a wav/aiff/flac save:
-# soundfile's default integer PCM subtype for those clips an out-of-range sample
-# at write time, so there is no separate "encode" step for the pre-write warning
-# to describe as a future risk (#295) - only these three still fit that framing
-LOSSY_AUDIO_CONTENT_TYPES = {
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/ogg",
-    "audio/vorbis",
-    "audio/opus",
-}
-
 # Result definition keys passed through to soundfile - encoding quality controls
 AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode"]
 
 # Audio is written in chunks of this many frames - see write_audio
 AUDIO_WRITE_CHUNK_FRAMES = 1 << 20
-
-# The only container encode_video writes - it always encodes h264 video
-MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
 # Distinguishes "the artifact has no such attribute" from "it has one holding None" -
 # an AudioVideo whose pipeline reported no sample rate carries exactly that
@@ -761,10 +736,7 @@ class Result:
             )
 
         # The same refusal validation makes, for a definition that reached
-        # the writer without it. Imported here: content_types imports this
-        # module for AUDIO_FORMATS
-        from .content_types import refuse_active_content_type
-
+        # the writer without it
         refuse_active_content_type(content_type)
 
         # Get file extension for content type

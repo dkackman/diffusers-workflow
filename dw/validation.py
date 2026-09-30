@@ -28,12 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import references
-from .arguments import (
-    FROM_ARGUMENTS_KEY,
-    FROM_FILE_KEY,
-    FROM_PREVIOUS_RESULT_KEY,
-    _names_no_media,
-)
+from .arguments import _names_no_media
 from .adapter_compatibility import adapter_errors, adapter_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
@@ -50,7 +45,12 @@ from .media_info import probe_metadata
 from .previous_results import previous_result_reference_errors
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors
-from .references import author_index
+from .references import (
+    FROM_ARGUMENTS_KEY,
+    FROM_FILE_KEY,
+    FROM_PREVIOUS_RESULT_KEY,
+    author_index,
+)
 from .scalar_result_validation import scalar_result_errors
 from .shot_span_preflight import shot_span_warnings
 from .slice_preflight import slice_past_end_warnings

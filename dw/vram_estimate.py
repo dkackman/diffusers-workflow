@@ -47,7 +47,7 @@ is an estimate of an estimate.
 import numbers
 
 from . import references as ref_prefixes
-from .arguments import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
+from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 
 KEY = "vram_estimate"

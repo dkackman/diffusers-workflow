@@ -9,7 +9,7 @@ and the closest writer imageio could guess from an empty one was not a video
 writer at all.
 
 Audio and video each go through exactly one container this engine writes -
-`AUDIO_FORMATS` in `dw/result.py`, and the single `video/mp4` mux - so
+`AUDIO_FORMATS` below, and the single `video/mp4` mux - so
 anything else in either family is refused here rather than accepted only to
 mismatch its writer later. image/*, text/* and *.json values stay
 permissive beyond the MIME-shape check: their writer dispatch is a generic
@@ -26,11 +26,41 @@ planted file never passes through here.
 """
 
 from . import references
-from .for_each import MEMBER_SEPARATOR, render_path
-from .result import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE
+from .references import MEMBER_SEPARATOR, render_path
 from .security import InvalidInputError, validate_content_type
 
 CONTENT_TYPE_KEY = "content_type"
+
+# Audio content types soundfile can write, mapped to their file extension and to any
+# write arguments the extension alone does not imply. Opus has no extension of its own
+# in libsndfile - it is a subtype of the ogg container.
+AUDIO_FORMATS = {
+    "audio/wav": (".wav", {}),
+    "audio/x-wav": (".wav", {}),
+    "audio/aiff": (".aiff", {}),
+    "audio/flac": (".flac", {}),
+    "audio/x-flac": (".flac", {}),
+    "audio/mpeg": (".mp3", {}),
+    "audio/mp3": (".mp3", {}),
+    "audio/ogg": (".ogg", {}),
+    "audio/vorbis": (".ogg", {}),
+    "audio/opus": (".ogg", {"format": "OGG", "subtype": "OPUS"}),
+}
+
+# Formats whose write is a lossy re-encode, distinct from a wav/aiff/flac save:
+# soundfile's default integer PCM subtype for those clips an out-of-range sample
+# at write time, so there is no separate "encode" step for the pre-write warning
+# to describe as a future risk (#295) - only these three still fit that framing
+LOSSY_AUDIO_CONTENT_TYPES = {
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/ogg",
+    "audio/vorbis",
+    "audio/opus",
+}
+
+# The only container encode_video writes - it always encodes h264 video
+MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
 # Reference prefixes substitution resolves before this pass runs. One still
 # spelled out here is one nothing resolved, and that is the undeclared-
