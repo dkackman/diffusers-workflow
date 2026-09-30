@@ -552,3 +552,62 @@ class TestAComposedChildOwnsItsMedia:
         self.run_parent(tmp_path, clip)
 
         assert CountingMedia.copies == 1
+
+
+class Bomb:
+    """An argument value deepcopy refuses."""
+
+    def __deepcopy__(self, memo):
+        raise TypeError("cannot deepcopy a Bomb")
+
+
+def composed_child(variables):
+    definition = {
+        "id": "child",
+        "steps": [
+            {
+                "name": "pick",
+                "task": {
+                    "command": "select",
+                    "arguments": {
+                        "candidates": ["x"],
+                        "scores": [1],
+                        "rule": "index",
+                        "index": 0,
+                    },
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+    if variables is not None:
+        definition["variables"] = variables
+    return definition
+
+
+class TestAComposedChildCopiesWithinItsCleanupAndOnlyWhatItDeclares:
+    def run_child(self, tmp_path, variables, arguments, context=None):
+        wf = Workflow(composed_child(variables), str(tmp_path), None)
+        wf._composed = True
+        return wf.run(arguments, context=context)
+
+    def test_a_failed_copy_unwinds_the_run_context(self, tmp_path):
+        from dw.events import RunContext
+
+        ctx = RunContext()
+
+        with pytest.raises(TypeError, match="Bomb"):
+            self.run_child(tmp_path, {"clips": []}, {"clips": Bomb()}, ctx)
+
+        assert ctx._run_depth == 0
+        assert ctx._watchdog_thread is None
+
+    def test_an_undeclared_argument_is_not_copied_and_is_refused_by_name(
+        self, tmp_path
+    ):
+        with pytest.raises(ValueError, match="Unknown variable 'extra'"):
+            self.run_child(tmp_path, {"clips": []}, {"extra": Bomb()})
+
+    def test_a_child_declaring_no_variables_copies_nothing(self, tmp_path):
+        # Its arguments are ignored, so a value deepcopy refuses is no failure
+        self.run_child(tmp_path, None, {"clips": Bomb()})

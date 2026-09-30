@@ -1186,6 +1186,20 @@ class Workflow:
         finally:
             deactivate_output_root(output_root_token)
 
+    def _owned_arguments(self, arguments):
+        """The composed child's own copy of what its parent handed it
+        (_composed) - only of the names its fold keeps, the ones its
+        `variables` block declares. An undeclared name is left for
+        set_variables to refuse by name, and a child declaring nothing
+        ignores its arguments, so neither is worth a copy that could fail."""
+        declared = self.workflow_definition.get("variables")
+        if not isinstance(declared, dict) or not isinstance(arguments, dict):
+            return arguments
+        return {
+            name: copy.deepcopy(value) if name in declared else value
+            for name, value in arguments.items()
+        }
+
     def run(
         self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
     ):
@@ -1246,10 +1260,9 @@ class Workflow:
         realized_name = None
         annotations = {"prompts": [], "sub_workflows": {}}
         started_at = datetime.now(timezone.utc).isoformat()
-        if self._composed:
-            # The child's own copy of what the parent handed it (_composed)
-            arguments = copy.deepcopy(arguments)
         try:
+            if self._composed:
+                arguments = self._owned_arguments(arguments)
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
             # This allows the workflow to be run multiple times with different arguments
             workflow_def = copy.deepcopy(self.workflow_definition)

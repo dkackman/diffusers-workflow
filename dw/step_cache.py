@@ -308,6 +308,9 @@ def copy_containers(value):
     Only the exact built-in types are containers here: a subclass - an
     OrderedDict, a namedtuple, a torch.Size - is a leaf, since rebuilding it
     as its base type would change what it is.
+    A dict or list subclass is shared as a leaf too, so a caller copying a
+    definition relies on its containers being plain dicts and lists, which
+    parsed JSON is.
     """
     kind = type(value)
     if kind is dict:
