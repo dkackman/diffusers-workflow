@@ -2,6 +2,28 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Gate 2 closed (2026-09-30); Phase 3's plan and hot zone are not written yet.
+# Phase 3, stage 3a (import cycles to zero), docs/stabilization/phase-3.md.
 scripts/arch_metrics.py
 docs/stabilization/
+dw/references.py
+dw/arguments.py
+dw/shots.py
+dw/for_each.py
+dw/variables.py
+dw/vram_estimate.py
+dw/vram_inheritance.py
+dw/content_types.py
+dw/result.py
+dw/media_types.py
+dw/media_frames.py
+dw/tasks/video_utils.py
+dw/tasks/audio_utils.py
+dw/tasks/task.py
+dw/step.py
+dw/introspection.py
+dw/security.py
+dw/workspace.py
+dw/server/netinfo.py
+dw/server/mcp_mount.py
+dw/serve.py
+dw/previous_results.py

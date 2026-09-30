@@ -122,18 +122,19 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Why: the phase's gate is about file size, and splitting a 4,521-line file is adding files. The ratchet exists to stop one-module-per-ticket drift, which a planned split is not.
   - How: each stage's plan lists its new modules. The stage's merge re-baselines `modules` to the count it names, with the list in the commit. A module no stage names is still a regression.
   - Expected: 3a +1 (`dw/media_types.py`); 3b about +14 (routers and services, the jobs split, the MCP tool modules, the worker protocol); 3c 0 (`LibraryPath` generalizes `workflow_sources.py`); 3d about +2 (the media and DSP modules, net of folding `media_audio` / `media_info` in); 3e about +10. That is roughly 131 → 158.
-  - Cost if wrong: the ratchet is looser than it looks until Phase 4 re-sets it. Don accepts or rejects this before 3a starts.
+  - Cost if wrong: the ratchet is looser than it looks until Phase 4 re-sets it. **Accepted by Don, 2026-09-30.**
 - **No compatibility shims.** A moved name is imported from its new home by every caller, tests included.
   - Why: a re-export is a second path to the same name, which is the sprawl this phase removes. It is also dangerous: a `patch("dw.old.name")` against a re-export patches a name nothing looks up, so the test passes without testing anything.
   - Exception: a name the harness or a user entry point reaches by its old path (`dw.server.app.create_app`, patched by `dw.serve` tests at call time) stays where the lookup happens.
   - Cost if wrong: more churn in test imports per task (mechanical; `sed` plus the suite).
-- **Breaking HTTP/MCP changes are confined to 3c,** where the three library listings take one shape. The gate 3 release bumps the minor version (0.6 → 0.7) through `scripts/release.sh`, which also moves `plugin.json`. 3b keeps every route path, method, status and body. Don confirms the version number at 3c.
-- **Teacache: proposed for deletion in 3d.**
+- **Breaking HTTP/MCP changes are confined to 3c,** where the three library listings take one shape. The gate 3 release bumps the minor version (0.6 → 0.7) through `scripts/release.sh`, which also moves `plugin.json`. 3b keeps every route path, method, status and body. **0.7 confirmed by Don, 2026-09-30.**
+- **Teacache: deleted in 3d (Don, 2026-09-30).**
   - The case for:
     - `dw/teacache.py` (381 lines, the 196-line forward factory) is Flux-only.
     - No shipped workflow uses the `teacache` key.
     - diffusers ships `first_block`, `mag` and `taylorseer` cache hooks, which dw already routes, and `docs/ACCELERATION.md` already steers users to them.
-  - What deleting it costs a user: the `rel_l1_thresh` knob and its Flux speed table. It is a breaking change to a documented workflow key, noted in the release notes. **Don decides before 3d.** If kept, 3d cuts the factory under 150 lines instead.
+  - What deleting it costs a user: the `rel_l1_thresh` knob and its Flux speed table. It is a breaking change to a documented workflow key, noted in the release notes.
+  - 3d deletes `dw/teacache.py`, `dw/teacache_models.json`, `tests/test_teacache.py`, the `pipeline.py` branch, the schema's `teacache` property, and the doc sections. A workflow that still sets `teacache` fails schema validation with the schema's own message, which the release note names.
 - **Build-vs-buy exceptions, kept on purpose:**
   - The compressor/limiter/gate and the true-peak look-ahead limiter with its 0.1 LU gain search stay hand-written.
   - `pedalboard`, the one candidate, is GPL-3.0 against this Apache-2.0 project, and it computes differently: tests pin the current numbers to 1e-5.
