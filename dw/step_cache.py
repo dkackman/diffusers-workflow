@@ -294,6 +294,26 @@ def normalized_downstream(steps, name):
     return False
 
 
+def copy_containers(value):
+    """A copy of `value` whose dicts, lists and tuples are its own and whose
+    leaves are shared.
+
+    For a structure that is about to be edited by replacing entries - a
+    key assigned or popped, an item replaced - but never by changing a leaf
+    in place: the edits stay in the copy, while a leaf that is realized
+    media (an image, a frame list's tensor, a loaded type) is the object the
+    original holds rather than a duplicate of it, and a leaf that cannot be
+    deep-copied at all is no reason to fail. A tuple is copied as a tuple.
+    """
+    if isinstance(value, dict):
+        return {key: copy_containers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [copy_containers(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(copy_containers(item) for item in value)
+    return value
+
+
 def deep_equal(a, b):
     """Value equality across the JSON-ish types a resolved step definition holds.
 

@@ -40,7 +40,7 @@ def _trust_workflows_by_default(monkeypatch):
 def _isolate_settings_dir(tmp_path, monkeypatch):
     """Point dw's settings directory at the test's own tmp_path.
 
-    Every run takes a lock under it (dw.runs._run_lock_path), so without
+    Every run takes a lock under it (dw.runs.run_lock_path), so without
     this the suite writes into the real ~/.diffusers_helper - and a test
     would read whatever settings.json the machine running it happens to
     hold. A test about the settings directory itself sets its own.

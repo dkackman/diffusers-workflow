@@ -934,14 +934,14 @@ class TestRunVersions:
         # Not the system temp directory: that is shared between OS users
         # and moves with TMPDIR / PrivateTmp, so a server and a CLI run
         # could lock in two different places
-        from dw.runs import _run_lock_path
+        from dw.runs import run_lock_path
 
         helper = tmp_path / "helper"
         monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(helper))
         run_dir, _version = open_run(
             str(tmp_path / "outputs"), None, "wf", "20260928-120000-aaaaaaaa"
         )
-        lock_path = _run_lock_path(os.path.dirname(run_dir))
+        lock_path = run_lock_path(os.path.dirname(run_dir))
         assert os.path.dirname(lock_path) == str(helper / "run-locks")
         assert os.path.isdir(helper / "run-locks")
 

@@ -577,7 +577,7 @@ def record_run_versions(identity_dir, exclude=None):
 _RUN_LOCK_DIR_NAME = "run-locks"
 
 
-def _run_lock_path(identity_dir):
+def run_lock_path(identity_dir):
     """Where the lock for one workflow identity's runs lives, outside the
     output tree entirely - see open_run for why.
 
@@ -642,7 +642,7 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     """
     identity = workflow_identity(file_spec, workflow_id)
     identity_dir = os.path.join(output_dir, identity)
-    with FileLock(_run_lock_path(identity_dir)):
+    with FileLock(run_lock_path(identity_dir)):
         os.makedirs(identity_dir, exist_ok=True)
         candidate = os.path.join(identity_dir, run_id)
         counter = 1

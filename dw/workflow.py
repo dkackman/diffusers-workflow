@@ -56,6 +56,7 @@ from .step_cache import (
     borrowed_pipeline_keys,
     pipeline_cache_key,
     step_pipeline_keys,
+    copy_containers,
 )
 from .runs import (
     FLAT_LAYOUT,
@@ -981,7 +982,7 @@ class Workflow:
         variables = self._fold(
             workflow_def, arguments, fold_arguments=True, constrain=apply_constraints
         )
-        recorded_variables = copy.deepcopy(variables)
+        recorded_variables = copy_containers(variables)
         if variables is not None:
             # The definition carries the folded values rather than the
             # loaded ones: realize_args below loads assets into `variables`,

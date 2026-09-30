@@ -370,3 +370,77 @@ def test_the_realized_record_carries_the_snapped_value():
     source = workflow_with({"num_frames": H3}, {"num_frames": 124})
     realized, _ = realize_workflow(source, folded(source, {"num_frames": 130}), 1)
     assert realized["variables"]["num_frames"] == 141
+
+
+class Undeepcopyable:
+    """A stand-in for realized media - an image, a frame list's tensor - that
+    a record must share rather than duplicate: copying it deeply raises."""
+
+    def __deepcopy__(self, memo):
+        raise AssertionError("a variable's leaf was deep-copied")
+
+
+def media_definition():
+    """A child-shaped workflow: a variable that a composing parent fills with
+    media it has already realized, and a step that reads it."""
+    source = definition()
+    source["variables"]["image"] = None
+    source["variables"]["frames"] = []
+    source["steps"][0]["pipeline"]["arguments"]["reference"] = "variable:image"
+    return source
+
+
+class TestRecordedVariablesShareTheirLeaves:
+    def test_realize_workflow_records_the_object_itself(self):
+        media = Undeepcopyable()
+        variables = {"prompt": "a cat", "steps": 4, "image": media, "frames": [media]}
+
+        realized, _ = realize_workflow(media_definition(), variables, 7)
+
+        assert realized["variables"]["image"] is media
+        assert realized["variables"]["frames"][0] is media
+        # The containers are the record's own
+        assert realized["variables"] is not variables
+        assert realized["variables"]["frames"] is not variables["frames"]
+
+    def test_prepare_definition_records_the_object_itself(self, tmp_path):
+        media = Undeepcopyable()
+        frames = [media, (media, media)]
+        wf = Workflow(media_definition(), str(tmp_path), None)
+
+        prepared, _, recorded = wf._prepare_definition(
+            copy.deepcopy(wf.workflow_definition),
+            {"image": media, "frames": frames},
+            str(tmp_path),
+        )
+
+        assert recorded["image"] is media
+        assert recorded["frames"][0] is media
+        assert recorded["frames"][1][0] is media
+        assert isinstance(recorded["frames"][1], tuple)
+        assert recorded["frames"] is not frames
+        assert prepared["steps"][0]["pipeline"]["arguments"]["reference"] is media
+
+    def test_a_composed_child_s_record_realizes_without_copying_media(self, tmp_path):
+        """What a parent hands a child: arguments carrying media it realized,
+        folded by the child's preparation and then recorded."""
+        media = Undeepcopyable()
+        wf = Workflow(media_definition(), str(tmp_path), None)
+
+        _, _, recorded = wf._prepare_definition(
+            copy.deepcopy(wf.workflow_definition),
+            {"image": media, "frames": [media]},
+            str(tmp_path),
+        )
+        realized, _ = realize_workflow(wf.workflow_definition, recorded, 7)
+
+        assert realized["variables"]["image"] is media
+        assert realized["variables"]["frames"][0] is media
+
+    def test_cache_hits_prepares_without_copying_media(self, tmp_path):
+        media = Undeepcopyable()
+        source = media_definition()
+        source["seed"] = 3
+        wf = Workflow(source, str(tmp_path), None)
+
+        assert wf.cache_hits({"image": media, "frames": [media]}) == []

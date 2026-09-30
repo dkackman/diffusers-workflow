@@ -103,7 +103,7 @@ from ..runs import (
     MANIFEST_FILE_NAME,
     OUTPUT_PREFIX,
     REALIZED_FILE_NAME,
-    _run_lock_path,
+    run_lock_path,
     is_output_reference,
     is_run_id,
     kept_provenance,
@@ -3557,7 +3557,7 @@ def create_app(
         the two would fail that run on a path that no longer exists.
         """
         identity_dir = os.path.dirname(run_dir)
-        with FileLock(_run_lock_path(identity_dir)):
+        with FileLock(run_lock_path(identity_dir)):
             parent = identity_dir
             while os.path.normpath(parent) != os.path.normpath(root):
                 try:

@@ -19,7 +19,6 @@ run: a reference that will not resolve is left exactly as written, so the
 engine raises its own error at the point it would have raised anyway.
 """
 
-import copy
 import hashlib
 import logging
 import os
@@ -35,6 +34,7 @@ from .runs import (
     version_selector,
 )
 from .security import SecurityError, validate_workflow_path
+from .step_cache import copy_containers
 from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
@@ -83,13 +83,13 @@ def realize_workflow(
         for the manifest to carry, since the schema has nowhere to put them.
     """
     annotations = {"prompts": [], "sub_workflows": {}}
-    realized = copy.deepcopy(definition)
+    realized = copy_containers(definition)
 
     if isinstance(realized.get("variables"), dict) and isinstance(variables, dict):
         # Exactly what the run computed - folded by the same stage that
         # prepared the run, so the record left beside the run's manifest
         # matches what it used
-        realized["variables"] = copy.deepcopy(variables)
+        realized["variables"] = copy_containers(variables)
     variables = realized.get("variables")
 
     realized["seed"] = seed

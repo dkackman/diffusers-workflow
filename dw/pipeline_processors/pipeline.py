@@ -28,7 +28,7 @@ from diffusers import attention_backend
 
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from .. import download_watch
-from ..step_cache import component_names
+from ..step_cache import component_names, copy_containers
 from huggingface_hub.errors import HfHubHTTPError
 
 logger = logging.getLogger("dw")
@@ -110,17 +110,8 @@ def _loading_copy(pipeline_definition):
         if key == "arguments":
             copied[key] = dict(value) if isinstance(value, dict) else value
         else:
-            copied[key] = _copy_containers(value)
+            copied[key] = copy_containers(value)
     return copied
-
-
-def _copy_containers(value):
-    """Copy every dict and list in a value, sharing everything else."""
-    if isinstance(value, dict):
-        return {key: _copy_containers(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_copy_containers(item) for item in value]
-    return value
 
 
 class Pipeline:
