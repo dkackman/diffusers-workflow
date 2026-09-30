@@ -36,6 +36,7 @@ an entry point that is about to write calls ensure() once it knows it needs to.
 import os
 import time
 from pathlib import Path
+from .security import validate_workspace_name
 
 # Set by an entry point that resolved a workspace, so a spawned worker
 # subprocess inherits the same answer - multiprocessing's 'spawn' start method
@@ -462,7 +463,6 @@ def named_workspace(workspace, name):
     resolves to '<root>/<name>', sharing the root's prompt library. The name
     is validated before it is joined, so nothing here can leave the root.
     """
-    from .security import validate_workspace_name
 
     if name is None or name == DEFAULT_WORKSPACE_NAME:
         return workspace
@@ -483,7 +483,6 @@ def create_workspace(workspace, name):
         InvalidInputError: If the name is not one a workspace can take
         FileExistsError: If a workspace of that name is already there
     """
-    from .security import validate_workspace_name
 
     name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
     if name in workspace_names(workspace):

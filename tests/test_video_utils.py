@@ -927,7 +927,7 @@ class TestFitAudioToFrames:
             ((1, 48100), 1),
         ],
     )
-    def test_every_layout_is_trimmed_on_its_ownsample_axis(self, shape, axis):
+    def test_every_layout_is_trimmed_on_its_own_sample_axis(self, shape, axis):
         for audio in (numpy.zeros(shape, numpy.float32), torch.zeros(shape)):
             assert self.fit(audio).shape[axis] == self.EXPECTED
 
@@ -941,7 +941,7 @@ class TestFitAudioToFrames:
             ((1, 47900), 1),
         ],
     )
-    def test_every_layout_is_padded_on_its_ownsample_axis(self, shape, axis):
+    def test_every_layout_is_padded_on_its_own_sample_axis(self, shape, axis):
         for audio in (numpy.zeros(shape, numpy.float32), torch.zeros(shape)):
             fitted = self.fit(audio)
             assert fitted.shape[axis] == self.EXPECTED

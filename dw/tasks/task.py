@@ -3,6 +3,7 @@ from typing import Callable, Dict
 
 from .. import resolve_device
 from ..events import emit_log
+from ..media_types import AudioVideo
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -466,7 +467,6 @@ def _per_frame(image, process):
     one frame at a time and comes back as one video artifact, its soundtrack
     carried through untouched. A single image is processed as itself.
     """
-    from ..media_types import AudioVideo
     from ..shots import carried_shots
     from .video_utils import frames_as_pil_list, is_video
 

@@ -27,6 +27,7 @@ from diffusers import attention_backend
 # imported where they are used - at module scope they add seconds to every startup
 
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
+from ..media_types import AudioVideo
 from .. import download_watch
 from ..step_cache import component_names, copy_containers
 from huggingface_hub.errors import HfHubHTTPError
@@ -2009,8 +2010,6 @@ def _diagnose_image_crf_error(error, arguments):
         return None
     if "image_crf" not in str(error) or "re-compression requires" not in str(error):
         return None
-
-    from ..media_types import AudioVideo
 
     offending = [
         name for name, value in arguments.items() if isinstance(value, AudioVideo)
