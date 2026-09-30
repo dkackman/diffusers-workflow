@@ -854,3 +854,27 @@ def test_every_template_keeps_its_pipeline_keys(template, tmp_path):
     workflow = Workflow(json.loads(path.read_text()), str(tmp_path), str(path))
     keys = step_pipeline_keys(workflow.expanded_definition()["steps"])
     assert keys == TEMPLATE_PIPELINE_KEYS[template]
+
+
+def test_copy_containers_copies_exact_containers_and_shares_leaves():
+    from collections import OrderedDict, namedtuple
+
+    from dw.step_cache import copy_containers
+
+    Pair = namedtuple("Pair", "a b")
+    leaf = object()
+    ordered = OrderedDict(x=[1])
+    pair = Pair([1], [2])
+    value = {"list": [leaf, (leaf, [leaf])], "ordered": ordered, "pair": pair}
+
+    copied = copy_containers(value)
+
+    assert copied == value
+    assert copied is not value
+    assert copied["list"] is not value["list"]
+    assert type(copied["list"][1]) is tuple
+    assert copied["list"][1][1] is not value["list"][1][1]
+    assert copied["list"][0] is leaf and copied["list"][1][1][0] is leaf
+    # A subclass keeps its type by being shared, never rebuilt as its base
+    assert copied["ordered"] is ordered
+    assert copied["pair"] is pair

@@ -422,8 +422,10 @@ class TestRecordedVariablesShareTheirLeaves:
         assert prepared["steps"][0]["pipeline"]["arguments"]["reference"] is media
 
     def test_a_composed_child_s_record_realizes_without_copying_media(self, tmp_path):
-        """What a parent hands a child: arguments carrying media it realized,
-        folded by the child's preparation and then recorded."""
+        """What a composed child prepares from: arguments carrying media -
+        already the child's own copy, taken once where the parent hands them
+        over (TestAComposedChildOwnsItsMedia) - folded and then recorded
+        with no further copy, so the record holds that same object."""
         media = Undeepcopyable()
         wf = Workflow(media_definition(), str(tmp_path), None)
 
@@ -444,3 +446,109 @@ class TestRecordedVariablesShareTheirLeaves:
         wf = Workflow(source, str(tmp_path), None)
 
         assert wf.cache_hits({"image": media, "frames": [media]}) == []
+
+
+class CountingMedia:
+    """A realized video handed down to a composed child: an AudioVideo that
+    counts how often it is deep-copied."""
+
+    copies = 0
+
+    def __new__(cls):
+        from PIL import Image
+
+        from dw.result import AudioVideo
+
+        class Counted(AudioVideo):
+            def __deepcopy__(self, memo):
+                CountingMedia.copies += 1
+                return Counted(
+                    [frame.copy() for frame in self.frames],
+                    self.audio,
+                    self.sample_rate,
+                    fps=self.fps,
+                )
+
+        frames = [Image.new("RGB", (16, 16), (i * 40, 0, 0)) for i in range(4)]
+        return Counted(frames, None, None, fps=24)
+
+
+class TestAComposedChildOwnsItsMedia:
+    """A parent's realized media passed into a child through the workflow
+    step's arguments is the child's own copy: a child step that writes onto
+    its artifact in place - `select` hands its candidate back by identity, and
+    a declared `result.fps` is stamped onto that artifact (conform_artifact)
+    - restamps the child's copy, never the parent's object."""
+
+    def run_parent(self, tmp_path, clip):
+        child = {
+            "id": "child",
+            "variables": {"clips": []},
+            "steps": [
+                {
+                    "name": "pick",
+                    "task": {
+                        "command": "select",
+                        "arguments": {
+                            "candidates": "variable:clips",
+                            "scores": [1],
+                            "rule": "index",
+                            "index": 0,
+                        },
+                    },
+                    "result": {"content_type": "video/mp4", "fps": 12},
+                }
+            ],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "variables": {"clip": None},
+            "steps": [
+                # The parent's own step result, as a generating step would
+                # leave it: the clip itself, by identity
+                {
+                    "name": "shot",
+                    "task": {
+                        "command": "select",
+                        "arguments": {
+                            "candidates": ["variable:clip"],
+                            "scores": [1],
+                            "rule": "index",
+                            "index": 0,
+                        },
+                    },
+                },
+                {
+                    "name": "compose",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"clips": ["previous_result:shot"]},
+                    },
+                    "result": {"content_type": "video/mp4"},
+                },
+            ],
+        }
+        parent_file = tmp_path / "parent.json"
+        parent_file.write_text(json.dumps(parent))
+        from dw.workflow import workflow_from_file
+
+        outputs = tmp_path / "outputs"
+        outputs.mkdir()
+        wf = workflow_from_file(str(parent_file), str(outputs), str(tmp_path))
+        wf.run({"clip": clip})
+
+    def test_the_parent_s_object_is_not_restamped(self, tmp_path):
+        clip = CountingMedia()
+
+        self.run_parent(tmp_path, clip)
+
+        assert clip.fps == 24
+
+    def test_the_child_copies_what_it_is_handed_once(self, tmp_path):
+        clip = CountingMedia()
+        CountingMedia.copies = 0
+
+        self.run_parent(tmp_path, clip)
+
+        assert CountingMedia.copies == 1

@@ -113,10 +113,13 @@ def replace_variables(data, variables):
         return result
 
     # Scalars (and anything else) pass through unchanged and shared. Every dict
-    # and list above is rebuilt, which is all the no-mutation promise needs:
-    # nothing edits a leaf in place, and a leaf here can be realized media - a
-    # variables block a composing parent filled - that copying would duplicate
-    # (or fail on). A substituted value is shared the same way, as it always was.
+    # and list above is rebuilt, which is all the no-mutation promise needs,
+    # and a leaf here can be realized media that copying would duplicate (or
+    # fail on). A substituted value is shared the same way, as it always was.
+    # Where a leaf can be edited in place - conform_artifact stamps fps and
+    # fitted audio onto an artifact - isolation is the composed-child
+    # boundary's job: a child copies what its parent hands it once, on entry
+    # (Workflow._composed), so sharing past that point edits only its own copy
     return data
 
 

@@ -370,6 +370,15 @@ class Workflow:
     # (#92). A child whose parent declares nothing still saves, since
     # otherwise the output would exist nowhere
     _final_save_owned_by_parent = False
+    # Whether this workflow was composed by a parent's `workflow` step, whose
+    # arguments hand down the parent's own objects - a previous_result:
+    # artifact, a realized image. The child takes one copy of them on entry
+    # (run, below), so a child step that writes onto its artifact in place -
+    # conform_artifact stamping a declared fps onto what `select` handed back
+    # by identity - edits the child's copy and never the parent's result.
+    # Past that boundary nothing copies a leaf: variables are resolved,
+    # substituted and recorded sharing it
+    _composed = False
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -1237,6 +1246,9 @@ class Workflow:
         realized_name = None
         annotations = {"prompts": [], "sub_workflows": {}}
         started_at = datetime.now(timezone.utc).isoformat()
+        if self._composed:
+            # The child's own copy of what the parent handed it (_composed)
+            arguments = copy.deepcopy(arguments)
         try:
             # CRITICAL: Work on a copy to avoid mutating the original workflow definition
             # This allows the workflow to be run multiple times with different arguments
@@ -2186,6 +2198,9 @@ class Workflow:
             # step of the child can ever hit - the child must not pay the
             # cache's deepcopy and Result pinning for it
             workflow._cache_enabled_by_parent = self._cache_enabled_this_run
+            # The parent's objects arrive as this child's arguments; the child
+            # copies them once on entry rather than editing the parent's
+            workflow._composed = True
             # One execution, one directory: the child writes into the
             # parent's run directory and leaves no manifest of its own - its
             # steps roll up into the parent's manifest already

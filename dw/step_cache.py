@@ -304,12 +304,17 @@ def copy_containers(value):
     media (an image, a frame list's tensor, a loaded type) is the object the
     original holds rather than a duplicate of it, and a leaf that cannot be
     deep-copied at all is no reason to fail. A tuple is copied as a tuple.
+
+    Only the exact built-in types are containers here: a subclass - an
+    OrderedDict, a namedtuple, a torch.Size - is a leaf, since rebuilding it
+    as its base type would change what it is.
     """
-    if isinstance(value, dict):
+    kind = type(value)
+    if kind is dict:
         return {key: copy_containers(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if kind is list:
         return [copy_containers(item) for item in value]
-    if isinstance(value, tuple):
+    if kind is tuple:
         return tuple(copy_containers(item) for item in value)
     return value
 
