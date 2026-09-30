@@ -2,24 +2,6 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 2d: the step cache and pipeline identity
-dw/step_cache.py
-dw/workflow.py
-dw/elision.py
-dw/pipeline_processors/pipeline.py
-dw/runs.py
-dw/realize.py
-dw/server/app.py
-tests/test_step_cache.py
-tests/test_workflow_step_cache.py
-tests/test_pipeline_caching.py
-tests/test_pipeline_components.py
-tests/test_for_each.py
-tests/test_workflow.py
-tests/test_events.py
-tests/test_runs.py
-tests/test_server.py
-tests/test_realize.py
-tests/conftest.py
+# Gate 2 closed (2026-09-30); Phase 3's plan and hot zone are not written yet.
 scripts/arch_metrics.py
 docs/stabilization/

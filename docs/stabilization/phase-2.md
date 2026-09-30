@@ -32,69 +32,7 @@ The smaller items carried from gate 1 go to the stage whose files they touch:
 
 ## Release notes collected (for gate 2)
 
-- **2a:** reference prefixes are spelled in backticks instead of quotes in nine MCP tool descriptions and in `compose_text`'s `parts` description (served by `GET /api/tasks/compose_text` and MCP `get_task`). The wording is unchanged.
-- **2a:** `modules` 132 → 133 (`dw/references.py`, accepted by Don 2026-09-28).
-- **2a follow-ups:**
-  - `dw/workflow.py:747` could use `author_index`.
-  - Prefix tests are spelled three ways.
-  - Four import styles for `references`.
-  - Prefixes inside f-strings, which the metric does not count.
-- **2b, validation (B10):**
-  - A crashing error check becomes one finding with a null path, naming the check and the exception type only: `check '<name>' failed (<ExcType>) - the server log has the detail`. The verdict is `valid: false`, and every other check still reports.
-    - `/api/validate` already answered 200 `valid: false` on a crash; before, one crash replaced the whole verdict with a single generic line.
-    - The 400 detail on `POST /api/jobs` and rerun, `Workflow.validate()`, `python -m dw.validate`, the `PUT /api/workflows/{name}` 400 and the worker's re-validate message all carry that sentence instead of the raw exception text.
-  - When validation itself fails outright (context build, gates, argument checks), the submit and rerun 400 detail is `validation failed (<ExcType>) - the server log has the detail`.
-  - A crashing warning source becomes one `internal: warning check '<name>' failed (<ExcType>) - the server log has the detail` warning and never refuses. The save route (`PUT /api/workflows/{name}`) can now return one where it used to drop the failure.
-  - A crashing check inside a sub-workflow is reported at `steps[N].workflow.path`.
-  - A 400 detail for any null-path error no longer starts with `None: `.
-  - B10 is partly closed: `submit_job` still maps every exception to 400 (Phase 3, with the app.py routers).
-- **2b, the four rules written twice (one home each in `dw/task_domains.py`):**
-  - The run's frame-size error names every mismatched video by its real index. Before, it stopped at the first mismatch and always called the reference "video 0".
-  - Validate's slice past-end warning uses the run's sample arithmetic, including #557's end rounding, so a verdict at the 10 ms threshold can change; its "X s requested" figure is computed in samples.
-  - Validate's slice check honours a literal numeric `sample_rate` as a relabel, like the run (#180). A string `sample_rate` is ignored, and validation uses the file's own rate.
-  - Validate refuses a literal `null` `threshold` or `index` on `select`, which the run already refused.
-- **2b, media probing (B9):** validation reads header values and counts demuxed packets instead of decoding whole files, once per file per request. A `{"location": ...}` media entry is now probed like a plain path: a `dissolve_videos` input too short for its overlap is refused, and the slice past-end and shot-span warnings are raised, where before these entries were silently skipped.
-- **2b, internal:** `dw.result_fps`, `dw.null_media` and `dw.select_validation` are deleted; their functions are in `dw.validation`. `unseeded_cache_warnings` moved to `dw.validation` (`dw.plan` re-exports it). `MEMBER_SEPARATOR` and `render_path` moved to `dw.references` (`dw.for_each` re-exports them). `tasks.select._THRESHOLD_RULES` is renamed `_THRESHOLD_TESTS`.
-- **2b, metrics:** `modules` 133 → 131, `functions_over_150_lines` 17 → 16, `modules_in_import_cycles` 26 → 25.
-- **2b follow-ups:** `/api/validate` logs a gate failure twice (`admit()` and `app.py`); temp-dir leaks in the dissolve and shot-span test helpers; the frame-size prefix sentence is still written by both callers; the dissolve run raises only the first shortfall; the slice region arithmetic is still in both `slice_audio` and `slice_preflight`.
-- **2c, the worker runs what admission checked:**
-  - A job carries the definition admission checked and runs it, even if its file is edited or deleted while the job waits. An edit reaches only jobs submitted after it; a rerun admits the file afresh, as before.
-  - This covers the workflow's own definition only. Sub-workflow files and the assets, outputs and prompts a workflow references are still read when the step that needs them runs.
-  - The worker no longer re-checks a job when it starts, so its re-validate failure message is gone. An asset, output, prompt or sub-workflow file that changes or disappears while a job waits now fails at the step that reads it, not at job start.
-  - `probe_cache` (the plan's `cached_steps`) answers on the admitted definition.
-- **2c, worker protocol (internal):**
-  - The messages are typed (`dw/worker.py`); the queue still carries dicts of the old shapes.
-  - `probe_id` became `request_id`. `memory_status`, `clear_memory` and `probe_cache` commands carry one, and their replies, including an `error` reply to one of them, echo it. `execute` and `probe_cache` carry `definition`, `file_spec` and `source` instead of `workflow_path` / `workflow` / `base_dir`.
-  - A reply that answers no waiting request is discarded at DEBUG instead of logged as an unknown type, and a late error reply from a timed-out request no longer fails the next job.
-  - A worker crash answers a waiting memory request at once, instead of after its timeout.
-  - `ping`, `pong` and `shutdown_complete` are removed.
-- **2c, `dw.run`:** `python -m dw.run` prints every event of a job whose tail ran past one page, and prints the history `note` once.
-- **2c follow-ups:** `JobManager.definition()` still re-reads a path job's file (Phase 3); `dw/worker.py` is 12 lines under the 1000-line limit until Phase 3 moves the message types out; the snapshot parity test is close to tautological; `workflow_from_snapshot` passes `file_spec` through unnormalized when `workflow_dir` is None (server jobs always set it).
-- **2d, borrow chains are part of pipeline identity (bug fix):**
-  - A pipeline that reuses another step's components is identified by every pipeline definition in its reuse closure. The closure includes intermediate steps that pass a component on.
-  - A step that `pipeline_reference`s such a pipeline is identified the same way.
-  - A change anywhere up the chain now reloads the reusing pipeline and misses the step cache below it. Before, a stale resident pipeline, still holding the old shared component, was reused, and a stale cached result was republished.
-  - Identical pass-through steps (for example `for_each` members that reuse and re-share one component) still share one pipeline. Two steps with the same own definition that borrow from different sources are now two pipelines.
-  - One-time cost after the deploy: the reusing step misses and reloads once in `base-and-refiner` (`main`), `ltx2/generative-upscale` (`upscaled`), `ltx2/refine-clip` (`refine`) and `ltx2/two-stage` (`upscale`).
-  - An elided step's `release_pipeline` carries to its predecessor only when their effective keys match.
-- **2d, loading never edits the workflow's definition:**
-  - `Pipeline` keeps its own container copy of the definition.
-  - Embedded image metadata no longer carries a `"generator": "<torch._C.Generator …>"` string. Its `workflow` block keeps `loras` and `ip_adapter`, which a load used to pop, so "open as workflow" from the gallery works for adapter steps.
-- **2d, media copies:**
-  - Variables are resolved, substituted, recorded and realized without deep-copying media leaves.
-  - A composed child copies only the arguments it declares, once, on entry, so an in-place write inside the child (`conform_artifact` restamping `fps`) never reaches the parent's result.
-  - Python API only: an object a top-level caller passes to `Workflow.run` is the object the steps use, so an in-place write to it is visible to the caller. Server, MCP and CLI callers pass JSON and are unaffected.
-- **2d, Python import surface:**
-  - `dw.runs._run_lock_path` is renamed `run_lock_path`.
-  - `pipeline_cache_key` and `step_pipeline_keys` moved from `dw.workflow` to `dw.step_cache`, and `component_names` from `dw.pipeline_processors.pipeline`. None is re-exported.
-  - `step_pipeline_keys` returns effective keys.
-  - A step missing from its run's key table raises an internal error rather than re-hashing.
-- **2d, metrics:** `import_cycles` 6 → 5, `modules_in_import_cycles` 25 → 19.
-- **2d follow-ups:**
-  - The three scanners of `previous_result:` shapes.
-  - `for_each._copy_leaf` and the step-cache snapshot still copy media leaves.
-  - A child handed media through a substituted variable stores it in its `argument_template`, which is copied again by validation.
-  - The elision carry assumes dict pipelines.
+Moved into ROADMAP.md, Gate 2, at the gate (2026-09-30).
 
 ## Global Constraints (all stages)
 
