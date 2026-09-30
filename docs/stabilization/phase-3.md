@@ -65,7 +65,7 @@ The four surveys behind the stages (server, engine, media/DSP, libraries) are co
 | Stage | Scope | Done when |
 | --- | --- | --- |
 | 3a | **Import cycles to zero.** Reference keys into `references`; audio format tables into `content_types`; the step value types (`AudioVideo`, `AudioTrack`) and the three helpers `result.py` borrows from `tasks` into one leaf module; the frame-grid helpers into `media_frames`; the four 2-module cycles each cut at their one edge. | `import_cycles` and `modules_in_import_cycles` are 0 and ratcheted there; `result.py` imports nothing from `dw.tasks` but `tasks.select` |
-| 3b | **Server into routers and services, surface unchanged.** `create_app` becomes an app factory plus one `APIRouter` module per resource (jobs, workflows, prompts, gallery, assets, workspaces, models/system, memory/health, static). The closure helpers become module functions over `request.app.state`. `jobs.py` splits into history / job / manager. `serve.main` is cut up. `dw_mcp/server.py`'s tools move beside their handler modules, with docstrings byte-identical (the surface token budget test). The worker's message types move out of `worker.py`, and `_handle_execute` is cut up. B10's rest: `submit_job` answers 400 only for an admission refusal. | No module in `dw/server`, `dw_mcp`, `dw/serve.py` or `dw/worker.py` over 1,000 lines and no function there over 150; the route table (method, path, order, middleware order) is identical |
+| 3b | **Server into routers and services, surface unchanged.** `create_app` becomes an app factory plus one `APIRouter` module per resource (jobs, workflows, prompts, gallery, assets, workspaces, models/system, memory/health, static). The closure helpers become module functions over `request.app.state`. `jobs.py` splits into history / job / manager. `serve.main` is cut up. `dw_mcp/server.py`'s tools move beside their handler modules, with docstrings byte-identical (the surface token budget test). The worker's message types move out of `worker.py`, and `_handle_execute` is cut up. B10's rest: `submit_job` answers 400 only for an admission refusal. | No module in `dw/server`, `dw_mcp`, `dw/serve.py` or `dw/worker.py` over 1,000 lines and no function there over 150; the surface snapshot is unchanged: the same set of (method, path), the same order within each greedy `{name:path}` family, the same middleware order, the same OpenAPI document and the same MCP tool list |
 | 3c | **One `LibraryPath` and one library surface (breaking).** `WorkflowSource` generalizes into the one ordered, origin-tagged search path for workflows, prompts and assets. That covers: writable root first, shadowing, write-target selection, the read-only refusal, and serialization into the worker's environment with origins. It replaces the asset order written four times, the prompt order written twice, and the three origin mechanisms (survey D1-D11). The workflows, prompts and assets listings take one shape, and the UI, MCP and `dw.run` change in the same stage. Version bump. | Each library's search order is computed in one place, and the API and the worker read the same serialized path; the three listings share one field set |
 | 3d | **One media I/O module and one DSP module.** One `av.open` decode/probe layer (the audio-to-float decode is written 5 times, the header-rate probe 7). A pure numpy/scipy `dsp` module out of `audio_utils.py`, with the task commands left as thin wrappers. `concat_videos` and `dissolve_videos` share one join. The long task functions are cut. Build-vs-buy deletions: the biquad's pure-Python fallback and its test, five `dbfs` copies, the second true-peak oversampler, `file_fps`. The teacache decision (below) lands here. | `av.open` appears only in the media module; `audio_utils.py` and the task modules under 1,000 lines and their functions under 150 |
 | 3e | **Engine splits.** `result.py` keeps `Result` (writers, audio QC and output extraction move out). `pipeline.py` keeps `Pipeline` (placement, components, adapters, progress reporting move out). `Workflow.run` and `create_step_action` are cut into named phases, and the pipeline-ownership dicts become one object. `Workflow`'s validation block joins validation. `arguments.py` loses its media half. `introspection.py` loses type-reference checks and inert-argument warnings. `security.py` splits, with CodeQL re-modelled. The carried follow-ups that live in these files. | The Phase 3 gate criteria hold everywhere |
@@ -483,14 +483,19 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
 
 - **Proof of an unchanged surface is a snapshot diff, not a new test.**
   - Task 1 commits `scripts/surface_snapshot.py`. It writes a JSON file with:
-    - every route in `app.router.routes` order (path, methods, name, endpoint `query_token_ok` flag);
+    - the *set* of routes, sorted by (path, method), each with its name and endpoint `query_token_ok` flag. Cross-resource order is not preserved, and doesn't need to be: routes are grouped by resource, and a method mismatch makes Starlette keep looking (`Match.PARTIAL`). `_matched_route` accepts only `Match.FULL`, plus HEAD on a GET route, so it is method-aware too;
+    - for each greedy family (routes of one method where one path is a `{name:path}` prefix of another: workflows, prompts, gallery, assets), the order of its members in `app.router.routes`, which must not change;
+    - the tail entries in order: the `/mcp` route pair, then the SPA mount last. The snapshot is built with `mcp=True` and a real `ui_dir`, so the factory rewrite cannot drop or misorder them;
     - the middleware stack in order;
     - the full OpenAPI document from `create_app(...)` over a temp workspace;
     - the MCP tool list in registration order (name, description, input schema, annotations), from `build_server` over a stub client.
   - Every later 3b task snapshots at its base and at its head, and the diff must be empty. The only exception is an OpenAPI `operationId` or title that derives from a module path, which the task names.
   - 3c reuses the script: its diff *is* 3c's list of breaking changes.
   - The script lives in `scripts/`, which the module ratchet does not count.
-- **Module layout (3b adds 19 modules; the Phase 3 estimate said about 14).** `modules` goes 132 → 151.
+- **Module layout (3b adds 19 modules; the Phase 3 estimate said about 14).** `modules` goes 132 → 151, which puts the phase at about 163 rather than 158. Don is told when 3b starts, before its hot zone goes live, together with the zone's scope: all of `dw/server/` and `dw_mcp/`.
+- **`ROUTERS` order:** `jobs`, `system`, `library`, `media`, `gallery`, `assets`, `files`.
+  - `media` goes before `gallery`, so the `…/thumbnail` and `…/download` GETs keep sitting before `DELETE /api/gallery/{name:path}`, as they do today.
+  - The snapshot's family orders prove the rest.
 
   | New module | Holds |
   | --- | --- |
@@ -513,7 +518,7 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
 
   - Admission's request models (`AcknowledgedCost`, `JobRequest`) and `_admit` / the acknowledgement helpers join the existing `dw/server/admission.py`.
   - Each other request model moves to module level in its router, with the same class name, so the OpenAPI schema names are unchanged.
-  - The overrun is the price of "no module over 1,000 lines" with one router per resource. Folding `gallery` and `media` together would sit near 1,000 lines. Don is told at the 3b report, and the plan's estimate line is corrected then.
+  - The overrun is the price of "no module over 1,000 lines" with one router per resource. Folding `gallery` and `media` together would sit near 1,000 lines.
 - **Handlers read state from `request.app.state`, not a closure.**
   - `create_app` becomes a factory under 150 lines. It:
     - builds `JobManager` and the MCP app;
@@ -530,15 +535,18 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
   - The tools become `class CatalogTools: def __init__(self, client)` and friends, one tool per method, each with its docstring byte-identical.
   - `build_server` registers bound methods in today's order, through the same `_anticipated` wrapper and annotation constants.
   - Why methods and not nested functions: a nested function counts toward its enclosing function's length, so any registration function holding 19 docstring-heavy tools is over 150 lines again.
+  - `run_workflow` and `wait_for_job` interpolate `MAX_WAIT_SECONDS` into their docstrings at registration. A bound method's `__doc__` is read-only, so format it on the class attribute, at class-body time or before binding. Never wrap the method in a new function: that changes the signature the SDK reads.
   - The MCP content builders for image, audio and frames move into `tools_media.py`.
   - The handler modules (`catalog.py`, `media.py`, …) stay SDK-free.
   - Verification: the snapshot's tool list diff is empty, and the token budget test passes unchanged.
-- **B10's rest (the one behavior change in 3b; release note).**
-  - `submit_job` and `rerun_job` answer 400 only for a refusal the client caused: `dw.security.SecurityError` and its subclasses, `ValueError`, and the admission refusal types admission already raises.
-  - Anything else is logged with its traceback and answered 500 with `"internal error - the server log has the detail"`.
-  - The implementer lists every exception type the existing 400 tests exercise, and that list is the 400 set. A 400 test that starts answering 500 is a finding, not a test to edit.
+- **B10's rest (the one behavior change in 3b; release note). The split is by phase, not by exception type.**
+  - In `submit_job` and `rerun_job`, anything raised while resolving and admitting the request is a refusal: 400, as today. That covers resolving the workflow reference, `_admit(...)` and the acknowledgement check. 2b already turned a crashing check into a finding inside admission, so a crash there is not an admission error.
+  - Anything raised after admission succeeded (`manager.submit`, `catalog_name_for`, `describe`) is logged with its traceback and answered 500 with `"internal error - the server log has the detail"`.
+  - Two `try` blocks, no list of types. The review question for any call is whether it comes before or after admission.
+  - The other `except Exception` → 400 sites in `app.py` (about 15) are out of 3b's scope on purpose. B10 names job submission; the library routes follow the same rule in 3c, and the rest in 3e.
 - **The carried 2c items:**
   - `JobManager.definition()` answers a live job from `job.spec["definition"]` (the admitted snapshot). Only a restored job, which has no snapshot, reads the file.
+  - Its answer must equal today's. While the file exists, `definition()` must equal `json.load` of the file, because `rerun` and `get_job_workflow` consume it. If admission normalizes anything into the snapshot, the implementer reports what, and `definition()` answers the file's form.
   - `workflow_from_snapshot` normalizes `file_spec` (`os.path.abspath`) when `workflow_dir` is None, the way it does when it is set.
   - The snapshot parity test compares the snapshot-built `Workflow` against a *second, independent* `workflow_from_file` read of the same path, instead of against the instance it was built from.
 - **`/api/validate` logs a gate failure once.** `admit()` logs it, and the route stops logging it again.
@@ -551,8 +559,11 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
 3. **Two apps, one process.** Tests build many apps. Anything that was per-closure must now be per-`app.state`, never module-global:
    - `ceiling_indexes`, `downloads` and `updater` especially;
    - the two detail caches were already module-global and stay so.
-   - A committed test builds two apps with different `examples_dirs` in one process and gets each app's own workflow listing.
-4. **Query-token routes.** The five `@query_token_ok` GETs still accept `?token=`; every other `/api/` route still refuses it. The existing tests cover this; the reviewer confirms they run against the router-built app.
+   - A committed test builds two apps with different `examples_dirs` in one process and gets each app's own workflow listing. It passes today, because closure state is already per app, so it is a characterization test (Global Constraints).
+4. **Query-token routes.** The five `@query_token_ok` GETs still accept `?token=`; every other `/api/` route still refuses it. Existing tests cover this and run against the router-built app:
+   - `tests/test_security_auth.py:172-187` (download accepted, DELETE refused);
+   - `tests/test_server.py:4637` (thumbnail);
+   - `tests/test_server.py:1420` (events).
 5. **B10.**
    - A request that makes admission raise `SecurityError` answers 400.
    - A request that makes `JobManager.submit` raise `RuntimeError` answers 500, and the log carries the traceback.
@@ -561,7 +572,7 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
 ### Task 1: The surface snapshot
 
 **Files:** Create `scripts/surface_snapshot.py`.
-- It builds `create_app(...)` over a temporary workspace (no worker started: pass a stub manager the way `tests/test_server.py` does, or `JobManager` with a fake worker factory; follow the existing test helpers) and `build_server(<stub client>)`.
+- It builds `create_app(..., mcp=True, ui_dir=<a temp dir holding an index.html>)` over a temporary workspace, and `build_server(<stub client>)`. No worker is started: pass `job_manager=JobManager(..., worker_manager=<a stub>)`, the way `tests/test_server.py:243-246` injects `ScriptedWorkerManager`; the script cannot import tests, so it defines its own minimal stub.
 - It writes the JSON described in Decisions, with sorted keys.
 - `venv/bin/python scripts/surface_snapshot.py OUT.json` writes the file.
 - Commit: `chore(scripts): surface_snapshot - route table, middleware, OpenAPI and MCP tools as one JSON`.
@@ -596,7 +607,8 @@ This task moves the 66 routes into `dw/server/routes/*` in their original order,
 - `workflow_from_snapshot` normalization, and the independent-read parity test.
 - The B10 mapping, with its two tests (Review Focus 5).
 - `/api/validate` logs once. Write a test with `caplog`: one record for one gate failure. It fails before the fix.
-- Snapshot diff empty except where B10 changed a response. That change is a behavior change, so it doesn't appear in the snapshot, which records the surface, not responses.
+- Snapshot diff empty. B10 changes a response, not the surface, so the snapshot does not show it.
+- Also test that `definition()` equals the file while the file exists (Decisions).
 
 ### Task 5: `dw/worker_protocol.py` and `_handle_execute`
 
