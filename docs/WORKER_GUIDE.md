@@ -17,7 +17,7 @@ and MPS compatibility. This is configured automatically.
 
 - **First run of a workflow**: Worker starts and loads the model
 - **Subsequent runs**: Worker reuses cached models
-- **Workflow file edited**: Worker detects the change (SHA256 hash) and reloads
+- **Workflow file edited**: A job runs the definition the server checked when it was submitted, so an edit reaches only jobs submitted after it. Pipelines are cached by what they load, so only a pipeline whose definition changed reloads
 - **A different workflow queued**: The worker switches in place - it frees the old workflow's models before loading the new one
 - **`POST /api/memory/clear`**: Frees GPU memory, models reload on next run
 - **Server shutdown**: Worker shuts down gracefully

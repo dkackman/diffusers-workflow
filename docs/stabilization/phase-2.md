@@ -57,6 +57,19 @@ The smaller items carried from gate 1 go to the stage whose files they touch:
 - **2b, internal:** `dw.result_fps`, `dw.null_media` and `dw.select_validation` are deleted; their functions are in `dw.validation`. `unseeded_cache_warnings` moved to `dw.validation` (`dw.plan` re-exports it). `MEMBER_SEPARATOR` and `render_path` moved to `dw.references` (`dw.for_each` re-exports them). `tasks.select._THRESHOLD_RULES` is renamed `_THRESHOLD_TESTS`.
 - **2b, metrics:** `modules` 133 → 131, `functions_over_150_lines` 17 → 16, `modules_in_import_cycles` 26 → 25.
 - **2b follow-ups:** `/api/validate` logs a gate failure twice (`admit()` and `app.py`); temp-dir leaks in the dissolve and shot-span test helpers; the frame-size prefix sentence is still written by both callers; the dissolve run raises only the first shortfall; the slice region arithmetic is still in both `slice_audio` and `slice_preflight`.
+- **2c, the worker runs what admission checked:**
+  - A job carries the definition admission checked and runs it, even if its file is edited or deleted while the job waits. An edit reaches only jobs submitted after it; a rerun admits the file afresh, as before.
+  - This covers the workflow's own definition only. Sub-workflow files and the assets, outputs and prompts a workflow references are still read when the step that needs them runs.
+  - The worker no longer re-checks a job when it starts, so its re-validate failure message is gone. An asset, output, prompt or sub-workflow file that changes or disappears while a job waits now fails at the step that reads it, not at job start.
+  - `probe_cache` (the plan's `cached_steps`) answers on the admitted definition.
+- **2c, worker protocol (internal):**
+  - The messages are typed (`dw/worker.py`); the queue still carries dicts of the old shapes.
+  - `probe_id` became `request_id`. `memory_status`, `clear_memory` and `probe_cache` commands carry one, and their replies, including an `error` reply to one of them, echo it. `execute` and `probe_cache` carry `definition`, `file_spec` and `source` instead of `workflow_path` / `workflow` / `base_dir`.
+  - A reply that answers no waiting request is discarded at DEBUG instead of logged as an unknown type, and a late error reply from a timed-out request no longer fails the next job.
+  - A worker crash answers a waiting memory request at once, instead of after its timeout.
+  - `ping`, `pong` and `shutdown_complete` are removed.
+- **2c, `dw.run`:** `python -m dw.run` prints every event of a job whose tail ran past one page, and prints the history `note` once.
+- **2c follow-ups:** `JobManager.definition()` still re-reads a path job's file (Phase 3); `dw/worker.py` is 12 lines under the 1000-line limit until Phase 3 moves the message types out; the snapshot parity test is close to tautological; `workflow_from_snapshot` passes `file_spec` through unnormalized when `workflow_dir` is None (server jobs always set it).
 
 ## Global Constraints (all stages)
 
