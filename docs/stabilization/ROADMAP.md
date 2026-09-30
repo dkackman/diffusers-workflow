@@ -13,7 +13,7 @@ phase works on is what the earlier phases leave behind.
 | 0 | Freeze, baseline metrics, fix B1-B8 | B1-B5, B7, B8 fixed with regression tests; B6 documented as a design limit; deployed to lem; `baseline.json` committed | [phase-0.md](phase-0.md) | done 2026-09-28 (`stabilization-gate-0`) |
 | 1 | Metrics v2 first (see below); remove the REPL; one prepare pipeline; one admission service; `dw.run` becomes a thin client of `dw.serve` | Validation sees the definition the run sees; the server admits a request once (one `Workflow`, one expansion); every entry point reaches the worker through the server; ratchets re-baselined | [phase-1.md](phase-1.md) | done 2026-09-28 (`stabilization-gate-1`) |
 | 2 | Seams in place: `references.py`, validation context + check registry, shared task rules, step cache, typed worker protocol | `validation_errors` is a registry loop; no prefix literals outside `references.py` | [phase-2.md](phase-2.md) (staged: 2a-2d) | done 2026-09-30 (`stabilization-gate-2`) |
-| 3 | Structural moves: `app.py` routers + services, `LibraryPath`, split `result.py` / `pipeline.py`, one media + dsp module | No module over 1,000 lines, no function over 150; suite and lem smoke green | written at gate 2 | - |
+| 3 | Structural moves: `app.py` routers + services, `LibraryPath`, split `result.py` / `pipeline.py`, one media + dsp module | No module over 1,000 lines, no function over 150; suite and lem smoke green | [phase-3.md](phase-3.md) (staged: 3a-3e) | 3a planned |
 | 4 | Context diet (CLAUDE.md <= 250 lines total) and guardrails installed | Guardrails live in dw CI and the harness; freeze lifted | written at gate 3 | - |
 
 ## Metrics
