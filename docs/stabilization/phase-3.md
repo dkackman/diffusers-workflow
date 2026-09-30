@@ -421,3 +421,222 @@ dw/previous_results.py
 ```
 
 `previous_results.py` is listed because deleting the `PREVIOUS_RESULT_PREFIX` alias edits 12 lines there. Other files 3a touches only for an import line or two: `workflow.py`, `validation.py`, `video_extensions.py`, `app.py`. They are not listed, so the harness keeps them. A conflicting harness edit to one of them is a small merge conflict.
+
+---
+
+## Stage 3b: server into routers and services, surface unchanged
+
+Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca92aa4` or later.
+
+**What exists (survey [phase-3-surveys/server.md](phase-3-surveys/server.md), re-checked 2026-09-30 at `6ca92aa4`; line numbers there are 7 higher than now in `app.py`).**
+
+- **`create_app`** (`dw/server/app.py`, 4,514 lines) holds:
+  - 66 routes, 4 `@app.middleware("http")` functions, a manual `/mcp` route pair and the SPA mount;
+  - 9 pydantic request models;
+  - about 40 closure helpers.
+- **Handlers close over little real state:**
+  - `manager`, `downloads` and `updater`;
+  - `token`, `host`, `port`, `wildcard_bind` and `allowed_hosts`;
+  - `examples_dirs`, `ceiling_indexes` and the `mcp_*` trio.
+  - Everything else is already on `app.state`, and tests read 15 of those `app.state` names.
+- **Helpers shared across groups:**
+  - `selected_workspace`, a `Depends` used by about 35 routes;
+  - `_sources_for`;
+  - `_admit`, which reaches the prompt roots and asset roots;
+  - the output/asset resolution cluster, `_strip_output_prefix` … `_absolute_served_url`, used by gallery, media, assets, files and export.
+- **Module-level code in `app.py` (about 740 lines):**
+  - the catalog listing: `workflow_details`, `attach_observed`, `collect_prompt_references`, `catalog_name_for`, `resolve_*_workflow`, `prompt_details`, `_prune_missing` and the two detail caches;
+  - the security helpers: `query_token_ok`, `_matched_route`, `ACTIVE_DOCUMENT_TYPES`;
+  - the request models `AcknowledgedCost` / `JobRequest`.
+- **Registration order matters:**
+  - A greedy `{name:path}` GET must come after its `/download`, `/variables` and `/metadata`-style siblings.
+  - The `/mcp` routes go before the SPA mount, and the SPA mount goes last.
+  - Middleware order is the stack order.
+  - `_matched_route` walks `request.app.router.routes` for `endpoint.query_token_ok`, which `include_router` preserves.
+- **Tests reach `app.py` by module object, not by string:**
+  - `app_module.build_plan` (5, in `tests/test_server.py`);
+  - `app_module.video_shape` (2);
+  - `"dw.server.app.local_addresses"` (1);
+  - `app_module._prune_missing` (1);
+  - `app_module.create_app` (3 files, patched as what `dw.serve.main` imports lazily).
+  - 17 test files import `create_app`, and 3 import catalog helpers.
+- **`jobs.py`** (1,567 lines) is `JobHistory` (97-513), `Job` (516-744) and `JobManager` (747-1567). `JobManager.definition()` (898) re-reads a path job's file. `submit_job` and `rerun_job` map every exception to 400 (`app.py:1221`, `1363`; B10's rest).
+- **`dw/worker.py`** is 988 lines: the 2c message dataclasses plus the worker loop. `_handle_execute` (436) is 164 lines.
+- **`dw/serve.py` `main`** is 258 lines. It runs in this order:
+  - argparse;
+  - workspace and directory derivation, and the env pins;
+  - the `--mcp` token check;
+  - trust;
+  - the prompt dir;
+  - the example libraries;
+  - the uvicorn check;
+  - `create_app`, which it imports lazily and on purpose: tests patch `dw.server.app.create_app`;
+  - `uvicorn.run`.
+- **`dw_mcp/server.py` `build_server`** is 1,279 lines.
+  - It has 59 nested tool functions, registered by an inner `tool(fn, annotations)` helper, in 8 groups.
+  - 657 of those lines are docstrings, and the docstrings are the agent-facing descriptions. `tests/test_mcp_server.py::test_the_tool_surface_fits_the_budget` counts their tokens.
+  - `get_output_frames`, `get_output_image` and `get_output_audio` build MCP content in `server.py`.
+  - The `mcp` SDK is an optional extra (`pyproject.toml`, `mcp = [...]`). `dw.run` imports `dw_mcp.client` without it, so only the modules that register tools may import the SDK.
+  - `import dw_mcp.server` must stay torch-free (`tests/test_mcp_server.py`).
+
+### Decisions (3b)
+
+- **Proof of an unchanged surface is a snapshot diff, not a new test.**
+  - Task 1 commits `scripts/surface_snapshot.py`. It writes a JSON file with:
+    - every route in `app.router.routes` order (path, methods, name, endpoint `query_token_ok` flag);
+    - the middleware stack in order;
+    - the full OpenAPI document from `create_app(...)` over a temp workspace;
+    - the MCP tool list in registration order (name, description, input schema, annotations), from `build_server` over a stub client.
+  - Every later 3b task snapshots at its base and at its head, and the diff must be empty. The only exception is an OpenAPI `operationId` or title that derives from a module path, which the task names.
+  - 3c reuses the script: its diff *is* 3c's list of breaking changes.
+  - The script lives in `scripts/`, which the module ratchet does not count.
+- **Module layout (3b adds 19 modules; the Phase 3 estimate said about 14).** `modules` goes 132 → 151.
+
+  | New module | Holds |
+  | --- | --- |
+  | `dw/server/routes/__init__.py` | `ROUTERS`: the routers in registration order |
+  | `routes/jobs.py` | `/api/jobs*` and `/api/validate` (the validation plan helpers with it) |
+  | `routes/library.py` | `/api/workflows*`, `/api/prompts*`, `/api/prompt-schema`, `/api/enhancers`, `/api/enhance`, `/api/workspaces*` (3c reworks exactly these) |
+  | `routes/gallery.py` | `GET /api/gallery`, `POST /api/gallery/archive`, `DELETE /api/gallery/{name}` and their helpers |
+  | `routes/media.py` | `/api/gallery/{name}/metadata\|assess\|audio\|frames\|thumbnail\|download` (`gallery_frames` cut under 150) |
+  | `routes/assets.py` | `/api/uploads`, `/api/assets*` |
+  | `routes/system.py` | pipelines, tasks, classes, schema, guides, models/downloads, diffusers, memory, health, server |
+  | `routes/files.py` | `/outputs/{name}`, `/inputs/{name}`, `/exports/{job}.zip` |
+  | `dw/server/deps.py` | FastAPI dependencies and per-request lookups: `selected_workspace`, `workspace_for`, `sources_for`, `ceiling_index` |
+  | `dw/server/outputs.py` | output/asset resolution: strip prefix, output file, asset file, asset roots, served URLs, zip download |
+  | `dw/server/catalog.py` | the module-level catalog listing now in `app.py`, and its two caches |
+  | `dw/server/http_security.py` | the four middlewares as one `install_middleware(app, ...)`, plus `query_token_ok`, `_matched_route`, `ACTIVE_DOCUMENT_TYPES` |
+  | `dw/server/job_history.py` | `JobHistory` |
+  | `dw/server/job_record.py` | `Job` and the state/ack constants it uses |
+  | `dw/worker_protocol.py` | the message dataclasses, `to_wire`/`from_wire`, `parse_reply` (the 2c ruling's own follow-up) |
+  | `dw_mcp/tools_catalog.py`, `tools_media.py`, `tools_authoring.py`, `tools_jobs.py` | the 59 tools, grouped as the survey lists them |
+
+  - Admission's request models (`AcknowledgedCost`, `JobRequest`) and `_admit` / the acknowledgement helpers join the existing `dw/server/admission.py`.
+  - Each other request model moves to module level in its router, with the same class name, so the OpenAPI schema names are unchanged.
+  - The overrun is the price of "no module over 1,000 lines" with one router per resource. Folding `gallery` and `media` together would sit near 1,000 lines. Don is told at the 3b report, and the plan's estimate line is corrected then.
+- **Handlers read state from `request.app.state`, not a closure.**
+  - `create_app` becomes a factory under 150 lines. It:
+    - builds `JobManager` and the MCP app;
+    - stores the closure-only values on `app.state` under new names (`downloads`, `updater`, `api_token`, `bind_host`, `bind_port`, `wildcard_bind`, `allowed_hosts`, `examples_dirs`, `ceiling_indexes`);
+    - installs the middleware;
+    - includes `ROUTERS` in order;
+    - adds the `/mcp` routes and mounts the UI.
+  - The 15 `app.state` names tests read today keep their names. The dead `app.state.workflow_sources` (survey D10) is deleted.
+- **No shims (Phase 3 Decisions):**
+  - The patches retarget to where the name is now looked up: `build_plan` → `routes.jobs`, `video_shape` → `routes.media`, `local_addresses` → `routes.system`, and `_prune_missing` → `catalog`.
+  - The test imports of `collect_prompt_references`, `attach_observed`, `workflow_details`, `JobHistory`, `Job` and the job constants move to the new homes.
+  - `create_app` stays in `dw/server/app.py`, so `app_module.create_app` and `dw.serve`'s lazy import keep working.
+- **`dw_mcp` tools become methods, one class per group, holding `client`.**
+  - The tools become `class CatalogTools: def __init__(self, client)` and friends, one tool per method, each with its docstring byte-identical.
+  - `build_server` registers bound methods in today's order, through the same `_anticipated` wrapper and annotation constants.
+  - Why methods and not nested functions: a nested function counts toward its enclosing function's length, so any registration function holding 19 docstring-heavy tools is over 150 lines again.
+  - The MCP content builders for image, audio and frames move into `tools_media.py`.
+  - The handler modules (`catalog.py`, `media.py`, …) stay SDK-free.
+  - Verification: the snapshot's tool list diff is empty, and the token budget test passes unchanged.
+- **B10's rest (the one behavior change in 3b; release note).**
+  - `submit_job` and `rerun_job` answer 400 only for a refusal the client caused: `dw.security.SecurityError` and its subclasses, `ValueError`, and the admission refusal types admission already raises.
+  - Anything else is logged with its traceback and answered 500 with `"internal error - the server log has the detail"`.
+  - The implementer lists every exception type the existing 400 tests exercise, and that list is the 400 set. A 400 test that starts answering 500 is a finding, not a test to edit.
+- **The carried 2c items:**
+  - `JobManager.definition()` answers a live job from `job.spec["definition"]` (the admitted snapshot). Only a restored job, which has no snapshot, reads the file.
+  - `workflow_from_snapshot` normalizes `file_spec` (`os.path.abspath`) when `workflow_dir` is None, the way it does when it is set.
+  - The snapshot parity test compares the snapshot-built `Workflow` against a *second, independent* `workflow_from_file` read of the same path, instead of against the instance it was built from.
+- **`/api/validate` logs a gate failure once.** `admit()` logs it, and the route stops logging it again.
+- **`serve.main` is cut into** `build_parser()`, `configure_environment(args) -> ServeConfig` (a small dataclass of the derived dirs, token and layout), `check_bind_safety(args, token)` and `run(config)`. The order of the env pins, and the lazy `create_app` import, are unchanged.
+
+### Review Focus (3b)
+
+1. **Surface parity.** The route table, middleware order, OpenAPI document and MCP tool list are identical, by the snapshot diff attached to each task's report. A reviewer re-runs the script once at head for the task that moved the most routes.
+2. **A patch that tests nothing.** No `monkeypatch.setattr(app_module, ...)` remains for a name that moved out of `app.py`, and no import of a moved name from its old module (`git grep` in each task's report).
+3. **Two apps, one process.** Tests build many apps. Anything that was per-closure must now be per-`app.state`, never module-global:
+   - `ceiling_indexes`, `downloads` and `updater` especially;
+   - the two detail caches were already module-global and stay so.
+   - A committed test builds two apps with different `examples_dirs` in one process and gets each app's own workflow listing.
+4. **Query-token routes.** The five `@query_token_ok` GETs still accept `?token=`; every other `/api/` route still refuses it. The existing tests cover this; the reviewer confirms they run against the router-built app.
+5. **B10.**
+   - A request that makes admission raise `SecurityError` answers 400.
+   - A request that makes `JobManager.submit` raise `RuntimeError` answers 500, and the log carries the traceback.
+   - These are two committed tests, both failing before the fix. The 500 test is the one that fails.
+
+### Task 1: The surface snapshot
+
+**Files:** Create `scripts/surface_snapshot.py`.
+- It builds `create_app(...)` over a temporary workspace (no worker started: pass a stub manager the way `tests/test_server.py` does, or `JobManager` with a fake worker factory; follow the existing test helpers) and `build_server(<stub client>)`.
+- It writes the JSON described in Decisions, with sorted keys.
+- `venv/bin/python scripts/surface_snapshot.py OUT.json` writes the file.
+- Commit: `chore(scripts): surface_snapshot - route table, middleware, OpenAPI and MCP tools as one JSON`.
+- Verify: two runs at the same commit are byte-identical.
+
+### Task 2: `app.py`'s module-level code to its owners
+
+- The catalog listing and its caches go to `dw/server/catalog.py`.
+- `query_token_ok`, `_matched_route` and `ACTIVE_DOCUMENT_TYPES`, plus the four middlewares as `install_middleware(app)`, go to `dw/server/http_security.py`. The middlewares read the bind/token values from `app.state`.
+- `AcknowledgedCost`, `JobRequest`, `_acknowledgement_form`, `_bound_plan_for`, `_check_bound_acknowledgement` and `_admit` go to `dw/server/admission.py`. They take the workspace and `request.app.state` explicitly.
+- The closure-only values go onto `app.state` (Decisions).
+- Retarget the `_prune_missing` patch and the catalog imports in tests.
+- Snapshot diff empty. Commit.
+
+### Task 3: `deps.py`, `outputs.py`, and the routers
+
+This task moves the 66 routes into `dw/server/routes/*` in their original order, in two commits:
+- the routers that need no output resolution: `system`, `library`, `jobs`;
+- then `outputs.py` and the `gallery`, `media`, `assets` and `files` routers, with `gallery_frames` cut under 150 lines (its frame-selection, tile-encoding and response-building sections).
+
+`create_app` becomes the factory.
+- Retarget `build_plan`, `video_shape` and `local_addresses`.
+- Add the two-apps test (Review Focus 3).
+- Snapshot diff empty after each commit.
+- `app.py` under 400 lines; no function in `dw/server` over 150.
+
+### Task 4: `jobs.py` split, the snapshot follow-ups, and B10
+
+- `JobHistory` goes to `job_history.py`. `Job` and the state/ack constants it uses go to `job_record.py`.
+- `jobs.py` keeps `JobManager` and imports the rest.
+- `definition()` answers a live job from its snapshot. Write a failing test first: delete the file after submit, then `definition()`, and the snapshot comes back.
+- `workflow_from_snapshot` normalization, and the independent-read parity test.
+- The B10 mapping, with its two tests (Review Focus 5).
+- `/api/validate` logs once. Write a test with `caplog`: one record for one gate failure. It fails before the fix.
+- Snapshot diff empty except where B10 changed a response. That change is a behavior change, so it doesn't appear in the snapshot, which records the surface, not responses.
+
+### Task 5: `dw/worker_protocol.py` and `_handle_execute`
+
+- Move the message dataclasses, `to_wire`/`from_wire` and `parse_reply` from `worker.py` to `dw/worker_protocol.py`.
+- `worker.py`, `worker_manager.py` and `jobs.py` import from there.
+- Cut `_handle_execute` into named phases under 150 lines each: activate, build from snapshot, run, reply. Replies and their order are unchanged, and the existing worker tests prove it.
+- `worker.py` must be under 900 lines afterwards.
+
+### Task 6: `serve.main`
+
+Cut `serve.main` as Decisions says. `tests/test_serve_main.py` and the two security tests that patch `create_app` pass unchanged.
+
+### Task 7: `dw_mcp` tools out of `build_server`
+
+- Move the 59 tools into the four `tools_*.py` modules as methods, as Decisions says.
+- `build_server` under 150 lines, and `dw_mcp/server.py` under 400.
+- Snapshot tool-list diff empty, the budget test unchanged, and the torch-free import test passes.
+
+### Task 8: Stage 3b merge
+
+- **Re-baseline.** `modules` 132 → 151, with the 19 modules named in the commit. Also re-baseline whatever went down. Any other rise is a finding.
+- **Docs:**
+  - `dw/server/CLAUDE.md` names the routers and services;
+  - `dw_mcp/CLAUDE.md` names the tool modules and the byte-identical docstring rule;
+  - CLAUDE.md's Server paragraph.
+  - The claude_md_lines ratchet holds: replace text, don't add it.
+- **Release notes:** B10's 500. The snapshot diff shows nothing else.
+- **Hot zone** back to the standing entries. Merge `--no-ff` to develop, push, no deploy.
+- **Next stage:** detail 3c, with the snapshot script as its break list, and cross-check with Fable.
+
+### Hot zone (3b)
+
+```
+dw/server/
+dw/serve.py
+dw/worker.py
+dw/worker_manager.py
+dw/worker_protocol.py
+dw_mcp/
+scripts/surface_snapshot.py
+```
+
+`dw/workflow.py` gets one line (`workflow_from_snapshot`) and is not listed.
