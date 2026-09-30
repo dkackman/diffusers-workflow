@@ -301,7 +301,7 @@ Phase 2 worked the same way: the harness must not edit `result.py` or `video_uti
   - `fit_codec_padding(audio, frame_count, frame_rate, sample_rate)`, the old `_fit_audio_to_frames`, with the body unchanged;
   - `sample_axis(audio)`;
   - `warn_on_rate_override(command, actual_rate, given_rate)`.
-- `media_frames` keeps the five helpers' names. They were private to `video_utils`, and they stay module-private in their new home, since `video_utils.frame_grid` is their only outside caller. Rename them public (`compose_grid`, `default_columns`, `evenly_spaced_indices`, `format_timestamp`, `grid_tile`) because two modules now use them.
+- `media_frames` takes the five helpers under public names (`compose_grid`, `default_columns`, `evenly_spaced_indices`, `format_timestamp`, `grid_tile`), because two modules now use them: `media_frames` itself and `video_utils.frame_grid`.
 
 - [ ] **Step 1: Create `dw/media_types.py`.**
   - Module docstring: "The values steps hand each other, and the audio rules that belong to them. A leaf: numpy, torch and events only, so the result writer and the tasks both sit above it."
