@@ -58,7 +58,7 @@
   - `server.app` ↔ `server.mcp_mount`;
   - `vram_estimate` ↔ `vram_inheritance`.
 
-The surveys behind the stages are summarized in each stage's "What exists" block when the stage is detailed. Raw notes: the session scratchpad; the facts that matter are copied into this file.
+The four surveys behind the stages (server, engine, media/DSP, libraries) are committed in [phase-3-surveys/](phase-3-surveys/). They were taken at `9e25c49a`, so re-verify their line numbers before relying on them. Each stage's "What exists" block, written when the stage is detailed, copies in the facts it relies on after checking them in the code.
 
 ## Stages
 
@@ -77,15 +77,29 @@ Gate 3 follows 3e, with the same checks as gate 2:
 
 ## Carried from gate 2
 
-Each item goes to the stage whose files it touches:
-- `dw/worker.py` message types move to their own module → 3b;
-- `JobManager.definition()` re-reads a path job's file; a live job answers from its snapshot → 3b;
-- `/api/validate` logs a gate failure twice → 3b;
-- B10's rest (`submit_job` maps every exception to 400) → 3b;
-- the three `previous_result` scanners → 3e;
-- `for_each._copy_leaf` still copies media → 3e;
-- the elision dict assumption → 3e;
-- `result.py`'s import of `tasks.select.Selected` → 3e (outside the cycles; it is the last upward import).
+From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage whose files it touches:
+- **3a:** the four import styles for `references`, normalized in the files 3a touches (the rest in 3e).
+- **3b:**
+  - B10's rest: `submit_job` maps every exception to 400.
+  - `/api/validate` logs a gate failure twice (`admit()` and `app.py`).
+  - `dw/worker.py` is 12 lines under the limit until its message types move out.
+  - `JobManager.definition()` re-reads a path job's file; a live job answers from its snapshot.
+  - The snapshot parity test is close to tautological.
+  - `workflow_from_snapshot` passes `file_spec` through unnormalized when `workflow_dir` is None.
+- **3d:**
+  - The frame-size prefix sentence is still written by both callers.
+  - The slice-region arithmetic is in both `slice_audio` and `slice_preflight`.
+  - The dissolve run raises only the first shortfall. This is a rule-parity item, not a new check; if fixing it changes a message, the change goes in the release notes.
+  - Temp-dir leaks in the dissolve and shot-span test helpers.
+- **3e:**
+  - `dw/workflow.py:747` could use `author_index`.
+  - Prefix tests are spelled three ways.
+  - Prefixes inside f-strings, which the metric does not count.
+  - The three scanners of `previous_result:` shapes.
+  - `for_each._copy_leaf` and the step-cache snapshot still copy media leaves.
+  - A child handed media through a substituted variable stores it in its `argument_template`, which validation copies again.
+  - The elision carry assumes dict pipelines.
+  - `result.py`'s import of `tasks.select.Selected`: outside the cycles, and the last upward import.
 
 ## Release notes collected (for gate 3)
 
@@ -99,6 +113,7 @@ Each item goes to the stage whose files it touches:
 - Behavior-preserving tasks prove preservation with the existing suite: it passes unchanged, apart from the import paths and patch targets the move changes and the tests the task names.
 - Tests: `venv/bin/python -m pytest -q -x -p no:cacheprovider` from the worktree root, plus `ruff check` and `ruff format --check` on `dw dw_mcp tests`. The worktree's `venv` is shared with the main checkout, so never run `pip install -e .` from the worktree.
 - Never use `git stash`, in any form, including `git stash list`.
+- A task that moves code without changing behavior is proved by characterization tests: tests that pass before and after the move. "Every new test fails before its fix" applies to fixes.
 - Filesystem access keeps going through a `dw/security.py` validator. A validator that moves is re-modelled in `.github/codeql/` in the same commit (CLAUDE.md, Security Rules).
 
 ## Decisions (rulings, 2026-09-30)
@@ -189,7 +204,12 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
   - callers of `PREVIOUS_RESULT_PREFIX` / `CONSTANT_PREFIX` use `references.PREVIOUS_RESULT` / `references.CONSTANT`.
 - **`AUDIO_FORMATS`, `LOSSY_AUDIO_CONTENT_TYPES` and `MUXED_VIDEO_CONTENT_TYPE` move to `content_types.py`.** `result.py` imports them from there at module level, and its lazy `refuse_active_content_type` import becomes module level too.
 - **The required-argument guard moves from `Task` to `Step`.** `Step.run` checks a `Task` action's arguments for each iteration, just before the action runs, with the same message. `Task._check_required_arguments` is deleted. `tasks/task.py` then imports nothing from `introspection`.
-- **`validate_workspace_name(name, reserved=())`:** the reserved names become a parameter, which `workspace.py` passes. `security.py` no longer imports `workspace`. The CodeQL models name the function and its return value, so they are unchanged.
+  - This is safe because `Workflow.create_step_action` (`workflow.py:2228`) is the only place in `dw/` that constructs a `Task`, and `Step.run` is what runs it.
+  - A `Task.run` called directly (tests only) no longer gets the friendly message. Python's `TypeError` surfaces instead.
+- **`validate_workspace_name(name, *, reserved)`:** the reserved names become a required keyword-only parameter, which `workspace.py` passes.
+  - It has no default: a security validator must not quietly do less when a caller forgets an argument. An omitted `reserved` is a `TypeError`.
+  - Its only callers are `workspace.py:469` and `488`.
+  - `security.py` no longer imports `workspace`. The CodeQL models name the function and its return value, so they are unchanged.
 - **`pipeline_identity` and its helpers move into `vram_estimate.py`.** `vram_inheritance` imports them from there.
 - **`LOOPBACK_HOSTS` and `WILDCARD_HOSTS` move into `dw/server/netinfo.py`.** `app.py`, `mcp_mount.py` and `serve.py` import them from there. `dw_mcp/client.py`'s copy stays, with its comment pointing at the new home.
 - **Only one cut is strictly needed per cycle; 3a makes more on purpose.** The minimum is five edges, which a brute-force check on the survey graph confirmed. 3a also removes every low-module import of `arguments`, and every `result` → `tasks` import in the cycle. Why: the assessment names both ("result.py imports upward into tasks"), and 3d/3e need `result` and `arguments` above the layer they split into.
@@ -207,11 +227,20 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
    - What: the same `ValueError` text (first letter capitalized), raised before the command runs.
    - Cases: a missing argument in the second of two `previous_result` iterations fails on that iteration, not before it runs the first; a list-template (non-dict) `arguments` is not checked.
    - Test: a committed `Step.run` test with a stub command that records whether it ran.
-4. **Reserved workspace names are still refused** on `POST /api/workspaces` and on a `?workspace=` lookup, with the same message naming the reserved folders. The existing tests cover it; the reviewer confirms that a call to `validate_workspace_name` with no `reserved` still refuses a bad shape.
+4. **Reserved workspace names are still refused** on `POST /api/workspaces` and on a `?workspace=` lookup, with the same message naming the reserved folders. The existing tests cover it. The reviewer confirms that every call site passes `reserved`, with `git grep -n "validate_workspace_name(" dw dw_mcp`: exactly the two in `workspace.py`.
 5. **`--mcp` host safety is unchanged.**
    - `client_base_url()` picks loopback for a wildcard or loopback bind and the bind host otherwise.
    - `dw.serve --mcp --host 0.0.0.0` with no token still exits 2.
    - `serve.py` no longer imports `dw.server.app` before `create_app`.
+
+### Before Task 1: the hot zone goes live
+
+Once Don approves this plan, and before any 3a code changes:
+- commit the 3a list below into `docs/stabilization/hot-zone.txt` on `develop`, with the plan docs;
+- push;
+- start the `stabilization/phase-3a` branch from that commit.
+
+Phase 2 worked the same way: the harness must not edit `result.py` or `video_utils.py` in the middle of the stage.
 
 ### Task 1: Reference keys and format tables to their owners
 
@@ -283,8 +312,13 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
   - Cut the five helpers from `video_utils.py` (about 275-337) into `media_frames.py`, with their public names, and update `media_frames`' own call sites.
   - `video_utils.frame_grid` imports them from `media_frames` at module level. `video_utils.py:72`'s lazy `frames_at` import may become module level too.
 - [ ] **Step 4: Update the tests.** Point imports and patch targets at the new homes (Review Focus 1). `tests/test_media_frames.py:466` has a comment naming `_default_columns`; update it.
-- [ ] **Step 5: Verify.**
-  - The suite, ruff, and `arch_metrics --check`. Expect `modules` 132, which regresses the baseline by the one named module; record it for Task 4.
+- [ ] **Step 5: Verify, and re-baseline `modules`.**
+  - Run the suite and ruff.
+  - `arch_metrics --check` reports `modules` 132, a rise by the one module this plan names. Re-baseline it in this commit, as 2a did with `references.py`:
+    - run `--write`;
+    - confirm the diff is `modules` 131 → 132, plus anything that went down;
+    - name `dw/media_types.py` in the commit message.
+  - Every later task's `--check` is then green.
   - `venv/bin/python -c "import sys; sys.path.insert(0,'scripts'); import arch_metrics as m; from pathlib import Path; print(m.import_graph(Path('.'))['cycles'])"` shows no component containing `result`, `content_types`, `shots`, `media_frames` or `tasks.video_utils`.
 - [ ] **Step 6: Commit.** `refactor(media_types): step values and their audio rules in one leaf; grid helpers in media_frames`
 
@@ -297,12 +331,12 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
   - `dw/vram_estimate.py`, `dw/vram_inheritance.py`;
   - `dw/server/netinfo.py`, `dw/server/app.py`, `dw/server/mcp_mount.py`, `dw/serve.py`, and the `dw_mcp/client.py:14` comment.
 - Test:
-  - `tests/test_task_signature_errors.py:203`, rewritten against `Step.run`;
+  - `tests/test_task_signature_errors.py`, class `TestTheRunTimeBackstop` (lines 185-203): both of its tests call `Task.run` / `_check_required_arguments` directly and are rewritten against `Step.run`. `tests/test_task.py`'s direct `Task.run` calls test unknown commands, not missing arguments, and stay;
   - a new `Step.run` test (Review Focus 3);
   - the existing workspace, vram-inheritance and serve/mcp tests.
 
 **Interfaces:**
-- Produces: `validate_workspace_name(name: str, reserved=()) -> str`; `netinfo.LOOPBACK_HOSTS` and `netinfo.WILDCARD_HOSTS` (same values).
+- Produces: `validate_workspace_name(name: str, *, reserved) -> str`; `netinfo.LOOPBACK_HOSTS` and `netinfo.WILDCARD_HOSTS` (same values).
 - Consumes: `introspection.missing_task_arguments(command, names)` and `introspection.missing_task_argument_message(command, missing)`, unchanged, now called from `dw/step.py`.
 
 - [ ] **Step 1: Pin the guard's behaviour before moving it.**
@@ -315,9 +349,9 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
 - [ ] **Step 2: Move the guard.**
   - In `Step.run`, where each iteration's realized arguments are handed to `step_action.run(...)`: if the action is a `Task` and the arguments are a dict, run the same check `Task._check_required_arguments` ran, with the same message capitalization, before the call.
   - Delete `_check_required_arguments` and its call at `task.py:918`.
-  - Rewrite `tests/test_task_signature_errors.py:203` (non-dict `arguments` are not checked) against `Step.run`.
-- [ ] **Step 3: `validate_workspace_name(name, reserved=())`.**
-  - Delete the lazy import, and refuse `name in reserved` with the same message, joined from `reserved`.
+  - Rewrite both tests in `TestTheRunTimeBackstop` against `Step.run`: the friendly message for `resample_audio` without `audio`, and no check for a non-dict `inputs` template.
+- [ ] **Step 3: `validate_workspace_name(name, *, reserved)`.**
+  - Delete the lazy import, and refuse `name in reserved` with the same message, joined from `reserved`. No default.
   - `workspace.py`'s two callers pass `RESERVED_WORKSPACE_NAMES`.
   - Update `dw/server/CLAUDE.md:22` to say the reserved names are passed in.
   - Confirm that the two CodeQL files need no change: they name the function and its return value.
@@ -335,7 +369,6 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
 - [ ] **Step 1: Re-baseline.**
   - Run `venv/bin/python scripts/arch_metrics.py --write docs/stabilization/baseline.json`.
   - Confirm the diff against the committed baseline is exactly:
-    - `modules` 131 → 132 (`dw/media_types.py`, named in this plan);
     - `import_cycles` 5 → 0;
     - `modules_in_import_cycles` 19 → 0;
     - anything that went down.
@@ -343,7 +376,7 @@ Work on branch `stabilization/phase-3a` in the worktree, from `develop` at `9e25
 - [ ] **Step 2: Docs.**
   - CLAUDE.md: find any sentence naming a moved symbol's old home (`git grep -n "result.py.*AudioVideo\|AudioVideo.*result.py\|_fit_audio_to_frames\|_warn_on_rate_override" CLAUDE.md dw/**/CLAUDE.md docs/`) and fix it.
   - Release notes: no user-visible change. Record "internal: import cycles removed" under this file's release notes.
-- [ ] **Step 3: Hot zone.** Replace the 3a entries in `docs/stabilization/hot-zone.txt` with stage 3b's once 3b is detailed. Until then, the standing two entries only.
+- [ ] **Step 3: Hot zone.** Put `docs/stabilization/hot-zone.txt` back to the two standing entries. Stage 3b's list goes live when 3b is detailed and approved.
 - [ ] **Step 4: Merge.**
   - Merge `stabilization/phase-3a` to `develop` with `--no-ff`, and push.
   - No lem deploy (deploys are at the gate).
@@ -376,6 +409,7 @@ dw/workspace.py
 dw/server/netinfo.py
 dw/server/mcp_mount.py
 dw/serve.py
+dw/previous_results.py
 ```
 
-Other files 3a touches only for an import line: `previous_results.py`, `workflow.py`, `validation.py`, `video_extensions.py`, `app.py`. They are not listed, so the harness keeps them. A conflicting harness edit to one of them is an import-line merge conflict, which is cheap.
+`previous_results.py` is listed because deleting the `PREVIOUS_RESULT_PREFIX` alias edits 12 lines there. Other files 3a touches only for an import line or two: `workflow.py`, `validation.py`, `video_extensions.py`, `app.py`. They are not listed, so the harness keeps them. A conflicting harness edit to one of them is a small merge conflict.
