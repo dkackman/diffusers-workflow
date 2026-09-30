@@ -493,7 +493,7 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
   - 3c reuses the script: its diff *is* 3c's list of breaking changes.
   - The script lives in `scripts/`, which the module ratchet does not count.
 - **Module layout (3b adds 19 modules; the Phase 3 estimate said about 14).** `modules` goes 132 → 151, which puts the phase at about 163 rather than 158. Don is told when 3b starts, before its hot zone goes live, together with the zone's scope: all of `dw/server/` and `dw_mcp/`.
-- **`ROUTERS` order:** `jobs`, `system`, `library`, `media`, `gallery`, `assets`, `files`.
+- **`ROUTERS` order:** `jobs`, `system`, `library`, `media`, `gallery`, `assets`. The factory includes them, then adds the `/mcp` route pair, then includes the `files` router (`/outputs`, `/inputs`, `/exports`), then mounts the UI last. That is today's tail order, which the snapshot records from `/mcp` to the SPA mount. (Ruling after Task 1.)
   - `media` goes before `gallery`, so the `…/thumbnail` and `…/download` GETs keep sitting before `DELETE /api/gallery/{name:path}`, as they do today.
   - The snapshot's family orders prove the rest.
 
