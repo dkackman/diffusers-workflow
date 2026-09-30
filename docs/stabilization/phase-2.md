@@ -17,7 +17,7 @@
 | 2a | `dw/references.py`: the prefixes, the three prefix sets, `is_ref` / `ref_name` / `make_ref`, and `author_index` (the source-index idiom copied in 20 checkers) | `prefix_literals` is 0 and ratcheted there; no private copy of a prefix or a prefix set remains |
 | 2b | Validation plumbing: a `ValidationContext` (one expansion, one memoized metadata-only media probe that understands `{"location"}` dicts, which fixes B9), a `Finding(severity, kind, path, message)` type serialized only at the route, and a check registry with one exception policy (fixes B10). The ~25 checkers and 9 warning sources migrate one at a time, keeping their public names. The four rules written in both a check and a task (dissolve overlap, frame size, slice region, select rules) get one home each. | `validation_errors` is a loop over the registry; a crashing check is an internal-error finding |
 | 2c | Typed worker protocol: message dataclasses, and one reply dispatcher on `WorkerManager`. The worker trusts an admitted snapshot: the job carries the admitted definition, and run-directory identity travels separately, so the worker stops re-reading the file and re-validating. | The worker has no `validate()` call; one dispatcher handles replies |
-| 2d | Step cache: dependency tracking covers every cross-step reference. `pipeline_cache_key` moves into `step_cache` (the hidden `step_cache` → `pipeline` import); `Pipeline.load` copies its definition on entry; `_run_lock_path` becomes public. Fix import cycles where the stage's own moves allow. | `modules_in_import_cycles` below 26; B7-class keys come from one function |
+| 2d | Step cache: dependency tracking covers every cross-step reference. Pipeline identity (`pipeline_cache_key`, `step_pipeline_keys`, `component_names`) moves into `step_cache`, which removes the `step_cache` → `pipeline` import and the lazy `elision` → `workflow` one; `Pipeline.load` copies its definition on entry; `_run_lock_path` becomes public; `recorded_variables` stops deep-copying media. (Corrected 2026-09-30: `pipeline_cache_key` lives in `dw/workflow.py`, and the hidden import is `elision.py`'s.) | `modules_in_import_cycles` at 19 or below and ratcheted; B7-class keys are computed once per run, by one function |
 
 Gate 2 follows 2d, with the same checks as gate 1:
 - the full metrics report, with a Gate 2 column;
@@ -773,3 +773,142 @@ Add 2c's surface changes to "Release notes collected":
 - A stale worker reply is discarded at DEBUG instead of logged as an unknown type.
 - `ping`, `pong` and `shutdown_complete` are removed from the internal protocol.
 - `python -m dw.run` prints every event of a job whose tail ran past one page, and prints the history `note`.
+
+---
+
+## Stage 2d: the step cache and pipeline identity
+
+Work on branch `stabilization/phase-2d` in the worktree, from `develop` after stage 2c (`45917df6` or later).
+
+**What exists (survey, 2026-09-30, at `45917df6`).**
+
+- **Pipeline identity is in `dw/workflow.py`, not in the step cache.**
+  - `pipeline_cache_key(pipeline_definition)` (`workflow.py:249-269`) hashes a pipeline definition minus `arguments`, `seed` and `chain`. `step_pipeline_keys` (`272-285`) builds the run's table of those keys before anything loads.
+  - `create_step_action` recomputes the key from the live definition (`workflow.py:1965`). That is the second of the two computations Phase 0's Task 12 had to reconcile.
+  - `dw/elision.py:131` imports `pipeline_cache_key` lazily, which closes the `elision` ↔ `workflow` cycle.
+  - `dw/step_cache.py:66` imports `component_names` from `pipeline_processors/pipeline.py` at the top level. That edge puts `step_cache`, `pipeline`, `chain` and `remote` in the 15-module strongly connected component. `component_names` (`pipeline.py:70-85`) is a pure function of a definition dict.
+- **Import cycles:** six, covering 25 modules. Removing both edges above leaves 19 (a simulation on grimp's edge list).
+- **The step cache** (`dw/step_cache.py`, 493 lines) keys an entry by `(workflow id, step name)`. A hit needs all of the following:
+  - the same seed and output root;
+  - a `deep_equal` step snapshot;
+  - every upstream `previous_result:` hit this run, at the same generation;
+  - every saved file still present.
+
+  The snapshot carries `__borrowed_pipelines__`, a map from each step a `pipeline_reference` or `reused_components` borrows from to that step's `pipeline_cache_key` (`borrowed_pipeline_keys`, `step_cache.py:115-166`; B7, fixed in Phase 0).
+- **Every cross-step reference is covered except a transitive borrow.**
+  - The covered kinds are `previous_result:`, `from_previous_result`, `gather:` (expanded), `item:`, substituted variables, realized `asset:` / `output:` / `prompt:` / `constant:` values, a direct `pipeline_reference`, and a direct `reused_components`. A `workflow` step never caches.
+  - **The stale hit:** step A shares `vae` from model X, B reuses it on its own pipeline Y, and C references B's pipeline.
+    - Change X. Then A and B miss, but C's snapshot records only `pipeline_cache_key(B)`, and B's own definition did not change.
+    - So C hits and republishes output made with the old VAE.
+  - **The pipeline cache has the same hole.** A cached B is keyed by `pipeline_cache_key(B)` alone. On a rerun, the reuse branch (`workflow.py:1984-2000`) hands back B's loaded pipeline, which still holds A's old VAE, because only a fresh load runs `resolve_reused_components` (`pipeline.py:179`).
+- **`Pipeline.load` mutates the workflow's definition.**
+  - `Pipeline.__init__` stores the definition by reference (`workflow.py:2074` passes `step_definition["pipeline"]`).
+  - These rewrite or pop keys in place:
+    - `get_group_offload_configuration` (`config_objects.py:122-160`; `torch.device` values, `use_stream` / `record_stream` popped off CUDA);
+    - `load_loras` (`pipeline.py:1411-1430`);
+    - `load_ip_adapter` (`1454`, `1456`);
+    - `load` and `_discard_failed_load`, which set and pop `argument_template["generator"]`.
+  - Phase 0's Task 12 worked around this by computing keys before any load.
+- **`_run_lock_path`** (`dw/runs.py:580`) is imported by name from `dw/server/app.py:106` and used at `app.py:3560`, and by `tests/test_runs.py` and `tests/test_server.py`.
+- **`recorded_variables`** (`workflow.py:1023`) is `copy.deepcopy(variables)`, taken before `realize_args` loads assets into `variables`.
+  - The copy decouples the record's containers from that in-place realization.
+  - For a sub-workflow, the parent's arguments already hold realized media (images, frame lists, tensors), and the deepcopy duplicates all of it only to record it.
+  - `realize_workflow` deep-copies again (`realize.py:69`, `:97`), and `cache_hits` pays the copy and discards it.
+
+### Decisions (2d)
+
+- **`dw/step_cache.py` owns pipeline identity.**
+  - `pipeline_cache_key`, `step_pipeline_keys` and `component_names` move there. `pipeline.py` and `workflow.py` import them back, and `elision.py` imports from `step_cache`, which it already does.
+  - Afterwards `step_cache`'s only `dw` import is `references`. `grep -n "pipeline_processors\|from .workflow" dw/step_cache.py` prints nothing.
+  - The four test files that import `pipeline_cache_key` from `dw.workflow` change their imports (`tests/test_pipeline_caching.py`, `test_for_each.py`, `test_workflow.py`, `test_events.py`). There is no re-export: a moved name has one home.
+  - The hash must not change. A key-parity test compares every template's `step_pipeline_keys` against keys computed at the base commit, recorded as a literal table in the test. That is a one-off, and the task's report says how the table was produced.
+- **One computation of the key per run.** `create_step_action` reads the run's table (`self._pipeline_keys` or its current equivalent) instead of recomputing from the live definition. After Task 3 the two could not disagree anyway: the table is one guard, the copy the other.
+- **Borrowing is part of identity (the transitive-borrow fix).**
+  - The effective key of a pipeline step hashes its own `pipeline_cache_key` together with the effective keys of the steps whose components it reuses: for each name in its `reused_components`, the latest earlier step that shared that name.
+  - `step_pipeline_keys` computes effective keys in step order, and the pipeline cache, `__borrowed_pipelines__` and `release_pipeline` all use them. A change anywhere up a borrow chain then changes every key below it.
+  - That fixes both caches with one function.
+  - Surface change for the release notes: after the deploy, a pipeline that reuses components, and a step that references one, misses (and reloads) once.
+  - A pipeline with no `reused_components` keeps its key exactly. The parity test pins that.
+- **`Pipeline` copies its definition on construction.**
+  - Every top-level key except `arguments` is deep-copied, and `arguments` gets a shallow dict copy, so `generator` and popped keys never reach the workflow's definition while realized media is not duplicated.
+  - Code that reads `pipeline.pipeline_definition` reads the copy. Task 3 checks `_deferred_pipelines` and the reuse branch for anyone expecting the workflow's object.
+- **`recorded_variables` is a structural copy:** containers (dicts, lists, tuples) are copied, and leaves are shared.
+  - One helper replaces the deepcopies at `workflow.py:1023` and `realize.py:69` / `:97`.
+  - This is safe because nothing mutates a leaf in place: realization replaces container entries.
+  - If Task 4 finds a leaf mutated in place, the ruling is to keep a deep copy of that part only, and to say so in the report.
+- **`_run_lock_path` becomes `run_lock_path`.** The `app.py` edit is two lines, the import and the call, and `app.py` is in the hot zone for this stage only for that.
+- **Out of scope:**
+  - The three scanners of `previous_result:` shapes (`step_cache.referenced_result_names`, `previous_results._collect_refs`, `previous_results._collect_reference_paths`) are a "one home" candidate. No stale hit comes from them, so they are a Phase 3 follow-up.
+  - `JobManager.definition()` re-reading a path job's file is also Phase 3.
+
+### Review Focus (2d)
+
+1. **Key parity.**
+   - Every template's `step_pipeline_keys` is byte-identical before and after the Task 1 move.
+   - After Task 2, keys change only for steps with `reused_components` or a `pipeline_reference`.
+2. **The A/B/C stale hit.**
+   - A workflow shaped like the survey's (fake components, no model download), run twice with A's `model_name` changed between runs.
+   - C misses on the second run, and B's cached pipeline is not reused.
+   - This fails before Task 2 and passes after.
+3. **A real mutating load leaves the definition alone.** Drive `get_group_offload_configuration` and `load_loras`'s pops through a `Pipeline` built from a step definition (no GPU needed; the mutating code runs on the dicts). Afterwards the step definition equals its pre-load deepcopy. Mocks around `load` cannot see this; Phase 0 learned that at gate 0.
+4. **No leaf is deep-copied.** A variable leaf whose `__deepcopy__` raises passes through `_prepare_definition` and `realize_workflow` without raising, and the recorded value is that object.
+5. **Import cycles.** `modules_in_import_cycles` is 19 or lower after Task 1, and ratcheted in `baseline.json` in the same commit.
+
+### Task 1: Pipeline identity moves into `step_cache`
+
+**Files:** `dw/step_cache.py`, `dw/workflow.py`, `dw/pipeline_processors/pipeline.py`, `dw/elision.py`; the four test files named in Decisions; a new key-parity test in `tests/test_step_cache.py`.
+
+- [ ] **Step 1:** Record every template's `step_pipeline_keys` at the base commit into the parity test's literal table. The test passes on the base commit: it is a preservation guard, not a RED test. The failing check is the ratchet: `modules_in_import_cycles` is 25 and must reach 19 or below.
+- [ ] **Step 2:** Move the three functions. `create_step_action` reads the run's table.
+- [ ] **Step 3: Verify.**
+  - The parity test and the full suite pass.
+  - The grep in Decisions prints nothing.
+  - Run `arch_metrics`; lower `modules_in_import_cycles` in `baseline.json` by hand to the measured value, and `import_cycles` too if it fell.
+  - Report `duplicate_blocks`, and ratchet it if it dropped.
+- [ ] **Step 4: Commit** `refactor(step_cache): pipeline identity has one home; two import cycles gone`
+
+### Task 2: A borrow chain is part of identity
+
+**Files:** `dw/step_cache.py` (`step_pipeline_keys`, `borrowed_pipeline_keys`), `dw/workflow.py` (whatever reads the table); tests in `tests/test_workflow_step_cache.py` and `tests/test_pipeline_caching.py`.
+
+- [ ] **Step 1: Failing test** (Review Focus 2), at both the step-cache level and the pipeline-cache level.
+- [ ] **Step 2: Implement** effective keys (Decisions). Update the parity table only for the templates whose steps reuse components, and list them in the report.
+- [ ] **Step 3: Verify.** The full suite and `--check` pass.
+- [ ] **Step 4: Commit** `fix(step_cache): a change up a borrow chain misses every step below it`
+
+### Task 3: `Pipeline` copies its definition
+
+**Files:** `dw/pipeline_processors/pipeline.py` (`Pipeline.__init__`); tests in `tests/test_pipeline_caching.py` or `tests/test_pipeline_components.py`.
+
+- [ ] **Step 1: Failing test** (Review Focus 3).
+- [ ] **Step 2: Implement.** Check `_deferred_pipelines` (`workflow.py:~1971`) and the reuse branch for readers of the workflow's object.
+- [ ] **Step 3: Verify.** The full suite and `--check` pass.
+- [ ] **Step 4: Commit** `fix(pipeline): loading never edits the workflow's definition`
+
+### Task 4: `run_lock_path`, and `recorded_variables` without media copies
+
+**Files:** `dw/runs.py`, `dw/server/app.py` (import and call only), `tests/test_runs.py`, `tests/test_server.py`, `tests/conftest.py` (comment); `dw/workflow.py` (`_prepare_definition`), `dw/realize.py`, and a test for Review Focus 4.
+
+- [ ] **Step 1: Failing test** (Review Focus 4).
+- [ ] **Step 2: Implement.** Rename; write the structural-copy helper (in `dw/realize.py`, which `workflow.py` already imports) and use it at the three sites.
+- [ ] **Step 3: Verify.** `grep -rn "_run_lock_path" dw tests` prints nothing. The full suite and `--check` pass.
+- [ ] **Step 4: Commit** `refactor(runs): run_lock_path is public; recorded variables share their media`
+
+### Task 5: Stage 2d merge
+
+1. The full suite and `--check`.
+2. The final review and its one fix pass.
+3. Merge and push, with no lem deploy yet; gate 2 deploys.
+4. Collect 2d's release notes.
+
+### Task 6: Gate 2
+
+The same checks as gate 1:
+- `scripts/arch_report.py` with a Gate 2 column: the full metrics table, every ratchet, the complexity distribution and the top 10.
+- **lem, real models:**
+  - Deploy develop and restart `dw-serve`.
+  - Run `templates/ltx2/two-stage` cold, then run it again with the same seed and a bound acknowledgement. The second run is the B2 cached rerun, 0.77 s at gate 1. The cold run comes first because Task 2 makes a borrowing step miss once.
+  - Run one `for_each` template (`templates/minimax/dialogue-short` or a smaller one) to confirm members run and cache.
+- Tag `stabilization-gate-2`, re-baseline `baseline.json`, and move "Release notes collected" into the gate section of ROADMAP.md.
+- Update the Claude Doc (the assessment artifact) with gate 2's column.
+- Phase 3's plan is written at the gate, not here.

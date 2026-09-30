@@ -2,21 +2,24 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 2c: typed worker protocol; the worker runs the admitted snapshot
-dw/worker.py
-dw/worker_manager.py
+# Phase 2d: the step cache and pipeline identity
+dw/step_cache.py
 dw/workflow.py
-dw/run.py
-dw/server/jobs.py
-dw/server/admission.py
+dw/elision.py
+dw/pipeline_processors/pipeline.py
+dw/runs.py
+dw/realize.py
 dw/server/app.py
-tests/test_worker.py
-tests/test_worker_execute.py
-tests/test_worker_manager.py
-tests/test_server_jobs.py
+tests/test_step_cache.py
+tests/test_workflow_step_cache.py
+tests/test_pipeline_caching.py
+tests/test_pipeline_components.py
+tests/test_for_each.py
+tests/test_workflow.py
+tests/test_events.py
+tests/test_runs.py
 tests/test_server.py
-tests/test_rerun_new_seed.py
-tests/test_cli.py
-tests/test_admission.py
+tests/test_realize.py
+tests/conftest.py
 scripts/arch_metrics.py
 docs/stabilization/
