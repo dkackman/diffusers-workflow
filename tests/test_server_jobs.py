@@ -13,7 +13,7 @@ import pytest
 from dw.runs import REALIZED_FILE_NAME, new_run_id
 from dw.server.jobs import TERMINAL_STATES, JobHistory, JobManager
 
-from .test_server import ScriptedWorkerManager, valid_workflow
+from .test_server import ScriptedWorkerManager, admitted_for, valid_workflow
 
 RUN_ID = new_run_id({"workflow": "spec"})
 RUN_DIR = f"server_test/{RUN_ID}"
@@ -46,7 +46,9 @@ def manager(tmp_path):
 
 
 def finished_job(manager):
-    job = manager.submit(workflow=valid_workflow(), base_dir=None)
+    job = manager.submit(
+        admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+    )
     deadline = time.time() + 5
     while job.status not in TERMINAL_STATES and time.time() < deadline:
         time.sleep(0.01)
@@ -166,17 +168,16 @@ def for_each_script(command):
     expansion and compose_text execution, not a canned response - standing
     in for the spawned worker process the way this file's other scripts do
     (ScriptedWorkerManager replaces the process, not the workflow code)."""
-    from dw.workflow import workflow_from_definition
+    from dw.workflow import workflow_from_snapshot
 
-    workflow = workflow_from_definition(
-        command["workflow"],
+    # Mirrors dw/worker.py's _handle_execute: the admitted snapshot, run
+    # with the caller's own arguments, which run() substitutes and expands
+    workflow = workflow_from_snapshot(
+        command["definition"],
         command["output_dir"],
-        command["base_dir"],
+        command["file_spec"],
         command.get("workflow_dir"),
     )
-    # Mirrors dw/worker.py's _handle_execute: validated against the
-    # caller's own arguments (#415), which run() then substitutes and expands.
-    workflow.validate(arguments=command["arguments"])
     workflow.run(command["arguments"], {})
     yield {
         "type": "success",
@@ -195,8 +196,8 @@ def test_a_for_each_job_expands_and_runs_through_the_server_job_path(tmp_path):
     )
     try:
         job = manager.submit(
+            admitted=admitted_for(manager, _for_each_workflow()),
             workflow=_for_each_workflow(),
-            base_dir=None,
             arguments={
                 "shots": [
                     {"name": "one", "text": "1"},
@@ -278,7 +279,9 @@ def test_workflow_end_event_manifest_matches_get_job_manifest(tmp_path):
         workflow_dir=str(tmp_path),
     )
     try:
-        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status not in TERMINAL_STATES and time.time() < deadline:
             time.sleep(0.01)
@@ -304,7 +307,9 @@ def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
         workflow_dir=str(tmp_path),
     )
     try:
-        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status not in TERMINAL_STATES and time.time() < deadline:
             time.sleep(0.01)

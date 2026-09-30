@@ -501,7 +501,7 @@ class Job:
     def __init__(self, spec):
         self.id = uuid.uuid4().hex[:12]
         self.spec = spec
-        self.workflow_name = spec.get("workflow_name", "unknown")
+        self.workflow_name = spec["workflow_name"]
         self.catalog_name = spec.get("catalog_name")
         self.status = QUEUED
         self.created_at = time.time()
@@ -767,6 +767,8 @@ class JobManager:
 
     def submit(
         self,
+        *,
+        admitted,
         workflow_path=None,
         workflow=None,
         arguments=None,
@@ -779,19 +781,22 @@ class JobManager:
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
-        workflow_name=None,
     ):
         """Record a job request and queue it.
 
-        Callers admit first (`dw.server.admission.admit`). submit records
-        and queues; it does not re-check. Raises ValueError only when the
-        request names neither or both of `workflow_path` and `workflow`.
+        Callers admit first (`dw.server.admission.admit`) and pass the
+        admitted Workflow as `admitted`. submit records and queues; it does
+        not re-check. The job carries admission's snapshot - its definition,
+        file_spec and name - and the worker runs that, so a file edited
+        while the job waits runs as it was admitted. Raises ValueError only
+        when the request names neither or both of `workflow_path` and
+        `workflow`.
 
         `workflow_dir` overrides this job's confinement root for a workflow
         that lives outside the writable directory - an example or a builtin,
         which the caller has already resolved against the search path. The
-        worker re-validates against whatever this job records, so the
-        override travels with the job rather than widening the manager.
+        worker confines the job's file_spec to whatever this job records, so
+        the override travels with the job rather than widening the manager.
 
         `output_dir`, `asset_dir` and `workspace` name which workspace this
         job runs in. They travel with the job for the same reason: one
@@ -808,8 +813,9 @@ class JobManager:
         `warnings` are the admission's (`Admission.warnings`) - every warning
         /api/validate reports for this request - recorded on the job.
 
-        `workflow_name` is the admitted workflow's name (`Workflow.name`);
-        without one, an inline definition's `id` and a file's base name.
+        `workflow_path`, `workflow` and `base_dir` are the request as the
+        caller made it, kept for a rerun (which admits afresh) and for
+        `definition()`; the snapshot is not persisted.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -822,29 +828,22 @@ class JobManager:
         os.makedirs(job_output_dir, exist_ok=True)
 
         if workflow_path is not None:
-            spec = {
-                "workflow_path": workflow_path,
-                "workflow_name": workflow_name
-                or os.path.splitext(os.path.basename(workflow_path))[0],
-                "arguments": arguments,
-                "workflow_dir": confinement,
-            }
+            spec = {"workflow_path": workflow_path, "source": "path"}
         else:
+            # Without one, the directory admission resolved relative paths
+            # against - the synthetic file_spec's own - kept so a rerun
+            # admits against the same directory
             spec = {
                 "workflow": workflow,
-                # Must match workflow_from_definition's fallback - the worker
-                # re-validates this against workflow_dir
-                "base_dir": base_dir
-                or (os.path.abspath(confinement) if confinement else os.getcwd()),
-                "workflow_name": workflow_name or workflow.get("id", "unknown"),
-                "arguments": arguments,
-                # Must be the same root the worker re-validates base_dir
-                # against (workflow_from_definition -> validate_path) - this
-                # job's own confinement, not the manager's process-wide
-                # default, or a named workspace's inline job fails after a
-                # 201 the moment base_dir and workflow_dir disagree
-                "workflow_dir": confinement,
+                "base_dir": base_dir or os.path.dirname(admitted.file_spec),
+                "source": "inline",
             }
+        # The snapshot admission checked: what the worker builds and runs
+        spec["definition"] = admitted.workflow_definition
+        spec["file_spec"] = admitted.file_spec
+        spec["workflow_name"] = admitted.name
+        spec["arguments"] = arguments
+        spec["workflow_dir"] = confinement
 
         # Which workspace this job runs in, and the roots that follow from
         # it - recorded on the job so history, the worker command and a
@@ -1012,12 +1011,13 @@ class JobManager:
     def rerun(
         self,
         job_id,
+        *,
+        admitted,
         new_seed=False,
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
         arguments=None,
-        workflow_name=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -1037,8 +1037,8 @@ class JobManager:
         Like submit, rerun does not re-check: callers admit first. The route
         admits the arguments `rerun_spec(job_id, new_seed)` answered and
         passes them back as `arguments`, with the admission's `warnings` and
-        `workflow_name`, so what is queued is what was admitted - the seed
-        is not drawn twice.
+        its Workflow as `admitted`, so what is queued is what was admitted -
+        the seed is not drawn twice.
 
         `acknowledged` and `acknowledged_cost` are this request's own; the
         original's bound object rides along in the spec for the record when
@@ -1051,7 +1051,7 @@ class JobManager:
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
-            workflow_name=workflow_name,
+            admitted=admitted,
             arguments=recorded if arguments is None else arguments,
             base_dir=spec.get("base_dir"),
             workflow_dir=spec.get("workflow_dir"),
@@ -1220,12 +1220,10 @@ class JobManager:
                 }
                 if job.spec.get("asset_dir"):
                     command["asset_dir"] = job.spec["asset_dir"]
-                if "workflow_path" in job.spec:
-                    command["workflow_path"] = job.spec["workflow_path"]
-                else:
-                    command["workflow"] = job.spec["workflow"]
-                    command["base_dir"] = job.spec["base_dir"]
-                command["workflow_dir"] = job.spec.get("workflow_dir")
+                # The snapshot admission checked, which the worker runs as
+                # it is rather than reading the file again
+                for key in ("definition", "file_spec", "source", "workflow_dir"):
+                    command[key] = job.spec.get(key)
                 self.worker_manager.send_command(command)
                 outcome = self._consume_results(job)
             except Exception as e:

@@ -28,7 +28,11 @@ if multiprocessing.get_start_method(allow_none=True) != "spawn":
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dw.worker import worker_main
-from dw.workflow import workflow_from_definition
+from dw.workflow import (
+    workflow_from_definition,
+    workflow_from_file,
+    workflow_from_snapshot,
+)
 import torch
 
 # A real SD 1.5 fp16 generation through the worker - fp16 doesn't run on
@@ -55,6 +59,22 @@ TEST_WORKFLOW_PATH = os.path.join(
     "workflows",
     "test.json",
 )
+
+
+def execute_command(output_dir):
+    """The execute command _run_job sends for TEST_WORKFLOW_PATH: the
+    snapshot admission would have built from the file."""
+    admitted = workflow_from_file(TEST_WORKFLOW_PATH, output_dir)
+    return {
+        "type": "execute",
+        "definition": admitted.workflow_definition,
+        "file_spec": admitted.file_spec,
+        "source": "path",
+        "workflow_dir": None,
+        "arguments": {},
+        "output_dir": output_dir,
+        "log_level": "INFO",
+    }
 
 
 @pytest.fixture
@@ -173,15 +193,7 @@ def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
     first_output_dir = str(tmp_path / "first_outputs")
     os.makedirs(first_output_dir, exist_ok=True)
 
-    cmd_queue.put(
-        {
-            "type": "execute",
-            "workflow_path": TEST_WORKFLOW_PATH,
-            "arguments": {},
-            "output_dir": first_output_dir,
-            "log_level": "INFO",
-        }
-    )
+    cmd_queue.put(execute_command(first_output_dir))
 
     saw_workflow_loaded = False
     while True:
@@ -204,15 +216,7 @@ def test_worker_cache_hit_applies_new_output_dir(worker_process, tmp_path):
     # output_dir.
     second_output_dir = str(tmp_path / "second_outputs")
 
-    cmd_queue.put(
-        {
-            "type": "execute",
-            "workflow_path": TEST_WORKFLOW_PATH,
-            "arguments": {},
-            "output_dir": second_output_dir,
-            "log_level": "INFO",
-        }
-    )
+    cmd_queue.put(execute_command(second_output_dir))
 
     saw_model_release = False
     second_run_count = None
@@ -254,15 +258,7 @@ def test_clear_memory_returns_a_resident_models_device_memory(worker_process, tm
     restarting the server, so it has to actually free what a loaded model
     holds, not just drop the worker's references to it."""
     cmd_queue, res_queue, worker = worker_process
-    cmd_queue.put(
-        {
-            "type": "execute",
-            "workflow_path": TEST_WORKFLOW_PATH,
-            "arguments": {},
-            "output_dir": str(tmp_path),
-            "log_level": "INFO",
-        }
-    )
+    cmd_queue.put(execute_command(str(tmp_path)))
     while True:
         result = res_queue.get(timeout=WORKER_READY_TIMEOUT)
         if result.get("type") == "success":
@@ -284,13 +280,12 @@ def test_clear_memory_returns_a_resident_models_device_memory(worker_process, tm
 
 
 def test_inline_definition_validates_against_its_own_workspace(tmp_path):
-    """The pair JobManager.submit now records for an inline job in a named
-    workspace - base_dir and workflow_dir both pointing at that workspace's
-    workflows/ - must be the pair the worker itself accepts when it
-    re-validates base_dir against workflow_dir
-    (workflow_from_definition -> validate_path(base_dir, workflow_dir)).
-    GPU-free: no worker subprocess involved, just the same validation call
-    the worker makes on receiving an 'execute' command.
+    """What admission builds for an inline job in a named workspace -
+    base_dir and workflow_dir both pointing at that workspace's workflows/ -
+    must be a snapshot the worker itself accepts when it confines the
+    file_spec to workflow_dir again (workflow_from_snapshot ->
+    validate_path). GPU-free: no worker subprocess involved, just the same
+    calls admission and the worker make.
     """
     workspace_workflows = tmp_path / "shots" / "workflows"
     workspace_workflows.mkdir(parents=True)
@@ -310,3 +305,10 @@ def test_inline_definition_validates_against_its_own_workspace(tmp_path):
     )
 
     assert workflow.name == "inline"
+    snapshot = workflow_from_snapshot(
+        workflow.workflow_definition,
+        str(output_dir),
+        workflow.file_spec,
+        str(workspace_workflows),
+    )
+    assert snapshot.name == "inline"

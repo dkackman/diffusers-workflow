@@ -176,7 +176,7 @@ def workflow_from_definition(
             raise InvalidInputError(f"base_dir is not a directory: {base_dir}")
     else:
         # A confined run without a base_dir rests at the boundary itself, so
-        # the worker's re-validation of the stored base_dir agrees with this one
+        # the worker's confinement of the file_spec agrees with this one
         validated_base = os.path.abspath(workflow_dir) if workflow_dir else os.getcwd()
     return Workflow(
         workflow_definition,
@@ -184,6 +184,26 @@ def workflow_from_definition(
         os.path.join(validated_base, "__inline__.json"),
         workflow_dir,
     )
+
+
+def workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None):
+    """The Workflow admission built, rebuilt from what it recorded - the
+    definition it checked and the file_spec it resolved - without opening
+    file_spec. A job runs the definition that was admitted, however the file
+    has changed (or vanished) since; file_spec still decides the run's
+    identity, its output subfolder and where sub-workflow steps resolve.
+
+    file_spec is the validated path workflow_from_file stored (or an inline
+    definition's synthetic '__inline__.json'), passed through as it is so
+    every name derived from it matches admission's. workflow_dir, when
+    given, confines it again here: the command crossed a process boundary,
+    and a file_spec outside the root is refused as workflow_from_file
+    refuses the path.
+    """
+    validated_output = validate_output_path(output_dir, None)
+    if workflow_dir:
+        validate_path(os.path.dirname(file_spec), workflow_dir)
+    return Workflow(definition, validated_output, file_spec, workflow_dir)
 
 
 def workflow_output_subfolder(file_spec):

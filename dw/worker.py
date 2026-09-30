@@ -14,7 +14,7 @@ from typing import Dict, Any
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.workflow import workflow_from_file, workflow_from_definition
+from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, deactivate_asset_dir
 from dw.log_setup import setup_logging, set_log_level
@@ -209,18 +209,19 @@ class WorkflowWorker:
         """
         Execute a workflow, reusing loaded models if possible.
 
-        The command names the workflow either by path (workflow_path) or as an
-        inline definition (workflow, with an optional base_dir that relative
-        paths inside it resolve against). Models stay cached between runs of
-        the same workflow identity; pipelines are cached by what they load, so
-        an edited workflow keeps every pipeline whose definition is unchanged.
-        A {"type": "cancel"} command sent during execution stops the run at
-        the next step boundary or diffusion step.
+        The command carries the snapshot admission checked - the definition,
+        the file_spec it resolved and whether it came from a file (source
+        "path") or inline - and the worker runs exactly that: it neither
+        re-reads the file nor re-checks the definition. Models stay cached
+        between runs of the same workflow identity; pipelines are cached by
+        what they load, so an edited workflow keeps every pipeline whose
+        definition is unchanged. A {"type": "cancel"} command sent during
+        execution stops the run at the next step boundary or diffusion step.
 
         Args:
-            command: Dictionary with workflow_path or workflow (+ base_dir),
-                arguments, output_dir, log_level, and optionally asset_dir -
-                the workspace library 'asset:' resolves against
+            command: Dictionary with definition, file_spec, source,
+                workflow_dir, arguments, output_dir, log_level, and optionally
+                asset_dir - the workspace library 'asset:' resolves against
         """
         arguments = command["arguments"]
         output_dir = command["output_dir"]
@@ -243,9 +244,8 @@ class WorkflowWorker:
             # against. A server holds several workspaces and each has its own
             # library, so the root travels with the job rather than being
             # pinned in the environment the way the shared prompt library is.
-            # Activated before validate() - validation runs steps like
-            # dissolve_videos and location policy that resolve asset:
-            # references, and those must see this job's own library too
+            # Active for the whole run, so every step that resolves an
+            # asset: reference reads this job's own library
             asset_token = (
                 activate_asset_dir(command["asset_dir"])
                 if command.get("asset_dir")
@@ -253,7 +253,6 @@ class WorkflowWorker:
             )
 
             workflow, identity = self._load_workflow(command, output_dir)
-            workflow.validate(arguments=arguments)
 
             # Switching to a different workflow frees the old one's models
             # before the new one loads - on one accelerator, holding both is
@@ -388,18 +387,16 @@ class WorkflowWorker:
                 deactivate_asset_dir(asset_token)
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
-        """Build the Workflow a command names, and its cache identity."""
-        workflow_dir = command.get("workflow_dir")
-        if "workflow_path" in command and command["workflow_path"] is not None:
-            workflow_path = command["workflow_path"]
-            workflow = workflow_from_file(workflow_path, output_dir, workflow_dir)
-            return workflow, ("path", workflow_path)
-
-        workflow_data = command["workflow"]
-        workflow = workflow_from_definition(
-            workflow_data, output_dir, command.get("base_dir"), workflow_dir
+        """The admitted Workflow a command carries, and its cache identity:
+        the file_spec for a job from a file, the definition's id inline."""
+        definition = command["definition"]
+        file_spec = command["file_spec"]
+        workflow = workflow_from_snapshot(
+            definition, output_dir, file_spec, command.get("workflow_dir")
         )
-        return workflow, ("inline", workflow_data.get("id"))
+        if command.get("source") == "path":
+            return workflow, ("path", file_spec)
+        return workflow, ("inline", definition.get("id"))
 
     def _watch_commands(self, context):
         """Watch the command queue during a run so cancel and ping still work.
@@ -472,9 +469,9 @@ class WorkflowWorker:
 
     def _handle_probe_cache(self, command: Dict[str, Any]):
         """Which steps the step cache would serve for a run of this command
-        - the plan's cached_steps (#85). Same fields as an execute command;
-        loads the workflow, executes nothing. A failure answers
-        cached: null with the reason rather than an error message, since
+        - the plan's cached_steps (#85). Same fields as an execute command:
+        builds the candidate admission checked, executes nothing. A failure
+        answers cached: null with the reason rather than an error message, since
         an unknown answer is a valid plan and a crashed probe is not. The
         command's probe_id is echoed so a reply that arrives after its
         caller gave up is not read as the answer to the next probe.

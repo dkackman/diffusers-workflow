@@ -32,6 +32,28 @@ def valid_workflow(job_id="server_test"):
     }
 
 
+def admitted_for(
+    manager,
+    workflow=None,
+    workflow_path=None,
+    base_dir=None,
+    workflow_dir=None,
+    output_dir=None,
+):
+    """The Workflow admission would hand JobManager.submit (or rerun) for
+    this request - for a test that queues on the manager directly rather
+    than through a route that admits."""
+    import copy
+
+    from dw.workflow import workflow_from_definition, workflow_from_file
+
+    root = workflow_dir or manager.workflow_dir
+    out = output_dir or manager.output_dir
+    if workflow_path is not None:
+        return workflow_from_file(workflow_path, out, root)
+    return workflow_from_definition(copy.deepcopy(workflow), out, base_dir, root)
+
+
 def video_workflow(job_id, with_cost=False):
     workflow = {
         "id": job_id,
@@ -250,7 +272,7 @@ def test_job_lifecycle_success(server):
         # the worker received the inline definition and the arguments
         manager = client.app.state.job_manager
         execute = [c for c in manager.worker_manager.commands if c["type"] == "execute"]
-        assert execute[0]["workflow"]["id"] == "server_test"
+        assert execute[0]["definition"]["id"] == "server_test"
         assert execute[0]["arguments"] == {"prompt": "hi"}
 
 
@@ -463,7 +485,9 @@ def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
         executes = [
             c for c in manager.worker_manager.commands if c["type"] == "execute"
         ]
-        assert executes[0]["workflow_path"].endswith("Basic.json")
+        assert executes[0]["source"] == "path"
+        assert executes[0]["file_spec"].endswith("Basic.json")
+        assert executes[0]["definition"]["id"] == "basic"
 
 
 def test_job_workflow_returns_an_inline_definition(server):
@@ -2659,7 +2683,11 @@ def test_job_history_survives_restart_and_reruns(tmp_path):
         worker_manager=ScriptedWorkerManager(success_script),
         history_path=history,
     )
-    job = manager.submit(workflow=valid_workflow(), arguments={"prompt": "hi"})
+    job = manager.submit(
+        admitted=admitted_for(manager, valid_workflow()),
+        workflow=valid_workflow(),
+        arguments={"prompt": "hi"},
+    )
     deadline = time.time() + 5
     while job.status not in ("succeeded", "failed") and time.time() < deadline:
         time.sleep(0.02)
@@ -2682,12 +2710,15 @@ def test_job_history_survives_restart_and_reruns(tmp_path):
     assert detail["arguments"] == {"prompt": "hi"}
 
     # and can run it again from the stored spec
-    rerun = revived.rerun(job.id)
+    rerun = revived.rerun(job.id, admitted=admitted_for(revived, valid_workflow()))
     assert rerun is not None and rerun.id != job.id
     assert rerun.spec["arguments"] == {"prompt": "hi"}
     revived.shutdown()
 
-    assert revived.rerun("nonexistent") is None
+    assert (
+        revived.rerun("nonexistent", admitted=admitted_for(revived, valid_workflow()))
+        is None
+    )
 
 
 def test_gallery_delete_and_job_linkage(server, tmp_path):
@@ -3430,7 +3461,9 @@ def test_terminal_jobs_are_trimmed_from_memory(tmp_path):
     )
     ids = []
     for _ in range(TERMINAL_JOBS_KEPT + 5):
-        job = manager.submit(workflow=valid_workflow())
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status != "succeeded" and time.time() < deadline:
             time.sleep(0.01)
@@ -4780,13 +4813,13 @@ def test_gallery_thumbnails_are_cacheable(server, tmp_path):
 
 
 class TestInlineJobConfinement:
-    """The worker re-validates an inline job's base_dir against workflow_dir,
+    """The worker confines an inline job's file_spec to workflow_dir again,
     so what submit accepts must be what the worker accepts."""
 
     def test_inline_job_without_base_dir_is_accepted_by_the_worker(
         self, server, tmp_path
     ):
-        from dw.workflow import workflow_from_definition
+        from dw.workflow import workflow_from_snapshot
 
         with server(success_script) as client:
             job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
@@ -4796,10 +4829,10 @@ class TestInlineJobConfinement:
 
         assert command["workflow_dir"] == str(tmp_path / "workflows")
         # The worker's own load must agree with submit-time validation
-        workflow_from_definition(
-            command["workflow"],
+        workflow_from_snapshot(
+            command["definition"],
             str(tmp_path / "outputs"),
-            command["base_dir"],
+            command["file_spec"],
             command["workflow_dir"],
         )
 
@@ -5082,7 +5115,8 @@ class TestValidatePlan:
         ]
         assert len(probe) == 1
         assert probe[0]["arguments"] == {"prompt": "x"}
-        assert probe[0]["workflow"] == seeded
+        assert probe[0]["definition"] == seeded
+        assert probe[0]["source"] == "inline"
         assert probe[0]["output_dir"] == manager.output_dir
 
     def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
@@ -5114,7 +5148,13 @@ class TestValidatePlan:
         assert one["fingerprint"] != two["fingerprint"]
 
 
-PROBE = {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+PROBE = {
+    "definition": {"id": "x", "steps": []},
+    "file_spec": "/w/x.json",
+    "source": "path",
+    "arguments": {},
+    "output_dir": "/tmp",
+}
 
 
 class TestProbeCache:
@@ -5126,7 +5166,7 @@ class TestProbeCache:
             assert manager.probe_cache(PROBE) == ["gen"]
             sent = manager.worker_manager.commands[-1]
             assert sent["type"] == "probe_cache"
-            assert sent["workflow_path"] == "x.json"
+            assert sent["file_spec"] == "/w/x.json"
 
     def test_no_worker_means_an_empty_cache(self, server):
         with server(success_script) as client:
@@ -5191,7 +5231,11 @@ class TestAcknowledgementRecord:
     def test_a_submit_records_none_by_default(self, server):
         with server(success_script) as client:
             manager = client.app.state.job_manager
-            job = manager.submit(workflow=valid_workflow(), arguments={})
+            job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
+                workflow=valid_workflow(),
+                arguments={},
+            )
             assert job.acknowledged == "none"
             assert manager.describe(job)["acknowledged"] == "none"
             assert manager.describe(job)["acknowledged_cost"] is None
@@ -5201,6 +5245,7 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
@@ -5220,6 +5265,7 @@ class TestAcknowledgementRecord:
                 "downloads": ["org/x"],
             }
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
@@ -5260,13 +5306,16 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
                 acknowledged_cost=bound,
             )
             wait_for_status(client, job.id, TERMINAL_STATES)
-            rerun = manager.rerun(job.id)
+            rerun = manager.rerun(
+                job.id, admitted=admitted_for(manager, valid_workflow())
+            )
             assert rerun.acknowledged == "none"
             assert rerun.spec["acknowledged_cost"] == bound
 
