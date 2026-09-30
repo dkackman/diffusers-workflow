@@ -947,3 +947,45 @@ class TestBleedWithOneInput:
             [audio_video(8, 0.5), audio_video(8, 0.5)], audio_bleed_ms=100
         )
         assert "bleed_no_seam" not in [w.get("kind") for w in warnings]
+
+
+class TestBleedTrace:
+    """#566: a bleed that applied leaves a log line naming its seams."""
+
+    def test_each_bled_seam_is_logged_with_what_it_joins(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(8, 0.5), audio_video(8, 0.5), audio_video(8, 0.5)],
+                audio_bleed_ms=200,
+                audio_bleed_gain_db=-6,
+                fps=4,
+            )
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("command") == "audio_bleed"]
+        assert [e["seam"] for e in logs] == [1, 2]
+        assert all(e["gain_db"] == -6 and e["bleed_ms"] == 200 for e in logs)
+        assert "seam 1 (" in logs[0]["message"] and "-6 dB" in logs[0]["message"]
+
+    def test_the_tonal_warning_names_its_seam(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        rate = 8000
+        tone = numpy.sin(2 * numpy.pi * 200 * numpy.arange(2 * rate) / rate)
+        first = AudioVideo(frames(8), numpy.tile(tone, (2, 1)).astype("float32"), rate)
+        second = AudioVideo(frames(8), numpy.zeros((2, 2 * rate), numpy.float32), rate)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([first, second], audio_bleed_ms=500, fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "bleed_tonal_material"]
+        assert warnings and warnings[0]["seam"] == 1
+        assert "seam 1 (" in warnings[0]["message"]

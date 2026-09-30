@@ -356,6 +356,7 @@ def concat_videos(
                 audio_bleed_gain_db,
                 native_sample_rate=audio_native_rate,
                 seam=index,
+                between=f"{names[index - 1]} -> {names[index]}",
             )
         else:
             audio = equal_power_crossfade_join(

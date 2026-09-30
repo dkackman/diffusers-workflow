@@ -280,6 +280,7 @@ def bleed_join(
     gain_db=0.0,
     native_sample_rate=None,
     seam=None,
+    between=None,
 ):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
@@ -317,11 +318,16 @@ def bleed_join(
             below the tail's own Nyquist, so upsampling's near-silent high
             band cannot itself read as tonal (#198). Omit when the tail is
             already at its native rate
+        seam: The seam's index, named in the log line and the tonal warning
+        between: What the seam joins ("a -> b"), named beside the index
 
     Returns:
         The two waveforms joined, of their full combined length
     """
     previous, following = _matched_channels(previous, following)
+    where = "a seam" if seam is None else f"seam {seam}"
+    if between:
+        where = f"{where} ({between})"
 
     window = min(
         int(bleed_ms / 1000.0 * sample_rate),
@@ -344,7 +350,7 @@ def bleed_join(
     harmonicity = _harmonicity(tail_source, sample_rate)
     if flatness < TONAL_FLATNESS_THRESHOLD or harmonicity > HARMONICITY_THRESHOLD:
         emit_warning(
-            f"bleed_join: the tail being reversed onto the seam looks tonal or "
+            f"bleed_join: the tail being reversed onto {where} looks tonal or "
             f"speech-like (spectral flatness {flatness:.2f}, harmonicity "
             f"{harmonicity:.2f}) rather than the room tone or crowd noise a "
             f"bleed is meant for - the reversal is likely to be audible as a "
@@ -353,6 +359,7 @@ def bleed_join(
             f"effect while audio_bleed_ms is non-zero.",
             kind="bleed_tonal_material",
             command="bleed_join",
+            seam=seam,
             flatness=round(flatness, 3),
             harmonicity=round(harmonicity, 3),
         )
@@ -361,6 +368,15 @@ def bleed_join(
     gain = 10.0 ** (gain_db / 20.0) if gain_db else 1.0
     following = following.copy()
     following[:, :window] += tail * decay * gain
+    emit_log(
+        f"audio_bleed: {window / sample_rate * 1000:.0f} ms of tail over {where}"
+        f" at {gain_db:g} dB (asked {bleed_ms} ms)",
+        command="audio_bleed",
+        seam=seam,
+        bleed_ms=round(window / sample_rate * 1000, 1),
+        requested_ms=bleed_ms,
+        gain_db=gain_db,
+    )
 
     peak = numpy.abs(following[:, :window]).max()
     if peak > 1.0:
