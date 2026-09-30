@@ -5459,7 +5459,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.app as app_module
+        import dw.server.admission as admission_module
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5467,7 +5467,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(app_module, "build_plan", boom)
+            monkeypatch.setattr(admission_module, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -5477,11 +5477,13 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["plan"] is None
 
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
+        import dw.server.admission as admission_module
         import dw.server.app as app_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
+        monkeypatch.setattr(admission_module, "build_plan", boom)
         monkeypatch.setattr(app_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
@@ -6025,7 +6027,7 @@ class TestDetailCachePruning:
     def test_an_insert_during_the_scan_does_not_raise(self):
         from unittest.mock import patch
 
-        from dw.server import app as app_module
+        from dw.server import catalog as catalog_module
 
         cache = {"/gone/a.json": 1, "/gone/b.json": 2}
 
@@ -6034,15 +6036,15 @@ class TestDetailCachePruning:
             return False
 
         with patch.object(
-            app_module.os.path, "exists", exists_while_another_thread_inserts
+            catalog_module.os.path, "exists", exists_while_another_thread_inserts
         ):
-            app_module._prune_missing(cache)
+            catalog_module._prune_missing(cache)
         assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
 
     def test_an_entry_another_thread_already_pruned_is_not_an_error(self):
         from unittest.mock import patch
 
-        from dw.server import app as app_module
+        from dw.server import catalog as catalog_module
 
         cache = {"/gone/a.json": 1, "/gone/b.json": 2}
 
@@ -6051,7 +6053,7 @@ class TestDetailCachePruning:
             return False
 
         with patch.object(
-            app_module.os.path, "exists", exists_while_another_thread_prunes
+            catalog_module.os.path, "exists", exists_while_another_thread_prunes
         ):
-            app_module._prune_missing(cache)
+            catalog_module._prune_missing(cache)
         assert cache == {}

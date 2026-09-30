@@ -18,11 +18,10 @@ import re
 import uuid
 import asyncio
 import logging
-import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
-from urllib.parse import quote, urlparse
-from typing import Any, Dict, List, Optional, Union
+from urllib.parse import quote
+from typing import Any, Dict, Optional, Union
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from filelock import FileLock
@@ -30,7 +29,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from starlette.routing import Match, Route
+from starlette.routing import Route
 from starlette.background import BackgroundTask
 
 from ..references import ASSET, make_ref
@@ -67,14 +66,13 @@ from ..schema import (
     SchemaSectionError,
 )
 from ..prompts import (
-    PROMPT_PREFIX,
     RESERVED_TEXT_PREFIXES,
 )
 from ..assets import (
     ASSET_PREFIX,
     is_asset_reference,
 )
-from .observed_cost import ObservedCosts, declared_drivers
+from .observed_cost import ObservedCosts
 from ..workflow import Workflow
 from .enhancers import build_enhance_workflow, preset_descriptions
 from .exports import export_directory, export_job
@@ -135,22 +133,41 @@ from ..workflow_sources import (
     COMMON_ORIGIN,
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
-    find_workflow,
     listing,
-    resolve_in_source,
     resolve_sub_workflow,
-    source_for_path,
-    suggest_workflow_names,
     workflow_names,
     workflow_sources,
-    writable_source,
     SubWorkflowNotFound,
 )
-from .admission import ValidatorFailure, admit
+from .admission import (
+    ACKNOWLEDGED_COST_FIELD,
+    AcknowledgedCost,
+    JobRequest,
+    ValidatorFailure,
+    acknowledgement_form,
+    admit,
+    bound_plan_for,
+    check_bound_acknowledgement,
+)
+from .catalog import (
+    _matching_prompts,
+    catalog_name_from_root,
+    attach_observed,
+    catalog_name_for,
+    prompt_details,
+    resolve_prompt_name,
+    resolve_readable_workflow,
+    resolve_workflow_reference,
+    resolve_writable_workflow,
+    workflow_details,
+)
+from .http_security import (
+    ACTIVE_DOCUMENT_TYPES,
+    install_middleware,
+    query_token_ok,
+)
 from .jobs import (
-    ACK_BOOLEAN,
     ACK_BOUND,
-    ACK_NONE,
     JobManager,
     MAX_PERSISTED_EVENTS,
     QUEUED,
@@ -172,472 +189,16 @@ logger = logging.getLogger("dw")
 SSE_POLL_SECONDS = 1.0
 
 
-class AcknowledgedCost(BaseModel):
-    """A cost acknowledgement bound to the plan a validate call answered
-    with (#85): the server refuses to queue a run whose plan no longer
-    matches it. `minutes` is recorded, never compared."""
-
-    fingerprint: str = Field(description="plan.fingerprint from POST /api/validate")
-    minutes: Optional[float] = Field(
-        default=None, description="plan.estimate.minutes, recorded on the job"
-    )
-    downloads: List[str] = Field(
-        default_factory=list,
-        description="The repos in plan.downloads_required that were acknowledged",
-    )
-
-
-ACKNOWLEDGED_COST_FIELD = Field(
-    default=None,
-    description="Cost acknowledgement: true (recorded), or an object "
-    "{fingerprint, minutes, downloads} bound to the plan validate answered "
-    "with - then the run is refused with 409 if its plan changed",
-)
-
-
-class JobRequest(BaseModel):
-    workflow_path: Optional[str] = Field(
-        default=None, description="Path to a workflow JSON file on the server"
-    )
-    workflow: Optional[Dict[str, Any]] = Field(
-        default=None, description="Inline workflow definition"
-    )
-    arguments: Dict[str, Any] = Field(
-        default_factory=dict, description="Workflow variable overrides"
-    )
-    base_dir: Optional[str] = Field(
-        default=None,
-        description="Directory relative paths in an inline workflow resolve against",
-    )
-    workspace: Optional[str] = Field(
-        default=None,
-        description="Which workspace to run or resolve in; the default when omitted",
-    )
-    acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
-
-
 # What a run directory holds besides its outputs - the files a run writes
 # about itself. A run whose directory holds nothing else is an orphan
 # (see _iter_orphan_runs, #170) whatever shape its output would have had.
 # job.json is what an export bundle writes, listed defensively.
 RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
 
-# What each workflow produces and takes, for listing cards - cached by mtime
-_workflow_detail_cache = {}
-
-
-def _prune_missing(cache):
-    """Forget cached files that are gone from disk.
-
-    Pruning by what one listing named would be wrong here: the workflow
-    cache is shared by every workspace, and a listing only ever sees one
-    workspace's search path, so anything cached for another workspace would
-    be thrown away and re-parsed on the next switch. Existence is the test
-    that holds for all of them at once.
-
-    `list(cache)` copies the keys in one step, so a request thread inserting
-    meanwhile cannot break the scan, and `pop` tolerates an entry another
-    thread already pruned.
-    """
-    for stale in [path for path in list(cache) if not os.path.exists(path)]:
-        cache.pop(stale, None)
-
-
-def collect_prompt_references(value):
-    """Every stored-prompt name a definition references, at any depth - so
-    deleting a prompt can warn which workflows would break."""
-    references = set()
-    if isinstance(value, str):
-        if value.startswith(PROMPT_PREFIX):
-            references.add(value.removeprefix(PROMPT_PREFIX).strip())
-    elif isinstance(value, dict):
-        for item in value.values():
-            references |= collect_prompt_references(item)
-    elif isinstance(value, list):
-        for item in value:
-            references |= collect_prompt_references(item)
-    return references
-
-
-def _catalog_name_from_root(path, root):
-    """The listing name a resolved workflow path has under a root.
-
-    None when the path is not under the root after all - a name that does
-    not name an entry is worse than no name for anything that later joins
-    on it.
-    """
-    if root is None:
-        return None
-    relative = os.path.relpath(path, root)
-    if relative.startswith(".."):
-        return None
-    return os.path.splitext(relative)[0].replace(os.sep, "/")
-
-
-def catalog_name_for(path, source):
-    """The listing name a resolved workflow path has within its source.
-
-    None when the run came from an inline definition, or when the path is
-    not under the source root after all - a name that does not name an
-    entry is worse than no name for anything that later joins on it.
-    """
-    if source is None:
-        return None
-    return _catalog_name_from_root(path, source.root)
-
-
-def attach_observed(details, observed_costs, workspace_name=None):
-    """Fold this box's own history into each detail, as `observed`.
-
-    Separate from `workflow_details` because that cache is keyed on a file's
-    mtime and this figure changes when no file has: a job finishing moves
-    every number here. A detail carries `cost_drivers` and the defaults they
-    take, which is everything the aggregate needs - the file is not read a
-    second time.
-
-    A detail's own `writable` says whether its entry is this workspace's own
-    copy or a shared catalog one (#274): only the former is scoped to
-    `workspace_name`, so two workspaces' saves of the same name do not leak
-    into each other's figure, while a template or example still pools every
-    workspace's runs of it, matching #154.
-    """
-    if observed_costs is None or not observed_costs.refresh():
-        return details
-    for name, detail in details.items():
-        drivers = detail.get("cost_drivers") or {}
-        # The shape `observed_for` reads: the drivers with their defaults,
-        # and the variable names, which is what the no-drivers fallback
-        # (default-arguments-only runs) compares a job's arguments against
-        surrogate = {
-            "cost_drivers": sorted(drivers),
-            "variables": {
-                **{variable: None for variable in detail.get("variable_names") or []},
-                **drivers,
-            },
-        }
-        workspace = workspace_name if detail.get("writable") else None
-        observed = observed_costs.observed(
-            name, surrogate, fresh=False, workspace=workspace
-        )
-        if observed:
-            detail["observed"] = observed
-    return details
-
-
-def workflow_details(sources_by_name):
-    """Per-workflow card metadata: output kinds, step and variable counts,
-    and the variable names themselves - enough for an agent to pick a
-    workflow and know what to pass it without fetching each candidate, and,
-    for a list-driven workflow, what an entry of each list carries. The
-    names but not their defaults: across the workflows on disk the defaults
-    are an order of magnitude more payload, on a listing the UI reloads.
-
-    Takes the name -> source mapping the search path produced, so each
-    entry also says where it came from and whether it can be written to -
-    what a client needs to decide between offering save and offering
-    save-a-copy.
-    """
-    details = {}
-    for name, source in sources_by_name.items():
-        path = os.path.join(source.root, f"{name}.json")
-        try:
-            mtime = os.path.getmtime(path)
-        except OSError:
-            continue
-        cached = _workflow_detail_cache.get(path)
-        if cached and cached[0] == mtime:
-            # The cached detail is placement-free; the origin and writability
-            # are the source's, and a warm cache must still carry them or a
-            # second listing loses the fields a client decides save-vs-copy on
-            details[name] = {
-                **cached[1],
-                "origin": source.origin,
-                "writable": source.writable,
-            }
-            continue
-        try:
-            with open(path, "r") as file:
-                definition = json.load(file)
-            kinds = sorted(
-                {
-                    step["result"]["content_type"].split("/")[0]
-                    for step in definition.get("steps", [])
-                    if isinstance(step.get("result"), dict)
-                    and "content_type" in step["result"]
-                }
-            )
-            variables = definition.get("variables", {}) or {}
-            metadata = derive_catalog_metadata(definition)
-            cost = definition.get("cost")
-            detail = {
-                "kinds": kinds,
-                "steps": len(definition.get("steps", [])),
-                "variables": len(variables),
-                "variable_names": sorted(variables),
-                "description": str(definition.get("description", "") or ""),
-                # Empty for a template; a catalog name for a model config, which
-                # is what lets a client show the two as different kinds of thing
-                "configures": str(definition.get("configures", "") or ""),
-                "prompt_refs": sorted(collect_prompt_references(definition)),
-                "shape": metadata["shape"],
-                "traits": metadata["traits"],
-                "summary": metadata["summary"],
-                "lists": metadata["lists"],
-                # What a variable's value is allowed to be, so the rule is
-                # read rather than guessed at (#96)
-                "constraints": definition.get("variable_constraints") or {},
-                # The variables the author says move this workflow's cost,
-                # with what they default to - what buckets this box's own
-                # runs into comparable ones (#93). Carried here so an
-                # observed figure needs no second read of the file
-                "cost_drivers": {
-                    name: (definition.get("variables") or {}).get(name)
-                    for name in declared_drivers(definition)
-                },
-                "cost": cost if isinstance(cost, list) and cost else None,
-            }
-        except Exception:
-            detail = {
-                "kinds": [],
-                "steps": 0,
-                "variables": 0,
-                "variable_names": [],
-                "description": "",
-                "prompt_refs": [],
-                "shape": "utility",
-                "traits": [],
-                "summary": "",
-                "lists": {},
-                "constraints": {},
-                "cost_drivers": {},
-                "cost": None,
-            }
-        _workflow_detail_cache[path] = (mtime, detail)
-        # Cached by content, not by placement: the same file listed from a
-        # different source keeps its parsed detail and gets fresh origins
-        details[name] = {
-            **detail,
-            "origin": source.origin,
-            "writable": source.writable,
-        }
-    _prune_missing(_workflow_detail_cache)
-    # A model config names its template as a catalog name. Resolve it here,
-    # where the whole listing is in hand, so a badge is a link to a real card
-    # rather than a string - and say which name did not resolve. A config
-    # also takes its shape and traits from the template: what it makes is
-    # the template's business, what it costs is its own. Entries can be the
-    # very dict cached above (a cache hit skips the copy at the origin
-    # merge), so copy before mutating - otherwise a stale "not found yet"
-    # verdict would stick in the cache and outlive the typo once the
-    # template it names is added.
-    for name, detail in details.items():
-        named = detail.get("configures", "")
-        if not named:
-            continue
-        detail = dict(detail)
-        template = details.get(named)
-        if template is None:
-            detail["configures_missing"] = named
-            detail["configures"] = ""
-        else:
-            detail["shape"] = template["shape"]
-            detail["traits"] = list(template["traits"])
-        details[name] = detail
-    return details
-
 
 def _write_bytes(path, data):
     with open(path, "wb") as f:
         f.write(data)
-
-
-def _unknown_workflow_detail(sources, name):
-    """'Unknown workflow: x', with a '- did you mean ...?' pointer when the
-    catalog holds something `name` could be short for or a typo of (#397) -
-    otherwise a caller has to spend a list_workflows call and guess the
-    right shape/traits to find the entry it already knows by its short
-    name."""
-    detail = f"Unknown workflow: {name}"
-    suggestions = suggest_workflow_names(sources, name)
-    if len(suggestions) == 1:
-        detail += f" - did you mean {suggestions[0]}?"
-    elif suggestions:
-        detail += f" - did you mean one of: {', '.join(suggestions)}?"
-    return detail
-
-
-def resolve_readable_workflow(sources, name):
-    """The path a name has anywhere on the search path, and its source.
-
-    Reads span every root - the workspace's own workflows, any examples
-    directory, and the packaged builtins - front to back, so a workspace
-    copy shadows the example it came from.
-    """
-    path, source = find_workflow(sources, name)
-    if path is None:
-        raise HTTPException(
-            status_code=404, detail=_unknown_workflow_detail(sources, name)
-        )
-    return path, source
-
-
-def resolve_writable_workflow(sources, name):
-    """Where a save goes: always the writable source, whatever the name
-    currently resolves to.
-
-    Saving a workflow opened from an example is not an overwrite of that
-    example - it is a copy into the user's own library, which is what makes
-    the read-only roots safe to browse and edit from.
-    """
-    source = writable_source(sources)
-    if source is None:
-        raise HTTPException(
-            status_code=409, detail="This server has no writable workflow directory"
-        )
-    path = resolve_in_source(source, name, allow_create=True)
-    if path is None:
-        raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
-    return path, source
-
-
-def resolve_workflow_reference(workflow_path, sources):
-    """A submitted workflow_path, resolved to a file on disk, and the source
-    it lives in - the same search path the /api/workflows CRUD routes read
-    from, spanning every root rather than confining to one, since a run of
-    an example is a read and reads are not confined to the writable root.
-
-    Tried as a stored workflow name first - exactly what /api/workflows
-    hands out, with or without .json and nested names included - so an
-    agent can run what a listing gave it. A relative or absolute path that
-    already names a file under one of the sources resolves the same way:
-    os.path.abspath handles a path relative to the server's cwd, and
-    source_for_path holds it to that source's containment check.
-
-    Anything that resolves under no source - an unknown name, a traversal
-    attempt, or a real file elsewhere on disk - is rejected with 400,
-    rather than silently opened: a workflow_path is not a general
-    filesystem path.
-
-    Returns (None, None) when workflow_path itself is None - an inline
-    workflow submission names no path to resolve.
-    """
-    if workflow_path is None:
-        return None, None
-    path, source = find_workflow(sources, workflow_path)
-    if path is not None:
-        return path, source
-    candidate = os.path.abspath(workflow_path)
-    source = source_for_path(sources, candidate)
-    if source is not None:
-        # The containment check re-applied to the path this returns, rather
-        # than trusted from source_for_path's answer about it - and applied
-        # before anything asks the filesystem about the path, so a
-        # workflow_path outside every source cannot be used to find out
-        # whether a file exists there
-        try:
-            confined = validate_path(candidate, source.root, allow_create=False)
-        except SecurityError:
-            confined = None
-        if confined is not None and os.path.isfile(confined):
-            return confined, source
-    detail = f"workflow_path must name a workflow the server can reach: {workflow_path}"
-    suggestions = suggest_workflow_names(sources, workflow_path)
-    if len(suggestions) == 1:
-        detail += f" - did you mean {suggestions[0]}?"
-    elif suggestions:
-        detail += f" - did you mean one of: {', '.join(suggestions)}?"
-    raise HTTPException(status_code=400, detail=detail)
-
-
-# What each prompt says about itself, for listing cards - cached by mtime
-_prompt_detail_cache = {}
-
-
-def prompt_details(paths):
-    """Per-prompt card metadata: description, intended model, tags - and
-    the text itself, which the editors show as the tooltip wherever a
-    prompt: reference stands in for it.
-
-    Keyed by path rather than by name under one directory: the prompt
-    library is a search path now, and two roots can hold the same name.
-    """
-    details = {}
-    for name, path in paths.items():
-        try:
-            mtime = os.path.getmtime(path)
-        except OSError:
-            continue
-        cached = _prompt_detail_cache.get(path)
-        if cached and cached[0] == mtime:
-            details[name] = cached[1]
-            continue
-        try:
-            with open(path, "r") as file:
-                definition = json.load(file)
-            detail = {
-                "description": str(definition.get("description", "") or ""),
-                "intended_model": str(definition.get("intended_model", "") or ""),
-                "tags": [str(tag) for tag in definition.get("tags", []) or []],
-                "text": str(definition.get("text", "") or ""),
-            }
-        except Exception:
-            detail = {"description": "", "intended_model": "", "tags": [], "text": ""}
-        _prompt_detail_cache[path] = (mtime, detail)
-        details[name] = detail
-    # By existence, not by what this listing named: the cache spans every
-    # root on the search path, and one listing shows only the names that
-    # were not shadowed
-    _prune_missing(_prompt_detail_cache)
-    return details
-
-
-def _matching_prompts(details, tag, intended_model):
-    """The prompt names matching the filters, or None when no filter was given.
-
-    Case-insensitive and exact per value: a `tags` entry or the whole
-    `intended_model`, never a substring - `minimax-music` must not match
-    `minimax-music3`, which is the confusion the one-spelling-per-family
-    rule exists to prevent.
-    """
-    if tag is None and intended_model is None:
-        return None
-    wanted_tag = tag.lower() if tag is not None else None
-    wanted_model = intended_model.lower() if intended_model is not None else None
-    matches = set()
-    for name, detail in details.items():
-        if wanted_tag is not None and wanted_tag not in {
-            str(each).lower() for each in detail.get("tags") or []
-        }:
-            continue
-        if (
-            wanted_model is not None
-            and str(detail.get("intended_model") or "").lower() != wanted_model
-        ):
-            continue
-        matches.add(name)
-    return matches
-
-
-def resolve_prompt_name(prompt_dir, name, allow_create=False):
-    """The on-disk path for a prompt name, confined to prompt_dir.
-
-    The name is held to the same rule 'prompt:' references enforce - a save
-    the API accepted but no workflow could ever reference would be a trap. A
-    save is told what is wrong with the name; a read just misses."""
-    bare = name.removesuffix(".json")
-    try:
-        validate_prompt_reference(bare)
-    except InvalidInputError as e:
-        status = 400 if allow_create else 404
-        raise HTTPException(status_code=status, detail=str(e))
-    try:
-        return validate_path(
-            os.path.join(prompt_dir, f"{bare}.json"),
-            prompt_dir,
-            allow_create=allow_create,
-        )
-    except SecurityError as e:
-        raise HTTPException(status_code=404, detail=f"Unknown prompt: {e}")
 
 
 def default_ui_dir():
@@ -678,57 +239,6 @@ def _historical_log_note(stored):
 # at the bottom of create_app) - the Server page quotes it in the command
 # it tells you to run on the other machine
 MCP_PATH = "/mcp"
-
-# Types a browser renders as a document, where script runs: /outputs and
-# /inputs serve these under a CSP sandbox (_sandbox_active_content)
-ACTIVE_DOCUMENT_TYPES = frozenset(
-    {
-        "text/html",
-        "application/xhtml+xml",
-        "text/xml",
-        "application/xml",
-        "image/svg+xml",
-    }
-)
-
-
-def query_token_ok(fn):
-    """Mark a GET endpoint as one a browser loads without being able to set
-    headers (EventSource, an <img> tag, an <a download> navigation) - only
-    routes carrying this marker accept the bearer token as a ?token= query
-    param. Matched by the actual route at request time, not by a path
-    suffix, so a resource that merely happens to be named "download" or
-    "thumbnail" does not inherit the allowance."""
-    fn.query_token_ok = True
-    return fn
-
-
-def _matched_route(request: Request):
-    """Resolve the Route (if any) that will handle this request. Runs in
-    middleware, before routing has attached anything to request.scope, so
-    routes are matched by hand against request.app.router.routes. Skips
-    non-Route entries (the SPA static Mount) and routes with no endpoint.
-
-    A HEAD request path-matches a GET-only route as Match.PARTIAL (method
-    mismatch) rather than Match.FULL, since this route is declared with
-    methods=["GET"] and nothing here adds HEAD to it - but a HEAD request
-    is still the same header-less browser load a GET would be, so it is
-    treated the same for the query-token allowance."""
-    method = request.scope.get("method")
-    for route in request.app.router.routes:
-        if not isinstance(route, Route) or route.endpoint is None:
-            continue
-        match, _ = route.matches(request.scope)
-        if match == Match.FULL:
-            return route
-        if (
-            match == Match.PARTIAL
-            and method == "HEAD"
-            and route.methods
-            and "GET" in route.methods
-        ):
-            return route
-    return None
 
 
 def create_app(
@@ -806,10 +316,6 @@ def create_app(
     # figure and changes no workflow file (#93)
     app.state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     app.state.workflow_dir = workflow_dir
-    # The search path: the writable directory first, then read-only roots -
-    # any --examples-dir, then the packaged builtins. Reads span all of it,
-    # saves only ever reach the front
-    app.state.workflow_sources = workflow_sources(workflow_dir, examples_dirs)
     app.state.prompt_dir = prompt_dir
     # The read-only libraries the --examples-dir trees bring with them: an
     # example workflow references the prompts and assets that live beside
@@ -861,123 +367,15 @@ def create_app(
     allowed_hosts = set(LOOPBACK_HOSTS)
     if host and not wildcard_bind:
         allowed_hosts.add(host.lower())
-
-    @app.middleware("http")
-    async def reject_foreign_origins(request, call_next):
-        """Refuse browser cross-origin requests - a drive-by web page must
-        not be able to queue jobs on this server. Requests without an
-        Origin header (curl, scripts, same-origin GETs) pass.
-
-        An Origin is accepted when its hostname is a loopback name, the
-        configured bind host, or the hostname the request itself was
-        addressed to (same-origin). The last clause is what lets a browser
-        on another machine use a `--host 0.0.0.0` server by its LAN IP or
-        hostname - and it stays safe against DNS rebinding, where the
-        attacker's page carries its own Origin while Host is whatever
-        resolved: the two differ, so the request is refused. Scheme and
-        port are ignored, matching the Host check: a TLS-terminating proxy
-        forwards Host unchanged while the browser's Origin is https."""
-        origin = request.headers.get("origin")
-        if origin:
-            try:
-                origin_host = (urlparse(origin).hostname or "").lower()
-            except ValueError:
-                # urlparse raises on a bracketed host that is not IPv6
-                # ('http://[::1].evil.example'): refused like any other
-                # foreign Origin rather than escaping as a 500
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Cross-origin requests are not allowed"},
-                )
-            request_host = (request.url.hostname or "").lower()
-            # origin_host must be non-empty for the same-origin clause:
-            # `Origin: null` (a sandboxed iframe, a file:// page) parses to
-            # no hostname and would otherwise match a request whose Host
-            # carries none either
-            if origin_host not in allowed_hosts and not (
-                origin_host and origin_host == request_host
-            ):
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Cross-origin requests are not allowed"},
-                )
-        return await call_next(request)
-
-    # Defense-in-depth for requests that carry no Origin at all (curl,
-    # scripts, the MCP client) and so skip the check above entirely: a
-    # request that arrived on this port but claims to be addressed to some
-    # unrelated public domain is rejected. This does not stop DNS rebinding
-    # by itself (the Origin check already does, since a browser's Origin
-    # header reflects the real requesting origin regardless of DNS) - it
-    # only closes the gap for non-browser clients that never send Origin.
-    # A wildcard bind is reached by whatever address the machine has - a LAN
-    # IP, a hostname - never by the bind string itself, so there is no
-    # allowlist to build; the Host check is skipped for it.
-    @app.middleware("http")
-    async def reject_foreign_hosts(request, call_next):
-        hostname = request.url.hostname
-        if (
-            not wildcard_bind
-            and hostname is not None
-            and hostname.lower() not in allowed_hosts
-        ):
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Unrecognized Host header"},
-            )
-        return await call_next(request)
-
-    @app.middleware("http")
-    async def require_bearer_token(request: Request, call_next):
-        """Static bearer-token auth (opt-in via --token / DW_API_TOKEN).
-        Only /api/* is gated - the UI's own static files and /outputs (an
-        <img>/<script> tag cannot attach an Authorization header anyway)
-        stay reachable so the page can load far enough to let a user enter
-        the token in the first place. EventSource cannot set custom headers
-        either, and neither can the <img> tags the gallery grid loads its
-        thumbnails through nor the <a download> navigations the download
-        buttons make, so those GET routes additionally accept the token as a
-        `token` query parameter - a documented trade-off, not a header-auth
-        peer."""
-        if not token:
-            return await call_next(request)
-        path = request.url.path
-        if not (path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")):
-            return await call_next(request)
-        provided = None
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer "):
-            provided = auth[len("bearer ") :].strip()
-        # GET/HEAD only, and only on a route explicitly marked
-        # query_token_ok - matched against the real route (see
-        # _matched_route), not by a path suffix, so a resource that
-        # happens to be named "download" or "thumbnail" does not inherit
-        # the allowance meant for the real routes.
-        if provided is None and request.method in ("GET", "HEAD"):
-            route = _matched_route(request)
-            if route is not None and getattr(route.endpoint, "query_token_ok", False):
-                provided = request.query_params.get("token")
-        # compared as bytes: compare_digest refuses non-ASCII str
-        if provided is None or not secrets.compare_digest(
-            provided.encode("utf-8"), token.encode("utf-8")
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid bearer token"},
-            )
-        return await call_next(request)
-
-    # Added last, so it is the outermost middleware and its headers land on
-    # every response - including the 400/401/403 answers the checks above
-    # return without reaching a route. nosniff stops a browser reading an
-    # output as a type other than the one it was served as; DENY stops any
-    # other site framing the UI to click its buttons (#407)
-    @app.middleware("http")
-    async def browser_headers(request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        return response
+    # What the middlewares read at request time. `downloads` and `updater` are
+    # stored at their construction below, `ceiling_indexes` beside its use
+    app.state.api_token = token
+    app.state.bind_host = host
+    app.state.bind_port = port
+    app.state.wildcard_bind = wildcard_bind
+    app.state.allowed_hosts = allowed_hosts
+    app.state.examples_dirs = examples_dirs
+    install_middleware(app)
 
     # -------------------------------------------------------- workspace lookup
 
@@ -1027,7 +425,7 @@ def create_app(
 
     # One index per distinct listing - keyed by every file's path and mtime,
     # so an edited, added or removed template rebuilds it and nothing else does
-    ceiling_indexes = {}
+    ceiling_indexes = app.state.ceiling_indexes = {}
 
     def _ceiling_index(ws):
         """The catalog's VRAM ceilings by pipeline identity, as this
@@ -1057,85 +455,6 @@ def create_app(
 
     # ------------------------------------------------------------------ jobs
 
-    def _acknowledgement_form(value):
-        """none | boolean | bound - classified once, here, so the check and
-        the record agree (#85)."""
-        if isinstance(value, AcknowledgedCost):
-            return ACK_BOUND
-        return ACK_BOOLEAN if value is True else ACK_NONE
-
-    def _bound_plan_for(arguments, workspace):
-        """The `plan_for` a bound acknowledgement is checked against - the
-        run these arguments execute, planned without asking the hub for
-        sizes. None when it cannot be built, which the check refuses."""
-
-        def plan_for(candidate):
-            try:
-                from .. import get_device, get_device_type
-
-                return build_plan(
-                    candidate,
-                    arguments,
-                    device=get_device_type(get_device()),
-                    prompt_dir=workspace.prompts,
-                    lookup_sizes=False,
-                )
-            except Exception:
-                logger.exception("Plan could not be built for a bound acknowledgement")
-                return None
-
-        return plan_for
-
-    def _check_bound_acknowledgement(current, acknowledged, workspace):
-        """Refuse with 409 when `current`, the plan of the run the request
-        admitted, is not the one `acknowledged` was bound to: a different
-        fingerprint, or a download the caller did not acknowledge. The body
-        carries the current plan so the agent re-quotes from it without a
-        second validate call. A plan that could not be built (None) is a
-        refusal too - never a silent pass (#85).
-        """
-        record = acknowledged.model_dump()
-
-        def refuse(message, reason, plan):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": message,
-                    "reason": reason,
-                    "acknowledged": record,
-                    "plan": plan,
-                },
-            )
-
-        if current is None:
-            refuse(
-                "The run could not be planned, so a bound acknowledgement "
-                "cannot be checked; acknowledge with true or validate again",
-                "unplannable",
-                None,
-            )
-        current["workspace"] = workspace.name
-        current["output_dir"] = workspace.outputs
-        if current["fingerprint"] != acknowledged.fingerprint:
-            refuse(
-                "The run's shape changed since it was acknowledged: the "
-                "workflow or its arguments differ from what was validated.",
-                "fingerprint",
-                current,
-            )
-        missing = [
-            entry["repo"]
-            for entry in current["downloads_required"]
-            if entry.get("repo") and entry["repo"] not in acknowledged.downloads
-        ]
-        if missing:
-            refuse(
-                "The run's shape changed since it was acknowledged: it now "
-                f"has to download {', '.join(missing)} first",
-                "downloads",
-                current,
-            )
-
     def _admit(workspace, **request):
         """`admit()` with this server's view of `workspace` - the asset and
         prompt search paths and the catalog's VRAM ceilings, which live in
@@ -1162,7 +481,7 @@ def create_app(
             # from, so an example runs where it lives while an inline
             # definition stays held to this workspace's own workflows
             workflow_dir = source.root if source else workspace.workflows
-            form = _acknowledgement_form(request.acknowledged_cost)
+            form = acknowledgement_form(request.acknowledged_cost)
             # Everything POST /api/validate checks, so a caller who skipped
             # the free pre-flight still gets no job id for a run that cannot
             # start - and a bound acknowledgement is checked against the plan
@@ -1176,7 +495,7 @@ def create_app(
                 output_dir=workspace.outputs,
                 workflow_dir=workflow_dir,
                 plan_for=(
-                    _bound_plan_for(request.arguments, workspace)
+                    bound_plan_for(request.arguments, workspace)
                     if form == ACK_BOUND
                     else None
                 ),
@@ -1184,7 +503,7 @@ def create_app(
             if not admission.ok:
                 raise ValueError(admission.message())
             if form == ACK_BOUND:
-                _check_bound_acknowledgement(
+                check_bound_acknowledgement(
                     admission.plan, request.acknowledged_cost, workspace
                 )
             job = manager.submit(
@@ -1322,7 +641,7 @@ def create_app(
         original ran may not any more. Takes `acknowledged_cost` as POST
         /api/jobs does; a bound one is checked against the stored spec's
         plan - the fresh seed of `new_seed` does not change a fingerprint."""
-        form = _acknowledgement_form(body.acknowledged_cost)
+        form = acknowledgement_form(body.acknowledged_cost)
         try:
             prepared = manager.rerun_spec(job_id, new_seed=body.new_seed)
             if prepared is None:
@@ -1338,13 +657,13 @@ def create_app(
                 output_dir=spec.get("output_dir") or manager.output_dir,
                 workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
                 plan_for=(
-                    _bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
+                    bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
                 ),
             )
             if not admission.ok:
                 raise ValueError(admission.message())
             if form == ACK_BOUND:
-                _check_bound_acknowledgement(
+                check_bound_acknowledgement(
                     admission.plan, body.acknowledged_cost, workspace
                 )
             job = manager.rerun(
@@ -1674,7 +993,7 @@ def create_app(
                     )
                 except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
                     return None
-                child_name = _catalog_name_from_root(child_path, child_root)
+                child_name = catalog_name_from_root(child_path, child_root)
                 if not child_name:
                     return None
                 # resolve_sub_workflow hands back a bare root string, not a
@@ -4106,7 +3425,7 @@ def create_app(
         """What the Hugging Face hub cache holds, largest repo first."""
         return scan_models()
 
-    downloads = download_manager or DownloadManager()
+    downloads = app.state.downloads = download_manager or DownloadManager()
 
     class DownloadRequest(BaseModel):
         repo_id: str = Field(description="Hub repo to download, e.g. org/model")
@@ -4159,7 +3478,7 @@ def create_app(
 
     # ------------------------------------------------------ diffusers update
 
-    updater = diffusers_updater or DiffusersUpdater()
+    updater = app.state.updater = diffusers_updater or DiffusersUpdater()
 
     @app.get("/api/system/diffusers")
     def diffusers_state():

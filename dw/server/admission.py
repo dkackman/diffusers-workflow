@@ -14,7 +14,10 @@ and runs it without re-reading the file or validating it again.
 import copy
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Dict, List, Optional, Union
+
+from fastapi import HTTPException
+from pydantic import BaseModel, Field
 
 from ..assets import (
     ASSET_PREFIX,
@@ -24,11 +27,13 @@ from ..assets import (
     resolve_asset_reference,
 )
 from .. import validation
+from ..plan import build_plan
 from ..prompts import PROMPT_PREFIX, resolve_prompt_reference
 from ..runs import is_output_reference, resolve_output_reference
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
+from .jobs import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 
 logger = logging.getLogger("dw")
 
@@ -303,3 +308,129 @@ def argument_reference_errors(
                 # refusal from the security layer included
                 errors.append({"path": path, "message": str(e)})
     return errors
+
+
+class AcknowledgedCost(BaseModel):
+    """A cost acknowledgement bound to the plan a validate call answered
+    with (#85): the server refuses to queue a run whose plan no longer
+    matches it. `minutes` is recorded, never compared."""
+
+    fingerprint: str = Field(description="plan.fingerprint from POST /api/validate")
+    minutes: Optional[float] = Field(
+        default=None, description="plan.estimate.minutes, recorded on the job"
+    )
+    downloads: List[str] = Field(
+        default_factory=list,
+        description="The repos in plan.downloads_required that were acknowledged",
+    )
+
+
+ACKNOWLEDGED_COST_FIELD = Field(
+    default=None,
+    description="Cost acknowledgement: true (recorded), or an object "
+    "{fingerprint, minutes, downloads} bound to the plan validate answered "
+    "with - then the run is refused with 409 if its plan changed",
+)
+
+
+class JobRequest(BaseModel):
+    workflow_path: Optional[str] = Field(
+        default=None, description="Path to a workflow JSON file on the server"
+    )
+    workflow: Optional[Dict[str, Any]] = Field(
+        default=None, description="Inline workflow definition"
+    )
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict, description="Workflow variable overrides"
+    )
+    base_dir: Optional[str] = Field(
+        default=None,
+        description="Directory relative paths in an inline workflow resolve against",
+    )
+    workspace: Optional[str] = Field(
+        default=None,
+        description="Which workspace to run or resolve in; the default when omitted",
+    )
+    acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
+
+
+def acknowledgement_form(value):
+    """none | boolean | bound - classified once, here, so the check and
+    the record agree (#85)."""
+    if isinstance(value, AcknowledgedCost):
+        return ACK_BOUND
+    return ACK_BOOLEAN if value is True else ACK_NONE
+
+
+def bound_plan_for(arguments, workspace):
+    """The `plan_for` a bound acknowledgement is checked against - the
+    run these arguments execute, planned without asking the hub for
+    sizes. None when it cannot be built, which the check refuses."""
+
+    def plan_for(candidate):
+        try:
+            from .. import get_device, get_device_type
+
+            return build_plan(
+                candidate,
+                arguments,
+                device=get_device_type(get_device()),
+                prompt_dir=workspace.prompts,
+                lookup_sizes=False,
+            )
+        except Exception:
+            logger.exception("Plan could not be built for a bound acknowledgement")
+            return None
+
+    return plan_for
+
+
+def check_bound_acknowledgement(current, acknowledged, workspace):
+    """Refuse with 409 when `current`, the plan of the run the request
+    admitted, is not the one `acknowledged` was bound to: a different
+    fingerprint, or a download the caller did not acknowledge. The body
+    carries the current plan so the agent re-quotes from it without a
+    second validate call. A plan that could not be built (None) is a
+    refusal too - never a silent pass (#85).
+    """
+    record = acknowledged.model_dump()
+
+    def refuse(message, reason, plan):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": message,
+                "reason": reason,
+                "acknowledged": record,
+                "plan": plan,
+            },
+        )
+
+    if current is None:
+        refuse(
+            "The run could not be planned, so a bound acknowledgement "
+            "cannot be checked; acknowledge with true or validate again",
+            "unplannable",
+            None,
+        )
+    current["workspace"] = workspace.name
+    current["output_dir"] = workspace.outputs
+    if current["fingerprint"] != acknowledged.fingerprint:
+        refuse(
+            "The run's shape changed since it was acknowledged: the "
+            "workflow or its arguments differ from what was validated.",
+            "fingerprint",
+            current,
+        )
+    missing = [
+        entry["repo"]
+        for entry in current["downloads_required"]
+        if entry.get("repo") and entry["repo"] not in acknowledged.downloads
+    ]
+    if missing:
+        refuse(
+            "The run's shape changed since it was acknowledged: it now "
+            f"has to download {', '.join(missing)} first",
+            "downloads",
+            current,
+        )

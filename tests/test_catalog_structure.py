@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from dw.server.app import attach_observed, workflow_details
+from dw.server.catalog import attach_observed, workflow_details
 from dw.server.catalog_shape import (
     SUMMARY_LIMIT,
     derive_catalog_metadata,
