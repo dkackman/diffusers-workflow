@@ -1129,6 +1129,26 @@ def _inert_bleed_gain_warnings(step, command, arguments, values):
     ]
 
 
+def _inert_bleed_single_input_warnings(step, command, arguments, values):
+    """concat_videos bleeds across the seam between two inputs, so one input
+    has no seam for a non-zero audio_bleed_ms to act on - the request is
+    dropped silently (#565). `videos` is resolved the way the numbers are:
+    a literal list, or a `variable:` reference to one in `values`."""
+    if command != "concat_videos" or "audio_bleed_ms" not in arguments:
+        return []
+    bleed = _resolved_value(arguments, "audio_bleed_ms", values)
+    videos = arguments.get("videos")
+    if references.is_ref(references.VARIABLE, videos):
+        videos = values.get(references.ref_name(references.VARIABLE, videos))
+    if bleed is None or bleed <= 0 or not isinstance(videos, list) or len(videos) != 1:
+        return []
+    return [
+        f"Step '{step.get('name')}': 'audio_bleed_ms' ({bleed}) has no effect "
+        f"with one input - the bleed acts on seams between inputs, and a "
+        f"joined input's own inner seams are not reworked."
+    ]
+
+
 def _inert_match_levels_dbfs_warnings(step, command, arguments):
     """concat_videos and dissolve_videos only call match_levels() - the
     function that reads match_levels_dbfs as its target - when match_levels
@@ -1198,6 +1218,11 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
             )
             warnings.extend(
                 _inert_match_levels_dbfs_warnings(step, command, task["arguments"])
+            )
+            warnings.extend(
+                _inert_bleed_single_input_warnings(
+                    step, command, task["arguments"], values
+                )
             )
         pipeline = step.get("pipeline")
         if not pipeline:

@@ -142,6 +142,18 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    if len(videos) == 1 and audio_bleed_ms:
+        # The bleed acts on the seam between two inputs; a single input - even
+        # an earlier join whose inner seams are recorded in its shots - has
+        # none, so the request would otherwise vanish without a trace (#565)
+        emit_warning(
+            f"concat_videos: 'audio_bleed_ms' ({audio_bleed_ms}) has no effect "
+            f"with one input - the bleed acts on seams between inputs, and a "
+            f"joined input's own inner seams are not reworked.",
+            kind="bleed_no_seam",
+            command="concat_videos",
+        )
+
     # Named before they are loaded: a path is the only thing that names
     # itself, and the load below replaces it with what it holds
     names = video_names(videos)

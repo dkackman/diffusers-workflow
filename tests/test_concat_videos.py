@@ -917,3 +917,33 @@ class TestFrameRateTravelsWithTheJoin:
 
     def test_nothing_is_carried_when_nothing_knows(self):
         assert concat_videos([frames(4), frames(4)]).fps is None
+
+
+class TestBleedWithOneInput:
+    """A bleed needs a seam between inputs; one input has none, and the
+    request must not vanish silently (#565)."""
+
+    def _warnings(self, videos, **kwargs):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(videos, **kwargs)
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e["event"] == "warning"]
+
+    def test_one_input_with_a_bleed_warns(self):
+        warnings = self._warnings([audio_video(4, 0.5)], audio_bleed_ms=100)
+        assert [w["kind"] for w in warnings] == ["bleed_no_seam"]
+        assert "audio_bleed_ms" in warnings[0]["message"]
+
+    def test_one_input_without_a_bleed_is_quiet(self):
+        assert self._warnings([audio_video(4, 0.5)]) == []
+
+    def test_two_inputs_with_a_bleed_do_not_get_the_warning(self):
+        warnings = self._warnings(
+            [audio_video(8, 0.5), audio_video(8, 0.5)], audio_bleed_ms=100
+        )
+        assert "bleed_no_seam" not in [w.get("kind") for w in warnings]
