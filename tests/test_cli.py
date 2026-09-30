@@ -403,3 +403,57 @@ class TestRunEntryPoint:
             if line.startswith("warning:")
         ]
         assert any("sets no 'seed'" in line for line in warnings)
+
+
+class TestWaitForCompletionPaging:
+    def test_a_finished_jobs_truncated_tail_is_paged_to_the_end(
+        self, monkeypatch, capsys
+    ):
+        """A job already terminal whose events run past one page: every page
+        but the last is truncated, and dw.run must keep reading them - at
+        once, with no sleep - and print the history note a single time."""
+        total = 450
+        events = [
+            {"seq": i, "event": "step_start", "step": f"s{i}"} for i in range(total)
+        ]
+        page_size = 120
+        afters = []
+
+        def handler(request):
+            if request.url.path == "/api/jobs/job1":
+                return httpx.Response(200, json={"status": "succeeded"})
+            assert request.url.path == "/api/jobs/job1/event-log"
+            after = int(request.url.params["after"])
+            afters.append(after)
+            chunk = [e for e in events if e["seq"] > after][:page_size]
+            truncated = chunk[-1]["seq"] < total - 1
+            return httpx.Response(
+                200,
+                json={
+                    "id": "job1",
+                    "status": "succeeded",
+                    "events": chunk,
+                    "last_seq": chunk[-1]["seq"],
+                    "truncated": truncated,
+                    "note": "history trimmed" if afters[0] == -1 else "",
+                },
+            )
+
+        def no_sleep(seconds):
+            pytest.fail("a truncated page must be followed by another at once")
+
+        monkeypatch.setattr(run_module.time, "sleep", no_sleep)
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+
+        detail = run_module._wait_for_completion(
+            client, "job1", {"step": None, "warnings": set()}
+        )
+
+        lines = capsys.readouterr().out.splitlines()
+        assert detail["status"] == "succeeded"
+        assert [line for line in lines if line.startswith("step_start:")] == [
+            f"step_start: s{i}" for i in range(total)
+        ]
+        assert lines.count("note: history trimmed") == 1
