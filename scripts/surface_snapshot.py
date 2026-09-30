@@ -76,11 +76,14 @@ def middleware_entry(middleware):
     }
 
 
-def mcp_tools():
+def mcp_server():
     def refuse(request):
         return httpx.Response(500)
 
-    server = build_server(DwClient(transport=httpx.MockTransport(refuse)))
+    return build_server(DwClient(transport=httpx.MockTransport(refuse)))
+
+
+def mcp_tools(server):
     tools = asyncio.run(server.list_tools())
     return [
         {
@@ -97,6 +100,7 @@ def mcp_tools():
 
 def snapshot(root):
     root = Path(root)
+    server = mcp_server()
     ui_dir = root / "ui"
     ui_dir.mkdir()
     (ui_dir / "index.html").write_text("<html></html>")
@@ -126,7 +130,8 @@ def snapshot(root):
         "tail": entries[tail_start:],
         "middleware": [middleware_entry(m) for m in app.user_middleware],
         "openapi": app.openapi(),
-        "mcp_tools": mcp_tools(),
+        "mcp_instructions": server.instructions,
+        "mcp_tools": mcp_tools(server),
     }
 
 
