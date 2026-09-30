@@ -47,9 +47,9 @@ import logging
 
 from . import references
 from .step_cache import (
-    pipeline_cache_key,
     reference_resolves_to,
     referenced_result_names,
+    step_pipeline_keys,
 )
 
 logger = logging.getLogger("dw")
@@ -145,7 +145,18 @@ def _carry_release(elided, kept):
     kept_pipeline = predecessor.get("pipeline")
     if not elided_pipeline or not kept_pipeline:
         return carried
-    if pipeline_cache_key(elided_pipeline) == pipeline_cache_key(kept_pipeline):
+    # Effective keys, over the steps as they will run: two pipelines with
+    # one definition that reuse components from different sources are not
+    # the same loaded pipeline
+    keys = step_pipeline_keys(
+        [
+            step
+            for step in kept + [elided]
+            if isinstance(step, dict) and isinstance(step.get("name"), str)
+        ]
+    )
+    elided_key = keys.get(elided.get("name"))
+    if elided_key is not None and elided_key == keys.get(predecessor.get("name")):
         predecessor["release_pipeline"] = True
         carried = True
     return carried

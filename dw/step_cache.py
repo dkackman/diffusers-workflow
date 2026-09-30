@@ -155,8 +155,22 @@ def pipeline_cache_key(pipeline_definition):
 
 
 def step_pipeline_keys(steps):
-    """Step name -> pipeline_cache_key for every pipeline step, taken before
-    any step runs.
+    """Step name -> effective pipeline key for every pipeline step, taken
+    before any step runs.
+
+    A step's effective key is its own pipeline_cache_key, and - when it
+    reuses components - the effective keys of the steps it takes them from:
+    for each name in its `reused_components`, the latest earlier step that
+    shared it (`component_source`). Only a fresh load resolves reused
+    components, so the pipeline a reusing step loaded holds its source's
+    components as they were then; its own definition never names the source
+    model, so a key hashed from that definition alone stayed the same when
+    the source changed, and the pipeline cache handed back a pipeline
+    holding the old component while the step cache served a step
+    referencing it a stale hit. Folding the sources' effective keys in,
+    computed in step order, makes a change anywhere up a borrow chain change
+    every key below it. A step that reuses nothing keeps its
+    pipeline_cache_key exactly.
 
     Pipeline.load edits the definition it is handed (placement resolves a
     group_offload block in place, a LoRA entry is consumed), so a key hashed
@@ -164,33 +178,57 @@ def step_pipeline_keys(steps):
     loaded - a deferred cache hit, or the cache_hits probe. A key that has to
     agree across those cases is read from this table, not re-hashed.
     """
-    return {
-        step_data["name"]: pipeline_cache_key(step_data["pipeline"])
-        for step_data in steps
-        if "pipeline" in step_data
-    }
+    keys = {}
+    for index, step_data in enumerate(steps):
+        if "pipeline" not in step_data:
+            continue
+        pipeline_definition = step_data["pipeline"]
+        key = pipeline_cache_key(pipeline_definition)
+        reused = component_names(pipeline_definition, "reused_components")
+        if reused:
+            sources = []
+            for name in reused:
+                source = component_source(steps[:index], name)
+                sources.append([name, keys.get(source["name"]) if source else None])
+            serialized = json.dumps({"pipeline": key, "reused": sources})
+            key = hashlib.sha256(serialized.encode()).hexdigest()
+        keys[step_data["name"]] = key
+    return keys
+
+
+def component_source(earlier_steps, name):
+    """The latest of `earlier_steps` whose pipeline shares component `name`
+    - the step a `reused_components` entry resolves to - or None."""
+    for earlier in reversed(earlier_steps):
+        earlier_pipeline = earlier.get("pipeline")
+        if earlier_pipeline and name in component_names(
+            earlier_pipeline, "shared_components"
+        ):
+            return earlier
+    return None
 
 
 def borrowed_pipeline_keys(steps, index, pipeline_keys):
     """The earlier steps step `index` borrows its pipeline from, by name, to
-    that step's pipeline_cache_key.
+    that step's effective pipeline key.
 
     A step that borrows another step's pipeline (`pipeline_reference`) or
     components (`reused_components`, matched to an earlier step's
     `shared_components`) has an unchanged step_data when only the source
     step's model changes - its own definition never names the model. Folding
-    the source steps' cache keys into the lookup snapshot makes a source
-    model change a miss here too, rather than a stale hit that republishes a
-    now-wrong pipeline.
+    the source steps' keys into the lookup snapshot makes a source model
+    change a miss here too, rather than a stale hit that republishes a
+    now-wrong pipeline. The keys are effective keys (step_pipeline_keys), so
+    a change further up a borrow chain than the direct source is a miss too.
 
-    The keys come from `pipeline_keys` (step name -> pipeline_cache_key),
-    computed from the definition before any step ran, never from
-    `steps[:index]` as they stand now: a load edits its own definition in
-    place, and a source step that loaded before this lookup (a cold run) and
-    one that did not (a deferred cache hit) would otherwise hash to
-    different keys, and the borrowing step would never match its own entry.
-    Which steps are borrowed is still resolved statically from
-    `steps[:index]`, the same list the run loop iterates.
+    The keys come from `pipeline_keys` (step_pipeline_keys), computed from
+    the definition before any step ran, never from `steps[:index]` as they
+    stand now: a load edits its own definition in place, and a source step
+    that loaded before this lookup (a cold run) and one that did not (a
+    deferred cache hit) would otherwise hash to different keys, and the
+    borrowing step would never match its own entry. Which steps are
+    borrowed is still resolved statically from `steps[:index]`, the same
+    list the run loop iterates.
     """
     step = steps[index]
     earlier_steps = steps[:index]
@@ -208,13 +246,9 @@ def borrowed_pipeline_keys(steps, index, pipeline_keys):
     pipeline_definition = step.get("pipeline")
     if isinstance(pipeline_definition, dict):
         for name in component_names(pipeline_definition, "reused_components"):
-            for earlier in reversed(earlier_steps):
-                earlier_pipeline = earlier.get("pipeline")
-                if earlier_pipeline and name in component_names(
-                    earlier_pipeline, "shared_components"
-                ):
-                    borrowed[earlier["name"]] = pipeline_keys[earlier["name"]]
-                    break
+            source = component_source(earlier_steps, name)
+            if source is not None:
+                borrowed[source["name"]] = pipeline_keys[source["name"]]
 
     return borrowed
 

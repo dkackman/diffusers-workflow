@@ -1058,3 +1058,52 @@ class TestCacheHits:
         finally:
             for p in workflow._test_patcher:
                 p.stop()
+
+
+def _borrow_chain_workflow_def():
+    """A shares its vae, B reuses it on its own pipeline, C references B's
+    pipeline. Only A names the model the vae comes from."""
+    return {
+        "id": "test_step_cache_borrow_chain",
+        "seed": 42,
+        "variables": {"model_a": "m1"},
+        "steps": [
+            {
+                "name": "A",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "variable:model_a"},
+                    "shared_components": ["vae"],
+                    "arguments": {"prompt": "fixed a"},
+                },
+            },
+            {
+                "name": "B",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-b"},
+                    "reused_components": ["vae"],
+                    "arguments": {"prompt": "fixed b"},
+                },
+            },
+            {
+                "name": "C",
+                "pipeline_reference": {
+                    "reference_name": "B",
+                    "arguments": {"prompt": "fixed c"},
+                },
+            },
+        ],
+    }
+
+
+def test_a_change_up_a_borrow_chain_misses_every_step_below_it(tmp_path):
+    """C's own definition and B's never name A's model, so a snapshot that
+    folded in only B's own key served C a stale hit - output made with the
+    old vae - after A's model changed."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _borrow_chain_workflow_def(),
+        [{"model_a": "m1"}, {"model_a": "m2"}],
+    )
+    assert executed[1] == ["A", "B", "C"]

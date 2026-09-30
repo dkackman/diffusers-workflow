@@ -793,3 +793,65 @@ def test_release_host_caches_runs_for_real_on_the_release_path(tmp_path):
                 workflow.run({}, previous_pipelines={})
 
     assert real.call_count == 1
+
+
+def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
+    tmp_path,
+):
+    """A shares its vae and B reuses it on its own pipeline. Only a fresh
+    load resolves reused components, so a B still resident from a run where
+    A was another model holds that model's vae: when A's model changes, B
+    has to load again rather than be handed back from the pipeline cache."""
+    definition = {
+        "id": "test_borrow_chain_pipeline_cache",
+        "variables": {"model_a": "m1"},
+        "steps": [
+            {
+                "name": "A",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "variable:model_a"},
+                    "shared_components": ["vae"],
+                    "arguments": {"prompt": "fixed a"},
+                },
+            },
+            {
+                "name": "B",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-b"},
+                    "reused_components": ["vae"],
+                    "arguments": {"prompt": "fixed b"},
+                },
+            },
+        ],
+    }
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    pipeline_cache = {}
+    loads = []
+
+    def mock_pipeline_load(self, shared_components):
+        loads[-1].append(self.pipeline_definition["from_pretrained_arguments"])
+        self.resolve_reused_components(shared_components)
+        self.pipeline = MagicMock()
+        self.publish_shared_components(shared_components)
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            for model_a in ("m1", "m2"):
+                loads.append([])
+                workflow.run({"model_a": model_a}, previous_pipelines=pipeline_cache)
+
+    assert [load["model_name"] for load in loads[1]] == ["m2", "model-b"]
+
+
+def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):
+    """The table holds effective keys, which a step's own definition cannot
+    give, so a step it lacks is never quietly re-hashed."""
+    workflow = Workflow({"id": "table", "steps": []}, str(tmp_path), "t.json")
+    workflow._running_pipeline_keys = {"other": "k"}
+
+    with pytest.raises(RuntimeError, match="'gen' is not in this run's pipeline"):
+        workflow.create_step_action(_model_step("gen", "m"), {}, {}, 1, "cpu")

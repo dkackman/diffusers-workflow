@@ -1903,13 +1903,22 @@ class Workflow:
         Read from the run's table (step_pipeline_keys, taken by run() before
         anything loaded) - a load edits the definition it is handed, so a
         key re-hashed from it could disagree with the one the table, a
-        deferred hit and the cache_hits probe use. Hashed here only for a
-        step driven outside run(), which has no table.
+        deferred hit and the cache_hits probe use. The table also holds the
+        effective key - a step that reuses components folds in its sources'
+        keys - which the step's own definition cannot give. Hashed here only
+        for a step driven outside run(), which has no table; a table that
+        lacks the step is an internal error, never a silent re-hash.
         """
         running_keys = getattr(self, "_running_pipeline_keys", None)
-        if running_keys is not None and step_definition["name"] in running_keys:
-            return running_keys[step_definition["name"]]
-        return pipeline_cache_key(step_definition["pipeline"])
+        if running_keys is None:
+            return pipeline_cache_key(step_definition["pipeline"])
+        step_name = step_definition["name"]
+        if step_name not in running_keys:
+            raise RuntimeError(
+                f"Internal error: pipeline step '{step_name}' is not in this "
+                "run's pipeline key table"
+            )
+        return running_keys[step_name]
 
     def create_step_action(
         self,

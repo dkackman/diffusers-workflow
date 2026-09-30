@@ -587,6 +587,12 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # step-cache entry that recorded a borrowed key. A template added since has
 # no row and fails until one is recorded; a constant a diffusers upgrade
 # changed is a row to regenerate, not a parity failure.
+#
+# Four rows were regenerated deliberately when a borrow chain became part
+# of identity: the one step in each of base-and-refiner (main),
+# ltx2/generative-upscale (upscaled), ltx2/refine-clip (refine) and
+# ltx2/two-stage (upscale) reuses components, so its effective key folds in
+# its source's key. Every step that reuses nothing kept its 1f94c2a0 hash.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -594,7 +600,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "audio-trim-fade.json": {},
     "base-and-refiner.json": {
-        "main": "6eec2c027bcdbf483aaebb5d3ec73bed86dcfa909593e0df674e19bce0588050",
+        "main": "f8987155d62b85d22117e89107a18f9e04eac404ef7c45d1911ad4a1869a8939",
         "sdxl_base": "5d64d980c2fb69c77b5547b8d8bd32d7de0e8e469ba7cc6ca73a60ad0e0b9058",
     },
     "best-of-n-to-video.json": {
@@ -681,7 +687,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "ltx2/generative-upscale.json": {
         "low_resolution": "fab6e3ec8feb0909dc44660990636418bdccbbb045154e1a56b26f235435acf0",
-        "upscaled": "2b6ad00f7b894611eb98c24ec819af68b5f9b6cf2b78bf425142dc5acc2e48e7",
+        "upscaled": "f7aeea249fde996383c55ac2e2c1d54eff5b872ec8214ba6aa03a47edeb3dac2",
     },
     "ltx2/image-to-video.json": {
         "image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
@@ -693,7 +699,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot": "f561e8c08eb096c02bcd252244e6dc94c6eb82f133fea559221c4acce364b3f8"
     },
     "ltx2/refine-clip.json": {
-        "refine": "d0fc8bdeda29f32080216d60640349c58559d520015d0c52da6e6f447c90facc",
+        "refine": "ad873e076acb73fb7e680aad9cf0a71a2f0c5b7cac20372d9784a63c85219b9e",
         "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
     },
     "ltx2/restore-deblur.json": {
@@ -708,7 +714,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/two-stage.json": {
         "base": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
         "refine": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
-        "upscale": "dbebdb9f9a882a7e6fd8fbb777044ad91eaa45f4127f2f2c272f7d38f7ee51db",
+        "upscale": "747facc7ef49a117125aa7bb9ec61e5f551c173785e936c419c4cf31830ab134",
     },
     "ltx2/upscale-clip.json": {
         "upscaled": "0f0195201e3be833527a0bc1ef04d29a1dd048a8877678ab1769f663fd27575f"
