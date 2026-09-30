@@ -105,6 +105,13 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
 
 (Each stage adds its user-visible changes here at merge.)
 
+- **3a (merged 2026-09-30):** no user-visible change.
+  - Internal: import cycles 5 → 0 and modules inside cycles 19 → 0, both ratcheted at 0. `modules` went 131 → 132 (`dw/media_types.py`).
+  - A task step missing a required argument is now refused by `Step.run`, not `Task.run`. The message is unchanged. It now comes before the step's task phase event, which a refused task never needed.
+  - Merge notes:
+    - `dw/server/app.py` lost its two host-set constants to `netinfo.py` without being in the 3a hot zone. No harness edit conflicted.
+    - Task 3's "update `dw/server/CLAUDE.md:22`" step was moot: that line never explained the lazy import.
+
 ## Global Constraints (all stages)
 
 - Hard freeze: no net-new features or functionality. Surface may change only where the consolidation requires it (3c), and every change is listed for the gate's release notes.

@@ -7,6 +7,6 @@
   "claude_md_lines": 961,
   "duplicate_blocks": 5,
   "complex_functions": 19,
-  "import_cycles": 4,
-  "modules_in_import_cycles": 8
+  "import_cycles": 0,
+  "modules_in_import_cycles": 0
 }
