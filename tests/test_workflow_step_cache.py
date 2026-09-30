@@ -1107,3 +1107,45 @@ def test_a_change_up_a_borrow_chain_misses_every_step_below_it(tmp_path):
         [{"model_a": "m1"}, {"model_a": "m2"}],
     )
     assert executed[1] == ["A", "B", "C"]
+
+
+def _multi_hop_step_cache_def():
+    """A shares vae, B reuses it and shares it on, D reuses B's."""
+    definition = _borrow_chain_workflow_def()
+    definition["id"] = "test_step_cache_multi_hop"
+    definition["variables"]["model_b"] = "model-b"
+    b_pipeline = definition["steps"][1]["pipeline"]
+    b_pipeline["from_pretrained_arguments"]["model_name"] = "variable:model_b"
+    b_pipeline["shared_components"] = ["vae"]
+    definition["steps"][2] = {
+        "name": "D",
+        "pipeline": {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "model-d"},
+            "reused_components": ["vae"],
+            "arguments": {"prompt": "fixed d"},
+        },
+    }
+    return definition
+
+
+def test_a_change_at_the_origin_of_a_multi_hop_borrow_misses_every_borrower(
+    tmp_path,
+):
+    _, executed = _run_recording_loads(
+        tmp_path,
+        _multi_hop_step_cache_def(),
+        [{"model_a": "m1"}, {"model_a": "m2"}],
+    )
+    assert executed[1] == ["A", "B", "D"]
+
+
+def test_a_change_to_an_intermediate_borrower_misses_every_step_below_it(
+    tmp_path,
+):
+    _, executed = _run_recording_loads(
+        tmp_path,
+        _multi_hop_step_cache_def(),
+        [{"model_b": "model-b"}, {"model_b": "model-b2"}],
+    )
+    assert executed[1] == ["B", "D"]

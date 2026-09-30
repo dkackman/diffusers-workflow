@@ -1205,6 +1205,9 @@ class Workflow:
         # Step name -> cache key for this run, so release_pipeline and
         # pipeline_reference still address pipelines by the step that made them
         self._pipeline_keys_by_step = {}
+        # This run's key table, set before the first step (below); cleared
+        # here so a reused Workflow never serves _load_key last run's table
+        self._running_pipeline_keys = None
         # Step name -> {step_data, seed, released} for each cache hit whose
         # pipeline was not resident and so was not loaded. Per run: a persistent worker
         # reuses this Workflow across jobs, and what one run deferred says
@@ -1856,7 +1859,7 @@ class Workflow:
         load followed by its release leaves behind.
         """
         step = steps[index]
-        running_keys = getattr(self, "_running_pipeline_keys", {})
+        running_keys = getattr(self, "_running_pipeline_keys", None) or {}
         own_key = running_keys.get(step["name"])
         if own_key is not None and own_key in pipelines:
             # Reused components are resolved only inside load(), and a
@@ -2021,7 +2024,7 @@ class Workflow:
             # earlier, unrelated workflow does not count either - it is not
             # among the running steps. If nothing touches the key this run,
             # the end-of-run sweep drops it.
-            running_keys = getattr(self, "_running_pipeline_keys", {})
+            running_keys = getattr(self, "_running_pipeline_keys", None) or {}
             still_shared = any(
                 other != step_name and key == prior_key
                 for other, key in running_keys.items()

@@ -795,37 +795,23 @@ def test_release_host_caches_runs_for_real_on_the_release_path(tmp_path):
     assert real.call_count == 1
 
 
-def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
-    tmp_path,
-):
-    """A shares its vae and B reuses it on its own pipeline. Only a fresh
-    load resolves reused components, so a B still resident from a run where
-    A was another model holds that model's vae: when A's model changes, B
-    has to load again rather than be handed back from the pipeline cache."""
-    definition = {
-        "id": "test_borrow_chain_pipeline_cache",
-        "variables": {"model_a": "m1"},
-        "steps": [
-            {
-                "name": "A",
-                "pipeline": {
-                    "configuration": {"component_type": "{MockPipeline}"},
-                    "from_pretrained_arguments": {"model_name": "variable:model_a"},
-                    "shared_components": ["vae"],
-                    "arguments": {"prompt": "fixed a"},
-                },
-            },
-            {
-                "name": "B",
-                "pipeline": {
-                    "configuration": {"component_type": "{MockPipeline}"},
-                    "from_pretrained_arguments": {"model_name": "model-b"},
-                    "reused_components": ["vae"],
-                    "arguments": {"prompt": "fixed b"},
-                },
-            },
-        ],
+def _sharing_step(name, model_name, shares=(), reuses=()):
+    pipeline = {
+        "configuration": {"component_type": "{MockPipeline}"},
+        "from_pretrained_arguments": {"model_name": model_name},
+        "arguments": {"prompt": f"fixed {name}"},
     }
+    if shares:
+        pipeline["shared_components"] = list(shares)
+    if reuses:
+        pipeline["reused_components"] = list(reuses)
+    return {"name": name, "pipeline": pipeline}
+
+
+def _loads_per_run(tmp_path, definition, argument_sets):
+    """Runs an unseeded definition (no step cache) once per argument set,
+    carrying the pipeline dict between runs as the worker does, and returns
+    the model names each run loaded, in order."""
     workflow = Workflow(definition, str(tmp_path), "test.json")
     pipeline_cache = {}
     loads = []
@@ -840,11 +826,87 @@ def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
         with patch.object(
             Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
         ):
-            for model_a in ("m1", "m2"):
+            for arguments in argument_sets:
                 loads.append([])
-                workflow.run({"model_a": model_a}, previous_pipelines=pipeline_cache)
+                workflow.run(arguments, previous_pipelines=pipeline_cache)
+    return [[load["model_name"] for load in run] for run in loads]
 
-    assert [load["model_name"] for load in loads[1]] == ["m2", "model-b"]
+
+def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
+    tmp_path,
+):
+    """A shares its vae and B reuses it on its own pipeline. Only a fresh
+    load resolves reused components, so a B still resident from a run where
+    A was another model holds that model's vae: when A's model changes, B
+    has to load again rather than be handed back from the pipeline cache."""
+    definition = {
+        "id": "test_borrow_chain_pipeline_cache",
+        "variables": {"model_a": "m1"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "model-b", reuses=["vae"]),
+        ],
+    }
+    loads = _loads_per_run(tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}])
+    assert loads[1] == ["m2", "model-b"]
+
+
+def _multi_hop_definition():
+    """A shares vae, B reuses it and shares it on, D reuses B's."""
+    return {
+        "id": "test_multi_hop_pipeline_cache",
+        "variables": {"model_a": "m1", "model_b": "model-b"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "variable:model_b", shares=["vae"], reuses=["vae"]),
+            _sharing_step("D", "model-d", reuses=["vae"]),
+        ],
+    }
+
+
+def test_a_change_at_the_origin_of_a_multi_hop_borrow_reloads_every_borrower(
+    tmp_path,
+):
+    loads = _loads_per_run(
+        tmp_path, _multi_hop_definition(), [{"model_a": "m1"}, {"model_a": "m2"}]
+    )
+    assert loads[1] == ["m2", "model-b", "model-d"]
+
+
+def test_a_change_to_an_intermediate_borrower_reloads_every_step_below_it(
+    tmp_path,
+):
+    """B's own definition decides what it passes on (its placement and
+    optimizations act on the component in place), so D, which reuses from B,
+    reloads when B changes; A, above it, stays resident."""
+    loads = _loads_per_run(
+        tmp_path,
+        _multi_hop_definition(),
+        [{"model_b": "model-b"}, {"model_b": "model-b2"}],
+    )
+    assert loads[1] == ["model-b2", "model-d"]
+
+
+def test_identical_steps_passing_a_component_on_share_one_pipeline(tmp_path):
+    """Three identical steps (for_each members, say) that each reuse vae and
+    share it on hold the same loaded pipeline, as they did before a borrow
+    chain was part of identity - one resident copy, not one per member."""
+    from dw.step_cache import step_pipeline_keys
+
+    definition = {
+        "id": "test_identical_pass_through",
+        "steps": [_sharing_step("S", "model-s", shares=["vae"])]
+        + [
+            {
+                **_sharing_step("m", "model-m", shares=["vae"], reuses=["vae"]),
+                "name": f"m{index}",
+            }
+            for index in range(3)
+        ],
+    }
+    keys = step_pipeline_keys(definition["steps"])
+    assert keys["m0"] == keys["m1"] == keys["m2"]
+    assert _loads_per_run(tmp_path, definition, [{}]) == [["model-s", "model-m"]]
 
 
 def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):

@@ -158,19 +158,21 @@ def step_pipeline_keys(steps):
     """Step name -> effective pipeline key for every pipeline step, taken
     before any step runs.
 
-    A step's effective key is its own pipeline_cache_key, and - when it
-    reuses components - the effective keys of the steps it takes them from:
-    for each name in its `reused_components`, the latest earlier step that
-    shared it (`component_source`). Only a fresh load resolves reused
-    components, so the pipeline a reusing step loaded holds its source's
-    components as they were then; its own definition never names the source
-    model, so a key hashed from that definition alone stayed the same when
-    the source changed, and the pipeline cache handed back a pipeline
-    holding the old component while the step cache served a step
-    referencing it a stale hit. Folding the sources' effective keys in,
-    computed in step order, makes a change anywhere up a borrow chain change
-    every key below it. A step that reuses nothing keeps its
-    pipeline_cache_key exactly.
+    A step that reuses nothing keys by its pipeline_cache_key exactly. A
+    step that reuses components keys by the sorted, de-duplicated set of
+    pipeline_cache_keys over its reuse closure: itself and, transitively,
+    every step `component_source` resolves its reused names to, and theirs.
+    Only a fresh load resolves reused components, so the pipeline a reusing
+    step loaded holds its sources' components as they were then; its own
+    definition never names the source model, so a key hashed from that
+    definition alone stayed the same when a source changed, and the
+    pipeline cache handed back a pipeline holding the old component while
+    the step cache served a step referencing it a stale hit. With the
+    closure, a change to any definition up a borrow chain - the origin's, or
+    an intermediate's that passes a component on - changes every key below
+    it. It is a set rather than a chain so that identical steps passing one
+    component along (for_each members that each reuse and share `vae`)
+    close over the same definitions and keep sharing one loaded pipeline.
 
     Pipeline.load edits the definition it is handed (placement resolves a
     group_offload block in place, a LoRA entry is consumed), so a key hashed
@@ -179,20 +181,25 @@ def step_pipeline_keys(steps):
     agree across those cases is read from this table, not re-hashed.
     """
     keys = {}
+    # Step name -> the own pipeline_cache_keys of its reuse closure
+    closures = {}
     for index, step_data in enumerate(steps):
         if "pipeline" not in step_data:
             continue
         pipeline_definition = step_data["pipeline"]
-        key = pipeline_cache_key(pipeline_definition)
+        own_key = pipeline_cache_key(pipeline_definition)
+        closure = {own_key}
         reused = component_names(pipeline_definition, "reused_components")
+        for name in reused:
+            source = component_source(steps[:index], name)
+            if source is not None:
+                closure |= closures[source["name"]]
+        closures[step_data["name"]] = closure
         if reused:
-            sources = []
-            for name in reused:
-                source = component_source(steps[:index], name)
-                sources.append([name, keys.get(source["name"]) if source else None])
-            serialized = json.dumps({"pipeline": key, "reused": sources})
-            key = hashlib.sha256(serialized.encode()).hexdigest()
-        keys[step_data["name"]] = key
+            serialized = json.dumps(sorted(closure))
+            keys[step_data["name"]] = hashlib.sha256(serialized.encode()).hexdigest()
+        else:
+            keys[step_data["name"]] = own_key
     return keys
 
 
