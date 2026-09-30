@@ -11,7 +11,7 @@ import logging
 import signal
 import time
 from typing import Optional
-from .worker import Cancel, Shutdown, parse_reply, worker_main
+from .worker import Cancel, Shutdown, WorkerCrashed, parse_reply, worker_main
 
 logger = logging.getLogger("dw")
 
@@ -142,6 +142,11 @@ class WorkerManager:
             reply = parse_reply(self.get_result(timeout=remaining))
             if getattr(reply, "request_id", None) == command.request_id:
                 return reply
+            if isinstance(reply, WorkerCrashed):
+                # A crash answers every waiting request: nobody else will
+                # read it, and the worker is gone
+                self.mark_crashed()
+                raise RuntimeError(f"Worker crashed: {reply.message}")
             logger.debug(
                 "Discarding a worker reply that does not answer %s %s: %s",
                 command.TYPE,

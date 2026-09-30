@@ -164,8 +164,9 @@ def _wait_for_completion(client, job_id, printed):
             print(f"note: {note}")
             noted = True
         # A truncated page means more events wait behind it, whatever the
-        # job's status: read on at once, and stop only at the true end
-        if page.get("truncated"):
+        # job's status: read on at once, and stop only at the true end. A
+        # truncated page that carries no events makes no progress - sleep
+        if page.get("truncated") and page.get("events"):
             continue
         if page.get("status") in TERMINAL_STATUSES:
             break

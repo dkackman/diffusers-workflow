@@ -142,6 +142,14 @@ class TestRequest:
             thread.join()
         assert time.monotonic() - started < 2
 
+    def test_a_crash_answers_a_waiting_request_at_once(self, manager):
+        manager.result_queue.put(
+            {"type": "worker_crashed", "message": "boom", "traceback": "tb"}
+        )
+        with pytest.raises(RuntimeError, match="boom"):
+            manager.request(MemoryStatus(request_id="r-1"), timeout=5)
+        assert manager.worker_active is False
+
     def test_an_inactive_worker_raises_runtime_error(self):
         manager = WorkerManager()
         with pytest.raises(RuntimeError, match="not active"):

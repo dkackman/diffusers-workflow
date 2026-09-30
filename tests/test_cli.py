@@ -457,3 +457,39 @@ class TestWaitForCompletionPaging:
             f"step_start: s{i}" for i in range(total)
         ]
         assert lines.count("note: history trimmed") == 1
+
+    def test_a_truncated_page_with_no_events_sleeps_instead_of_spinning(
+        self, monkeypatch
+    ):
+        pages = []
+        sleeps = []
+
+        def handler(request):
+            if request.url.path == "/api/jobs/job1":
+                return httpx.Response(200, json={"status": "succeeded"})
+            pages.append(1)
+            done = len(pages) > 2
+            return httpx.Response(
+                200,
+                json={
+                    "id": "job1",
+                    "status": "succeeded" if done else "running",
+                    "events": [],
+                    "truncated": not done,
+                },
+            )
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) > 5:
+                pytest.fail("the loop spun")
+
+        monkeypatch.setattr(run_module.time, "sleep", fake_sleep)
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
+        )
+        detail = run_module._wait_for_completion(
+            client, "job1", {"step": None, "warnings": set()}
+        )
+        assert detail["status"] == "succeeded"
+        assert len(sleeps) >= 1
