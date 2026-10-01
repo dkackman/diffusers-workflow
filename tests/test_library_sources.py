@@ -248,3 +248,41 @@ class TestServer:
         assert missing["valid"] is False
         assert missing["errors"][0]["path"] == "arguments.image"
         assert os.path.abspath(workspace.assets) in missing["errors"][0]["message"]
+
+
+def test_two_apps_in_one_process_each_list_their_own_examples(tmp_path):
+    """Per-app state stays per app: two apps built in one process, each with
+    its own examples directory, answer `GET /api/workflows` with their own
+    workflow and never the other's. A characterization test - it holds before
+    and after the routers moved out of the `create_app` closure."""
+
+    def build(label):
+        root = tmp_path / label
+        workflows = root / "workflows"
+        workflows.mkdir(parents=True)
+        examples = root / "examples"
+        examples.mkdir()
+        with open(examples / f"{label}-example.json", "w") as file:
+            json.dump(valid_workflow(f"{label}_example"), file)
+        manager = JobManager(
+            str(root / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(root / "jobs.sqlite"),
+            workflow_dir=str(workflows),
+        )
+        return create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(root / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(root / "prompts"),
+            examples_dirs=[str(examples)],
+        )
+
+    first, second = build("alpha"), build("beta")
+    with TestClient(first, base_url="http://localhost") as one:
+        with TestClient(second, base_url="http://localhost") as two:
+            listed_one = one.get("/api/workflows").json()["workflows"]
+            listed_two = two.get("/api/workflows").json()["workflows"]
+
+    assert "alpha-example" in listed_one and "beta-example" not in listed_one
+    assert "beta-example" in listed_two and "alpha-example" not in listed_two

@@ -2142,20 +2142,20 @@ def test_gallery_frames_computes_video_shape_only_once(server, tmp_path, monkeyp
     same shape to the selector function - it must not call video_shape a
     second time just to build the answer (#193 follow-up)."""
     from tests.test_media_frames import write_ramp_mp4
-    import dw.server.app as app_module
+    import dw.server.routes.media as media_routes
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
         write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
 
         calls = [0]
-        original = app_module.video_shape
+        original = media_routes.video_shape
 
         def counting_shape(path):
             calls[0] += 1
             return original(path)
 
-        monkeypatch.setattr(app_module, "video_shape", counting_shape)
+        monkeypatch.setattr(media_routes, "video_shape", counting_shape)
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2}

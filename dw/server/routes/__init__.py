@@ -3,12 +3,22 @@
 Order is part of the surface: a greedy `{name:path}` GET must be registered
 after its `/download`, `/variables` and `/metadata`-style siblings, and Starlette
 takes the first route that matches. `create_app` registers these in this order,
-then adds the `/mcp` routes, the files router and the UI mount.
+then adds the `/mcp` routes, the files router (`files.router`, which is
+not in `ROUTERS`: it sits after `/mcp`) and the UI mount. `media` precedes
+`gallery` so the `/metadata`, `/thumbnail` and `/download` GETs come before
+the greedy `DELETE /api/gallery/{name:path}`.
 """
 
-from . import jobs, library, system
+from . import assets, files, gallery, jobs, library, media, system
 
-ROUTERS = (jobs.router, system.router, library.router)
+ROUTERS = (
+    jobs.router,
+    system.router,
+    library.router,
+    media.router,
+    gallery.router,
+    assets.router,
+)
 
 
 def include_routers(app):
@@ -26,3 +36,9 @@ def include_routers(app):
     """
     for router in ROUTERS:
         app.router.routes.extend(router.routes)
+
+
+def include_file_routes(app):
+    """Register the files router's routes on `app`, the same way
+    `include_routers` does. Separate because `/mcp` goes between the two."""
+    app.router.routes.extend(files.router.routes)

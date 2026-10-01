@@ -41,7 +41,7 @@ from ...workspace import (
 )
 from ..admission import JobRequest, admit_for
 from ..catalog import (
-    _matching_prompts,
+    matching_prompts,
     attach_observed,
     prompt_details,
     resolve_prompt_name,
@@ -511,7 +511,7 @@ def list_prompts(
     # prompt says what it is for, and it narrows every parallel key at
     # once: a `prompts` list and a `details` map that disagree is worse
     # than no filter at all
-    wanted = _matching_prompts(details, tag, intended_model)
+    wanted = matching_prompts(details, tag, intended_model)
     if wanted is not None:
         details = {name: detail for name, detail in details.items() if name in wanted}
     # The three parallel keys agree by construction, filter or no filter.
