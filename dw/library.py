@@ -201,14 +201,18 @@ class LibraryPath:
         """
         for root in self._roots:
             if refuse:
-                path = validate_path(
-                    os.path.join(root.root, self.file_name(name)), root.root
-                )
-                if not os.path.isfile(path):
-                    continue
+                candidate = os.path.join(root.root, self.file_name(name))
                 if self.kind == PROMPTS_KIND:
-                    path = validate_prompt_path(path, root.root)
-                return path, root
+                    # A prompt that is not a file here - a dangling link
+                    # included - is a miss; only one that is present is
+                    # confined, and refused when it leaves the library
+                    if not os.path.isfile(candidate):
+                        continue
+                    return validate_prompt_path(candidate, root.root), root
+                path = validate_path(candidate, root.root)
+                if os.path.isfile(path):
+                    return path, root
+                continue
             path = self.path_in(root, name)
             if path and os.path.isfile(path):
                 return path, root
@@ -300,6 +304,28 @@ def _assemble(kind, primary, candidates):
     return LibraryPath(kind, roots)
 
 
+def _front_directory(kind, workspace):
+    return getattr(workspace, kind)
+
+
+def read_only_candidates(kind, workspace, examples_dirs=None, include_builtin=False):
+    """The roots behind the writable front, in order, as
+    `[(directory, origin, writable)]` - unfiltered, so a caller can pin them
+    whole (`pin_library_path`) or drop the missing ones (`library_path`)."""
+    candidates = []
+    if kind == WORKFLOWS_KIND:
+        candidates += [(d, EXAMPLES_ORIGIN, False) for d in examples_dirs or []]
+        if include_builtin:
+            candidates.append((builtin_root(), BUILTIN_ORIGIN, False))
+        return candidates
+    if kind == ASSETS_KIND:
+        common = getattr(workspace, "common_assets", None)
+        if common:
+            candidates.append((common, COMMON_ORIGIN, True))
+    libraries = example_libraries(examples_dirs)
+    return candidates + [(d, EXAMPLES_ORIGIN, False) for d in libraries[kind]]
+
+
 def library_path(
     kind, workspace, examples_dirs=None, primary=None, include_builtin=False
 ):
@@ -336,22 +362,8 @@ def library_path(
     if include_builtin and kind != WORKFLOWS_KIND:
         raise ValueError("Only the workflows library has builtin entries")
 
-    candidates = []
-    if kind == WORKFLOWS_KIND:
-        front = primary or workspace.workflows
-        candidates += [(d, EXAMPLES_ORIGIN, False) for d in examples_dirs or []]
-        if include_builtin:
-            candidates.append((builtin_root(), BUILTIN_ORIGIN, False))
-    else:
-        libraries = example_libraries(examples_dirs)
-        if kind == PROMPTS_KIND:
-            front = primary or workspace.prompts
-        else:
-            front = primary or workspace.assets
-            common = getattr(workspace, "common_assets", None)
-            if common:
-                candidates.append((common, COMMON_ORIGIN, True))
-        candidates += [(d, EXAMPLES_ORIGIN, False) for d in libraries[kind]]
+    front = primary or _front_directory(kind, workspace)
+    candidates = read_only_candidates(kind, workspace, examples_dirs, include_builtin)
     return _assemble(kind, LibraryRoot(front, WORKSPACE_ORIGIN, True), candidates)
 
 
@@ -409,16 +421,27 @@ def library_path_from_env(kind, primary=None):
     return _assemble(kind, front, [tagged(directory) for directory in pinned])
 
 
-def pin_library_path(library):
+def pin_library_path(kind, workspace, examples_dirs=None):
     """Pin a library's read-only roots in the environment, so the worker
     subprocess resolves a reference exactly as the entry point would.
 
-    Everything after the first root - the writable front is named by its own
-    `DW_*_DIR` variable - as an os.pathsep list. An empty tail removes the
-    variable. Returns the value written.
+    The whole tail - everything behind the writable front, which has its own
+    `DW_*_DIR` variable - as an os.pathsep list, deduplicated only against
+    itself. Nothing is dropped for equalling the server's own primary or for
+    not existing yet: a job carries a primary of its own, and the read side
+    (`library_path_from_env`) drops what equals that one and what is missing
+    when it resolves. An empty tail removes the variable. Returns the value
+    written.
     """
-    name = LIBRARY_PATH_ENV_VARS[library.kind]
-    joined = os.pathsep.join(root.root for root in library.roots()[1:])
+    name = LIBRARY_PATH_ENV_VARS[kind]
+    roots = []
+    for directory, _origin, _writable in read_only_candidates(
+        kind, workspace, examples_dirs
+    ):
+        root = LibraryRoot(directory, None, False).root
+        if root not in roots:
+            roots.append(root)
+    joined = os.pathsep.join(roots)
     if joined:
         os.environ[name] = joined
     else:

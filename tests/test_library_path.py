@@ -494,7 +494,7 @@ class TestEnvironmentSerializer:
         workspace, examples = trees
         for kind in ("assets", "prompts", "workflows"):
             api = library_path(kind, workspace, [examples])
-            pin_library_path(api)
+            pin_library_path(kind, workspace, [examples])
             worker = library_path_from_env(kind, api.roots()[0].root)
             assert [(r.root, r.origin) for r in worker.roots()] == [
                 (r.root, r.origin) for r in api.roots()
@@ -504,7 +504,7 @@ class TestEnvironmentSerializer:
         from dw.library import ASSET_PATH_ENV_VAR, pin_library_path
 
         workspace, examples = trees
-        written = pin_library_path(library_path("assets", workspace, [examples]))
+        written = pin_library_path("assets", workspace, [examples])
         assert written == os.environ[ASSET_PATH_ENV_VAR]
         assert written.split(os.pathsep) == [
             workspace.common_assets,
@@ -516,7 +516,7 @@ class TestEnvironmentSerializer:
 
         workspace, _examples = trees
         monkeypatch.setenv(PROMPT_PATH_ENV_VAR, "/stale")
-        pin_library_path(library_path("prompts", workspace, []))
+        pin_library_path("prompts", workspace, [])
         assert PROMPT_PATH_ENV_VAR not in os.environ
 
     def test_fallbacks_are_deduplicated_against_each_other(self, trees, monkeypatch):
@@ -534,7 +534,7 @@ class TestEnvironmentSerializer:
         from dw.library import library_path_from_env, pin_library_path
 
         workspace, examples = trees
-        pin_library_path(library_path("assets", workspace, [examples]))
+        pin_library_path("assets", workspace, [examples])
         origins = [
             r.origin for r in library_path_from_env("assets", workspace.assets).roots()
         ]
@@ -587,3 +587,79 @@ class TestResolveAgainstOneRoot:
         assert resolve_asset_reference(
             "asset:y.png", asset_dir=str(other), exact=True
         ) == os.path.realpath(other / "y.png")
+
+
+class TestPinnedTailOutlivesTheServersPrimary:
+    """The checkout setup: --examples-dir is the default workspace's own
+    workflows/, so its sibling assets/ and the workflows/ are also the
+    server's primaries. A job in a named workspace has a primary of its own
+    and must still reach them, which the pinned tail has to carry."""
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch):
+        from dw.serve import build_parser, configure_environment
+
+        root = tmp_path / "checkout"
+        for sub in ("workflows", "assets", "prompts"):
+            (root / sub).mkdir(parents=True)
+        (root / "assets" / "iris.png").write_bytes(b"i")
+        (root / "workflows" / "Shared.json").write_text('{"id": "shared"}')
+        for name in (
+            "DW_WORKSPACE",
+            "DW_WORKSPACE_SOURCE",
+            "DW_ASSET_DIR",
+            "DW_PROMPT_DIR",
+            "DW_ASSET_PATH",
+            "DW_PROMPT_PATH",
+            "DW_WORKFLOW_PATH",
+        ):
+            monkeypatch.setenv(name, "")
+            monkeypatch.delenv(name)
+        args = build_parser().parse_args(
+            ["--workspace", str(root), "--examples-dir", str(root / "workflows")]
+        )
+        configure_environment(args)
+        named = tmp_path / "checkout" / "ns"
+        (named / "assets").mkdir(parents=True)
+        (named / "workflows").mkdir(parents=True)
+        return root, named
+
+    def test_a_named_workspace_job_still_finds_the_default_assets(self, checkout):
+        from dw.assets import resolve_asset_reference
+
+        root, named = checkout
+        found = resolve_asset_reference(
+            "asset:iris.png", asset_dir=str(named / "assets")
+        )
+        assert found == os.path.realpath(root / "assets" / "iris.png")
+
+    def test_a_named_workspace_job_still_finds_the_default_workflows(self, checkout):
+        root, named = checkout
+        candidate, library_root = resolve_sub_workflow(
+            "Shared", str(named / "workflows"), str(named / "workflows")
+        )
+        assert candidate == str(root / "workflows" / "Shared.json")
+
+    def test_a_directory_created_after_startup_is_seen(self, tmp_path, monkeypatch):
+        from dw.library import library_path_from_env
+
+        later = tmp_path / "later"
+        monkeypatch.setenv("DW_ASSET_PATH", str(later))
+        before = library_path_from_env("assets", str(tmp_path / "front"))
+        later.mkdir()
+        after = library_path_from_env("assets", str(tmp_path / "front"))
+        assert len(before.roots()) == 1
+        assert [r.root for r in after.roots()][-1] == str(later)
+
+
+class TestPromptRefusalIsNotAMissEither:
+    def test_a_dangling_link_is_skipped_not_refused(self, tmp_path, monkeypatch):
+        from dw.prompts import resolve_prompt_reference
+
+        library = tmp_path / "prompts"
+        library.mkdir()
+        os.symlink(tmp_path / "nowhere.json", library / "ghost.json")
+        with pytest.raises(ValueError):
+            resolve_prompt_reference(
+                "prompt:ghost", prompt_dir=str(library), exact=True
+            )

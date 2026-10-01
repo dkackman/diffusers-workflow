@@ -572,13 +572,12 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
             child_name = catalog_name_from_root(child_path, child_root)
             if not child_name:
                 return None
-            # The workspace's own workflows/ is the writable one (#274), and
-            # the root's tag says so: a run confined to an examples directory
-            # tags its confinement `examples`, read-only
+            # The workspace's own workflows/ is the writable one (#274). The
+            # root's `writable` tag is not enough: the run's own confinement
+            # is tagged writable whatever directory it is, so equality with
+            # the workspace's workflows/ stays the test
             child_workspace = (
-                workspace.name
-                if child_library_root is not None and child_library_root.writable
-                else None
+                workspace.name if child_root == workspace.workflows else None
             )
             return observed_for_name(
                 state,

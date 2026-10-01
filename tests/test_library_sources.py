@@ -18,7 +18,6 @@ from dw.library import (
     WORKSPACE_ORIGIN,
     library_path_from_env,
     pin_library_path,
-    library_path,
 )
 from dw.workspace import (
     ASSETS_SUBDIR,
@@ -83,9 +82,7 @@ class TestDerivation:
         # This is how the worker subprocess learns them: spawn inherits the
         # environment, it does not inherit the argument parser
         workspace, checkout = trees
-        pin_library_path(
-            library_path(PROMPTS_KIND, workspace, [str(checkout / "workflows")])
-        )
+        pin_library_path(PROMPTS_KIND, workspace, [str(checkout / "workflows")])
         roots = library_path_from_env(PROMPTS_KIND, workspace.prompts).roots()
         assert [r.root for r in roots] == [workspace.prompts, str(checkout / "prompts")]
         assert [r.origin for r in roots] == [WORKSPACE_ORIGIN, EXAMPLES_ORIGIN]
