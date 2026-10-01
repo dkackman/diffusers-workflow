@@ -7,6 +7,182 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.6.0
+
+<!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.5.0..54f8a3c9 (stabilization/gate-3). -->
+
+This range landed on `develop` without PRs, so the auto-generated notes are
+close to empty. Most of it is the architecture stabilization (2026-09-28 to
+2026-10-01); the per-stage detail is in docs/stabilization/ROADMAP.md. Paste
+this section into the GitHub release body once the tag has published (`gh
+release edit v0.6.0 --notes-file ...`).
+
+**Breaking and behaviour changes**
+
+- The three library listings (`GET /api/workflows`, `/api/prompts`,
+  `/api/assets`) share one envelope. Removed: `workflow_dir`, `prompt_dir`,
+  `asset_dir`, `sources` (workflows), `prompt_dirs`, `asset_dirs` and
+  `origins` (prompts). The writable root is now the `libraries` entry with
+  `writable: true` and `origin: "workspace"`. Renamed: assets
+  `libraries[].dir` is `root`, and the MCP compact workflow listing's
+  `sources` is `libraries`. Added to all three: `libraries: [{origin, root,
+  writable}]` in search order, `shadowed: [{name, origin, shadowed_by}]`, and
+  `origin`/`writable` on every entry. Item keys, `details`, `folders`, sort
+  order and the single-item reads are unchanged.
+- The `teacache` pipeline `configuration` key is removed. A workflow that
+  sets it fails validation (`'teacache' was unexpected`). Use `cache`
+  (`first_block`, `mag`, `taylorseer`; docs/ACCELERATION.md). The guide's
+  "TeaCache" sections are gone, so `get_guide(section="TeaCache")` no longer
+  resolves.
+- `POST /api/jobs`, `POST /api/jobs/{id}/rerun` and a workflow save whose
+  validation itself crashes answer **500** `internal error - the server log
+  has the detail` when something fails after the request was admitted. They
+  used to answer 400 for any exception. A refused request is still 400. A
+  crashing validation check is one `check '<name>' failed (<ExcType>) - the
+  server log has the detail` finding and every other check still reports; a
+  crashing warning check is a warning and never refuses. A null-path error no
+  longer starts with `None: `.
+- The REPL is removed (`dw-repl`, `python -m dw.repl`; the guide is now
+  docs/WORKER_GUIDE.md). `python -m dw.run` is an HTTP client of a running
+  `dw.serve` and takes `--server`, `--workspace` (a server workspace name, no
+  longer a directory) and `--token`. `-o/--output_dir`, `--prompt-dir`,
+  `--asset-dir`, `--output-layout`, `--trust-workflows` and `-l/--log_level`
+  are gone; set them on `dw.serve`. `httpx` is a base dependency.
+- `save_workflow`, `save_prompt`, `upload_asset` and `keep_output` no longer
+  return the server's absolute path. They return the name, workspace, origin
+  and `reference` (#527).
+- A job runs the definition admission checked. Editing or deleting the file
+  while the job waits does not change it; a rerun admits the file afresh. An
+  asset, output, prompt or sub-workflow that changes or disappears while a
+  job waits now fails at the step that reads it, not at job start.
+- A rerun rechecks its `asset:`/`prompt:`/`output:` references and answers
+  400 when one no longer resolves. Admission refuses an `asset:` whose
+  workspace copy is a symlink out of the library.
+- Upload, keep and delete with no asset library all answer 409 `This
+  workspace has no asset library`; upload used to write into `outputs`.
+  Deleting a read-only library entry is one 403 message for all three
+  libraries.
+- In a named workspace, `prompt:` resolves against the server's prompt
+  library everywhere, including plan building; creating a workspace no
+  longer makes an empty `prompts/`. `prompt:name.json` now resolves.
+- More is caught at validate: a `vram_estimate` is checked even when the
+  workflow has no `cost` block (#552), and only against the pipeline it was
+  measured for (#516); a `{"location": ...}` media entry is size-checked and
+  probed like a plain path (#518), so a too-short `dissolve_videos` input is
+  refused; a literal numeric `sample_rate` on `slice_audio` is honoured as a
+  relabel; a literal `null` `threshold` or `index` on `select` is refused;
+  `audio_bleed_ms` with only one input warns (#565).
+- `get_output_frames` refuses `names` or `boundaries` without `seams`. They
+  used to be dropped silently (#554).
+- `concat_videos` fills a silent input with silence for its length instead
+  of shifting later shots' audio early (#553), and fits each input's audio
+  to its own frame count, warning `audio_frame_drift` for one that runs long
+  (#562). A step's declared `result.fps` is handed on to later steps, and
+  `join_into_song` refuses a contradicting `fps` (#513). A frame-addressed
+  `slice_audio` end is rounded once, which can move it by a sample (#557).
+- A composed `for_each` member whose parent saves the result now gets its
+  template's fps and audio fit. LTX-2.5 image-to-video members were written
+  at 8 fps (#561).
+- Embedded image metadata no longer carries a `generator` string, keeps
+  `loras` and `ip_adapter` (so "open as workflow" works for adapter steps),
+  and a composed child's steps no longer carry `argument_template`.
+- After upgrading: every plan fingerprint changes once, so a bound
+  acknowledgement made before the deploy gets one 409. `base-and-refiner`,
+  `ltx2/generative-upscale`, `ltx2/refine-clip` and `ltx2/two-stage` miss
+  the step cache once.
+
+**New**
+
+- `templates/ltx2/upscale-clip`: generative 2x upscale of the caller's clip,
+  with its soundtrack paired back on (#548). `templates/ltx2/refine-clip`:
+  2x latent refine of the caller's clip, about 2.9 min cold on an RTX 3090;
+  the source is trimmed to `num_frames` first (#549).
+- The `join_into_song` task joins dialogue shots into a song, placing the
+  song from the measured dialogue length at run time (#513). The
+  `minimax-h3` skill and the workflows guide carry the recipe (#514).
+- The `find_loop_bed` task ranks room-tone loop windows as they sound
+  looped (near-programme material, lap-rate modulation, ticks). It is
+  shot-aware: no candidate crosses a shot boundary. `shot_dead_air`, the
+  `minimax-h3` and `series-episodes` skills point at it (#544/#545).
+- `keep_output` records the source job, run, version and workspace, so
+  `get_gallery_metadata` on a kept asset reports its job (#556).
+- A composed sub-workflow's manifest entries carry `parent_step` (#560).
+- `pair_audio` warns `shot_position_regridded` when it moves a measured
+  shot start by 5 ms or more (#563), and loads a string `video` path.
+- A job records the full warning set `/api/validate` reports, and
+  validate's argument-error 400 carries warnings. `workflow.json` records
+  the folded variables: realized constants, resolved list entries and
+  snapped values.
+- `get_job_workflow` and the job export answer with the admitted
+  definition when the workflow file has since moved or stopped parsing.
+- `dw.run` prints a job's whole event tail and its warnings, exits 130 on
+  Ctrl-C before a job id, and reports a timeout as one error line.
+- A fully cached rerun no longer loads released pipelines: `ltx2/two-stage`
+  with the same seed went from 78.8 s to 0.77 s on an RTX 3090.
+- Clearer error text: the `image_crf` error names the video passed where an
+  image was expected (#511); an image task given a video, and a join size
+  mismatch, name the route through `video_frames` and `resize_rescale`
+  (#550/#551); the frame-size error names every mismatched video by its
+  index; `dissolve_videos` names every too-short input in one error.
+  Audio shaping steps log seam fades, score offset and fade-out (#564), and
+  `audio_bleed` logs each bled seam (#566).
+- The plugin skills tell an agent to pass `plan.estimate` plus a margin as
+  `wait_for_job`'s `timeout_seconds` (#546).
+
+**Fixes**
+
+- Validation and `workflow.json` see constraint-snapped values.
+- Sub-workflow warnings are strings at the author's step and use the
+  caller's arguments; the web UI showed `[object Object]`.
+- Validation, submit and the worker check `asset:` references against the
+  job's own workspace, not the default one.
+- A run's directory and version are claimed atomically under a lock in
+  dw's settings directory, so two runs of one workflow cannot share a
+  number, and a gallery delete no longer races an opening run.
+- `manifest.json` is written atomically, so a killed worker leaves the
+  previous manifest (#517).
+- Step cache: a step that borrows a pipeline (`pipeline_reference`,
+  `reused_components`) misses when anything up its borrow chain changes, and
+  a stale resident pipeline is no longer reused.
+- Whisper `transcribe_audio` no longer truncates a multi-line clip in
+  plain-text mode (#559).
+- `mix_audio`'s dB-typo warning ignores non-integer gains such as
+  `find_loop_bed`'s (#555).
+- The shot-name collision warning drops its doubled step prefix and no
+  longer repeats on `pair_audio`/`interpolate_frames` (#568).
+- Detail-cache pruning is safe under concurrent requests; a warning helper
+  that raises never refuses a job; `model_name` refusals use one wording
+  (#529).
+
+**Internal (for developers using dw as a Python library)**
+
+None of this reaches the HTTP API or MCP.
+
+- Import cycles are gone, no module is over 1,000 lines and no function over
+  150. Reference prefixes are spelled only in `dw/references.py`.
+- `dw.workflow_sources` is `dw.library` (`WorkflowSource` is `LibraryRoot`,
+  plus `LibraryPath`).
+- `dw.loudness`, `dw.media_audio`, `dw.media_info` and `dw.teacache` are
+  gone; their contents are in `dw.dsp` and `dw.media`. `normalize_audio` and
+  the other dynamics tasks are in `dw.tasks.audio_dynamics`, the join
+  helpers in `dw.tasks.joins`.
+- `result.py` split into `dw.writers`, `dw.audio_qc` and
+  `dw.output_extraction`. `pipeline_processors/pipeline.py` split into
+  `placement`, `components`, `adapters` and `progress`. `Workflow.run`'s
+  phases are in `dw.workflow_run`, pipeline ownership in
+  `dw.pipeline_ownership`, validation in `dw.validation` (which absorbed
+  `dw.result_fps`, `dw.null_media` and `dw.select_validation`), the trust
+  gate in `dw.trust`.
+- `pipeline_cache_key` and `step_pipeline_keys` are in `dw.step_cache`;
+  `dw.plan` no longer re-exports `unseeded_cache_warnings`.
+- `create_app` is a factory over `dw/server/routes/*`, and
+  `app.dependency_overrides` does not reach their routes. Worker messages
+  are typed in `dw/worker_protocol.py` (`probe_id` is `request_id`;
+  `ping`/`pong` removed). MCP tools are in `dw_mcp/tools_*.py`.
+- An object passed to `Workflow.run` is the object the steps use, so an
+  in-place write is visible to the caller. A composed child no longer
+  deep-copies its handed arguments.
+
 ### 0.5.0
 
 <!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.4.0..f272188 (origin/develop). -->
