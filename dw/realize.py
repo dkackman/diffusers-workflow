@@ -13,6 +13,11 @@ local sub-workflow, digested into the manifest instead. The one exception is
 the variables block, which records the values the run folded - a variable
 defaulted to a 'constant:' holds the value it realized to there.
 
+The realized file keeps `for_each` as written - a step carrying one is not
+expanded into its members - so it is the file an author would edit and
+re-run. The members (`<step>@<entry>`) are named in the run's manifest, not
+here.
+
 Two rules hold this module together. It never mutates its input: the caller
 hands it the definition the run is about to work from. And it never fails a
 run: a reference that will not resolve is left exactly as written, so the

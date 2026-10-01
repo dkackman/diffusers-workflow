@@ -31,6 +31,12 @@ Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
 track (`pair_audio`), or builds a video with no shots at all.
 `tests/test_shots.py` fails on a constructor site nobody decided for.
+
+`Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
+shots), so a step cache hit's stripped copy still reports them. The manifest
+entry and `step_end` carry them renamed `shot@<key>` from the step's `videos`
+references (`step_shots`). The mp4 itself carries nothing: the record lives in
+the manifest and on the artifact, not in the file.
 """
 
 import copy

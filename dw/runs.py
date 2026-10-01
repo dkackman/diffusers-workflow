@@ -528,6 +528,13 @@ def run_versions(identity_dir):
     unrecorded run anywhere later continues from the highest number before
     it. Ordering is by run id, which is chronological.
 
+    A new run takes `max(recorded) + 1` over *every* sibling manifest
+    (`open_run`), not one past the newest: run ids are chronological only to
+    the second, so within one second the digest decides the sort. Two limits
+    are deliberate. Deleting the *newest* run frees its number for reuse,
+    since the high-water mark lived in the manifest that went with it; and
+    the flat layout has no runs, so a version is None there.
+
     Read only. A ranked number is only as stable as its neighbours until
     `record_run_versions` writes it down.
     """

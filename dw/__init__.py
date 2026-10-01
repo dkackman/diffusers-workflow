@@ -1,3 +1,12 @@
+"""diffusers-workflow: device detection and the startup that configures it.
+
+The default torch device is deliberately never set. Diffusers loads weights
+into system memory and then places them, onto the device or under offload
+hooks; a default device of 'cuda' would build every module directly in VRAM
+and run a large pipeline out of memory before any offload hook exists. Device
+placement is explicit throughout dw.
+"""
+
 from .settings import resolve_path, load_settings
 from .log_setup import setup_logging
 import functools
