@@ -26,10 +26,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dw.security import (
+from dw.security import UntrustedWorkflowError
+from dw.trust import (
     CONSTRUCTIBLE_BASE_CLASSES,
     TRUST_WORKFLOWS_ENV_VAR,
-    UntrustedWorkflowError,
     set_trust_workflows,
     workflows_are_trusted,
 )
@@ -755,7 +755,7 @@ class TestOnlyConstructibleClassesUntrusted:
     def test_a_registered_virtual_subclass_is_not_accepted(
         self, untrusted, fake_module
     ):
-        from dw.security import is_constructible_class
+        from dw.trust import is_constructible_class
         from torchao.core.config import AOBaseConfig
 
         AOBaseConfig.register(fake_module.Handler)

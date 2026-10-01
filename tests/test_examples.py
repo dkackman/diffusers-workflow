@@ -119,7 +119,7 @@ def test_example_workflow_validates_untrusted(example_file, monkeypatch):
     allowed to read would pass every other test here and fail on the box.
     Closing the step object (#118) is checked by the same pass.
     """
-    from dw.security import TRUST_WORKFLOWS_ENV_VAR
+    from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 
     monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
     path = os.path.join(REPO_ROOT, example_file)

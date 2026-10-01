@@ -2,7 +2,8 @@ import argparse
 import os
 from .workflow import workflow_from_file
 from . import startup
-from .security import validate_workflow_path, set_trust_workflows, SecurityError
+from .security import validate_workflow_path, SecurityError
+from .trust import set_trust_workflows
 
 
 def main():

@@ -30,8 +30,8 @@ from dw.locations import (
 from dw.security import (
     InvalidInputError,
     PathTraversalError,
-    TRUST_WORKFLOWS_ENV_VAR,
 )
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.tasks.gather import gather_images
 
 

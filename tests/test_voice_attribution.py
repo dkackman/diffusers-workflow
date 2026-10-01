@@ -32,7 +32,7 @@ from dw.tasks.voice_attribution import (
     voices_errors,
 )
 from dw.locations import location_errors
-from dw.security import TRUST_WORKFLOWS_ENV_VAR
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.workflow import Workflow
 
 

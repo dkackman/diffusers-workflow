@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from dw.security import (
-    UntrustedWorkflowError,
+from dw.security import UntrustedWorkflowError
+from dw.trust import (
     require_trusted_dotted_name,
     require_trusted_pre_load_modules,
     set_trust_workflows,
@@ -315,7 +315,7 @@ class TestRemoteCodeIsGated:
     not be able to reach whatever the importlib gate refuses."""
 
     def test_trust_remote_code_refused_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         with pytest.raises(UntrustedWorkflowError, match="trust_remote_code"):
@@ -324,7 +324,7 @@ class TestRemoteCodeIsGated:
             )
 
     def test_custom_pipeline_refused_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         with pytest.raises(UntrustedWorkflowError, match="custom_pipeline"):
@@ -333,7 +333,7 @@ class TestRemoteCodeIsGated:
             )
 
     def test_plain_arguments_and_a_false_flag_pass_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         require_trusted_from_pretrained_arguments({"model_name": "a/b"}, "x")
@@ -342,7 +342,7 @@ class TestRemoteCodeIsGated:
         )
 
     def test_allowed_when_trusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
         require_trusted_from_pretrained_arguments(

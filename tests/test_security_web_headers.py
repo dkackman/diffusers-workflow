@@ -17,7 +17,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.security import TRUST_WORKFLOWS_ENV_VAR
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 

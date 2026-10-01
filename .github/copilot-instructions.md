@@ -91,11 +91,12 @@ This is a declarative workflow engine for the HuggingFace Diffusers library that
 
 ## Security
 
-**Critical security module** (`dw/security.py`) provides comprehensive input validation and protection:
+**Critical security modules**: `dw/security.py` provides comprehensive input validation and protection, and `dw/trust.py` gates the trust model for untrusted workflows:
 - **Path validation**: Prevents traversal attacks, validates file extensions, enforces directory restrictions
 - **Input sanitization**: Validates variable names (alphanumeric + underscore/hyphen only), string lengths, control characters
 - **Command safety**: Sanitizes subprocess arguments, blocks shell metacharacters, enforces `shell=False`
 - **URL validation**: Restricts to http/https schemes only
+- **Workflow trust**: Controls what untrusted workflows may import (`dw/trust.py`)
 
 All entry points (run.py, validate.py, serve.py) use security validation. When adding features:
 - Always validate paths with `validate_path()` or `validate_workflow_path()`

@@ -47,8 +47,8 @@ from .security import (
     PathTraversalError,
     validate_path,
     validate_url,
-    workflows_are_trusted,
 )
+from .trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
 

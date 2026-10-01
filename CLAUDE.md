@@ -250,7 +250,7 @@ Settings in `~/.diffusers_helper/settings.json` (`dw/settings.py`): `device`, `w
 
 ## Security Rules
 
-All entry points use `dw/security.py`. When adding features:
+All entry points use `dw/security.py`'s validators (paths, URLs, subprocess arguments) and the trust gate is `dw/trust.py`. When adding features:
 - Validate paths with `validate_path()` / `validate_workflow_path()` / `validate_output_path()`
 - Validate variable names with `validate_variable_name()` (pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 - Validate URLs with `validate_url()` (http/https only)

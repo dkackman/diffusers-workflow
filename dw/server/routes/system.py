@@ -24,7 +24,8 @@ from ...introspection import (
     list_tasks,
 )
 from ...schema import SchemaSectionError, load_schema, schema_section
-from ...security import InvalidInputError, validate_commit_hash, workflows_are_trusted
+from ...security import InvalidInputError, validate_commit_hash
+from ...trust import workflows_are_trusted
 from ...workspace import Workspace
 from .. import guides
 from ..deps import selected_workspace

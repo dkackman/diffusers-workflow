@@ -27,7 +27,8 @@ import requests
 from PIL import Image
 
 from dw.locations import token_host_allowed, validate_media_url
-from dw.security import InvalidInputError, TRUST_WORKFLOWS_ENV_VAR
+from dw.security import InvalidInputError
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 
 
 @pytest.fixture

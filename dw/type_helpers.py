@@ -2,13 +2,13 @@ import importlib
 import inspect
 import types
 
-from .security import (
+from .trust import (
     TRUSTED_TOP_LEVEL_PACKAGES,
-    UntrustedWorkflowError,
     require_constructible_class,
     require_trusted_dotted_name,
     workflows_are_trusted,
 )
+from .security import UntrustedWorkflowError
 
 # Keys that end in '_type' but name a category rather than a python type. Any other such
 # key can be escaped where it is used, by wrapping its value in braces

@@ -66,7 +66,7 @@ def test_trust_posture_is_reported(tmp_path, monkeypatch):
     testing the untrusted default rather than assuming it. Inferring the
     posture from behavior only works while the trust-gated cases happen to
     fail closed."""
-    from dw.security import TRUST_WORKFLOWS_ENV_VAR
+    from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 
     monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
     with client(tmp_path) as c:

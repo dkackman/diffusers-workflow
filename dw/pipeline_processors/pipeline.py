@@ -15,7 +15,7 @@ from .config_objects import (
 from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
 from ..type_helpers import has_method
-from ..security import (
+from ..trust import (
     require_trusted_from_pretrained_arguments,
     require_trusted_pre_load_modules,
 )
