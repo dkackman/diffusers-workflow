@@ -14,7 +14,7 @@ from fastapi import HTTPException, Request
 
 from ..security import SecurityError
 from ..vram_inheritance import build_index
-from ..library import PROMPTS_KIND, library_path
+from ..library import ASSETS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
     Workspace,
@@ -46,6 +46,34 @@ def asset_library_missing(shared=False):
             "root, so there is nothing for an asset to be common to",
         )
     return HTTPException(status_code=409, detail="This workspace has no asset library")
+
+
+def prompt_library_missing():
+    """The 409 a prompt save answers when the server has no prompt library."""
+    return HTTPException(status_code=409, detail="This server has no prompt library")
+
+
+def writable_asset_directory(state, ws, shared=False):
+    """The directory an asset write lands in: the writable root of the
+    workspace's asset path (`LibraryPath.writable_root`), or the shared one
+    when `shared`. A shared root that is not a directory yet is off the path
+    but is still the workspace's to create, so it is read off the workspace.
+    Raises the one 409 when there is nowhere to write."""
+    root = library_path(ASSETS_KIND, ws, state.examples_dirs).writable_root(shared)
+    directory = root.root if root else None
+    if directory is None and shared:
+        directory = getattr(ws, "common_assets", None)
+    if not directory:
+        raise asset_library_missing(shared=shared)
+    return directory
+
+
+def writable_prompt_directory(state):
+    """The directory a prompt save lands in, or the one 409."""
+    root = server_prompt_library(state).writable_root()
+    if root is None:
+        raise prompt_library_missing()
+    return root.root
 
 
 def workspace_root(state):

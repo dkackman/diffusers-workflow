@@ -423,7 +423,10 @@ def library_path_from_env(kind, primary=None):
     workflow `primary` that is itself a pinned read-only root is a run
     confined to an examples directory, so it is tagged `examples` and read-only
     rather than `workspace`; for prompts and assets the primary is always the
-    workspace's own.
+    workspace's own. The exception is the resolved workspace's own `workflows/`
+    (a checkout that is its own examples directory), which stays `workspace`.
+    Accepted limit: a server whose `--workflow-dir` override equals an examples
+    directory is still tagged `examples` here.
     """
     common = None
     if kind == ASSETS_KIND:
@@ -446,7 +449,15 @@ def library_path_from_env(kind, primary=None):
 
     front = LibraryRoot(primary, WORKSPACE_ORIGIN, True)
     if kind == WORKFLOWS_KIND and front.root in pinned:
-        front = LibraryRoot(*tagged(front.root))
+        # Unless it is the workspace's own workflows/ - a checkout whose
+        # examples directory is its library - which the API keeps writable
+        try:
+            own = os.path.abspath(resolve_workspace().workflows)
+        except Exception:
+            own = None
+            logger.debug("Could not resolve the workspace workflows", exc_info=True)
+        if front.root != own:
+            front = LibraryRoot(*tagged(front.root))
     return _assemble(kind, front, [tagged(directory) for directory in pinned])
 
 

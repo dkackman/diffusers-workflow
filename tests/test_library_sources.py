@@ -8,8 +8,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.assets import asset_search_path, resolve_asset_reference
-from dw.prompts import fetch_prompt, prompt_search_path, resolve_prompt_reference
+from dw.assets import asset_library, resolve_asset_reference
+from dw.prompts import fetch_prompt, prompt_library, resolve_prompt_reference
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.library import (
@@ -114,8 +114,14 @@ class TestResolution:
 
     def test_the_workspace_comes_first_on_the_path(self, libraries):
         workspace, checkout = libraries
-        assert prompt_search_path() == [workspace.prompts, str(checkout / "prompts")]
-        assert asset_search_path() == [workspace.assets, str(checkout / "assets")]
+        assert [r.root for r in prompt_library().roots()] == [
+            workspace.prompts,
+            str(checkout / "prompts"),
+        ]
+        assert [r.root for r in asset_library().roots()] == [
+            workspace.assets,
+            str(checkout / "assets"),
+        ]
 
     def test_an_example_prompt_resolves(self, libraries):
         _workspace, checkout = libraries

@@ -64,10 +64,14 @@ def make_server(tmp_path, monkeypatch):
         monkeypatch.delenv(variable, raising=False)
     opened = []
 
-    def make(prompt_dir=None):
-        workspace = Workspace(tmp_path / "studio", "flag").ensure()
-        os.makedirs(workspace.common_assets, exist_ok=True)
+    def make(prompt_dir=None, layout="separate"):
+        # "checkout": the workspace root is the checkout itself, so the
+        # examples directory is the workspace's own workflows/
         checkout = tmp_path / "repo"
+        workspace = Workspace(
+            checkout if layout == "checkout" else tmp_path / "studio", "flag"
+        ).ensure()
+        os.makedirs(workspace.common_assets, exist_ok=True)
         for sub in ("workflows", "prompts", "assets"):
             (checkout / sub).mkdir(parents=True, exist_ok=True)
         prompts = prompt_dir or workspace.prompts
@@ -157,15 +161,23 @@ class TestTheWorkerBuildsTheAPIsPath:
     for the worker and hands the API the same arguments; the two must name the
     same roots, in the same order, with the same origins."""
 
-    @pytest.fixture(params=["default", "elsewhere"])
+    @pytest.fixture(
+        params=[
+            ("default", "separate"),
+            ("elsewhere", "separate"),
+            ("default", "checkout"),
+        ]
+    )
     def pinned(self, request, make_server, monkeypatch, tmp_path):
-        # --prompt-dir left alone, and pointed outside the root
+        # --prompt-dir left alone, and pointed outside the root; and the
+        # checkout layout, where --examples-dir is the workspace's own
+        # workflows/
+        prompts, layout = request.param
         prompt_dir = (
-            str(tmp_path / "elsewhere" / "prompts")
-            if request.param == "elsewhere"
-            else None
+            str(tmp_path / "elsewhere" / "prompts") if prompts == "elsewhere" else None
         )
-        server = make_server(prompt_dir=prompt_dir)
+        server = make_server(prompt_dir=prompt_dir, layout=layout)
+        server.layout = layout
         monkeypatch.setenv("DW_WORKSPACE", server.workspace.root)
         monkeypatch.setenv("DW_WORKSPACE_SOURCE", "flag")
         examples = [str(server.checkout / "workflows")]
@@ -183,11 +195,10 @@ class TestTheWorkerBuildsTheAPIsPath:
         ws = workspace_for(pinned.state, workspace)
         api = workspace_asset_library(pinned.state, ws)
         worker = library_path_from_env(ASSETS_KIND, ws.assets).existing()
-        assert [root.origin for root in api.roots()] == [
-            WORKSPACE_ORIGIN,
-            COMMON_ORIGIN,
-            EXAMPLES_ORIGIN,
-        ]
+        expected = [WORKSPACE_ORIGIN, COMMON_ORIGIN]
+        if pinned.layout == "separate" or workspace == "shots":
+            expected.append(EXAMPLES_ORIGIN)
+        assert [root.origin for root in api.roots()] == expected
         assert described(worker) == described(api)
 
     @pytest.mark.parametrize("workspace", [None, "shots"])
@@ -195,10 +206,10 @@ class TestTheWorkerBuildsTheAPIsPath:
         # Prompts are shared: the named workspace reads the same library
         api = server_prompt_library(pinned.state)
         worker = library_path_from_env(PROMPTS_KIND, pinned.prompt_dir)
-        assert [root.origin for root in api.roots()] == [
-            WORKSPACE_ORIGIN,
-            EXAMPLES_ORIGIN,
-        ]
+        expected = [WORKSPACE_ORIGIN]
+        if pinned.layout == "separate":
+            expected.append(EXAMPLES_ORIGIN)
+        assert [root.origin for root in api.roots()] == expected
         assert described(worker) == described(api)
         ws = workspace_for(pinned.state, workspace)
         assert ws.prompts == pinned.prompt_dir
@@ -208,10 +219,10 @@ class TestTheWorkerBuildsTheAPIsPath:
         ws = workspace_for(pinned.state, workspace)
         api = sources_for(pinned.state, ws)
         worker = library_path_from_env(WORKFLOWS_KIND, ws.workflows)
-        assert [root.origin for root in api.roots()] == [
-            WORKSPACE_ORIGIN,
-            EXAMPLES_ORIGIN,
-        ]
+        expected = [WORKSPACE_ORIGIN]
+        if pinned.layout == "separate" or workspace == "shots":
+            expected.append(EXAMPLES_ORIGIN)
+        assert [root.origin for root in api.roots()] == expected
         assert described(worker) == described(api)
 
 
@@ -520,3 +531,21 @@ class TestNoAssetLibraryHasOneWording:
             delete = client.delete("/api/assets/x.png")
         assert {r.status_code for r in (upload, keep, delete)} == {409}
         assert len({r.json()["detail"] for r in (upload, keep, delete)}) == 1
+
+
+class TestPromptSaveWithNoPromptLibrary:
+    def test_the_save_answers_409_rather_than_500(self, tmp_path):
+        app = create_app(
+            workflow_dir=str(tmp_path / "workflows"),
+            output_dir=str(tmp_path / "outputs"),
+            prompt_dir=None,
+            job_manager=JobManager(
+                str(tmp_path / "outputs"),
+                worker_manager=ScriptedWorkerManager(success_script),
+                history_path=str(tmp_path / "jobs.sqlite"),
+            ),
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.put("/api/prompts/x", json={"prompt": {"text": "hello"}})
+        assert response.status_code == 409
+        assert response.json()["detail"] == "This server has no prompt library"

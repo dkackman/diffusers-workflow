@@ -140,6 +140,8 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
     - `prompt:name.json` now resolves.
     - An API prompt symlink escaping its root is skipped and the search continues (was 404). The engine still refuses it at run time.
     - Asset listing sort ties are broken by name.
+  - Admission (`POST /api/validate` and the pre-queue check) now refuses an `asset:` whose workspace copy is a symlink pointing out of the library. Before, it passed when a later root held the name, and the run then failed. This is the same pattern as the prompt line above, and it now agrees with the worker.
+  - A prompt save (`PUT /api/prompts`) on a server with no prompt library answers 409 `This server has no prompt library` (was a bare 500). Only a `create_app` caller can reach it; `dw.serve` always sets one.
   - Internal: `dw/workflow_sources.py` is `dw/library.py` (`WorkflowSource` is `LibraryRoot`, plus `LibraryPath`). `modules` is unchanged.
 
 ## Global Constraints (all stages)

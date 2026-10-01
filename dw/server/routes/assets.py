@@ -29,14 +29,17 @@ from ...security import (
 )
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
-from ..deps import asset_library_missing, selected_workspace
+from ..deps import (
+    asset_library_missing,
+    selected_workspace,
+    writable_asset_directory,
+)
 from ..outputs import (
     ArchiveRequest,
     absolute_served_url,
     archive_selection,
     asset_in,
     workspace_asset_library,
-    common_assets,
     iter_gallery_files,
     job_provenance,
     resolution_library,
@@ -123,14 +126,7 @@ async def upload_media(
     # An upload is input and goes to an asset library; with none there is
     # nowhere for it to be, the same 409 keep and delete answer (it used to
     # land among the outputs)
-    if shared:
-        library = common_assets(ws)
-        if not library:
-            raise asset_library_missing(shared=True)
-    else:
-        library = ws.assets
-        if not library:
-            raise asset_library_missing()
+    library = writable_asset_directory(request.app.state, ws, shared)
     uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
     name = f"{uuid.uuid4().hex}{extension}"
     if asset_name:
@@ -291,9 +287,7 @@ def keep_output_as_asset(
     multi-gigabyte video to reuse one frame would be paying for the
     round trip twice.
     """
-    library = common_assets(ws) if body.shared else ws.assets
-    if not library:
-        raise asset_library_missing(shared=body.shared)
+    library = writable_asset_directory(request.app.state, ws, body.shared)
 
     kept_name = strip_output_prefix(body.name)
     source = resolve_output_file(request.app.state, kept_name, ws.outputs)

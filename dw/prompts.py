@@ -15,9 +15,6 @@ from .schema import load_schema, validate_data
 from .library import (
     PROMPT_DIR_ENV_VAR,
     PROMPTS_KIND,
-    LibraryPath,
-    LibraryRoot,
-    WORKSPACE_ORIGIN,
     library_path_from_env,
 )
 from .security import validate_prompt_reference
@@ -61,7 +58,7 @@ def get_prompt_dir(base_dir=None):
     return discover_library(PROMPTS_SUBDIR, PROMPT_DIR_ENV_VAR, base_dir)
 
 
-def prompt_library(prompt_dir=None, base_dir=None, exact=False):
+def prompt_library(prompt_dir=None, base_dir=None):
     """The prompt library as a `LibraryPath`: the library a save would write
     to first, then the read-only ones an entry point put on the path (the
     prompts a --examples-dir tree brings with it). A name found earlier
@@ -71,23 +68,12 @@ def prompt_library(prompt_dir=None, base_dir=None, exact=False):
         prompt_dir: The first directory; defaults to get_prompt_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             prompt directory is configured
-        exact: Search `prompt_dir` alone, ignoring the pinned path - for a
-            caller asking whether one root holds a name
     """
     primary = prompt_dir or get_prompt_dir(base_dir)
-    if exact:
-        return LibraryPath(PROMPTS_KIND, [LibraryRoot(primary, WORKSPACE_ORIGIN, True)])
     return library_path_from_env(PROMPTS_KIND, primary)
 
 
-def prompt_search_path(prompt_dir=None, base_dir=None):
-    """Every directory a 'prompt:' reference is looked for in, in order."""
-    return [root.root for root in prompt_library(prompt_dir, base_dir).roots()]
-
-
-def resolve_prompt_reference(
-    reference, prompt_dir=None, base_dir=None, exact=False, library=None
-):
+def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, library=None):
     """Resolve a 'prompt:' reference to the file it names.
 
     Args:
@@ -95,11 +81,9 @@ def resolve_prompt_reference(
         prompt_dir: Directory the name is rooted at; defaults to get_prompt_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             prompt directory is configured
-        exact: Resolve against `prompt_dir` alone rather than the whole
-            search path (see prompt_library)
         library: The `LibraryPath` to resolve over, for a caller that holds
             the search path itself (the server's); it replaces `prompt_dir`,
-            `base_dir` and `exact`, which are ignored
+            `base_dir`, which are ignored
             when it is given
 
     Returns:
@@ -111,7 +95,7 @@ def resolve_prompt_reference(
             on the search path
     """
     name = validate_prompt_reference(reference.removeprefix(PROMPT_PREFIX).strip())
-    library = library or prompt_library(prompt_dir, base_dir, exact)
+    library = library or prompt_library(prompt_dir, base_dir)
     found = library.find(name, refuse=True)
     if found:
         return found[0]

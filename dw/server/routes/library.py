@@ -53,6 +53,7 @@ from ..deps import (
     internal_error,
     observed_for_name,
     server_prompt_library,
+    writable_prompt_directory,
     selected_workspace,
     sources_for,
     workspace_root,
@@ -571,7 +572,9 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
             detail="A prompt's text may not itself begin with a reference "
             f"prefix ({', '.join(RESERVED_TEXT_PREFIXES)})",
         )
-    path = resolve_prompt_name(state.prompt_dir, name, allow_create=True)
+    path = resolve_prompt_name(
+        writable_prompt_directory(state), name, allow_create=True
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
         json.dump(request.prompt, file, indent=2)

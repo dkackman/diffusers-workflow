@@ -398,6 +398,23 @@ class TestTaggedByWhatItIs:
         assert root.origin == WORKSPACE_ORIGIN
         assert root.writable
 
+    def test_a_checkouts_own_workflows_dir_stays_the_workspace(
+        self, tmp_path, monkeypatch
+    ):
+        # --examples-dir pointing at the workspace's own workflows/: the API
+        # collapses it into one writable workspace root, so the worker must
+        repo = tmp_path / "repo"
+        (repo / "workflows").mkdir(parents=True)
+        (repo / "workflows" / "Shared.json").write_text("{}")
+        monkeypatch.setenv("DW_WORKSPACE", str(repo))
+        monkeypatch.setenv("DW_WORKSPACE_SOURCE", "flag")
+        monkeypatch.setenv("DW_WORKFLOW_PATH", str(repo / "workflows"))
+        _candidate, root = resolve_sub_workflow(
+            "Shared", str(repo / "workflows"), str(repo / "workflows")
+        )
+        assert root.origin == WORKSPACE_ORIGIN
+        assert root.writable
+
 
 class TestPromptsAndAssetsConstruction:
     @pytest.fixture
@@ -565,28 +582,40 @@ class TestResolveAgainstOneRoot:
         found = resolve_asset_reference("asset:x.png", asset_dir=str(other))
         assert found == os.path.realpath(pinned / "x.png")
 
-    def test_an_exact_asset_resolution_does_not_find_it(self, libraries):
+    def test_a_single_root_library_does_not_find_the_tail(self, libraries):
         from dw.assets import resolve_asset_reference
+        from dw.library import ASSETS_KIND, LibraryPath, LibraryRoot
 
         _pinned, other = libraries
+        only = LibraryPath(
+            ASSETS_KIND, [LibraryRoot(str(other), WORKSPACE_ORIGIN, True)]
+        )
         with pytest.raises(ValueError):
-            resolve_asset_reference("asset:x.png", asset_dir=str(other), exact=True)
+            resolve_asset_reference("asset:x.png", library=only)
 
-    def test_an_exact_prompt_resolution_does_not_find_it(self, libraries):
+    def test_a_single_root_prompt_library_does_not_find_the_tail(self, libraries):
+        from dw.library import LibraryPath, LibraryRoot, PROMPTS_KIND
         from dw.prompts import resolve_prompt_reference
 
         _pinned, other = libraries
+        only = LibraryPath(
+            PROMPTS_KIND, [LibraryRoot(str(other), WORKSPACE_ORIGIN, True)]
+        )
         with pytest.raises(ValueError):
-            resolve_prompt_reference("prompt:p", prompt_dir=str(other), exact=True)
+            resolve_prompt_reference("prompt:p", library=only)
 
-    def test_an_exact_resolution_finds_what_the_root_holds(self, libraries):
+    def test_a_single_root_library_finds_what_the_root_holds(self, libraries):
         from dw.assets import resolve_asset_reference
+        from dw.library import ASSETS_KIND, LibraryPath, LibraryRoot
 
         _pinned, other = libraries
         (other / "y.png").write_bytes(b"y")
-        assert resolve_asset_reference(
-            "asset:y.png", asset_dir=str(other), exact=True
-        ) == os.path.realpath(other / "y.png")
+        only = LibraryPath(
+            ASSETS_KIND, [LibraryRoot(str(other), WORKSPACE_ORIGIN, True)]
+        )
+        assert resolve_asset_reference("asset:y.png", library=only) == os.path.realpath(
+            other / "y.png"
+        )
 
 
 class TestPinnedTailOutlivesTheServersPrimary:
@@ -654,15 +683,17 @@ class TestPinnedTailOutlivesTheServersPrimary:
 
 class TestPromptRefusalIsNotAMissEither:
     def test_a_dangling_link_is_skipped_not_refused(self, tmp_path, monkeypatch):
+        from dw.library import LibraryPath, LibraryRoot, PROMPTS_KIND
         from dw.prompts import resolve_prompt_reference
 
         library = tmp_path / "prompts"
         library.mkdir()
         os.symlink(tmp_path / "nowhere.json", library / "ghost.json")
+        only = LibraryPath(
+            PROMPTS_KIND, [LibraryRoot(str(library), WORKSPACE_ORIGIN, True)]
+        )
         with pytest.raises(ValueError):
-            resolve_prompt_reference(
-                "prompt:ghost", prompt_dir=str(library), exact=True
-            )
+            resolve_prompt_reference("prompt:ghost", library=only)
 
 
 class TestExistingAndFrontless:

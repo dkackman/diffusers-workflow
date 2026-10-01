@@ -19,9 +19,6 @@ from . import references
 from .library import (
     ASSET_DIR_ENV_VAR,
     ASSETS_KIND,
-    LibraryPath,
-    LibraryRoot,
-    WORKSPACE_ORIGIN,
     library_path_from_env,
 )
 from .security import validate_asset_reference
@@ -75,7 +72,7 @@ def is_asset_reference(value):
     return references.is_ref(references.ASSET, value)
 
 
-def asset_library(asset_dir=None, base_dir=None, exact=False):
+def asset_library(asset_dir=None, base_dir=None):
     """The asset library as a `LibraryPath`: the workspace's own first, then
     the read-only ones an entry point put on the path (the shared `common`
     library and the assets a --examples-dir tree brings with it), so an
@@ -86,23 +83,12 @@ def asset_library(asset_dir=None, base_dir=None, exact=False):
         asset_dir: The first directory; defaults to get_asset_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             asset directory is configured
-        exact: Search `asset_dir` alone, ignoring the pinned path - for a
-            caller asking whether one root holds a name
     """
     primary = asset_dir or get_asset_dir(base_dir)
-    if exact:
-        return LibraryPath(ASSETS_KIND, [LibraryRoot(primary, WORKSPACE_ORIGIN, True)])
     return library_path_from_env(ASSETS_KIND, primary)
 
 
-def asset_search_path(asset_dir=None, base_dir=None):
-    """Every directory an 'asset:' reference is looked for in, in order."""
-    return [root.root for root in asset_library(asset_dir, base_dir).roots()]
-
-
-def resolve_asset_reference(
-    reference, asset_dir=None, base_dir=None, exact=False, library=None
-):
+def resolve_asset_reference(reference, asset_dir=None, base_dir=None, library=None):
     """Resolve an 'asset:' reference to the file it names.
 
     Args:
@@ -110,11 +96,9 @@ def resolve_asset_reference(
         asset_dir: Directory the name is rooted at; defaults to get_asset_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             asset directory is configured
-        exact: Resolve against `asset_dir` alone rather than the whole
-            search path (see asset_library)
         library: The `LibraryPath` to resolve over, for a caller that holds
             the search path itself (the server's, for a workspace); it
-            replaces `asset_dir`, `base_dir` and `exact`, which are ignored
+            replaces `asset_dir` and `base_dir`, which are ignored
             when it is given
 
     Returns:
@@ -127,7 +111,7 @@ def resolve_asset_reference(
             the search path
     """
     name = validate_asset_reference(reference.removeprefix(ASSET_PREFIX).strip())
-    library = library or asset_library(asset_dir, base_dir, exact)
+    library = library or asset_library(asset_dir, base_dir)
     # Confined to the library it was found in: the name is joined onto a
     # directory, so the containment check is what makes a name a name
     # rather than a path
