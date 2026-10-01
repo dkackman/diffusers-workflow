@@ -503,8 +503,8 @@ def _stream_info(container, audio_stream_seconds=False):
     `kind`, `fps`, `width`, `height`, `duration_seconds`, `sample_rate` and
     `channels` - what `probe_metadata` answers and `probe_media` starts from.
     `audio_stream_seconds` adds the audio *stream's* own reported duration,
-    not the container's: assess's `read_thumbnails_and_track` trims the
-    decoded track to this figure, and a lossy mux can report the two slightly
+    not the container's: assess's `read_media` trims the decoded track to
+    this figure, and a lossy mux can report the two slightly
     differently (#426), so a caller that needs to agree with what a probe will
     actually measure reads this rather than duration_seconds.
     """

@@ -444,7 +444,7 @@ same reason - default setup cannot load a pack.
   the track minus its last ten frames, and
   `resample_audio(target_sample_rate=0)` would leave the samples alone and then hit
   `DEFAULT_AUDIO_SAMPLE_RATE` at save, writing a 44100 Hz header over a 32 kHz
-  waveform — which is why `_as_track` refuses a non-positive rate
+  waveform — which is why `as_track` refuses a non-positive rate
   outright: relabelling a waveform changes its speed and pitch, and the save
   default makes a missing rate look like a valid one. Adding a domain means
   one entry in the table; `tests/test_task_domains.py` pins every entry to a
@@ -538,8 +538,8 @@ same reason - default setup cannot load a pack.
   picture is unchanged; `music`'s deliverable is its `balanced` step.
   `normalize_audio(limit=true)` reaches a `target_lufs` a transient would
   otherwise cap: a true-peak (4x) look-ahead limiter holds `peak_dbfs`
-  (`_normalize_limited`, constants `LIMITER_*`) while the gain is searched
-  for (`_search_gain`) until the limited track lands within 0.1 LU of the
+  (`_normalize_limited` in `dw/tasks/audio_dynamics.py`, constants `LIMITER_*`
+  in `dw/dsp.py`) while the gain is searched for (`dsp.search_gain`) until the limited track lands within 0.1 LU of the
   target - one correction pass left dense material 2 LU short. It stops at
   12 dB of reduction; a track left short of the target, at the cap or not,
   warns `target_lufs_capped` with `limited: true`, past 6 dB `limiter_heavy`

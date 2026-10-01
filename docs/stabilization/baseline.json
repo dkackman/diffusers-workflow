@@ -1,12 +1,12 @@
 {
   "modules": 151,
-  "modules_over_1000_lines": 7,
-  "functions_over_150_lines": 11,
+  "modules_over_1000_lines": 6,
+  "functions_over_150_lines": 4,
   "prefix_literals": 0,
   "test_dw_patch_targets": 284,
-  "claude_md_lines": 961,
+  "claude_md_lines": 957,
   "duplicate_blocks": 5,
-  "complex_functions": 17,
+  "complex_functions": 12,
   "import_cycles": 0,
   "modules_in_import_cycles": 0
 }

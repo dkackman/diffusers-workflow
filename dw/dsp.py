@@ -205,9 +205,8 @@ def layout_name(channels, layout=None):
 
 
 def _is_positive_rate(value):
-    """Whether a value is a number (or numeric string) above zero. dsp
-    imports nothing from dw, so this is the task-side `as_number` rule
-    written as a question; a boolean is not a rate."""
+    """Whether a value is a rate: something `float()` accepts that is above
+    zero (NaN is not), and not a boolean."""
     try:
         return not isinstance(value, bool) and float(value) > 0
     except (TypeError, ValueError):

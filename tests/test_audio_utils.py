@@ -417,7 +417,7 @@ class TestBleedJoin:
 
     def test_upsampled_speech_still_warns_when_native_rate_given(self, caplog):
         """The other half of the #198 band-limiting: the native rate tells
-        _spectral_flatness where the tail's own Nyquist is, but _harmonicity
+        dsp.spectral_flatness where the tail's own Nyquist is, but dsp.harmonicity
         turns a rate into lag bounds in samples of the waveform it is handed -
         which is at the target rate. Passing the native rate there searched
         180-1500 Hz on a 48 kHz track instead of 60-500, missing the voiced

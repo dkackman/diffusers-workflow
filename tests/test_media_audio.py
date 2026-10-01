@@ -184,7 +184,7 @@ def test_an_excerpt_is_anchored_on_the_streams_start_time(tmp_path):
     the container's zero rather than the stream's own start: `start=2.5`
     came back from about 1.5 s - the wrong tone, silently - and `start=0.5`
     came back as a 0.13 s stub. Anchor on `stream.start_time`, as
-    `_read_frames` does for video."""
+    `media.read_frames` does for video."""
     write_shifted_two_tone_mp4(tmp_path / "shifted.mp4", offset_seconds=1.0)
     import av
 
