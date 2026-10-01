@@ -1876,214 +1876,246 @@ class Workflow:
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
         """
-        # Handle pipeline creation
         if "pipeline" in step_definition:
-            step_name = step_definition["name"]
-
-            # Pipelines are cached by what they load, not what step loads them
-            ownership = self.pipeline_ownership
-            cache_key = ownership.load_key(step_definition)
-            ownership.record(step_name, cache_key)
-            get_context().touch_pipeline(cache_key)
-
-            if cache_hit and cache_key not in previous_pipelines:
-                # A hit needs the key recorded (release_pipeline and
-                # pipeline_reference address it by name), not the weights:
-                # nothing calls the pipeline unless a step that runs borrows
-                # it, and that step loads it then
-                ownership.defer(step_name, step_definition, default_seed)
-                return None
-
-            # Check if pipeline already loaded in cache (GPU persistence)
-            if cache_key in previous_pipelines:
-                logger.debug(f"Reusing cached pipeline for step: {step_name}")
-                cached_pipeline = previous_pipelines[cache_key]
-                # The shared_components dict is fresh every run and only load()
-                # fills it - a cache hit must republish or a later step's
-                # reused_components finds nothing (impossible under the old
-                # whole-file cache, the normal case under identity keys)
-                cached_pipeline.publish_shared_components(shared_components)
-                # Create new Pipeline wrapper with updated step definition
-                # but reuse the loaded model from cache
-                new_pipeline_wrapper = Pipeline(
-                    step_definition["pipeline"],
-                    default_seed,
-                    device,
-                    cached_pipeline.pipeline,  # Reuse the actual loaded model
-                    output_dir=self.step_output_dir(step_definition),
-                    file_prefix=self.step_file_prefix(step_name),
-                )
-                # Set up generator with potentially new seed. no_generator is a
-                # boolean - only an explicit true disables the generator - and the
-                # generator lives on the pipeline's own device, which may override
-                # the workflow default (the fresh-load path resolves it the same way)
-                if not new_pipeline_wrapper.configuration.get("no_generator", False):
-                    logger.debug(
-                        "Setting up generator for cached pipeline with new arguments"
-                    )
-                    new_pipeline_wrapper.argument_template["generator"] = (
-                        torch.Generator(new_pipeline_wrapper.device).manual_seed(
-                            new_pipeline_wrapper.pipeline_definition.get(
-                                "seed", default_seed
-                            )
-                        )
-                    )
-
-                # A cache hit and a cold load look identical from the outside -
-                # same step, same dot - and they differ by minutes
-                emit_phase("cached", detail=new_pipeline_wrapper.name)
-                return new_pipeline_wrapper
-
-            # Not in cache - a redefined step frees its previous model first,
-            # so the swap never holds old and new stacks simultaneously
-            prior_key = ownership.superseded_key(
-                step_name, cache_key, previous_pipelines
-            )
-            if prior_key is not None:
-                evict_superseded(previous_pipelines, step_name, prior_key)
-
-            logger.debug(f"Creating pipeline for step: {step_name}")
-            pipeline = Pipeline(
-                step_definition["pipeline"],
+            return self._pipeline_action(
+                step_definition,
+                shared_components,
+                previous_pipelines,
                 default_seed,
                 device,
-                output_dir=self.step_output_dir(step_definition),
-                file_prefix=self.step_file_prefix(step_name),
+                cache_hit,
             )
-            # Before the marker, not after it: a definition refused by the
-            # trust gate must not have announced a load it never began, or a
-            # consumer reading job events cannot tell 'refused before load'
-            # from 'loaded, then refused' (#137)
-            pipeline.check_trusted()
-            # Loading is the longest silence in a run: weights, quantization,
-            # adapters and placement all happen inside this call
-            emit_phase("loading", detail=pipeline.name)
-            pipeline.load(shared_components)
-            previous_pipelines[cache_key] = pipeline
-            return pipeline
-
-        # Handle pipeline reference
         if "pipeline_reference" in step_definition:
-            logger.debug(
-                f"Referencing existing pipeline for step: {step_definition['name']}"
+            return self._reference_action(
+                step_definition, previous_pipelines, default_seed, device, cache_hit
             )
-            pipeline_reference = step_definition["pipeline_reference"]
-            reference_name = pipeline_reference["reference_name"]
-            referenced_key = self.pipeline_ownership.key_for(reference_name)
-            if cache_hit and reference_name in self.pipeline_ownership.deferred:
-                # The referenced step was a hit that deferred its load, and
-                # this step's result is cached too: nothing will call it
-                return None
-            if referenced_key is None or referenced_key not in previous_pipelines:
-                raise ValueError(
-                    f"pipeline_reference '{reference_name}' does not name an "
-                    "earlier pipeline step in this run (or it was released)"
-                )
-            previous_pipeline = previous_pipelines[referenced_key]
-            return Pipeline(
-                pipeline_reference,
-                default_seed,
-                device,
-                previous_pipeline.pipeline,
-                output_dir=self.step_output_dir(step_definition),
-                file_prefix=self.step_file_prefix(step_definition["name"]),
-            )
-
-        # Handle sub-workflow
         if "workflow" in step_definition:
-            logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
-            workflow_reference = step_definition["workflow"]
-            path = workflow_reference["path"]
-
-            try:
-                # Sub-workflow steps are confined to the same directory this
-                # workflow is (workflow_dir for a server-submitted run)
-                confine_to = self.workflow_dir
-                # Handle built-in workflows
-                if references.is_ref(references.BUILTIN, path):
-                    builtin_name = path.replace(references.BUILTIN, "")
-                    # Validate builtin workflow name
-                    if (
-                        not builtin_name.endswith(".json")
-                        or "/" in builtin_name
-                        or "\\" in builtin_name
-                    ):
-                        raise InvalidInputError(
-                            f"Invalid builtin workflow name: {builtin_name}. "
-                            "It must be a bare '<name>.json' filename with no "
-                            "path segments - 'builtin:' only looks in the "
-                            f"packaged workflows root: {builtin_root()}"
-                        )
-                    # Builtins ship inside the package, outside any
-                    # workflow_dir - confine them to their own directory
-                    # instead (the name check above already forbids escaping it)
-                    confine_to = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)), "workflows"
-                    )
-                    path = os.path.join(confine_to, builtin_name)
-                # Everything else - a relative path, or a catalog name as
-                # list_workflows reports it - goes through the search path.
-                # A template under templates/ names a model config as
-                # '../models/x.json', so a path relative to the referencing
-                # file still resolves first and the '..' is collapsed here,
-                # which is what lets the validator judge where the path
-                # actually lands rather than refusing the spelling;
-                # containment is still checked on the resolved path below.
-                # An unconfined run (no workflow_dir - a bare CLI
-                # invocation) used to rely on the '..' regex alone to stop a
-                # relative reference from leaving the file's own directory;
-                # normalizing the path removes that guard, so confine it to
-                # the catalog root instead - the referencing file's nearest
-                # ancestor literally named 'workflows', which still lets it
-                # climb to a sibling folder like models/ but not out of the
-                # catalog
-                else:
-                    if confine_to is None and not os.path.isabs(path):
-                        confine_to = catalog_root_dir(self.file_spec)
-                    path, resolved_root = resolve_sub_workflow(
-                        path, os.path.dirname(self.file_spec), confine_to
-                    )
-                    confine_to = resolved_root.root if resolved_root else None
-
-                # Validate the resolved path - confined when this workflow
-                # itself is (an inline/server-submitted run), so a
-                # sub-workflow step cannot escape that boundary
-                validated_path = validate_workflow_path(path, confine_to)
-                workflow = workflow_from_file(
-                    validated_path, self.output_dir, confine_to
-                )
-
-            except SecurityError as e:
-                logger.error(f"Security validation failed for sub-workflow {path}: {e}")
-                raise
-
-            # this is where the arguments in the parent script are passed to the child workflow
-            # they will already be populated with values from previous steps or parent variables
-            workflow.workflow_definition["argument_template"] = workflow_reference.get(
-                "arguments", {}
-            )
-            # A child left to itself draws its own random seed, which makes the
-            # parent's seed stop short of the work it delegates. Inheriting it
-            # keeps one seed reproducing the whole run; a child that names its
-            # own still wins, the same way a step overrides its workflow
-            workflow.workflow_definition.setdefault("seed", default_seed)
-            # A seedless parent injects a seed that is fresh every run, so no
-            # step of the child can ever hit - the child must not pay the
-            # cache's deepcopy and Result pinning for it
-            workflow._cache_enabled_by_parent = self._cache_enabled_this_run
-            # The parent's objects arrive as this child's arguments; the child
-            # copies them once on entry rather than editing the parent's
-            workflow._composed = True
-            # One execution, one directory: the child writes into the
-            # parent's run directory and leaves no manifest of its own - its
-            # steps roll up into the parent's manifest already
-            workflow._run_dir = self._run_dir
-            workflow._run_dir_inherited = self._run_dir is not None
-            workflow.validate()
-            return workflow
+            return self._sub_workflow_action(step_definition, default_seed)
 
         logger.debug(f"Creating task for step: {step_definition['name']}")
-        # Handle task creation
         task_definition = step_definition["task"]
-        task = Task(task_definition, device, seed=default_seed)
-        return task
+        return Task(task_definition, device, seed=default_seed)
+
+    def _pipeline_action(
+        self,
+        step_definition,
+        shared_components,
+        previous_pipelines,
+        default_seed,
+        device,
+        cache_hit,
+    ):
+        """A pipeline step's action: the resident pipeline rewrapped, a
+        fresh load, or None for a hit whose pipeline is not resident."""
+        step_name = step_definition["name"]
+
+        # Pipelines are cached by what they load, not what step loads them
+        ownership = self.pipeline_ownership
+        cache_key = ownership.load_key(step_definition)
+        ownership.record(step_name, cache_key)
+        get_context().touch_pipeline(cache_key)
+
+        if cache_hit and cache_key not in previous_pipelines:
+            # A hit needs the key recorded (release_pipeline and
+            # pipeline_reference address it by name), not the weights:
+            # nothing calls the pipeline unless a step that runs borrows
+            # it, and that step loads it then
+            ownership.defer(step_name, step_definition, default_seed)
+            return None
+
+        # Check if pipeline already loaded in cache (GPU persistence)
+        if cache_key in previous_pipelines:
+            return self._reuse_resident(
+                previous_pipelines[cache_key],
+                step_definition,
+                shared_components,
+                default_seed,
+                device,
+            )
+
+        # Not in cache - a redefined step frees its previous model first,
+        # so the swap never holds old and new stacks simultaneously
+        prior_key = ownership.superseded_key(step_name, cache_key, previous_pipelines)
+        if prior_key is not None:
+            evict_superseded(previous_pipelines, step_name, prior_key)
+
+        logger.debug(f"Creating pipeline for step: {step_name}")
+        pipeline = Pipeline(
+            step_definition["pipeline"],
+            default_seed,
+            device,
+            output_dir=self.step_output_dir(step_definition),
+            file_prefix=self.step_file_prefix(step_name),
+        )
+        # Before the marker, not after it: a definition refused by the
+        # trust gate must not have announced a load it never began, or a
+        # consumer reading job events cannot tell 'refused before load'
+        # from 'loaded, then refused' (#137)
+        pipeline.check_trusted()
+        # Loading is the longest silence in a run: weights, quantization,
+        # adapters and placement all happen inside this call
+        emit_phase("loading", detail=pipeline.name)
+        pipeline.load(shared_components)
+        previous_pipelines[cache_key] = pipeline
+        return pipeline
+
+    def _reuse_resident(
+        self, cached_pipeline, step_definition, shared_components, default_seed, device
+    ):
+        """A new Pipeline wrapper for this step around a model already
+        resident under its key."""
+        step_name = step_definition["name"]
+        logger.debug(f"Reusing cached pipeline for step: {step_name}")
+        # The shared_components dict is fresh every run and only load()
+        # fills it - a cache hit must republish or a later step's
+        # reused_components finds nothing (impossible under the old
+        # whole-file cache, the normal case under identity keys)
+        cached_pipeline.publish_shared_components(shared_components)
+        # Create new Pipeline wrapper with updated step definition
+        # but reuse the loaded model from cache
+        new_pipeline_wrapper = Pipeline(
+            step_definition["pipeline"],
+            default_seed,
+            device,
+            cached_pipeline.pipeline,  # Reuse the actual loaded model
+            output_dir=self.step_output_dir(step_definition),
+            file_prefix=self.step_file_prefix(step_name),
+        )
+        # Set up generator with potentially new seed. no_generator is a
+        # boolean - only an explicit true disables the generator - and the
+        # generator lives on the pipeline's own device, which may override
+        # the workflow default (the fresh-load path resolves it the same way)
+        if not new_pipeline_wrapper.configuration.get("no_generator", False):
+            logger.debug("Setting up generator for cached pipeline with new arguments")
+            new_pipeline_wrapper.argument_template["generator"] = torch.Generator(
+                new_pipeline_wrapper.device
+            ).manual_seed(
+                new_pipeline_wrapper.pipeline_definition.get("seed", default_seed)
+            )
+
+        # A cache hit and a cold load look identical from the outside -
+        # same step, same dot - and they differ by minutes
+        emit_phase("cached", detail=new_pipeline_wrapper.name)
+        return new_pipeline_wrapper
+
+    def _reference_action(
+        self, step_definition, previous_pipelines, default_seed, device, cache_hit
+    ):
+        """A pipeline_reference step's action over an earlier step's
+        pipeline; None on a hit whose referenced step deferred its load."""
+        logger.debug(
+            f"Referencing existing pipeline for step: {step_definition['name']}"
+        )
+        pipeline_reference = step_definition["pipeline_reference"]
+        reference_name = pipeline_reference["reference_name"]
+        referenced_key = self.pipeline_ownership.key_for(reference_name)
+        if cache_hit and reference_name in self.pipeline_ownership.deferred:
+            # The referenced step was a hit that deferred its load, and
+            # this step's result is cached too: nothing will call it
+            return None
+        if referenced_key is None or referenced_key not in previous_pipelines:
+            raise ValueError(
+                f"pipeline_reference '{reference_name}' does not name an "
+                "earlier pipeline step in this run (or it was released)"
+            )
+        previous_pipeline = previous_pipelines[referenced_key]
+        return Pipeline(
+            pipeline_reference,
+            default_seed,
+            device,
+            previous_pipeline.pipeline,
+            output_dir=self.step_output_dir(step_definition),
+            file_prefix=self.step_file_prefix(step_definition["name"]),
+        )
+
+    def _sub_workflow_action(self, step_definition, default_seed):
+        """The composed child Workflow a `workflow` step runs, resolved,
+        confined and validated."""
+        logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
+        workflow_reference = step_definition["workflow"]
+        path = workflow_reference["path"]
+
+        try:
+            # Sub-workflow steps are confined to the same directory this
+            # workflow is (workflow_dir for a server-submitted run)
+            confine_to = self.workflow_dir
+            # Handle built-in workflows
+            if references.is_ref(references.BUILTIN, path):
+                builtin_name = path.replace(references.BUILTIN, "")
+                # Validate builtin workflow name
+                if (
+                    not builtin_name.endswith(".json")
+                    or "/" in builtin_name
+                    or "\\" in builtin_name
+                ):
+                    raise InvalidInputError(
+                        f"Invalid builtin workflow name: {builtin_name}. "
+                        "It must be a bare '<name>.json' filename with no "
+                        "path segments - 'builtin:' only looks in the "
+                        f"packaged workflows root: {builtin_root()}"
+                    )
+                # Builtins ship inside the package, outside any
+                # workflow_dir - confine them to their own directory
+                # instead (the name check above already forbids escaping it)
+                confine_to = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "workflows"
+                )
+                path = os.path.join(confine_to, builtin_name)
+            # Everything else - a relative path, or a catalog name as
+            # list_workflows reports it - goes through the search path.
+            # A template under templates/ names a model config as
+            # '../models/x.json', so a path relative to the referencing
+            # file still resolves first and the '..' is collapsed here,
+            # which is what lets the validator judge where the path
+            # actually lands rather than refusing the spelling;
+            # containment is still checked on the resolved path below.
+            # An unconfined run (no workflow_dir - a bare CLI
+            # invocation) used to rely on the '..' regex alone to stop a
+            # relative reference from leaving the file's own directory;
+            # normalizing the path removes that guard, so confine it to
+            # the catalog root instead - the referencing file's nearest
+            # ancestor literally named 'workflows', which still lets it
+            # climb to a sibling folder like models/ but not out of the
+            # catalog
+            else:
+                if confine_to is None and not os.path.isabs(path):
+                    confine_to = catalog_root_dir(self.file_spec)
+                path, resolved_root = resolve_sub_workflow(
+                    path, os.path.dirname(self.file_spec), confine_to
+                )
+                confine_to = resolved_root.root if resolved_root else None
+
+            # Validate the resolved path - confined when this workflow
+            # itself is (an inline/server-submitted run), so a
+            # sub-workflow step cannot escape that boundary
+            validated_path = validate_workflow_path(path, confine_to)
+            workflow = workflow_from_file(validated_path, self.output_dir, confine_to)
+
+        except SecurityError as e:
+            logger.error(f"Security validation failed for sub-workflow {path}: {e}")
+            raise
+
+        # this is where the arguments in the parent script are passed to the child workflow
+        # they will already be populated with values from previous steps or parent variables
+        workflow.workflow_definition["argument_template"] = workflow_reference.get(
+            "arguments", {}
+        )
+        # A child left to itself draws its own random seed, which makes the
+        # parent's seed stop short of the work it delegates. Inheriting it
+        # keeps one seed reproducing the whole run; a child that names its
+        # own still wins, the same way a step overrides its workflow
+        workflow.workflow_definition.setdefault("seed", default_seed)
+        # A seedless parent injects a seed that is fresh every run, so no
+        # step of the child can ever hit - the child must not pay the
+        # cache's deepcopy and Result pinning for it
+        workflow._cache_enabled_by_parent = self._cache_enabled_this_run
+        # The parent's objects arrive as this child's arguments; the child
+        # copies them once on entry rather than editing the parent's
+        workflow._composed = True
+        # One execution, one directory: the child writes into the
+        # parent's run directory and leaves no manifest of its own - its
+        # steps roll up into the parent's manifest already
+        workflow._run_dir = self._run_dir
+        workflow._run_dir_inherited = self._run_dir is not None
+        workflow.validate()
+        return workflow
