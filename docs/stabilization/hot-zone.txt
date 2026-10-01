@@ -2,6 +2,44 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 3c merged (2026-09-30); stage 3d's hot zone goes live when 3d is detailed and approved.
+# Stage 3d (media + DSP, teacache deletion), live from 2026-09-30 until its merge.
 scripts/arch_metrics.py
 docs/stabilization/
+scripts/surface_snapshot.py
+dw/dsp.py
+dw/loudness.py
+dw/media.py
+dw/media_audio.py
+dw/media_info.py
+dw/media_frames.py
+dw/teacache.py
+dw/teacache_models.json
+dw/workflow_schema.json
+dw/pipeline_processors/pipeline.py
+dw/pipeline_processors/chain.py
+dw/result.py
+dw/arguments.py
+dw/task_domains.py
+dw/slice_preflight.py
+dw/video_size_errors.py
+dw/dissolve_frame_errors.py
+dw/shot_span_preflight.py
+dw/validation.py
+dw/assessment_rules.py
+dw/tasks/task.py
+dw/tasks/audio_utils.py
+dw/tasks/audio_dynamics.py
+dw/tasks/joins.py
+dw/tasks/concat_videos.py
+dw/tasks/dissolve_videos.py
+dw/tasks/join_into_song.py
+dw/tasks/loop_bed.py
+dw/tasks/voice_attribution.py
+dw/tasks/assess.py
+dw/tasks/pair_audio.py
+dw/tasks/video_utils.py
+dw/tasks/speech_generation.py
+dw/tasks/audio_transcription.py
+dw/server/routes/media.py
+dw/server/routes/gallery.py
+docs/ACCELERATION.md

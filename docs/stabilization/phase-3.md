@@ -872,3 +872,313 @@ ui/src/lib/api.ts
 ui/src/lib/types.ts
 ui/src/lib/pages/AssetsPage.svelte
 ```
+
+---
+
+## Stage 3d: one media I/O module and one DSP module
+
+Work on branch `stabilization/phase-3d` in the worktree, from `develop` at `e3807f8a` or later.
+
+**What exists (survey [phase-3-surveys/media.md](phase-3-surveys/media.md), re-checked 2026-09-30 at `e3807f8a`).**
+
+- **A partial media layer already exists:**
+  - `dw/media_audio.py` (266 lines);
+  - `dw/media_info.py` (398), which holds `probe_media` (183 lines) and `probe_metadata`;
+  - `dw/media_frames.py` (416);
+  - `dw/loudness.py` (82), which uses `pyloudnorm` and `scipy`.
+- **`av.open` is called in 6 modules:**
+  - `media_audio` (5);
+  - `media_frames` (`video_shape`, `_read_frames`);
+  - `media_info` (`probe_media`, `probe_metadata`);
+  - `tasks/video_utils.py` (`file_fps` :400, `_decode_audio_video` :477);
+  - `tasks/assess.py` (`read_media` :123);
+  - `pipeline_processors/chain.py` (`_decode_segment` :279).
+- **The audio-to-float decode is written 5 times:**
+  - `media_audio.extract_audio` (s16) and `decode_soundtrack` (flt);
+  - `video_utils._decode_audio_video` (fltp);
+  - `assess.read_media` (native dtype through `_as_float_samples`);
+  - an inline copy in `probe_media`, through `media_info._as_frame_samples`, which `assess` imports privately.
+- **`dw/tasks/audio_utils.py` is 2,202 lines.** By an AST pass:
+  - about 500 lines are pure numpy/scipy, with no events and no argument checks: `as_channels_samples`, `slice_samples`, `equal_power_crossfade_join`, `_spectral_flatness`, `_harmonicity`, `crossfade_concat`, `level_dbfs`, `_equal_power_ramps`, `_matched_channels`, `_true_peak_envelope`, `_limiter_curve`, `_limit_at`, `_search_gain`, `_fade_curve`, `_follow_envelope`, `_time_constant_coef`, `_biquad_coefficients`, `_apply_biquad`, `_spectral_balance`, and the core of `resample_waveform`;
+  - the other ~1,470 lines are task commands and their warning helpers.
+
+  Moving the DSP out leaves about 1,650 lines, so the commands themselves must split to get under 1,000.
+- **There are six level-to-dB helpers, with three silence conventions:**
+
+  | Helper | At silence |
+  | --- | --- |
+  | `loudness._dbfs` | clamps to `SILENCE_DBFS` (the gallery's `peak_dbfs`) |
+  | `result._peak_dbfs` | None |
+  | `audio_utils.level_dbfs` | None |
+  | `loop_bed._db` | None |
+  | `assess._db` | None below its `_SILENCE` threshold, since it serializes to JSON |
+  | `voice_attribution._dbfs` | `-inf`, since it is compared numerically |
+
+  `assess` also has its own `_rms` and `_peak`.
+- **There are two true-peak oversamplers:**
+  - `loudness.true_peak_dbfs` (whole array);
+  - `audio_utils._true_peak_envelope` (blocked, 2**18 samples with a 32-sample overlap, which bounds memory).
+
+  Both use `scipy.signal.resample_poly` at 4x.
+- **`_apply_biquad`** keeps a pure-Python fallback for a missing scipy. scipy is a declared dependency. `tests/test_audio_utils.py` pins the fallback against `lfilter` (`without_scipy`).
+- **`file_fps`** (`video_utils.py:400`) is `container_fps` (`media_audio.py:53`) with every error swallowed to None. Its only callers are `arguments.py:1044` and `:1068`, which rely on the None.
+- **`concat_videos` (332 lines) and `dissolve_videos`** repeat four blocks:
+  - input loading;
+  - the sample-rate reconcile (log, `sample_rate_mismatch` warning, resample; the text is identical except the command name);
+  - level matching;
+  - the final `fit_audio_to_frames`.
+
+  `video_names` lives in `concat_videos.py` and is imported by `dissolve_videos` and `join_into_song`.
+- **Long functions in scope** (lines, as the ratchet counts them): `probe_media` 183, `concat_videos` 332, `join_into_song` 153, `find_loop_bed` 361, `attribute_voices` 174, and teacache's `_create_flux_teacache_forward` 196 with its nested `teacache_forward` 185. That is 7 of the 11.
+- **Teacache's footprint:**
+  - `dw/teacache.py` (381), `dw/teacache_models.json` (shipped by the `*.json` package-data glob), `tests/test_teacache.py`;
+  - `pipeline.py:17` and `:566-583`;
+  - the schema's `teacache` property in `$defs/pipeline_configuration`, which is `additionalProperties: false`, so a leftover key is refused;
+  - the phrase "Mutually exclusive with teacache" in the `cache` description (`workflow_schema.json:738`);
+  - README.md:215 and :232, docs/ACCELERATION.md:126-182, docs/WORKFLOW_GUIDE.md:1465-1469, docs/TESTING.md:58, tests/README.md:31.
+
+  No shipped workflow uses the key.
+- **The task registry names each implementation by dotted path:** `task.py`'s `register_command(..., implementation="dw.tasks.audio_utils.fade_audio")`, 11 for audio_utils. `describe_task` imports that path only to read its signature and docstring. The path itself never reaches the API, so moving a command is invisible while its signature and docstring stay byte-identical.
+
+### Decisions (3d)
+
+- **Modules: 151 → 151.**
+
+  | Task | Change | Count |
+  | --- | --- | --- |
+  | Task 1 | delete `dw/teacache.py` | −1 → 150 |
+  | Task 2 | add `dw/dsp.py`, fold `dw/loudness.py` into it | net 0 → 150 |
+  | Task 3 | `dw/media_audio.py` becomes `dw/media.py` (a rename); fold `media_info.py`'s probes into it and delete `media_info.py` | −1 → 149 |
+  | Task 4 | split `audio_utils.py` into `dw/tasks/audio_dynamics.py` and `dw/tasks/joins.py` | +2 → 151 |
+
+  The projection was +2, so this is two under it. No task rises above the 151 baseline, so the ratchet passes at every commit.
+- **`dw/media.py` is the one module that opens a container.**
+  - It holds media_audio's functions, plus `probe_media` and `probe_metadata` with their helpers.
+  - Every other `av.open` moves into it as a decode or probe function: `media_frames`'s two, `video_utils._decode_audio_video`, `assess.read_media`'s decode, and `chain._decode_segment`.
+  - `media_frames.py` stays as a consumer: contact sheets and seam tiles get their frames through `media`. Folding it in as well would put `media.py` over 1,000 lines.
+  - One `to_float32(frame or samples)` replaces the five decode conversions, and one layout-name helper replaces the three spellings.
+  - `media.py` returns arrays and rates, never step types. `video_utils.load_audio_video` still builds the `AudioVideo`, so `tests/test_shots.py`'s constructor-site list is unchanged.
+  - `media.py` imports nothing from `dw.tasks` or `dw.result`. It may import `dw.media_types` (`fit_codec_padding`) and `dw.dsp`.
+  - Each call keeps exactly one `av.open`. The decode-counting tests pin that (Review Focus 1).
+- **`file_fps` is deleted.** `media.container_fps` survives and keeps raising. `arguments.py`'s two sites call it through one private `_declared_fps(path)` in `arguments.py`, which catches, logs at debug and returns None, exactly `file_fps`'s behaviour. 3e moves that half of `arguments.py` anyway.
+- **`dw/dsp.py` is pure numpy/scipy/pyloudnorm.**
+  - It imports nothing from `dw`, and it emits no events.
+  - It takes `loudness.py` whole (`integrated_lufs`, `true_peak_dbfs`, `SILENCE_DBFS`, `MIN_LUFS_SECONDS`, `TRUE_PEAK_OVERSAMPLE`) and the pure functions listed above, each under its public name (the leading underscore dropped).
+  - It holds the `LIMITER_*` constants, the periodicity thresholds, and `resample_waveform`. Resampling stays on PyAV's `AudioResampler`: that is an `av` frame API, not `av.open`, so it does not break the media rule.
+  - `_normalize_limited` stays task-side, because it emits `target_lufs_capped` and `limiter_heavy`. Only the curve, the gain search and the envelope go to `dsp`.
+  - Tests that read `audio_utils.LIMITER_*` or a private DSP name are repointed to `dsp`.
+- **One `dsp.dbfs(amplitude, floor=None)`.**
+  - Rule: None or ≤ 0 returns `floor`. Otherwise `20·log10(amplitude)`, clamped to `floor` when a floor is given.
+  - It keeps each caller's silence convention:
+
+    | Caller | Call |
+    | --- | --- |
+    | `loudness` (now in `dsp`) | `dbfs(v, floor=SILENCE_DBFS)` |
+    | `result._peak_dbfs`, `level_dbfs`, `loop_bed` | `dbfs(v)`, so None |
+    | `assess` | keeps its `_SILENCE` guard, then `dbfs(v)` |
+    | `voice_attribution` | `dbfs(v, floor=-math.inf)` |
+
+  - `assess._rms` and `_peak` become `dsp.rms` and `dsp.peak`. `result._peak_dbfs` keeps its tensor-to-numpy coercion; only its last line changes.
+- **One true-peak oversampler.**
+  - The blocked one survives as `dsp.true_peak_envelope`, and `true_peak_dbfs` becomes the max of it in dB.
+  - First, a characterization test: the two agree within 0.01 dB on a short track, a track longer than 2**18 samples, a sine, and an impulse. It must pass before the old one is deleted.
+- **The build-vs-buy list is exactly the four items in the stages table:**
+  - the biquad fallback and its `without_scipy` test;
+  - the dBFS copies;
+  - the second true-peak oversampler;
+  - `file_fps`.
+
+  The survey's optional swaps (`scipy.signal.iirnotch`, `resample_poly` for resampling, `scipy.signal.correlate` in `_harmonicity`) are **not** made. They change numbers under a hard freeze, and the tests pin those numbers at 1e-5.
+- **The audio commands split three ways.** Every command keeps its name, signature and docstring, and `task.py`'s `implementation=` strings are repointed.
+  - **`dw/tasks/audio_utils.py`:** track plumbing (`_as_track`, `_as_number`, `_waveform_and_rate`, `_warn_on_rate_override`, `load_audio`, `_track_names`), `slice_audio` and its warnings, `gain_audio`, `resample_audio`, `fade_audio`, `crossfade_audio`, `mix_audio`, `loop_audio`.
+  - **`dw/tasks/audio_dynamics.py`:** `normalize_audio` with `_normalize_limited`, `compress_audio`, `filter_audio`, `analyze_audio`.
+  - **`dw/tasks/joins.py`:** what every joining command shares:
+    - `video_names`, `fit_audio_to_frames`, `bleed_join`, `_declick_join`, `match_levels`, `warn_on_level_spread`, `_load_tracks_matching_rate`;
+    - the concat/dissolve shared steps (Task 5).
+
+    Its users are `concat_videos`, `dissolve_videos`, `join_into_song`, `chain.py` and `crossfade_audio`.
+- **Patch targets move with their names, in the same commit, and the count does not rise:**
+  - `dw.media_info.probe_media` (7, `tests/test_result.py`) becomes `dw.media.probe_media`, together with its lazy import at `result.py:195`;
+  - `dw.media_audio.av.open` (2) and `dw.media_frames.av.open` (1) become `dw.media.av.open`;
+  - `dw.tasks.concat_videos.load_audio_video` (2) is retargeted if the shared join loads the inputs.
+
+  A patch whose target stopped being looked up passes vacuously, so the reviewer checks each one still intercepts.
+- **What 3d touches in 3e's files:**
+  - `pipeline.py` loses only the teacache import and branch;
+  - `result.py` only the `probe_media` repoint and the last line of `_peak_dbfs`;
+  - `arguments.py` only the two fps sites;
+  - `workflow_schema.json` only the teacache property and the one phrase.
+
+  All four are in the 3d hot zone so the harness keeps off them.
+- **The carried items:**
+  - **Frame-size sentence:** one producer, `task_domains.frame_size_error(command, sizes)`. Both `check_same_frame_size` and `video_size_errors` call it, and `tests/test_rule_parity.py` covers both. Its text is unchanged.
+  - **Slice region:** one pure helper beside `frames_to_samples` in `task_domains.py`. It answers the requested region in samples, and `slice_audio` and `slice_preflight._requested_region` both call it.
+  - **Dissolve shortfalls:** the run raises every shortfall in one `ValueError`, joined with `"; "`, as validation already reports them all. With one shortfall the message is unchanged. With several it changes, and the release note says so.
+  - **Test temp dirs:** the dissolve and shot-span preflight test helpers use `tmp_path`, not `tempfile.mkdtemp()`.
+- **The surface snapshot gains the task surface:** `list_tasks()`, `describe_task(c)` for every command, and the workflow schema. Task 1 snapshots the base first. Across 3d the only allowed diff is the teacache property and the phrase in the schema.
+
+### Review Focus (3d)
+
+1. **Decode once.** Every test that counts `av.open` or `InputContainer.decode` passes unchanged in meaning: `test_media_audio`, `test_media_frames`, `test_server`, `test_media_info`, `test_admission` (Phase 2b's B9). One call is one `av.open`.
+2. **The numbers do not move.** The pinned values run unchanged:
+   - compressor/limit/gate to 1e-5;
+   - LUFS targets to 0.5 LU;
+   - the limiter constants and curve;
+   - exact-sample fades, crossfades and declicks;
+   - spectral Parseval to 0.05 dB;
+   - the plugin skills' pinned numbers.
+3. **Silence per caller.** A silent track gives `peak_dbfs` at `SILENCE_DBFS` in the gallery, None in `assess` findings (a JSON body that serializes), None from `level_dbfs`, and `-inf` inside voice attribution.
+4. **Teacache is refused, and nothing else is.** A pipeline `configuration` holding `teacache` fails validation with the schema's own message. `templates/step-caching.json` and every catalog workflow still validate.
+5. **Join parity.** `concat_videos` and `dissolve_videos` give the same output, warnings (`sample_rate_mismatch` and the level-spread warning, word for word except the command name) and shots as before. `test_concat_videos`, `test_dissolve_videos`, `test_shots`, `test_rule_parity` and `test_assess` pass, and every retargeted patch still intercepts.
+
+### Task 1: The task surface snapshot, and teacache deleted
+
+- Extend `scripts/surface_snapshot.py` with `tasks` (`list_tasks()` and `describe_task(c)` for each command) and `workflow_schema`. Snapshot the base to `.superpowers/sdd/phase-3/3d-base.json` before changing anything.
+- **Failing test first:** a definition whose pipeline `configuration` holds `"teacache": {"rel_l1_thresh": 0.4}` fails `validation_errors`. The test asserts the `additionalProperties` message that names `teacache`.
+- Delete `dw/teacache.py`, `dw/teacache_models.json` and `tests/test_teacache.py`.
+- In `pipeline.py`, remove the import and the branch (`:566-583`), so the method keeps only the attention-backend context.
+- In the schema, remove the property and the "Mutually exclusive with teacache" phrase.
+- **Docs:**
+  - delete docs/ACCELERATION.md's TeaCache sections and its "Cache vs TeaCache" table, leaving its pointer to `first_block` and `mag`;
+  - remove WORKFLOW_GUIDE.md:1465-1469;
+  - drop TeaCache from README.md:215 and :232, docs/TESTING.md:58 and tests/README.md:31.
+- The snapshot diff against the base is the schema lines only.
+- Cheap model.
+
+### Task 2: `dw/dsp.py`
+
+- Create `dw/dsp.py` (Decisions), with `loudness.py` folded in and deleted. Repoint every importer: `audio_utils`, `join_into_song`, `media_info`, and the tests.
+- The pure functions move verbatim under public names, and `audio_utils` imports them back for its commands.
+- `dsp.dbfs` replaces the six copies, using the per-caller table (Decisions).
+- `assess._rms` and `_peak` become `dsp.rms` and `dsp.peak`.
+- **The true-peak characterization test lands first, then the merge.** It is a move, so it must pass before and after.
+- Delete the biquad fallback and the `without_scipy` test.
+- Review Focus 2 and 3 are the proof.
+- The snapshot diff is empty.
+
+### Task 3: `dw/media.py`
+
+- `git mv dw/media_audio.py dw/media.py`. Fold `probe_media`, `probe_metadata` and their helpers in from `media_info.py`, and delete it.
+- Move each remaining `av.open` in as a decode or probe function (Decisions).
+- One `to_float32` and one layout-name helper.
+- Delete `file_fps`; `arguments._declared_fps` takes its place.
+- **Cut `probe_media` under 150 lines:**
+  - `_stream_info(container)`;
+  - an `_AudioAccumulator` (`add(frame)` and `finish()`, giving the levels, LUFS and envelope);
+  - the decode loop.
+- Retarget the patch targets in the same commit.
+- **Add `tests/test_media_layering.py`.** It is an AST test that encodes the stage's invariant, not a count:
+  - `av.open` appears only in `dw/media.py`;
+  - `dw/dsp.py` imports no `dw` module;
+  - `dw/media.py` imports nothing from `dw.tasks` or `dw.result`.
+
+  It fails before the move, because of the `av.open` sites in `media_frames`, `video_utils`, `assess` and `chain`.
+- Review Focus 1 is the proof.
+- The snapshot diff is empty.
+
+### Task 4: the audio commands split, and the two carried rules
+
+- Split `audio_utils.py` into `audio_utils`, `audio_dynamics` and `joins` (Decisions). Repoint `task.py`'s `implementation=` strings and every importer: `chain.py`, `concat_videos`, `dissolve_videos`, `join_into_song`, `loop_bed`, `pair_audio`, `speech_generation`, `audio_transcription`, `voice_attribution`, `assess`, `arguments`, `assessment_rules`, and the tests.
+- The private cross-module imports the survey lists become public names in the module that owns them:
+  - `_waveform_and_rate`, `_as_number` and `_spectral_balance` are named in `audio_utils`;
+  - `_spectral_flatness` and `_harmonicity` are named in `dsp`.
+- Add the slice-region helper and the frame-size sentence's one producer (Decisions). Each gets a parity test: both callers give the same region for #557's rounding case, and both sizes messages come from the one function.
+- Each of the three modules is under 1,000 lines, and none of their functions is over 150.
+- The snapshot diff is empty: every task schema is byte-identical.
+
+### Task 5: `concat_videos` and `dissolve_videos` on one join
+
+- Move into `joins.py` the steps both commands repeat:
+  - loading the inputs with their names;
+  - reconciling sample rates (one `sample_rate_mismatch` producer, taking the command name);
+  - matching levels or warning on the spread;
+  - fitting the joined track to the frame grid at the written fps.
+- **Cut `concat_videos` under 150 lines:**
+  - `_shot_records_for`;
+  - `_input_waveform` (the silence fill, or fit plus the drift warning);
+  - `_join_seam` (the bleed or equal-power crossfade).
+- The dissolve run raises every shortfall (Decisions). The test fails first, with two short inputs.
+- Fix the temp-dir leaks in the dissolve and shot-span test helpers.
+- Review Focus 5 is the proof.
+
+### Task 6: the long task functions
+
+- **`find_loop_bed` under 150 lines**, cut per the survey's outline:
+  - `_coerce_arguments`;
+  - `_search_window`;
+  - `_tonal_scales`;
+  - `_edge_ticks`;
+  - `_scan_windows`, which returns the survivors and the rejected tally;
+  - `_rank_and_loop`;
+  - `_answer`.
+- **`attribute_voices`:**
+  - `_embed_references`;
+  - `_attribute_lines`;
+  - its closures `clip_duration` and `stem` become module functions.
+- **`join_into_song`:** `_validated` and `_place_shots`.
+- Behaviour is preserved, which the existing suite proves: `test_find_loop_bed`, `test_voice_attribution` (its six `patch` targets still intercept) and `test_join_into_song`.
+- `voice_attribution`'s `_mono_16k` and the same load, resample and mono step in `speech_generation` and `audio_transcription` become one `dsp.to_mono_at(waveform, rate, target)`, but only if the three are the same arithmetic. If one differs, it is left alone, with a line in the report.
+
+### Task 7: Stage 3d merge
+
+- **Metrics:**
+  - `modules` 151 (no change; the list is in Decisions);
+  - `modules_over_1000_lines` 7 → 6;
+  - `functions_over_150_lines` 11 → 4 (`save_artifact`, `estimate`, `Workflow.run` and `create_step_action` remain for 3e);
+  - re-baseline everything that fell.
+- **Docs:**
+  - CLAUDE.md wherever it names a moved home: the audio headroom bullets name `_normalize_limited` and `LIMITER_*`, and the assessment bullet names `dw/tasks/assess.py`;
+  - docs/TASKS.md's "no torchaudio dependency" line, if it names a file;
+  - `dw/server/CLAUDE.md`, if it names `media_info` or `media_audio`.
+
+  Replace text, don't add it.
+- **Release notes:**
+  - **Breaking:** the `teacache` pipeline configuration key is removed. A workflow that sets it fails validation with the message the Task 1 test asserts. The replacement is `cache` (`first_block`, `mag`, `taylorseer`), per docs/ACCELERATION.md.
+  - A `dissolve_videos` run with several short inputs names all of them.
+  - Internally: the media and DSP modules, and the commands' new homes.
+- Hot zone back to the standing entries. Merge `--no-ff`, push, and do not deploy (lem gets 3d at gate 3).
+
+### Hot zone (3d)
+
+```
+scripts/surface_snapshot.py
+dw/dsp.py
+dw/loudness.py
+dw/media.py
+dw/media_audio.py
+dw/media_info.py
+dw/media_frames.py
+dw/teacache.py
+dw/teacache_models.json
+dw/workflow_schema.json
+dw/pipeline_processors/pipeline.py
+dw/pipeline_processors/chain.py
+dw/result.py
+dw/arguments.py
+dw/task_domains.py
+dw/slice_preflight.py
+dw/video_size_errors.py
+dw/dissolve_frame_errors.py
+dw/shot_span_preflight.py
+dw/validation.py
+dw/assessment_rules.py
+dw/tasks/task.py
+dw/tasks/audio_utils.py
+dw/tasks/audio_dynamics.py
+dw/tasks/joins.py
+dw/tasks/concat_videos.py
+dw/tasks/dissolve_videos.py
+dw/tasks/join_into_song.py
+dw/tasks/loop_bed.py
+dw/tasks/voice_attribution.py
+dw/tasks/assess.py
+dw/tasks/pair_audio.py
+dw/tasks/video_utils.py
+dw/tasks/speech_generation.py
+dw/tasks/audio_transcription.py
+dw/server/routes/media.py
+dw/server/routes/gallery.py
+docs/ACCELERATION.md
+```
+
+The image and text task modules stay open to the harness. `pipeline.py`, `result.py` and `arguments.py` are listed for the few lines 3d changes in each, which keeps a harness edit from colliding with them.
