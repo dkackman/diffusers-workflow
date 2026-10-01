@@ -2,6 +2,10 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 4a merged (2026-10-01); stage 4b's list goes live when it is detailed.
+# Stage 4b (guardrails in dw) live from 2026-10-01; plan: docs/stabilization/phase-4.md
 scripts/arch_metrics.py
+scripts/arch_report.py
+scripts/preflight.sh
+.github/workflows/ci.yml
+tests/test_arch_metrics.py
 docs/stabilization/

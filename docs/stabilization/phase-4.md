@@ -27,7 +27,7 @@
 | Stage | Scope | Done when |
 | --- | --- | --- |
 | 4a | **Carried code.** The behaviour items the freeze parked (each with a failing-first test and a 0.7.0 release note); `Workflow`'s 8 delegators replaced by their module functions; the remaining prefix spellings moved onto `references.py`'s helpers, with a metric that counts them. | Every "Carried to Phase 4" code item in ROADMAP.md, Gate 3, is fixed or ruled out in Decisions; `Workflow` LCOM4 is 1; the new prefix metric is 0 and ratcheted |
-| 4b | **Guardrails in dw.** The size rule gets its warn band; `arch_metrics.py --check` runs in CI's `backend` job and in `preflight.sh`; the re-baseline rule is written down where the check prints it. | A PR that raises any ratchet fails CI; a module growing past 1,000 lines warns and does not fail until the ceiling |
+| 4b | **Guardrails in dw.** The size rule gets its warn band; `arch_metrics.py --check` runs in CI's `backend` job and in `preflight.sh`; the re-baseline rule is written down where the check prints it. | A PR that raises any ratchet fails CI (a direct push to `develop` goes red after landing; the harness's gate is what blocks those); a module growing past 1,000 lines warns and does not fail until the ceiling |
 | 4c | **Seam map, then the context diet.** `docs/ARCHITECTURE.md`: concept → owning module → the rule, one row each. Then every CLAUDE.md is cut to a map: each paragraph is deleted (the knowledge is already in a doc, a docstring or a test), moved into the owning module's docstring, or moved into the seam map. `.github/copilot-instructions.md` becomes a pointer. | the root CLAUDE.md <= 150 lines, every CLAUDE.md through the triage, `claude_md_lines` re-baselined; every plugin skill still named in the root CLAUDE.md; no paragraph moved to `docs/` verbatim without a ruling |
 | 4d | **Gate 4.** The harness stage C prompt (`harness/stage-c-guardrails.md`), which Don runs; then `FREEZE` deleted and `hot-zone.txt` emptied; the metrics report, tag, re-baseline, lem deploy, ROADMAP and ASSESSMENT refreshed. | Stage C is committed in the harness, *then* the freeze is lifted on `develop` |
 
@@ -74,7 +74,7 @@ From ROADMAP.md, Gate 3, "Carried to Phase 4", plus 3e's carried list. Each item
   - `--check` (and the default output) also prints a non-failing `warning:` line for every module between 1,001 and 1,100 lines, naming it and its length. A warning is not a metric, so it never enters `baseline.json` and the harness's key-by-key comparison never sees it.
   - `functions_over_150_lines` stays a cliff. No ruling asked for a band there, and a 150-line function is already four screens.
   - Cost if wrong: a module can sit at 1,099 indefinitely. The warning makes that visible on every run; tightening is a one-line change.
-  - The key rename is safe for stage B's harness ratchet: `regressions()` skips a key missing on either side, so the comparison across the rename sees neither key for one session and both sides of it afterwards.
+  - The key rename is safe for stage B's harness ratchet: stage B measures both trees with `origin/develop`'s script, so both sides carry the new key from the moment the rename lands.
 - **The re-baseline rule.** `baseline.json` may be lowered by any commit that improves a ratchet, and is rewritten at every gate. It is raised only by a commit that names the rise and why in its message, and from 4d on the harness refuses that unless the issue carries `arch-approved` (stage C). The check prints this rule when it fails.
 - **Release: open.** Phase 4 changes behaviour (4a) and develop is 0.7.0-alpha.1. Whether gate 4 ships 0.7.0 is Don's call at the gate; 4a collects the notes under `### 0.7.0` either way.
 
@@ -288,7 +288,84 @@ It is a long list because the prefix migration touches a line or two in 31 modul
 
 ## Stage 4b: guardrails in dw
 
-Detailed when 4a merges.
+Work on branch `stabilization/phase-4b` in the worktree, from `develop` at `4bb997c5` (the 4a merge) or later.
+
+**What exists (at `4bb997c5`).**
+- `scripts/arch_metrics.py`:
+  - `measure()` counts `modules_over_1000_lines` with a bare `> 1000`;
+  - `regressions(current, baseline)` is a pure key-by-key "number rose", skipping a key missing on either side;
+  - `main()` prints the metrics JSON, then each regression on `--check`, and exits 1 on any.
+  - Nothing else is printed: no warnings, and no hint of what to do on failure.
+- Other places that name `modules_over_1000_lines`: `scripts/arch_report.py:32` (a row label) and `tests/test_arch_metrics.py:42`. The harness's stage B compares whatever keys both sides have.
+- `.github/workflows/ci.yml`'s `backend` job installs `requirements.txt` + `requirements-test.txt` (`-e .[dev]`, which carries grimp via import-linter, networkx, pylint and pygount), then runs ruff format/check on `dw dw_mcp tests` and `pytest -q`. It runs on push to `master`/`develop` and on every PR.
+- `scripts/preflight.sh` runs `ruff format .` and `ruff check . --fix` over the whole repo, then pytest, integration and the UI preflight. Whole-repo `ruff format` rewrites the Python code blocks in `docs/**/*.md` (gate 3 had to revert those by hand). CI formats only `dw dw_mcp tests`.
+- After 4a, the modules nearest the line are `workflow.py` (about 945), `workflow_run.py` 972, `arguments.py` 954 and `tasks/task.py` 947.
+
+### Decisions (4b)
+
+- **`modules_over_size_ceiling` replaces `modules_over_1000_lines`,** at `SIZE_CEILING = 1100`, with `SIZE_WARNING = 1000` beside it (the warn band; frame Decisions). `measure()` stays pure numbers. A new `size_warnings(root)` returns `[(path, lines)]` for modules in the band, and `main()` prints each as `warning: dw/x.py is 1,043 lines (warn above 1,000, fail above 1,100)` on every run, `--check` included, without changing the exit code. `arch_report.py`'s row is renamed to match; it measures every column with today's script, so earlier gates read on the new key.
+- **The check says what to do when it fails.** After the regressions, `--check` prints dw's re-baseline rule in two lines:
+  - lower `baseline.json` freely when a ratchet improves;
+  - raise it only in a commit whose message names the rise and why.
+
+  The harness enforces `arch-approved` itself; dw's script doesn't name it.
+- **CI: one step in `backend`, after the tests:** `python scripts/arch_metrics.py --check docs/stabilization/baseline.json`.
+  - It fails closed: `import_graph` runs grimp in a subprocess with `check=True`, so an ImportError there raises `CalledProcessError`, the script exits non-zero and the step fails. Task 1 pins that with a test. The subprocess runs with `cwd=root`, so a `grimp.py` that raises, dropped in the fixture tree's root, shadows the real one.
+  - The step adds no install, because the dev extra is already there.
+  - Cost: `--check` takes 7 s on the real tree (measured 2026-10-01), small next to the tests.
+  - What it blocks and what it doesn't: a PR that raises a ratchet goes red before it merges. A direct push to `develop` (the harness and Don push it directly) goes red *after* it lands, so CI reports there rather than blocks. The blocker for direct pushes is the harness's stage B hand-off gate, and stage C after it.
+- **Preflight runs the same check, and formats what CI formats.**
+  - It gains a `run_step "architecture ratchet"` step.
+  - `ruff format` / `ruff check --fix` move from `.` to `dw dw_mcp tests scripts`, so preflight stops rewriting the docs' code blocks. CI's own format and lint steps gain `scripts` to match.
+- **`baseline.json` stays at `docs/stabilization/baseline.json`.** Moving it after the freeze would break the harness's stage B, which reads it by that path. 4d may revisit, with stage C.
+
+### Review Focus (4b)
+
+1. **A module in the band warns and passes, and one over the ceiling fails.** Fixture modules at 1,000 lines (no warning), 1,001 (warning, exit 0) and 1,101 (`modules_over_size_ceiling: 0 -> 1`, exit 1). The test reads `main()`'s output and exit code.
+2. **The check fails closed.** With a `grimp.py` that raises ImportError in the fixture tree's root (the subprocess runs there, so it shadows the real one), `--check` exits non-zero. It is never a pass with a skipped metric.
+3. **CI's step can actually fail.** On the branch, before the merge, one throwaway commit raises a ratchet (an extra module) and is pushed to a draft PR, and the run is red at that step. A plain revert commit follows; no force-push.
+
+### Before Task 1: the hot zone goes live
+
+Commit the 4b list below into `docs/stabilization/hot-zone.txt` on `develop` with this section, push, and branch `stabilization/phase-4b` from that commit.
+
+### Task 1: The size band and the failing check's message
+
+- [ ] **Step 1:** Write the Review Focus 1 and 2 tests in `tests/test_arch_metrics.py`, plus one asserting that `--check` prints the two-line re-baseline rule only when it fails.
+  - The existing `test_a_long_function_and_a_long_module_are_counted` builds about 1,052 lines, which is inside the new band. Grow it past 1,100 so it stays the "counted" case. Add a separate 1,001-1,100-line fixture for "warns, exit 0". Run them; they fail on today's script (no key, no warning, no rule text).
+- [ ] **Step 2:** Implement the Decisions (4b) items in `scripts/arch_metrics.py`: the key rename, `SIZE_CEILING` and `SIZE_WARNING`, `size_warnings`, and the printing in `main()`. Rename the row in `arch_report.py`, and update `tests/test_arch_metrics.py:42` to the new key. Update the script's docstring.
+- [ ] **Step 3:** Run it on the worktree. `modules_over_size_ceiling` is 0 and no module is in the band. Re-baseline (`--write`). The diff is the key rename only, with the same value 0.
+- [ ] **Step 4:** ROADMAP.md's Metrics paragraph: one line for the warn band. The suite and ruff pass. Commit, with a message that names the key rename (the harness's stage B sees it).
+
+### Task 2: CI and preflight
+
+- [ ] **Step 1:** `ci.yml`'s `backend` job:
+  - the new step after `Tests`;
+  - `Format check` and `Lint` widened to `dw dw_mcp tests scripts`. Run `ruff format --check scripts` locally first and fix anything it reports in the same commit.
+- [ ] **Step 2:** `preflight.sh`: the ruff steps scoped to `dw dw_mcp tests scripts`, and a `run_step "architecture ratchet" python scripts/arch_metrics.py --check docs/stabilization/baseline.json` step after the pytest steps. Its header comment names the new step.
+- [ ] **Step 3:** Time `arch_metrics.py --check` on the worktree and record it in the report.
+- [ ] **Step 4:** Run `scripts/preflight.sh` in full and confirm it leaves no edits under `docs/` (`git status`).
+- [ ] **Step 5:** Commit. Push the branch and open a draft PR against `develop`. Confirm the new CI step runs and passes.
+- [ ] **Step 6:** Review Focus 3: push one throwaway commit that adds an empty `dw/_ratchet_probe.py`. Confirm the run fails at the ratchet step with `modules: 165 -> 166`. Then push a plain `git revert` of it and confirm green. Record both run URLs in the report. The merge in Task 3 carries the probe and its revert. That's harmless, but say so in the merge commit.
+
+### Task 3: Stage 4b merge
+
+- [ ] **Step 1:** `arch_metrics.py --check` passes; the baseline diff since 4a is the key rename only.
+- [ ] **Step 2:** Docs: `git grep -n "modules_over_1000_lines" -- ':!docs/stabilization/'` returns nothing. RELEASING.md gets no user-facing line; this is tooling only.
+- [ ] **Step 3:** Put the hot zone back to the standing entries. ROADMAP Phase 4 row: "4b merged".
+- [ ] **Step 4:** Close the draft PR. Merge `stabilization/phase-4b` to `develop` with `--no-ff` and push. The `develop` CI run is green, including the ratchet step. Report to Don.
+- [ ] **Step 5:** Detail stage 4c in this file. Cross-check the design with Fable before Task 1 of 4c.
+
+### Hot zone (4b)
+
+```
+scripts/arch_metrics.py
+scripts/arch_report.py
+scripts/preflight.sh
+.github/workflows/ci.yml
+tests/test_arch_metrics.py
+docs/stabilization/
+```
 
 ## Stage 4c: seam map, then the context diet
 
