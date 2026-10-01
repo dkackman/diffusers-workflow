@@ -721,6 +721,8 @@ There are three content libraries (workflows, prompts, assets), and each answers
   - the origin vocabulary `WORKSPACE` / `COMMON` / `EXAMPLES` / `BUILTIN`.
 
   The sub-workflow resolution, `builtin_root` and `catalog_root` move with it. Every import is repointed (no shims).
+- **Layering.** `dw/library.py` imports nothing from `dw.server`. It may import `dw.workspace`, for the subdir constants and `example_libraries`; that is today's direction (`fallback_roots` already does it). `dw/workspace.py` never imports `dw/library.py` at module level, so there is no `Workspace.library()` convenience method.
+  - The asset lister is server code (`dw/server/outputs.py` `iter_gallery_files`), so `LibraryPath.entries(lister)` takes the lister as a parameter. The server passes the media walk, and the engine passes `workflow_names` for the JSON libraries.
 - **`LibraryPath` operations, the one implementation of each rule:**
   - `find(name) -> (path, LibraryRoot) | None`: front to back, each candidate confined with `validate_path(candidate, root.root)`, so a symlink that escapes is a miss;
   - `entries() -> (winners, shadowed)`;
@@ -733,7 +735,7 @@ There are three content libraries (workflows, prompts, assets), and each answers
   - name validator: `validate_prompt_reference`, `validate_asset_reference`, or containment only;
   - lister: `workflow_names` for JSON libraries, the media walk for assets.
 
-  Containment always goes through `validate_path(…, root)` with a non-None base, so CodeQL still sees a barrier.
+  Containment calls the same named validator each resolver calls today: `validate_workflow_path` for workflows, `validate_prompt_path` for prompts, and `validate_path(…, root)` with a non-None base for assets. The first two also enforce the extension, and CodeQL models all three by name.
 - **One constructor per library, from one place:** `library_path(kind, workspace, examples_dirs, primary=None)`.
   - Assets: `[workspace assets (workspace, writable), common/assets (common, writable only for a shared write), example assets (examples, read-only)]`.
   - Prompts: `[the server's prompt dir (workspace, writable), example prompts (examples, read-only)]`.
@@ -747,10 +749,11 @@ There are three content libraries (workflows, prompts, assets), and each answers
 - **Every consumer goes through `LibraryPath`:**
   - `resolve_asset_reference`, `resolve_prompt_reference`, `find_workflow`, `resolve_sub_workflow` (D8: a real `LibraryRoot` per root, correctly tagged);
   - `deps.sources_for` / `prompt_roots`, `outputs.asset_roots` / `resolution_roots` / `asset_roots_for_job` / `asset_in`, `_asset_origin`;
-  - `admission.over_roots`, which becomes `find` on a one-root path, fixing D7;
+  - `admission.over_roots`, which becomes one `find` on the workspace's full path. Today it probes root by root through a resolver that re-appends the env tail: that is D7;
   - `exports._copy_assets`, `locations.media_roots`.
 
   After 3c, `git grep` finds no other loop over library roots.
+- **D6 (`discover_library`'s precedence) stays.** It decides where the primary is when no server pinned one (the CLI, a test), and its answer is what feeds `primary`. Out of scope.
 - **D5: a named workspace's prompts are the server's prompt library.** `named_workspace` takes the server's prompt dir (`app.state.prompt_dir`) instead of `<root>/prompts`. Prompts are shared by design (CLAUDE.md, "Workspaces on the server"), and `--prompt-dir` is the server's choice.
 - **The one library surface (breaking; the release notes and 0.7 carry it).** The three listings share one envelope:
   - `libraries: [{origin, root, writable}]`, the search path in order. It replaces `sources`, `prompt_dirs`, `asset_dirs` and assets' `libraries[].dir`.
@@ -764,7 +767,10 @@ There are three content libraries (workflows, prompts, assets), and each answers
   - Deleting a read-only entry: 403 from `ReadOnlyLibraryError`, one message, `"'<name>' is in the read-only <origin> library (<root>); only the workspace's own <kind> can be deleted"`.
   - No writable library: 409 everywhere. That includes `POST /api/uploads`, which stops writing into `outputs` (D11).
   - The library routes' other `except Exception → 400` sites follow B10's rule: a refusal is 400, a failure after the request was understood is 500.
-- **The surface snapshot diff is 3c's break list.** Task 3's report attaches the full diff against `cf1802cb`. Every line in it is either in the release notes or a finding.
+- **The surface snapshot diff is 3c's break list.**
+  - The routes return bare dicts with no `response_model`, so today's snapshot cannot see a body.
+  - Task 1 therefore extends `scripts/surface_snapshot.py`: it GETs the three listings against a fixture workspace, holding one workspace workflow shadowing an example, one prompt plus an example prompt, and one asset each in the workspace, `common` and an example. It records the sorted key set of each body and of one entry per listing.
+  - Task 3's report attaches the full diff against Task 1's snapshot. Every line in it is either in the release notes or a finding.
 
 ### Review Focus (3c)
 
@@ -776,6 +782,7 @@ There are three content libraries (workflows, prompts, assets), and each answers
 
 ### Task 1: `dw/library.py`, and the workflows on it
 
+- Extend `scripts/surface_snapshot.py` with the listing body keys (Decisions), and snapshot the base before changing anything.
 - Rename `dw/workflow_sources.py` to `dw/library.py`, with `WorkflowSource` → `LibraryRoot`.
 - Add `LibraryPath` and `library_path(kind="workflows", …)`.
 - Move the workflow consumers onto it: `find_workflow`, `listing`, `writable_source`, `resolve_sub_workflow` (D8), `deps.sources_for`, and `routes/library.py`'s workflow routes.
@@ -785,14 +792,28 @@ There are three content libraries (workflows, prompts, assets), and each answers
 
 ### Task 2: prompts and assets on `LibraryPath`, and the worker's path from one serializer
 
-- Prompts and assets get their `library_path` constructors.
-- Every consumer listed in Decisions moves onto them, along with the env serializer and the env name constants.
-- D5, D7 and D2 are fixed, each with a test that fails first.
-- Review Focus 1 and 2 get their committed tests (the parity test).
-- No listing shape changes yet, so the snapshot diff is empty. D11 and the status rules wait for Task 3.
+Two dispatches, each reviewed:
+- **(a) Engine.**
+  - The prompts and assets `library_path` constructors.
+  - `assets.py`, `prompts.py` and `locations.media_roots` on them.
+  - The env serializer and the env name constants (D9).
+  - D2 and D7, each with a test that fails first.
+- **(b) Server consumers.**
+  - `deps.prompt_roots`, `outputs.asset_roots` / `resolution_roots` / `asset_roots_for_job` / `asset_in`, `_asset_origin`, `admission.over_roots` and `exports._copy_assets`.
+  - D5, with a test that fails first.
+  - Review Focus 1 and 2's committed tests (the parity test).
+
+No listing shape changes yet, so the snapshot diff is empty. D11 and the status rules wait for Task 3.
 
 ### Task 3: the one library surface
 
+Two dispatches:
+- **(a)** The server, the MCP client and the Python tests, in one commit. `dw_mcp/assets.py` reads `libraries[].dir`, so `tests/test_mcp_assets.py` would be red between two commits.
+- **(b)** The UI and its tests.
+  - `ui/node_modules` is not in the worktree. `npm --prefix ui ci` is allowed: it is local to the checkout, unlike `pip install -e`.
+  - The UI tests are `npm --prefix ui test` (vitest; `ui/src/lib/*.test.ts`, including `api.test.ts`) and `npm --prefix ui run check` (svelte-check plus tsc).
+
+What changes:
 - The new envelope for the three listings, the 403 message, 409 for an upload with no asset library (D11), and the B10 rule in the library routes.
 - `ui/src/lib/api.ts`, `types.ts` and `AssetsPage.svelte` (plus any page reading `workflow_dir`, `prompt_dir`, `origins` or `sources`) move to the new fields. Run the UI tests.
 - `dw_mcp/assets.py`, `catalog.py` and `prompts.py`, with their tests and any tool docstring that names a field.
@@ -808,12 +829,17 @@ There are three content libraries (workflows, prompts, assets), and each answers
   - `dw/server/CLAUDE.md`;
   - docs/SERVER.md and docs/MCP.md, for the listing shapes;
   - `ui/CLAUDE.md` if it names the fields.
-- **Release notes:** every break, field by field, the 403 message, and D11's 409.
+- **Docs grep:** `git grep -n "prompt_dirs\|asset_dirs\|\"sources\"\|origins\|workflow_dir\|asset_dir\b" docs plugins ui/CLAUDE.md dw_mcp` finds no stale field name. An agent-facing guide or a plugin skill may quote one.
+- **Release notes:**
+  - every break, field by field, the 403 message, and D11's 409;
+  - D5: a named workspace's `prompt:` resolves against the server's prompt library during plan building, matching listing, saving and running;
+  - D2: `libraries` no longer lists an example prompt dir that does not exist.
 - **Hot zone** back to the standing entries. Merge `--no-ff`, push, and do not deploy: the UI changed, and lem gets the build at gate 3, with an rsync.
 
 ### Hot zone (3c)
 
 ```
+scripts/surface_snapshot.py
 dw/library.py
 dw/workflow_sources.py
 dw/assets.py
