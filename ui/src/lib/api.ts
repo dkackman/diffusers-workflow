@@ -282,9 +282,9 @@ export const api = {
            * (or absent) means unknown - never derived. */
           cost?: WorkflowCost[] | null
           /** Which source it came from: 'workspace', 'examples', 'builtin'. */
-          origin?: string
+          origin: string
           /** False for a read-only source: offer save-a-copy, not delete. */
-          writable?: boolean
+          writable: boolean
         }
       >
     }>('/api/workflows'),
