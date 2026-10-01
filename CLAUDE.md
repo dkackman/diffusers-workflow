@@ -66,8 +66,8 @@ A **persistent worker subprocess** (`dw/worker.py`), managed by `dw/worker_manag
 `dw.serve` can hold several workspaces under one root: the root's own
 `workflows/assets/outputs` are the `default` workspace, a named one is a
 subdirectory beside them (`named_workspace`, `create_workspace` in
-`dw/workspace.py`), and `prompts/` at the root is shared by all of them - there
-is one prompt library, because `prompt:` is shared by reference. Routes take an
+`dw/workspace.py`), and the server's prompt library (`--prompt-dir`) is shared by
+all of them - there is one, because `prompt:` is shared by reference. Routes take an
 optional `workspace`; omitting it means the default, so pre-workspace calls are
 unchanged. A job carries its own `output_dir`, `asset_dir` and `workflow_dir`
 (`JobManager.submit`), so it stays in its workspace whatever the manager serves
@@ -90,28 +90,24 @@ reads `GET /api/assets` and shows the library the way the gallery shows
 outputs, tagged by `origin` so a shadowed or read-only entry is visible
 before a 403 explains it.
 
-### Workflow sources
+### Library search paths
 
-`dw/library.py`'s `LibraryPath` (`library_path("workflows", ...)`) is the server's workflow search path: the writable
-directory first (the workspace's `workflows/`), then any `--examples-dir`, each
-read-only. Reads (`LibraryPath.entries`, `find`) span every root front-to-back so an
-earlier name shadows a later one; `PUT /api/workflows` always resolves through
-`writable_root`, so saving something opened from a read-only root writes a copy
-rather than overwriting it, and `DELETE` on a read-only root answers 403. A job
-carries the root it is confined to (`JobManager.submit(workflow_dir=...)`), so an
-examples workflow runs confined to the examples directory rather than to the
-writable one. Packaged `dw/workflows/` is off the path - it is what `builtin:`
-sub-workflow steps name, resolved in `dw/workflow.py`.
-
-The prompt and asset libraries have the same shape: each `--examples-dir`
-brings the `prompts/` and `assets/` beside it (`example_libraries` in
-`dw/workspace.py`), pinned into `DW_PROMPT_PATH` / `DW_ASSET_PATH` by
-`dw.serve` so the spawned worker resolves as the API does. `prompt_search_path`
-/ `asset_search_path` put the workspace's own library first, so a workspace
-name shadows an example's; `GET /api/prompts` and `GET /api/assets` span the
-path and tag each entry with its `origin`; writes (`PUT /api/prompts`, uploads,
-keep-as-asset) only ever land in the workspace, and deleting a read-only prompt
-answers 403.
+`dw/library.py` owns the three content libraries' search paths (workflows, prompts,
+assets): `LibraryRoot` is one root (`origin`, `root`, `writable`) and `LibraryPath`
+(`library_path(kind, ...)`) the ordered path - the workspace's own root first, then
+`common/assets` (assets only), then each `--examples-dir` (and the `prompts/` and
+`assets/` beside it, `example_libraries` in `dw/workspace.py`), all read-only.
+`find`/`entries` span every root front-to-back, so an earlier name shadows a later one
+and the hidden copies come back as `shadowed`; a symlink out of its root is a miss;
+saves go through `writable_root`, so saving something opened from a read-only root
+writes a copy, and deleting a read-only entry is the one 403 (`ReadOnlyLibraryError`).
+`dw.serve` pins the read-only tails into `DW_PROMPT_PATH` / `DW_ASSET_PATH` so the
+spawned worker resolves as the API does. A job carries the root it is confined to
+(`JobManager.submit(workflow_dir=...)`), so an examples workflow runs confined to the
+examples directory. All three listings share one envelope: `libraries: [{origin, root,
+writable}]`, per-entry `origin`/`writable`, `shadowed: [{name, origin, shadowed_by}]`.
+Packaged `dw/workflows/` is off the path - it is what `builtin:` steps name,
+resolved in `dw/workflow.py`.
 
 ### Workspaces
 
@@ -128,7 +124,7 @@ to its older discovery (`./prompts`, then the walk up from the workflow file)
 for an inferred workspace but not for an explicit one. `--workflow-dir`,
 `--output-dir` and `--prompt-dir` each still override one folder. See docs/WORKSPACES.md;
 the later stages (workflow search path, run directories, `asset:`/`output:`
-references) are documented above in *Workflow sources* and *Type System*.
+references) are documented above in *Library search paths* and *Type System*.
 
 ### Type System
 

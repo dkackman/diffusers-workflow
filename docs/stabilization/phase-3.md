@@ -124,6 +124,23 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Merge notes:
     - Outside the hot zone, 3b touched `dw/workflow.py` (`workflow_from_snapshot` makes `file_spec` absolute when `workflow_dir` is None), `docs/MCP.md` and `.github/copilot-instructions.md` (pointers), and the tests the plan directed.
     - `modules` went 132 → 151 (the 19 named in Decisions (3b)): the phase now projects to about 163.
+- **3c (ready to merge): BREAKING, ships as 0.7.** The three library listings (`GET /api/workflows`, `/api/prompts`, `/api/assets`) now share one envelope. The snapshot diff against `cf1802cb` is the break list.
+  - Removed fields: `workflow_dir`, `prompt_dir`, `asset_dir` (the writable root is the `libraries` entry with `writable: true` and `origin: "workspace"`), `sources` (workflows), `prompt_dirs`, `asset_dirs`, and `origins` (prompts; origin is now in `details[name]`).
+  - Renamed: assets `libraries[].dir` is `root`. The MCP compact workflow listing's top-level `sources` is `libraries`.
+  - Added to all three: `libraries: [{origin, root, writable}]`, the search path in order, and `shadowed: [{name, origin, shadowed_by}]`. A listing filter narrows `shadowed` with the entries. Every entry carries `origin` and `writable`: workflows and prompts in `details[name]` (prompts gained `writable`), assets in each entry. `workspace` is echoed by workflows and assets (prompts are shared and echo none). Workflows and prompts gained `shadowed`; assets' entries changed shape.
+  - Unchanged: each listing's item key (`workflows`, `prompts`, `assets`), `details`, `folders`, sort order, and single-item reads with their `X-*-Origin` / `X-*-Writable` headers.
+  - Deleting a read-only entry is one 403 for all three libraries: `'<name>' is in the read-only <origin> library (<root>); only the workspace's own <kind> can be deleted`. It was three messages.
+  - D11: upload, keep and delete with no asset library all answer 409 `This workspace has no asset library`. Upload used to write into `outputs`. Delete's text was `This server has no asset library`.
+  - B10 in the library routes: a workflow save whose validation gate itself crashes answers 500 `internal error - the server log has the detail` (was 400). An invalid workflow is still 400.
+  - D5: a named workspace's `prompt:` resolves against the server's prompt library (`--prompt-dir`) during plan building, the workspace list and workspace creation, matching listing, saving and running. Creating a workspace no longer makes an empty `<root>/prompts`.
+  - D2: `libraries` no longer lists an example prompt dir that does not exist. A missing examples root is dropped for every kind.
+  - D7: an exact asset lookup no longer searches the example folders.
+  - D8: a sub-workflow run from an examples folder is labeled and confined as the examples root, not the workspace's.
+  - Accepted behaviour changes:
+    - `prompt:name.json` now resolves.
+    - An API prompt symlink escaping its root is skipped and the search continues (was 404). The engine still refuses it at run time.
+    - Asset listing sort ties are broken by name.
+  - Internal: `dw/workflow_sources.py` is `dw/library.py` (`WorkflowSource` is `LibraryRoot`, plus `LibraryPath`). `modules` is unchanged.
 
 ## Global Constraints (all stages)
 
