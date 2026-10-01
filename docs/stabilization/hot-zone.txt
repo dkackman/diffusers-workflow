@@ -2,13 +2,6 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Phase 3, stage 3b (server into routers and services), docs/stabilization/phase-3.md.
+# Stage 3b merged (2026-09-30); stage 3c's hot zone goes live when 3c is detailed and approved.
 scripts/arch_metrics.py
 docs/stabilization/
-dw/server/
-dw/serve.py
-dw/worker.py
-dw/worker_manager.py
-dw/worker_protocol.py
-dw_mcp/
-scripts/surface_snapshot.py
