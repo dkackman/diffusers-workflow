@@ -306,8 +306,8 @@ def _not_found(previous_results, previous_result_name):
     is the fix, and on a long run it is the only thing standing between a
     typo and another 40 minutes of GPU. A step whose result
     `release_unreferenced_results` has already dropped is still named, under
-    "Earlier steps that ran" (from `completed_steps`), so the list is never
-    empty on a run that had finished steps.
+    "Earlier steps that ran" (from `completed_steps`), so a typo is still
+    checked against every step that ran.
     """
     message = (
         f"Previous result '{previous_result_name}' not found. "

@@ -14,8 +14,8 @@ directory - is the engine's, at the moment it joins (see
 Workflow.step_output_dir).
 
 A subfolder is `output:`-addressable only up to OUTPUT_REFERENCE_PATTERN's
-ceiling of seven segments (workflow identity, run id, subfolder and file name
-all count). SUBFOLDER_PATTERN has no depth bound of its own, so a deep
+ceiling of seven path segments in all: a nested identity or subfolder counts
+one per `/`, plus the run id and the file name. SUBFOLDER_PATTERN has no depth bound of its own, so a deep
 subfolder under a nested identity validates and runs but cannot be named by a
 later `output:` reference.
 """
