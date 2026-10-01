@@ -11,6 +11,7 @@ import argparse
 import multiprocessing
 import os
 import sys
+from dataclasses import dataclass
 
 # Spawn start method before anything touches multiprocessing (CUDA/MPS)
 if multiprocessing.get_start_method(allow_none=True) != "spawn":
@@ -20,7 +21,25 @@ if multiprocessing.get_start_method(allow_none=True) != "spawn":
         pass
 
 
-def main():
+@dataclass(frozen=True)
+class ServeConfig:
+    """What the arguments and the environment resolved to, once."""
+
+    host: str
+    port: int
+    log_level: str
+    mcp: bool
+    examples_dirs: list | None
+    workspace_root: str
+    workflow_dir: str
+    output_dir: str
+    prompt_dir: str
+    asset_dir: str
+    token: str | None
+    output_layout: str | None
+
+
+def build_parser():
     parser = argparse.ArgumentParser(description="Serve diffusers workflows over HTTP.")
     parser.add_argument(
         "--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)"
@@ -116,8 +135,33 @@ def main():
         "http://<host>:<port>/mcp --header 'Authorization: Bearer <token>'`). "
         "Refused on a non-loopback --host without a token.",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def check_bind_safety(args, token):
+    """Refuse --mcp on a non-loopback host with no token (exit 2)."""
+    from .server.netinfo import LOOPBACK_HOSTS
+
+    # A hard error, where the REST-only case in run() is a warning: an MCP
+    # endpoint can author and run workflows, and unlike the web UI there is
+    # no page to paste a token into. Raised before startup() and before the
+    # worker subprocess is ever spawned.
+    if args.mcp and args.host not in LOOPBACK_HOSTS and not token:
+        print(
+            f"dw-serve: --mcp on {args.host} needs a token. An MCP endpoint "
+            "can author and run workflows, and unlike the web UI there is "
+            "no page to type a token into - pass --token or set "
+            "DW_API_TOKEN, or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
+def configure_environment(args):
+    """Resolve the directories and pin them in the environment.
+
+    Everything here happens before create_app and before the worker is
+    spawned: the spawned worker inherits the environment variables."""
     # Resolved and pinned before anything derives a directory from it - the
     # spawned worker inherits the environment variable, the way it inherits
     # the prompt directory and the trust flag below
@@ -151,21 +195,7 @@ def main():
 
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
-    from .server.netinfo import LOOPBACK_HOSTS
-
-    # A hard error, where the REST-only case below is a warning: an MCP
-    # endpoint can author and run workflows, and unlike the web UI there is
-    # no page to paste a token into. Raised before startup() and before the
-    # worker subprocess is ever spawned.
-    if args.mcp and args.host not in LOOPBACK_HOSTS and not token:
-        print(
-            f"dw-serve: --mcp on {args.host} needs a token. An MCP endpoint "
-            "can author and run workflows, and unlike the web UI there is "
-            "no page to type a token into - pass --token or set "
-            "DW_API_TOKEN, or bind to 127.0.0.1.",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
+    check_bind_safety(args, token)
 
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment
@@ -217,6 +247,23 @@ def main():
         ([common_assets] if common_assets else []) + example_dirs[ASSETS_SUBDIR],
     )
 
+    return ServeConfig(
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
+        mcp=args.mcp,
+        examples_dirs=args.examples_dirs,
+        workspace_root=workspace.root,
+        workflow_dir=workflow_dir,
+        output_dir=output_dir,
+        prompt_dir=prompt_dir,
+        asset_dir=asset_dir,
+        token=token,
+        output_layout=args.output_layout,
+    )
+
+
+def run(config):
     try:
         import uvicorn
     except ImportError:
@@ -227,20 +274,22 @@ def main():
 
     from . import startup
 
-    startup(args.log_level)
+    startup(config.log_level)
 
     import logging
 
+    from .server.netinfo import LOOPBACK_HOSTS
+
     logger = logging.getLogger("dw")
 
-    if args.host not in LOOPBACK_HOSTS and not token:
+    if config.host not in LOOPBACK_HOSTS and not config.token:
         logger.warning(
             "Binding to %s with no API token configured (--token or "
             "DW_API_TOKEN) - anything that can reach this address can "
             "queue jobs, read and write workflows/prompts, and browse "
             "generated output. Set a token, or bind to 127.0.0.1 if this "
             "server does not need to be reachable off this machine.",
-            args.host,
+            config.host,
         )
 
     from .server.app import create_app
@@ -249,22 +298,22 @@ def main():
 
     app = create_app(
         # absolute, so the path the UI hands back on submit is unambiguous
-        workflow_dir=os.path.abspath(workflow_dir),
-        output_dir=output_dir,
-        log_level=args.log_level,
-        prompt_dir=prompt_dir,
-        asset_dir=asset_dir,
-        examples_dirs=args.examples_dirs,
-        workspace=workspace.root,
-        host=args.host,
-        token=token,
-        mcp=args.mcp,
-        port=args.port,
+        workflow_dir=os.path.abspath(config.workflow_dir),
+        output_dir=config.output_dir,
+        log_level=config.log_level,
+        prompt_dir=config.prompt_dir,
+        asset_dir=config.asset_dir,
+        examples_dirs=config.examples_dirs,
+        workspace=config.workspace_root,
+        host=config.host,
+        token=config.token,
+        mcp=config.mcp,
+        port=config.port,
     )
     ui = " - UI at /" if default_ui_dir() else ""
-    mcp = " - MCP at /mcp" if args.mcp else ""
+    mcp = " - MCP at /mcp" if config.mcp else ""
     print(
-        f"diffusers-workflow server on http://{args.host}:{args.port}"
+        f"diffusers-workflow server on http://{config.host}:{config.port}"
         f"  (docs at /docs{ui}{mcp})",
         # stdout is a pipe under systemd or nohup, where block buffering
         # would otherwise hold this line back until shutdown
@@ -272,13 +321,18 @@ def main():
     )
     uvicorn.run(
         app,
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level.lower(),
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
         # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
         # off indefinitely (#477); a few seconds still lets lifespan cleanup run
         timeout_graceful_shutdown=5,
     )
+
+
+def main():
+    args = build_parser().parse_args()
+    run(configure_environment(args))
 
 
 if __name__ == "__main__":
