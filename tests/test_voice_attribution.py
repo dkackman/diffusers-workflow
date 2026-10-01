@@ -50,7 +50,7 @@ def silence(seconds, sample_rate=16000, channels=1):
 
 
 class FakeAudio:
-    """Matches `_waveform_and_rate`'s `hasattr(audio, "audio")` branch, so no
+    """Matches `waveform_and_rate`'s `hasattr(audio, "audio")` branch, so no
     file-path/security validation is triggered."""
 
     def __init__(self, waveform, sample_rate=16000):

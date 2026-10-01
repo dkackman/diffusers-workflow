@@ -30,7 +30,7 @@ from dw.introspection import list_tasks
 from dw.media_types import AudioVideo
 from dw.shots import shot_record
 from dw.tasks.assess import analyze_seams, analyze_shots, analyze_sync_drift
-from dw.tasks.audio_utils import LEVEL_SPREAD_WARN_DB
+from dw.tasks.joins import LEVEL_SPREAD_WARN_DB
 from dw.tasks.task import task_command_info
 
 FPS = 24

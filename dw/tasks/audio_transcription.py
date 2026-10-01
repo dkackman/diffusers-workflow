@@ -20,7 +20,8 @@ from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
 from .model_cache import cached_model, hf_pipeline_placement
-from .audio_utils import _waveform_and_rate, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
 
@@ -72,7 +73,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         raise ValueError(
             f"timestamps must be one of {TIMESTAMP_KINDS}, got {timestamps!r}"
         )
-    waveform, waveform_rate = _waveform_and_rate(audio, sample_rate, "transcribe_audio")
+    waveform, waveform_rate = waveform_and_rate(audio, sample_rate, "transcribe_audio")
     mono = _downmixed_mono(waveform)
     if waveform_rate != _ASR_SAMPLE_RATE:
         mono = resample_waveform(mono.reshape(1, -1), waveform_rate, _ASR_SAMPLE_RATE)[

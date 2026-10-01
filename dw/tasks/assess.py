@@ -36,6 +36,8 @@ from ..assessment_rules import (
     rules_for,
     sort_findings,
 )
+from .. import dsp
+from ..media import read_thumbnails_and_track
 from ..events import emit_warning
 
 logger = logging.getLogger("dw")
@@ -104,22 +106,6 @@ class Media:
         return 0 if self.thumbs is None else int(self.thumbs.shape[0])
 
 
-def _stream_seconds(stream):
-    if stream is None or stream.duration is None or stream.time_base is None:
-        return None
-    return float(stream.duration * stream.time_base)
-
-
-def _as_float_samples(samples):
-    if samples.dtype.kind == "u":
-        iinfo = numpy.iinfo(samples.dtype)
-        half = (iinfo.max + 1) / 2
-        return (samples.astype(numpy.float32) - half) / half
-    if samples.dtype.kind == "i":
-        return samples.astype(numpy.float32) / numpy.iinfo(samples.dtype).max
-    return samples.astype(numpy.float32)
-
-
 def read_media(path):
     """Stream a video file once into a Media.
 
@@ -128,33 +114,9 @@ def read_media(path):
     kept whole (the probes cut windows out of it anywhere) and trimmed to
     the audio stream's reported duration.
     """
-    import av
-
-    from ..media_info import _as_frame_samples
-
-    thumbs = []
-    chunks = []
-    with av.open(path) as container:
-        video = container.streams.video[0] if container.streams.video else None
-        audio = container.streams.audio[0] if container.streams.audio else None
-        if video is None and audio is None:
-            raise ValueError(f"{path} has neither a video nor an audio stream")
-        fps = float(video.average_rate) if video and video.average_rate else None
-        video_seconds = _stream_seconds(video)
-        audio_seconds = _stream_seconds(audio)
-        channels = int(audio.channels) if audio is not None else 0
-        streams = [s for s in (video, audio) if s is not None]
-        for frame in container.decode(*streams):
-            if isinstance(frame, av.VideoFrame):
-                thumbs.append(
-                    frame.reformat(
-                        width=THUMB_WIDTH, height=THUMB_HEIGHT, format="gray"
-                    ).to_ndarray()[:THUMB_HEIGHT, :THUMB_WIDTH]
-                )
-            elif isinstance(frame, av.AudioFrame):
-                samples = _as_float_samples(frame.to_ndarray())
-                chunks.append(_as_frame_samples(samples, channels))
-        sample_rate = int(audio.rate) if audio is not None else None
+    thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate = (
+        read_thumbnails_and_track(path, THUMB_WIDTH, THUMB_HEIGHT)
+    )
 
     waveform = None
     if chunks:
@@ -231,10 +193,8 @@ def media_from(video):
     if path is not None:
         return read_media(path)
     if hasattr(video, "frames") or hasattr(video, "audio"):
-        from .audio_utils import as_channels_samples
-
         audio = getattr(video, "audio", None)
-        waveform = None if audio is None else as_channels_samples(audio)
+        waveform = None if audio is None else dsp.as_channels_samples(audio)
         thumbs = (
             _in_memory_thumbs(video.frames)
             if getattr(video, "frames", None) is not None
@@ -310,19 +270,7 @@ def _sample_span(shot, media):
 
 
 def _db(value):
-    return None if value is None or value <= _SILENCE else 20.0 * math.log10(value)
-
-
-def _rms(window):
-    if window is None or window.size == 0:
-        return None
-    return math.sqrt(float(numpy.mean(numpy.square(window, dtype=numpy.float64))))
-
-
-def _peak(window):
-    if window is None or window.size == 0:
-        return None
-    return float(numpy.max(numpy.abs(window)))
+    return None if value is None or value <= _SILENCE else dsp.dbfs(value)
 
 
 def _clip(media, start, end):
@@ -358,7 +306,7 @@ def _dead_air(media, start, count):
     if end - start < window_samples * 2:
         return None, None, None
     levels = [
-        _db(_rms(media.audio[:, offset : offset + window_samples]))
+        _db(dsp.rms(media.audio[:, offset : offset + window_samples]))
         for offset in range(start, end - window_samples + 1, window_samples)
     ]
     best_len, best_start, best_levels = 0, None, []
@@ -522,8 +470,6 @@ def analyze_shots(video, shots=None):
 
 def shots_answer(media, records, source):
     """`analyze_shots` over an already-read Media and resolved shots."""
-    from .audio_utils import _spectral_balance
-
     if media.audio is None:
         return _answer(
             "analyze_shots",
@@ -539,10 +485,10 @@ def shots_answer(media, records, source):
     for shot in records:
         start, count, samples_source = _sample_span(shot, media)
         window = _clip(media, start, start + count) if start is not None else None
-        peak = _db(_peak(window))
-        rms = _db(_rms(window))
+        peak = _db(dsp.peak(window))
+        rms = _db(dsp.rms(window))
         balance = (
-            _spectral_balance(window, media.sample_rate)
+            dsp.spectral_balance(window, media.sample_rate)
             if window is not None and window.size
             else {"low_dbfs": None, "mid_dbfs": None, "high_dbfs": None}
         )
@@ -601,11 +547,9 @@ def shots_answer(media, records, source):
 
 
 def _band_shares(window, sample_rate):
-    from .audio_utils import _spectral_balance
-
     if window is None or window.size == 0:
         return None
-    bands = _spectral_balance(window, sample_rate)
+    bands = dsp.spectral_balance(window, sample_rate)
     energies = {
         key: (10.0 ** (value / 10.0) if value is not None else 0.0)
         for key, value in bands.items()
@@ -621,7 +565,7 @@ def _shot_rms(media, shot):
     start, count, _source = _sample_span(shot, media)
     if start is None:
         return None
-    return _db(_rms(_clip(media, start, start + count)))
+    return _db(dsp.rms(_clip(media, start, start + count)))
 
 
 def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
@@ -634,8 +578,8 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
     level = int(round(LEVEL_WINDOW * rate))
     before = _clip(media, before_end - level, before_end)
     after = _clip(media, after_start, after_start + level)
-    before_rms = _db(_rms(before))
-    after_rms = _db(_rms(after))
+    before_rms = _db(dsp.rms(before))
+    after_rms = _db(dsp.rms(after))
 
     centre = (before_end + after_start) // 2
     half_floor = max(1, int(round(FLOOR_WINDOW * rate / 2)))
@@ -644,15 +588,15 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
         if after_start - before_end > 2 * half_floor
         else _clip(media, centre - half_floor, centre + half_floor)
     )
-    floor = _db(_rms(join))
+    floor = _db(dsp.rms(join))
 
     half_click = max(1, int(round(CLICK_WINDOW * rate / 2)))
     neighbour = int(round(CLICK_NEIGHBOUR_WINDOW * rate))
-    click_peak = _peak(_clip(media, centre - half_click, centre + half_click))
+    click_peak = dsp.peak(_clip(media, centre - half_click, centre + half_click))
     neighbour_peak = max(
-        _peak(_clip(media, centre - half_click - neighbour, centre - half_click))
+        dsp.peak(_clip(media, centre - half_click - neighbour, centre - half_click))
         or 0.0,
-        _peak(_clip(media, centre + half_click, centre + half_click + neighbour))
+        dsp.peak(_clip(media, centre + half_click, centre + half_click + neighbour))
         or 0.0,
     )
     click = None

@@ -12,7 +12,7 @@ import wave
 
 import numpy
 
-from dw.media_info import probe_metadata
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.slice_preflight import slice_past_end_warnings
 from dw.workflow import workflow_from_definition

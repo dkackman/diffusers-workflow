@@ -100,6 +100,7 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - A child handed media through a substituted variable stores it in its `argument_template`, which validation copies again.
   - The elision carry assumes dict pipelines.
   - `result.py`'s import of `tasks.select.Selected`: outside the cycles, and the last upward import.
+  - From 3d: `arguments._with_frame_rate` has a dead `http(s)` branch; its one caller passes a validated local path.
 
 ## Release notes collected (for gate 3)
 
@@ -124,7 +125,7 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Merge notes:
     - Outside the hot zone, 3b touched `dw/workflow.py` (`workflow_from_snapshot` makes `file_spec` absolute when `workflow_dir` is None), `docs/MCP.md` and `.github/copilot-instructions.md` (pointers), and the tests the plan directed.
     - `modules` went 132 → 151 (the 19 named in Decisions (3b)): the phase now projects to about 163.
-- **3c (ready to merge): BREAKING, ships as 0.7.** The three library listings (`GET /api/workflows`, `/api/prompts`, `/api/assets`) now share one envelope. The snapshot diff against `cf1802cb` is the break list.
+- **3c (merged 2026-09-30): BREAKING, ships as 0.7.** The three library listings (`GET /api/workflows`, `/api/prompts`, `/api/assets`) now share one envelope. The snapshot diff against `cf1802cb` is the break list.
   - Removed fields: `workflow_dir`, `prompt_dir`, `asset_dir` (the writable root is the `libraries` entry with `writable: true` and `origin: "workspace"`), `sources` (workflows), `prompt_dirs`, `asset_dirs`, and `origins` (prompts; origin is now in `details[name]`).
   - Renamed: assets `libraries[].dir` is `root`. The MCP compact workflow listing's top-level `sources` is `libraries`.
   - Added to all three: `libraries: [{origin, root, writable}]`, the search path in order, and `shadowed: [{name, origin, shadowed_by}]`. A listing filter narrows `shadowed` with the entries. Every entry carries `origin` and `writable`: workflows and prompts in `details[name]` (prompts gained `writable`), assets in each entry. `workspace` is echoed by workflows and assets (prompts are shared and echo none). Workflows and prompts gained `shadowed`; assets' entries changed shape.
@@ -143,6 +144,23 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Admission (`POST /api/validate` and the pre-queue check) now refuses an `asset:` whose workspace copy is a symlink pointing out of the library. Before, it passed when a later root held the name, and the run then failed. This is the same pattern as the prompt line above, and it now agrees with the worker.
   - A prompt save (`PUT /api/prompts`) on a server with no prompt library answers 409 `This server has no prompt library` (was a bare 500). Only a `create_app` caller can reach it; `dw.serve` always sets one.
   - Internal: `dw/workflow_sources.py` is `dw/library.py` (`WorkflowSource` is `LibraryRoot`, plus `LibraryPath`). `modules` is unchanged.
+
+- **3d (merged 2026-09-30): one breaking change, ships in 0.7.**
+  - **Breaking:** the `teacache` pipeline `configuration` key is removed. A workflow that still sets it fails validation: `Additional properties are not allowed ('teacache' was unexpected)`. Use `cache` instead (`first_block`, `mag`, `taylorseer`; docs/ACCELERATION.md).
+  - The served acceleration guide (`list_guides` / `get_guide`) no longer has its "TeaCache" and "Cache vs TeaCache" sections, so `get_guide(..., section="TeaCache")` no longer resolves. WORKFLOW_GUIDE's caching paragraph describes one `cache` block.
+  - `templates/step-caching.json`'s description (as `list_workflows` returns it) and the schema's `cache` description no longer mention teacache.
+  - A `dissolve_videos` run with several inputs too short for their dissolves names all of them in one error, joined by `; `. With one short input the message is unchanged. Validation already listed them all.
+  - Unchanged on purpose: every task command's arguments and description (the surface snapshot of every `describe_task` is byte-identical), every warning's text, and every pinned DSP number.
+  - For developers (Python paths only; nothing on the API or MCP reaches them):
+    - `dw.loudness`, `dw.media_audio`, `dw.media_info` and `dw.teacache` (with `teacache_models.json`) are gone. Their contents are in `dw.dsp` (pure numpy/scipy/pyloudnorm) and `dw.media` (the one module that calls `av.open`, enforced by `tests/test_media_layering.py`).
+    - `video_utils.file_fps` is gone. `audio_utils.resample_waveform` is `dw.dsp.resample_waveform`.
+    - `normalize_audio`, `compress_audio`, `filter_audio` and `analyze_audio` are in `dw.tasks.audio_dynamics`. The join helpers (`video_names`, `fit_audio_to_frames`, `bleed_join`, `match_levels`, and the steps concat and dissolve share) are in `dw.tasks.joins`.
+    - Renamed: `_as_track` is `as_track`, `_waveform_and_rate` is `waveform_and_rate`, and `_as_number` is `coerce_number`.
+  - Merge notes:
+    - `modules` stays 151, two under the +2 projection. `modules_over_1000_lines` went 7 → 6, `functions_over_150_lines` 11 → 4, and `complex_functions` 17 → 12.
+    - `_load_tracks_matching_rate` stayed in `audio_utils.py`, not `joins.py` as Decisions said. Its only callers are there, and `audio_utils` imports `joins`, so moving it would have made a cycle.
+    - Found and left alone under the freeze, for after Phase 3: `gain_audio` still rounds a frame-based region's end the pre-#557 way, so it can come out one sample short; and `concat_videos` joins a track with no sample rate unresampled, a long-standing silent skip. `dissolve_videos` refuses that track, as before.
+    - Outside the hot zone, 3d touched `plugins/dw/skills/series-episodes/SKILL.md` (its Sources line names the new homes) and `workflows/templates/step-caching.json` (its description).
 
 ## Global Constraints (all stages)
 

@@ -21,7 +21,7 @@ names no records yet and is left to the run-time check.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_metadata
+from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
 

@@ -14,6 +14,7 @@ import numpy
 import torch
 from PIL import Image
 
+from ..media import decode_audio_video
 from ..media_frames import (
     compose_grid,
     default_columns,
@@ -22,7 +23,7 @@ from ..media_frames import (
     grid_tile,
 )
 from ..media_types import AudioVideo, fit_codec_padding
-from ..task_domains import frame_size_mismatches
+from ..task_domains import frame_size_error
 
 logger = logging.getLogger("dw")
 
@@ -120,9 +121,9 @@ def check_same_frame_size(clips, task_name):
             sizes[index] = (int(clip.shape[2]), int(clip.shape[1]))
         elif len(clip):
             sizes[index] = tuple(clip[0].size)
-    mismatches = frame_size_mismatches(sizes)
-    if mismatches is not None:
-        raise ValueError(f"{task_name} needs every video at one size: {mismatches}")
+    error = frame_size_error(task_name, sizes)
+    if error is not None:
+        raise ValueError(error)
 
 
 def frames_as_pil_list(video):
@@ -397,24 +398,6 @@ class FrameList(list):
         self.shots = shots
 
 
-def file_fps(path):
-    """The rate a video file declares, or None - a container that will not
-    open, carries no video stream or states no rate is a rate we do not
-    know, never an error: the caller is loading frames it has already read.
-    """
-    try:
-        import av
-
-        with av.open(path) as container:
-            stream = container.streams.video[0] if container.streams.video else None
-            return (
-                float(stream.average_rate) if stream and stream.average_rate else None
-            )
-    except Exception as e:
-        logger.debug(f"No frame rate for {path}: {e}")
-        return None
-
-
 def load_audio_video(location, base_dir=None):
     """Load a video file - frames and the audio muxed with them - as an AudioVideo.
 
@@ -476,36 +459,7 @@ def is_video_location(value):
 
 def _decode_audio_video(handle):
     """Decode a path or file object's video and audio streams in one pass."""
-    import av
-    from av.audio.resampler import AudioResampler
-
-    frames = []
-    chunks = []
-    sample_rate = None
-
-    with av.open(handle) as container:
-        video_stream = container.streams.video[0]
-        frame_rate = (
-            float(video_stream.average_rate) if video_stream.average_rate else None
-        )
-        streams = [video_stream]
-        if container.streams.audio:
-            audio_stream = container.streams.audio[0]
-            streams.append(audio_stream)
-            sample_rate = audio_stream.rate
-            # Planar float is the layout AudioVideo carries: (channels, samples)
-            resampler = AudioResampler(format="fltp")
-
-        for frame in container.decode(*streams):
-            if isinstance(frame, av.VideoFrame):
-                frames.append(Image.fromarray(frame.to_ndarray(format="rgb24")))
-            else:
-                chunks.extend(f.to_ndarray() for f in resampler.resample(frame))
-
-        if sample_rate is not None:
-            chunks.extend(f.to_ndarray() for f in resampler.resample(None))
-
-    audio = numpy.concatenate(chunks, axis=1).astype(numpy.float32) if chunks else None
+    frames, audio, sample_rate, frame_rate = decode_audio_video(handle)
     if audio is not None and frame_rate:
         audio = fit_codec_padding(audio, len(frames), frame_rate, sample_rate)
     logger.debug(

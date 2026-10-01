@@ -42,12 +42,9 @@ from ..result import (
     output_file_path,
 )
 from ..shots import shot_record, without_samples
-from ..tasks.audio_utils import (
-    as_channels_samples,
-    equal_power_crossfade_join,
-    frames_to_samples,
-    slice_samples,
-)
+from ..dsp import as_channels_samples, slice_samples
+from ..task_domains import frames_to_samples
+from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
 
 logger = logging.getLogger("dw")
@@ -278,13 +275,9 @@ class SegmentSpill:
 
 def _decode_segment(path):
     """Read a segment file back as a uint8 (frames, height, width, 3) tensor."""
-    import av
+    from ..media import decode_rgb_frames
 
-    with av.open(path) as container:
-        frames = [
-            frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)
-        ]
-    return torch.from_numpy(numpy.stack(frames, axis=0))
+    return torch.from_numpy(numpy.stack(decode_rgb_frames(path), axis=0))
 
 
 def run_chain(pipeline, chain_definition, arguments):

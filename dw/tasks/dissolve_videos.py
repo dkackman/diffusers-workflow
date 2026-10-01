@@ -17,26 +17,20 @@ import logging
 import numpy
 from PIL import Image
 
-from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
+from ..dsp import as_channels_samples
 from ..task_domains import dissolve_shortfalls
-from .audio_utils import (
-    as_channels_samples,
+from ..task_domains import frames_to_samples
+from .joins import (
     crossfade_concat,
-    fit_audio_to_frames,
-    frames_to_samples,
-    match_levels as match_track_levels,
-    resample_waveform,
-    warn_on_level_spread,
+    fit_joined_audio,
+    level_waveforms,
+    load_named_inputs,
+    reconcile_sample_rates,
+    video_names,
 )
-from .concat_videos import video_names
-from .video_utils import (
-    check_same_frame_size,
-    frames_as_array,
-    is_video_location,
-    load_audio_video,
-)
+from .video_utils import check_same_frame_size, frames_as_array
 
 logger = logging.getLogger("dw")
 
@@ -104,7 +98,7 @@ def dissolve_videos(
     if dissolve_frames < 0 or fade_in_frames < 0 or fade_out_frames < 0:
         raise ValueError("dissolve_videos frame counts cannot be negative")
 
-    loaded = [load_audio_video(v) if is_video_location(v) else v for v in videos]
+    names, loaded = load_named_inputs(videos)
     clips = [frames_as_array(v).astype(numpy.float32) for v in loaded]
     check_same_frame_size(clips, "dissolve_videos")
 
@@ -112,7 +106,7 @@ def dissolve_videos(
     # (dw/dissolve_frame_errors.py), here for the frames actually decoded
     shortfalls = dissolve_shortfalls([len(clip) for clip in clips], dissolve_frames)
     if shortfalls:
-        raise ValueError(shortfalls[0])
+        raise ValueError("; ".join(shortfalls))
 
     joined = clips[0]
     # Where each clip's first frame landed - the start of its dissolve
@@ -136,10 +130,6 @@ def dissolve_videos(
             )
 
     frames = [Image.fromarray(frame) for frame in joined.round().astype(numpy.uint8)]
-    written_fps = fps or next(
-        (v.fps for v in loaded if getattr(v, "fps", None)),
-        None,
-    )
     audio, sample_rate = _dissolve_audio(
         loaded,
         dissolve_frames,
@@ -147,12 +137,13 @@ def dissolve_videos(
         match_levels,
         match_levels_dbfs,
         sample_rate,
-        len(frames),
-        written_fps,
+    )
+    audio, written_fps = fit_joined_audio(
+        audio, sample_rate, len(frames), fps, loaded, "dissolve_videos"
     )
     shots = _dissolve_shots(
         loaded,
-        video_names(videos),
+        names,
         frame_starts,
         len(frames),
         written_fps,
@@ -285,8 +276,6 @@ def _dissolve_audio(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
-    total_frames=None,
-    written_fps=None,
 ):
     """Crossfade every video's track over the seams' own span."""
     tracks = [v for v in videos if isinstance(v, AudioVideo) and v.audio is not None]
@@ -299,58 +288,22 @@ def _dissolve_audio(
     if fps is None and dissolve_frames:
         raise ValueError("dissolve_videos needs 'fps' to crossfade audio at a dissolve")
 
-    # Shots assembled from different sources disagree on rate routinely, and
-    # the disagreement carries no editorial meaning - so it is converted
-    # rather than refused, which is what made an agent invent a
-    # resample_audio step by hand for concat_videos before #108 (#287)
     names = video_names(videos)
     track_names = [
         name
         for name, video in zip(names, videos)
         if isinstance(video, AudioVideo) and video.audio is not None
     ]
-    rates = {v.sample_rate for v in tracks}
-    sample_rate = sample_rate or max(rates)
-    waveforms = [as_channels_samples(v.audio) for v in tracks]
-    if len(rates) == 1 and next(iter(rates)) != sample_rate:
-        # The inputs agree and the caller pinned another rate: converting
-        # to what was asked for is not a decision made on its behalf (#453)
-        emit_log(
-            f"dissolve_videos: resampling every track from {next(iter(rates))} Hz "
-            f"to the requested {sample_rate} Hz",
-            command="dissolve_videos",
-            sample_rate=sample_rate,
-        )
-    elif len(rates) != 1:
-        per_track = {name: v.sample_rate for name, v in zip(track_names, tracks)}
-        emit_warning(
-            "dissolve_videos: videos carry audio at different sample rates ("
-            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_track.items())
-            + f") - resampling them all to {sample_rate} Hz. Pass "
-            "'sample_rate' to pin a different target, or resample ahead of "
-            "this step with the 'resample_audio' task.",
-            kind="sample_rate_mismatch",
-            command="dissolve_videos",
-            sample_rate=sample_rate,
-            sample_rates=per_track,
-        )
-    waveforms = [
-        (
-            waveform
-            if video.sample_rate == sample_rate
-            else resample_waveform(waveform, video.sample_rate, sample_rate)
-        )
-        for video, waveform in zip(tracks, waveforms)
-    ]
-    crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
-    if match_levels:
-        waveforms = match_track_levels(
-            waveforms, match_levels, match_levels_dbfs, "dissolve_videos"
-        )
-    else:
-        warn_on_level_spread(waveforms, "dissolve_videos")
-    joined = crossfade_concat(waveforms, sample_rate, crossfade_ms)
-    joined = fit_audio_to_frames(
-        joined, sample_rate, total_frames, written_fps, "dissolve_videos"
+    waveforms, sample_rate = reconcile_sample_rates(
+        "dissolve_videos",
+        tracks,
+        track_names,
+        [as_channels_samples(v.audio) for v in tracks],
+        sample_rate,
+        skip_unrated=False,
     )
-    return joined, sample_rate
+    crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
+    waveforms = level_waveforms(
+        "dissolve_videos", waveforms, match_levels, match_levels_dbfs
+    )
+    return crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate

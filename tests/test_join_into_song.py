@@ -9,10 +9,10 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.loudness import integrated_lufs
+from dw.dsp import integrated_lufs
 from dw.media_types import AudioTrack, AudioVideo
 from dw.shots import shot_references
-from dw.tasks.audio_utils import frames_to_samples
+from dw.task_domains import frames_to_samples
 from dw.tasks.join_into_song import join_into_song
 from dw.tasks.task import _COMMAND_REGISTRY
 

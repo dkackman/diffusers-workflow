@@ -101,7 +101,7 @@ class TestConcatVideos:
 
         with caplog.at_level("WARNING"):
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 1),
             ):
                 concat_videos(videos)
@@ -611,7 +611,7 @@ class TestWarningsReachTheCaller:
         token = activate_context(RunContext(on_event=events.append))
         try:
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 0.5),
             ):
                 concat_videos(["first.mp4", audio_video(8, 0.5, sample_rate=200)])
@@ -728,7 +728,7 @@ class TestJoinedAudioFitsTheFrameGrid:
     pair_audio's single-track case."""
 
     def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
@@ -741,7 +741,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert "joined_audio_padded_to_frames" in caplog.text or "padded" in caplog.text
 
     def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
@@ -821,7 +821,7 @@ class TestPerInputAudioConforming:
     however many joins came after it."""
 
     def test_a_middle_inputs_own_shortfall_lands_the_next_seam_on_grid(self):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
@@ -854,7 +854,7 @@ class TestPerInputAudioConforming:
 
     def test_an_over_length_input_warns_and_is_left_unaligned(self):
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         long = AudioVideo(
             frames(4), numpy.full((2, 130), 0.5, dtype=numpy.float32), 100

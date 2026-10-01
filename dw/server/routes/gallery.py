@@ -15,7 +15,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from filelock import FileLock
 
-from ...media_info import probe_media
+from ...media import probe_media
 from ...runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,

@@ -55,7 +55,7 @@ Around 120 files and 3,600+ tests as of this writing (`pytest tests/ --collect-o
 | test_diffusion_upscale.py, test_interpolate_frames.py, test_depth_estimator.py, test_segment.py | Diffusion upscale, RIFE interpolation, depth hints, segmentation |
 | test_image_to_text.py, test_text_generation.py | Captioning and text generation tasks |
 | test_model_cache.py | Shared task model cache |
-| test_prompt_weighting.py, test_teacache.py | Prompt weighting device handling, TeaCache forward guard |
+| test_prompt_weighting.py | Prompt weighting device handling |
 | test_argument_updates.py | Cached pipelines pick up fresh arguments across runs |
 | test_examples.py | Validates every workflow in `workflows/` against the schema |
 | test_mcp_client.py, test_mcp_catalog.py, test_mcp_authoring.py, test_mcp_diagnose.py, test_mcp_media.py, test_mcp_server.py | MCP tool surface |

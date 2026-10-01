@@ -805,7 +805,7 @@ def media_arguments(object_type, artifact):
     import torch
     from PIL import Image
 
-    from .tasks.audio_utils import as_channels_samples
+    from .dsp import as_channels_samples
     from .tasks.video_utils import frames_as_pil_list
 
     kind = object_type.kind
@@ -1037,11 +1037,11 @@ def _with_frame_rate(frames, location):
     says neither stays a plain list.
     """
     from .runs import shots_beside
-    from .tasks.video_utils import FrameList, file_fps
+    from .tasks.video_utils import FrameList
 
     if not isinstance(frames, list):
         return frames
-    fps = file_fps(location)
+    fps = _declared_fps(location)
     shots = (
         shots_beside(location)
         if not (location.startswith("http://") or location.startswith("https://"))
@@ -1050,13 +1050,27 @@ def _with_frame_rate(frames, location):
     return FrameList(frames, fps, shots) if (fps or shots) else frames
 
 
+def _declared_fps(path):
+    """The rate a video file declares, or None - a container that will not
+    open, carries no video stream or states no rate is a rate we do not
+    know, never an error: the caller is loading frames it has already read.
+    """
+    try:
+        from .media import container_fps
+
+        return container_fps(path)
+    except Exception as e:
+        logger.debug(f"No frame rate for {path}: {e}")
+        return None
+
+
 def _fetch_remote_video(url):
     """A video URL's frames, fetched through `safe_get` and decoded from a
     temporary file. `load_video` would fetch the URL itself and follow its
     redirects unchecked; handed a path, it only decodes. The suffix comes
     from the URL, as `load_video`'s own download names it, since a `.gif`
     decodes differently."""
-    from .tasks.video_utils import FrameList, file_fps
+    from .tasks.video_utils import FrameList
 
     response = safe_get(url, "a video argument", timeout=300)
     suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
@@ -1065,7 +1079,7 @@ def _fetch_remote_video(url):
         with handle:
             handle.write(response.content)
         frames = load_video(handle.name)
-        fps = file_fps(handle.name)
+        fps = _declared_fps(handle.name)
     finally:
         os.remove(handle.name)
     # A URL has no run beside it, so it carries no shots

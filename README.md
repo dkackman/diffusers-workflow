@@ -212,8 +212,8 @@ file from someone else the way you'd treat a `.py` script — see
 [Trust model](docs/SECURITY.md#trust-model).
 
 Under the hood the engine also handles: quantization (BitsAndBytes, TorchAO,
-GGUF, SDNQ, optimum-quanto); inference acceleration (TeaCache,
-FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
+GGUF, SDNQ, optimum-quanto); inference acceleration
+(FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
 A1111-style prompt weighting; long-video chaining with audio-driven length;
 step-output caching, so re-running a fixed-seed workflow finishes instantly;
 and utility tasks for upscaling, face restoration, segmentation, captioning,
@@ -229,7 +229,7 @@ frame interpolation and more.
 - [Workspaces](docs/WORKSPACES.md) — Where your content lives, run directories, and several workspaces on one server
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
-- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache
+- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer
 - [Fast on 24GB](docs/RECIPES_24GB.md) — Recommended speed/memory configurations per model family
 - [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
 - [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning

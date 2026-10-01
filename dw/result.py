@@ -19,6 +19,7 @@ from .content_types import (
     MUXED_VIDEO_CONTENT_TYPE,
     refuse_active_content_type,
 )
+from .dsp import dbfs
 from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AUDIO_FIT_TOLERANCE_SECONDS,
@@ -66,7 +67,7 @@ def _artifact_size(artifact):
 # encode of it decodes above 0 dBFS and clips, which is why a track measured
 # at +1.3 dBFS in the gallery can have been written from samples that never
 # exceeded 1.0. Same ceiling `match_levels` holds a gain to
-# (MATCH_CEILING_DBFS in dw/tasks/audio_utils.py)
+# (MATCH_CEILING_DBFS in dw/tasks/joins.py)
 HEADROOM_WARN_DBFS = -0.5
 
 
@@ -84,9 +85,7 @@ def _peak_dbfs(waveform):
     except Exception:
         logger.debug("Could not measure the peak of a saved track", exc_info=True)
         return None
-    if peak <= 0.0:
-        return None
-    return 20.0 * float(numpy.log10(peak))
+    return dbfs(peak)
 
 
 # Image formats that carry an alpha channel; every other image content type
@@ -192,7 +191,7 @@ _UNPROBED = object()
 def _probe_written_media(output_path):
     """Decode the just-written file once. `None` on any failure to probe."""
     try:
-        from .media_info import probe_media
+        from .media import probe_media
 
         return probe_media(output_path) or {}
     except Exception:

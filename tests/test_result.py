@@ -774,7 +774,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             # The audio stream decoded 1970 samples, 30 short of the 2000
             # the fit predicted - an encoder trimming its own
             # priming/padding.
@@ -809,7 +809,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -833,7 +833,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.95, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -858,7 +858,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.0, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -874,7 +874,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 2.0, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -1945,7 +1945,7 @@ class TestNoHeadroom:
         written file is fine - the caller should see nothing, not a stale
         warning about a file that turned out clean."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": -1.12, "kind": "video"},
         ):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
@@ -1959,7 +1959,7 @@ class TestNoHeadroom:
         one save, which is what made the 'saving' phase ~5x slower once
         #261 added the second check. They now share one decode."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": -1.12, "mean_dbfs": -20.0, "kind": "video"},
         ) as probe:
             self.save_muxed(torch.ones((2, 100)))
@@ -1976,7 +1976,7 @@ class TestNoHeadroom:
         mux can land under full scale after starting over it. A video always
         gets the ground-truth post-encode read."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},
         ):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
@@ -1987,7 +1987,7 @@ class TestNoHeadroom:
     def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
         """No ground truth available (a broken/short file) - the pre-encode
         guess is the only signal there is, so it still reaches the caller."""
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
         assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
@@ -2035,7 +2035,7 @@ class TestTheWrittenLevel:
         """
         from dw.result import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": peak_dbfs}):
+        with patch("dw.media.probe_media", return_value={"peak_dbfs": peak_dbfs}):
             return self.warnings_from(
                 lambda: warn_if_written_above_full_scale(
                     "/runs/final/music_video.mp4", **kwargs
@@ -2058,7 +2058,7 @@ class TestTheWrittenLevel:
     def test_a_file_with_no_soundtrack_is_quiet(self):
         from dw.result import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", return_value={"kind": "video"}):
+        with patch("dw.media.probe_media", return_value={"kind": "video"}):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_above_full_scale("/runs/final/silent.mp4")
@@ -2069,7 +2069,7 @@ class TestTheWrittenLevel:
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
         from dw.result import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_above_full_scale("/runs/final/broken.mp4")
@@ -2159,7 +2159,7 @@ class TestConsumedByNormalizer:
         waveform = numpy.zeros((2, 100), dtype=numpy.float32)
         waveform[0][0] = 1.0
 
-        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": 0.5}):
+        with patch("dw.media.probe_media", return_value={"peak_dbfs": 0.5}):
             warnings = self.warnings_from(
                 lambda: self.save_audio(waveform, True, str(tmp_path))
             )
@@ -2188,7 +2188,7 @@ class TestNearSilentWrite:
     def measured_at(self, mean_dbfs, **kwargs):
         from dw.result import warn_if_written_near_silent
 
-        with patch("dw.media_info.probe_media", return_value={"mean_dbfs": mean_dbfs}):
+        with patch("dw.media.probe_media", return_value={"mean_dbfs": mean_dbfs}):
             return self.warnings_from(
                 lambda: warn_if_written_near_silent("/runs/final/line.wav", **kwargs)
             )
@@ -2211,7 +2211,7 @@ class TestNearSilentWrite:
         from dw.result import warn_if_written_near_silent
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"mean_dbfs": -54.46, "peak_dbfs": -18.5},
         ):
             (warning,) = self.warnings_from(
@@ -2231,7 +2231,7 @@ class TestNearSilentWrite:
         from dw.result import warn_if_written_near_silent
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"mean_dbfs": -68.7, "peak_dbfs": -55.0},
         ):
             (warning,) = self.warnings_from(
@@ -2265,7 +2265,7 @@ class TestNearSilentWrite:
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
         from dw.result import warn_if_written_near_silent
 
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_near_silent("/runs/final/broken.wav")

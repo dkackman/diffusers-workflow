@@ -5,12 +5,12 @@ or the frame pair either side of a seam (#193)."""
 import numpy
 import pytest
 
+from dw.media import video_shape
 from dw.media_frames import (
     contact_sheet,
     frames_at,
     resolve_crop_box,
     seam_tiles,
-    video_shape,
 )
 
 
@@ -272,21 +272,22 @@ def test_frames_at_reuses_a_given_shape(tmp_path, monkeypatch):
     frames_at/contact_sheet/seam_tiles - a `shape` already in hand must not
     trigger another container open (and, lacking a header frame count,
     another full decode to count) inside the selector function."""
+    import dw.media as media
     import dw.media_frames as media_frames
 
     write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
     path = str(tmp_path / "ramp.mp4")
 
     calls = [0]
-    original = media_frames.video_shape
+    original = media.video_shape
 
     def counting_shape(p):
         calls[0] += 1
         return original(p)
 
-    monkeypatch.setattr(media_frames, "video_shape", counting_shape)
+    monkeypatch.setattr(media, "video_shape", counting_shape)
 
-    shape = media_frames.video_shape(path)
+    shape = media.video_shape(path)
     assert calls[0] == 1
 
     media_frames.frames_at(path, [0.0, "frame:12"], shape=shape)
@@ -370,7 +371,7 @@ def test_more_seams_than_the_cap_are_refused(tmp_path):
 
 
 def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
-    from dw.media_frames import _read_frames
+    from dw.media import read_frames
 
     write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6)
     seen = []
@@ -379,7 +380,7 @@ def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
         seen.append((image.size, index))
         return image.resize((8, 4))
 
-    found = _read_frames(str(tmp_path / "ramp.mp4"), [0, 5, 23], fit=fit)
+    found = read_frames(str(tmp_path / "ramp.mp4"), [0, 5, 23], fit=fit)
 
     assert seen == [
         ((32, 16), 0),
@@ -392,18 +393,18 @@ def test_read_frames_fits_each_frame_as_it_is_decoded(tmp_path):
 def test_a_contact_sheet_never_holds_a_full_size_frame(tmp_path, monkeypatch):
     """The point of the cap and the fitter together: a 1080p clip's contact
     sheet is built from tiles, not from a list of 1080p images."""
-    import dw.media_frames as module
+    import dw.media as module
 
     write_ramp_mp4(tmp_path / "ramp.mp4", frames=24, fps=6, width=64, height=32)
     sizes = []
-    real_read = module._read_frames
+    real_read = module.read_frames
 
     def spying_read(path, indexes, fit=None):
         found = real_read(path, indexes, fit=fit)
         sizes.extend(image.size for image in found.values())
         return found
 
-    monkeypatch.setattr(module, "_read_frames", spying_read)
+    monkeypatch.setattr(module, "read_frames", spying_read)
 
     contact_sheet(str(tmp_path / "ramp.mp4"), 4, tile_width=16)
 
@@ -448,7 +449,7 @@ def test_a_seek_that_lands_past_its_target_recovers_from_the_top(tmp_path):
         proxies.append(Overshooting(real_open(*args, **kwargs)))
         return proxies[-1]
 
-    with mock.patch("dw.media_frames.av.open", side_effect=opening):
+    with mock.patch("dw.media.av.open", side_effect=opening):
         tiles = frames_at(str(tmp_path / "gop.mp4"), ["frame:35"])
 
     assert grey_of(tiles[0]["image"]) == pytest.approx((35 % 25) * 10, abs=6)

@@ -38,7 +38,8 @@ from dw.shots import (
     shots_for_file,
     step_shots,
 )
-from dw.tasks.audio_utils import frames_to_samples, slice_audio
+from dw.tasks.audio_utils import slice_audio
+from dw.task_domains import frames_to_samples
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.pair_audio import pair_audio
@@ -264,9 +265,7 @@ class TestConcatVideosShots:
         )
         videos = [resolved, audio_video(4, 2)]
 
-        with patch(
-            "dw.tasks.concat_videos.load_audio_video", return_value=audio_video(4, 1)
-        ):
+        with patch("dw.tasks.joins.load_audio_video", return_value=audio_video(4, 1)):
             result = concat_videos(videos, fps=4)
 
         assert result.shots[0]["name"] == "ep3-shot1-incident.mp4"
@@ -399,7 +398,7 @@ class TestDissolveVideosShots:
         videos = [resolved, frames(10)]
 
         with patch(
-            "dw.tasks.dissolve_videos.load_audio_video",
+            "dw.tasks.joins.load_audio_video",
             return_value=frames(10),
         ):
             result = dissolve_videos(videos, 3)

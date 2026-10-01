@@ -9,11 +9,10 @@ would have failed on.
 """
 
 import os
-import tempfile
 
 from tests.test_dissolve_frame_errors import write_mp4, workflow_dir_with_asset
 
-from dw.media_info import probe_metadata
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.video_size_errors import video_size_errors
 from dw.workflow import workflow_from_definition
@@ -36,8 +35,12 @@ def join_workflow(command, videos, extra_arguments=None):
 
 
 class TestTheCheck:
-    def test_mismatched_asset_sizes_are_refused_for_dissolve_videos(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+    def test_mismatched_asset_sizes_are_refused_for_dissolve_videos(
+        self, monkeypatch, tmp_path
+    ):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         write_mp4(
             os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )
@@ -50,8 +53,12 @@ class TestTheCheck:
         assert "32x16" in problems[0]["message"]
         assert "64x32" in problems[0]["message"]
 
-    def test_mismatched_asset_sizes_are_refused_for_concat_videos(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+    def test_mismatched_asset_sizes_are_refused_for_concat_videos(
+        self, monkeypatch, tmp_path
+    ):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         write_mp4(
             os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )
@@ -62,8 +69,10 @@ class TestTheCheck:
         assert len(problems) == 1
         assert "concat_videos needs every video at one size" in problems[0]["message"]
 
-    def test_matching_asset_sizes_validate_clean(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+    def test_matching_asset_sizes_validate_clean(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         definition = join_workflow("dissolve_videos", ["asset:a.mp4", "asset:b.mp4"])
 
         assert video_size_errors(definition, base_dir=base_dir) == []
@@ -76,17 +85,17 @@ class TestTheCheck:
         assert video_size_errors(definition) == []
 
     def test_a_mismatch_against_an_unresolvable_entry_is_left_to_the_run(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("a.mp4", 12))
         definition = join_workflow(
             "dissolve_videos", ["asset:a.mp4", "previous_result:make_b"]
         )
 
         assert video_size_errors(definition, base_dir=base_dir) == []
 
-    def test_an_output_reference_mismatch_is_refused(self):
-        output_root = tempfile.mkdtemp()
+    def test_an_output_reference_mismatch_is_refused(self, tmp_path):
+        output_root = str(tmp_path)
         run_dir = os.path.join(output_root, "clip", "20260101-000000-abc")
         os.makedirs(run_dir)
         write_mp4(os.path.join(run_dir, "a.mp4"), frames=12, width=32, height=16)
@@ -112,14 +121,18 @@ class TestTheCheck:
     def test_nothing_is_reported_for_a_definition_with_no_join_step(self):
         assert video_size_errors({"steps": [{"name": "a", "task": {}}]}) == []
 
-    def test_a_single_video_needs_no_size_check(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 5))
+    def test_a_single_video_needs_no_size_check(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("a.mp4", 5))
         definition = join_workflow("dissolve_videos", ["asset:a.mp4"])
 
         assert video_size_errors(definition, base_dir=base_dir) == []
 
-    def test_a_location_dict_wrapping_a_mismatched_asset_is_refused(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+    def test_a_location_dict_wrapping_a_mismatched_asset_is_refused(
+        self, monkeypatch, tmp_path
+    ):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         write_mp4(
             os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )
@@ -134,9 +147,9 @@ class TestTheCheck:
         assert "64x32" in problems[0]["message"]
 
     def test_a_location_dict_wrapping_an_unresolvable_entry_is_left_to_the_run(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("a.mp4", 12))
         definition = join_workflow(
             "dissolve_videos",
             ["asset:a.mp4", {"location": "previous_result:make_b"}],
@@ -144,12 +157,16 @@ class TestTheCheck:
 
         assert video_size_errors(definition, base_dir=base_dir) == []
 
-    def test_a_shared_cache_probes_each_file_once_across_two_calls(self, monkeypatch):
+    def test_a_shared_cache_probes_each_file_once_across_two_calls(
+        self, monkeypatch, tmp_path
+    ):
         # B9: a memoizing `probe` passed in by the caller (a per-validation
         # cache in a later task) must be genuinely consulted - two calls to
         # the check sharing one cache probe each distinct file only once,
         # not once per call.
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         write_mp4(
             os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )
@@ -170,8 +187,10 @@ class TestTheCheck:
 
 
 class TestTheValidationPass:
-    def test_wired_into_validation_errors(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 12))
+    def test_wired_into_validation_errors(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 12)
+        )
         write_mp4(
             os.path.join(base_dir, "assets", "b.mp4"), frames=12, width=64, height=32
         )

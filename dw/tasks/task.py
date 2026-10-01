@@ -216,12 +216,12 @@ def _handle_fade_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "normalize_audio", implementation="dw.tasks.audio_utils.normalize_audio"
+    "normalize_audio", implementation="dw.tasks.audio_dynamics.normalize_audio"
 )
 def _handle_normalize_audio(task, arguments, previous_pipelines):
     """Scale an audio track so its peak sits at a given level"""
     logger.debug("Normalizing audio")
-    from .audio_utils import normalize_audio
+    from .audio_dynamics import normalize_audio
 
     return normalize_audio(**arguments)
 
@@ -343,30 +343,32 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "compress_audio", implementation="dw.tasks.audio_utils.compress_audio"
+    "compress_audio", implementation="dw.tasks.audio_dynamics.compress_audio"
 )
 def _handle_compress_audio(task, arguments, previous_pipelines):
     """Shape a track's dynamics with a compressor, limiter or gate"""
     logger.debug("Compressing audio")
-    from .audio_utils import compress_audio
+    from .audio_dynamics import compress_audio
 
     return compress_audio(**arguments)
 
 
-@register_command("filter_audio", implementation="dw.tasks.audio_utils.filter_audio")
+@register_command("filter_audio", implementation="dw.tasks.audio_dynamics.filter_audio")
 def _handle_filter_audio(task, arguments, previous_pipelines):
     """Run a track through a single lowpass/highpass/bandpass/notch filter"""
     logger.debug("Filtering audio")
-    from .audio_utils import filter_audio
+    from .audio_dynamics import filter_audio
 
     return filter_audio(**arguments)
 
 
-@register_command("analyze_audio", implementation="dw.tasks.audio_utils.analyze_audio")
+@register_command(
+    "analyze_audio", implementation="dw.tasks.audio_dynamics.analyze_audio"
+)
 def _handle_analyze_audio(task, arguments, previous_pipelines):
     """Measure a track's levels and spectral balance without changing it"""
     logger.debug("Analyzing audio")
-    from .audio_utils import analyze_audio
+    from .audio_dynamics import analyze_audio
 
     return analyze_audio(**arguments)
 

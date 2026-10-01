@@ -1445,7 +1445,7 @@ stays alive for the steps that reuse it.
 
 ### Cache Acceleration
 
-Two mutually exclusive ways to speed up inference by skipping redundant computation:
+A `cache` block speeds up inference by skipping redundant computation:
 
 ```json
 "configuration": {
@@ -1459,15 +1459,6 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
-
-```json
-"configuration": {
-    "teacache": { "rel_l1_thresh": 0.4 }
-}
-```
-
-`teacache` enables TeaCache, currently for Flux transformers, and requires
-`num_inference_steps` among the pipeline's arguments.
 
 ### Device and Dtype
 

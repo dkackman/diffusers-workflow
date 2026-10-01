@@ -18,7 +18,6 @@ import wave
 import numpy
 import pytest
 
-from dw import task_domains
 from dw.dissolve_frame_errors import dissolve_frame_errors
 from dw.validation import select_errors
 from dw.slice_preflight import slice_past_end_warnings
@@ -27,11 +26,10 @@ from dw.task_domains import (
     SELECT_THRESHOLD_RULES,
     SLICE_PAD_WARN_MS,
     dissolve_shortfalls,
-    frame_size_mismatches,
+    frame_size_error,
     select_rule_problems,
     slice_padding,
 )
-from dw.tasks import audio_utils
 from dw.tasks.audio_utils import slice_audio
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.select import select
@@ -137,10 +135,17 @@ class TestFrameSize:
         assert str(raised.value) in problems[0]["message"]
         assert "video 2 is 48x24" in str(raised.value)
 
-        sentence = frame_size_mismatches({0: (32, 16), 1: (64, 32), 2: (48, 24)})
-        assert sentence == "video 0 is 32x16, video 1 is 64x32, video 2 is 48x24"
-        assert sentence in problems[0]["message"]
-        assert sentence in str(raised.value)
+        sentence = frame_size_error(
+            "concat_videos", {0: (32, 16), 1: (64, 32), 2: (48, 24)}
+        )
+        assert sentence == (
+            "concat_videos needs every video at one size: "
+            "video 0 is 32x16, video 1 is 64x32, video 2 is 48x24"
+        )
+        # one producer: the run's message is the sentence, validation's
+        # starts with it and adds where and how to fit the odd one
+        assert str(raised.value) == sentence
+        assert problems[0]["message"].startswith(sentence)
 
     def test_the_reference_is_named_by_its_real_index(self, tmp_path, monkeypatch):
         base_dir = asset_dir_with(tmp_path, monkeypatch, "b.mp4", "c.mp4")
@@ -165,8 +170,8 @@ class TestFrameSize:
         assert "video 1 is 32x16, video 2 is 64x32" in str(raised.value)
 
     def test_matching_sizes_are_no_sentence(self):
-        assert frame_size_mismatches({0: (32, 16), 2: (32, 16)}) is None
-        assert frame_size_mismatches({}) is None
+        assert frame_size_error("concat_videos", {0: (32, 16), 2: (32, 16)}) is None
+        assert frame_size_error("concat_videos", {}) is None
 
 
 def write_wav_samples(path, samples, sample_rate):
@@ -176,6 +181,41 @@ def write_wav_samples(path, samples, sample_rate):
         handle.setsampwidth(2)
         handle.setframerate(sample_rate)
         handle.writeframes(tone.tobytes())
+
+
+class TestSliceRegion:
+    """The region a slice asks for, in samples, is worked out in one place -
+    `slice_region` - for the run and for validation. #557's case: a
+    frame-addressed end is rounded once, so a second half meant to reach the
+    source's exact end does."""
+
+    RATE = 44100
+    TOTAL = 540225
+    ARGS = {"start_frame": 147, "num_frames": 147, "fps": 24}
+
+    def test_the_run_and_the_checker_get_the_same_region_in_the_557_case(self):
+        from dw.slice_preflight import _requested_region
+        from dw.task_domains import slice_region
+
+        region = slice_region(self.RATE, **self.ARGS)
+        assert region == (270112, 270113)
+        assert _requested_region(dict(self.ARGS), self.RATE) == region
+
+        waveform = numpy.zeros((1, self.TOTAL), numpy.float32)
+        sliced = slice_audio(waveform, sample_rate=self.RATE, **self.ARGS)
+        assert sliced.audio.shape[-1] == region[1]
+
+    def test_an_open_ended_slice_needs_the_source_length(self):
+        from dw.task_domains import slice_region
+
+        assert slice_region(self.RATE, start_seconds=1.0) is None
+        assert slice_region(self.RATE, start_seconds=1.0, total=self.RATE * 3) == (
+            self.RATE,
+            self.RATE * 2,
+        )
+        assert slice_region(self.RATE, start_frame=24, fps=24) is None
+        assert slice_region(self.RATE, num_frames=24) is None
+        assert slice_region(self.RATE) is None
 
 
 class TestSlicePadding:
@@ -236,10 +276,6 @@ class TestSlicePadding:
         assert slice_padding(self.SAMPLES + 1, 0, self.SAMPLES + pad, self.RATE) is None
         assert slice_padding(100, 0, 50, 8000) is None
         assert slice_padding(100, 0, 500, 0) is None
-
-    def test_frames_to_samples_has_one_home(self):
-        assert audio_utils.frames_to_samples is task_domains.frames_to_samples
-        assert audio_utils.SLICE_PAD_WARN_MS == task_domains.SLICE_PAD_WARN_MS
 
 
 class TestSelectRules:
