@@ -116,27 +116,12 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
-            # An asset reference resolves to the path of a file in the asset
-            # library, and does it first: what it stands for is a path, so
-            # everything below - the media conventions, an object's
-            # 'from_file' - then handles it as the path it always was
-            if is_path_reference(v) or isinstance(v, (list, dict)):
-                v = arg[k] = resolve_path_references(v, base_dir)
-            # A constant resolves under any argument name, and before the
-            # conventions below - what it holds is the value, not a file to load
-            if is_constant_reference(v):
-                arg[k] = fetch_constant(v)
-            # A stored prompt resolves the same way - to its text, under any
-            # name, before the media conventions could mistake it for a file.
-            # The workflow's directory anchors prompt-library discovery
-            elif is_prompt_reference(v):
-                arg[k] = fetch_prompt(v, base_dir=base_dir)
-            # An explicit media reference loads under any argument name - the
-            # key conventions below only cover arguments named like their media
-            elif is_media_reference(v):
-                arg[k] = fetch_media(v, base_dir)
+            v, handled = _realize_explicit_reference(v, base_dir)
+            arg[k] = v
+            if handled:
+                continue
             # Handle image loading for keys ending in '_image' or exactly 'image'
-            elif apply_key_conventions and (k.endswith("_image") or k == "image"):
+            if apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
                 arg[k] = fetch_image_with_context(v, base_dir, k)
             # get_frame/get_first_frame/get_last_frame only ever need one frame
@@ -159,68 +144,103 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             elif apply_key_conventions and (
                 k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
             ):
-                if isinstance(v, EscapedString):
-                    # An earlier pass already consumed this value's escape
-                    continue
-                if k in NON_TYPE_KEYS:
-                    # The value stays a string, but the {} escape is still honored
-                    # so both the escaped and the bare spelling name the category
-                    if is_escaped(v):
-                        arg[k] = EscapedString(v.strip("{}"))
-                    continue
-                logger.debug(f"Processing type reference for key: {k}")
-                # Allow escaping type references using {} brackets
-                # this is for instances when the argument name is "something_type" but it is
-                # not a reference to a python type, but rather a category or something else
-                if isinstance(v, str):
-                    if is_escaped(v):
-                        arg[k] = EscapedString(v.strip("{}"))
-                    else:
-                        arg[k] = load_type_from_name(v, k)
-                elif isinstance(v, type):
-                    # the value already a type
-                    arg[k] = v
-            # Recursively process nested dictionaries, then build any object they
-            # describe - the type reference it names is realized by the recursion
+                _realize_type_reference(arg, k, v)
             else:
-                realize_args(v, base_dir)
-                realized = realize_object(v, base_dir)
-                if realized is OMITTED:
-                    raise ValueError(
-                        f"'{k}' names an object to build but the media it "
-                        f"would be built from is null. An optional one belongs "
-                        f"in a list, where it can be left out; on its own "
-                        f"there is nothing to leave it out of"
-                    )
-                arg[k] = realized
+                _realize_nested(arg, k, v, base_dir)
 
     # Recursively process lists
     elif isinstance(arg, list):
-        logger.debug("Processing list arguments")
-        for i, item in enumerate(arg):
-            if is_path_reference(item):
-                item = arg[i] = resolve_path_references(item, base_dir)
-            if is_constant_reference(item):
-                arg[i] = fetch_constant(item)
-                continue
-            if is_prompt_reference(item):
-                arg[i] = fetch_prompt(item, base_dir=base_dir)
-                continue
-            if is_media_reference(item):
-                arg[i] = fetch_media(item, base_dir)
-                continue
-            try:
-                realize_args(item, base_dir)
-            except ValueError as error:
-                if isinstance(item, dict) and "name" in item:
-                    raise ValueError(f"{error} (step '{item['name']}')") from error
-                raise
-            arg[i] = realize_object(item, base_dir)
-        # An optional entry whose media is null leaves the list rather than
-        # reaching the pipeline as a reference with nothing in it
-        if any(item is OMITTED for item in arg):
-            kept = [item for item in arg if item is not OMITTED]
-            arg[:] = kept
+        _realize_list(arg, base_dir)
+
+
+def _realize_explicit_reference(value, base_dir):
+    """Resolve the references that name their own value, whatever the argument
+    is called, in the order they apply.
+
+    Returns (value, handled). A path reference ('asset:'/'output:'), or a list
+    or dict that may hold one, resolves first and always: what it stands for
+    is a path, so everything after - the media conventions, an object's
+    'from_file' - then handles it as the path it always was. That alone is not
+    'handled': the caller carries the resolved value on to the conventions.
+    A constant resolves before the conventions - what it holds is the value,
+    not a file to load - and a stored prompt the same way, to its text, before
+    the media conventions could mistake it for a file (the workflow's
+    directory anchors prompt-library discovery). An explicit media reference
+    loads under any argument name, since the key conventions only cover
+    arguments named like their media. Those three are handled."""
+    if is_path_reference(value) or isinstance(value, (list, dict)):
+        value = resolve_path_references(value, base_dir)
+    if is_constant_reference(value):
+        return fetch_constant(value), True
+    if is_prompt_reference(value):
+        return fetch_prompt(value, base_dir=base_dir), True
+    if is_media_reference(value):
+        return fetch_media(value, base_dir), True
+    return value, False
+
+
+def _realize_type_reference(arg, k, v):
+    """Realize the value of a '*_type'/'*_dtype'/'dtype' key: a type name
+    loads as the type, and the keys that only look like one stay strings."""
+    if isinstance(v, EscapedString):
+        # An earlier pass already consumed this value's escape
+        return
+    if k in NON_TYPE_KEYS:
+        # The value stays a string, but the {} escape is still honored
+        # so both the escaped and the bare spelling name the category
+        if is_escaped(v):
+            arg[k] = EscapedString(v.strip("{}"))
+        return
+    logger.debug(f"Processing type reference for key: {k}")
+    # Allow escaping type references using {} brackets
+    # this is for instances when the argument name is "something_type" but it is
+    # not a reference to a python type, but rather a category or something else
+    if isinstance(v, str):
+        if is_escaped(v):
+            arg[k] = EscapedString(v.strip("{}"))
+        else:
+            arg[k] = load_type_from_name(v, k)
+    elif isinstance(v, type):
+        # the value already a type
+        arg[k] = v
+
+
+def _realize_nested(arg, k, v, base_dir):
+    """Recursively process a nested value, then build any object it
+    describes - the type reference it names is realized by the recursion."""
+    realize_args(v, base_dir)
+    realized = realize_object(v, base_dir)
+    if realized is OMITTED:
+        raise ValueError(
+            f"'{k}' names an object to build but the media it "
+            f"would be built from is null. An optional one belongs "
+            f"in a list, where it can be left out; on its own "
+            f"there is nothing to leave it out of"
+        )
+    arg[k] = realized
+
+
+def _realize_list(arg, base_dir):
+    """Realize a list in place: each entry resolves as an explicit reference
+    or is processed and built as an object."""
+    logger.debug("Processing list arguments")
+    for i, item in enumerate(arg):
+        item, handled = _realize_explicit_reference(item, base_dir)
+        arg[i] = item
+        if handled:
+            continue
+        try:
+            realize_args(item, base_dir)
+        except ValueError as error:
+            if isinstance(item, dict) and "name" in item:
+                raise ValueError(f"{error} (step '{item['name']}')") from error
+            raise
+        arg[i] = realize_object(item, base_dir)
+    # An optional entry whose media is null leaves the list rather than
+    # reaching the pipeline as a reference with nothing in it
+    if any(item is OMITTED for item in arg):
+        kept = [item for item in arg if item is not OMITTED]
+        arg[:] = kept
 
 
 def is_path_reference(value):
