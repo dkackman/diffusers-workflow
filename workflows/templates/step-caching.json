@@ -6,7 +6,7 @@
         "seed": null
     },
     "id": "FluxDevFirstBlockCache",
-    "description": "FLUX.1 dev accelerated with first-block caching, skipping redundant transformer work across denoise steps. Two cache implementations, one shape. This uses first-block caching, a 'cache' block of {\"type\": \"first_block\", \"threshold\": 0.05}. For TeaCache instead, replace it with a sibling 'teacache' block of {\"rel_l1_thresh\": 0.4}. Both trade a little fidelity for skipped transformer work; raise the threshold to skip more.",
+    "description": "FLUX.1 dev accelerated with first-block caching, skipping redundant transformer work across denoise steps. This uses first-block caching, a 'cache' block of {\"type\": \"first_block\", \"threshold\": 0.05}. It trades a little fidelity for skipped transformer work; raise the threshold to skip more.",
     "seed": "variable:seed",
     "steps": [
         {

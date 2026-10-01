@@ -28,7 +28,7 @@ Comprehensive test suite for the diffusers-workflow project covering core functi
 - `test_image_utils.py` / `test_resize_bucket.py` / `test_strip_exif_and_watermark.py` / `test_tensor_image.py` / `test_list_images.py` - Image processing task commands
 - `test_diffusion_upscale.py` / `test_interpolate_frames.py` / `test_depth_estimator.py` / `test_segment.py` - Diffusion upscale, RIFE interpolation, depth hints, segmentation
 - `test_image_to_text.py` / `test_text_generation.py` - Captioning and text-generation tasks
-- `test_prompt_weighting.py` / `test_teacache.py` - Prompt weighting device handling, TeaCache forward guard
+- `test_prompt_weighting.py` - Prompt weighting device handling
 - `test_argument_updates.py` - Cached pipelines pick up fresh arguments across runs
 
 ### Integration Tests

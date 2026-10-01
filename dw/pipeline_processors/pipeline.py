@@ -14,7 +14,6 @@ from .config_objects import (
 )
 from .remote import remote_text_encoder
 from ..cache_blocks import register_cache_blocks
-from ..teacache import teacache_context
 from ..type_helpers import has_method
 from ..security import (
     require_trusted_from_pretrained_arguments,
@@ -564,28 +563,9 @@ class Pipeline:
         return output
 
     def _execute_pipeline(self, arguments):
-        """Execute the pipeline with optional TeaCache and attention backend contexts."""
-        teacache_config = self.configuration.get("teacache", None)
+        """Execute the pipeline inside the optional attention backend context."""
         attn_backend = self.configuration.get("attention_backend", None)
-
-        # Determine the execution context
-        if teacache_config is not None:
-            num_steps = arguments.get("num_inference_steps", None)
-            if num_steps is None:
-                logger.warning(
-                    "TeaCache requires num_inference_steps in arguments, running without TeaCache"
-                )
-                return self._call_pipeline(arguments, attn_backend)
-
-            rel_l1_thresh = teacache_config.get("rel_l1_thresh", None)
-            coefficients = teacache_config.get("coefficients", None)
-            variant = teacache_config.get("variant", None)
-            with teacache_context(
-                self.pipeline, num_steps, rel_l1_thresh, coefficients, variant
-            ):
-                return self._call_pipeline(arguments, attn_backend)
-        else:
-            return self._call_pipeline(arguments, attn_backend)
+        return self._call_pipeline(arguments, attn_backend)
 
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""

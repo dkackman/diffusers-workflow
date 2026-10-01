@@ -1460,15 +1460,6 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
 
-```json
-"configuration": {
-    "teacache": { "rel_l1_thresh": 0.4 }
-}
-```
-
-`teacache` enables TeaCache, currently for Flux transformers, and requires
-`num_inference_steps` among the pipeline's arguments.
-
 ### Device and Dtype
 
 Device is auto-detected (CUDA > MPS > CPU). Dtype is set per-component:

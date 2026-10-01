@@ -388,3 +388,28 @@ def test_a_warning_method_on_an_unexpandable_definition_says_it_failed(tmp_path)
 def test_an_unknown_warning_check_name_is_a_key_error():
     with pytest.raises(KeyError):
         validation.warning_check("no_such_check")
+
+
+def test_a_pipeline_configuration_naming_teacache_is_refused():
+    from dw.workflow import Workflow
+
+    definition = {
+        "id": "teacache-removed",
+        "steps": [
+            {
+                "name": "gen",
+                "pipeline": {
+                    "configuration": {
+                        "component_type": "{Fake}",
+                        "teacache": {"rel_l1_thresh": 0.4},
+                    },
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "arguments": {"prompt": "d"},
+                },
+            }
+        ],
+    }
+
+    errors = Workflow(definition, ".", "teacache-removed.json").validation_errors()
+
+    assert any("teacache" in str(error["message"]) for error in errors), errors

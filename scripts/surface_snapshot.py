@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from dw.introspection import describe_task, list_tasks  # noqa: E402
 from dw.server.app import create_app  # noqa: E402
 from dw.server.jobs import JobManager  # noqa: E402
 from dw_mcp.client import DwClient  # noqa: E402
@@ -179,6 +180,24 @@ def listing_keys(client):
     }
 
 
+def task_surface():
+    """`list_tasks()` and `describe_task(c)` for every command. A command whose
+    description raises is recorded as its error string rather than crashing."""
+    listing = list_tasks()
+    described = {}
+    for command in listing["commands"]:
+        try:
+            described[command] = describe_task(command)
+        except Exception as error:
+            described[command] = f"error: {type(error).__name__}: {error}"
+    return {"list": listing, "describe": described}
+
+
+def workflow_schema():
+    path = Path(__file__).resolve().parent.parent / "dw" / "workflow_schema.json"
+    return json.loads(path.read_text())
+
+
 def snapshot(root):
     root = Path(root)
     examples_dir = build_library_fixture(root)
@@ -216,6 +235,8 @@ def snapshot(root):
         "mcp_instructions": server.instructions,
         "mcp_tools": mcp_tools(server),
         "library_listings": listing_keys(TestClient(app, base_url="http://localhost")),
+        "tasks": task_surface(),
+        "workflow_schema": workflow_schema(),
     }
 
 
