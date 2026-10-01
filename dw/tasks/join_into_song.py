@@ -93,29 +93,18 @@ def join_into_song(
         One AudioVideo: the dialogue's frames then the song shots', over the
         mix, with one shot record per input
     """
-    check_arguments(
-        COMMAND,
-        cue_seconds=cue_seconds,
-        duck_delay_ms=duck_delay_ms,
-        duck_db=duck_db,
-        duck_ramp_ms=duck_ramp_ms,
-        fps=fps,
+    cue_seconds, duck_delay_ms, duck_db, duck_ramp_ms, dialogue_target_lufs, fps = (
+        _validated(
+            dialogue,
+            song_shots,
+            cue_seconds,
+            duck_delay_ms,
+            duck_db,
+            duck_ramp_ms,
+            dialogue_target_lufs,
+            fps,
+        )
     )
-    # A number handed in through an untyped variable arrives as a string
-    cue_seconds = float(cue_seconds)
-    duck_delay_ms, duck_db = float(duck_delay_ms), float(duck_db)
-    duck_ramp_ms = float(duck_ramp_ms)
-    if dialogue_target_lufs is not None:
-        dialogue_target_lufs = float(dialogue_target_lufs)
-    if fps is not None:
-        fps = float(fps)
-    for name, value in (("dialogue", dialogue), ("song_shots", song_shots)):
-        if not isinstance(value, list) or not value:
-            raise ValueError(
-                f"{COMMAND} needs a non-empty list of videos for '{name}' - a "
-                "join into a song has spoken shots before it and sung shots "
-                "after it"
-            )
 
     names = video_names(dialogue + song_shots)
     dialogue = [_loaded(video) for video in dialogue]
@@ -128,44 +117,16 @@ def join_into_song(
     song_waveform, sample_rate = _song_track(song)
     channels = song_waveform.shape[0]
 
-    # The dialogue's track, shot by shot. Each shot's boundary is placed on
-    # the frame grid from the running frame count, so rounding never
-    # accumulates and D is the sample the first song frame sits at
-    frames = []
-    shots = []
-    pieces = []
-    for index, (video, clip) in enumerate(zip(dialogue, clips)):
-        start_frame = len(frames)
-        frames.extend(clip)
-        start = frames_to_samples(start_frame, fps, sample_rate)
-        end = frames_to_samples(len(frames), fps, sample_rate)
-        piece = _dialogue_track(
-            video, names[index], end - start, fps, sample_rate, channels
-        )
-        if dialogue_target_lufs is not None:
-            piece = _match_loudness(
-                piece, sample_rate, dialogue_target_lufs, names[index]
-            )
-        pieces.append(piece)
-        shots.append(
-            _shot(names[index], index, start_frame, len(frames) - start_frame, start)
-        )
-    dialogue_track = numpy.concatenate(pieces, axis=1)
+    frames, shots, dialogue_track = _place_shots(
+        dialogue,
+        clips,
+        names,
+        fps,
+        sample_rate,
+        channels,
+        dialogue_target_lufs,
+    )
     dialogue_samples = dialogue_track.shape[1]
-
-    for offset, clip in enumerate(clips[len(dialogue) :]):
-        index = len(dialogue) + offset
-        start_frame = len(frames)
-        frames.extend(clip)
-        shots.append(
-            _shot(
-                names[index],
-                index,
-                start_frame,
-                len(frames) - start_frame,
-                frames_to_samples(start_frame, fps, sample_rate),
-            )
-        )
     total_samples = frames_to_samples(len(frames), fps, sample_rate)
 
     cue_samples = int(round(float(cue_seconds) * sample_rate))
@@ -203,6 +164,98 @@ def join_into_song(
         f"into {len(frames)} frames"
     )
     return AudioVideo(frames, mix, sample_rate, fps=fps, shots=shots)
+
+
+def _validated(
+    dialogue,
+    song_shots,
+    cue_seconds,
+    duck_delay_ms,
+    duck_db,
+    duck_ramp_ms,
+    dialogue_target_lufs,
+    fps,
+):
+    """Check the arguments and coerce the numbers an untyped variable may hand in as strings.
+
+    Returns (cue_seconds, duck_delay_ms, duck_db, duck_ramp_ms,
+    dialogue_target_lufs, fps).
+    """
+    check_arguments(
+        COMMAND,
+        cue_seconds=cue_seconds,
+        duck_delay_ms=duck_delay_ms,
+        duck_db=duck_db,
+        duck_ramp_ms=duck_ramp_ms,
+        fps=fps,
+    )
+    # A number handed in through an untyped variable arrives as a string
+    cue_seconds = float(cue_seconds)
+    duck_delay_ms, duck_db = float(duck_delay_ms), float(duck_db)
+    duck_ramp_ms = float(duck_ramp_ms)
+    if dialogue_target_lufs is not None:
+        dialogue_target_lufs = float(dialogue_target_lufs)
+    if fps is not None:
+        fps = float(fps)
+    for name, value in (("dialogue", dialogue), ("song_shots", song_shots)):
+        if not isinstance(value, list) or not value:
+            raise ValueError(
+                f"{COMMAND} needs a non-empty list of videos for '{name}' - a "
+                "join into a song has spoken shots before it and sung shots "
+                "after it"
+            )
+    return (
+        cue_seconds,
+        duck_delay_ms,
+        duck_db,
+        duck_ramp_ms,
+        dialogue_target_lufs,
+        fps,
+    )
+
+
+def _place_shots(
+    dialogue, clips, names, fps, sample_rate, channels, dialogue_target_lufs
+):
+    """Lay the shots' frames end to end; returns (frames, shot records, dialogue track)."""
+    # The dialogue's track, shot by shot. Each shot's boundary is placed on
+    # the frame grid from the running frame count, so rounding never
+    # accumulates and D is the sample the first song frame sits at
+    frames = []
+    shots = []
+    pieces = []
+    for index, (video, clip) in enumerate(zip(dialogue, clips)):
+        start_frame = len(frames)
+        frames.extend(clip)
+        start = frames_to_samples(start_frame, fps, sample_rate)
+        end = frames_to_samples(len(frames), fps, sample_rate)
+        piece = _dialogue_track(
+            video, names[index], end - start, fps, sample_rate, channels
+        )
+        if dialogue_target_lufs is not None:
+            piece = _match_loudness(
+                piece, sample_rate, dialogue_target_lufs, names[index]
+            )
+        pieces.append(piece)
+        shots.append(
+            _shot(names[index], index, start_frame, len(frames) - start_frame, start)
+        )
+    dialogue_track = numpy.concatenate(pieces, axis=1)
+
+    for offset, clip in enumerate(clips[len(dialogue) :]):
+        index = len(dialogue) + offset
+        start_frame = len(frames)
+        frames.extend(clip)
+        shots.append(
+            _shot(
+                names[index],
+                index,
+                start_frame,
+                len(frames) - start_frame,
+                frames_to_samples(start_frame, fps, sample_rate),
+            )
+        )
+    return frames, shots, dialogue_track
 
 
 def _loaded(video):
