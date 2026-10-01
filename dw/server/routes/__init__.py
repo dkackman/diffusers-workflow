@@ -33,6 +33,8 @@ def include_routers(app):
     router here carries a prefix, dependency or response override for
     `include_router` to apply, and a route holds no per-app state - handlers
     read `request.app.state` - so two apps can share the route objects.
+    The routes carry no dependency-override provider, so
+    `app.dependency_overrides` does not reach them.
     """
     for router in ROUTERS:
         app.router.routes.extend(router.routes)

@@ -219,44 +219,46 @@ class JobManager:
         return self.history.get(job_id)
 
     def definition(self, job_id):
-        """The workflow JSON a job ran, for a read-only view of it.
+        """The workflow JSON a job names, for a read-only view of it and for
+        what a rerun will draw its seed into.
 
-        A live job answers from the snapshot admission checked, so the file
-        moving, growing or breaking after submit changes nothing. A restored
-        job has no snapshot (it is not persisted): an inline definition
-        comes straight from the spec, and one launched from a path is
-        re-read from disk, confined to the root the job ran against. None
-        when there is no such job, or when the file it named has since
-        moved, grown past the size limit or stopped parsing - a
-        graph of the run is a nicety, never a reason to fail the page.
+        A job launched from a path answers with that file as it is now, the
+        same file a rerun admits - re-read from disk, confined to the root
+        the job ran against. When the file can no longer be read (it moved,
+        grew past the size limit or stopped parsing), a live job falls back
+        to the snapshot admission checked, so the page still shows what ran.
+        A restored job has no snapshot (it is not persisted). An inline
+        definition comes straight from the spec. None when there is no such
+        job, or nothing is left to show - a graph of the run is a nicety,
+        never a reason to fail the page.
         """
         job = self.jobs.get(job_id)
         if job is not None:
             spec = job.spec
             snapshot = spec.get("definition")
-            if snapshot is not None:
-                return copy.deepcopy(snapshot)
         else:
             historical = self.history.get(job_id)
             if historical is None:
                 return None
             spec = historical.get("spec") or {}
+            snapshot = None
         inline = spec.get("workflow")
         if inline is not None:
             return copy.deepcopy(inline)
         path = spec.get("workflow_path")
-        if not path:
-            return None
-        try:
-            validated = validate_workflow_path(
-                path, spec.get("workflow_dir") or self.workflow_dir
-            )
-            validate_json_size(validated)
-            with open(validated, "r") as file:
-                return json.load(file)
-        except (SecurityError, OSError, ValueError):
-            logger.debug(f"No workflow definition available for job {job_id}")
-            return None
+        if path:
+            try:
+                validated = validate_workflow_path(
+                    path, spec.get("workflow_dir") or self.workflow_dir
+                )
+                validate_json_size(validated)
+                with open(validated, "r") as file:
+                    return json.load(file)
+            except (SecurityError, OSError, ValueError):
+                logger.debug(f"Workflow file for job {job_id} can no longer be read")
+        if snapshot is not None:
+            return copy.deepcopy(snapshot)
+        return None
 
     def realized(self, job_id):
         """The realized workflow a job ran, or None when the job predates

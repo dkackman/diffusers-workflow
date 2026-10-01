@@ -36,8 +36,8 @@ logger = logging.getLogger("dw")
 
 router = APIRouter()
 
-# Where the MCP endpoint is mounted when --mcp is given (see the mcp block
-# in create_app) - the Server page quotes it in the command it tells you to
+# Where the MCP endpoint is mounted when --mcp is given (see `_mount_mcp`
+# in dw/server/app.py) - the Server page quotes it in the command it tells you to
 # run on the other machine
 MCP_PATH = "/mcp"
 

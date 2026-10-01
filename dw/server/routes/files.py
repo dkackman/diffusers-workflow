@@ -141,6 +141,7 @@ def _export_download_name(directory, job_id):
     return f"{slug}-v{version}-{job_id}.zip" if slug else f"v{version}-{job_id}.zip"
 
 
+# Ungated for the same reason the two above are: a download link cannot
 # attach an Authorization header either
 @router.get("/exports/{job_id}.zip")
 def export_zip(job_id: str, ws: Workspace = Depends(selected_workspace)):
