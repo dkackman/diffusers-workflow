@@ -219,7 +219,7 @@ def _copy_leaf(value):
 
     An open handle or a live model object reaching a member is not a reason
     to fail a run - the step cache makes the same choice for a realized
-    argument it cannot deep-copy (dw/workflow.py).
+    argument it cannot deep-copy (dw/step_cache.py, copy_containers).
     """
     try:
         return copy.deepcopy(value)

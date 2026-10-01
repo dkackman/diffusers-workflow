@@ -342,7 +342,7 @@ same reason - default setup cannot load a pack.
   changed; `minutes` never compared), and the job records `acknowledged:
   none | boolean | bound`. `cached_steps` is the worker's answer to a
   `probe_cache` command (`Workflow.cache_hits`, which shares
-  `_prepare_definition` / `_cache_lookup` with `run` so the two cannot drift).
+  `prepare_definition` / `cache_lookup` (`dw/workflow_run.py`) with `run` so the two cannot drift).
   The web UI reads the fields only: the editor lists the plan under a valid
   verdict (`describePlan`, `ui/src/lib/plan.ts`), and a job queued `bound`
   says so on the job page and in the jobs list; the UI itself sends no
@@ -350,7 +350,7 @@ same reason - default setup cannot load a pack.
 - **A failed run still reports what it wrote** — the worker carries its partial
   manifest on the error and cancelled messages as well as on success, and the
   "Previous result not found" error names the steps that ran even after
-  `release_unreferenced_results` has dropped their results
+  `release_unreferenced_results` (`dw/workflow_run.py`) has dropped their results
 - **Run directories**: each execution writes `<output_dir>/<workflow identity>/<run id>/`
   with a `manifest.json` beside its files (`dw/runs.py`, `Workflow.effective_output_dir`).
   Identity is the workflow's path under a `workflows/` tree, else its file name, else its
@@ -528,7 +528,7 @@ same reason - default setup cannot load a pack.
   takes its default
 - **A deliverable with no audio headroom warns** — a track at or above
   −0.5 dBFS is written anyway and said out loud (`warn_without_headroom`,
-  `dw/result.py`, kind `audio_no_headroom`), for both a saved audio file and
+  `dw/audio_qc.py`, kind `audio_no_headroom`), for both a saved audio file and
   a muxed video: a clipped file succeeds, and a consumer that cannot listen
   needs a rule to read `peak_dbfs` against. A warning, not a
   gain change: what level a deliverable sits at is the workflow's to decide,
@@ -549,7 +549,7 @@ same reason - default setup cannot load a pack.
   `warn_without_headroom` reads the waveform, and the encoder sits downstream
   of it: a song normalized to exactly -1.0 dBFS can come back out of an AAC
   mux at **+0.94**. `warn_if_written_above_full_scale`
-  (`dw/result.py`, kind `audio_clipped`) probes the file it just wrote and
+  (`dw/audio_qc.py`, kind `audio_clipped`) probes the file it just wrote and
   warns when it decodes at or above 0 dBFS — whatever the encoder did, that
   is the number a consumer's decoder sees. Only for a file that can carry a
   soundtrack, and silent when `warn_without_headroom` already spoke for that
@@ -606,7 +606,7 @@ same reason - default setup cannot load a pack.
   makes first — at the entry's path (`arguments.shots[1]` when the caller
   supplied `shots`, else `variables.shots[1]`), naming the member, its
   frames, size and reference count. Checked in `validation_errors` and
-  again in `_prepare_definition` right before a run starts, so an inline or
+  again in `prepare_definition` (`dw/workflow_run.py`) right before a run starts, so an inline or
   composed definition that skipped `validate_workflow` is still caught.
   Every H3 Ref2VA template declares `base_gb` 16.0, `bytes_per_voxel`
   28.71 and `gb_per_reference` 1.0 (`tests/test_h3_vram_ceiling.py`): at 1344x768 on a 24 GB card the ceiling on

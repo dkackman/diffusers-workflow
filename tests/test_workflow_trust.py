@@ -1,5 +1,5 @@
 """
-Unit tests for the --trust-workflows gate: dw/security.py's trust helpers,
+Unit tests for the --trust-workflows gate: dw/trust.py's trust helpers,
 their wiring into dw/type_helpers.py's dotted-name loader, and into
 dw/pipeline_processors/pipeline.py's pre_load_modules loop.
 

@@ -1,6 +1,6 @@
 """The extension of a `video` argument, checked before the run when it can be.
 
-`fetch_video` (`dw/arguments.py`) loads every argument named `video` or
+`fetch_video` (`dw/argument_media.py`) loads every argument named `video` or
 `*_video`, and every `{"media_type": "video", "location": ...}` reference
 whatever it is named, as a video file - and refuses one whose extension is
 not `ALLOWED_VIDEO_EXTENSIONS` there, at run time. A still image handed to

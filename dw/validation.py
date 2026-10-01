@@ -385,13 +385,13 @@ ERROR_CHECKS = [
     Check("select", lambda c: select_errors(c.expanded, c.source_indices)),
     Check("task_signatures", _task_errors),
     # A component_type/scheduler_type/config_type that does not exist, or is
-    # outside the trusted ecosystem (dw/introspection.py, #345)
+    # outside the trusted ecosystem (dw/type_references.py, #345)
     Check(
         "component_types",
         lambda c: component_type_errors(c.expanded, c.source_indices),
     ),
     # A `configuration.components` entry its component_type does not
-    # register (dw/introspection.py, #442)
+    # register (dw/type_references.py, #442)
     Check(
         "component_names",
         lambda c: component_name_errors(c.expanded, c.source_indices),

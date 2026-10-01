@@ -106,7 +106,7 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             (asset:, output:, constant:, prompt:, a {media_type, location}
             dict) always resolve regardless of this flag - only the fallback
             that guesses from the key name is gated. The top-level variables
-            dict is realized with this off (dw/workflow.py): a variable's own
+            dict is realized with this off (dw/workflow_run.py): a variable's own
             name is not the argument it will end up filling, so 'image' guessed
             a variable named that way into a PIL Image before the step that
             actually names its argument 'video' ever saw the value (#365).

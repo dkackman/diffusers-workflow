@@ -42,7 +42,7 @@ class Step:
 
         consumed_by_normalizer is whether a later step resets this result's
         level (normalize_audio/match_levels) before anything ships it - see
-        step_cache.normalized_downstream and result.py's headroom checks."""
+        step_cache.normalized_downstream and audio_qc.py's headroom checks."""
         self.step_definition = step_definition
         self.workflow_definition = workflow_definition
         self.consumed_by_normalizer = consumed_by_normalizer
