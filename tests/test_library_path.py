@@ -695,6 +695,26 @@ class TestPromptRefusalIsNotAMissEither:
         with pytest.raises(ValueError):
             resolve_prompt_reference("prompt:ghost", library=only)
 
+    def test_a_name_out_of_the_root_is_refused_without_a_probe(
+        self, tmp_path, monkeypatch
+    ):
+        from dw.library import LibraryPath, LibraryRoot, PROMPTS_KIND
+        from dw.security import SecurityError
+
+        library = tmp_path / "prompts"
+        library.mkdir()
+        only = LibraryPath(
+            PROMPTS_KIND, [LibraryRoot(str(library), WORKSPACE_ORIGIN, True)]
+        )
+        probed = []
+        real_isfile = os.path.isfile
+        monkeypatch.setattr(
+            os.path, "isfile", lambda p: probed.append(p) or real_isfile(p)
+        )
+        with pytest.raises(SecurityError):
+            only.find("../elsewhere", refuse=True)
+        assert not any("elsewhere" in str(p) for p in probed)
+
 
 class TestExistingAndFrontless:
     def test_existing_drops_the_roots_that_are_not_directories(self, tmp_path):

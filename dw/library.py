@@ -253,7 +253,13 @@ class LibraryPath:
                 if self.kind == PROMPTS_KIND:
                     # A prompt that is not a file here - a dangling link
                     # included - is a miss; only one that is present is
-                    # confined, and refused when it leaves the library
+                    # confined, and refused when it leaves the library.
+                    # A name that leaves the root before any link is
+                    # followed is refused without probing the disk there
+                    candidate = os.path.normpath(candidate)
+                    inside = os.path.join(os.path.normpath(root.root), "")
+                    if not candidate.startswith(inside):
+                        return validate_prompt_path(candidate, root.root), root
                     if not os.path.isfile(candidate):
                         continue
                     return validate_prompt_path(candidate, root.root), root

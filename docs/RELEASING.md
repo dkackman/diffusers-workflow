@@ -139,6 +139,9 @@ release edit v0.6.0 --notes-file ...`).
 - A run's directory and version are claimed atomically under a lock in
   dw's settings directory, so two runs of one workflow cannot share a
   number, and a gallery delete no longer races an opening run.
+- A `prompt:` name that climbs out of the prompt library is refused without
+  probing the disk outside it. A missing file there used to be reported as
+  not found.
 - `manifest.json` is written atomically, so a killed worker leaves the
   previous manifest (#517).
 - Step cache: a step that borrows a pipeline (`pipeline_reference`,
