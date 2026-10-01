@@ -336,11 +336,12 @@ def gain_audio(
     elif start_frame is not None or num_frames is not None:
         if fps is None:
             raise ValueError("gain_audio needs 'fps' to address a region in frames")
-        start = frames_to_samples(start_frame or 0, fps, sample_rate)
-        length = (
-            max(total - start, 0)
-            if num_frames is None
-            else frames_to_samples(num_frames, fps, sample_rate)
+        start, length = slice_region(
+            sample_rate,
+            start_frame=start_frame,
+            num_frames=num_frames,
+            fps=fps,
+            total=total,
         )
     else:
         start = 0

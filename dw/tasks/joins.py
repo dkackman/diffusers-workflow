@@ -67,9 +67,7 @@ def load_named_inputs(videos):
     return names, [load_audio_video(v) if is_video_location(v) else v for v in videos]
 
 
-def reconcile_sample_rates(
-    command, videos, names, waveforms, sample_rate=None, skip_unrated=True
-):
+def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
     """One rate for every track about to be joined: (waveforms, sample_rate).
 
     `videos` and `waveforms` run in step, and a None waveform is an input
@@ -79,15 +77,20 @@ def reconcile_sample_rates(
     resample_audio step by hand (#108, #287). The highest rate among the
     inputs is the default target; the caller's `sample_rate` pins another.
 
-    A track whose rate is unknown (a pipeline that reported none) is passed
-    over when `skip_unrated` (concat_videos' long-standing rule). Otherwise
-    its missing rate takes part like any other, so it cannot be mistaken for
-    the target: dissolve_videos fails on it rather than joining it unscaled.
+    A track whose rate is unknown (a pipeline that reported none) is refused
+    by name, in either command: joined unscaled it would play at the wrong
+    speed and pitch, and there is no rate to convert it from.
     """
+    for name, video, waveform in zip(names, videos, waveforms):
+        if waveform is not None and not video.sample_rate:
+            raise ValueError(
+                f"{command}: '{name}' has audio with no sample rate - set "
+                "'audio_sample_rate' in the result of the step that made it"
+            )
     rates = [
         video.sample_rate
         for video, waveform in zip(videos, waveforms)
-        if waveform is not None and (video.sample_rate or not skip_unrated)
+        if waveform is not None
     ]
     sample_rate = sample_rate or (max(set(rates)) if rates else None)
     if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
@@ -124,9 +127,7 @@ def reconcile_sample_rates(
     return [
         (
             waveform
-            if waveform is None
-            or (skip_unrated and not video.sample_rate)
-            or video.sample_rate == sample_rate
+            if waveform is None or video.sample_rate == sample_rate
             else resample_waveform(waveform, video.sample_rate, sample_rate)
         )
         for video, waveform in zip(videos, waveforms)

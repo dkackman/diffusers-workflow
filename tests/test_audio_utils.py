@@ -581,6 +581,31 @@ class TestGainAudio:
         assert logs[0]["duration_seconds"] == pytest.approx(0.5)
         assert logs[0]["sample_rate"] == 100
 
+    def test_a_frame_region_ends_where_slice_audio_ends(self):
+        # The end of a frame-addressed region is rounded once (#557); two
+        # separately rounded halves land a sample off at 24 fps / 44.1 kHz
+        from dw.tasks.audio_utils import gain_audio
+
+        rate, fps, start_frame, num_frames = 44100, 24, 1, 1
+        start = frames_to_samples(start_frame, fps, rate)
+        end = frames_to_samples(start_frame + num_frames, fps, rate)
+        assert start + frames_to_samples(num_frames, fps, rate) != end
+
+        track = numpy.ones((1, rate), dtype=numpy.float32)
+        gained = samples(
+            gain_audio(
+                track,
+                gain_db=-6.0,
+                start_frame=start_frame,
+                num_frames=num_frames,
+                fps=fps,
+                sample_rate=rate,
+            )
+        )
+
+        changed = numpy.flatnonzero(~numpy.isclose(gained[:, 0], 1.0))
+        assert (changed[0], changed[-1] + 1) == (start, end)
+
     def test_no_region_gains_the_whole_track(self):
         # #395: validate_workflow let a region-less gain_audio step through
         # clean and the run then failed - the fix is to gain everything,
