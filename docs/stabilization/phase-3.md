@@ -111,6 +111,19 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Merge notes:
     - `dw/server/app.py` lost its two host-set constants to `netinfo.py` without being in the 3a hot zone. No harness edit conflicted.
     - Task 3's "update `dw/server/CLAUDE.md:22`" step was moot: that line never explained the lazy import.
+- **3b (merged 2026-09-30):** the HTTP routes, the MCP tools and their descriptions are unchanged. The surface snapshot is byte-identical from before 3b to its merge.
+  - `POST /api/jobs` and `POST /api/jobs/{id}/rerun` answer **500** `"internal error - the server log has the detail"` when something fails after the request was admitted. They used to answer 400 for any exception (B10). A refused request is still 400.
+  - `GET /api/jobs/{id}/workflow` (MCP `get_job_workflow`) and the job export answer with the definition the job was admitted with, when its workflow file has since moved, grown past the size limit or stopped parsing. They used to answer 404 / nothing. While the file can be read, they answer with the file, as before, which is also what a `new_seed` rerun draws its seed variable from.
+  - `/api/validate` logs a gate failure once, not twice.
+  - A worker command missing `arguments` or `output_dir` fails with "Workflow execution error" (was "Command processing error"). Admission always supplies both, so only a hand-built command sees it.
+  - For developers:
+    - `create_app` is a factory over `dw/server/routes/*`;
+    - `app.dependency_overrides` does not reach the routers' routes;
+    - the worker's messages live in `dw/worker_protocol.py`;
+    - the MCP tools live in `dw_mcp/tools_*.py`.
+  - Merge notes:
+    - Outside the hot zone, 3b touched `dw/workflow.py` (`workflow_from_snapshot` makes `file_spec` absolute when `workflow_dir` is None), `docs/MCP.md` and `.github/copilot-instructions.md` (pointers), and the tests the plan directed.
+    - `modules` went 132 → 151 (the 19 named in Decisions (3b)): the phase now projects to about 163.
 
 ## Global Constraints (all stages)
 
@@ -493,7 +506,7 @@ Work on branch `stabilization/phase-3b` in the worktree, from `develop` at `6ca9
   - 3c reuses the script: its diff *is* 3c's list of breaking changes.
   - The script lives in `scripts/`, which the module ratchet does not count.
 - **Module layout (3b adds 19 modules; the Phase 3 estimate said about 14).** `modules` goes 132 → 151, which puts the phase at about 163 rather than 158. Don is told when 3b starts, before its hot zone goes live, together with the zone's scope: all of `dw/server/` and `dw_mcp/`.
-- **`ROUTERS` order:** `jobs`, `system`, `library`, `media`, `gallery`, `assets`, `files`.
+- **`ROUTERS` order:** `jobs`, `system`, `library`, `media`, `gallery`, `assets`. The factory includes them, then adds the `/mcp` route pair, then includes the `files` router (`/outputs`, `/inputs`, `/exports`), then mounts the UI last. That is today's tail order, which the snapshot records from `/mcp` to the SPA mount. (Ruling after Task 1.)
   - `media` goes before `gallery`, so the `…/thumbnail` and `…/download` GETs keep sitting before `DELETE /api/gallery/{name:path}`, as they do today.
   - The snapshot's family orders prove the rest.
 

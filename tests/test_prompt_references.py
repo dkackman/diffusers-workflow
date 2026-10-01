@@ -13,7 +13,7 @@ import os
 import pytest
 
 from dw.prompts import PROMPT_PREFIX, resolve_prompt_reference
-from dw.server.app import collect_prompt_references
+from dw.server.catalog import collect_prompt_references
 from tests.test_examples import REPO_ROOT, get_example_files
 
 PROMPT_DIR = os.path.join(REPO_ROOT, "prompts")

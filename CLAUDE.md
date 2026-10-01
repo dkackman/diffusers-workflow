@@ -620,8 +620,8 @@ same reason - default setup cannot load a pack.
   A workflow with no `vram_estimate` of its own inherits the catalog's
   (`dw/vram_inheritance.py`): each pipeline step is matched by identity
   (`component_type` + `model_name` + `workflow`) against an index built from
-  every single-identity template declaring one (`_ceiling_index` in
-  `dw/server/app.py`, cached against the listing's mtimes), projected with
+  every single-identity template declaring one (`ceiling_index` in
+  `dw/server/deps.py`, cached against the listing's mtimes), projected with
   the same code, and over the ceiling it *warns* (`vram_projection_inherited`,
   naming the source template) at validate and pre-queue - never refuses,
   since the hand-built config may offload or quantize differently. No

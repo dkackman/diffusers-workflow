@@ -200,12 +200,14 @@ def workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None)
     is so every name derived from it matches admission's. workflow_dir,
     when given, confines it again here: the command crossed a process
     boundary, and a file_spec outside the root is refused as
-    workflow_from_file refuses the path. With workflow_dir None nothing
-    here normalizes or confines file_spec.
+    workflow_from_file refuses the path. With workflow_dir None file_spec
+    is made absolute but not confined.
     """
     validated_output = validate_output_path(output_dir, None)
     if workflow_dir:
         validate_path(os.path.dirname(file_spec), workflow_dir)
+    else:
+        file_spec = os.path.abspath(file_spec)
     return Workflow(definition, validated_output, file_spec, workflow_dir)
 
 

@@ -9,8 +9,8 @@ import queue
 import logging
 import threading
 import traceback
-from dataclasses import dataclass, fields
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,6 +22,19 @@ from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw.worker_protocol import (
+    Cancelled,
+    Failed,
+    MemoryCleared,
+    MemoryInfo,
+    MemoryStatusReply,
+    Output,
+    ProbeCacheReply,
+    Progress,
+    Succeeded,
+    WorkerCrashed,
+    WorkflowLoaded,
+)
 from dw.host_memory import (
     host_memory_fields,
     host_memory_stats,
@@ -77,229 +90,17 @@ MEMORY_GROWTH_THRESHOLD_MB = 500  # Warn if GPU memory grows by more than this
 COMMAND_POLL_TIMEOUT_SECONDS = 5
 
 
-# ------------------------------------------------------------------ protocol
-# One frozen dataclass per command and reply; the queue carries their wire
-# dicts (to_wire/from_wire), and parse_reply is where a reply dict becomes a
-# type. A request's reply echoes its request_id (see WorkerManager.request).
+@dataclass
+class _Job:
+    """What one _handle_execute has built so far. Each field is bound before
+    the phase that fills it, so the failure path reads whatever the run got
+    as far as setting."""
 
-
-@dataclass(frozen=True)
-class _Message:
-    """Wire mapping shared by every message: `TYPE` is the dict's "type",
-    each field is a key, and a field named in `OPTIONAL` is left off the
-    wire while it is None - the keys that were only ever sent when set."""
-
-    TYPE: ClassVar[str] = ""
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ()
-
-    def to_wire(self) -> Dict[str, Any]:
-        wire = {"type": self.TYPE}
-        for f in fields(self):
-            value = getattr(self, f.name)
-            if value is None and f.name in self.OPTIONAL:
-                continue
-            wire[f.name] = value
-        return wire
-
-    @classmethod
-    def from_wire(cls, wire: Dict[str, Any]):
-        return cls(**{f.name: wire.get(f.name) for f in fields(cls)})
-
-
-# Commands, parent to worker
-
-
-@dataclass(frozen=True)
-class Execute(_Message):
-    """Run the admitted snapshot (see _handle_execute)."""
-
-    TYPE: ClassVar[str] = "execute"
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir",)
-    definition: Dict[str, Any]
-    file_spec: str
-    source: str
-    workflow_dir: Optional[str]
-    output_dir: str
-    arguments: Dict[str, Any]
-    log_level: str
-    asset_dir: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class ProbeCache(_Message):
-    """Execute's snapshot, asking which steps the step cache would serve."""
-
-    TYPE: ClassVar[str] = "probe_cache"
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir", "log_level")
-    request_id: str
-    definition: Dict[str, Any]
-    file_spec: str
-    source: str
-    output_dir: str
-    arguments: Dict[str, Any]
-    workflow_dir: Optional[str] = None
-    asset_dir: Optional[str] = None
-    log_level: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class Cancel(_Message):
-    TYPE: ClassVar[str] = "cancel"
-
-
-@dataclass(frozen=True)
-class Shutdown(_Message):
-    TYPE: ClassVar[str] = "shutdown"
-
-
-@dataclass(frozen=True)
-class ClearMemory(_Message):
-    TYPE: ClassVar[str] = "clear_memory"
-    request_id: str
-
-
-@dataclass(frozen=True)
-class MemoryStatus(_Message):
-    TYPE: ClassVar[str] = "memory_status"
-    request_id: str
-
-
-# Replies, worker to parent
-
-
-@dataclass(frozen=True)
-class WorkflowLoaded(_Message):
-    TYPE: ClassVar[str] = "workflow_loaded"
-    workflow_name: str
-
-
-@dataclass(frozen=True)
-class Output(_Message):
-    TYPE: ClassVar[str] = "output"
-    message: str
-
-
-@dataclass(frozen=True)
-class Progress(_Message):
-    """A run event, whose keys sit beside "type" on the wire."""
-
-    TYPE: ClassVar[str] = "progress"
-    event: Dict[str, Any]
-
-    def to_wire(self) -> Dict[str, Any]:
-        return {"type": self.TYPE, **self.event}
-
-    @classmethod
-    def from_wire(cls, wire: Dict[str, Any]):
-        return cls(event={k: v for k, v in wire.items() if k != "type"})
-
-
-@dataclass(frozen=True)
-class MemoryInfo(_Message):
-    TYPE: ClassVar[str] = "memory_info"
-    info: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class Succeeded(_Message):
-    TYPE: ClassVar[str] = "success"
-    message: str
-    run_count: int
-    manifest: List[Dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class Cancelled(_Message):
-    TYPE: ClassVar[str] = "cancelled"
-    message: str
-    manifest: List[Dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class Failed(_Message):
-    """A run's failure, or a command the worker could not handle. It carries
-    a request_id only when it answers a request, so the reader waiting on
-    that id gets it rather than timing out."""
-
-    TYPE: ClassVar[str] = "error"
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("traceback", "manifest", "request_id")
-    message: str
-    traceback: Optional[str] = None
-    manifest: Optional[List[Dict[str, Any]]] = None
-    request_id: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class WorkerCrashed(_Message):
-    TYPE: ClassVar[str] = "worker_crashed"
-    message: str
-    traceback: str
-
-
-@dataclass(frozen=True)
-class MemoryStatusReply(_Message):
-    TYPE: ClassVar[str] = "memory_status"
-    request_id: Optional[str]
-    info: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class MemoryCleared(_Message):
-    TYPE: ClassVar[str] = "memory_cleared"
-    request_id: Optional[str]
-    info: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ProbeCacheReply(_Message):
-    TYPE: ClassVar[str] = "probe_cache"
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("error",)
-    request_id: Optional[str]
-    cached: Optional[List[str]]
-    error: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class UnknownReply(_Message):
-    """A reply dict whose type no class claims, kept whole."""
-
-    message: Dict[str, Any]
-
-    @property
-    def type(self):
-        return self.message.get("type")
-
-    def to_wire(self) -> Dict[str, Any]:
-        return dict(self.message)
-
-    @classmethod
-    def from_wire(cls, wire: Dict[str, Any]):
-        return cls(message=dict(wire))
-
-
-_REPLY_TYPES = {
-    reply.TYPE: reply
-    for reply in (
-        WorkflowLoaded,
-        Output,
-        Progress,
-        MemoryInfo,
-        Succeeded,
-        Cancelled,
-        Failed,
-        WorkerCrashed,
-        MemoryStatusReply,
-        MemoryCleared,
-        ProbeCacheReply,
-    )
-}
-
-
-def parse_reply(wire: Dict[str, Any]):
-    """The typed reply a worker message dict is - an UnknownReply for a type
-    no class claims, never an exception."""
-    reply_type = _REPLY_TYPES.get(wire.get("type"), UnknownReply)
-    return reply_type.from_wire(wire)
+    workflow: Any = None
+    context: Optional[RunContext] = None
+    asset_token: Any = None
+    baseline_peak_rss_mb: Optional[float] = None
+    job_peak_rss_mb: Optional[float] = None
 
 
 class WorkflowWorker:
@@ -446,130 +247,36 @@ class WorkflowWorker:
         definition is unchanged. A {"type": "cancel"} command sent during
         execution stops the run at the next step boundary or diffusion step.
 
+        Four phases, in order: _activate_job (log level and the job's asset
+        root), _prepare_workflow (build from the snapshot, switch identity),
+        _run_job (run it under the cancel watcher) and _report_success. The
+        failure and cancellation replies are built here, from the _Job the
+        phases filled in as far as they got.
+
         Args:
             command: Dictionary with definition, file_spec, source,
                 workflow_dir, arguments, output_dir, log_level, and optionally
                 asset_dir - the workspace library 'asset:' resolves against
         """
-        arguments = command["arguments"]
-        output_dir = command["output_dir"]
-        log_level = command.get("log_level", "INFO")
         # Bound before the load, so a failure or a cancellation still reports
-        # whatever the run had written by then - the steps that did complete
-        # are the first thing a failed long run is asked about
-        workflow = None
-        # Bound for the same reason: the failure path evicts against what the
-        # run touched, and a run can fail before it has a context at all
-        context = None
-        # Bound so the outermost finally can always deactivate whatever this
-        # execute activated, however far it got
-        asset_token = None
+        # whatever the run had written by then (job.workflow), the failure
+        # path evicts against what the run touched (job.context), and the
+        # outermost finally can always deactivate whatever this execute
+        # activated (job.asset_token), however far it got
+        job = _Job()
 
         try:
-            set_log_level(log_level)
-
-            # Which workspace's assets this job's 'asset:' references resolve
-            # against. A server holds several workspaces and each has its own
-            # library, so the root travels with the job rather than being
-            # pinned in the environment the way the shared prompt library is.
-            # Active for the whole run, so every step that resolves an
-            # asset: reference reads this job's own library
-            asset_token = (
-                activate_asset_dir(command["asset_dir"])
-                if command.get("asset_dir")
-                else None
-            )
-
-            workflow, identity = self._load_workflow(command, output_dir)
-
-            # Switching to a different workflow frees the old one's models
-            # before the new one loads - on one accelerator, holding both is
-            # what runs out of memory
-            if identity != self.workflow_identity:
-                if self.workflow_identity is not None:
-                    self._reply(
-                        Output(message="Workflow changed - releasing cached models...")
-                    )
-                    self._reply(Output(message=self._cleanup_all()))
-                self.workflow_identity = identity
-
-            self._reply(WorkflowLoaded(workflow_name=workflow.name))
-            self._reply(Output(message=f"Executing workflow: {workflow.name}"))
-
-            # Progress events stream to the client as they happen; the
-            # watcher thread keeps the command queue live so cancel works
-            # mid-run. Each phase boundary also gets its own memory_info
-            # message (#273), so get_memory answers freshly mid-run instead
-            # of refusing with job_running for the run's whole duration; the
-            # first such reading is this job's baseline for the job-scoped
-            # peak field carried on every memory_info from here on (#272)
-            job_baseline = {"peak_rss_mb": None, "job_peak_rss_mb": None}
-
-            def _on_event(event):
-                self._reply(Progress(event=event))
-                if event.get("event") == "phase":
-                    memory_info = self._get_memory_info()
-                    if job_baseline["peak_rss_mb"] is None:
-                        job_baseline["peak_rss_mb"] = memory_info.get(
-                            "host_memory_peak_rss_mb"
-                        )
-                    job_baseline["job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
-                        memory_info,
-                        job_baseline["peak_rss_mb"],
-                        job_baseline["job_peak_rss_mb"],
-                    )
-                    memory_info["host_memory_job_peak_rss_mb"] = job_baseline[
-                        "job_peak_rss_mb"
-                    ]
-                    self._reply(MemoryInfo(info=memory_info))
-
-            context = RunContext(on_event=_on_event)
-            watcher = self._watch_commands(context)
-            try:
-                workflow.run(
-                    arguments,
-                    self.loaded_pipelines,
-                    context=context,
-                    prior_step_keys=self.prior_step_keys,
-                )
-            finally:
-                self._record_step_keys(workflow)
-                watcher.stop()
-
-            self._evict_untouched_pipelines(context)
-
-            self.run_count += 1
-
-            # Aggressive memory cleanup after execution
-            self._cleanup_between_runs()
-
-            # Report memory status - the job's final reading, carrying the
-            # same job-scoped delta the phase-boundary readings above do
-            # (#272). A run with no phase events at all (job_baseline never
-            # set) reports host_memory_job_peak_rss_mb as null rather than
-            # guessing a baseline after the fact.
-            memory_info = self._get_memory_info()
-            memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
-                memory_info,
-                job_baseline["peak_rss_mb"],
-                job_baseline["job_peak_rss_mb"],
-            )
-            self._reply(MemoryInfo(info=memory_info))
-
-            self._reply(
-                Succeeded(
-                    message="Workflow completed successfully",
-                    run_count=self.run_count,
-                    manifest=getattr(workflow, "manifest", []),
-                )
-            )
+            self._activate_job(command, job)
+            self._prepare_workflow(command, job)
+            self._run_job(command, job)
+            self._report_success(job)
 
         except WorkflowCancelled:
             self._cleanup_between_runs()
             self._reply(
                 Cancelled(
                     message="Workflow run cancelled",
-                    manifest=getattr(workflow, "manifest", []),
+                    manifest=getattr(job.workflow, "manifest", []),
                 )
             )
         except Exception as e:
@@ -580,7 +287,7 @@ class WorkflowWorker:
                 # The files the steps before the failure wrote are on
                 # disk; reporting them is what keeps a run that died at
                 # step five from looking like one that produced nothing
-                manifest=getattr(workflow, "manifest", []),
+                manifest=getattr(job.workflow, "manifest", []),
             )
             # The exception's traceback reaches every frame between here and
             # the failure, and those frames hold whatever a half-finished load
@@ -592,12 +299,115 @@ class WorkflowWorker:
             # Success and cancellation both reclaim; failure did neither, so a
             # half-loaded pipeline and any variant the attempt superseded
             # stayed resident and the next attempt loaded on top of them
-            self._evict_untouched_pipelines(context)
+            self._evict_untouched_pipelines(job.context)
             self._cleanup_between_runs()
             self._reply(failure)
         finally:
-            if asset_token is not None:
-                deactivate_asset_dir(asset_token)
+            if job.asset_token is not None:
+                deactivate_asset_dir(job.asset_token)
+
+    def _activate_job(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 1: the job's log level and its asset root, before anything
+        that could resolve an 'asset:' reference (B8)."""
+        set_log_level(command.get("log_level", "INFO"))
+
+        # Which workspace's assets this job's 'asset:' references resolve
+        # against. A server holds several workspaces and each has its own
+        # library, so the root travels with the job rather than being
+        # pinned in the environment the way the shared prompt library is.
+        # Active for the whole run, so every step that resolves an
+        # asset: reference reads this job's own library
+        job.asset_token = (
+            activate_asset_dir(command["asset_dir"])
+            if command.get("asset_dir")
+            else None
+        )
+
+    def _prepare_workflow(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 2: build the Workflow from the snapshot and announce it,
+        freeing the previous workflow's models first when the identity
+        changed."""
+        job.workflow, identity = self._load_workflow(command, command["output_dir"])
+
+        # Switching to a different workflow frees the old one's models
+        # before the new one loads - on one accelerator, holding both is
+        # what runs out of memory
+        if identity != self.workflow_identity:
+            if self.workflow_identity is not None:
+                self._reply(
+                    Output(message="Workflow changed - releasing cached models...")
+                )
+                self._reply(Output(message=self._cleanup_all()))
+            self.workflow_identity = identity
+
+        self._reply(WorkflowLoaded(workflow_name=job.workflow.name))
+        self._reply(Output(message=f"Executing workflow: {job.workflow.name}"))
+
+    def _run_job(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 3: run the workflow, streaming its events, then reclaim."""
+        workflow = job.workflow
+
+        # Progress events stream to the client as they happen; the
+        # watcher thread keeps the command queue live so cancel works
+        # mid-run. Each phase boundary also gets its own memory_info
+        # message (#273), so get_memory answers freshly mid-run instead
+        # of refusing with job_running for the run's whole duration; the
+        # first such reading is this job's baseline for the job-scoped
+        # peak field carried on every memory_info from here on (#272)
+        def _on_event(event):
+            self._reply(Progress(event=event))
+            if event.get("event") == "phase":
+                memory_info = self._get_memory_info()
+                if job.baseline_peak_rss_mb is None:
+                    job.baseline_peak_rss_mb = memory_info.get(
+                        "host_memory_peak_rss_mb"
+                    )
+                job.job_peak_rss_mb = _job_scoped_peak_rss_mb(
+                    memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+                )
+                memory_info["host_memory_job_peak_rss_mb"] = job.job_peak_rss_mb
+                self._reply(MemoryInfo(info=memory_info))
+
+        job.context = RunContext(on_event=_on_event)
+        watcher = self._watch_commands(job.context)
+        try:
+            workflow.run(
+                command["arguments"],
+                self.loaded_pipelines,
+                context=job.context,
+                prior_step_keys=self.prior_step_keys,
+            )
+        finally:
+            self._record_step_keys(workflow)
+            watcher.stop()
+
+        self._evict_untouched_pipelines(job.context)
+
+        self.run_count += 1
+
+        # Aggressive memory cleanup after execution
+        self._cleanup_between_runs()
+
+    def _report_success(self, job: "_Job"):
+        """Phase 4: the job's final memory reading, then the success reply.
+
+        The reading carries the same job-scoped delta the phase-boundary
+        readings do (#272). A run with no phase events at all (no baseline
+        ever set) reports host_memory_job_peak_rss_mb as null rather than
+        guessing a baseline after the fact."""
+        memory_info = self._get_memory_info()
+        memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
+            memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+        )
+        self._reply(MemoryInfo(info=memory_info))
+
+        self._reply(
+            Succeeded(
+                message="Workflow completed successfully",
+                run_count=self.run_count,
+                manifest=getattr(job.workflow, "manifest", []),
+            )
+        )
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
         """The admitted Workflow a command carries, and its cache identity:

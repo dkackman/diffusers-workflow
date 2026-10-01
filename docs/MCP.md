@@ -188,7 +188,7 @@ Nothing in this sequence costs GPU time.
 ## Tool reference
 
 59 tools in six groups. Names and arguments below are transcribed from
-`dw_mcp/server.py` — nothing here is renamed or reshaped for the docs.
+`dw_mcp/tools_*.py` — nothing here is renamed or reshaped for the docs.
 
 ### Catalog (read-only)
 

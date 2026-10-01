@@ -17,7 +17,7 @@ This is a declarative workflow engine for the HuggingFace Diffusers library that
 - `dw/worker_manager.py` - Worker lifecycle (start/stop/restart) for `JobManager`
 - Communication via `multiprocessing.Queue` (command_queue, result_queue)
 
-**Worker commands:** execute, cancel, shutdown, clear_memory, memory_status, probe_cache (typed messages in `dw/worker.py`; request/reply commands carry a `request_id`)
+**Worker commands:** execute, cancel, shutdown, clear_memory, memory_status, probe_cache (typed messages in `dw/worker_protocol.py`; request/reply commands carry a `request_id`)
 
 ## Architecture Overview
 

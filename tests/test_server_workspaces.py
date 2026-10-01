@@ -952,7 +952,7 @@ def test_history_migrates_rows_that_predate_workspaces(tmp_path):
     cannot say where a job ran stops making sense once there are two."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     path = str(tmp_path / "jobs.sqlite")
     # the schema as it was: no workspace column

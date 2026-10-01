@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from dw.runs import REALIZED_FILE_NAME, new_run_id
 from dw.server.app import create_app
-from dw.server.jobs import JobManager, TERMINAL_STATES
+from dw.server.jobs import JobManager
+from dw.server.job_record import TERMINAL_STATES
 from dw.workspace import Workspace, create_workspace
 
 from .test_server import (

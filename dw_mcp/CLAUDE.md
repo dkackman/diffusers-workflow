@@ -57,7 +57,7 @@ for the engine it is about to drive, so nothing is read from this package's
 own install (the `GUIDES` table lives in `dw/server/guides.py`). They exist
 because a request names a subject and the catalog is written in shapes, and an
 agent with nowhere to look up the shape authors a fresh workflow instead of
-composing one. Only `dw_mcp/server.py` imports the MCP SDK; the
+composing one. Only `dw_mcp/server.py` and the `tools_*.py` modules (the tools, one class per group, each a method whose docstring is the description; `server.py` registers the bound methods in listing order) import the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
 `media.py`, `assets.py`, `models.py`, `exports.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than

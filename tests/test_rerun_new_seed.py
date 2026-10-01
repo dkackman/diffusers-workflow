@@ -151,3 +151,23 @@ def test_a_job_launched_from_a_file_finds_its_seed_variable(tmp_path, server):
         rerun = client.post(f"/api/jobs/{job['id']}/rerun", json={"new_seed": True})
         assert rerun.status_code == 201
         assert isinstance(rerun.json()["arguments"]["seed"], int)
+
+
+def test_a_new_seed_rerun_reads_the_file_it_is_about_to_admit(tmp_path, server):
+    """A rerun admits the workflow file as it is now, so the seed variable
+    it draws into must come from that file too - not from the definition
+    the earlier run was admitted with. A file edited after the run, from a
+    literal seed to `variable:seed`, reruns with a fresh seed."""
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir(exist_ok=True)
+    path = workflow_dir / "Edited.json"
+    path.write_text(json.dumps(literal_seed_workflow()))
+
+    with server() as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Edited"}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+
+        path.write_text(json.dumps(seeded_workflow()))
+        rerun = client.post(f"/api/jobs/{job['id']}/rerun", json={"new_seed": True})
+        assert rerun.status_code == 201
+        assert isinstance(rerun.json()["arguments"]["seed"], int)

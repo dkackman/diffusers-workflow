@@ -11,7 +11,8 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.server.jobs import JobManager, TERMINAL_STATES
+from dw.server.jobs import JobManager
+from dw.server.job_record import TERMINAL_STATES
 from dw.worker_manager import WorkerManager
 from dw.server.app import create_app
 
@@ -529,13 +530,15 @@ def test_job_workflow_404s_for_an_unknown_job(server):
         assert client.get("/api/jobs/nosuchjob/workflow").status_code == 404
 
 
-def test_job_workflow_404s_when_the_file_is_gone(server, tmp_path):
-    """The graph is a nicety: a workflow file deleted since the run leaves
-    the job itself readable, just without a definition to draw."""
+def test_job_workflow_of_a_live_job_survives_its_file_going(server, tmp_path):
+    """A live job answers from the snapshot it was admitted with, so a file
+    deleted since submit changes nothing about the graph."""
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
         os.remove(str(tmp_path / "workflows" / "Basic.json"))
-        assert client.get(f"/api/jobs/{job['id']}/workflow").status_code == 404
+        response = client.get(f"/api/jobs/{job['id']}/workflow")
+        assert response.status_code == 200
+        assert response.json()["definition"]["id"] == "basic"
         assert client.get(f"/api/jobs/{job['id']}").status_code == 200
 
 
@@ -2142,20 +2145,20 @@ def test_gallery_frames_computes_video_shape_only_once(server, tmp_path, monkeyp
     same shape to the selector function - it must not call video_shape a
     second time just to build the answer (#193 follow-up)."""
     from tests.test_media_frames import write_ramp_mp4
-    import dw.server.app as app_module
+    import dw.server.routes.media as media_routes
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
         write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
 
         calls = [0]
-        original = app_module.video_shape
+        original = media_routes.video_shape
 
         def counting_shape(path):
             calls[0] += 1
             return original(path)
 
-        monkeypatch.setattr(app_module, "video_shape", counting_shape)
+        monkeypatch.setattr(media_routes, "video_shape", counting_shape)
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2}
@@ -3438,7 +3441,8 @@ def test_inline_base_dir_is_validated(server, tmp_path):
 def test_job_for_file_escapes_like_wildcards(tmp_path):
     """'_' in a file name must not act as a single-character wildcard and
     attribute the file to a similarly named later job."""
-    from dw.server.jobs import JobHistory, Job
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import Job
 
     history = JobHistory(str(tmp_path / "jobs.sqlite"))
 
@@ -4160,7 +4164,7 @@ class TestEnhance:
 
 
 def test_history_persists_a_finished_jobs_event_tail(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     job = _finished_job_with_events(
@@ -4177,7 +4181,8 @@ def test_history_persists_a_finished_jobs_event_tail(tmp_path):
 def test_history_keeps_only_the_last_events(tmp_path):
     """A long run emits thousands of progress events. The tail is what
     explains an outcome; the head is step-by-step noise."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
@@ -4194,7 +4199,7 @@ def test_get_reports_event_count_matching_events_for(tmp_path):
     get_job_events (events_for) still serves the persisted tail in full -
     the mismatch read as 'events lost with the process' when they were not
     (#289). event_count must equal what events_for actually returns."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(5)]
@@ -4209,7 +4214,8 @@ def test_get_reports_event_count_for_a_truncated_tail(tmp_path):
     """When a run's events were capped at MAX_PERSISTED_EVENTS, event_count
     must match the capped tail events_for serves - not the run's true,
     larger total (#289)."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(500)]
@@ -4226,7 +4232,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
     value. They must read as 'nothing stored', not crash."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     history = JobHistory(db)
@@ -4238,7 +4244,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
 
 
 def test_events_for_is_none_for_an_unknown_job(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
 
@@ -4248,7 +4254,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
     lose the rows already in it."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     with sqlite3.connect(db) as connection:
@@ -4272,7 +4278,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
 def test_recording_still_writes_every_other_column(tmp_path):
     """The insert names its columns, so widening the table cannot shift a
     value into the wrong one. This pins the columns that would have moved."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
@@ -4456,7 +4462,7 @@ def test_event_log_says_so_when_a_historical_jobs_log_was_truncated(server):
 def test_event_log_does_not_claim_truncation_for_a_complete_historical_log(server):
     """A job that genuinely emitted exactly MAX_PERSISTED_EVENTS lost nothing.
     The signal is the first stored seq, not the length of the tail."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -4501,7 +4507,7 @@ def test_a_recorded_job_reads_back_through_the_event_log_route(server):
 def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
     """The Finding-4 case with no stand-ins: a long run really recorded, read
     back through the route. The head is gone and the answer has to admit it."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -5071,12 +5077,12 @@ class TestValidatePlan:
         assert "plan" not in result
 
     def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         def boom(*a, **k):
             raise RuntimeError("planner broke")
 
-        monkeypatch.setattr(app_module, "build_plan", boom)
+        monkeypatch.setattr(jobs_routes, "build_plan", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate", json={"workflow": valid_workflow("v")}
@@ -5085,7 +5091,7 @@ class TestValidatePlan:
         assert result["plan"] is None
 
     def test_sizes_reaches_the_planner(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         seen = []
 
@@ -5093,7 +5099,7 @@ class TestValidatePlan:
             seen.append(kwargs["lookup_sizes"])
             return dict(EMPTY_PLAN)
 
-        monkeypatch.setattr(app_module, "build_plan", spy)
+        monkeypatch.setattr(jobs_routes, "build_plan", spy)
         with server(success_script) as client:
             client.post("/api/validate", json={"workflow": valid_workflow("v")})
             client.post(
@@ -5292,7 +5298,7 @@ class TestAcknowledgementRecord:
     def test_a_database_without_the_column_is_migrated(self, tmp_path):
         import sqlite3
 
-        from dw.server.jobs import JobHistory
+        from dw.server.job_history import JobHistory
 
         path = tmp_path / "old.sqlite"
         with sqlite3.connect(path) as connection:
@@ -5459,7 +5465,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.app as app_module
+        import dw.server.admission as admission_module
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5467,7 +5473,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(app_module, "build_plan", boom)
+            monkeypatch.setattr(admission_module, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -5477,12 +5483,12 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["plan"] is None
 
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.admission as admission_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
-        monkeypatch.setattr(app_module, "build_plan", boom)
+        monkeypatch.setattr(admission_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
@@ -6025,7 +6031,7 @@ class TestDetailCachePruning:
     def test_an_insert_during_the_scan_does_not_raise(self):
         from unittest.mock import patch
 
-        from dw.server import app as app_module
+        from dw.server import catalog as catalog_module
 
         cache = {"/gone/a.json": 1, "/gone/b.json": 2}
 
@@ -6034,15 +6040,15 @@ class TestDetailCachePruning:
             return False
 
         with patch.object(
-            app_module.os.path, "exists", exists_while_another_thread_inserts
+            catalog_module.os.path, "exists", exists_while_another_thread_inserts
         ):
-            app_module._prune_missing(cache)
+            catalog_module._prune_missing(cache)
         assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
 
     def test_an_entry_another_thread_already_pruned_is_not_an_error(self):
         from unittest.mock import patch
 
-        from dw.server import app as app_module
+        from dw.server import catalog as catalog_module
 
         cache = {"/gone/a.json": 1, "/gone/b.json": 2}
 
@@ -6051,7 +6057,109 @@ class TestDetailCachePruning:
             return False
 
         with patch.object(
-            app_module.os.path, "exists", exists_while_another_thread_prunes
+            catalog_module.os.path, "exists", exists_while_another_thread_prunes
         ):
-            app_module._prune_missing(cache)
+            catalog_module._prune_missing(cache)
         assert cache == {}
+
+
+INTERNAL_ERROR = "internal error - the server log has the detail"
+
+
+def test_a_refusal_during_admission_stays_a_400_for_submit_and_rerun(
+    server, monkeypatch
+):
+    """Everything up to and including admission is the client's request being
+    refused - B10 only moves what comes after it."""
+    from dw.security import SecurityError
+    from dw.server.routes import jobs as jobs_routes
+
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+
+        def refuse(*args, **kwargs):
+            raise SecurityError("path escapes the workspace")
+
+        monkeypatch.setattr(jobs_routes, "admit_for", refuse)
+
+        submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        rerun = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert submitted.status_code == 400
+    assert submitted.json()["detail"] == "path escapes the workspace"
+    assert rerun.status_code == 400
+    assert rerun.json()["detail"] == "path escapes the workspace"
+
+
+def test_a_failure_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("queue exploded")
+
+        monkeypatch.setattr(manager, "submit", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "queue exploded" not in response.text
+    assert "queue exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_rerun_failing_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("rerun exploded")
+
+        monkeypatch.setattr(manager, "rerun", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "rerun exploded" not in response.text
+    assert "rerun exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_path_job_definition_is_the_file_the_route_admitted(server, tmp_path):
+    """definition() answers from the snapshot admission built, which has to be
+    the JSON of the file it was built from."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        definition = client.app.state.job_manager.definition(job["id"])
+
+    assert definition == json.loads((tmp_path / "workflows" / "Basic.json").read_text())
+
+
+def test_a_validator_failure_is_logged_once_by_the_validate_route(
+    server, monkeypatch, caplog
+):
+    """admit() logs the failure with its traceback; the route only answers."""
+    import dw.workflow
+
+    def raise_boom(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dw.workflow.Workflow, "validation_errors", raise_boom)
+
+    with server(success_script) as client:
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/validate", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 200
+    records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(records) == 1, [r.getMessage() for r in records]

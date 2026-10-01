@@ -169,7 +169,7 @@ class TestSchedulerAndQuantizationFields:
 class TestNoDownloadIsQuotedForARefusedStep:
     def test_the_refusal_reaches_validation_errors(self, tmp_path):
         """POST /api/validate builds `plan` (and its downloads_required) only
-        when validation_errors is empty - see dw/server/app.py's validate
+        when validation_errors is empty - see dw/server/routes/jobs.py's validate
         route - so a misspelled class on a step that names a checkpoint must
         surface there, or the plan quotes a download for a step that cannot
         run."""

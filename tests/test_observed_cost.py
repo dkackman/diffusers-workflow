@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from dw.server.jobs import JobHistory
+from dw.server.job_history import JobHistory
 from dw.server.observed_cost import (
     ObservedCosts,
     declared_drivers,
@@ -471,7 +471,7 @@ class TestOffTheJobRow:
         """list_workflows attaches a figure to every catalog entry; the
         watermark is a COUNT(*) under the history lock the worker also
         needs, so a listing takes it once, not once per workflow."""
-        from dw.server.app import attach_observed
+        from dw.server.catalog import attach_observed
 
         history = JobHistory(tmp_path / "jobs.sqlite")
         with history._connect() as connection:

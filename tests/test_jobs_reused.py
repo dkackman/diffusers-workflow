@@ -2,7 +2,8 @@
 job's manifest, marked `reused`. File attribution must stay with the job
 that actually wrote the file."""
 
-from dw.server.jobs import JobHistory, Job
+from dw.server.job_history import JobHistory
+from dw.server.job_record import Job
 
 
 def _record(history, job_id, finished_at, manifest):

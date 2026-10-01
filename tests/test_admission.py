@@ -18,7 +18,8 @@ from dw import assets, validation
 from dw.server import admission as admission_module
 from dw.server.admission import admit
 from dw.server.app import create_app
-from dw.server.jobs import TERMINAL_STATES, JobManager
+from dw.server.jobs import JobManager
+from dw.server.job_record import TERMINAL_STATES
 from dw.workflow import Workflow
 from dw.workspace import Workspace
 

@@ -10,7 +10,7 @@ it has been in it, and the denoise counter once that loop is running.
 
 import time
 
-from dw.server.jobs import Job, RUNNING, QUEUED, SUCCEEDED
+from dw.server.job_record import Job, RUNNING, QUEUED, SUCCEEDED
 from dw_mcp.diagnose import slim_job
 
 
