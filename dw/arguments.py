@@ -153,7 +153,7 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
         _realize_list(arg, base_dir)
 
 
-def _realize_explicit_reference(value, base_dir):
+def _realize_explicit_reference(value, base_dir, containers=True):
     """Resolve the references that name their own value, whatever the argument
     is called, in the order they apply.
 
@@ -167,8 +167,12 @@ def _realize_explicit_reference(value, base_dir):
     the media conventions could mistake it for a file (the workflow's
     directory anchors prompt-library discovery). An explicit media reference
     loads under any argument name, since the key conventions only cover
-    arguments named like their media. Those three are handled."""
-    if is_path_reference(value) or isinstance(value, (list, dict)):
+    arguments named like their media. Those three are handled.
+
+    `containers` is whether a list or dict value resolves too: a dict
+    argument's values do, a list's items resolve as strings only - a list
+    item that is a container is realized by the recursion instead."""
+    if is_path_reference(value) or (containers and isinstance(value, (list, dict))):
         value = resolve_path_references(value, base_dir)
     if is_constant_reference(value):
         return fetch_constant(value), True
@@ -225,7 +229,7 @@ def _realize_list(arg, base_dir):
     or is processed and built as an object."""
     logger.debug("Processing list arguments")
     for i, item in enumerate(arg):
-        item, handled = _realize_explicit_reference(item, base_dir)
+        item, handled = _realize_explicit_reference(item, base_dir, containers=False)
         arg[i] = item
         if handled:
             continue
@@ -308,9 +312,7 @@ def fetch_constant(reference):
         ValueError: If the name resolves to nothing, or to something callable
         InvalidInputError: If the name is not a dotted python name
     """
-    name = validate_constant_name(
-        references.ref_name(references.CONSTANT, reference).strip()
-    )
+    name = validate_constant_name(reference.removeprefix(references.CONSTANT).strip())
 
     try:
         value = load_constant_from_name(name)
