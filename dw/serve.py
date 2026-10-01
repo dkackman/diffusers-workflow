@@ -36,7 +36,6 @@ class ServeConfig:
     prompt_dir: str
     asset_dir: str
     token: str | None
-    output_layout: str | None
 
 
 def build_parser():
@@ -259,7 +258,6 @@ def configure_environment(args):
         prompt_dir=prompt_dir,
         asset_dir=asset_dir,
         token=token,
-        output_layout=args.output_layout,
     )
 
 
