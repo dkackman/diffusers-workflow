@@ -268,6 +268,53 @@ class TestSubWorkflowSeedInheritance:
         assert action.workflow_definition["seed"] == 99
 
 
+class TestSubWorkflowHandedArguments:
+    """A composed child reads what its parent step handed it from the
+    parent's own dict. Written into the child's definition, those realized
+    objects were deep-copied again by every validate() and run() of it."""
+
+    def child_action(self, tmp_path, step_arguments, child_extra=None):
+        child = tmp_path / "child.json"
+        child.write_text(
+            json.dumps(
+                {
+                    "id": "c",
+                    **(child_extra or {}),
+                    "steps": TestSubWorkflowSeedInheritance().child_steps(),
+                }
+            )
+        )
+        workflow_reference = {"path": str(child)}
+        if step_arguments is not None:
+            workflow_reference["arguments"] = step_arguments
+        parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "")
+        step = {"name": "child", "workflow": workflow_reference}
+        return parent.create_step_action(step, {}, {}, 1, "cpu")
+
+    def test_handed_arguments_stay_out_of_the_child_definition(self, tmp_path):
+        handed = {"prompt": "a cat"}
+        action = self.child_action(tmp_path, handed)
+
+        assert action.argument_template is handed
+        assert "argument_template" not in action.workflow_definition
+
+    def test_a_step_handing_nothing_still_shadows_the_files_template(self, tmp_path):
+        action = self.child_action(
+            tmp_path, None, {"argument_template": {"prompt": "from file"}}
+        )
+
+        assert action.argument_template == {}
+
+    def test_an_uncomposed_workflow_reads_its_files_template(self, tmp_path):
+        workflow = Workflow(
+            {"id": "w", "argument_template": {"prompt": "x"}, "steps": []},
+            str(tmp_path),
+            "",
+        )
+
+        assert workflow.argument_template == {"prompt": "x"}
+
+
 class TestGlobalRngIsolation:
     """Workflow.run must not reseed the RNG the process may rely on"""
 

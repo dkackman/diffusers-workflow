@@ -355,6 +355,13 @@ class Workflow:
     # Past that boundary nothing copies a leaf: variables are resolved,
     # substituted and recorded sharing it
     _composed = False
+    # The arguments the parent step that composed this workflow hands it -
+    # the parent's realized objects, read by Step.run through
+    # argument_template. Kept here rather than written into
+    # workflow_definition, where every validate() and run() of the child
+    # deep-copied them again; the child's one copy is _owned_arguments, on
+    # entry. None for a workflow nothing composed
+    _handed_arguments = None
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -376,6 +383,8 @@ class Workflow:
 
     @property
     def argument_template(self):
+        if self._handed_arguments is not None:
+            return self._handed_arguments
         return self.workflow_definition.get("argument_template", {})
 
     @property
@@ -2097,9 +2106,7 @@ class Workflow:
 
         # this is where the arguments in the parent script are passed to the child workflow
         # they will already be populated with values from previous steps or parent variables
-        workflow.workflow_definition["argument_template"] = workflow_reference.get(
-            "arguments", {}
-        )
+        workflow._handed_arguments = workflow_reference.get("arguments", {})
         # A child left to itself draws its own random seed, which makes the
         # parent's seed stop short of the work it delegates. Inheriting it
         # keeps one seed reproducing the whole run; a child that names its
