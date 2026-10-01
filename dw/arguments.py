@@ -14,7 +14,7 @@ from .references import (
 from .type_helpers import load_type_from_name, load_constant_from_name, has_method
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
-from .runs import fetch_output, is_output_reference
+from .runs import fetch_output, is_output_reference, shots_beside
 from diffusers.utils import load_image, load_video
 from PIL import Image
 from .security import (
@@ -803,7 +803,6 @@ def media_arguments(object_type, artifact):
         ValueError: If the artifact is not the media the kind calls for
     """
     import torch
-    from PIL import Image
 
     from .dsp import as_channels_samples
     from .tasks.video_utils import frames_as_pil_list
@@ -1033,20 +1032,15 @@ def _with_frame_rate(frames, location):
     `shots` to hand `pair_audio`, even when the server had them on file
     for that exact video (#398). The rate is read from the container
     without decoding anything; the shots come from `shots_beside`, which
-    only looks at a real local path, so a URL carries none. A file that
-    says neither stays a plain list.
+    only looks at a real local path. A file that says neither stays a plain
+    list.
     """
-    from .runs import shots_beside
     from .tasks.video_utils import FrameList
 
     if not isinstance(frames, list):
         return frames
     fps = _declared_fps(location)
-    shots = (
-        shots_beside(location)
-        if not (location.startswith("http://") or location.startswith("https://"))
-        else None
-    )
+    shots = shots_beside(location)
     return FrameList(frames, fps, shots) if (fps or shots) else frames
 
 
