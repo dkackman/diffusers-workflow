@@ -52,7 +52,7 @@ from ..catalog import (
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     observed_for_name,
-    prompt_library,
+    server_prompt_library,
     selected_workspace,
     sources_for,
     workspace_root,
@@ -86,7 +86,7 @@ def list_workspaces(request: Request):
     names = workspace_names(root)[1:] if root else []
     listed = [state.default_workspace]
     for name in names:
-        listed.append(named_workspace(root, name))
+        listed.append(named_workspace(root, name, prompts_root=state.prompt_dir))
     described = []
     for space in listed:
         entry = space.describe()
@@ -109,7 +109,7 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     state = http_request.app.state
     root = workspace_root(state)
     try:
-        created = create_workspace(root, request.name)
+        created = create_workspace(root, request.name, prompts_root=state.prompt_dir)
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FileExistsError as e:
@@ -142,7 +142,9 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     if name not in workspace_names(root):
         raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
 
-    contents = workspace_contents(named_workspace(root, name))
+    contents = workspace_contents(
+        named_workspace(root, name, prompts_root=state.prompt_dir)
+    )
     if not acknowledged:
         raise HTTPException(
             status_code=409,
@@ -481,7 +483,7 @@ def _find_prompt(state, name):
         validate_prompt_reference(name.removesuffix(".json"))
     except InvalidInputError as error:
         raise HTTPException(status_code=404, detail=str(error))
-    found = prompt_library(state).find(name.removesuffix(".json"))
+    found = server_prompt_library(state).find(name.removesuffix(".json"))
     if found is None:
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
     path, root = found
@@ -498,7 +500,7 @@ def list_prompts(
     state = request.app.state
     # A stray file too deep or oddly named can sit in the directory, but
     # no workflow could reference it - listing it would only invite that
-    library = prompt_library(state)
+    library = server_prompt_library(state)
     winners, _shadowed = library.entries(
         lambda root: [name for name in workflow_names(root) if referenceable(name)]
     )

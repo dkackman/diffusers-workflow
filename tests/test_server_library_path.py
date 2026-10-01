@@ -20,9 +20,9 @@ from dw.library import (
     pin_library_path,
 )
 from dw.server.app import create_app
-from dw.server.deps import prompt_library, sources_for, workspace_for
+from dw.server.deps import server_prompt_library, sources_for, workspace_for
 from dw.server.jobs import JobManager
-from dw.server.outputs import asset_file, asset_library
+from dw.server.outputs import asset_file, workspace_asset_library
 from dw.workspace import Workspace, named_workspace
 
 from .test_server import ScriptedWorkerManager, success_script, valid_workflow
@@ -155,9 +155,15 @@ class TestTheWorkerBuildsTheAPIsPath:
     for the worker and hands the API the same arguments; the two must name the
     same roots, in the same order, with the same origins."""
 
-    @pytest.fixture
-    def pinned(self, make_server, monkeypatch):
-        server = make_server()
+    @pytest.fixture(params=["default", "elsewhere"])
+    def pinned(self, request, make_server, monkeypatch, tmp_path):
+        # --prompt-dir left alone, and pointed outside the root
+        prompt_dir = (
+            str(tmp_path / "elsewhere" / "prompts")
+            if request.param == "elsewhere"
+            else None
+        )
+        server = make_server(prompt_dir=prompt_dir)
         monkeypatch.setenv("DW_WORKSPACE", server.workspace.root)
         monkeypatch.setenv("DW_WORKSPACE_SOURCE", "flag")
         examples = [str(server.checkout / "workflows")]
@@ -173,7 +179,7 @@ class TestTheWorkerBuildsTheAPIsPath:
     @pytest.mark.parametrize("workspace", [None, "shots"])
     def test_assets(self, pinned, workspace):
         ws = workspace_for(pinned.state, workspace)
-        api = asset_library(pinned.state, ws)
+        api = workspace_asset_library(pinned.state, ws)
         worker = library_path_from_env(ASSETS_KIND, ws.assets).existing()
         assert [root.origin for root in api.roots()] == [
             WORKSPACE_ORIGIN,
@@ -185,7 +191,7 @@ class TestTheWorkerBuildsTheAPIsPath:
     @pytest.mark.parametrize("workspace", [None, "shots"])
     def test_prompts(self, pinned, workspace):
         # Prompts are shared: the named workspace reads the same library
-        api = prompt_library(pinned.state)
+        api = server_prompt_library(pinned.state)
         worker = library_path_from_env(PROMPTS_KIND, pinned.prompt_dir)
         assert [root.origin for root in api.roots()] == [
             WORKSPACE_ORIGIN,
@@ -226,7 +232,7 @@ class TestTheWorkspaceShadowsAnExample:
 
     def test_asset_resolution_takes_the_workspace_copy(self, server):
         ws = server.state.default_workspace
-        library = asset_library(server.state, ws)
+        library = workspace_asset_library(server.state, ws)
         expected = os.path.realpath(os.path.join(server.workspace.assets, "shared.png"))
         assert resolve_asset_reference("asset:shared.png", library=library) == expected
         assert asset_file(server.state, "asset:shared.png", ws) == expected
@@ -248,3 +254,55 @@ class TestTheWorkspaceShadowsAnExample:
         assert [
             a["origin"] for a in body["assets"] if a["name"] == "only-example.png"
         ] == [EXAMPLES_ORIGIN]
+
+
+class TestWorkspaceRegistryNamesTheServersPrompts:
+    def test_a_named_workspace_reports_the_servers_prompt_dir(
+        self, make_server, tmp_path
+    ):
+        elsewhere = str(tmp_path / "elsewhere" / "prompts")
+        server = make_server(prompt_dir=elsewhere)
+        created = server.client.post("/api/workspaces", json={"name": "shots"})
+        assert created.json()["prompts"] == elsewhere
+        listed = server.client.get("/api/workspaces").json()["workspaces"]
+        assert {w["name"]: w["prompts"] for w in listed} == {
+            "default": elsewhere,
+            "shots": elsewhere,
+        }
+
+    def test_creating_one_leaves_no_prompts_folder_in_the_root(
+        self, make_server, tmp_path
+    ):
+        server = make_server(prompt_dir=str(tmp_path / "elsewhere" / "prompts"))
+        os.rmdir(server.workspace.prompts)  # the fixture made the root's own
+        server.client.post("/api/workspaces", json={"name": "shots"})
+        assert not os.path.exists(server.workspace.prompts)
+        assert not os.path.exists(
+            os.path.join(server.workspace.root, "shots", "prompts")
+        )
+
+
+class TestAPromptLinkOutOfItsRoot:
+    """The API treats a prompt symlink that leaves its root as a miss and
+    looks on; the engine resolver refuses it. Both are confinement."""
+
+    @pytest.fixture
+    def linked(self, make_server, tmp_path):
+        server = make_server()
+        outside = tmp_path / "outside.json"
+        outside.write_text(json.dumps({"text": "from outside"}))
+        os.symlink(outside, os.path.join(server.workspace.prompts, "escape.json"))
+        write_prompt(str(server.checkout / "prompts"), "escape", "the example's")
+        return server
+
+    def test_the_api_skips_the_link_and_answers_the_next_root(self, linked):
+        body = linked.client.get("/api/prompts/escape").json()
+        assert body["text"] == "the example's"
+
+    def test_the_engine_resolver_refuses_it(self, linked):
+        from dw.prompts import resolve_prompt_reference
+        from dw.security import SecurityError
+
+        library = server_prompt_library(linked.state)
+        with pytest.raises(SecurityError):
+            resolve_prompt_reference("prompt:escape", library=library)

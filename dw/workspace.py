@@ -420,7 +420,7 @@ def named_workspace(workspace, name, prompts_root=None):
     )
 
 
-def create_workspace(workspace, name):
+def create_workspace(workspace, name, prompts_root=None):
     """Make a new named workspace under this root.
 
     Raises:
@@ -431,7 +431,7 @@ def create_workspace(workspace, name):
     name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
     if name in workspace_names(workspace):
         raise FileExistsError(f"Workspace '{name}' already exists")
-    return named_workspace(workspace, name).ensure()
+    return named_workspace(workspace, name, prompts_root=prompts_root).ensure()
 
 
 def _tree_usage(directory):

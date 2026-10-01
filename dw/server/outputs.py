@@ -80,7 +80,7 @@ def common_assets(ws):
     return getattr(ws, "common_assets", None)
 
 
-def asset_library(state, ws, primary=None):
+def workspace_asset_library(state, ws, primary=None):
     """The asset search path of one workspace: its own library, then the
     one shared by every workspace under this root, then the read-only
     ones an --examples-dir tree brought with it. The same path the worker
@@ -97,7 +97,7 @@ def asset_library(state, ws, primary=None):
 
 
 def resolution_library(state, ws):
-    """`asset_library(state, ws)`, falling back to the workspace's own
+    """`workspace_asset_library(state, ws)`, falling back to the workspace's own
     (possibly nonexistent) library when the search path is empty.
 
     A caller resolving a name still needs *somewhere* to fail against:
@@ -111,7 +111,7 @@ def resolution_library(state, ws):
     at either, and `asset_in` turns the resulting empty path into the "no
     asset library" 404.
     """
-    library = asset_library(state, ws)
+    library = workspace_asset_library(state, ws)
     if library.roots() or not ws.assets:
         return library
     return LibraryPath(ASSETS_KIND, [LibraryRoot(ws.assets, WORKSPACE_ORIGIN, True)])
@@ -120,21 +120,21 @@ def resolution_library(state, ws):
 def asset_library_for_job(state, job_id, ws):
     """The asset search path a job's own run used, for export: its spec's
     `asset_dir` (or the historical row's), then the shared and read-only
-    example libraries - the same path `asset_library` builds for the
+    example libraries - the same path `workspace_asset_library` builds for the
     selected workspace, but fronted by wherever the job actually ran
     rather than by the workspace the caller happens to be scoped to now. A
     job that ran in one workspace while the caller exports it scoped to
     another must still find its own 'asset:' files, not the other
     workspace's.
 
-    Falls back to `asset_library(state, ws)` when the job carries no
+    Falls back to `workspace_asset_library(state, ws)` when the job carries no
     asset_dir of its own - an inline-workflow job, or one recorded before
     this field existed."""
     job = state.job_manager.get(job_id)
     if job is None:
-        return asset_library(state, ws)
+        return workspace_asset_library(state, ws)
     spec = (job.get("spec") or {}) if isinstance(job, dict) else job.spec
-    return asset_library(state, ws, primary=spec.get("asset_dir"))
+    return workspace_asset_library(state, ws, primary=spec.get("asset_dir"))
 
 
 def served_url(path, ws, version=None):
@@ -246,7 +246,7 @@ def asset_file(state, reference, ws):
     """The file an 'asset:' reference names in this workspace, or a 404.
 
     Looked for down the same search path a run resolves 'asset:' in
-    (`asset_library`), so what the API can read is what a job would load.
+    (`workspace_asset_library`), so what the API can read is what a job would load.
     A miss names every root that was searched, so the caller sees
     their own workspace library among them rather than just the last
     (often an examples directory they never wrote to).

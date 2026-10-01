@@ -35,7 +35,7 @@ from ..outputs import (
     absolute_served_url,
     archive_selection,
     asset_in,
-    asset_library,
+    workspace_asset_library,
     common_assets,
     iter_gallery_files,
     job_provenance,
@@ -195,7 +195,7 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
     asset to be.
     """
     own = ws.assets
-    library = asset_library(request.app.state, ws)
+    library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
         return {
             "asset_dir": own,
@@ -443,7 +443,7 @@ def delete_asset(
     the library (uploads, keep) had no counterpart and a mistake could
     only be cleaned up on the box (T014).
     """
-    library = asset_library(request.app.state, ws)
+    library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
         raise HTTPException(status_code=409, detail="This server has no asset library")
     try:

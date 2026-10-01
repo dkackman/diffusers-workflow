@@ -33,7 +33,7 @@ from ..runs import is_output_reference, resolve_output_reference
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .deps import ceiling_index, prompt_library
+from .deps import ceiling_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
 
@@ -338,7 +338,7 @@ def admit_for(state, workspace, **request):
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
         asset_library=resolution_library(state, workspace),
-        prompt_library=prompt_library(state),
+        prompt_library=server_prompt_library(state),
         **request,
     )
 

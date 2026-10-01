@@ -114,7 +114,8 @@ def resolve_asset_reference(
             search path (see asset_library)
         library: The `LibraryPath` to resolve over, for a caller that holds
             the search path itself (the server's, for a workspace); it
-            replaces `asset_dir`, `base_dir` and `exact`
+            replaces `asset_dir`, `base_dir` and `exact`, which are ignored
+            when it is given
 
     Returns:
         The validated absolute path of the asset file

@@ -99,7 +99,8 @@ def resolve_prompt_reference(
             search path (see prompt_library)
         library: The `LibraryPath` to resolve over, for a caller that holds
             the search path itself (the server's); it replaces `prompt_dir`,
-            `base_dir` and `exact`
+            `base_dir` and `exact`, which are ignored
+            when it is given
 
     Returns:
         The validated absolute path of the prompt file

@@ -33,7 +33,7 @@ from ..exports import export_directory
 from ..http_security import ACTIVE_DOCUMENT_TYPES
 from ..outputs import (
     asset_file,
-    asset_library,
+    workspace_asset_library,
     static_files_for,
     strip_output_prefix,
     zip_download,
@@ -100,7 +100,7 @@ async def input_file(
     an uploaded or chosen asset - the workspace's own library first,
     then any read-only examples library, so an example workflow's media
     previews the way an upload does."""
-    library = asset_library(request.app.state, ws)
+    library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
         raise HTTPException(status_code=404, detail="no asset library")
     found = library.find(name)

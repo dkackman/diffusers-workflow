@@ -103,7 +103,7 @@ def ceiling_index(state, ws):
     return index
 
 
-def prompt_library(state):
+def server_prompt_library(state):
     """The prompt search path: the library this server writes to, then
     the read-only ones an --examples-dir tree brought with it. A name in
     an earlier root shadows the same name later, as on the workflow
