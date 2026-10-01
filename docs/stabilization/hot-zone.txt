@@ -2,6 +2,19 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 3b merged (2026-09-30); stage 3c's hot zone goes live when 3c is detailed and approved.
+# Phase 3, stage 3c (LibraryPath and the one library surface), docs/stabilization/phase-3.md.
 scripts/arch_metrics.py
 docs/stabilization/
+scripts/surface_snapshot.py
+dw/library.py
+dw/workflow_sources.py
+dw/assets.py
+dw/prompts.py
+dw/workspace.py
+dw/locations.py
+dw/serve.py
+dw/server/
+dw_mcp/
+ui/src/lib/api.ts
+ui/src/lib/types.ts
+ui/src/lib/pages/AssetsPage.svelte
