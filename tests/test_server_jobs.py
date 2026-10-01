@@ -512,6 +512,11 @@ def test_definition_of_a_live_job_is_a_copy(manager, tmp_path):
 def test_definition_of_a_restored_path_job_rereads_its_file(manager, tmp_path):
     """Only a restored job has no snapshot, so only it depends on the file."""
     job, path = submit_path_job(manager, tmp_path)
+    # The in-memory status turns terminal before the history row is
+    # written; a restore reads only the row
+    deadline = time.time() + 5
+    while manager.history.get(job.id) is None and time.time() < deadline:
+        time.sleep(0.01)
     restored = JobManager(
         str(tmp_path / "outputs"),
         worker_manager=ScriptedWorkerManager(tracked_script),
