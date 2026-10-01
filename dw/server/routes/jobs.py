@@ -515,7 +515,7 @@ def _probe_command_for(candidate, request, workspace, workflow_dir):
     """The execute-shaped command a cache probe of this validate request
     needs - the same fields _run_job sends, built from the candidate
     admission checked, so the worker builds the workflow exactly as a
-    job would. Its keys must be ProbeCache's fields (dw/worker.py):
+    job would. Its keys must be ProbeCache's fields (dw/worker_protocol.py):
     JobManager.probe_cache builds ProbeCache(**command), so a key that
     is not one raises TypeError there and the plan comes back null."""
     command = {

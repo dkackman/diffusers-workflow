@@ -10,7 +10,7 @@ depend on that shape.
 
 import pytest
 
-from dw.worker import (
+from dw.worker_protocol import (
     Cancel,
     Cancelled,
     ClearMemory,

@@ -16,7 +16,7 @@ import uuid
 import logging
 import threading
 
-from ..worker import (
+from ..worker_protocol import (
     Cancelled,
     ClearMemory,
     Execute,

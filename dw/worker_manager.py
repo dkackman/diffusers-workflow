@@ -11,7 +11,8 @@ import logging
 import signal
 import time
 from typing import Optional
-from .worker import Cancel, Shutdown, WorkerCrashed, parse_reply, worker_main
+from .worker import worker_main
+from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
 
 logger = logging.getLogger("dw")
 

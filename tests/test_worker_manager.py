@@ -10,7 +10,7 @@ import queue
 import pytest
 
 import dw.worker_manager as worker_manager
-from dw.worker import (
+from dw.worker_protocol import (
     Failed,
     MemoryStatus,
     MemoryStatusReply,
