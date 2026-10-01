@@ -1445,7 +1445,7 @@ stays alive for the steps that reuse it.
 
 ### Cache Acceleration
 
-Two mutually exclusive ways to speed up inference by skipping redundant computation:
+A `cache` block speeds up inference by skipping redundant computation:
 
 ```json
 "configuration": {
