@@ -107,80 +107,7 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
 
 ## Release notes collected (for gate 3)
 
-(Each stage adds its user-visible changes here at merge.)
-
-- **3a (merged 2026-09-30):** no user-visible change.
-  - Internal: import cycles 5 → 0 and modules inside cycles 19 → 0, both ratcheted at 0. `modules` went 131 → 132 (`dw/media_types.py`).
-  - A task step missing a required argument is now refused by `Step.run`, not `Task.run`. The message is unchanged. It now comes before the step's task phase event, which a refused task never needed.
-  - Merge notes:
-    - `dw/server/app.py` lost its two host-set constants to `netinfo.py` without being in the 3a hot zone. No harness edit conflicted.
-    - Task 3's "update `dw/server/CLAUDE.md:22`" step was moot: that line never explained the lazy import.
-- **3b (merged 2026-09-30):** the HTTP routes, the MCP tools and their descriptions are unchanged. The surface snapshot is byte-identical from before 3b to its merge.
-  - `POST /api/jobs` and `POST /api/jobs/{id}/rerun` answer **500** `"internal error - the server log has the detail"` when something fails after the request was admitted. They used to answer 400 for any exception (B10). A refused request is still 400.
-  - `GET /api/jobs/{id}/workflow` (MCP `get_job_workflow`) and the job export answer with the definition the job was admitted with, when its workflow file has since moved, grown past the size limit or stopped parsing. They used to answer 404 / nothing. While the file can be read, they answer with the file, as before, which is also what a `new_seed` rerun draws its seed variable from.
-  - `/api/validate` logs a gate failure once, not twice.
-  - A worker command missing `arguments` or `output_dir` fails with "Workflow execution error" (was "Command processing error"). Admission always supplies both, so only a hand-built command sees it.
-  - For developers:
-    - `create_app` is a factory over `dw/server/routes/*`;
-    - `app.dependency_overrides` does not reach the routers' routes;
-    - the worker's messages live in `dw/worker_protocol.py`;
-    - the MCP tools live in `dw_mcp/tools_*.py`.
-  - Merge notes:
-    - Outside the hot zone, 3b touched `dw/workflow.py` (`workflow_from_snapshot` makes `file_spec` absolute when `workflow_dir` is None), `docs/MCP.md` and `.github/copilot-instructions.md` (pointers), and the tests the plan directed.
-    - `modules` went 132 → 151 (the 19 named in Decisions (3b)): the phase now projects to about 163.
-- **3c (merged 2026-09-30): BREAKING, ships as 0.7.** The three library listings (`GET /api/workflows`, `/api/prompts`, `/api/assets`) now share one envelope. The snapshot diff against `cf1802cb` is the break list.
-  - Removed fields: `workflow_dir`, `prompt_dir`, `asset_dir` (the writable root is the `libraries` entry with `writable: true` and `origin: "workspace"`), `sources` (workflows), `prompt_dirs`, `asset_dirs`, and `origins` (prompts; origin is now in `details[name]`).
-  - Renamed: assets `libraries[].dir` is `root`. The MCP compact workflow listing's top-level `sources` is `libraries`.
-  - Added to all three: `libraries: [{origin, root, writable}]`, the search path in order, and `shadowed: [{name, origin, shadowed_by}]`. A listing filter narrows `shadowed` with the entries. Every entry carries `origin` and `writable`: workflows and prompts in `details[name]` (prompts gained `writable`), assets in each entry. `workspace` is echoed by workflows and assets (prompts are shared and echo none). Workflows and prompts gained `shadowed`; assets' entries changed shape.
-  - Unchanged: each listing's item key (`workflows`, `prompts`, `assets`), `details`, `folders`, sort order, and single-item reads with their `X-*-Origin` / `X-*-Writable` headers.
-  - Deleting a read-only entry is one 403 for all three libraries: `'<name>' is in the read-only <origin> library (<root>); only the workspace's own <kind> can be deleted`. It was three messages.
-  - D11: upload, keep and delete with no asset library all answer 409 `This workspace has no asset library`. Upload used to write into `outputs`. Delete's text was `This server has no asset library`.
-  - B10 in the library routes: a workflow save whose validation gate itself crashes answers 500 `internal error - the server log has the detail` (was 400). An invalid workflow is still 400.
-  - D5: a named workspace's `prompt:` resolves against the server's prompt library (`--prompt-dir`) during plan building, the workspace list and workspace creation, matching listing, saving and running. Creating a workspace no longer makes an empty `<root>/prompts`.
-  - D2: `libraries` no longer lists an example prompt dir that does not exist. A missing examples root is dropped for every kind.
-  - D7: an exact asset lookup no longer searches the example folders.
-  - D8: a sub-workflow run from an examples folder is labeled and confined as the examples root, not the workspace's.
-  - Accepted behaviour changes:
-    - `prompt:name.json` now resolves.
-    - An API prompt symlink escaping its root is skipped and the search continues (was 404). The engine still refuses it at run time.
-    - Asset listing sort ties are broken by name.
-  - Admission (`POST /api/validate` and the pre-queue check) now refuses an `asset:` whose workspace copy is a symlink pointing out of the library. Before, it passed when a later root held the name, and the run then failed. This is the same pattern as the prompt line above, and it now agrees with the worker.
-  - A prompt save (`PUT /api/prompts`) on a server with no prompt library answers 409 `This server has no prompt library` (was a bare 500). Only a `create_app` caller can reach it; `dw.serve` always sets one.
-  - Internal: `dw/workflow_sources.py` is `dw/library.py` (`WorkflowSource` is `LibraryRoot`, plus `LibraryPath`). `modules` is unchanged.
-
-- **3d (merged 2026-09-30): one breaking change, ships in 0.7.**
-  - **Breaking:** the `teacache` pipeline `configuration` key is removed. A workflow that still sets it fails validation: `Additional properties are not allowed ('teacache' was unexpected)`. Use `cache` instead (`first_block`, `mag`, `taylorseer`; docs/ACCELERATION.md).
-  - The served acceleration guide (`list_guides` / `get_guide`) no longer has its "TeaCache" and "Cache vs TeaCache" sections, so `get_guide(..., section="TeaCache")` no longer resolves. WORKFLOW_GUIDE's caching paragraph describes one `cache` block.
-  - `templates/step-caching.json`'s description (as `list_workflows` returns it) and the schema's `cache` description no longer mention teacache.
-  - A `dissolve_videos` run with several inputs too short for their dissolves names all of them in one error, joined by `; `. With one short input the message is unchanged. Validation already listed them all.
-  - Unchanged on purpose: every task command's arguments and description (the surface snapshot of every `describe_task` is byte-identical), every warning's text, and every pinned DSP number.
-  - For developers (Python paths only; nothing on the API or MCP reaches them):
-    - `dw.loudness`, `dw.media_audio`, `dw.media_info` and `dw.teacache` (with `teacache_models.json`) are gone. Their contents are in `dw.dsp` (pure numpy/scipy/pyloudnorm) and `dw.media` (the one module that calls `av.open`, enforced by `tests/test_media_layering.py`).
-    - `video_utils.file_fps` is gone. `audio_utils.resample_waveform` is `dw.dsp.resample_waveform`.
-    - `normalize_audio`, `compress_audio`, `filter_audio` and `analyze_audio` are in `dw.tasks.audio_dynamics`. The join helpers (`video_names`, `fit_audio_to_frames`, `bleed_join`, `match_levels`, and the steps concat and dissolve share) are in `dw.tasks.joins`.
-    - Renamed: `_as_track` is `as_track`, `_waveform_and_rate` is `waveform_and_rate`, and `_as_number` is `coerce_number`.
-  - Merge notes:
-    - `modules` stays 151, two under the +2 projection. `modules_over_1000_lines` went 7 → 6, `functions_over_150_lines` 11 → 4, and `complex_functions` 17 → 12.
-    - `_load_tracks_matching_rate` stayed in `audio_utils.py`, not `joins.py` as Decisions said. Its only callers are there, and `audio_utils` imports `joins`, so moving it would have made a cycle.
-    - Found and left alone under the freeze, for after Phase 3: `gain_audio` still rounds a frame-based region's end the pre-#557 way, so it can come out one sample short; and `concat_videos` joins a track with no sample rate unresampled, a long-standing silent skip. `dissolve_videos` refuses that track, as before.
-    - Outside the hot zone, 3d touched `plugins/dw/skills/series-episodes/SKILL.md` (its Sources line names the new homes) and `workflows/templates/step-caching.json` (its description).
-- **3e (merged 2026-10-01):** small user-visible change, nothing else on the surface.
-  - A composed child's step no longer embeds `argument_template` in an image's `metadata["workflow"]` (it held the parent's realized objects, stringified). A composed child that opens its own run directory (only when the parent has none, outside the flat layout) no longer has `argument_template` in its run-id digest or its realized `workflow.json`.
-  - Python API only (the server and MCP cannot hand a child an uncopyable object): a composed child no longer deep-copies its handed arguments on entry to `validate()` and `run()`. A handed object that cannot be copied used to fail in `create_step_action` with `TypeError`. Now one bound to a declared variable fails later, in the child's run; an undeclared one is refused by name ("Unknown variable"), or ignored when the child declares no variables.
-  - Nothing else on the HTTP/MCP surface, the task surface, the schema or catalog validation changed: the surface snapshot is byte-identical, now including every catalog workflow's validation verdict.
-  - For developers (Python paths only; nothing on the API or MCP reaches them):
-    - `result.py`'s helpers moved to `dw/writers.py` (naming, `flatten_alpha_for`, `write_audio`, the waveform `normalize_audio`, the image metadata pair), `dw/audio_qc.py` (`warn_without_headroom`, `warn_if_written_above_full_scale`, `warn_if_written_near_silent`, `check_written_media`) and `dw/output_extraction.py` (`get_artifact_list`, `modular_artifacts`). `guess_extension` is in `dw.content_types`; `Selected` is in `dw.media_types`.
-    - `arguments`' media half is `dw/argument_media.py`. `introspection`'s checks are `dw/type_references.py` and `dw/argument_warnings.py`. The trust gate is `dw/trust.py`.
-    - `pipeline_processors/pipeline.py` split into `placement.py` (`apply_on_demand_placement`, `place_component`), `components.py`, `adapters.py` (`active_loras`) and `progress.py`.
-    - `Workflow`'s ownership tables and memory reclaim are `dw/pipeline_ownership.py`. The validation block is `dw/validation.py`, with the fps, null-media and select checkers in `dw/step_value_checks.py`. `ConstantError` is in `dw.variables`.
-    - `Workflow.run`'s phases, `prepare_definition`, `cache_lookup`, the `cache_hits` loop, `release_unreferenced_results`, `selected_field` and `SEED_BITS` are in `dw/workflow_run.py`. `workflow_output_subfolder` and `catalog_root_dir` are in `dw/library.py`. `Workflow.run`, `cache_hits`, `validation_errors`, `effective_output_dir`, `step_output_dir` and `create_step_action` stay `Workflow` methods.
-    - `dw.plan` no longer re-exports `unseeded_cache_warnings`; import it from `dw.validation`.
-  - Merge notes:
-    - `modules` 151 → 165 (+14, four over the ~+10 projection; the list is in Decisions (3e)). `modules_over_1000_lines` 6 → 0, `functions_over_150_lines` 4 → 0, `complex_functions` 12 → 7.
-    - Both sanctioned `workflow.py` fallbacks were taken (`workflow.py` is 996 lines, 4 under the limit, so its next growth needs a real split, not a fallback).
-    - Outside the hot zone, 3e touched `dw/server/jobs.py` (the `SEED_BITS` import), `dw/realize.py` (a docstring), comments in `dw/dsp.py`, `dw/media.py`, `dw/server/routes/gallery.py` and `dw/tasks/joins.py`, docs/DEPENDENCIES.md, docs/SECURITY.md, `tests/test_configuration_schema.py`, and the docs above.
-  - Carried to after Phase 3 (freeze): `for_each._copy_leaf` sharing leaves; the step-cache snapshot via `copy_containers`; sharing `resolve_sub_workflow_path` with `create_step_action` (and `validation.sub_workflow_errors`, which resolves each path twice to keep its messages); `_run_dir` not reset at the top of `run`; the kernels-hub "Cannot find a build variant" message lists variants in set order (nondeterministic); `workflow_schema.json`'s `argument_template` description still says `create_step_action` writes it into the definition.
-  - Carried to Phase 4: the remaining prefix spellings (`startswith`/`removeprefix`/slicing/alias constants in about 25 modules, the `routes/assets.py` f-strings) and a metric that counts them.
+Moved into ROADMAP.md, Gate 3, at the gate (2026-10-01).
 
 ## Global Constraints (all stages)
 
@@ -204,7 +131,7 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - Why: a re-export is a second path to the same name, which is the sprawl this phase removes. It is also dangerous: a `patch("dw.old.name")` against a re-export patches a name nothing looks up, so the test passes without testing anything.
   - Exception: a name the harness or a user entry point reaches by its old path (`dw.server.app.create_app`, patched by `dw.serve` tests at call time) stays where the lookup happens.
   - Cost if wrong: more churn in test imports per task (mechanical; `sed` plus the suite).
-- **Breaking HTTP/MCP changes are confined to 3c,** where the three library listings take one shape. The gate 3 release bumps the minor version (0.6 → 0.7) through `scripts/release.sh`, which also moves `plugin.json`. 3b keeps every route path, method, status and body. **0.7 confirmed by Don, 2026-09-30.**
+- **Breaking HTTP/MCP changes are confined to 3c,** where the three library listings take one shape. The gate 3 release bumps the minor version through `scripts/release.sh`, which also moves `plugin.json`. 3b keeps every route path, method, status and body. **0.7 confirmed by Don, 2026-09-30; corrected to 0.6.0 at gate 3 (2026-10-01), since 0.6 had never shipped.**
 - **Teacache: deleted in 3d (Don, 2026-09-30).**
   - The case for:
     - `dw/teacache.py` (381 lines, the 196-line forward factory) is Flux-only.
@@ -812,7 +739,7 @@ There are three content libraries (workflows, prompts, assets), and each answers
   After 3c, `git grep` finds no other loop over library roots.
 - **D6 (`discover_library`'s precedence) stays.** It decides where the primary is when no server pinned one (the CLI, a test), and its answer is what feeds `primary`. Out of scope.
 - **D5: a named workspace's prompts are the server's prompt library.** `named_workspace` takes the server's prompt dir (`app.state.prompt_dir`) instead of `<root>/prompts`. Prompts are shared by design (CLAUDE.md, "Workspaces on the server"), and `--prompt-dir` is the server's choice.
-- **The one library surface (breaking; the release notes and 0.7 carry it).** The three listings share one envelope:
+- **The one library surface (breaking; the release notes and 0.6.0 carry it).** The three listings share one envelope:
   - `libraries: [{origin, root, writable}]`, the search path in order. It replaces `sources`, `prompt_dirs`, `asset_dirs` and assets' `libraries[].dir`.
   - Every entry carries `origin` and `writable`: workflows in `details[name]` as today; prompts in `details[name]`, replacing the `origins` map; assets in each entry.
   - `shadowed: [{name, origin, shadowed_by}]` for all three.
