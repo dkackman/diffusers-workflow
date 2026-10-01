@@ -32,7 +32,6 @@ from .realize import (
     realize_workflow,
 )
 from .security import validate_url
-
 from .validation import _is_seeded
 
 logger = logging.getLogger("dw")
