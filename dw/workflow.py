@@ -844,10 +844,13 @@ class Workflow:
         # Check if pipeline already loaded in cache (GPU persistence)
         if cache_key in previous_pipelines:
             logger.debug(f"Reusing cached pipeline for step: {step_name}")
+            # The shared_components dict is fresh every run and only load()
+            # fills it - a cache hit must republish, before anything is
+            # computed for the step's own output
+            previous_pipelines[cache_key].publish_shared_components(shared_components)
             return wrap_resident(
                 previous_pipelines[cache_key],
                 step_definition,
-                shared_components,
                 default_seed,
                 device,
                 self.step_output_dir(step_definition),

@@ -351,6 +351,62 @@ def test_a_released_pipeline_is_freed_before_the_result_is_written(tmp_path):
     assert alive_at_save == {"generate": False, "keep": True}
 
 
+def test_a_released_resident_pipeline_and_its_wrapper_are_freed_before_the_write(
+    tmp_path,
+):
+    """The same, for a pipeline already resident from an earlier run: the
+    step's action is then a new wrapper around the resident model, distinct
+    from the pipeline the release pops, and both must be gone by the time
+    the step writes its files."""
+    keep_resident = _release_workflow_def()
+    keep_resident["steps"][0].pop("release_pipeline")
+    pipelines = {}
+    loaded = {}
+    wrappers = {}
+    alive_at_save = {}
+    loads = []
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+        loads.append(self.pipeline_definition["from_pretrained_arguments"])
+        loaded[self.pipeline_definition["from_pretrained_arguments"]["model_name"]] = (
+            weakref.ref(self)
+        )
+
+    def mock_run(self, results, pipelines, step_action):
+        wrappers[self.name] = weakref.ref(step_action)
+        result = MagicMock(result_list=[])
+        name = self.name
+
+        def save(*save_args, **save_kwargs):
+            alive_at_save[name] = (
+                loaded[f"model-{name}"]() is not None,
+                wrappers[name]() is not None,
+            )
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch.object(pipeline_ownership, "empty_device_cache"):
+                # The first run leaves both pipelines resident
+                Workflow(keep_resident, str(tmp_path), "test.json").run(
+                    {}, previous_pipelines=pipelines
+                )
+                alive_at_save.clear()
+                Workflow(_release_workflow_def(), str(tmp_path), "test.json").run(
+                    {}, previous_pipelines=pipelines
+                )
+
+    # The second run loaded nothing: each step reused its resident pipeline
+    # through a new wrapper
+    assert len(loads) == 2
+    # (resident pipeline alive, wrapper alive) at each step's save
+    assert alive_at_save == {"generate": (False, False), "keep": (True, True)}
+
+
 def _release_models_workflow_def(release):
     """A task step ahead of a pipeline step - the shape release_models exists for."""
     return {
@@ -426,6 +482,37 @@ def test_cache_hit_republishes_shared_components(tmp_path):
     workflow.create_step_action(sharing_def, shared, cache, 1, "cpu")
     assert "transformer" in shared, "cache hit must republish shared components"
     assert shared["transformer"] is cached.pipeline.transformer
+
+
+def test_a_resident_pipeline_that_cannot_share_fails_before_the_step_writes(
+    tmp_path,
+):
+    """Reusing a resident pipeline republishes its shared components before
+    anything is computed for the step's own output: a publish that refuses
+    raises its own error and leaves no subfolder of the step's behind."""
+    workflow = Workflow({"id": "share", "steps": []}, str(tmp_path), "t.json")
+    sharing_def = {
+        "name": "loader",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "m"},
+            "shared_components": ["transformer"],
+            "arguments": {},
+        },
+        "result": {"content_type": "image/png", "subfolder": "final"},
+    }
+    from dw.step_cache import pipeline_cache_key
+
+    cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
+    cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
+
+    with patch.object(
+        cached, "publish_shared_components", side_effect=ValueError("not loaded")
+    ):
+        with pytest.raises(ValueError, match="not loaded"):
+            workflow.create_step_action(sharing_def, {}, cache, 1, "cpu")
+
+    assert not (tmp_path / "final").exists()
 
 
 def test_redefined_step_evicts_prior_pipeline_before_loading(tmp_path):

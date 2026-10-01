@@ -250,22 +250,13 @@ def reclaim_after_step(step_data, step_name):
 
 
 def wrap_resident(
-    cached_pipeline,
-    step_definition,
-    shared_components,
-    default_seed,
-    device,
-    output_dir,
-    file_prefix,
+    cached_pipeline, step_definition, default_seed, device, output_dir, file_prefix
 ):
     """A new Pipeline wrapper for a step around a model already resident
-    under its key. `output_dir` and `file_prefix` are where the step writes
-    and what it names its files."""
-    # The shared_components dict is fresh every run and only load()
-    # fills it - a cache hit must republish or a later step's
-    # reused_components finds nothing (impossible under the old
-    # whole-file cache, the normal case under identity keys)
-    cached_pipeline.publish_shared_components(shared_components)
+    under its key, whose shared components the caller has already
+    republished (a later step's reused_components otherwise finds nothing).
+    `output_dir` and `file_prefix` are where the step writes and what it
+    names its files."""
     # Create new Pipeline wrapper with updated step definition
     # but reuse the loaded model from cache
     new_pipeline_wrapper = Pipeline(
