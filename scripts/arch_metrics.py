@@ -7,6 +7,10 @@ to record a baseline and --check to compare against one.
 
 Counting rules, fixed so any commit measures the same way:
 - Sources are dw/ and dw_mcp/, minus EXCLUDED (vendored community pipelines).
+- Module size is a band: modules_over_size_ceiling counts modules above
+  SIZE_CEILING (1,100 lines, ratcheted); a module above SIZE_WARNING (1,000)
+  and at or under the ceiling is printed as a `warning:` line on every run,
+  which is not a metric and never enters the baseline.
 - Cyclomatic complexity is ruff's C901 (mccabe) as ruff reports it: each
   function scored on its own body, nested functions counted into it too.
 - An import cycle is a strongly connected component of more than one module
@@ -68,6 +72,13 @@ PREFIX_METHODS = frozenset(
     ("startswith", "removeprefix", "removesuffix", "replace", "split", "partition")
 )
 PATCH_TARGET = re.compile(r"""patch\(\s*["']dw[._]""")
+# Module size is a band: warning above SIZE_WARNING, failing above SIZE_CEILING
+SIZE_WARNING = 1000
+SIZE_CEILING = 1100
+RERUN_RULE = (
+    "Re-baseline rule: lower baseline.json freely when a ratchet improves;",
+    "raise it only in a commit whose message names the rise and why.",
+)
 COMPLEXITY_LIMIT = 15
 COMPLEXITY_MESSAGE = re.compile(r"^`(?P<name>.+)` is too complex \((?P<cc>\d+) > 0\)$")
 
@@ -405,7 +416,7 @@ def measure(root):
     engine = list(_sources(root, *PACKAGES))
     metrics = {
         "modules": len(engine),
-        "modules_over_1000_lines": 0,
+        "modules_over_size_ceiling": 0,
         "functions_over_150_lines": 0,
         "prefix_literals": 0,
         "prefix_handling": 0,
@@ -413,8 +424,8 @@ def measure(root):
     constants, prefixes = _reference_names(root.resolve())
     for path in engine:
         text = path.read_text(encoding="utf-8")
-        if len(text.splitlines()) > 1000:
-            metrics["modules_over_1000_lines"] += 1
+        if len(text.splitlines()) > SIZE_CEILING:
+            metrics["modules_over_size_ceiling"] += 1
         tree = ast.parse(text)
         if path.relative_to(root).as_posix() not in PREFIX_OWNERS:
             metrics["prefix_handling"] += len(
@@ -449,6 +460,20 @@ def measure(root):
     return metrics
 
 
+def size_warnings(root):
+    """[(path relative to root, lines)] for each measured module in the warn
+    band: above SIZE_WARNING and at most SIZE_CEILING. Counted the way
+    measure() counts, so a module is in the band or over the ceiling, never
+    both."""
+    root = pathlib.Path(root)
+    found = []
+    for path in _sources(root, *PACKAGES):
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if SIZE_WARNING < lines <= SIZE_CEILING:
+            found.append((path.relative_to(root).as_posix(), lines))
+    return found
+
+
 def regressions(current, baseline):
     worse = []
     for name, before in baseline.items():
@@ -473,12 +498,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     current = measure(args.root)
     print(json.dumps(current, indent=2))
+    for path, lines in size_warnings(args.root):
+        print(
+            f"warning: {path} is {lines:,} lines "
+            f"(warn above {SIZE_WARNING:,}, fail above {SIZE_CEILING:,})"
+        )
     if args.write:
         pathlib.Path(args.write).write_text(json.dumps(current, indent=2) + "\n")
     if args.check:
         worse = regressions(current, json.loads(pathlib.Path(args.check).read_text()))
         for line in worse:
             print(line)
+        if worse:
+            print("\n".join(RERUN_RULE))
         return 1 if worse else 0
     return 0
 

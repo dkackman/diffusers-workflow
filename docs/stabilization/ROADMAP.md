@@ -22,6 +22,7 @@ Two kinds, kept small on purpose.
 
 **Ratchets.** These live in `scripts/arch_metrics.py`. Each is lower-is-better, and `--check` against `baseline.json` fails the build when one gets worse.
 
+- Module size is a band (Phase 4b): the ratchet `modules_over_size_ceiling` counts modules over 1,100 lines, and a module between 1,001 and 1,100 prints a non-failing `warning:` line on every run (never in `baseline.json`).
 - Phase 0 set: modules, modules over 1,000 lines, functions over 150 lines, reference-prefix literals, test `patch("dw...")` targets, CLAUDE.md lines, duplicate blocks.
 - Added at the start of Phase 1 ("metrics v2"), re-baselined in the same commit:
   - **Cyclomatic complexity:** functions above 15, by ruff's C901 (already a dev dependency). Baseline 21.
