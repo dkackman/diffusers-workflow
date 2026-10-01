@@ -132,7 +132,7 @@ def _carry_release(elided, kept):
     the last step that ran before this one is exactly where it belongs. With
     nothing before it, nothing was loaded and the flag is dropped.
     """
-    if not kept:
+    if not kept or not isinstance(kept[-1], dict):
         return False
     predecessor = kept[-1]
     carried = False
@@ -143,7 +143,12 @@ def _carry_release(elided, kept):
         return carried
     elided_pipeline = elided.get("pipeline")
     kept_pipeline = predecessor.get("pipeline")
-    if not elided_pipeline or not kept_pipeline:
+    if not (
+        isinstance(elided_pipeline, dict)
+        and isinstance(kept_pipeline, dict)
+        and elided_pipeline
+        and kept_pipeline
+    ):
         return carried
     # Effective keys, over the steps as they will run: two pipelines with
     # one definition that reuse components from different sources are not
@@ -152,7 +157,9 @@ def _carry_release(elided, kept):
         [
             step
             for step in kept + [elided]
-            if isinstance(step, dict) and isinstance(step.get("name"), str)
+            if isinstance(step, dict)
+            and isinstance(step.get("name"), str)
+            and isinstance(step.get("pipeline", {}), dict)
         ]
     )
     elided_key = keys.get(elided.get("name"))

@@ -187,19 +187,19 @@ def _rewrite(value, path, groups, member):
     if isinstance(value, list):
         rebuilt = []
         for index, item in enumerate(value):
-            if isinstance(item, str) and item.startswith(references.GATHER):
+            if references.is_ref(references.GATHER, item):
                 # A gather inside a list splices into it
                 rebuilt.extend(_gather(item, path + (index,), groups))
             else:
                 rebuilt.append(_rewrite(item, path + (index,), groups, member))
         return rebuilt
     if isinstance(value, str):
-        if value.startswith(references.GATHER):
+        if references.is_ref(references.GATHER, value):
             return _gather(value, path, groups)
-        if value.startswith(references.ITEM):
+        if references.is_ref(references.ITEM, value):
             return _item(value, path, member)
-        if value.startswith(references.PREVIOUS_RESULT):
-            reference = value[len(references.PREVIOUS_RESULT) :]
+        if references.is_ref(references.PREVIOUS_RESULT, value):
+            reference = references.ref_name(references.PREVIOUS_RESULT, value)
             return references.PREVIOUS_RESULT + _rewrite_reference(
                 reference, path, groups, member
             )
@@ -219,7 +219,7 @@ def _copy_leaf(value):
 
     An open handle or a live model object reaching a member is not a reason
     to fail a run - the step cache makes the same choice for a realized
-    argument it cannot deep-copy (dw/workflow.py).
+    argument it cannot deep-copy (dw/step_cache.py, copy_containers).
     """
     try:
         return copy.deepcopy(value)
@@ -232,7 +232,7 @@ def _item(value, path, member):
         raise ForEachError(
             render_path(path), f"'{value}' is only meaningful inside a for_each step"
         )
-    field = value[len(references.ITEM) :]
+    field = references.ref_name(references.ITEM, value)
     entry = member["entry"]
     if field == "":
         return _copy_leaf(entry)
@@ -252,7 +252,7 @@ def _item(value, path, member):
 
 
 def _gather(value, path, groups):
-    group = value[len(references.GATHER) :]
+    group = references.ref_name(references.GATHER, value)
     if group not in groups:
         raise ForEachError(
             render_path(path),
@@ -320,9 +320,9 @@ def list_fields(definition):
         entry = found.setdefault(variable, {"fields": set(), "steps": []})
         entry["steps"].append(step.get("name"))
         for value in _strings(step):
-            if not value.startswith(references.ITEM):
+            if not references.is_ref(references.ITEM, value):
                 continue
-            field = value[len(references.ITEM) :]
+            field = references.ref_name(references.ITEM, value)
             if field == "":
                 entry["fields"] = None
             elif entry["fields"] is not None:

@@ -80,7 +80,7 @@ def catalog_root(directory):
     The root a run with no workflow_dir of its own confines a relative
     sub-workflow reference to, so a template under templates/ can still climb
     to a sibling models/ without leaving the catalog. `catalog_root_dir`
-    (dw/workflow.py) is this rule asked for a file rather than a directory.
+    (below) is this rule asked for a file rather than a directory.
     """
     directory = os.path.normpath(os.path.abspath(directory))
     parts = directory.split(os.sep)
@@ -90,6 +90,44 @@ def catalog_root(directory):
         return directory
 
     return os.sep.join(parts[: index + 1])
+
+
+def workflow_output_subfolder(file_spec):
+    """The subfolder a workflow's outputs land in, mirroring its position
+    under the nearest directory literally named 'workflows' in its path.
+
+    'workflows/ltx/Foo.json' -> 'ltx'; 'workflows/Foo.json' (or a builtin,
+    always dw/workflows/<name>.json) -> '' (flat, no spurious subfolder);
+    a path with no 'workflows' segment at all (an inline definition's
+    synthetic file_spec, say) -> '' as a fallback. The *last* 'workflows'
+    segment wins, matching the packaged dw/workflows tree when a checkout
+    also has a top-level workflows/ directory somewhere in its ancestry.
+    """
+    if not file_spec:
+        return ""
+
+    directory = os.path.dirname(os.path.abspath(file_spec))
+    parts = os.path.normpath(directory).split(os.sep)
+    try:
+        index = len(parts) - 1 - parts[::-1].index("workflows")
+    except ValueError:
+        return ""
+
+    return os.path.join(*parts[index + 1 :]) if index + 1 < len(parts) else ""
+
+
+def catalog_root_dir(file_spec):
+    """The nearest ancestor directory literally named 'workflows' of
+    file_spec, else file_spec's own directory.
+
+    Used to confine a relative sub-workflow reference when a run carries no
+    workflow_dir of its own (an unconfined CLI run) - the same "last
+    'workflows' segment" rule workflow_output_subfolder uses for output
+    naming, but returning the directory itself rather than what sits under
+    it. It is `catalog_root` asked for a file rather than a directory, so
+    the resolver (resolve_sub_workflow) confines to exactly this root.
+    """
+    return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
 class LibraryRoot:

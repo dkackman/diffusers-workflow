@@ -8,15 +8,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dw.pipeline_processors.pipeline import (
-    Pipeline,
-    warn_if_safety_checker_blanked,
+from dw.pipeline_processors.components import (
     configure_components,
-    declared_component_names,
     enable_cache_on_transformer,
     get_block_configs,
     load_component,
+)
+from dw.pipeline_processors.pipeline import (
+    Pipeline,
+    declared_component_names,
     optional_component_names,
+    warn_if_safety_checker_blanked,
 )
 
 
@@ -316,7 +318,7 @@ class TestComponentTiling:
                 setattr(self, name, component)
 
     def test_true_uses_the_model_default_tile_size(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -328,7 +330,7 @@ class TestComponentTiling:
         assert decoder.tiling == {}
 
     def test_an_object_passes_the_tile_sizes_through(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -352,7 +354,7 @@ class TestComponentTiling:
         }
 
     def test_omitted_leaves_the_component_alone(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -364,7 +366,7 @@ class TestComponentTiling:
         assert decoder.tiling is None
 
     def test_a_component_that_cannot_tile_says_so(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         class Plain:
             def to(self, device):
@@ -400,7 +402,7 @@ class TestComponentAttnProcessor:
                 setattr(self, name, component)
 
     def test_the_named_type_is_constructed_and_set(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -416,7 +418,7 @@ class TestComponentAttnProcessor:
         assert isinstance(decoder.processor, self._Processor)
 
     def test_omitted_leaves_the_component_alone(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -428,7 +430,7 @@ class TestComponentAttnProcessor:
         assert decoder.processor is None
 
     def test_a_component_that_takes_no_processor_says_so(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         class Plain:
             def to(self, device):

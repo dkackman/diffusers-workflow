@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-import dw.workflow
+import dw.validation
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.vram_estimate import pipeline_identity
@@ -58,8 +58,8 @@ CARD = [{"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 7.88}]
 @contextlib.contextmanager
 def cuda_24gb():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         yield
 

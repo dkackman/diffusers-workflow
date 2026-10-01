@@ -531,13 +531,15 @@ class WorkflowWorker:
         given entry - a name here can belong to an earlier, different job's
         step. A stale entry is harmless because Workflow.create_step_action
         judges "still shared" on the running steps' CURRENT keys
-        (Workflow._running_pipeline_keys), never on this map's other
+        (Workflow.pipeline_ownership.running), never on this map's other
         entries: a key is held only while another step of the executing run
         loads under it now. A name this map remembers from another workflow
         is not a running step, and a sibling whose key moved with this one's
         no longer claims the old key, so neither saves it from release.
         """
-        keys = getattr(workflow, "_pipeline_keys_by_step", None)
+        keys = getattr(
+            getattr(workflow, "pipeline_ownership", None), "keys_by_step", None
+        )
         if keys:
             self.prior_step_keys.update(keys)
 

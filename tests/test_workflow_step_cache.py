@@ -15,7 +15,7 @@ from dw.step_cache import step_cache
 from dw.step import Step
 from dw.pipeline_processors.config_objects import get_group_offload_configuration
 from dw.pipeline_processors.pipeline import Pipeline
-from dw import workflow as workflow_module
+from dw import workflow_run as workflow_run_module
 from dw.workflow import Workflow
 
 
@@ -119,7 +119,7 @@ def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
         assert call_count() == 1
         assert load.call_count == loads_first_run
         # release_pipeline and the worker's prior-key map still address it
-        assert "generate" in workflow._pipeline_keys_by_step
+        assert "generate" in workflow.pipeline_ownership.keys_by_step
     finally:
         for p in workflow._test_patcher:
             p.stop()
@@ -149,7 +149,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
         def __deepcopy__(self, memo):
             raise TypeError("this object cannot be copied")
 
-    original_realize_args = workflow_module.realize_args
+    original_realize_args = workflow_run_module.realize_args
 
     def realize_and_poison(target, base_dir, apply_key_conventions=True):
         original_realize_args(
@@ -162,7 +162,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
     workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
-        with patch.object(workflow_module, "realize_args", realize_and_poison):
+        with patch.object(workflow_run_module, "realize_args", realize_and_poison):
             workflow.run({})
             workflow.run({})
 
@@ -228,7 +228,7 @@ def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligibl
 ):
     """A step reached by a later step's pipeline_reference may be served
     from cache - create_step_action runs on a hit too, so
-    _pipeline_keys_by_step still records the referenced step's pipeline and
+    pipeline_ownership.keys_by_step still records the referenced step's pipeline and
     the referencing step's lookup resolves.
 
     Here A's inputs never change (so A hits on run 2) while B's inputs
@@ -384,7 +384,7 @@ def test_cache_hit_republishes_shared_components_for_a_later_cold_step(tmp_path)
 
         # B's pipeline is gone (released, or evicted by the worker), so run
         # three must load it fresh while A is served from cache
-        b_key = workflow._pipeline_keys_by_step["B"]
+        b_key = workflow.pipeline_ownership.keys_by_step["B"]
         pipelines.pop(b_key, None)
 
         seen = []
@@ -427,7 +427,7 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline(tmp_path):
         workflow.run({}, previous_pipelines=pipelines)
         assert pipelines == {}
         # Put it back so the hit run has something to release
-        pipelines[workflow._pipeline_keys_by_step["generate"]] = MagicMock()
+        pipelines[workflow.pipeline_ownership.keys_by_step["generate"]] = MagicMock()
 
         workflow.run({}, previous_pipelines=pipelines)
 
@@ -685,7 +685,7 @@ def test_a_released_deferred_hit_still_shares_its_components(tmp_path):
         )
 
     assert loads == ["model-a", "model-b"]
-    assert workflow._pipeline_keys_by_step["A"] not in pipelines
+    assert workflow.pipeline_ownership.keys_by_step["A"] not in pipelines
     # The release A asked for happened, later - and says so, once
     released = [e for e in events if e["event"] == "pipeline_released"]
     assert [(e["step"], e["index"]) for e in released] == [("A", 0)]
@@ -731,7 +731,7 @@ def test_a_cold_step_whose_pipeline_is_resident_loads_no_component_source(
         patch.object(Pipeline, "load", _loading_recorder(loads)),
     ):
         workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
-        pipelines.pop(workflow._pipeline_keys_by_step["A"])
+        pipelines.pop(workflow.pipeline_ownership.keys_by_step["A"])
         loads.clear()
         workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
 

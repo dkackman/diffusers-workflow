@@ -260,7 +260,7 @@ def as_channels_samples(audio):
 
     Accepts torch tensors or numpy arrays shaped (samples,), (channels, samples),
     (samples, channels), or a one-item batch (1, channels, samples). Channel
-    position is decided the way normalize_audio in result.py decides it: there
+    position is decided the way normalize_audio in writers.py decides it: there
     are always more samples than channels.
     """
     if hasattr(audio, "detach"):  # a torch tensor, without importing torch

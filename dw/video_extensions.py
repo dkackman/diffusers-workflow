@@ -1,6 +1,6 @@
 """The extension of a `video` argument, checked before the run when it can be.
 
-`fetch_video` (`dw/arguments.py`) loads every argument named `video` or
+`fetch_video` (`dw/argument_media.py`) loads every argument named `video` or
 `*_video`, and every `{"media_type": "video", "location": ...}` reference
 whatever it is named, as a video file - and refuses one whose extension is
 not `ALLOWED_VIDEO_EXTENSIONS` there, at run time. A still image handed to
@@ -21,10 +21,7 @@ itself accepts.
 """
 
 from . import references
-from .arguments import (
-    PROMPT_PREFIX,
-    is_media_reference,
-)
+from .argument_media import is_media_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
@@ -46,7 +43,7 @@ def _extension_problem(value):
         return None
     if value.startswith(_UNRESOLVED_PREFIXES):
         return None
-    if value.startswith(references.CONSTANT) or value.startswith(PROMPT_PREFIX):
+    if references.is_ref((references.CONSTANT, references.PROMPT), value):
         return None
     ext = value.rsplit(".", 1)
     if len(ext) != 2 or not ext[1] or "/" in ext[1]:

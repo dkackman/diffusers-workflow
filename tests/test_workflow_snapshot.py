@@ -11,11 +11,8 @@ import pytest
 
 from dw.runs import workflow_identity
 from dw.security import PathTraversalError
-from dw.workflow import (
-    workflow_from_file,
-    workflow_from_snapshot,
-    workflow_output_subfolder,
-)
+from dw.library import workflow_output_subfolder
+from dw.workflow import workflow_from_file, workflow_from_snapshot
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(REPO, "workflows")

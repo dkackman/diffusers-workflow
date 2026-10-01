@@ -60,7 +60,7 @@ def realize_workflow(
             Never mutated.
         variables: The variables as the run folded them - arguments set,
             list entries' references resolved, snap-up rules applied
-            (`Workflow._prepare_definition`'s recorded variables, or
+            (`workflow_run.prepare_definition`'s recorded variables, or
             `Workflow.folded_variables`) - or None when none are declared.
             Recorded as given; the definition stays unexpanded.
         seed: The seed the run resolved - an integer, never None, because

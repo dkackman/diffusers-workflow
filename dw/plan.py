@@ -32,10 +32,7 @@ from .realize import (
     realize_workflow,
 )
 from .security import validate_url
-
-# Moved to dw/validation.py (it is a warning source there); re-imported so
-# `from dw.plan import unseeded_cache_warnings` keeps working
-from .validation import _is_seeded, unseeded_cache_warnings  # noqa: F401
+from .validation import _is_seeded
 
 logger = logging.getLogger("dw")
 
@@ -369,6 +366,174 @@ def _scalar_driver_shifted(definition, expanded, list_entries):
     return False
 
 
+def _own_price(definition, expanded, list_entries, device, measured_entries):
+    """The workflow's own price, reset to unknown when a scalar driver moved."""
+    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
+    if own["basis"] == CATALOG and _scalar_driver_shifted(
+        definition, expanded, list_entries
+    ):
+        # A scalar cost_driver (H3's num_frames, say) moved away from the
+        # value the curated cost was measured against, and _repriced only
+        # re-prices a for_each list's length - so the catalog figure would
+        # otherwise be quoted for a run it was never measured for (#267)
+        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    return own
+
+
+def _read_child(path, base_dir, workflow_dir):
+    """A composed child's definition and its cost block, or (None, None)
+    when it is a builtin (the parent's to price) or unreadable."""
+    # A builtin is the parent's to price; a local child prices itself
+    raw = read_sub_workflow(path, base_dir, workflow_dir)
+    if raw is None:
+        return None, None
+    try:
+        child_definition = json.loads(raw)
+        return child_definition, child_definition.get("cost")
+    except (ValueError, AttributeError):
+        return None, None
+
+
+def _child_observed(
+    observed_for_child, path, child_definition, step_arguments, own_minutes
+):
+    """A child's observed figure, only when the total can honestly end up
+    basis: observed."""
+    # A child's observed figure only ever feeds a total that can
+    # honestly end up basis: observed (own["minutes"] is None, below) -
+    # a priced parent's own basis is 'catalog', and summing an observed
+    # child into it produced a total that did not match either figure
+    # while still claiming 'catalog' (#315)
+    if (
+        own_minutes is not None
+        or observed_for_child is None
+        or child_definition is None
+    ):
+        return None
+    try:
+        # `step_arguments` are the composing step's own overrides -
+        # passed through so a child observed lookup buckets against
+        # the value this step actually runs with rather than always
+        # the child's stored defaults (#341)
+        return observed_for_child(path, child_definition, step_arguments)
+    except Exception:
+        return None
+
+
+def _child_catalog_price(child_definition, child_cost, step_arguments, device):
+    """A child priced from its own cost block, re-priced for the composing
+    step's arguments."""
+    child_list_entries = {}
+    child_measured_entries = {}
+    child_expanded = {"variables": {}}
+    if child_definition is not None:
+        child_measured_entries = _list_entries(child_definition, child_definition)
+        # The composing step's own `arguments` are what the child
+        # actually runs with - folded over its declared defaults the
+        # same way a caller's arguments are, since `expanded` has
+        # already substituted them to concrete values (#341)
+        effective_variables = dict(child_definition.get("variables") or {})
+        effective_variables.update(step_arguments)
+        child_expanded = {"variables": effective_variables}
+        child_list_entries = _list_entries(child_definition, child_expanded)
+    child = _price(child_cost, device, child_list_entries, child_measured_entries)
+    if (
+        child["basis"] == CATALOG
+        and child_definition is not None
+        and _scalar_driver_shifted(child_definition, child_expanded, child_list_entries)
+    ):
+        # A scalar cost_driver the composing step overrode (H3's
+        # num_frames at 345 against a default of 124, say) is the
+        # same #267 failure one level down - the child's own
+        # catalog figure was never measured for the value this
+        # step actually passes it (#341)
+        child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    return child
+
+
+class _ChildTotals:
+    """What the composed children add up to, folded in one child at a time."""
+
+    def __init__(self, minutes, partial, unpriced):
+        self.minutes = minutes
+        self.partial = partial
+        self.unpriced = unpriced
+        self.had_child = False
+        self.all_observed = True
+        self.runs = []
+        self.measured_on = set()
+
+    def add(self, path, child, observed):
+        self.had_child = True
+        if observed:
+            self.runs.append(child["runs"])
+            self.measured_on.add(child["measured_on"])
+        else:
+            self.all_observed = False
+        if child["minutes"] is None:
+            self.partial = True
+            self.unpriced.append(path)
+        elif self.minutes is not None:
+            self.minutes += child["minutes"]
+        else:
+            self.minutes = child["minutes"]
+
+
+def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
+    """The final estimate from the parent's own price and its children's."""
+    minutes = totals.minutes
+    partial = totals.partial
+    unpriced = totals.unpriced
+    if minutes is None:
+        partial = False
+        unpriced = []
+    top_basis = own["basis"]
+    top_measured_on = own["measured_on"]
+    top_runs = None
+    if (
+        own["minutes"] is None
+        and totals.had_child
+        and totals.all_observed
+        and not partial
+    ):
+        # Every composing child's share of the total was this box's own
+        # history rather than a static figure, and the parent contributed
+        # nothing of its own to disagree with that - so the whole total is
+        # as good as observed rather than "unknown" (#268), mirroring the
+        # existing rule that a child's catalog cost is skipped once the
+        # *parent* has an observed figure, to avoid double-counting.
+        # The children's own `runs`/`measured_on` come along with the
+        # inherited basis (#275) - an "observed" estimate with `runs: null`
+        # says it was measured but not how many times, which is the number
+        # a caller uses to decide how much to trust the figure. `runs` is
+        # the weakest history across children (the min), and `measured_on`
+        # is named only when every child agrees on the device.
+        top_basis = OBSERVED
+        top_runs = min(totals.runs) if totals.runs else None
+        top_measured_on = (
+            next(iter(totals.measured_on)) if len(totals.measured_on) == 1 else None
+        )
+    rounded = round(minutes, 1) if minutes is not None else None
+    result = {
+        "minutes": rounded,
+        "basis": top_basis,
+        "device": device,
+        "measured_on": top_measured_on,
+        "partial": partial,
+        "unpriced": unpriced,
+        "runs": top_runs,
+        "cached_minutes": _cached_minutes(rounded, cached_steps, total_steps),
+    }
+    if top_basis == OBSERVED:
+        # The rolled-up-from-children case (#268): no curated figure of the
+        # parent's own exists to blend toward (that is this branch's own
+        # precondition, above), so a thin roll-up gets the low_confidence
+        # flag rather than a blend. Never changes `minutes`, so
+        # `cached_minutes` above already reflects it.
+        result = _tempered(result, None)
+    return result
+
+
 def estimate(
     definition,
     expanded,
@@ -415,22 +580,13 @@ def estimate(
     children included, already measured.
     """
     measured = _observed(observed, device)
-    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
-    if own["basis"] == CATALOG and _scalar_driver_shifted(
-        definition, expanded, list_entries
-    ):
-        # A scalar cost_driver (H3's num_frames, say) moved away from the
-        # value the curated cost was measured against, and _repriced only
-        # re-prices a for_each list's length - so the catalog figure would
-        # otherwise be quoted for a run it was never measured for (#267)
-        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    own = _own_price(definition, expanded, list_entries, device, measured_entries)
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
         measured["cached_minutes"] = _cached_minutes(
             measured["minutes"], cached_steps, total_steps
         )
         return measured
-    minutes = own["minutes"]
     # An unpriced parent (own["minutes"] is None) whose total ends up coming
     # only from a priced child is not a complete figure - the parent's own
     # steps (a for_each step with no cost block, say) contributed nothing to
@@ -438,138 +594,22 @@ def estimate(
     # of it (#242). `unpriced` names each contributor that landed here, so a
     # caller can tell a trivial utility step from an unpriced 12-shot loop
     # apart rather than just seeing `partial: true` (#252)
-    partial = minutes is None and not _only_composes_children(definition)
+    partial = own["minutes"] is None and not _only_composes_children(definition)
     unpriced = [definition.get("id", "workflow")] if partial else []
-    had_child = False
-    children_all_observed = True
-    child_runs = []
-    child_measured_on = set()
+    totals = _ChildTotals(own["minutes"], partial, unpriced)
     for path, step_arguments in _sub_workflow_paths(expanded):
-        had_child = True
-        # A builtin is the parent's to price; a local child prices itself
-        raw = read_sub_workflow(path, base_dir, workflow_dir)
-        child_definition = None
-        child_cost = None
-        if raw is not None:
-            try:
-                child_definition = json.loads(raw)
-                child_cost = child_definition.get("cost")
-            except (ValueError, AttributeError):
-                child_definition = None
-                child_cost = None
-        child_observed = None
-        # A child's observed figure only ever feeds a total that can
-        # honestly end up basis: observed (own["minutes"] is None, below) -
-        # a priced parent's own basis is 'catalog', and summing an observed
-        # child into it produced a total that did not match either figure
-        # while still claiming 'catalog' (#315)
-        if (
-            own["minutes"] is None
-            and observed_for_child is not None
-            and child_definition is not None
-        ):
-            try:
-                # `step_arguments` are the composing step's own overrides -
-                # passed through so a child observed lookup buckets against
-                # the value this step actually runs with rather than always
-                # the child's stored defaults (#341)
-                child_observed = observed_for_child(
-                    path, child_definition, step_arguments
-                )
-            except Exception:
-                child_observed = None
-        child = _observed(child_observed, device)
-        if child is None:
-            children_all_observed = False
-            child_list_entries = {}
-            child_measured_entries = {}
-            child_expanded = {"variables": {}}
-            if child_definition is not None:
-                child_measured_entries = _list_entries(
-                    child_definition, child_definition
-                )
-                # The composing step's own `arguments` are what the child
-                # actually runs with - folded over its declared defaults the
-                # same way a caller's arguments are, since `expanded` has
-                # already substituted them to concrete values (#341)
-                effective_variables = dict(child_definition.get("variables") or {})
-                effective_variables.update(step_arguments)
-                child_expanded = {"variables": effective_variables}
-                child_list_entries = _list_entries(child_definition, child_expanded)
-            child = _price(
-                child_cost, device, child_list_entries, child_measured_entries
-            )
-            if (
-                child["basis"] == CATALOG
-                and child_definition is not None
-                and (
-                    _scalar_driver_shifted(
-                        child_definition, child_expanded, child_list_entries
-                    )
-                )
-            ):
-                # A scalar cost_driver the composing step overrode (H3's
-                # num_frames at 345 against a default of 124, say) is the
-                # same #267 failure one level down - the child's own
-                # catalog figure was never measured for the value this
-                # step actually passes it (#341)
-                child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
-        else:
-            child_runs.append(child["runs"])
-            child_measured_on.add(child["measured_on"])
-        if child["minutes"] is None:
-            partial = True
-            unpriced.append(path)
-        elif minutes is not None:
-            minutes += child["minutes"]
-        else:
-            minutes = child["minutes"]
-    if minutes is None:
-        partial = False
-        unpriced = []
-    top_basis = own["basis"]
-    top_measured_on = own["measured_on"]
-    top_runs = None
-    if own["minutes"] is None and had_child and children_all_observed and not partial:
-        # Every composing child's share of the total was this box's own
-        # history rather than a static figure, and the parent contributed
-        # nothing of its own to disagree with that - so the whole total is
-        # as good as observed rather than "unknown" (#268), mirroring the
-        # existing rule that a child's catalog cost is skipped once the
-        # *parent* has an observed figure, to avoid double-counting.
-        # The children's own `runs`/`measured_on` come along with the
-        # inherited basis (#275) - an "observed" estimate with `runs: null`
-        # says it was measured but not how many times, which is the number
-        # a caller uses to decide how much to trust the figure. `runs` is
-        # the weakest history across children (the min), and `measured_on`
-        # is named only when every child agrees on the device.
-        top_basis = OBSERVED
-        top_runs = min(child_runs) if child_runs else None
-        top_measured_on = (
-            next(iter(child_measured_on)) if len(child_measured_on) == 1 else None
+        child_definition, child_cost = _read_child(path, base_dir, workflow_dir)
+        child_observed = _child_observed(
+            observed_for_child, path, child_definition, step_arguments, own["minutes"]
         )
-    result = {
-        "minutes": round(minutes, 1) if minutes is not None else None,
-        "basis": top_basis,
-        "device": device,
-        "measured_on": top_measured_on,
-        "partial": partial,
-        "unpriced": unpriced,
-        "runs": top_runs,
-        "cached_minutes": _cached_minutes(
-            round(minutes, 1) if minutes is not None else None,
-            cached_steps,
-            total_steps,
-        ),
-    }
-    if top_basis == OBSERVED:
-        # The rolled-up-from-children case (#268): no curated figure of the
-        # parent's own exists to blend toward (that is this branch's own
-        # precondition, above), so a thin roll-up gets the low_confidence
-        # flag rather than a blend. Never changes `minutes`, so
-        # `cached_minutes` above already reflects it.
-        result = _tempered(result, None)
-    return result
+        child = _observed(child_observed, device)
+        is_observed = child is not None
+        if not is_observed:
+            child = _child_catalog_price(
+                child_definition, child_cost, step_arguments, device
+            )
+        totals.add(path, child, is_observed)
+    return _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
 
 
 def _observed(observed, device):

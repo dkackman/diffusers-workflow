@@ -6,7 +6,9 @@ import copy
 
 import pytest
 
-from dw.workflow import ConstantError, Workflow, workflow_from_definition
+from dw.variables import ConstantError
+from dw.workflow import Workflow, workflow_from_definition
+from dw.workflow_run import prepare_definition
 
 # One definition exercising every stage the three paths used to disagree on:
 # a snap-up constraint, a for_each whose entry references another variable,
@@ -62,8 +64,8 @@ def test_validation_expands_exactly_what_the_run_prepares(tmp_path):
     wf = workflow_from_definition(copy.deepcopy(DEFINITION), str(tmp_path))
     arguments = {"num_frames": 108}
     validated = wf.expanded_definition(arguments)
-    prepared, seed, _ = wf._prepare_definition(
-        copy.deepcopy(wf.workflow_definition), arguments, str(tmp_path)
+    prepared, seed, _ = prepare_definition(
+        wf, copy.deepcopy(wf.workflow_definition), arguments, str(tmp_path)
     )
     assert validated["steps"] == prepared["steps"]
     assert seed == 7
@@ -71,8 +73,8 @@ def test_validation_expands_exactly_what_the_run_prepares(tmp_path):
 
 def test_the_record_carries_the_run_s_folded_values(tmp_path):
     wf = workflow_from_definition(copy.deepcopy(DEFINITION), str(tmp_path))
-    _, _, recorded = wf._prepare_definition(
-        copy.deepcopy(wf.workflow_definition), {"num_frames": 108}, str(tmp_path)
+    _, _, recorded = prepare_definition(
+        wf, copy.deepcopy(wf.workflow_definition), {"num_frames": 108}, str(tmp_path)
     )
     from dw.realize import realize_workflow
 
@@ -87,7 +89,7 @@ def test_a_failing_constant_names_its_variable_at_run_time(tmp_path):
     definition["variables"]["sigmas"] = "constant:diffusers.no_such_module.X"
     wf = workflow_from_definition(definition, str(tmp_path))
     with pytest.raises(ConstantError) as raised:
-        wf._prepare_definition(copy.deepcopy(definition), {}, str(tmp_path))
+        prepare_definition(wf, copy.deepcopy(definition), {}, str(tmp_path))
     assert raised.value.path == "variables.sigmas"
 
 

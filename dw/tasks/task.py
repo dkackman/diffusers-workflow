@@ -571,7 +571,7 @@ def _handle_grade(task, arguments, previous_pipelines):
         if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
             media = load_audio_video(media)
         else:
-            from ..arguments import fetch_image
+            from ..argument_media import fetch_image
 
             media = fetch_image(media)
 

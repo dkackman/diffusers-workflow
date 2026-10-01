@@ -20,6 +20,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The modules that read a pipeline's configuration
 SOURCES = (
     os.path.join("dw", "pipeline_processors", "pipeline.py"),
+    os.path.join("dw", "pipeline_processors", "placement.py"),
+    os.path.join("dw", "pipeline_processors", "components.py"),
+    os.path.join("dw", "pipeline_processors", "adapters.py"),
+    os.path.join("dw", "pipeline_processors", "progress.py"),
     os.path.join("dw", "pipeline_processors", "config_objects.py"),
 )
 

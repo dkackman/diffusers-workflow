@@ -79,7 +79,7 @@ def _run(output_dir, workflow_def, context, fake=None):
 
     workflow = Workflow(workflow_def, output_dir, "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             return workflow.run({}, previous_pipelines={}, context=context)
 
 
@@ -153,7 +153,7 @@ def test_manifest_and_save_paths(tmp_path):
 
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     assert len(workflow.manifest) == 1
@@ -308,7 +308,7 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
 
     workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={}, context=context)
 
     workflows_seen = {e["workflow"] for e in events if "workflow" in e}
@@ -528,7 +528,7 @@ def test_each_run_records_its_own_version(tmp_path):
         workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
         workflow = Workflow(workflow_def, str(tmp_path), "test.json")
         with patch.object(Pipeline, "load", mock_load):
-            with patch("dw.workflow.empty_device_cache"):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
                 workflow.run({}, previous_pipelines={})
         # The run's own directory, not the one its files came from: a
         # cached step reports the earlier run's files while still being a
@@ -556,7 +556,7 @@ def test_the_version_is_on_disk_before_the_first_step_runs(tmp_path):
     workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     assert seen["version"] == 1

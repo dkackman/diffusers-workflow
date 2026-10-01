@@ -10,8 +10,8 @@ import logging
 
 import pytest
 
-from dw.pipeline_processors import pipeline as pipeline_module
-from dw.pipeline_processors.pipeline import place_component
+from dw.pipeline_processors import placement as placement_module
+from dw.pipeline_processors.placement import place_component
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ def on_device(monkeypatch):
 
     def apply(device_type):
         monkeypatch.setattr(
-            pipeline_module, "get_device_type", lambda device: device_type
+            placement_module, "get_device_type", lambda device: device_type
         )
 
     return apply

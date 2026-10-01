@@ -10,7 +10,7 @@ states one, see tests/test_h3_schedule.py.
 import pytest
 import torch
 
-from dw.pipeline_processors.pipeline import load_loras, set_adapter_alpha
+from dw.pipeline_processors.adapters import load_loras, set_adapter_alpha
 
 
 class FakeLoraLayer(torch.nn.Module):

@@ -12,7 +12,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import only the functions we need (avoiding torch import)
-from dw.arguments import fetch_image, fetch_video
+from dw.argument_media import fetch_image, fetch_video
 
 
 def test_fetch_image_list():

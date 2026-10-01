@@ -35,7 +35,7 @@ from ..worker_protocol import (
     parse_reply,
 )
 from ..worker_manager import WorkerManager
-from ..workflow import SEED_BITS
+from ..workflow_run import SEED_BITS
 from ..security import (
     SecurityError,
     validate_json_size,

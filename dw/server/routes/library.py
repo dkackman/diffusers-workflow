@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from ...introspection import workflow_argument_warnings
+from ...argument_warnings import workflow_argument_warnings
 from ...prompts import RESERVED_TEXT_PREFIXES
 from ...schema import format_validation_errors, load_schema, validate_data
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference

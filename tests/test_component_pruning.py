@@ -12,7 +12,7 @@ import pytest
 import torch
 from torch import nn
 
-from dw.pipeline_processors.pipeline import (
+from dw.pipeline_processors.components import (
     replace_modules_with_identity,
     truncate_module_lists,
 )

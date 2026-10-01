@@ -70,7 +70,7 @@ def _run(workflow_def, context, output_dir, pipelines=None, fake=None):
 
     workflow = Workflow(workflow_def, output_dir, "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines=pipelines, context=context)
 
 

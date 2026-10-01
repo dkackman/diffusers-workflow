@@ -105,3 +105,36 @@ def render_path(path):
         else:
             rendered = str(part)
     return rendered
+
+
+def iter_previous_result_references(value, *, descend_into_from, path=()):
+    """Every previous-result reference under `value`, as `(path, name, via)`.
+
+    `path` is the tuple of keys and list indices that reaches it. `via` is
+    "prefix" for a string spelled `previous_result:<name>` (`name` is what
+    follows the prefix) and "key" for a `from_previous_result` string, which
+    names its step bare (`name` is the string as written).
+
+    A `from_previous_result` value that is not a string is walked like any
+    other. One that is a string is yielded as "key" and, only when
+    `descend_into_from` is true, walked too - so a prefixed spelling written
+    there yields a second, "prefix" reference at the same path. Callers
+    filter what they want: a `variable:` value, say, is yielded as written.
+    """
+    if isinstance(value, dict):
+        for key, item in value.items():
+            here = path + (key,)
+            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
+                yield here, item, "key"
+                if not descend_into_from:
+                    continue
+            yield from iter_previous_result_references(
+                item, descend_into_from=descend_into_from, path=here
+            )
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from iter_previous_result_references(
+                item, descend_into_from=descend_into_from, path=path + (index,)
+            )
+    elif is_ref(PREVIOUS_RESULT, value):
+        yield path, ref_name(PREVIOUS_RESULT, value), "prefix"

@@ -1,98 +1,45 @@
 # Core functionality for loading and executing workflows
 import os
 import json
-import torch
 import copy
-import gc
 import logging
-import secrets
-from datetime import datetime, timezone
 from . import references
-from .arguments import (
-    realize_args,
-    realize_constants,
-    fetch_constant,
-    is_constant_reference,
-)
+from .arguments import realize_constants, fetch_constant, is_constant_reference
 from .events import (
     RunContext,
-    emit_phase,
-    emit_warning,
     WorkflowCancelled,
     get_context,
     current_context,
     activate_context,
     deactivate_context,
 )
-from .previous_results import StepResults
-from .adapter_compatibility import warn_adapters
-from .elision import elide_definition, warn_elided
-from .variable_constraints import (
-    ConstraintReferenceError,
-    apply_constraints,
-    constraint_reference_errors,
-    resolve_constraint_references,
-    snap_constraints,
-)
-from .shots import carries_shots, duplicate_shot_names, shot_references, step_shots
+from .variable_constraints import resolve_constraint_references, snap_constraints
 from .subfolders import step_subfolder
 from . import validation
-from .validation import (
-    ERROR,
-    WARNING,
-    ValidationContext,
-    run_checks,
-    to_errors,
-    to_warnings,
-)
-from .vram_estimate import apply_vram_estimate
-from .step import Step
-from .step_cache import (
-    step_cache,
-    referenced_result_names,
-    reference_resolves_to,
-    normalized_downstream,
-    borrowed_pipeline_keys,
-    pipeline_cache_key,
-    step_pipeline_keys,
-    copy_containers,
-)
-from .runs import (
-    FLAT_LAYOUT,
-    REALIZED_FILE_NAME,
-    activate_output_root,
-    deactivate_output_root,
-    workflow_identity,
-    manifest_relative_files,
-    new_run_id,
-    open_run,
-    output_layout,
-    write_manifest,
-    write_realized_workflow,
-)
-from .realize import realize_workflow
-from .schema import validate_data_all, format_validation_errors, load_schema
-from .for_each import expand_for_each, ForEachError
+from . import workflow_run
+from .step_cache import borrowed_pipeline_keys
+from .runs import activate_output_root, deactivate_output_root
+from .schema import format_validation_errors
+from .for_each import expand_for_each
 from .variables import (
+    ConstantError,
     argument_errors,
     replace_variables,
     resolve_variable_values,
     set_variables,
-    undeclared_variable_references,
-    VariableCycleError,
-    VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
-from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
-from . import (
-    get_device,
-    get_device_type,
-    empty_device_cache,
-    device_capacity_gb,
-    device_memory_stats,
+from . import get_device
+from .pipeline_ownership import (
+    PipelineOwnership,
+    allocated_mb,
+    evict_superseded,
+    finish_release,
+    load_fresh,
+    reclaim_after_step,
+    wrap_resident,
 )
-from .host_memory import release_host_caches
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -105,25 +52,13 @@ from .security import (
 )
 from .library import (
     builtin_root,
-    catalog_root,
+    catalog_root_dir,
     resolve_sub_workflow,
+    workflow_output_subfolder,
     SubWorkflowNotFound,
 )
 
 logger = logging.getLogger("dw")
-
-# The widest integer JavaScript's double represents exactly - the ceiling on
-# any seed the engine draws, since seeds travel as JSON through a browser
-SEED_BITS = 53
-
-
-class ConstantError(ValueError):
-    """A 'constant:' variable default that failed to resolve during
-    validation, with the 'variables.<name>' path at fault."""
-
-    def __init__(self, path, message):
-        super().__init__(message)
-        self.path = path
 
 
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
@@ -211,121 +146,6 @@ def workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None)
     return Workflow(definition, validated_output, file_spec, workflow_dir)
 
 
-def workflow_output_subfolder(file_spec):
-    """The subfolder a workflow's outputs land in, mirroring its position
-    under the nearest directory literally named 'workflows' in its path.
-
-    'workflows/ltx/Foo.json' -> 'ltx'; 'workflows/Foo.json' (or a builtin,
-    always dw/workflows/<name>.json) -> '' (flat, no spurious subfolder);
-    a path with no 'workflows' segment at all (an inline definition's
-    synthetic file_spec, say) -> '' as a fallback. The *last* 'workflows'
-    segment wins, matching the packaged dw/workflows tree when a checkout
-    also has a top-level workflows/ directory somewhere in its ancestry.
-    """
-    if not file_spec:
-        return ""
-
-    directory = os.path.dirname(os.path.abspath(file_spec))
-    parts = os.path.normpath(directory).split(os.sep)
-    try:
-        index = len(parts) - 1 - parts[::-1].index("workflows")
-    except ValueError:
-        return ""
-
-    return os.path.join(*parts[index + 1 :]) if index + 1 < len(parts) else ""
-
-
-def catalog_root_dir(file_spec):
-    """The nearest ancestor directory literally named 'workflows' of
-    file_spec, else file_spec's own directory.
-
-    Used to confine a relative sub-workflow reference when a run carries no
-    workflow_dir of its own (an unconfined CLI run) - the same "last
-    'workflows' segment" rule workflow_output_subfolder uses for output
-    naming, but returning the directory itself rather than what sits under
-    it. It is `catalog_root` asked for a file rather than a directory, so
-    the resolver (dw/library.py) confines to exactly this root.
-    """
-    return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
-
-
-def _allocated_mb():
-    """Device memory in use right now, for the pipeline_released event -
-    None where the backend cannot say, so a reading is never confused with
-    a genuine zero."""
-    try:
-        stats = device_memory_stats()
-    except Exception:  # a progress figure is never worth failing a run over
-        return None
-    return stats["allocated_mb"] if stats["available"] else None
-
-
-def _release_host_caches(step_name):
-    """Hand the host memory a release freed back to the OS, not at job end.
-
-    `release_host_caches` only touches blocks nothing is using, so anything
-    still loaded is undisturbed. A cleanup is never worth failing a run for.
-    """
-    try:
-        released = release_host_caches()
-    except Exception as e:
-        logger.debug(f"Could not release host caches after {step_name}: {e}")
-        return
-    if released:
-        logger.info(f"Release after {step_name} returned {released:.0f} MB to the OS")
-
-
-def _relative_shots(entry, run_dir):
-    """A manifest entry's `shots`, each `file` made relative as `files` is."""
-    shots = entry.get("shots")
-    if not shots or not any("file" in shot for shot in shots):
-        return {}
-    files = manifest_relative_files([shot["file"] for shot in shots], run_dir)
-    return {"shots": [{**shot, "file": f} for shot, f in zip(shots, files)]}
-
-
-def selected_field(step_data, selected):
-    """The manifest/step_end 'selected' block for a step's Result.selected.
-
-    Carries the winning position and score always; adds 'entry' - the
-    for_each member name ('shot@b') - only when the step's 'candidates'
-    argument was built from a gather: reference, recoverable at this point
-    only because step_data still holds the post-for_each-expansion,
-    pre-argument-resolution reference strings (dw/for_each.py's _gather()).
-    """
-    if selected is None:
-        return None
-
-    field = dict(selected)
-    candidates = step_data.get("task", {}).get("arguments", {}).get("candidates")
-    if isinstance(candidates, list):
-        position = selected.get("position")
-        if isinstance(position, int) and 0 <= position < len(candidates):
-            candidate = candidates[position]
-            if isinstance(candidate, str) and candidate.startswith(
-                references.PREVIOUS_RESULT
-            ):
-                field["entry"] = candidate[len(references.PREVIOUS_RESULT) :]
-    return field
-
-
-def release_unreferenced_results(results, remaining_refs):
-    """Drop results no remaining reference can resolve to.
-
-    A reference resolves to a result whose name it equals or extends with a
-    property ('step.mask'), so any result that is such a prefix stays. Saved
-    artifacts are already on disk - holding every intermediate image and frame
-    list in RAM until the workflow ends is what OOMs long chains.
-    """
-    for name in [
-        n
-        for n in results
-        if not any(reference_resolves_to(ref, n) for ref in remaining_refs)
-    ]:
-        logger.debug(f"Releasing result: {name}")
-        del results[name]
-
-
 class Workflow:
     """
     Main class for managing and executing workflows defined in JSON format
@@ -380,6 +200,13 @@ class Workflow:
     # Past that boundary nothing copies a leaf: variables are resolved,
     # substituted and recorded sharing it
     _composed = False
+    # The arguments the parent step that composed this workflow hands it -
+    # the parent's realized objects, read by Step.run through
+    # argument_template. Kept here rather than written into
+    # workflow_definition, where every validate() and run() of the child
+    # deep-copied them again; the child's one copy is _owned_arguments, on
+    # entry. None for a workflow nothing composed
+    _handed_arguments = None
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -391,6 +218,9 @@ class Workflow:
         self.workflow_dir = workflow_dir
         # expanded_definition's memo, keyed by the caller's arguments
         self._expansions = {}
+        # Which pipeline each step owns. run() replaces it per run; this one
+        # serves a step action created outside run()
+        self.pipeline_ownership = PipelineOwnership()
 
     @property
     def name(self):
@@ -398,6 +228,8 @@ class Workflow:
 
     @property
     def argument_template(self):
+        if self._handed_arguments is not None:
+            return self._handed_arguments
         return self.workflow_definition.get("argument_template", {})
 
     @property
@@ -640,58 +472,14 @@ class Workflow:
         confine_to = resolved_root.root if resolved_root else None
         return validate_workflow_path(resolved, confine_to), confine_to
 
-    def sub_workflow_errors(self, expanded, source_indices=None, composing=None):
-        """Every sub-workflow step whose `path` names nothing this server can
-        reach, composes a workflow already on the chain, or resolves to a
-        workflow that does not itself validate.
-
-        `composing` is the resolved path of every workflow above this one,
-        which is what makes a cycle an error here rather than a recursion
-        the run discovers.
-        """
-        errors = []
-        composing = list(composing or [])
-        for index, step in enumerate(expanded.get("steps", []) or []):
-            reference = step.get("workflow")
-            if not isinstance(reference, dict) or not isinstance(
-                reference.get("path"), str
-            ):
-                continue
-            source = source_indices[index] if source_indices else index
-            where = f"steps[{source}].workflow.path"
-            path = reference["path"]
-            try:
-                resolved, root = self.resolve_sub_workflow_path(path)
-            except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
-                errors.append({"path": where, "message": str(e)})
-                continue
-            if resolved in composing:
-                errors.append(
-                    {
-                        "path": where,
-                        "message": (
-                            f"Sub-workflow '{path}' composes a workflow that "
-                            "is already composing it - a cycle: "
-                            + " -> ".join(composing + [resolved])
-                        ),
-                    }
-                )
-                continue
-            try:
-                child = workflow_from_file(resolved, self.output_dir, root)
-            except Exception as e:
-                errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
-                continue
-            for error in child.validation_errors(composing=composing + [resolved]):
-                errors.append(
-                    {
-                        "path": where
-                        if error["path"] is None
-                        else f"{where} -> {error['path']}",
-                        "message": f"Sub-workflow '{path}': {error['message']}",
-                    }
-                )
-        return errors
+    def open_sub_workflow(self, path):
+        """The workflow one sub-workflow step's `path` names, opened as
+        (child, resolved) - resolved is its path, which is what a
+        composition chain records. How dw.validation builds a composed child
+        without importing this module. Raises what resolution or the load
+        raises."""
+        resolved, root = self.resolve_sub_workflow_path(path)
+        return workflow_from_file(resolved, self.output_dir, root), resolved
 
     def sub_workflow_warnings(self, arguments=None):
         """An argument a sub-workflow step passes down that the workflow it
@@ -705,74 +493,13 @@ class Workflow:
         `for_each` expansion. Runs the registry's `sub_workflow_warnings`
         check; one that raises is an internal warning (B10).
         """
-        return self._warning_check("sub_workflow_warnings", arguments)
-
-    def sub_workflow_argument_warnings(self, expanded, source_indices=None):
-        """sub_workflow_warnings over an expansion already made - what the
-        registry check calls with the request's own."""
-        warnings = []
-        source_indices = source_indices or []
-        for index, step in enumerate(expanded.get("steps", []) or []):
-            reference = step.get("workflow")
-            if not isinstance(reference, dict):
-                continue
-            passed = reference.get("arguments")
-            if not isinstance(passed, dict) or not isinstance(
-                reference.get("path"), str
-            ):
-                continue
-            try:
-                resolved, root = self.resolve_sub_workflow_path(reference["path"])
-                child = workflow_from_file(resolved, self.output_dir, root)
-            except Exception:
-                # An unresolvable path is an error, reported by
-                # sub_workflow_errors - not a second complaint here
-                continue
-            declared = child.workflow_definition.get("variables") or {}
-            source = source_indices[index] if index < len(source_indices) else index
-            for name in sorted(set(passed) - set(declared)):
-                warnings.append(
-                    f"steps[{source}].workflow.arguments.{name}: "
-                    f"'{reference['path']}' declares no variable '{name}' - the "
-                    "value is dropped. Declared: "
-                    + (", ".join(sorted(declared)) or "<none>")
-                )
-        return warnings
+        return validation.run_warning_check(self, "sub_workflow_warnings", arguments)
 
     def validation_context(self, arguments=None, composing=(), *, ceiling_index=None):
-        """One validation request's ValidationContext: the expansion over
-        `arguments` (lazy and memoized, so the error pass and the warning
-        pass share it), where relative paths resolve from, the device the
-        request is checked against and the catalog's VRAM ceilings
-        (`ceiling_index`, for inherited_vram_warnings). Built per request
-        and never stored on the Workflow, so its probe cache cannot serve a
-        replaced file stale.
-
-        Building one expands nothing: the expansion runs the first time a
-        check reads it, so a context can be built ahead of
-        validation_errors' gates, which answer an expansion failure as a
-        finding.
-        """
-
-        def expand():
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-            return expanded, source_indices
-
-        return ValidationContext(
-            workflow=self,
-            arguments=arguments,
-            base_dir=(
-                os.path.dirname(os.path.abspath(self.file_spec))
-                if self.file_spec
-                else None
-            ),
-            composing=composing,
-            device_type=get_device_type(),
-            capacity_gb=device_capacity_gb(),
-            ceiling_index=ceiling_index,
-            expand=expand,
-        )
+        """One validation request's ValidationContext (dw.validation's
+        `workflow_context`): built per request, never stored on the
+        Workflow, and it expands nothing until a check reads it."""
+        return validation.workflow_context(self, arguments, composing, ceiling_index)
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
@@ -784,67 +511,11 @@ class Workflow:
 
         `context`, when given, is the request's own ValidationContext - its
         arguments and composing chain are the ones checked - so one request
-        expands and probes once. Otherwise one is built here. Passing a
-        context together with different `arguments` or `composing` is a
-        caller bug and raises ValueError.
-
-        Past the gates (schema, 'constraint:' references, the expansion)
-        every check in `validation.ERROR_CHECKS` runs, in order; one that
-        raises is an internal error rather than a lost verdict (B10).
+        expands and probes once. Passing a context together with different
+        `arguments` or `composing` raises ValueError
+        (dw.validation's `workflow_errors`).
         """
-        if context is None:
-            context = self.validation_context(arguments, composing)
-        elif (arguments is not None and arguments != context.arguments) or (
-            composing is not None and tuple(composing) != context.composing
-        ):
-            raise ValueError(
-                "validation_errors was given a context and different "
-                "arguments or composing - pass one or the other"
-            )
-        errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the checks walk the steps
-        # array and a definition that fails the schema may have no such
-        # array to walk
-        if errors:
-            return errors
-        # A 'constraint:' frame_snap naming nothing declared, every one of
-        # them at the path it sits at, before expanding. One that only
-        # becomes a 'constraint:' name once a variable substitutes is
-        # raised by expansion as ConstraintReferenceError, answered below
-        errors = constraint_reference_errors(self.workflow_definition)
-        if errors:
-            return errors
-        try:
-            # The context's expansion is lazy; run it here, where its
-            # failures are findings rather than an internal error in
-            # whichever check read it first
-            context.expanded
-        except ForEachError as e:
-            return [{"path": e.path, "message": str(e)}]
-        except ConstantError as e:
-            return [{"path": e.path, "message": str(e)}]
-        except ConstraintReferenceError as e:
-            return [{"path": e.path, "message": e.message}]
-        except VariableNotFoundError:
-            # Every undeclared reference, not just the first one
-            # substitution tripped over - and reported where each sits
-            # rather than as a for_each whose list arrived unsubstituted
-            return self._undeclared_variable_errors(context.arguments)
-        except VariableCycleError as e:
-            # A variable that references itself, directly or through
-            # others - there is no single path inside the definition to
-            # blame, so it is reported against 'variables' as a whole
-            return [{"path": "variables", "message": str(e)}]
-        return to_errors(run_checks(context, validation.ERROR_CHECKS, ERROR))
-
-    def _warning_check(self, name, arguments, **context_fields):
-        """The registry's warning check `name` over a context of this
-        call's own - how the warning methods below answer when called
-        directly rather than through admit(). An expansion that fails
-        raises inside the check, which makes it one internal warning."""
-        context = self.validation_context(arguments, **context_fields)
-        check = validation.warning_check(name)
-        return to_warnings(run_checks(context, [check], WARNING))
+        return validation.workflow_errors(self, arguments, composing, context)
 
     def adapter_warnings(self, arguments=None):
         """Every adapter whose file name says nothing about which checkpoint
@@ -855,7 +526,7 @@ class Workflow:
         internal warning, since its own errors are validation_errors' to
         report.
         """
-        return self._warning_check("adapter_warnings", arguments)
+        return validation.run_warning_check(self, "adapter_warnings", arguments)
 
     def inherited_vram_warnings(self, arguments=None, index=None):
         """Every catalog VRAM ceiling this workflow's expanded steps project
@@ -868,8 +539,8 @@ class Workflow:
         """
         if not index:
             return []
-        return self._warning_check(
-            "inherited_vram_warnings", arguments, ceiling_index=index
+        return validation.run_warning_check(
+            self, "inherited_vram_warnings", arguments, ceiling_index=index
         )
 
     def slice_past_end_warnings(self, arguments=None):
@@ -880,7 +551,7 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("slice_past_end_warnings", arguments)
+        return validation.run_warning_check(self, "slice_past_end_warnings", arguments)
 
     def shot_span_warnings(self, arguments=None):
         """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
@@ -891,7 +562,7 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("shot_span_warnings", arguments)
+        return validation.run_warning_check(self, "shot_span_warnings", arguments)
 
     def null_variable_argument_warnings(self, arguments=None):
         """Every required task argument fed by `variable:name` where name's
@@ -907,44 +578,9 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("null_variable_argument_warnings", arguments)
-
-    def _undeclared_variable_errors(self, arguments=None):
-        """Every 'variable:' reference naming nothing the workflow declares.
-
-        Fatal rather than a warning: once a workflow has a 'variables'
-        block, replace_variables refuses an undeclared reference, so this is
-        a run that cannot start. Good caller `arguments` are folded in first,
-        and a reference inside one of them is reported under `arguments.`,
-        where the caller wrote it.
-        """
-        definition = copy.deepcopy(self.workflow_definition)
-        variables = definition.get("variables")
-        supplied = set()
-        if isinstance(variables, dict) and arguments:
-            if not argument_errors(definition, arguments):
-                set_variables(arguments, variables)
-                supplied = set(arguments)
-        declared = sorted(variables or {})
-
-        def where(path):
-            head, _, rest = path.partition(".")
-            if head == "variables":
-                name = rest.split(".", 1)[0].split("[", 1)[0]
-                if name in supplied:
-                    return "arguments." + rest
-            return path
-
-        return [
-            {
-                "path": where(path),
-                "message": (
-                    f"'variable:{name}' names no declared variable; "
-                    f"declared: {', '.join(declared) or '<none>'}"
-                ),
-            }
-            for path, name in undeclared_variable_references(definition)
-        ]
+        return validation.run_warning_check(
+            self, "null_variable_argument_warnings", arguments
+        )
 
     def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
@@ -965,228 +601,10 @@ class Workflow:
             raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")
 
-    def _prepare_definition(self, workflow_def, arguments, base_dir):
-        """The definition as a run works from it: constants realized,
-        arguments folded into the variables, list entries' own references
-        resolved, variable values realized (assets loaded), every
-        'variable:' substituted, every for_each expanded, and the seed read
-        and coerced. Returns (workflow_def, default_seed,
-        recorded_variables) - the seed is None when the workflow names none,
-        and the caller decides what that means (run() draws one;
-        cache_hits() reports no hits); recorded_variables are the folded
-        values taken before anything loads, what the realized workflow
-        records (None when none are declared).
-
-        Shared by run() and cache_hits() so the probe prepares exactly what
-        the run prepares - the step cache keys on the realized step, and a
-        probe that prepared it differently would answer for a run that
-        never happens. The fold and the expansion are the stages validation
-        runs too (expanded_definition), so what validates is what runs.
-
-        Records the steps elision dropped on `self._elided_steps` (#122) -
-        the same list run() warns about and writes into the manifest.
-        """
-        workflow_id = workflow_def["id"]
-        logger.debug(f"Setting variables for workflow: {workflow_id}")
-        # A value outside a declared rule is refused here, and one the rule
-        # rounds is rounded with a warning saying so (apply_constraints)
-        variables = self._fold(
-            workflow_def, arguments, fold_arguments=True, constrain=apply_constraints
-        )
-        recorded_variables = copy_containers(variables)
-        if variables is not None:
-            # The definition carries the folded values rather than the
-            # loaded ones: realize_args below loads assets into `variables`,
-            # and substitution copies the variables block along with the
-            # steps
-            workflow_def["variables"] = recorded_variables
-            # realize the variables - explicit references only (asset:,
-            # output:, constant:, prompt:, a {media_type, location} dict).
-            # Key-name conventions (an 'image'/'video'/'_type' argument) are
-            # left off here: a variable's own name is not the argument it
-            # will end up filling, so a variable named 'image' fed to a step's
-            # 'video' argument was pre-loaded as a PIL Image before that step
-            # was ever substituted in (#365). The step-level realize_args
-            # passes below apply the conventions under the real argument key
-            realize_args(variables, base_dir, apply_key_conventions=False)
-        ## then replace any variable references in the workflow definition
-        # with the actual values, and expand
-        workflow_def = self._expand(workflow_def, variables)
-
-        # A step a declared vram_estimate projects past the card 'cost' was
-        # measured on - the run-time backstop for a caller that skips
-        # validate_workflow, so this raises the same refusal rather than
-        # starting a job the decode step was always going to OOM on. After
-        # expansion, so a for_each member is projected with its own frames
-        # and references (dw/vram_estimate.py, #265, #479)
-        apply_vram_estimate(
-            workflow_def,
-            variables,
-            device_type=get_device_type(),
-            capacity_gb=device_capacity_gb(),
-        )
-
-        # A step nothing after it reads, and which saves no file, does not
-        # run - after expansion, so a for_each member is judged like any
-        # other step, and before the seed and the run id, so everything
-        # downstream counts the steps that will actually execute
-        # (dw/elision.py, #122)
-        # The definition as written is passed too: a step dropped because a
-        # caller replaced the variable that read it was elided on purpose,
-        # and says so, rather than being reported as a suspected typo (#157)
-        self._elided_steps = elide_definition(workflow_def, self.workflow_definition)
-
-        # Set up random seed for reproducibility. Resolved lazily - as a
-        # dict.get default, torch.seed() would run on every call and reseed
-        # the global RNG even when the workflow names an explicit seed
-        default_seed = workflow_def.get("seed")
-        # The schema lets 'seed' be a string so it can hold a 'variable:'
-        # reference, which the substitution above has already resolved -
-        # but a variable overridden from the command line arrives as a
-        # string whenever the workflow declared no integer default to
-        # coerce against, and manual_seed would fail deep inside the run
-        if isinstance(default_seed, str):
-            try:
-                default_seed = int(default_seed)
-            except ValueError:
-                raise ValueError(
-                    f"Workflow {workflow_id} seed must be an integer, "
-                    f"got {default_seed!r}"
-                )
-            workflow_def["seed"] = default_seed
-        return workflow_def, default_seed, recorded_variables
-
-    def _cache_lookup(
-        self,
-        workflow_id,
-        steps,
-        index,
-        step_data,
-        step_seed,
-        hits_this_run,
-        cache_enabled,
-        pipeline_keys,
-    ):
-        """Whether the step cache serves step `index`, as (cached_result or
-        None, the step_data snapshot the entry is keyed on or None, whether
-        a later step still reads this one's result, the names later steps
-        still reference). Shared by run() and cache_hits() - see
-        _prepare_definition for why. `pipeline_keys` is step_pipeline_keys
-        of `steps`, taken before the first step ran.
-        """
-        # What later steps still read, which decides both whether this
-        # step's result has to be kept alive after the step (release_unreferenced_results
-        # at the bottom of the run loop) and whether a cached entry that
-        # kept none can serve this run
-        remaining_refs = referenced_result_names(steps[index + 1 :])
-        result_needed = index == len(steps) - 1 or any(
-            reference_resolves_to(ref, step_data["name"]) for ref in remaining_refs
-        )
-        # create_step_action (and the pipeline load it triggers) mutates
-        # step_data in place - injecting a "generator" key - so the cache
-        # must key off a snapshot taken before that happens, and that same
-        # snapshot must be reused for the put() later. Caching off the live,
-        # later-mutated step_data would make every step's dict keys diverge
-        # from a freshly deep-copied future run's step_data, so get() would
-        # never match again after the first run.
-        # A sub-workflow step is never cacheable: its files roll up from the
-        # child's own manifest, which a hit does not rebuild.
-        is_cacheable = "workflow" not in step_data and cache_enabled
-        # The last step of a composed child whose parent does the saving
-        # (#92) - its files are the parent step's, written once, under the
-        # parent's name and subfolder
-        parent_saves_this = self._final_save_owned_by_parent and index == len(steps) - 1
-        step_data_snapshot = None
-        if is_cacheable:
-            try:
-                step_data_snapshot = copy.deepcopy(step_data)
-                if parent_saves_this:
-                    # Keyed apart from the same step run standalone: this
-                    # entry's result was never saved here, so a standalone
-                    # hit on it would report no files
-                    step_data_snapshot["__saved_by_parent__"] = True
-                # This step's own step_data never names a borrowed pipeline's
-                # model - only the source step's does - so without this a
-                # source model change would leave the borrowing step's
-                # snapshot unchanged and serve a stale hit
-                borrowed = borrowed_pipeline_keys(steps, index, pipeline_keys)
-                if borrowed:
-                    step_data_snapshot["__borrowed_pipelines__"] = borrowed
-            except Exception as ex:
-                # A realized argument that cannot be deep-copied (an open
-                # handle, a live model object) just means this step is not
-                # cacheable - never a failed run
-                logger.debug(
-                    f"Step '{step_data['name']}' arguments are not copyable "
-                    f"({ex}) - skipping the step cache for it"
-                )
-                is_cacheable = False
-        if not is_cacheable:
-            return None, None, result_needed, remaining_refs
-        cached_result = step_cache.get(
-            workflow_id,
-            step_data_snapshot,
-            step_seed,
-            hits_this_run,
-            # The root, not this run's directory: a hit reports the earlier
-            # run's files and writes nothing new, so keying on a directory
-            # that is new every run would mean the cache could never hit
-            # again. What the root still guards is a run redirected
-            # somewhere else, where the earlier files are not what the
-            # caller asked for
-            self.output_dir,
-            needs_result=result_needed,
-        )
-        return cached_result, step_data_snapshot, result_needed, remaining_refs
-
     def cache_hits(self, arguments):
         """The steps the step cache would serve for a run with `arguments`,
-        in step order - what the plan reports as cached_steps (#85).
-
-        Prepares the definition exactly as run() does and asks the cache the
-        question run() asks, step by step with the hits so far, and executes
-        nothing: no run directory, no events, no pipeline. An unseeded
-        workflow has no cache, so it answers [] without asking.
-        """
-        output_root_token = activate_output_root(self.output_dir)
-        try:
-            workflow_def = copy.deepcopy(self.workflow_definition)
-            workflow_id = workflow_def["id"]
-            base_dir = (
-                os.path.dirname(os.path.abspath(self.file_spec))
-                if self.file_spec
-                else None
-            )
-            workflow_def, default_seed, _ = self._prepare_definition(
-                workflow_def, arguments or {}, base_dir
-            )
-            if default_seed is None or not self._cache_enabled_by_parent:
-                return []
-            steps = workflow_def.get("steps", [])
-            realize_args(steps, base_dir)
-            # The same table run() takes at the same point, so a borrowed
-            # key here is the key the run stored its entry under
-            pipeline_keys = step_pipeline_keys(steps)
-            hits_this_run = set()
-            hits = []
-            for index, step_data in enumerate(steps):
-                step_seed = step_data.get("seed", default_seed)
-                cached_result, _, _, _ = self._cache_lookup(
-                    workflow_id,
-                    steps,
-                    index,
-                    step_data,
-                    step_seed,
-                    hits_this_run,
-                    True,
-                    pipeline_keys,
-                )
-                if cached_result is not None:
-                    hits_this_run.add(step_data["name"])
-                    hits.append(step_data["name"])
-            return hits
-        finally:
-            deactivate_output_root(output_root_token)
+        in step order, executing nothing (dw.workflow_run's `cache_hits`)."""
+        return workflow_run.cache_hits(self, arguments)
 
     def _owned_arguments(self, arguments):
         """The composed child's own copy of what its parent handed it
@@ -1216,6 +634,7 @@ class Workflow:
         run; without one, the ambient context is reused (a sub-workflow
         reports into its parent's run) or a no-op context is created.
         Saved file paths accumulate in self.manifest, one entry per step.
+        The phases are dw.workflow_run's.
         """
         run_context = context or current_context() or RunContext()
         context_token = activate_context(run_context)
@@ -1228,522 +647,51 @@ class Workflow:
         # told to write to - the root, not this run's own subdirectory, since
         # what they name is what an earlier run left there
         output_root_token = activate_output_root(self.output_dir)
-        # Step name -> cache key for this run, so release_pipeline and
-        # pipeline_reference still address pipelines by the step that made them
-        self._pipeline_keys_by_step = {}
-        # This run's key table, set before the first step (below); cleared
-        # here so a reused Workflow never serves _load_key last run's table
-        self._running_pipeline_keys = None
-        # Step name -> {step_data, seed, released} for each cache hit whose
-        # pipeline was not resident and so was not loaded. Per run: a persistent worker
-        # reuses this Workflow across jobs, and what one run deferred says
-        # nothing about what the next has resident
-        self._deferred_pipelines = {}
-        # Last run's step->key map: a redefined step's old model is evicted
-        # BEFORE its replacement loads, or the transition holds both at once
-        self._prior_step_keys = prior_step_keys or {}
+        # This run's step->pipeline tables, fresh per run: a persistent
+        # worker reuses this Workflow across jobs, and what one run recorded
+        # or deferred says nothing about what the next has resident. Its key
+        # table is set before the first step (begin_steps), so a reused
+        # Workflow never serves load_key last run's table
+        self.pipeline_ownership = PipelineOwnership(prior_step_keys)
         self.manifest = []
-        # What elision dropped this run, filled by _prepare_definition and
+        # What elision dropped this run, filled by prepare_definition and
         # read by the warning pass and the manifest (#122)
         self._elided_steps = []
-        # Overwritten on the way out of the try below - a run that leaves
-        # this alone died on an exception the manifest should say so about
-        status = "failed"
-        run_id = None
-        # The seed this run actually used, which is not self.workflow_definition's:
-        # run() works on a deep copy, and a workflow naming no seed draws a random
-        # one into that copy. Recording the original would write null into the
-        # manifest of every seedless run and lose the only record of what produced
-        # its files - the seed is what makes a run repeatable
-        resolved_seed = None
-        # What the run recorded about itself, read by _write_run_manifest in
-        # the finally below - initialized here so a failure before the run
-        # directory exists still writes a well-formed manifest
-        realized_name = None
-        annotations = {"prompts": [], "sub_workflows": {}}
-        started_at = datetime.now(timezone.utc).isoformat()
+        record = workflow_run.RunRecord(arguments)
         try:
-            if self._composed:
-                arguments = self._owned_arguments(arguments)
-            # CRITICAL: Work on a copy to avoid mutating the original workflow definition
-            # This allows the workflow to be run multiple times with different arguments
-            workflow_def = copy.deepcopy(self.workflow_definition)
-
-            workflow_id = workflow_def["id"]
-            logger.debug(f"Processing workflow: {workflow_id}")
-
-            # File paths in workflows are relative to the workflow file
-            base_dir = (
-                os.path.dirname(os.path.abspath(self.file_spec))
-                if self.file_spec
-                else None
+            prepared = workflow_run.prepare_run(self, record)
+            workflow_run.open_run(self, prepared, record, run_context)
+            loop = workflow_run.begin_steps(
+                self, prepared, previous_pipelines, run_context
             )
-
-            workflow_def, default_seed, recorded_variables = self._prepare_definition(
-                workflow_def, arguments, base_dir
-            )
-            # An adapter whose name says nothing about what it was trained
-            # for cannot be checked, and a run that started from the CLI or
-            # from a rerun never passed the validate route (#155)
-            warn_adapters(workflow_def)
-            # Said out loud before anything loads: a step that vanishes
-            # because a reference to it is misspelled would otherwise show
-            # up only as a different picture (#122)
-            warn_elided(self._elided_steps)
-            # A workflow that names no seed gets a fresh one every run, so no
-            # step's cache entry can ever match again - skip the cache
-            # wholesale rather than deep-copying every step's realized images
-            # and pinning every Result for a hit that cannot happen
-            cache_enabled_this_run = (
-                self._cache_enabled_by_parent and default_seed is not None
-            )
-            # create_step_action hands this down to a sub-workflow: it injects
-            # the parent's seed into a child that names none, so a child of a
-            # seedless parent would otherwise look seeded - and cacheable -
-            # while its seed still changes every run
-            self._cache_enabled_this_run = cache_enabled_this_run
-            if default_seed is None:
-                # OS entropy rather than torch or random, so a process that
-                # seeded either for reproducibility is not disturbed. Bounded
-                # to 53 bits rather than the 64 torch allows: the seed is
-                # embedded in the image, the manifest and the realized
-                # workflow as JSON, and a browser reads every integer as a
-                # double - a seed that changed on the way through would be a
-                # seed nobody can reproduce
-                default_seed = secrets.randbits(SEED_BITS)
-            workflow_def["seed"] = default_seed
-            resolved_seed = default_seed
-
-            # One execution, one directory - opened here, after variable
-            # substitution and the seed have settled, so the run's identity
-            # covers what actually ran rather than what was written down. A
-            # sub-workflow inherits the parent's and never opens its own
-            started_at = datetime.now(timezone.utc).isoformat()
-            run_id = None
-            if not self._run_dir_inherited:
-                if output_layout() == FLAT_LAYOUT:
-                    self._run_dir = None
-                else:
-                    run_id = new_run_id(
-                        {"workflow": workflow_def, "arguments": arguments}
-                    )
-                    # Directory and version are claimed together, under one
-                    # lock, so two processes opening a run of this workflow
-                    # at once - a CLI run beside a server job - cannot take
-                    # the same directory or the same number
-                    self._run_dir, self._run_version = open_run(
-                        self.output_dir, self.file_spec, workflow_id, run_id
-                    )
-                    # The claimed directory's own name, which may carry a
-                    # '-N' counter when run_id was already taken - the
-                    # manifest and the run_start event must carry the name
-                    # that was actually claimed
-                    run_id = os.path.basename(self._run_dir)
-                    logger.debug(
-                        f"Run directory: {self._run_dir} (v{self._run_version})"
-                    )
-
-            # The record of what actually ran, written before the first step
-            # so a crash or a cancel still leaves it. A sub-workflow inherits
-            # the parent's directory and writes none of its own, as with the
-            # manifest, and the flat layout has no directory to write into
-            if self._run_dir and not self._run_dir_inherited:
-                try:
-                    realized, annotations = realize_workflow(
-                        self.workflow_definition,
-                        recorded_variables,
-                        default_seed,
-                        base_dir=base_dir,
-                        output_root=self.output_dir,
-                        workflow_dir=self.workflow_dir,
-                    )
-                    if write_realized_workflow(self._run_dir, realized):
-                        realized_name = REALIZED_FILE_NAME
-                except Exception as e:
-                    # Never fatal: the record is worth less than the run
-                    logger.warning(f"Could not realize workflow {workflow_id}: {e}")
-
-                # A manifest now, rewritten in full when the run ends: the
-                # version held only in memory until then was lost to a hard
-                # kill, and a second process opening a run of this workflow
-                # meanwhile could not see it and took the same number
-                self._write_run_manifest(
-                    run_id,
-                    "running",
-                    started_at,
-                    arguments,
-                    resolved_seed,
-                    realized_name,
-                    annotations,
-                )
-
-                # Which run this is, so a server job can find the directory
-                # it wrote. Emitted even when the realized file did not land:
-                # the manifest is still there, and so are the files
-                run_context.emit(
-                    "run_start",
-                    run_id=run_id,
-                    version=self._run_version,
-                    identity=workflow_identity(self.file_spec, workflow_id),
-                    run_dir=os.path.relpath(self._run_dir, self.output_dir).replace(
-                        os.sep, "/"
-                    ),
-                )
-
-            # Initialize collections for sharing state between steps
-            # Stores results from each step, and remembers the names of
-            # steps whose results have since been released
-            results = StepResults()
-            shared_components = {}  # Shared resources between steps
-
-            # Use provided pipelines cache or create new dict
-            # This allows pipeline reuse across multiple workflow runs
-            if previous_pipelines is None:
-                pipelines = {}
-                logger.debug("Starting with empty pipeline cache")
-            else:
-                pipelines = previous_pipelines
-                logger.debug(f"Reusing pipeline cache with {len(pipelines)} pipelines")
-
-            last_result = None  # Final result is the workflow return value
-
-            # realize any arguments for the steps, i.e. load images etc
-            # that are referenced directly in the step
-            steps = workflow_def.get("steps", [])
-
-            if not steps:
-                logger.warning(f"Workflow {workflow_id} has no steps defined")
-                status = "completed"
+            if loop is None:
+                record.status = "completed"
                 return []
-
-            realize_args(steps, base_dir)
-
-            # The key each pipeline step of THIS run loads under, computed
-            # from the same realized dicts create_step_action hashes, so the
-            # two agree. This is what "still shared" means there: a key
-            # another running step maps to NOW - not the key it mapped to
-            # last run (every step sharing a changed model variable has the
-            # old key as its prior key and none has it as its current one),
-            # and not a key some step of a past, unrelated workflow left in
-            # the cross-job _prior_step_keys map. Taken before any load edits a
-            # definition, it is also the table every borrowed-key lookup reads
-            self._running_pipeline_keys = step_pipeline_keys(steps)
-
-            run_context.emit(
-                "workflow_start",
-                workflow=workflow_id,
-                total_steps=len(steps),
-                steps=[step_data["name"] for step_data in steps],
-                seed=default_seed,
-            )
-
-            # Step name -> whether that step's result this run came from the
-            # cache, so a step that reads another step's result can tell
-            # whether its own inputs are still all cache-fresh
-            hits_this_run = set()
-
-            # Execute each step in sequence
-            for i, step_data in enumerate(steps):
-                run_context.check_cancelled()
-                logger.debug(f"Running step {i + 1}/{len(steps)}: {step_data['name']}")
-                run_context.emit(
-                    "step_start",
-                    workflow=workflow_id,
-                    step=step_data["name"],
-                    index=i,
-                    total_steps=len(steps),
-                    **self._parent_progress_fields(),
+            for index, step_data in enumerate(loop.steps):
+                remaining_refs = workflow_run.run_step(
+                    self, loop, index, step_data, record
                 )
-
-                # Seeds resolve most-specific-first: pipeline > step > workflow
-                step_seed = step_data.get("seed", default_seed)
-
-                step = Step(
-                    step_data,
-                    step_seed,
-                    self.workflow_definition,
-                    consumed_by_normalizer=normalized_downstream(
-                        steps[i + 1 :], step_data["name"]
-                    ),
-                )
-
-                cached_result, step_data_snapshot, result_needed, remaining_refs = (
-                    self._cache_lookup(
-                        workflow_id,
-                        steps,
-                        i,
-                        step_data,
-                        step_seed,
-                        hits_this_run,
-                        cache_enabled_this_run,
-                        self._running_pipeline_keys,
-                    )
-                )
-                is_cacheable = step_data_snapshot is not None
-                # The last step of a composed child whose parent does the
-                # saving (#92) - its files are written once, by the parent
-                parent_saves_this = (
-                    self._final_save_owned_by_parent and i == len(steps) - 1
-                )
-
-                # A hit skips the step's work, never its bookkeeping:
-                # create_step_action is the only place that touches the
-                # step's pipeline (the worker evicts every pipeline a run did
-                # not touch), republishes a resident pipeline's
-                # shared_components for a later reusing step, and records the
-                # step's pipeline key for release_pipeline and
-                # pipeline_reference to address it by. Loading is not
-                # bookkeeping: a hit whose pipeline is not resident defers
-                # it, and it loads only when a step that actually runs
-                # borrows it - whether a later step will be a hit too is not
-                # known until that step's own lookup
-                if cached_result is None:
-                    self._load_deferred_borrows(
-                        workflow_id, steps, i, shared_components, pipelines
-                    )
-                step_action = self.create_step_action(
-                    step_data,
-                    shared_components,
-                    pipelines,
-                    step_seed,
-                    get_device(),
-                    cache_hit=cached_result is not None,
-                )
-                if isinstance(step_action, Workflow):
-                    # The child reports into this run's counter rather than
-                    # its own, and a grandchild reports into the same one
-                    step_action._parent_progress = self._parent_progress or {
-                        "step": step_data["name"],
-                        "index": i,
-                        "total_steps": len(steps),
-                    }
-                    # Only when the parent's own result would write
-                    # something: a result block that names no content_type,
-                    # or says save: false, saves nothing, and suppressing
-                    # the child's save for it would lose the artifact
-                    parent_result = step_data.get("result")
-                    step_action._final_save_owned_by_parent = bool(
-                        isinstance(parent_result, dict)
-                        and parent_result.get("content_type")
-                        and parent_result.get("save", True)
-                    )
-                reused = cached_result is not None
-                if reused:
-                    logger.info(f"Step '{step.name}' unchanged - reusing cached result")
-                    result = cached_result
-                    saved_files = result.saved_files
-                    hits_this_run.add(step.name)
-                else:
-                    result = step.run(results, pipelines, step_action)
-
-                # A sub-workflow's saves land in the child's manifest - read it
-                # here, before the release below may drop the child
-                sub_manifest = (
-                    list(getattr(step_action, "manifest", []))
-                    if isinstance(step_action, Workflow)
-                    else []
-                )
-
-                # A released pipeline frees its memory for later steps - the
-                # alternative on a card that cannot hold two models is offloading
-                # everything, which taxes every run to survive one transition.
-                # Before the write, not after: the result is already in host
-                # memory and saving never touches the pipeline, so a release
-                # that waited for the write would hold ~10 GB on the device
-                # through the longest phase of a video step. The loop's own
-                # locals are the last references to this step's action, so
-                # clearing that is part of the release - a popped pipeline this
-                # frame still holds is not freed, and it would otherwise stay
-                # resident through the next step's load, which is exactly when
-                # both models would be in memory at once
-                release = step_data.get("release_pipeline", False)
-                released = (
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
-                    if release
-                    else None
-                )
-                if release and step.name in self._deferred_pipelines:
-                    # Release frees the pipeline but keeps what it published:
-                    # a later reuser still gets the components, and the
-                    # lazy load drops the pipeline again straight after
-                    self._deferred_pipelines[step.name]["released"] = True
-                # A hit that loaded nothing holds nothing: announcing a
-                # release would report a drop that never happened. Not gated
-                # on the pop alone - a sub-workflow step has no pipeline key,
-                # and clearing step_action is what frees its child Workflow
-                if release and (released is not None or step_action is not None):
-                    logger.info(f"Releasing pipeline for step: {step.name}")
-                    before = _allocated_mb()
-                    released = None
-                    step_action = None
-                    self._finish_release(workflow_id, step.name, i, before)
-
-                if not reused:
-                    if parent_saves_this:
-                        # No file is written here - the parent owns that
-                        # (#92) - but this step's own declared fps and its
-                        # audio-to-frames fit must still land on the artifact
-                        # before it is handed up, or the parent (and any
-                        # previous_result: consumer) sees an unstamped one
-                        # and falls back to DEFAULT_VIDEO_FPS (#561)
-                        result.conform_artifacts()
-                        saved_files = []
-                    else:
-                        saved_files = result.save(
-                            self.step_output_dir(step_data),
-                            self.step_save_name(workflow_id, step.name, i),
-                        )
-                    if is_cacheable:
-                        step_cache.put(
-                            workflow_id,
-                            step_data_snapshot,
-                            step_seed,
-                            result,
-                            self.output_dir,
-                            retain_result=result_needed,
-                        )
-
-                last_result = result
-                results[step.name] = result
-                # 'reused' marks files an earlier run wrote and this one only
-                # republished, so nothing downstream (job_for_file, the
-                # gallery) credits this run with writing them
-                subfolder = step_subfolder(step_data)
-                selected = selected_field(step_data, result.selected)
-                manifest_entry = {
-                    "step": step.name,
-                    "files": saved_files,
-                    "subfolder": subfolder,
-                }
-                if reused:
-                    manifest_entry["reused"] = True
-                if selected is not None:
-                    manifest_entry["selected"] = selected
-                # Where each joined shot sits in the file, named by the
-                # step's own input references (dw/shots.py)
-                shots = step_shots(
-                    getattr(result, "saved_shots", None),
-                    saved_files,
-                    shot_references(step_data.get("task", {}).get("arguments", {})),
-                )
-                if shots:
-                    manifest_entry["shots"] = shots
-                    # Only the step that joined made the collision; a step
-                    # that carries an input's shots over (pair_audio,
-                    # interpolate_frames) repeats what the caller can only
-                    # act on at the join (#568)
-                    command = step_data.get("task", {}).get("command")
-                    duplicates = (
-                        None if carries_shots(command) else duplicate_shot_names(shots)
-                    )
-                    if duplicates:
-                        # Frames and samples stay exact either way - only a
-                        # name-based lookup (a `shots=` argument, a finding)
-                        # can no longer tell the collided shots apart (#508)
-                        for file, names in duplicates.items():
-                            extra = {"file": file} if file is not None else {}
-                            emit_warning(
-                                "joined shots share a name ("
-                                + ", ".join(names)
-                                + ") and can no longer be told apart by "
-                                "name - start_frame still disambiguates.",
-                                kind="shot_name_collision",
-                                command=step.name,
-                                names=names,
-                                **extra,
-                            )
-                # No entry at all for a step the parent saves for: the
-                # parent's own entry names the same files, under the step
-                # name the caller wrote (#92)
-                if not parent_saves_this:
-                    self.manifest.append(manifest_entry)
-                # roll the child's saves up so job history and the gallery see
-                # every file. Each entry is tagged with the composing step
-                # that produced it - a for_each member's files otherwise sit
-                # under the child template's own (repeated) step name with
-                # nothing tying an entry back to its member (#560). A deeper
-                # rollup (a child composing a grandchild) already carries its
-                # own tag, which stays: the nearest composing step is the one
-                # that matters for grouping
-                for sub_entry in sub_manifest:
-                    sub_entry.setdefault("parent_step", step.name)
-                self.manifest.extend(sub_manifest)
-                step_end_data = {"files": saved_files, "subfolder": subfolder}
-                if reused:
-                    step_end_data["reused"] = True
-                if selected is not None:
-                    step_end_data["selected"] = selected
-                if shots:
-                    step_end_data["shots"] = shots
-                run_context.emit(
-                    "step_end",
-                    workflow=workflow_id,
-                    step=step.name,
-                    index=i,
-                    total_steps=len(steps),
-                    **self._parent_progress_fields(),
-                    **step_end_data,
-                )
-                logger.debug(f"Step {step.name} completed with result: {result}")
-
-                # Rewritten after every step, not only at the end (#480): a
-                # for_each member that just landed is otherwise invisible to
-                # anything reading manifest.json until the whole job finishes
-                # or dies, leaving a killed worker's finished shots
-                # unrecorded. Best effort, like the run-open and final
-                # writes - a step that saved its files has succeeded whether
-                # or not this lands
-                if self._run_dir and not self._run_dir_inherited:
-                    self._write_run_manifest(
-                        run_id,
-                        "running",
-                        started_at,
-                        arguments,
-                        resolved_seed,
-                        realized_name,
-                        annotations,
-                    )
-
                 # Release results no later step references - saved to disk
                 # already, and last_result keeps the workflow's return value
-                release_unreferenced_results(results, remaining_refs)
+                workflow_run.release_unreferenced_results(loop.results, remaining_refs)
+                # Task models the step asked to release, then the cleanup
+                # between steps (pipelines stay loaded)
+                reclaim_after_step(step_data, step_data["name"])
 
-                # The loop's own locals are the last references to this step's
-                # action and result - anything they still hold would stay
-                # resident through the next step's load
-                step_action = None
-                result = None
-
-                # Task models are cached for the life of the process - the cache
-                # exists so a step's cartesian product loads its model once, and
-                # nothing else evicts it. A prompt-expanding language model
-                # feeding a generation step would otherwise hold its weights on
-                # the device for the whole run
-                if step_data.get("release_models", False):
-                    logger.info(f"Releasing task models for step: {step.name}")
-                    clear_model_cache()
-                    gc.collect()
-                    _release_host_caches(step.name)
-
-                # Cleanup between steps (but keep pipelines loaded). Returning
-                # cached blocks to the device lets the next step's differently
-                # shaped allocations use them
-                gc.collect()
-                empty_device_cache()
-
-            logger.debug(f"Workflow {workflow_id} completed successfully")
+            logger.debug(f"Workflow {loop.workflow_id} completed successfully")
             run_context.emit(
-                "workflow_end", workflow=workflow_id, manifest=self.manifest
+                "workflow_end", workflow=loop.workflow_id, manifest=self.manifest
             )
             # Return only the last step's results for child workflows
-            status = "completed"
+            record.status = "completed"
+            last_result = loop.last_result
             return last_result.result_list if last_result is not None else []
 
         except WorkflowCancelled:
             # The user asked for this - report it without an error traceback
             workflow_id = self.workflow_definition.get("id", "unknown")
             logger.info(f"Workflow {workflow_id} cancelled")
-            status = "cancelled"
+            record.status = "cancelled"
             raise
         except (SecurityError, PathTraversalError, InvalidInputError) as e:
             # Security validation failures - these should fail fast, without the
@@ -1763,122 +711,11 @@ class Workflow:
             # Recorded even for a run that failed part way: the files it did
             # write are on disk either way, and what produced them is exactly
             # what a failed run needs to explain itself
-            if self._run_dir and not self._run_dir_inherited:
-                self._write_run_manifest(
-                    run_id,
-                    status,
-                    started_at,
-                    arguments,
-                    resolved_seed,
-                    realized_name,
-                    annotations,
-                )
+            if workflow_run.owns_run_dir(self):
+                workflow_run.write_run_manifest(self, record)
             deactivate_output_root(output_root_token)
             run_context.exit_run()
             deactivate_context(context_token)
-
-    def _write_run_manifest(
-        self,
-        run_id,
-        status,
-        started_at,
-        arguments,
-        seed,
-        realized_name=None,
-        annotations=None,
-    ):
-        """Leave a record of the run beside the files it wrote.
-
-        A server run is in jobs.sqlite as well, but a CLI run has never been
-        recorded anywhere, and a database on one machine cannot describe a
-        directory copied to another. Paths are relative to the run directory
-        so the directory keeps describing itself wherever it goes.
-        """
-        from . import __version__
-
-        write_manifest(
-            self._run_dir,
-            {
-                "run_id": run_id,
-                # This run's ordinal among the workflow's runs - 'v4' in the
-                # gallery. Recorded, never recomputed
-                "version": self._run_version,
-                "status": status,
-                "started_at": started_at,
-                # None on the manifest written as the run opens
-                "finished_at": (
-                    None
-                    if status == "running"
-                    else datetime.now(timezone.utc).isoformat()
-                ),
-                "dw_version": __version__,
-                "device": str(get_device()),
-                "workflow": {
-                    "id": self.name,
-                    "file": self.file_spec,
-                    "identity": workflow_identity(self.file_spec, self.name),
-                    # The realized copy beside this manifest, or null when
-                    # writing it did not land - the manifest is the only
-                    # place that difference is visible
-                    "realized": realized_name,
-                    # Annotations the schema has nowhere to put: which
-                    # stored prompts were inlined, and what each local
-                    # sub-workflow file held when it ran
-                    "prompts": (annotations or {}).get("prompts", []),
-                    "sub_workflows": (annotations or {}).get("sub_workflows", {}),
-                },
-                "seed": seed,
-                "arguments": arguments or {},
-                # What did not run, and why - a run says what it did not do
-                # as well as what it did (#122)
-                "elided_steps": self._elided_steps,
-                "steps": [
-                    {
-                        **entry,
-                        "files": manifest_relative_files(
-                            entry.get("files"), self._run_dir
-                        ),
-                        **_relative_shots(entry, self._run_dir),
-                    }
-                    for entry in self.manifest
-                ],
-            },
-        )
-
-    def _step_pipeline_key(self, step_name, cache_key):
-        """Record which cache key a step's pipeline lives under this run."""
-        if not hasattr(self, "_pipeline_keys_by_step"):
-            self._pipeline_keys_by_step = {}
-        self._pipeline_keys_by_step[step_name] = cache_key
-
-    def _finish_release(self, workflow_id, step_name, index, before):
-        """Free what a popped pipeline held and announce the release.
-
-        `before` is measured by the caller ahead of dropping its own
-        references, which may free the pipeline on the spot.
-        """
-        gc.collect()
-        empty_device_cache()
-        # The device cache is not the only one the release fills: the
-        # pinned-host staging buffers the pipeline offloaded through and the
-        # heap arenas its weights were read into stay in this process's RSS
-        # until they are handed back, which otherwise waits for the end of
-        # the job - ~10 GB held through every step after the release (#368)
-        _release_host_caches(step_name)
-        # Say so on the event stream. The release is otherwise invisible to
-        # a consumer: it sits inside the sub-second window between a step's
-        # generation and its files appearing, which is too narrow to catch
-        # by polling get_memory, and it is exactly the ordering this event
-        # exists to make readable (it precedes the step's step_end, and on a
-        # released card the figures show the drop rather than implying it)
-        get_context().emit(
-            "pipeline_released",
-            workflow=workflow_id,
-            step=step_name,
-            index=index,
-            gpu_memory_allocated_mb=_allocated_mb(),
-            gpu_memory_allocated_before_mb=before,
-        )
 
     def _load_deferred_borrows(
         self, workflow_id, steps, index, shared_components, pipelines
@@ -1894,13 +731,14 @@ class Workflow:
         load followed by its release leaves behind.
         """
         step = steps[index]
-        running_keys = getattr(self, "_running_pipeline_keys", None) or {}
+        ownership = self.pipeline_ownership
+        running_keys = ownership.running or {}
         own_key = running_keys.get(step["name"])
         if own_key is not None and own_key in pipelines:
             # Reused components are resolved only inside load(), and a
             # resident pipeline does not load
             return
-        deferred = getattr(self, "_deferred_pipelines", {})
+        deferred = ownership.deferred
         borrowed = borrowed_pipeline_keys(steps, index, running_keys)
         reference = step.get("pipeline_reference")
         referenced_name = (
@@ -1912,7 +750,7 @@ class Workflow:
             name = source.get("name")
             if name not in borrowed or name not in deferred:
                 continue
-            if name == referenced_name and deferred[name]["released"]:
+            if name == referenced_name and deferred[name].released:
                 # A released pipeline cannot be referenced; loading it only
                 # to drop it would delay the error the reference raises
                 continue
@@ -1921,42 +759,19 @@ class Workflow:
             )
             entry = deferred.pop(name)
             self.create_step_action(
-                entry["step_data"],
+                entry.step_data,
                 shared_components,
                 pipelines,
-                entry["seed"],
+                entry.seed,
                 get_device(),
             )
-            if entry["released"]:
+            if entry.released:
                 # The release the step asked for, happening now: freed and
                 # announced as its own release would have been, so the
                 # borrower does not load on top of it
-                before = _allocated_mb()
-                pipelines.pop(self._pipeline_keys_by_step.get(name), None)
-                self._finish_release(workflow_id, name, source_index, before)
-
-    def _load_key(self, step_definition):
-        """The pipeline cache key a pipeline step loads under.
-
-        Read from the run's table (step_pipeline_keys, taken by run() before
-        anything loaded) - a load edits the definition it is handed, so a
-        key re-hashed from it could disagree with the one the table, a
-        deferred hit and the cache_hits probe use. The table also holds the
-        effective key - a step that reuses components folds in its sources'
-        keys - which the step's own definition cannot give. Hashed here only
-        for a step driven outside run(), which has no table; a table that
-        lacks the step is an internal error, never a silent re-hash.
-        """
-        running_keys = getattr(self, "_running_pipeline_keys", None)
-        if running_keys is None:
-            return pipeline_cache_key(step_definition["pipeline"])
-        step_name = step_definition["name"]
-        if step_name not in running_keys:
-            raise RuntimeError(
-                f"Internal error: pipeline step '{step_name}' is not in this "
-                "run's pipeline key table"
-            )
-        return running_keys[step_name]
+                before = allocated_mb()
+                pipelines.pop(ownership.key_for(name), None)
+                finish_release(workflow_id, name, source_index, before)
 
     def create_step_action(
         self,
@@ -1979,261 +794,203 @@ class Workflow:
         - Workflow: Loads and validates sub-workflow
         - Task: Creates task object
         """
-        # Handle pipeline creation
         if "pipeline" in step_definition:
-            step_name = step_definition["name"]
-
-            # Pipelines are cached by what they load, not what step loads them
-            cache_key = self._load_key(step_definition)
-            self._step_pipeline_key(step_name, cache_key)
-            get_context().touch_pipeline(cache_key)
-
-            if cache_hit and cache_key not in previous_pipelines:
-                # A hit needs the key recorded (release_pipeline and
-                # pipeline_reference address it by name), not the weights:
-                # nothing calls the pipeline unless a step that runs borrows
-                # it, and that step loads it then
-                if not hasattr(self, "_deferred_pipelines"):
-                    self._deferred_pipelines = {}
-                self._deferred_pipelines[step_name] = {
-                    "step_data": step_definition,
-                    "seed": default_seed,
-                    "released": False,
-                }
-                return None
-
-            # Check if pipeline already loaded in cache (GPU persistence)
-            if cache_key in previous_pipelines:
-                logger.debug(f"Reusing cached pipeline for step: {step_name}")
-                cached_pipeline = previous_pipelines[cache_key]
-                # The shared_components dict is fresh every run and only load()
-                # fills it - a cache hit must republish or a later step's
-                # reused_components finds nothing (impossible under the old
-                # whole-file cache, the normal case under identity keys)
-                cached_pipeline.publish_shared_components(shared_components)
-                # Create new Pipeline wrapper with updated step definition
-                # but reuse the loaded model from cache
-                new_pipeline_wrapper = Pipeline(
-                    step_definition["pipeline"],
-                    default_seed,
-                    device,
-                    cached_pipeline.pipeline,  # Reuse the actual loaded model
-                    output_dir=self.step_output_dir(step_definition),
-                    file_prefix=self.step_file_prefix(step_name),
-                )
-                # Set up generator with potentially new seed. no_generator is a
-                # boolean - only an explicit true disables the generator - and the
-                # generator lives on the pipeline's own device, which may override
-                # the workflow default (the fresh-load path resolves it the same way)
-                if not new_pipeline_wrapper.configuration.get("no_generator", False):
-                    logger.debug(
-                        "Setting up generator for cached pipeline with new arguments"
-                    )
-                    new_pipeline_wrapper.argument_template["generator"] = (
-                        torch.Generator(new_pipeline_wrapper.device).manual_seed(
-                            new_pipeline_wrapper.pipeline_definition.get(
-                                "seed", default_seed
-                            )
-                        )
-                    )
-
-                # A cache hit and a cold load look identical from the outside -
-                # same step, same dot - and they differ by minutes
-                emit_phase("cached", detail=new_pipeline_wrapper.name)
-                return new_pipeline_wrapper
-
-            # Not in cache - a redefined step frees its previous model first,
-            # so the swap never holds old and new stacks simultaneously
-            prior_keys = getattr(self, "_prior_step_keys", {})
-            prior_key = prior_keys.get(step_name)
-            # Only this step's own variant: a key another step of THIS run
-            # loads under NOW is that step's warm model, and releasing it
-            # here would reload it cold a moment later while holding both
-            # stacks. Judged on the other steps' current keys
-            # (_running_pipeline_keys, recorded by run), not their prior
-            # ones: when every step sharing one model variable changes at
-            # once, each still has the old key as its prior key, and
-            # nobody will load it again - holding it would be the two-stack
-            # transition #150 fixed. _prior_step_keys is merged across every
-            # job the worker has run, never pruned, so a name from an
-            # earlier, unrelated workflow does not count either - it is not
-            # among the running steps. If nothing touches the key this run,
-            # the end-of-run sweep drops it.
-            running_keys = getattr(self, "_running_pipeline_keys", None) or {}
-            still_shared = any(
-                other != step_name and key == prior_key
-                for other, key in running_keys.items()
-            )
-            if (
-                prior_key
-                and prior_key != cache_key
-                and prior_key in previous_pipelines
-                and not still_shared
-            ):
-                logger.info(
-                    f"Step '{step_name}' was redefined - releasing its previous "
-                    "pipeline before loading the new one"
-                )
-                before = _allocated_mb()
-                previous_pipelines.pop(prior_key, None)
-                gc.collect()
-                empty_device_cache()
-                _release_host_caches(step_name)
-                # Say so on the event stream, for the same reason the explicit
-                # release does: without it a reload-on-top-of-a-resident-model
-                # is indistinguishable from a cold load, and the difference is
-                # whether the next thing that happens is an OOM kill (#150).
-                # 'reason' separates it from the release a step asked for
-                get_context().emit(
-                    "pipeline_released",
-                    step=step_name,
-                    reason="superseded",
-                    gpu_memory_allocated_mb=_allocated_mb(),
-                    gpu_memory_allocated_before_mb=before,
-                )
-
-            logger.debug(f"Creating pipeline for step: {step_name}")
-            pipeline = Pipeline(
-                step_definition["pipeline"],
+            return self._pipeline_action(
+                step_definition,
+                shared_components,
+                previous_pipelines,
                 default_seed,
                 device,
-                output_dir=self.step_output_dir(step_definition),
-                file_prefix=self.step_file_prefix(step_name),
+                cache_hit,
             )
-            # Before the marker, not after it: a definition refused by the
-            # trust gate must not have announced a load it never began, or a
-            # consumer reading job events cannot tell 'refused before load'
-            # from 'loaded, then refused' (#137)
-            pipeline.check_trusted()
-            # Loading is the longest silence in a run: weights, quantization,
-            # adapters and placement all happen inside this call
-            emit_phase("loading", detail=pipeline.name)
-            pipeline.load(shared_components)
-            previous_pipelines[cache_key] = pipeline
-            return pipeline
-
-        # Handle pipeline reference
         if "pipeline_reference" in step_definition:
-            logger.debug(
-                f"Referencing existing pipeline for step: {step_definition['name']}"
+            return self._reference_action(
+                step_definition, previous_pipelines, default_seed, device, cache_hit
             )
-            pipeline_reference = step_definition["pipeline_reference"]
-            reference_name = pipeline_reference["reference_name"]
-            referenced_key = self._pipeline_keys_by_step.get(reference_name)
-            if cache_hit and reference_name in getattr(self, "_deferred_pipelines", {}):
-                # The referenced step was a hit that deferred its load, and
-                # this step's result is cached too: nothing will call it
-                return None
-            if referenced_key is None or referenced_key not in previous_pipelines:
-                raise ValueError(
-                    f"pipeline_reference '{reference_name}' does not name an "
-                    "earlier pipeline step in this run (or it was released)"
-                )
-            previous_pipeline = previous_pipelines[referenced_key]
-            return Pipeline(
-                pipeline_reference,
-                default_seed,
-                device,
-                previous_pipeline.pipeline,
-                output_dir=self.step_output_dir(step_definition),
-                file_prefix=self.step_file_prefix(step_definition["name"]),
-            )
-
-        # Handle sub-workflow
         if "workflow" in step_definition:
-            logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
-            workflow_reference = step_definition["workflow"]
-            path = workflow_reference["path"]
-
-            try:
-                # Sub-workflow steps are confined to the same directory this
-                # workflow is (workflow_dir for a server-submitted run)
-                confine_to = self.workflow_dir
-                # Handle built-in workflows
-                if references.is_ref(references.BUILTIN, path):
-                    builtin_name = path.replace(references.BUILTIN, "")
-                    # Validate builtin workflow name
-                    if (
-                        not builtin_name.endswith(".json")
-                        or "/" in builtin_name
-                        or "\\" in builtin_name
-                    ):
-                        raise InvalidInputError(
-                            f"Invalid builtin workflow name: {builtin_name}. "
-                            "It must be a bare '<name>.json' filename with no "
-                            "path segments - 'builtin:' only looks in the "
-                            f"packaged workflows root: {builtin_root()}"
-                        )
-                    # Builtins ship inside the package, outside any
-                    # workflow_dir - confine them to their own directory
-                    # instead (the name check above already forbids escaping it)
-                    confine_to = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)), "workflows"
-                    )
-                    path = os.path.join(confine_to, builtin_name)
-                # Everything else - a relative path, or a catalog name as
-                # list_workflows reports it - goes through the search path.
-                # A template under templates/ names a model config as
-                # '../models/x.json', so a path relative to the referencing
-                # file still resolves first and the '..' is collapsed here,
-                # which is what lets the validator judge where the path
-                # actually lands rather than refusing the spelling;
-                # containment is still checked on the resolved path below.
-                # An unconfined run (no workflow_dir - a bare CLI
-                # invocation) used to rely on the '..' regex alone to stop a
-                # relative reference from leaving the file's own directory;
-                # normalizing the path removes that guard, so confine it to
-                # the catalog root instead - the referencing file's nearest
-                # ancestor literally named 'workflows', which still lets it
-                # climb to a sibling folder like models/ but not out of the
-                # catalog
-                else:
-                    if confine_to is None and not os.path.isabs(path):
-                        confine_to = catalog_root_dir(self.file_spec)
-                    path, resolved_root = resolve_sub_workflow(
-                        path, os.path.dirname(self.file_spec), confine_to
-                    )
-                    confine_to = resolved_root.root if resolved_root else None
-
-                # Validate the resolved path - confined when this workflow
-                # itself is (an inline/server-submitted run), so a
-                # sub-workflow step cannot escape that boundary
-                validated_path = validate_workflow_path(path, confine_to)
-                workflow = workflow_from_file(
-                    validated_path, self.output_dir, confine_to
-                )
-
-            except SecurityError as e:
-                logger.error(f"Security validation failed for sub-workflow {path}: {e}")
-                raise
-
-            # this is where the arguments in the parent script are passed to the child workflow
-            # they will already be populated with values from previous steps or parent variables
-            workflow.workflow_definition["argument_template"] = workflow_reference.get(
-                "arguments", {}
-            )
-            # A child left to itself draws its own random seed, which makes the
-            # parent's seed stop short of the work it delegates. Inheriting it
-            # keeps one seed reproducing the whole run; a child that names its
-            # own still wins, the same way a step overrides its workflow
-            workflow.workflow_definition.setdefault("seed", default_seed)
-            # A seedless parent injects a seed that is fresh every run, so no
-            # step of the child can ever hit - the child must not pay the
-            # cache's deepcopy and Result pinning for it
-            workflow._cache_enabled_by_parent = self._cache_enabled_this_run
-            # The parent's objects arrive as this child's arguments; the child
-            # copies them once on entry rather than editing the parent's
-            workflow._composed = True
-            # One execution, one directory: the child writes into the
-            # parent's run directory and leaves no manifest of its own - its
-            # steps roll up into the parent's manifest already
-            workflow._run_dir = self._run_dir
-            workflow._run_dir_inherited = self._run_dir is not None
-            workflow.validate()
-            return workflow
+            return self._sub_workflow_action(step_definition, default_seed)
 
         logger.debug(f"Creating task for step: {step_definition['name']}")
-        # Handle task creation
         task_definition = step_definition["task"]
-        task = Task(task_definition, device, seed=default_seed)
-        return task
+        return Task(task_definition, device, seed=default_seed)
+
+    def _pipeline_action(
+        self,
+        step_definition,
+        shared_components,
+        previous_pipelines,
+        default_seed,
+        device,
+        cache_hit,
+    ):
+        """A pipeline step's action: the resident pipeline rewrapped, a
+        fresh load, or None for a hit whose pipeline is not resident."""
+        step_name = step_definition["name"]
+
+        # Pipelines are cached by what they load, not what step loads them
+        ownership = self.pipeline_ownership
+        cache_key = ownership.load_key(step_definition)
+        ownership.record(step_name, cache_key)
+        get_context().touch_pipeline(cache_key)
+
+        if cache_hit and cache_key not in previous_pipelines:
+            # A hit needs the key recorded (release_pipeline and
+            # pipeline_reference address it by name), not the weights:
+            # nothing calls the pipeline unless a step that runs borrows
+            # it, and that step loads it then
+            ownership.defer(step_name, step_definition, default_seed)
+            return None
+
+        # Check if pipeline already loaded in cache (GPU persistence)
+        if cache_key in previous_pipelines:
+            logger.debug(f"Reusing cached pipeline for step: {step_name}")
+            # The shared_components dict is fresh every run and only load()
+            # fills it - a cache hit must republish, before anything is
+            # computed for the step's own output
+            previous_pipelines[cache_key].publish_shared_components(shared_components)
+            return wrap_resident(
+                previous_pipelines[cache_key],
+                step_definition,
+                default_seed,
+                device,
+                self.step_output_dir(step_definition),
+                self.step_file_prefix(step_name),
+            )
+
+        # Not in cache - a redefined step frees its previous model first,
+        # so the swap never holds old and new stacks simultaneously
+        prior_key = ownership.superseded_key(step_name, cache_key, previous_pipelines)
+        if prior_key is not None:
+            evict_superseded(previous_pipelines, step_name, prior_key)
+
+        logger.debug(f"Creating pipeline for step: {step_name}")
+        pipeline = load_fresh(
+            step_definition,
+            shared_components,
+            default_seed,
+            device,
+            self.step_output_dir(step_definition),
+            self.step_file_prefix(step_name),
+        )
+        previous_pipelines[cache_key] = pipeline
+        return pipeline
+
+    def _reference_action(
+        self, step_definition, previous_pipelines, default_seed, device, cache_hit
+    ):
+        """A pipeline_reference step's action over an earlier step's
+        pipeline; None on a hit whose referenced step deferred its load."""
+        logger.debug(
+            f"Referencing existing pipeline for step: {step_definition['name']}"
+        )
+        pipeline_reference = step_definition["pipeline_reference"]
+        reference_name = pipeline_reference["reference_name"]
+        referenced_key = self.pipeline_ownership.key_for(reference_name)
+        if cache_hit and reference_name in self.pipeline_ownership.deferred:
+            # The referenced step was a hit that deferred its load, and
+            # this step's result is cached too: nothing will call it
+            return None
+        if referenced_key is None or referenced_key not in previous_pipelines:
+            raise ValueError(
+                f"pipeline_reference '{reference_name}' does not name an "
+                "earlier pipeline step in this run (or it was released)"
+            )
+        previous_pipeline = previous_pipelines[referenced_key]
+        return Pipeline(
+            pipeline_reference,
+            default_seed,
+            device,
+            previous_pipeline.pipeline,
+            output_dir=self.step_output_dir(step_definition),
+            file_prefix=self.step_file_prefix(step_definition["name"]),
+        )
+
+    def _sub_workflow_action(self, step_definition, default_seed):
+        """The composed child Workflow a `workflow` step runs, resolved,
+        confined and validated."""
+        logger.debug(f"Loading sub-workflow for step: {step_definition['name']}")
+        workflow_reference = step_definition["workflow"]
+        path = workflow_reference["path"]
+
+        try:
+            # Sub-workflow steps are confined to the same directory this
+            # workflow is (workflow_dir for a server-submitted run)
+            confine_to = self.workflow_dir
+            # Handle built-in workflows
+            if references.is_ref(references.BUILTIN, path):
+                builtin_name = path.replace(references.BUILTIN, "")
+                # Validate builtin workflow name
+                if (
+                    not builtin_name.endswith(".json")
+                    or "/" in builtin_name
+                    or "\\" in builtin_name
+                ):
+                    raise InvalidInputError(
+                        f"Invalid builtin workflow name: {builtin_name}. "
+                        "It must be a bare '<name>.json' filename with no "
+                        "path segments - 'builtin:' only looks in the "
+                        f"packaged workflows root: {builtin_root()}"
+                    )
+                # Builtins ship inside the package, outside any
+                # workflow_dir - confine them to their own directory
+                # instead (the name check above already forbids escaping it)
+                confine_to = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "workflows"
+                )
+                path = os.path.join(confine_to, builtin_name)
+            # Everything else - a relative path, or a catalog name as
+            # list_workflows reports it - goes through the search path.
+            # A template under templates/ names a model config as
+            # '../models/x.json', so a path relative to the referencing
+            # file still resolves first and the '..' is collapsed here,
+            # which is what lets the validator judge where the path
+            # actually lands rather than refusing the spelling;
+            # containment is still checked on the resolved path below.
+            # An unconfined run (no workflow_dir - a bare CLI
+            # invocation) used to rely on the '..' regex alone to stop a
+            # relative reference from leaving the file's own directory;
+            # normalizing the path removes that guard, so confine it to
+            # the catalog root instead - the referencing file's nearest
+            # ancestor literally named 'workflows', which still lets it
+            # climb to a sibling folder like models/ but not out of the
+            # catalog
+            else:
+                if confine_to is None and not os.path.isabs(path):
+                    confine_to = catalog_root_dir(self.file_spec)
+                path, resolved_root = resolve_sub_workflow(
+                    path, os.path.dirname(self.file_spec), confine_to
+                )
+                confine_to = resolved_root.root if resolved_root else None
+
+            # Validate the resolved path - confined when this workflow
+            # itself is (an inline/server-submitted run), so a
+            # sub-workflow step cannot escape that boundary
+            validated_path = validate_workflow_path(path, confine_to)
+            workflow = workflow_from_file(validated_path, self.output_dir, confine_to)
+
+        except SecurityError as e:
+            logger.error(f"Security validation failed for sub-workflow {path}: {e}")
+            raise
+
+        # this is where the arguments in the parent script are passed to the child workflow
+        # they will already be populated with values from previous steps or parent variables
+        workflow._handed_arguments = workflow_reference.get("arguments", {})
+        # A child left to itself draws its own random seed, which makes the
+        # parent's seed stop short of the work it delegates. Inheriting it
+        # keeps one seed reproducing the whole run; a child that names its
+        # own still wins, the same way a step overrides its workflow
+        workflow.workflow_definition.setdefault("seed", default_seed)
+        # A seedless parent injects a seed that is fresh every run, so no
+        # step of the child can ever hit - the child must not pay the
+        # cache's deepcopy and Result pinning for it
+        workflow._cache_enabled_by_parent = self._cache_enabled_this_run
+        # The parent's objects arrive as this child's arguments; the child
+        # copies them once on entry rather than editing the parent's
+        workflow._composed = True
+        # One execution, one directory: the child writes into the
+        # parent's run directory and leaves no manifest of its own - its
+        # steps roll up into the parent's manifest already
+        workflow._run_dir = self._run_dir
+        workflow._run_dir_inherited = self._run_dir is not None
+        workflow.validate()
+        return workflow

@@ -16,7 +16,7 @@ import pathlib
 
 import pytest
 
-from dw.introspection import component_type_errors
+from dw.type_references import component_type_errors
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 

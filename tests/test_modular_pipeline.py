@@ -10,14 +10,14 @@ import torch
 from unittest.mock import MagicMock, patch
 
 from dw.arguments import realize_args
-from dw.pipeline_processors.pipeline import (
-    Pipeline,
+from dw.pipeline_processors.components import (
     apply_compile,
     configure_components,
     get_component,
-    has_component_group_offload,
     load_component,
 )
+from dw.pipeline_processors.pipeline import Pipeline
+from dw.pipeline_processors.placement import has_component_group_offload
 
 
 @pytest.fixture(autouse=True)
@@ -506,7 +506,7 @@ class TestConfigureComponents:
 
     def configure(self, components, pipeline=None, device="cuda"):
         pipeline = pipeline if pipeline is not None else MagicMock()
-        # Patched at its source - pipeline.py imports it at the call site
+        # Patched at its source - components.py imports it at the call site
         with patch("diffusers.hooks.apply_group_offloading") as group_offload:
             configure_components(pipeline, {"components": components}, device)
 

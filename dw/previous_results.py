@@ -5,7 +5,6 @@ from . import references
 from .arguments import (
     build_objects,
 )
-from .references import FROM_PREVIOUS_RESULT_KEY
 from .for_each import MEMBER_SEPARATOR, render_path
 from .step_cache import reference_resolves_to
 
@@ -36,10 +35,11 @@ def get_iterations(argument_template, previous_results):
     if isinstance(argument_template, list):
         iterations = []
         for entry in argument_template:
-            if isinstance(entry, str) and entry.startswith(references.PREVIOUS_RESULT):
+            if references.is_ref(references.PREVIOUS_RESULT, entry):
                 iterations.extend(
                     get_previous_results(
-                        previous_results, entry[len(references.PREVIOUS_RESULT) :]
+                        previous_results,
+                        references.ref_name(references.PREVIOUS_RESULT, entry),
                     )
                 )
             elif isinstance(entry, dict):
@@ -194,9 +194,9 @@ def resolve_chain_prompts(step_action, previous_results):
 
     resolved = []
     for entry in prompts:
-        if isinstance(entry, str) and entry.startswith(references.PREVIOUS_RESULT):
+        if references.is_ref(references.PREVIOUS_RESULT, entry):
             artifacts = get_previous_results(
-                previous_results, entry.removeprefix(references.PREVIOUS_RESULT)
+                previous_results, references.ref_name(references.PREVIOUS_RESULT, entry)
             )
             if not artifacts:
                 raise ValueError(f"Chain prompt reference '{entry}' produced no result")
@@ -234,22 +234,16 @@ def find_previous_result_refs(arguments):
 
 
 def _collect_refs(value, path, found):
-    """Walk an argument structure, collecting every reference by its path."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            # The object description names its step bare, the way it would name a
-            # file - the prefix would only repeat what the key already says
-            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
-                found[path + (key,)] = item
-            else:
-                _collect_refs(item, path + (key,), found)
+    """Walk an argument structure, collecting every reference by its path.
 
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _collect_refs(item, path + (index,), found)
-
-    elif isinstance(value, str) and value.startswith(references.PREVIOUS_RESULT):
-        found[path] = value[len(references.PREVIOUS_RESULT) :]
+    The object description names its step bare, the way it would name a
+    file - the prefix would only repeat what the key already says - and is
+    not read for a prefixed spelling.
+    """
+    for where, name, _ in references.iter_previous_result_references(
+        value, descend_into_from=False, path=path
+    ):
+        found[where] = name
 
 
 def substitute_at_path(container, path, value):
@@ -391,17 +385,12 @@ def _collect_reference_paths(value, path, found):
 
     Both spellings: the 'previous_result:' prefix on a string, and the
     'from_previous_result' key of a constructed object, which names a step
-    without the prefix.
+    without the prefix. A key whose value is a 'variable:' reference is
+    one nothing resolved, and is left alone.
     """
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
-                if not references.is_ref(references.VARIABLE, item):
-                    found[path + (key,)] = item
-                continue
-            _collect_reference_paths(item, path + (key,), found)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _collect_reference_paths(item, path + (index,), found)
-    elif isinstance(value, str) and value.startswith(references.PREVIOUS_RESULT):
-        found[path] = value[len(references.PREVIOUS_RESULT) :]
+    for where, name, via in references.iter_previous_result_references(
+        value, descend_into_from=False, path=path
+    ):
+        if via == "key" and references.is_ref(references.VARIABLE, name):
+            continue
+        found[where] = name

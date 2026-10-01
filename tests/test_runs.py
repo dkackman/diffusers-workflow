@@ -225,7 +225,7 @@ def fake_pipeline():
         self.pipeline = FakePipeline()
 
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             yield
 
 
@@ -399,7 +399,7 @@ class TestRunDirectories:
                 self.pipeline = SecondStepPipeline()
 
         with patch.object(Pipeline, "load", mock_load):
-            with patch("dw.workflow.empty_device_cache"):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
                 Workflow(definition, str(tmp_path), "/w/workflows/Gyre.json").run({})
 
         # While gen1 was running, gen0 had already landed in the manifest,

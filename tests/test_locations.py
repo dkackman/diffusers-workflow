@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from dw.arguments import fetch_image
+from dw.argument_media import fetch_image
 from dw.locations import (
     contained_matches,
     location_errors,
@@ -30,8 +30,8 @@ from dw.locations import (
 from dw.security import (
     InvalidInputError,
     PathTraversalError,
-    TRUST_WORKFLOWS_ENV_VAR,
 )
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.tasks.gather import gather_images
 
 

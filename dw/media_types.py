@@ -77,6 +77,32 @@ class AudioTrack:
         self.source_mean_dbfs = source_mean_dbfs
 
 
+class Selected:
+    """The winning candidate, plus the metadata that makes the choice
+    replayable (position, score). Compares equal to its own value so a
+    caller that only wants the winner can treat it as one."""
+
+    def __init__(self, value, position, score):
+        self.value = value
+        self.position = position
+        self.score = score
+
+    def __eq__(self, other):
+        if isinstance(other, Selected):
+            return (
+                self.value == other.value
+                and self.position == other.position
+                and self.score == other.score
+            )
+        return self.value == other
+
+    def __hash__(self):
+        return hash(self.value)
+
+    def __repr__(self):
+        return f"Selected(value={self.value!r}, position={self.position}, score={self.score!r})"
+
+
 # How far a decoded track may be off the frames' own duration and still be
 # treated as codec padding rather than a track of its own length. AAC codes
 # 1024 samples at a time, so a file's audio runs up to one such block long -

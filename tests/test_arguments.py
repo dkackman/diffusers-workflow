@@ -11,12 +11,11 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from PIL import Image
 from unittest.mock import patch
+from dw.argument_media import fetch_image, fetch_video
 from dw.arguments import (
     build_objects,
     realize_args,
     fetch_constant,
-    fetch_image,
-    fetch_video,
     realize_constants,
 )
 from dw.security import InvalidInputError, SecurityError
@@ -64,7 +63,7 @@ class TestFetchImage:
             assert isinstance(loaded_image, Image.Image)
             assert loaded_image.size == (100, 100)
 
-    @patch("dw.arguments.safe_get")
+    @patch("dw.argument_media.safe_get")
     def test_fetch_image_from_url(self, mock_safe_get):
         # The URL goes through safe_get, which re-checks each redirect, and
         # the image is decoded from the bytes it answered with
@@ -164,7 +163,7 @@ class TestFetchVideo:
 
     def test_fetch_video_dict_format(self):
         """Test that video can be specified as dict with 'location' key"""
-        with patch("dw.arguments._fetch_remote_video") as mock_fetch:
+        with patch("dw.argument_media._fetch_remote_video") as mock_fetch:
             mock_fetch.return_value = ["frame1", "frame2"]
 
             result = fetch_video({"location": "https://example.com/video.mp4"})
@@ -176,8 +175,8 @@ class TestFetchVideo:
             fetch_video({"url": "test.mp4"})
         assert "location" in str(exc_info.value).lower()
 
-    @patch("dw.arguments.load_video")
-    @patch("dw.arguments.safe_get")
+    @patch("dw.argument_media.load_video")
+    @patch("dw.argument_media.safe_get")
     def test_fetch_video_from_url(self, mock_safe_get, mock_load_video):
         # load_video is handed the downloaded file, never the URL - its own
         # fetch would follow redirects unchecked
@@ -213,7 +212,7 @@ class TestFetchVideo:
                 fetch_video(invalid_file)
             assert "extension not allowed" in str(exc_info.value)
 
-    @patch("dw.arguments._fetch_remote_video")
+    @patch("dw.argument_media._fetch_remote_video")
     def test_fetch_video_list(self, mock_load_video):
         """Test that fetch_video can handle a list of video specifications"""
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
@@ -227,7 +226,7 @@ class TestFetchVideo:
         assert result[0] == ["frames1"]
         assert result[1] == ["frames2"]
 
-    @patch("dw.arguments._fetch_remote_video")
+    @patch("dw.argument_media._fetch_remote_video")
     def test_fetch_video_list_with_dicts(self, mock_load_video):
         """Test that fetch_video can handle a list of dict specifications"""
         mock_load_video.side_effect = [["frames1"], ["frames2"]]
@@ -473,7 +472,7 @@ class TestRealizeArgs:
         # a step's 'video' argument. Realizing the variables dict without key
         # conventions, then the step with them, loads it as a video rather
         # than pre-loading it as an image and handing fetch_video a PIL Image
-        with patch("dw.arguments._fetch_remote_video") as mock_load:
+        with patch("dw.argument_media._fetch_remote_video") as mock_load:
             mock_load.return_value = ["frame1", "frame2"]
 
             variables = {"image": "https://example.com/clip.mp4"}

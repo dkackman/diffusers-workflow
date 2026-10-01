@@ -26,10 +26,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dw.security import (
+from dw.security import UntrustedWorkflowError
+from dw.trust import (
     CONSTRUCTIBLE_BASE_CLASSES,
     TRUST_WORKFLOWS_ENV_VAR,
-    UntrustedWorkflowError,
     set_trust_workflows,
     workflows_are_trusted,
 )
@@ -229,7 +229,7 @@ class TestUntrustedRefusesBeforeImport:
         """Neither goes through our importlib, so the proof is that
         from_pretrained - the thing that would fetch and import - is never
         called, and no socket is opened."""
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         if extra.get("custom_pipeline") == "PROBE_PATH":
             # a local custom pipeline is a .py diffusers would import
@@ -472,7 +472,7 @@ class TestTrustedLetsEachSurfaceThrough:
         [{"trust_remote_code": True}, {"custom_pipeline": "someone/pipeline"}],
     )
     def test_remote_code_arguments_reach_from_pretrained(self, trusted, extra):
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         component_type = MagicMock()
         component_type.__name__ = "ProbePipeline"
@@ -608,7 +608,7 @@ class TestAReExportIsNotAnAllowedClass:
             _realize({"component_type": REEXPORTED})
 
     def test_validation_reports_the_refusal(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", REEXPORTED, "steps[0]")
         assert error is not None and "dw_outside_probe" in error["message"]
@@ -699,7 +699,7 @@ class TestOnlyConstructibleClassesUntrusted:
         assert fake_module.constructed == []
 
     def test_validation_reports_it(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", SIDE_EFFECT, "steps[0]")
         assert error is not None and "--trust-workflows" in error["message"]
@@ -755,7 +755,7 @@ class TestOnlyConstructibleClassesUntrusted:
     def test_a_registered_virtual_subclass_is_not_accepted(
         self, untrusted, fake_module
     ):
-        from dw.security import is_constructible_class
+        from dw.trust import is_constructible_class
         from torchao.core.config import AOBaseConfig
 
         AOBaseConfig.register(fake_module.Handler)

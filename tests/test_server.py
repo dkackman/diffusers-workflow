@@ -1457,7 +1457,7 @@ def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
 
 def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
     from PIL import Image
-    from dw.result import Result, read_embedded_metadata
+    from dw.writers import embed_image_metadata, read_embedded_metadata
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
@@ -1468,12 +1468,12 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         (outputs / "notes.txt").write_text("not media")
 
         # an image saved the way the engine saves it, metadata embedded
-        result = Result({"content_type": "image/png", "embed_metadata": True})
-        result.set_metadata(
-            {"step_name": "gen", "workflow": valid_workflow("from_image")}
-        )
-        result._save_image_with_metadata(
-            Image.new("RGB", (4, 4)), str(outputs / "meta-gen.0-0.0.png"), "image/png"
+        metadata = {"step_name": "gen", "workflow": valid_workflow("from_image")}
+        embed_image_metadata(
+            Image.new("RGB", (4, 4)),
+            str(outputs / "meta-gen.0-0.0.png"),
+            "image/png",
+            metadata,
         )
 
         listing = client.get("/api/gallery").json()
@@ -1501,8 +1501,8 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert client.get("/api/gallery/..%2Fsecret.png/metadata").status_code == 404
 
         # the read-side mirror also handles EXIF (jpeg) round trips
-        result._save_image_with_metadata(
-            Image.new("RGB", (4, 4)), str(outputs / "meta.jpg"), "image/jpeg"
+        embed_image_metadata(
+            Image.new("RGB", (4, 4)), str(outputs / "meta.jpg"), "image/jpeg", metadata
         )
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
@@ -2658,7 +2658,7 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
     from unittest.mock import patch
     from dw.workflow import Workflow
     from dw.pipeline_processors.pipeline import Pipeline
-    from dw.result import read_embedded_metadata
+    from dw.writers import read_embedded_metadata
     from tests.test_events import FakePipeline
 
     workflow_def = valid_workflow("reopenable")
@@ -2672,7 +2672,7 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
 
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     saved = workflow.manifest[0]["files"][0]

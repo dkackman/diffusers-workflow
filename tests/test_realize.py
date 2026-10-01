@@ -11,6 +11,7 @@ from dw.realize import realize_workflow, strings_with_prefix
 from dw.runs import new_run_id
 from dw.schema import load_schema, validate_data
 from dw.workflow import Workflow
+from dw.workflow_run import prepare_definition
 
 
 def folded(source, arguments=None):
@@ -408,7 +409,8 @@ class TestRecordedVariablesShareTheirLeaves:
         frames = [media, (media, media)]
         wf = Workflow(media_definition(), str(tmp_path), None)
 
-        prepared, _, recorded = wf._prepare_definition(
+        prepared, _, recorded = prepare_definition(
+            wf,
             copy.deepcopy(wf.workflow_definition),
             {"image": media, "frames": frames},
             str(tmp_path),
@@ -429,7 +431,8 @@ class TestRecordedVariablesShareTheirLeaves:
         media = Undeepcopyable()
         wf = Workflow(media_definition(), str(tmp_path), None)
 
-        _, _, recorded = wf._prepare_definition(
+        _, _, recorded = prepare_definition(
+            wf,
             copy.deepcopy(wf.workflow_definition),
             {"image": media, "frames": [media]},
             str(tmp_path),

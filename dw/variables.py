@@ -21,6 +21,15 @@ logger = logging.getLogger("dw")
 MEDIA_SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
 
 
+class ConstantError(ValueError):
+    """A 'constant:' variable default that failed to resolve during
+    validation, with the 'variables.<name>' path at fault."""
+
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
+
+
 class VariableNotFoundError(ValueError):
     """Raised when a workflow references a "variable:name" that isn't declared."""
 
@@ -101,7 +110,7 @@ def replace_variables(data, variables):
                 # names its media: realize_object reads a present-and-null
                 # 'from_file'/'from_previous_result'/'from_arguments' as
                 # OMITTED - an optional reference this run was given nothing
-                # for (_names_no_media in arguments.py). Dropping the key
+                # for (names_no_media in arguments.py). Dropping the key
                 # there turns that into a media-less stub that reaches the
                 # pipeline instead.
                 if resolved is None and k not in MEDIA_SOURCE_KEYS:

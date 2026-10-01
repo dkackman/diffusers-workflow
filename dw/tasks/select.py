@@ -9,35 +9,10 @@ inside the workflow and replays. See docs/proposals/score-and-select.md.
 
 import logging
 
+from ..media_types import Selected
 from ..task_domains import SELECT_THRESHOLD_RULES, select_rule_problems
 
 logger = logging.getLogger("dw")
-
-
-class Selected:
-    """The winning candidate, plus the metadata that makes the choice
-    replayable (position, score). Compares equal to its own value so a
-    caller that only wants the winner can treat it as one."""
-
-    def __init__(self, value, position, score):
-        self.value = value
-        self.position = position
-        self.score = score
-
-    def __eq__(self, other):
-        if isinstance(other, Selected):
-            return (
-                self.value == other.value
-                and self.position == other.position
-                and self.score == other.score
-            )
-        return self.value == other
-
-    def __hash__(self):
-        return hash(self.value)
-
-    def __repr__(self):
-        return f"Selected(value={self.value!r}, position={self.position}, score={self.score!r})"
 
 
 # How each threshold rule tests a score. Which rules take a threshold, and

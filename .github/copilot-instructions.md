@@ -22,9 +22,9 @@ This is a declarative workflow engine for the HuggingFace Diffusers library that
 ## Architecture Overview
 
 **Core Components:**
-- `dw/workflow.py`: Main orchestrator - loads JSON workflows, handles variable substitution, manages step execution
+- `dw/workflow.py`: Main orchestrator - loads JSON workflows, handles variable substitution, manages step execution (the run's phases live in `dw/workflow_run.py`, validation in `dw/validation.py`)
 - `dw/step.py`: Individual workflow step executor - runs pipelines/tasks/sub-workflows 
-- `dw/pipeline_processors/pipeline.py`: Manages HuggingFace pipeline loading, configuration, and shared components
+- `dw/pipeline_processors/pipeline.py`: The `Pipeline` class - HuggingFace pipeline loading and shared components (placement, component loading, adapters and progress reporting are beside it in `placement.py`, `components.py`, `adapters.py`, `progress.py`)
 - `dw/tasks/task.py`: Executes utility tasks (image processing, QR codes, data gathering)
 - `dw/previous_results.py`: Handles cross-step data flow using cartesian products of previous results
 
@@ -72,7 +72,7 @@ This is a declarative workflow engine for the HuggingFace Diffusers library that
 **Execution:** `python -m dw.run workflow.json variable1=value1`
 
 **Adding New Tasks:** Register a handler function in `dw/tasks/task.py` with the `@register_command("name")` decorator; `Task.run()` dispatches to the registry (falling back to image/video processor lookups for unregistered names)
-**Adding Pipeline Types:** Update `workflow_schema.json` and ensure proper component loading in `pipeline.py`
+**Adding Pipeline Types:** Update `workflow_schema.json` and ensure proper component loading in `pipeline_processors/components.py`
 
 ## Project-Specific Conventions
 
@@ -91,11 +91,12 @@ This is a declarative workflow engine for the HuggingFace Diffusers library that
 
 ## Security
 
-**Critical security module** (`dw/security.py`) provides comprehensive input validation and protection:
+**Critical security modules**: `dw/security.py` provides comprehensive input validation and protection, and `dw/trust.py` gates the trust model for untrusted workflows:
 - **Path validation**: Prevents traversal attacks, validates file extensions, enforces directory restrictions
 - **Input sanitization**: Validates variable names (alphanumeric + underscore/hyphen only), string lengths, control characters
 - **Command safety**: Sanitizes subprocess arguments, blocks shell metacharacters, enforces `shell=False`
 - **URL validation**: Restricts to http/https schemes only
+- **Workflow trust**: Controls what untrusted workflows may import (`dw/trust.py`)
 
 All entry points (run.py, validate.py, serve.py) use security validation. When adding features:
 - Always validate paths with `validate_path()` or `validate_workflow_path()`

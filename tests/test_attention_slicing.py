@@ -9,7 +9,7 @@ head-dim-aware policy is the follow-up. Only UNet/ControlNet models take
 slicing at all.
 """
 
-from dw.pipeline_processors.pipeline import attention_slicing_requested
+from dw.pipeline_processors.placement import attention_slicing_requested
 
 
 def test_automatic_on_mps():

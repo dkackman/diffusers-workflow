@@ -16,15 +16,14 @@ import os
 
 import pytest
 
+from dw.argument_media import is_media_reference
 from dw.arguments import (
-    NON_TYPE_KEYS,
     fetch_constant,
     is_constant_reference,
     is_escaped,
-    is_media_reference,
 )
 from dw.kernel_availability import is_kernel_availability_fault
-from dw.type_helpers import load_type_from_name
+from dw.type_helpers import NON_TYPE_KEYS, load_type_from_name
 from dw.workflow import workflow_from_file
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -120,7 +119,7 @@ def test_example_workflow_validates_untrusted(example_file, monkeypatch):
     allowed to read would pass every other test here and fail on the box.
     Closing the step object (#118) is checked by the same pass.
     """
-    from dw.security import TRUST_WORKFLOWS_ENV_VAR
+    from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 
     monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
     path = os.path.join(REPO_ROOT, example_file)

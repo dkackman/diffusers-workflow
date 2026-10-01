@@ -207,7 +207,7 @@ def configure_environment(args):
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment
     # variable, so the job runner sees the same trust choice the API does
-    from .security import set_trust_workflows
+    from .trust import set_trust_workflows
 
     set_trust_workflows(args.trust_workflows)
 

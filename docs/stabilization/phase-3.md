@@ -101,6 +101,9 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
   - The elision carry assumes dict pipelines.
   - `result.py`'s import of `tasks.select.Selected`: outside the cycles, and the last upward import.
   - From 3d: `arguments._with_frame_rate` has a dead `http(s)` branch; its one caller passes a validated local path.
+- **after Phase 3 / Phase 4 (from 3e):**
+  - After Phase 3 (freeze): `for_each._copy_leaf` sharing leaves; the step-cache snapshot via `copy_containers`; sharing `resolve_sub_workflow_path` with `create_step_action` (and `validation.sub_workflow_errors`, which resolves each path twice to keep its messages); `_run_dir` not reset at the top of `run`; the kernels-hub "Cannot find a build variant" message lists variants in set order (nondeterministic); `workflow_schema.json`'s `argument_template` description still says `create_step_action` writes it into the definition.
+  - Phase 4: the remaining prefix spellings (`startswith`/`removeprefix`/slicing/alias constants in about 25 modules, the `routes/assets.py` f-strings) and a metric that counts them.
 
 ## Release notes collected (for gate 3)
 
@@ -161,6 +164,23 @@ From ROADMAP.md, Gate 2, the "follow-ups" lists. Each item goes to the stage who
     - `_load_tracks_matching_rate` stayed in `audio_utils.py`, not `joins.py` as Decisions said. Its only callers are there, and `audio_utils` imports `joins`, so moving it would have made a cycle.
     - Found and left alone under the freeze, for after Phase 3: `gain_audio` still rounds a frame-based region's end the pre-#557 way, so it can come out one sample short; and `concat_videos` joins a track with no sample rate unresampled, a long-standing silent skip. `dissolve_videos` refuses that track, as before.
     - Outside the hot zone, 3d touched `plugins/dw/skills/series-episodes/SKILL.md` (its Sources line names the new homes) and `workflows/templates/step-caching.json` (its description).
+- **3e (merged 2026-10-01):** small user-visible change, nothing else on the surface.
+  - A composed child's step no longer embeds `argument_template` in an image's `metadata["workflow"]` (it held the parent's realized objects, stringified). A composed child that opens its own run directory (only when the parent has none, outside the flat layout) no longer has `argument_template` in its run-id digest or its realized `workflow.json`.
+  - Python API only (the server and MCP cannot hand a child an uncopyable object): a composed child no longer deep-copies its handed arguments on entry to `validate()` and `run()`. A handed object that cannot be copied used to fail in `create_step_action` with `TypeError`. Now one bound to a declared variable fails later, in the child's run; an undeclared one is refused by name ("Unknown variable"), or ignored when the child declares no variables.
+  - Nothing else on the HTTP/MCP surface, the task surface, the schema or catalog validation changed: the surface snapshot is byte-identical, now including every catalog workflow's validation verdict.
+  - For developers (Python paths only; nothing on the API or MCP reaches them):
+    - `result.py`'s helpers moved to `dw/writers.py` (naming, `flatten_alpha_for`, `write_audio`, the waveform `normalize_audio`, the image metadata pair), `dw/audio_qc.py` (`warn_without_headroom`, `warn_if_written_above_full_scale`, `warn_if_written_near_silent`, `check_written_media`) and `dw/output_extraction.py` (`get_artifact_list`, `modular_artifacts`). `guess_extension` is in `dw.content_types`; `Selected` is in `dw.media_types`.
+    - `arguments`' media half is `dw/argument_media.py`. `introspection`'s checks are `dw/type_references.py` and `dw/argument_warnings.py`. The trust gate is `dw/trust.py`.
+    - `pipeline_processors/pipeline.py` split into `placement.py` (`apply_on_demand_placement`, `place_component`), `components.py`, `adapters.py` (`active_loras`) and `progress.py`.
+    - `Workflow`'s ownership tables and memory reclaim are `dw/pipeline_ownership.py`. The validation block is `dw/validation.py`, with the fps, null-media and select checkers in `dw/step_value_checks.py`. `ConstantError` is in `dw.variables`.
+    - `Workflow.run`'s phases, `prepare_definition`, `cache_lookup`, the `cache_hits` loop, `release_unreferenced_results`, `selected_field` and `SEED_BITS` are in `dw/workflow_run.py`. `workflow_output_subfolder` and `catalog_root_dir` are in `dw/library.py`. `Workflow.run`, `cache_hits`, `validation_errors`, `effective_output_dir`, `step_output_dir` and `create_step_action` stay `Workflow` methods.
+    - `dw.plan` no longer re-exports `unseeded_cache_warnings`; import it from `dw.validation`.
+  - Merge notes:
+    - `modules` 151 → 165 (+14, four over the ~+10 projection; the list is in Decisions (3e)). `modules_over_1000_lines` 6 → 0, `functions_over_150_lines` 4 → 0, `complex_functions` 12 → 7.
+    - Both sanctioned `workflow.py` fallbacks were taken (`workflow.py` is 996 lines, 4 under the limit, so its next growth needs a real split, not a fallback).
+    - Outside the hot zone, 3e touched `dw/server/jobs.py` (the `SEED_BITS` import), `dw/realize.py` (a docstring), comments in `dw/dsp.py`, `dw/media.py`, `dw/server/routes/gallery.py` and `dw/tasks/joins.py`, docs/DEPENDENCIES.md, docs/SECURITY.md, `tests/test_configuration_schema.py`, and the docs above.
+  - Carried to after Phase 3 (freeze): `for_each._copy_leaf` sharing leaves; the step-cache snapshot via `copy_containers`; sharing `resolve_sub_workflow_path` with `create_step_action` (and `validation.sub_workflow_errors`, which resolves each path twice to keep its messages); `_run_dir` not reset at the top of `run`; the kernels-hub "Cannot find a build variant" message lists variants in set order (nondeterministic); `workflow_schema.json`'s `argument_template` description still says `create_step_action` writes it into the definition.
+  - Carried to Phase 4: the remaining prefix spellings (`startswith`/`removeprefix`/slicing/alias constants in about 25 modules, the `routes/assets.py` f-strings) and a metric that counts them.
 
 ## Global Constraints (all stages)
 

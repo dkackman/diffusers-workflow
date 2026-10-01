@@ -16,7 +16,7 @@ import os
 import pytest
 
 from dw.adapter_compatibility import adapter_warnings, warn_adapters
-from dw.pipeline_processors.pipeline import active_loras, load_loras
+from dw.pipeline_processors.adapters import active_loras, load_loras
 from dw.workflow import Workflow
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
