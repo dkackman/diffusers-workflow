@@ -12,26 +12,21 @@ import logging
 
 import numpy
 
+from ..dsp import as_channels_samples
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
-from ..dsp import as_channels_samples
 from ..task_domains import frames_to_samples
-from ..dsp import resample_waveform
 from .joins import (
     bleed_join,
     equal_power_crossfade_join,
     fit_audio_to_frames,
-    match_levels as match_track_levels,
-    video_names,
-    warn_on_level_spread,
+    fit_joined_audio,
+    level_waveforms,
+    load_named_inputs,
+    reconcile_sample_rates,
 )
-from .video_utils import (
-    check_same_frame_size,
-    frames_as_pil_list,
-    is_video_location,
-    load_audio_video,
-)
+from .video_utils import check_same_frame_size, frames_as_pil_list
 
 logger = logging.getLogger("dw")
 
@@ -122,6 +117,103 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    _warn_bleed_without_seam(videos, audio_bleed_ms)
+    names, videos, clips, waveforms, sample_rate = _prepare_inputs(
+        videos, match_levels, match_levels_dbfs, sample_rate
+    )
+
+    frames = []
+    audio, audio_native_rate = None, None
+    # Where each video landed, measured on the joined picture and track as
+    # they grow - never derived from the frame count, so a track that runs
+    # long shows up here as the samples it actually took (#378)
+    shots = []
+
+    silence_channels = _silence_channels(waveforms)
+    has_audio = silence_channels is not None
+    for index, (video, clip) in enumerate(zip(videos, clips)):
+        head_trim = trim_frames if index > 0 else 0
+        start_frame = len(frames)
+        start_sample = audio.shape[1] if audio is not None else 0
+        frames.extend(clip[head_trim:])
+        shots.extend(
+            _shot_records_for(
+                video,
+                names[index],
+                index,
+                head_trim,
+                start_frame,
+                len(frames) - start_frame,
+                start_sample if has_audio else None,
+                sample_rate,
+            )
+        )
+
+        if not has_audio:
+            continue
+        waveform = _input_waveform(
+            waveforms[index],
+            video,
+            clip,
+            names[index],
+            fps,
+            sample_rate,
+            silence_channels,
+        )
+        if audio is None:
+            audio = waveform
+        else:
+            audio = _join_seam(
+                audio,
+                waveform,
+                head_trim,
+                fps,
+                sample_rate,
+                audio_native_rate,
+                index,
+                names,
+                crossfade_ms,
+                audio_bleed_ms,
+                audio_bleed_gain_db,
+                seam_fade_ms,
+            )
+        audio_native_rate = getattr(video, "sample_rate", None)
+
+    audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
+    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
+    """The inputs loaded, named and made ready to join: (names, videos,
+    clips, waveforms, sample_rate) - every track at one rate and, when
+    asked, one level."""
+    names, videos = load_named_inputs(videos)
+    clips = [frames_as_pil_list(v) for v in videos]
+    check_same_frame_size(clips, "concat_videos")
+    waveforms, sample_rate = reconcile_sample_rates(
+        "concat_videos", videos, names, _input_waveforms(videos), sample_rate
+    )
+    waveforms = level_waveforms(
+        "concat_videos", waveforms, match_levels, match_levels_dbfs
+    )
+    return names, videos, clips, waveforms, sample_rate
+
+
+def _fitted_audio(frames, audio, sample_rate, fps, videos, shots):
+    """The joined track fitted to the frame grid, with the rate the file is
+    written at: (audio, written_fps). Every shot is measured against it."""
+    audio, written_fps = fit_joined_audio(
+        audio, sample_rate, len(frames), fps, videos, "concat_videos"
+    )
+    # A seam's crossfade leaves the samples before it where they were, so a
+    # shot's track is everything up to where the next measured one began
+    measured_num_samples(shots, _length(audio) if audio is not None else None)
+    return audio, written_fps
+
+
+def _warn_bleed_without_seam(videos, audio_bleed_ms):
+    """Say so when a bleed was asked of a join with a single input."""
     if len(videos) == 1 and audio_bleed_ms:
         # The bleed acts on the seam between two inputs; a single input - even
         # an earlier join whose inner seams are recorded in its shots - has
@@ -134,19 +226,15 @@ def concat_videos(
             command="concat_videos",
         )
 
-    # Named before they are loaded: a path is the only thing that names
-    # itself, and the load below replaces it with what it holds
-    names = video_names(videos)
-    # A shot an earlier run already wrote is loaded here rather than by
-    # gather_videos, which reads frames only and would join it silent
-    videos = [load_audio_video(v) if is_video_location(v) else v for v in videos]
-    clips = [frames_as_pil_list(v) for v in videos]
-    check_same_frame_size(clips, "concat_videos")
 
-    # Every track up front rather than one at a time: levels are matched
-    # across the whole set, so the last shot's loudness has to be known
-    # before the first one is scaled
-    waveforms = [
+def _input_waveforms(videos):
+    """Every input's track as (channels, samples), None where it has none.
+
+    Every track up front rather than one at a time: levels are matched across
+    the whole set, so the last shot's loudness has to be known before the
+    first one is scaled.
+    """
+    return [
         (
             as_channels_samples(video.audio)
             if isinstance(video, AudioVideo) and video.audio is not None
@@ -154,221 +242,140 @@ def concat_videos(
         )
         for video in videos
     ]
-    # One rate before anything is joined. Shots assembled from different
-    # sources disagree routinely, and the disagreement carries no meaning -
-    # so it is converted rather than refused, which is what made an agent
-    # invent a resample_audio step by hand (#108)
-    rates = [
-        video.sample_rate
-        for video, waveform in zip(videos, waveforms)
-        if waveform is not None and video.sample_rate
-    ]
-    sample_rate = sample_rate or (max(rates) if rates else None)
-    if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
-        # The inputs agree and the caller pinned another rate: converting
-        # to what was asked for is not a decision made on its behalf (#453)
-        emit_log(
-            f"concat_videos: resampling every track from {rates[0]} Hz to the "
-            f"requested {sample_rate} Hz",
-            command="concat_videos",
-            sample_rate=sample_rate,
-        )
-    elif rates and any(rate != sample_rate for rate in rates):
-        # emit_warning rather than logger.warning, for the reason the level
-        # spread below is emitted: resampling every track is an audio
-        # decision made on the caller's behalf, and a caller reading the job
-        # over the API or MCP sees the warnings list and nothing else - the
-        # conversion landing silently is worse than the loud failure it
-        # replaced (#108)
-        per_video = {
-            name: video.sample_rate
-            for name, video in zip(names, videos)
-            if isinstance(video, AudioVideo) and video.audio is not None
-        }
-        emit_warning(
-            "concat_videos: videos carry audio at different sample rates ("
-            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_video.items())
-            + f") - resampling them all to {sample_rate} Hz. Pass "
-            "'sample_rate' to pin a different target, or resample ahead of "
-            "this step with the 'resample_audio' task.",
-            kind="sample_rate_mismatch",
-            command="concat_videos",
-            sample_rate=sample_rate,
-            sample_rates=per_video,
-        )
-    waveforms = [
-        (
-            waveform
-            if waveform is None
-            or not video.sample_rate
-            or video.sample_rate == sample_rate
-            else resample_waveform(waveform, video.sample_rate, sample_rate)
-        )
-        for video, waveform in zip(videos, waveforms)
-    ]
 
-    if match_levels:
-        waveforms = match_track_levels(waveforms, match_levels, match_levels_dbfs)
+
+def _silence_channels(waveforms):
+    """The channel count a silent input is filled with, or None when the
+    joined track carries nothing at all.
+
+    Whether it carries anything decides whether a silent input among these
+    gets silence of its own length or is skipped outright, matching
+    join_into_song's rule that a shot with no track is silence for its length
+    rather than a gap that shifts everything after it early (#513, #553).
+    """
+    return next((w.shape[0] for w in waveforms if w is not None), None)
+
+
+def _shot_records_for(
+    video, name, index, head_trim, start_frame, frame_count, start_sample, sample_rate
+):
+    """The shot records one input contributes to the joined picture."""
+    inner = getattr(video, "shots", None)
+    if inner:
+        video_shots = nested_shots(
+            trimmed_shots(inner, head_trim),
+            start_frame,
+            start_sample,
+            getattr(video, "sample_rate", None),
+            sample_rate,
+        )
     else:
-        warn_on_level_spread(waveforms)
+        video_shots = [shot_record(name, start_frame, frame_count, start_sample or 0)]
+    if index and video_shots:
+        # Every seam this step draws is a cut it chose to make, unlike a
+        # chain's inner segments (continuity is expected there) - marking
+        # it lets analyze_seams tell the two apart (#466)
+        video_shots[0]["hard_cut"] = True
+    # Which input this shot came from - named_shots (dw/shots.py) uses
+    # it to place a step's override name on the right shot once an
+    # earlier input has nested more than one of its own (#432)
+    for shot in video_shots:
+        shot["source_index"] = index
+    return video_shots
 
-    frames = []
-    audio = None
-    audio_native_rate = None
-    # Where each video landed, measured on the joined picture and track as
-    # they grow - never derived from the frame count, so a track that runs
-    # long shows up here as the samples it actually took (#378)
-    shots = []
 
-    # Whether the joined track carries anything at all - decides whether a
-    # silent input among these gets silence of its own length or is skipped
-    # outright, matching join_into_song's rule that a shot with no track is
-    # silence for its length rather than a gap that shifts everything after
-    # it early (#513, #553)
-    has_audio = any(waveform is not None for waveform in waveforms)
-    silence_channels = (
-        next(waveform.shape[0] for waveform in waveforms if waveform is not None)
-        if has_audio
-        else None
-    )
-
-    for index, (video, clip) in enumerate(zip(videos, clips)):
-        head_trim = trim_frames if index > 0 else 0
-        start_frame = len(frames)
-        start_sample = audio.shape[1] if audio is not None else 0
-        frames.extend(clip[head_trim:])
-        inner = getattr(video, "shots", None)
-        if inner:
-            video_shots = nested_shots(
-                trimmed_shots(inner, head_trim),
-                start_frame,
-                start_sample if has_audio else None,
-                getattr(video, "sample_rate", None),
-                sample_rate,
-            )
-        else:
-            video_shots = [
-                shot_record(
-                    names[index], start_frame, len(frames) - start_frame, start_sample
-                )
-            ]
-        if index and video_shots:
-            # Every seam this step draws is a cut it chose to make, unlike a
-            # chain's inner segments (continuity is expected there) - marking
-            # it lets analyze_seams tell the two apart (#466)
-            video_shots[0]["hard_cut"] = True
-        # Which input this shot came from - named_shots (dw/shots.py) uses
-        # it to place a step's override name on the right shot once an
-        # earlier input has nested more than one of its own (#432)
-        for shot in video_shots:
-            shot["source_index"] = index
-        shots.extend(video_shots)
-
-        if not has_audio:
-            continue
-
-        if waveforms[index] is None:
-            if fps is None:
-                raise ValueError(
-                    "concat_videos needs 'fps' to fill silence for a video "
-                    "with no audio track of its own"
-                )
-            waveform = numpy.zeros(
-                (silence_channels, frames_to_samples(len(clip), fps, sample_rate)),
-                dtype=numpy.float32,
-            )
-            emit_log(
-                f"concat_videos: {names[index]} carries no audio - filled with silence",
-                command="concat_videos",
-                video=names[index],
-            )
-        else:
-            waveform = waveforms[index]
-            input_fps = fps or getattr(video, "fps", None)
-            if input_fps:
-                # A per-input shortfall against its own frame grid propagates
-                # into the join and compounds across every further join that
-                # takes this one's own output as an input (#435/#553's
-                # remedy for the aggregate track, extended here per input -
-                # #562). fit_audio_to_frames pads a short track and warns
-                # once the gap is a frame or more; it deliberately leaves an
-                # *over*-length track alone (#378 - a shot keeps the samples
-                # it actually took), so that direction is warned here
-                # instead, since it is exactly the drift analyze_sync_drift's
-                # single-seam threshold misses
-                wanted_samples = frames_to_samples(len(clip), input_fps, sample_rate)
-                overrun_samples = waveform.shape[1] - wanted_samples
-                if overrun_samples > sample_rate / input_fps:
-                    emit_warning(
-                        f"concat_videos: {names[index]}'s audio is "
-                        f"{overrun_samples} sample(s) longer than its own "
-                        f"{len(clip)}-frame length before the join - drift "
-                        f"like this compounds at the seam",
-                        command="concat_videos",
-                        kind="audio_frame_drift",
-                        video=names[index],
-                        drift_samples=int(overrun_samples),
-                    )
-                waveform = fit_audio_to_frames(
-                    waveform, sample_rate, len(clip), input_fps, "concat_videos"
-                )
-
-        if audio is None:
-            audio = waveform
-            audio_native_rate = getattr(video, "sample_rate", None)
-            continue
-
-        if head_trim > 0 and fps is None:
+def _input_waveform(waveform, video, clip, name, fps, sample_rate, silence_channels):
+    """One input's track as it joins: silence of its own length when it has
+    none, else the track fitted to its frame grid."""
+    if waveform is None:
+        if fps is None:
             raise ValueError(
-                "concat_videos needs 'fps' to trim audio in step with the frames"
+                "concat_videos needs 'fps' to fill silence for a video "
+                "with no audio track of its own"
             )
-
-        trim_samples = (
-            frames_to_samples(head_trim, fps, sample_rate) if head_trim else 0
+        emit_log(
+            f"concat_videos: {name} carries no audio - filled with silence",
+            command="concat_videos",
+            video=name,
         )
-        if trim_samples == 0 and audio_bleed_ms:
-            audio = bleed_join(
-                audio,
-                waveform,
-                sample_rate,
-                audio_bleed_ms,
-                seam_fade_ms,
-                audio_bleed_gain_db,
-                native_sample_rate=audio_native_rate,
-                seam=index,
-                between=f"{names[index - 1]} -> {names[index]}",
-            )
-        else:
-            audio = equal_power_crossfade_join(
-                audio,
-                waveform[:, :trim_samples],
-                waveform[:, trim_samples:],
-                sample_rate,
-                crossfade_ms,
-                seam_fade_ms,
-                seam=index,
-            )
-        audio_native_rate = getattr(video, "sample_rate", None)
-
-    # The rate the caller declared, else the rate the first input carries -
-    # either beats the result's 8 fps default (#84)
-    written_fps = fps or next(
-        (v.fps for v in videos if getattr(v, "fps", None)),
-        None,
-    )
-    # Reconciled against the frame grid before shots are measured (#435), so
-    # an input already short of its own grid does not carry its shortfall
-    # into this join's shot map and compound in a later one
-    audio = fit_audio_to_frames(
-        audio, sample_rate, len(frames), written_fps, "concat_videos"
+        return numpy.zeros(
+            (silence_channels, frames_to_samples(len(clip), fps, sample_rate)),
+            dtype=numpy.float32,
+        )
+    input_fps = fps or getattr(video, "fps", None)
+    if not input_fps:
+        return waveform
+    # A per-input shortfall against its own frame grid propagates
+    # into the join and compounds across every further join that
+    # takes this one's own output as an input (#435/#553's
+    # remedy for the aggregate track, extended here per input -
+    # #562). fit_audio_to_frames pads a short track and warns
+    # once the gap is a frame or more; it deliberately leaves an
+    # *over*-length track alone (#378 - a shot keeps the samples
+    # it actually took), so that direction is warned here
+    # instead, since it is exactly the drift analyze_sync_drift's
+    # single-seam threshold misses
+    wanted_samples = frames_to_samples(len(clip), input_fps, sample_rate)
+    overrun_samples = waveform.shape[1] - wanted_samples
+    if overrun_samples > sample_rate / input_fps:
+        emit_warning(
+            f"concat_videos: {name}'s audio is "
+            f"{overrun_samples} sample(s) longer than its own "
+            f"{len(clip)}-frame length before the join - drift "
+            f"like this compounds at the seam",
+            command="concat_videos",
+            kind="audio_frame_drift",
+            video=name,
+            drift_samples=int(overrun_samples),
+        )
+    return fit_audio_to_frames(
+        waveform, sample_rate, len(clip), input_fps, "concat_videos"
     )
 
-    # A seam's crossfade leaves the samples before it where they were, so a
-    # shot's track is everything up to where the next measured one began
-    measured_num_samples(shots, _length(audio) if audio is not None else None)
 
-    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+def _join_seam(
+    audio,
+    waveform,
+    head_trim,
+    fps,
+    sample_rate,
+    audio_native_rate,
+    index,
+    names,
+    crossfade_ms,
+    audio_bleed_ms,
+    audio_bleed_gain_db,
+    seam_fade_ms,
+):
+    """The joined track so far with the next input's track seamed on: a
+    bleed at a plain cut, else an equal-power crossfade over what the trim
+    left."""
+    if head_trim > 0 and fps is None:
+        raise ValueError(
+            "concat_videos needs 'fps' to trim audio in step with the frames"
+        )
+    trim_samples = frames_to_samples(head_trim, fps, sample_rate) if head_trim else 0
+    if trim_samples == 0 and audio_bleed_ms:
+        return bleed_join(
+            audio,
+            waveform,
+            sample_rate,
+            audio_bleed_ms,
+            seam_fade_ms,
+            audio_bleed_gain_db,
+            native_sample_rate=audio_native_rate,
+            seam=index,
+            between=f"{names[index - 1]} -> {names[index]}",
+        )
+    return equal_power_crossfade_join(
+        audio,
+        waveform[:, :trim_samples],
+        waveform[:, trim_samples:],
+        sample_rate,
+        crossfade_ms,
+        seam_fade_ms,
+        seam=index,
+    )
 
 
 def _length(audio):

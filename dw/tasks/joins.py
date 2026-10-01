@@ -21,8 +21,11 @@ from ..dsp import (
     matched_channels,
     spectral_flatness,
 )
+from ..dsp import resample_waveform
 from ..events import emit_log, emit_warning
+from ..media_types import AudioVideo
 from ..task_domains import frames_to_samples
+from .video_utils import is_video_location, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -50,6 +53,104 @@ def video_names(videos):
 # A few milliseconds of fade applied on each side of a butt-joined seam so the
 # discontinuity does not click
 DECLICK_MS = 3.0
+
+
+def load_named_inputs(videos):
+    """The names of a join's inputs, and the inputs themselves, loaded.
+
+    Named before they are loaded: a path is the only thing that names itself,
+    and the load replaces it with what it holds. A shot an earlier run already
+    wrote is loaded here rather than by gather_videos, which reads frames only
+    and would join it silent.
+    """
+    names = video_names(videos)
+    return names, [load_audio_video(v) if is_video_location(v) else v for v in videos]
+
+
+def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
+    """One rate for every track about to be joined: (waveforms, sample_rate).
+
+    `videos` and `waveforms` run in step, and a None waveform is an input
+    with no track. Shots assembled from different sources disagree on rate
+    routinely, and the disagreement carries no editorial meaning - so it is
+    converted rather than refused, which is what made an agent invent a
+    resample_audio step by hand (#108, #287). The highest rate among the
+    inputs is the default target; the caller's `sample_rate` pins another.
+    """
+    rates = [
+        video.sample_rate
+        for video, waveform in zip(videos, waveforms)
+        if waveform is not None and video.sample_rate
+    ]
+    sample_rate = sample_rate or (max(rates) if rates else None)
+    if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
+        # The inputs agree and the caller pinned another rate: converting
+        # to what was asked for is not a decision made on its behalf (#453)
+        emit_log(
+            f"{command}: resampling every track from {rates[0]} Hz to the "
+            f"requested {sample_rate} Hz",
+            command=command,
+            sample_rate=sample_rate,
+        )
+    elif rates and any(rate != sample_rate for rate in rates):
+        # emit_warning rather than logger.warning: resampling every track is
+        # an audio decision made on the caller's behalf, and a caller reading
+        # the job over the API or MCP sees the warnings list and nothing else
+        # - the conversion landing silently is worse than the loud failure it
+        # replaced (#108)
+        per_video = {
+            name: video.sample_rate
+            for name, video in zip(names, videos)
+            if isinstance(video, AudioVideo) and video.audio is not None
+        }
+        emit_warning(
+            f"{command}: videos carry audio at different sample rates ("
+            + ", ".join(f"{name}: {rate} Hz" for name, rate in per_video.items())
+            + f") - resampling them all to {sample_rate} Hz. Pass "
+            "'sample_rate' to pin a different target, or resample ahead of "
+            "this step with the 'resample_audio' task.",
+            kind="sample_rate_mismatch",
+            command=command,
+            sample_rate=sample_rate,
+            sample_rates=per_video,
+        )
+    return [
+        (
+            waveform
+            if waveform is None
+            or not video.sample_rate
+            or video.sample_rate == sample_rate
+            else resample_waveform(waveform, video.sample_rate, sample_rate)
+        )
+        for video, waveform in zip(videos, waveforms)
+    ], sample_rate
+
+
+def level_waveforms(command, waveforms, measure=None, target_dbfs=None):
+    """Match the shots' levels when asked to, else warn when they are apart."""
+    if measure:
+        return match_levels(waveforms, measure, target_dbfs, command)
+    warn_on_level_spread(waveforms, command)
+    return waveforms
+
+
+def fit_joined_audio(audio, sample_rate, total_frames, fps, videos, command):
+    """The joined track fitted to the frame grid at the rate the file is
+    written at: (audio, written_fps).
+
+    The rate the caller declared, else the rate the first input carries -
+    either beats the result's 8 fps default (#84). Reconciled before shots
+    are measured (#435), so an input already short of its own grid does not
+    carry its shortfall into this join's shot map and compound in a later one.
+    """
+    written_fps = fps or next(
+        (v.fps for v in videos if getattr(v, "fps", None)),
+        None,
+    )
+    return (
+        fit_audio_to_frames(audio, sample_rate, total_frames, written_fps, command),
+        written_fps,
+    )
 
 
 def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):

@@ -265,9 +265,7 @@ class TestConcatVideosShots:
         )
         videos = [resolved, audio_video(4, 2)]
 
-        with patch(
-            "dw.tasks.concat_videos.load_audio_video", return_value=audio_video(4, 1)
-        ):
+        with patch("dw.tasks.joins.load_audio_video", return_value=audio_video(4, 1)):
             result = concat_videos(videos, fps=4)
 
         assert result.shots[0]["name"] == "ep3-shot1-incident.mp4"
@@ -400,7 +398,7 @@ class TestDissolveVideosShots:
         videos = [resolved, frames(10)]
 
         with patch(
-            "dw.tasks.dissolve_videos.load_audio_video",
+            "dw.tasks.joins.load_audio_video",
             return_value=frames(10),
         ):
             result = dissolve_videos(videos, 3)

@@ -23,7 +23,6 @@ up past 0 dBFS even when every decoded sample was under it.
 
 import logging
 import math
-import numbers
 from fractions import Fraction
 
 import numpy
@@ -205,20 +204,14 @@ def layout_name(channels, layout=None):
     return layout.name if layout is not None else f"{channels}c"
 
 
-def _rate_or_none(value):
-    """A rate as a float if it is a number (or a numeric string), else None.
-    Booleans are not rates. dsp imports nothing from dw, so this is the
-    task_domains.as_number rule written out."""
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, numbers.Real):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
+def _is_positive_rate(value):
+    """Whether a value is a number (or numeric string) above zero. dsp
+    imports nothing from dw, so this is the task-side `as_number` rule
+    written as a question; a boolean is not a rate."""
+    try:
+        return not isinstance(value, bool) and float(value) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def resample_waveform(waveform, sample_rate, target_sample_rate):
@@ -232,7 +225,7 @@ def resample_waveform(waveform, sample_rate, target_sample_rate):
     # unchanged, which is indistinguishable from a conversion that happened
     # (#140) - so neither rate is allowed to be one that cannot be a rate
     for name, rate in (("sample_rate", sample_rate), ("target", target_sample_rate)):
-        if _rate_or_none(rate) is None or _rate_or_none(rate) <= 0:
+        if not _is_positive_rate(rate):
             raise ValueError(
                 f"resample_waveform needs a {name} above zero, got {rate!r}"
             )

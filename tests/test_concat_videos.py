@@ -101,7 +101,7 @@ class TestConcatVideos:
 
         with caplog.at_level("WARNING"):
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 1),
             ):
                 concat_videos(videos)
@@ -611,7 +611,7 @@ class TestWarningsReachTheCaller:
         token = activate_context(RunContext(on_event=events.append))
         try:
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 0.5),
             ):
                 concat_videos(["first.mp4", audio_video(8, 0.5, sample_rate=200)])
