@@ -11,8 +11,12 @@ import numpy
 import pytest
 import scipy.signal
 
-from dw.loudness import SILENCE_DBFS, TRUE_PEAK_OVERSAMPLE, true_peak_dbfs
-from dw.tasks.audio_utils import _true_peak_envelope as true_peak_envelope
+from dw.dsp import (
+    SILENCE_DBFS,
+    TRUE_PEAK_OVERSAMPLE,
+    true_peak_dbfs,
+    true_peak_envelope,
+)
 
 RATE = 16000
 TOLERANCE_DB = 0.01

@@ -9,10 +9,10 @@ this does: it puts the two back together for the step that saves them.
 
 import logging
 
+from ..dsp import as_channels_samples, slice_samples
 from ..events import emit_warning
 from ..media_types import AudioVideo
 from ..shots import remeasured_shots
-from .audio_utils import as_channels_samples
 
 logger = logging.getLogger("dw")
 
@@ -124,7 +124,7 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
     `fit: "video"` derives the length from the frames instead, and with no
     `fit` the mismatch is at least said out loud.
     """
-    from .audio_utils import frames_to_samples, slice_samples
+    from .audio_utils import frames_to_samples
 
     if fit not in (None, "video"):
         # Refused rather than ignored: a misspelled 'fit' that quietly did

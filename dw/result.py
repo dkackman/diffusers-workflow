@@ -19,6 +19,7 @@ from .content_types import (
     MUXED_VIDEO_CONTENT_TYPE,
     refuse_active_content_type,
 )
+from .dsp import dbfs
 from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AUDIO_FIT_TOLERANCE_SECONDS,
@@ -84,9 +85,7 @@ def _peak_dbfs(waveform):
     except Exception:
         logger.debug("Could not measure the peak of a saved track", exc_info=True)
         return None
-    if peak <= 0.0:
-        return None
-    return 20.0 * float(numpy.log10(peak))
+    return dbfs(peak)
 
 
 # Image formats that carry an alpha channel; every other image content type

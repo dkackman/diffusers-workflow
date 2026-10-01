@@ -27,13 +27,12 @@ import os
 
 import numpy
 
+from .. import dsp
 from ..task_domains import check_arguments
 from .audio_utils import (
     HARMONICITY_THRESHOLD,
     TONAL_FLATNESS_THRESHOLD,
     _as_number,
-    _harmonicity,
-    _spectral_flatness,
     _waveform_and_rate,
     crossfade_concat,
 )
@@ -76,10 +75,6 @@ TONAL_BLOCK_SECONDS = (0.1, 0.2)
 TICK_GUARD_PEAKS = 5
 
 REJECTION_RULES = ("too_loud", "silent", "spike", "tonal")
-
-
-def _db(value):
-    return 20.0 * math.log10(value) if value > 0 else None
 
 
 def _round(value, places=2):
@@ -300,8 +295,8 @@ def _tonal_blocks(
         segment = searched[block * bin_length : (block + block_bins) * bin_length][
             numpy.newaxis, :
         ]
-        flatness[block] = _spectral_flatness(segment, sample_rate, native_rate)
-        harmonicity[block] = _harmonicity(segment, sample_rate)
+        flatness[block] = dsp.spectral_flatness(segment, sample_rate, native_rate)
+        harmonicity[block] = dsp.harmonicity(segment, sample_rate)
     tonal = (flatness < TONAL_FLATNESS_THRESHOLD) | (
         harmonicity >= HARMONICITY_THRESHOLD
     )
@@ -349,10 +344,10 @@ def _looped(segment, sample_rate, crossfade_ms, loop_seconds):
     at_lap = at_lap * 2.0 / count
     return {
         "ripple_db": _round(high - low),
-        "envelope_peak_db": _round(_db(spectrum[strongest] / mean)),
+        "envelope_peak_db": _round(dsp.dbfs(spectrum[strongest] / mean)),
         "envelope_peak_hz": _round(frequencies[strongest], 3),
         "lap_hz": _round(lap_hz, 3),
-        "lap_component_db": _round(_db(at_lap / mean)),
+        "lap_component_db": _round(dsp.dbfs(at_lap / mean)),
     }
 
 

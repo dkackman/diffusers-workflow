@@ -42,12 +42,8 @@ from ..result import (
     output_file_path,
 )
 from ..shots import shot_record, without_samples
-from ..tasks.audio_utils import (
-    as_channels_samples,
-    equal_power_crossfade_join,
-    frames_to_samples,
-    slice_samples,
-)
+from ..dsp import as_channels_samples, slice_samples
+from ..tasks.audio_utils import equal_power_crossfade_join, frames_to_samples
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
 
 logger = logging.getLogger("dw")

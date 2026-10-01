@@ -29,17 +29,11 @@ import logging
 import numpy
 
 from ..events import emit_log, emit_warning
-from ..loudness import MIN_LUFS_SECONDS, integrated_lufs
+from ..dsp import MIN_LUFS_SECONDS, as_channels_samples, integrated_lufs, slice_samples
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, shot_record
 from ..task_domains import check_arguments
-from .audio_utils import (
-    as_channels_samples,
-    frames_to_samples,
-    load_audio,
-    resample_waveform,
-    slice_samples,
-)
+from .audio_utils import frames_to_samples, load_audio, resample_waveform
 from .concat_videos import video_names
 from .video_utils import (
     check_same_frame_size,

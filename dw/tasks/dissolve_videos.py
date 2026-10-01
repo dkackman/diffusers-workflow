@@ -20,9 +20,9 @@ from PIL import Image
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
+from ..dsp import as_channels_samples
 from ..task_domains import dissolve_shortfalls
 from .audio_utils import (
-    as_channels_samples,
     crossfade_concat,
     fit_audio_to_frames,
     frames_to_samples,

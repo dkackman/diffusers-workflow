@@ -3,15 +3,12 @@ Unit tests for waveform utilities - shape normalization, frame-aligned
 slicing, and seam joining.
 """
 
-import builtins
-from unittest import mock
-
 import numpy
 import pytest
 import torch
 
+from dw.dsp import as_channels_samples, slice_samples
 from dw.tasks.audio_utils import (
-    as_channels_samples,
     bleed_join,
     crossfade_concat,
     equal_power_crossfade_join,
@@ -19,7 +16,6 @@ from dw.tasks.audio_utils import (
     load_audio,
     resample_audio,
     resample_waveform,
-    slice_samples,
 )
 
 
@@ -651,7 +647,7 @@ class TestGainAudio:
             normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
         )
 
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
 
@@ -664,7 +660,7 @@ class TestGainAudio:
             normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
         )
 
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
 
@@ -818,7 +814,7 @@ class TestNormalizeAudioLimit:
         return 20 * numpy.log10(numpy.abs(up).max())
 
     def _lufs(self, track):
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         return integrated_lufs(samples(track), self.RATE)
 
@@ -883,7 +879,7 @@ class TestNormalizeAudioLimit:
     def test_dense_material_still_reaches_a_target_inside_the_cap(self):
         # One correction pass left this 0.4 LU short, and a real laugh-track
         # episode 2 LU short; the gain is searched for instead
-        from dw.tasks.audio_utils import LIMITER_TOLERANCE_LU
+        from dw.dsp import LIMITER_TOLERANCE_LU
 
         track, logs, warnings = self._run(
             self._dense(), peak_dbfs=-3.0, target_lufs=-12.0
@@ -902,7 +898,7 @@ class TestNormalizeAudioLimit:
         # static gain the search settles on to still land on target_lufs
         # runs past the plain (unlimited) gain a naive target_lufs - measured
         # would give - gain_db reports that searched gain, not the plain one
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         waveform = self._dense()
         measured_lufs = integrated_lufs(waveform.T, self.RATE)
@@ -1002,23 +998,23 @@ class TestNormalizeAudioLimit:
     def test_timings_are_pinned(self):
         # The plan fixes these rather than exposing them: ~5 ms look-ahead,
         # ~150 ms release, 12 dB most reduction, 6 dB heavy
-        from dw.tasks import audio_utils
+        from dw import dsp
 
-        assert audio_utils.LIMITER_LOOKAHEAD_MS == 5.0
-        assert audio_utils.LIMITER_RELEASE_MS == 150.0
-        assert audio_utils.LIMITER_HOLD_MS == 20.0
-        assert audio_utils.LIMITER_MAX_REDUCTION_DB == 12.0
-        assert audio_utils.LIMITER_HEAVY_DB == 6.0
-        assert audio_utils.LIMITER_TOLERANCE_LU == 0.1
-        assert audio_utils.LIMITER_SEARCH_PASSES == 8
+        assert dsp.LIMITER_LOOKAHEAD_MS == 5.0
+        assert dsp.LIMITER_RELEASE_MS == 150.0
+        assert dsp.LIMITER_HOLD_MS == 20.0
+        assert dsp.LIMITER_MAX_REDUCTION_DB == 12.0
+        assert dsp.LIMITER_HEAVY_DB == 6.0
+        assert dsp.LIMITER_TOLERANCE_LU == 0.1
+        assert dsp.LIMITER_SEARCH_PASSES == 8
 
     def test_the_curve_ramps_down_before_the_transient(self):
         # Look-ahead: the gain is already down when the burst arrives
-        from dw.tasks.audio_utils import _limiter_curve, _true_peak_envelope
+        from dw.dsp import limiter_curve, true_peak_envelope
 
         waveform = self._bursty()
-        envelope = _true_peak_envelope(waveform) * 10 ** (12 / 20)
-        curve = _limiter_curve(envelope, 10 ** (-3 / 20), self.RATE)
+        envelope = true_peak_envelope(waveform) * 10 ** (12 / 20)
+        curve = limiter_curve(envelope, 10 ** (-3 / 20), self.RATE)
         start = waveform.shape[1] // 2
         assert curve[start] < 1.0
         assert curve[start - int(0.004 * self.RATE)] < 1.0
@@ -1693,30 +1689,6 @@ class TestFilterAudio:
     def rms(self, waveform):
         # skip the filter's brief settling transient
         return float(numpy.sqrt(numpy.mean(numpy.square(waveform[:, 200:]))))
-
-    def test_the_scipy_path_and_the_python_fallback_agree(self):
-        """_apply_biquad runs the recursion through scipy's lfilter, which is
-        in every install, and keeps the per-sample Python form for an
-        environment without it. Two implementations of one filter, so they are
-        pinned to each other rather than each to its own expectations."""
-        from dw.tasks import audio_utils
-
-        rng = numpy.random.default_rng(0)
-        channel = rng.standard_normal(4000).astype(numpy.float32)
-        b, a = audio_utils._biquad_coefficients("lowpass", 1000.0, 0.707, 8000)
-
-        through_scipy = audio_utils._apply_biquad(channel, b, a)
-        real_import = builtins.__import__
-
-        def without_scipy(name, *args, **kwargs):
-            if name.startswith("scipy"):
-                raise ImportError("no scipy")
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch.object(builtins, "__import__", without_scipy):
-            in_python = audio_utils._apply_biquad(channel, b, a)
-
-        assert numpy.abs(through_scipy - in_python).max() < 1e-9
 
     def test_lowpass_passes_low_frequencies_and_attenuates_high_ones(self):
         from dw.tasks.audio_utils import filter_audio

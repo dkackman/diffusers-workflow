@@ -11,14 +11,34 @@ import logging
 from fractions import Fraction
 
 import numpy
-import scipy.ndimage
-import scipy.signal
 import soundfile
-import torch
 
+from .. import dsp
+from ..dsp import (
+    LEVEL_MEASURES,
+    LIMITER_HEAVY_DB,
+    LIMITER_MAX_REDUCTION_DB,
+    LIMITER_TOLERANCE_LU,
+    UNITY_TOLERANCE,
+    apply_biquad,
+    as_channels_samples,
+    biquad_coefficients,
+    equal_power_ramps,
+    fade_curve,
+    follow_envelope,
+    harmonicity,
+    integrated_lufs,
+    level_dbfs,
+    limit_at,
+    matched_channels,
+    search_gain,
+    slice_samples,
+    spectral_balance,
+    spectral_flatness,
+    true_peak_envelope,
+)
 from ..events import emit_log, emit_warning
 from ..media_types import AudioTrack, warn_on_rate_override
-from ..loudness import TRUE_PEAK_OVERSAMPLE, integrated_lufs
 from ..task_domains import (
     SLICE_PAD_WARN_MS as SLICE_PAD_WARN_MS,
     as_number,
@@ -53,35 +73,6 @@ SLICE_TRIM_WARN_FRACTION = 0.05
 # noticeable dropped tail - the same floor SLICE_PAD_WARN_MS applies on the
 # other side of a slice
 SLICE_TRIM_WARN_MIN_MS = 10.0
-
-
-def as_channels_samples(audio):
-    """Normalize a waveform to a (channels, samples) float32 numpy array.
-
-    Accepts torch tensors or numpy arrays shaped (samples,), (channels, samples),
-    (samples, channels), or a one-item batch (1, channels, samples). Channel
-    position is decided the way normalize_audio in result.py decides it: there
-    are always more samples than channels.
-    """
-    if torch.is_tensor(audio):
-        audio = audio.detach().cpu().float().numpy()
-    audio = numpy.asarray(audio, dtype=numpy.float32)
-
-    if audio.ndim == 1:
-        return audio[numpy.newaxis, :]
-
-    if audio.ndim == 3:
-        if audio.shape[0] != 1:
-            raise ValueError(f"Cannot normalize a waveform batch of {audio.shape[0]}")
-        audio = audio[0]
-
-    if audio.ndim != 2:
-        raise ValueError(f"A waveform must have 1-3 dimensions, got {audio.ndim}")
-
-    if audio.shape[0] > audio.shape[1]:  # (samples, channels) -> transpose
-        audio = audio.T
-
-    return numpy.ascontiguousarray(audio)
 
 
 def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
@@ -144,21 +135,6 @@ def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
     return audio
 
 
-def slice_samples(waveform, start, length):
-    """Cut length samples out of a (channels, samples) waveform from start.
-
-    A slice reaching past the end of the waveform is zero-padded to the
-    requested length, so frame-aligned slicing near the end of a track always
-    yields full-size chunks.
-    """
-    channels, total = waveform.shape
-    piece = waveform[:, start : start + length]
-    if piece.shape[1] < length:
-        padding = numpy.zeros((channels, length - piece.shape[1]), dtype=waveform.dtype)
-        piece = numpy.concatenate([piece, padding], axis=1)
-    return piece
-
-
 def equal_power_crossfade_join(
     previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None, seam=None
 ):
@@ -174,7 +150,7 @@ def equal_power_crossfade_join(
     fade-in in place instead, of seam_fade_ms - a few milliseconds by default,
     just enough not to click.
     """
-    previous, head, following = _matched_channels(previous, head, following)
+    previous, head, following = matched_channels(previous, head, following)
 
     window = min(
         int(crossfade_ms / 1000.0 * sample_rate),
@@ -185,7 +161,7 @@ def equal_power_crossfade_join(
     if window == 0:
         return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
 
-    fade_out, fade_in = _equal_power_ramps(window)
+    fade_out, fade_in = equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
     return numpy.concatenate([previous[:, :-window], blended, following], axis=1)
 
@@ -201,75 +177,6 @@ TONAL_FLATNESS_THRESHOLD = 0.3
 # a bandwidth-insensitive companion to flatness, since a resample's own
 # band limiting does not touch how periodic the waveform is (#198)
 HARMONICITY_THRESHOLD = 0.45
-
-# Typical fundamental range for a human voice or a pitched instrument note;
-# the periodicity search only looks at lags in this range so a slow room-tone
-# swell or hum near DC cannot register as a pitch
-_PERIODICITY_MIN_HZ = 60.0
-_PERIODICITY_MAX_HZ = 500.0
-
-
-def _spectral_flatness(waveform, sample_rate=None, native_sample_rate=None):
-    """Geometric-mean-over-arithmetic-mean of the magnitude spectrum, averaged
-    across channels - near 0 for tonal/speech material, near 1 for noise-like
-    material (see TONAL_FLATNESS_THRESHOLD).
-
-    When the material was upsampled, band-limited interpolation leaves near
-    zero energy above the original Nyquist - a large near-silent band that
-    depresses the geometric mean relative to the arithmetic one regardless of
-    what the material actually is, reading as spuriously tonal (#198). Given
-    both rates, the spectrum is limited to bins below the native Nyquist so an
-    upsampled tail is measured the same as it would be at its own rate.
-    """
-    spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
-    if sample_rate and native_sample_rate and native_sample_rate < sample_rate:
-        native_bins = max(
-            2,
-            int(spectrum.shape[1] * native_sample_rate / sample_rate),
-        )
-        spectrum = spectrum[:, :native_bins]
-    spectrum = numpy.maximum(spectrum, 1e-10)
-    geometric_mean = numpy.exp(numpy.mean(numpy.log(spectrum), axis=1))
-    arithmetic_mean = numpy.mean(spectrum, axis=1)
-    return float(numpy.mean(geometric_mean / arithmetic_mean))
-
-
-def _harmonicity(waveform, sample_rate):
-    """Normalized autocorrelation peak within a plausible pitch range,
-    averaged across channels - near 1 for a strongly periodic signal (voiced
-    speech, a pitched note), near 0 for noise (see HARMONICITY_THRESHOLD).
-
-    Spectral flatness alone missed real speech (#198): a vowel's formants
-    spread its energy broadly enough across the band that flatness reads
-    similar to noise, even though the waveform itself repeats every pitch
-    period. Autocorrelation measures that repetition directly and is
-    insensitive to how the spectrum happens to be shaped, so it catches what
-    flatness cannot.
-    """
-    min_lag = max(int(sample_rate / _PERIODICITY_MAX_HZ), 1)
-    max_lag = min(int(sample_rate / _PERIODICITY_MIN_HZ), waveform.shape[1] - 1)
-    if max_lag <= min_lag:
-        return 0.0
-
-    scores = []
-    for channel in waveform:
-        centered = channel - channel.mean()
-        energy = float(numpy.dot(centered, centered))
-        if energy <= 1e-12:
-            continue
-        # The autocorrelation through an FFT rather than numpy.correlate,
-        # which is O(n^2): on a 2 s window at 48 kHz that is about 10^10
-        # operations, and find_loop_bed measures many windows (#218).
-        # Padding to at least 2n - 1 keeps the circular correlation from
-        # wrapping, so every lag equals the direct sum
-        size = 1 << int(2 * centered.shape[0] - 1).bit_length()
-        spectrum = numpy.fft.rfft(centered, size)
-        correlation = numpy.fft.irfft(spectrum * numpy.conj(spectrum), size)
-        window = correlation[min_lag : max_lag + 1]
-        if window.size == 0:
-            continue
-        scores.append(float(numpy.max(window) / energy))
-    return max(scores) if scores else 0.0
 
 
 def bleed_join(
@@ -325,7 +232,7 @@ def bleed_join(
     Returns:
         The two waveforms joined, of their full combined length
     """
-    previous, following = _matched_channels(previous, following)
+    previous, following = matched_channels(previous, following)
     where = "a seam" if seam is None else f"seam {seam}"
     if between:
         where = f"{where} ({between})"
@@ -341,19 +248,19 @@ def bleed_join(
     tail = previous[:, ::-1][:, :window]
 
     tail_source = previous[:, -window:]
-    flatness = _spectral_flatness(tail_source, sample_rate, native_sample_rate)
-    # sample_rate, not native_sample_rate: _harmonicity turns a rate into lag
+    flatness = spectral_flatness(tail_source, sample_rate, native_sample_rate)
+    # sample_rate, not native_sample_rate: harmonicity turns a rate into lag
     # bounds in samples of the waveform it is handed, and that waveform is at
     # sample_rate however it got there. Passing the native rate of an upsampled
     # tail searched the wrong lag range (16k against a 48k track: 180-1500 Hz
     # rather than 60-500) and could miss the voiced speech #198 added it for.
-    # Only _spectral_flatness wants the native rate, to band-limit its window.
-    harmonicity = _harmonicity(tail_source, sample_rate)
-    if flatness < TONAL_FLATNESS_THRESHOLD or harmonicity > HARMONICITY_THRESHOLD:
+    # Only spectral_flatness wants the native rate, to band-limit its window.
+    periodicity = harmonicity(tail_source, sample_rate)
+    if flatness < TONAL_FLATNESS_THRESHOLD or periodicity > HARMONICITY_THRESHOLD:
         emit_warning(
             f"bleed_join: the tail being reversed onto {where} looks tonal or "
             f"speech-like (spectral flatness {flatness:.2f}, harmonicity "
-            f"{harmonicity:.2f}) rather than the room tone or crowd noise a "
+            f"{periodicity:.2f}) rather than the room tone or crowd noise a "
             f"bleed is meant for - the reversal is likely to be audible as a "
             f"stutter or a note running backwards. Pass 'audio_bleed_ms': 0 "
             f"for a hard cut on this material instead - seam_fade_ms has no "
@@ -362,10 +269,10 @@ def bleed_join(
             command="bleed_join",
             seam=seam,
             flatness=round(flatness, 3),
-            harmonicity=round(harmonicity, 3),
+            harmonicity=round(periodicity, 3),
         )
 
-    decay, _ = _equal_power_ramps(window)  # cos: 1 down to ~0
+    decay, _ = equal_power_ramps(window)  # cos: 1 down to ~0
     gain = 10.0 ** (gain_db / 20.0) if gain_db else 1.0
     following = following.copy()
     following[:, :window] += tail * decay * gain
@@ -407,7 +314,7 @@ def crossfade_concat(waveforms, sample_rate, crossfade_ms, starts=None):
     if starts is not None:
         starts.append(0)
     for following in waveforms[1:]:
-        result, following = _matched_channels(result, following)
+        result, following = matched_channels(result, following)
         window = min(
             int(round(crossfade_ms / 1000.0 * sample_rate)),
             result.shape[1],
@@ -419,7 +326,7 @@ def crossfade_concat(waveforms, sample_rate, crossfade_ms, starts=None):
             result = _declick_join(result, following, sample_rate)
             continue
 
-        fade_out, fade_in = _equal_power_ramps(window)
+        fade_out, fade_in = equal_power_ramps(window)
         blended = result[:, -window:] * fade_out + following[:, :window] * fade_in
         result = numpy.concatenate(
             [result[:, :-window], blended, following[:, window:]], axis=1
@@ -853,31 +760,7 @@ def resample_waveform(waveform, sample_rate, target_sample_rate):
             raise ValueError(
                 f"resample_waveform needs a {name} above zero, got {rate!r}"
             )
-    if sample_rate == target_sample_rate:
-        return waveform
-
-    import av
-    from av.audio.resampler import AudioResampler
-
-    channels = waveform.shape[0]
-    layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
-    frame = av.AudioFrame.from_ndarray(
-        numpy.ascontiguousarray(waveform, dtype=numpy.float32),
-        format="fltp",
-        layout=layout,
-    )
-    frame.sample_rate = sample_rate
-    frame.pts = 0
-    frame.time_base = Fraction(1, sample_rate)
-
-    resampler = AudioResampler(format="fltp", layout=layout, rate=target_sample_rate)
-    converted = [f.to_ndarray() for f in resampler.resample(frame)]
-    converted += [f.to_ndarray() for f in resampler.resample(None)]
-    logger.debug(
-        f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
-        f"to {target_sample_rate}Hz"
-    )
-    return numpy.concatenate(converted, axis=1).astype(numpy.float32)
+    return dsp.resample_waveform(waveform, sample_rate, target_sample_rate)
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):
@@ -1116,7 +999,7 @@ def mix_audio(audios, gains=None, sample_rate=None):
         audios, sample_rate, "mix_audio"
     )
 
-    waveforms = _matched_channels(*waveforms)
+    waveforms = matched_channels(*waveforms)
     channels = waveforms[0].shape[0]
     length = max(waveform.shape[1] for waveform in waveforms)
 
@@ -1228,7 +1111,6 @@ def loop_audio(
 # artifact no fade can hide, because it is not at the seam, it is either side
 # of it. These are the levels a matched join targets, and the spread at which
 # an unmatched one is worth warning about
-MATCH_MEASURES = ("peak", "rms")
 DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
 # Matching to an rms target can ask for a gain that would clip; the peak is
 # held here instead, which keeps a loud shot's relative level honest rather
@@ -1244,30 +1126,6 @@ MATCH_NEAR_SILENT_DBFS = -40.0
 MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
-def level_dbfs(waveform, measure="peak"):
-    """A waveform's level in dBFS, measured as `peak` or `rms`.
-
-    `rms` is the same measurement `get_gallery_metadata` reports as
-    `mean_dbfs`, so a matched join can be checked against what the gallery
-    said about the shots going into it. A silent track has no level: None.
-    """
-    if measure not in MATCH_MEASURES:
-        raise ValueError(
-            f"level measure must be one of {MATCH_MEASURES}, got '{measure}'"
-        )
-    if waveform is None or waveform.size == 0:
-        return None
-    if measure == "peak":
-        value = float(numpy.abs(waveform).max())
-    else:
-        value = float(
-            numpy.sqrt(numpy.mean(numpy.square(waveform, dtype=numpy.float64)))
-        )
-    if value <= 0.0:
-        return None
-    return 20.0 * numpy.log10(value)
-
-
 def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
     """Scale each waveform so its level sits at one shared target.
 
@@ -1277,9 +1135,9 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
     MATCH_CEILING_DBFS is held there and said so in the log - the shot is
     then quieter than the target rather than clipped.
     """
-    if measure not in MATCH_MEASURES:
+    if measure not in LEVEL_MEASURES:
         raise ValueError(
-            f"{command} 'match_levels' must be one of {MATCH_MEASURES}, got '{measure}'"
+            f"{command} 'match_levels' must be one of {LEVEL_MEASURES}, got '{measure}'"
         )
     if target_dbfs is None:
         target_dbfs = DEFAULT_MATCH_DBFS[measure]
@@ -1376,12 +1234,6 @@ def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
     return spread
 
 
-def _equal_power_ramps(window):
-    """Cosine/sine fade curves that sum to constant power across the window."""
-    theta = numpy.linspace(0.0, numpy.pi / 2.0, window, endpoint=False)
-    return numpy.cos(theta, dtype=numpy.float32), numpy.sin(theta, dtype=numpy.float32)
-
-
 def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
     """Butt-join two waveforms with a fade on each side of the seam.
 
@@ -1392,7 +1244,7 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
     ramp = int((DECLICK_MS if fade_ms is None else fade_ms) / 1000.0 * sample_rate)
     ramp = min(ramp, previous.shape[1], following.shape[1])
     if ramp > 0:
-        fade_out, fade_in = _equal_power_ramps(ramp)
+        fade_out, fade_in = equal_power_ramps(ramp)
         previous = previous.copy()
         following = following.copy()
         previous[:, -ramp:] *= fade_out  # cos: 1 down to ~0
@@ -1409,19 +1261,6 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
             requested_ms=fade_ms,
         )
     return numpy.concatenate([previous, following], axis=1)
-
-
-def _matched_channels(*waveforms):
-    """Tile mono up so every waveform has the same channel count."""
-    channels = max(waveform.shape[0] for waveform in waveforms)
-    return tuple(
-        (
-            numpy.tile(waveform, (channels, 1))
-            if waveform.shape[0] == 1 and channels > 1
-            else waveform
-        )
-        for waveform in waveforms
-    )
 
 
 def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
@@ -1451,10 +1290,10 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
 
     fade_in = min(int(round(fade_in_ms / 1000 * sample_rate)), length)
     if fade_in:
-        faded[:, :fade_in] *= _fade_curve(fade_in)[::-1]
+        faded[:, :fade_in] *= fade_curve(fade_in)[::-1]
     fade_out = min(int(round(fade_out_ms / 1000 * sample_rate)), length)
     if fade_out:
-        faded[:, length - fade_out :] *= _fade_curve(fade_out)
+        faded[:, length - fade_out :] *= fade_curve(fade_out)
     if fade_in or fade_out:
         emit_log(
             f"fade_audio: in {fade_in / sample_rate * 1000:.0f} ms, "
@@ -1579,165 +1418,6 @@ def normalize_audio(
     )
 
 
-# The limiter normalize_audio(limit=True) runs. Fixed rather than exposed
-# (#474): long enough not to pump on a laugh, short enough not to duck the
-# line after it. The look-ahead ramps the gain down before a transient; the
-# hold keeps it down across the transient's own cycles; the release then
-# recovers linearly in dB
-LIMITER_LOOKAHEAD_MS = 5.0
-LIMITER_HOLD_MS = 20.0
-LIMITER_RELEASE_MS = 150.0
-LIMITER_RELEASE_DB = 6.0
-# Past this much reduction a target is squashing the track rather than
-# levelling it, so the gain stops and target_lufs_capped says so
-LIMITER_MAX_REDUCTION_DB = 12.0
-# Past this much reduction pumping becomes audible - limiter_heavy
-LIMITER_HEAVY_DB = 6.0
-# Limiting lowers loudness by an amount that depends on how dense the
-# material is, so the gain is searched for rather than corrected once (one
-# pass left a dense track 2 LU short, #496). The search stops within this much
-# of the target, after at most this many limiting passes; a track still
-# further short than the tolerance is warned target_lufs_capped
-LIMITER_TOLERANCE_LU = 0.1
-LIMITER_SEARCH_PASSES = 8
-# Oversampling runs in blocks so a long track never holds 4x of itself; the
-# polyphase filter reaches about ten input samples each side, so this much
-# overlap makes each block's interior exact
-_TRUE_PEAK_BLOCK = 1 << 18
-_TRUE_PEAK_OVERLAP = 32
-# A gain this close to unity is floating-point noise, not reduction
-_UNITY_TOLERANCE = 1e-6
-
-
-def _true_peak_envelope(waveform):
-    """The per-sample true peak of a (channels, samples) waveform, linked
-    across channels so the loudest one drives them all and the stereo image
-    does not shift. Each sample carries the largest oversampled value on
-    either side of it, so an inter-sample peak is owed by both neighbours."""
-    total = waveform.shape[1]
-    envelope = numpy.zeros(total, dtype=numpy.float32)
-    for start in range(0, total, _TRUE_PEAK_BLOCK):
-        stop = min(total, start + _TRUE_PEAK_BLOCK)
-        low = max(0, start - _TRUE_PEAK_OVERLAP)
-        high = min(total, stop + _TRUE_PEAK_OVERLAP)
-        block = scipy.signal.resample_poly(
-            waveform[:, low:high].astype(numpy.float32),
-            TRUE_PEAK_OVERSAMPLE,
-            1,
-            axis=1,
-        )
-        linked = numpy.abs(block).max(axis=0)
-        per_sample = linked.reshape(high - low, TRUE_PEAK_OVERSAMPLE).max(axis=1)
-        envelope[start:stop] = per_sample[start - low : stop - low]
-    envelope[1:] = numpy.maximum(envelope[1:], envelope[:-1])
-    return envelope
-
-
-def _limiter_curve(envelope, ceiling, sample_rate):
-    """The per-sample gain (<= 1) that holds `envelope` under `ceiling`, or
-    None when nothing crosses it.
-
-    Vectorised end to end: the required gain goes through a forward sliding
-    minimum over the look-ahead, a backward one over the hold, a linear-in-dB
-    release (a cumulative minimum), and a boxcar as long as the look-ahead.
-    Every value the boxcar averages is the minimum of a window that contains
-    the sample it lands on, so the curve never exceeds the required gain -
-    it ramps down before a transient rather than delaying the signal.
-    """
-    required = numpy.minimum(
-        1.0, ceiling / numpy.maximum(envelope.astype(numpy.float64), 1e-12)
-    )
-    if required.min() >= 1.0 - _UNITY_TOLERANCE:
-        return None
-    total = required.size
-    half = max(1, int(round(LIMITER_LOOKAHEAD_MS / 2000.0 * sample_rate)))
-    lookahead = 2 * half
-    centred = scipy.ndimage.minimum_filter1d(required, lookahead + 1, mode="nearest")
-    ahead = numpy.concatenate([centred[half:], numpy.full(half, centred[-1])])[:total]
-
-    hold = max(1, int(round(LIMITER_HOLD_MS / 1000.0 * sample_rate)))
-    centred = scipy.ndimage.minimum_filter1d(ahead, 2 * hold + 1, mode="nearest")
-    held = numpy.empty_like(ahead)
-    head = min(hold, total)
-    held[:head] = numpy.minimum.accumulate(ahead[:head])
-    held[head:] = centred[: total - head]
-
-    rate = LIMITER_RELEASE_DB / (LIMITER_RELEASE_MS / 1000.0 * sample_rate)
-    ramp = rate * numpy.arange(total, dtype=numpy.float64)
-    held_db = 20.0 * numpy.log10(held)
-    released = 10.0 ** ((numpy.minimum.accumulate(held_db - ramp) + ramp) / 20.0)
-
-    padded = numpy.concatenate([numpy.full(lookahead, released[0]), released])
-    sums = numpy.concatenate([[0.0], numpy.cumsum(padded)])
-    curve = (sums[lookahead + 1 :] - sums[: -lookahead - 1]) / (lookahead + 1)
-    return numpy.minimum(curve, required)
-
-
-def _limit_at(waveform, envelope, gain_db, ceiling, sample_rate):
-    """One limiting pass at a static gain: the output, the limiter's curve
-    (None when it touched nothing), the static trim a reconstruction
-    overshoot needed, and the output's true peak (linear)."""
-    gain = 10 ** (gain_db / 20)
-    curve = _limiter_curve(envelope * gain, ceiling, sample_rate)
-    if curve is None:
-        output = (waveform * gain).astype(numpy.float32)
-    else:
-        output = (waveform * (gain * curve)[numpy.newaxis, :]).astype(numpy.float32)
-    output_peak = float(_true_peak_envelope(output).max())
-    trim = 1.0
-    if output_peak > ceiling * (1.0 + 1e-4):
-        trim = ceiling / output_peak
-        output = (output * trim).astype(numpy.float32)
-        output_peak *= trim
-    return output, curve, trim, output_peak
-
-
-def _search_gain(
-    waveform, envelope, ceiling, sample_rate, target_lufs, low_db, high_db
-):
-    """The static gain in [low_db, high_db] whose limited output lands within
-    LIMITER_TOLERANCE_LU of target_lufs: (gain_db, _limit_at's result, output
-    LUFS). Loudness rises with the gain, but by less than the gain once the
-    limiter acts, so this starts at the target's own gain (exact while the
-    limiter is idle), tries the cap when that falls short, and closes the
-    bracket between the two by regula falsi. Where even the cap falls short
-    the cap is the answer, and the caller warns the shortfall."""
-
-    def attempt(gain_db):
-        limited = _limit_at(waveform, envelope, gain_db, ceiling, sample_rate)
-        return gain_db, limited, integrated_lufs(limited[0].T, sample_rate)
-
-    def miss(result):
-        return None if result[2] is None else target_lufs - result[2]
-
-    low = attempt(low_db)
-    if miss(low) is None or miss(low) <= LIMITER_TOLERANCE_LU or low_db >= high_db:
-        return low
-    high = attempt(high_db)
-    if miss(high) is None or miss(high) >= -LIMITER_TOLERANCE_LU:
-        return high
-    best = min((low, high), key=lambda result: abs(miss(result)))
-    for _ in range(LIMITER_SEARCH_PASSES - 2):
-        low_miss, high_miss = miss(low), miss(high)
-        span = high[0] - low[0]
-        gain_db = low[0] + span * low_miss / (low_miss - high_miss)
-        # Stay off the bracket's ends, so a curved response cannot stall
-        # regula falsi against one side of it
-        gain_db = min(max(gain_db, low[0] + 0.1 * span), high[0] - 0.1 * span)
-        probe = attempt(gain_db)
-        if miss(probe) is None:
-            break
-        if abs(miss(probe)) < abs(miss(best)):
-            best = probe
-        if abs(miss(probe)) <= LIMITER_TOLERANCE_LU:
-            break
-        if miss(probe) > 0:
-            low = probe
-        else:
-            high = probe
-    return best
-
-
 def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
     """normalize_audio(limit=True): a static gain, applied uncapped, with a
     true-peak limiter holding peak_dbfs. The limiter is never a gain stage -
@@ -1747,7 +1427,7 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
     have reached; the search stops at LIMITER_MAX_REDUCTION_DB, past which
     the gain is what stops instead."""
     ceiling = 10 ** (peak_dbfs / 20)
-    envelope = _true_peak_envelope(waveform)
+    envelope = true_peak_envelope(waveform)
     input_peak_db = 20 * numpy.log10(float(envelope.max()))
     peak_gain_db = peak_dbfs - input_peak_db
     most_gain_db = peak_gain_db + LIMITER_MAX_REDUCTION_DB
@@ -1771,12 +1451,12 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
 
     if target_gain_db is None:
         gain_db = peak_gain_db
-        output, curve, trim, output_peak = _limit_at(
+        output, curve, trim, output_peak = limit_at(
             waveform, envelope, gain_db, ceiling, sample_rate
         )
         output_lufs = integrated_lufs(output.T, sample_rate)
     else:
-        gain_db, (output, curve, trim, output_peak), output_lufs = _search_gain(
+        gain_db, (output, curve, trim, output_peak), output_lufs = search_gain(
             waveform,
             envelope,
             ceiling,
@@ -1792,7 +1472,7 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
         limited_fraction = 1.0 if trim < 1.0 else 0.0
     else:
         limited_fraction = float(
-            numpy.count_nonzero(curve * trim < 1.0 - _UNITY_TOLERANCE) / curve.size
+            numpy.count_nonzero(curve * trim < 1.0 - UNITY_TOLERANCE) / curve.size
         )
     output_peak_db = 20 * numpy.log10(output_peak)
 
@@ -1849,14 +1529,6 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
         output_lufs=round(output_lufs, 1) if output_lufs is not None else None,
     )
     return output
-
-
-def _fade_curve(window):
-    """A cosine fall from full level to exact silence, both ends included -
-    unlike the seam ramps, which stop short of the endpoint so two of them
-    tile a crossfade without a doubled sample."""
-    theta = numpy.linspace(0.0, numpy.pi / 2.0, window, endpoint=True)
-    return numpy.cos(theta, dtype=numpy.float32)
 
 
 def _waveform_and_rate(audio, sample_rate, command):
@@ -1965,7 +1637,7 @@ def compress_audio(
     if waveform.size == 0:
         return _as_track(waveform, sample_rate, "compress_audio")
 
-    envelope = _follow_envelope(waveform, sample_rate, attack_ms, release_ms)
+    envelope = follow_envelope(waveform, sample_rate, attack_ms, release_ms)
     envelope_dbfs = 20.0 * numpy.log10(numpy.maximum(envelope, _ENVELOPE_FLOOR_LINEAR))
 
     if mode == "gate":
@@ -1981,36 +1653,6 @@ def compress_audio(
     gain = (10.0 ** (-reduction_db / 20.0)).astype(numpy.float32)
     processed = (waveform * gain[numpy.newaxis, :]).astype(numpy.float32)
     return _as_track(processed, sample_rate, "compress_audio")
-
-
-def _follow_envelope(waveform, sample_rate, attack_ms, release_ms):
-    """A linked (all-channels) peak envelope, smoothed by separate attack and
-    release time constants - the same detector a hardware compressor uses,
-    tracking the loudest channel so a stereo image does not shift."""
-    rectified = numpy.abs(waveform).max(axis=0)
-    attack_coef = _time_constant_coef(attack_ms, sample_rate)
-    release_coef = _time_constant_coef(release_ms, sample_rate)
-    # The branch on the running level is what makes this a loop rather than a
-    # filter, but the per-sample numpy indexing was the expensive half of it:
-    # a 3-minute track is ~8M samples, and this runs on the single FIFO
-    # worker. tolist() hands the loop plain Python floats, which is the same
-    # arithmetic on the same values, several times faster
-    samples = rectified.tolist()
-    envelope = []
-    level = 0.0
-    for sample in samples:
-        coef = attack_coef if sample > level else release_coef
-        level = coef * level + (1.0 - coef) * sample
-        envelope.append(level)
-    return numpy.asarray(envelope, dtype=rectified.dtype)
-
-
-def _time_constant_coef(time_ms, sample_rate):
-    """The per-sample smoothing coefficient for an exponential time constant.
-    0 ms means the envelope follows instantly, with no smoothing at all."""
-    if time_ms <= 0:
-        return 0.0
-    return float(numpy.exp(-1.0 / (time_ms / 1000.0 * sample_rate)))
 
 
 FILTER_KINDS = ("lowpass", "highpass", "bandpass", "notch")
@@ -2050,84 +1692,11 @@ def filter_audio(audio, cutoff_hz, kind="lowpass", q=0.707, sample_rate=None):
     if waveform.size == 0:
         return _as_track(waveform, sample_rate, "filter_audio")
 
-    b, a = _biquad_coefficients(kind, cutoff_hz, q, sample_rate)
+    b, a = biquad_coefficients(kind, cutoff_hz, q, sample_rate)
     filtered = numpy.stack(
-        [_apply_biquad(channel, b, a) for channel in waveform]
+        [apply_biquad(channel, b, a) for channel in waveform]
     ).astype(numpy.float32)
     return _as_track(filtered, sample_rate, "filter_audio")
-
-
-def _biquad_coefficients(kind, cutoff_hz, q, sample_rate):
-    """RBJ Audio EQ Cookbook coefficients for a single biquad stage,
-    normalized so a0 is 1."""
-    w0 = 2.0 * numpy.pi * cutoff_hz / sample_rate
-    cos_w0 = numpy.cos(w0)
-    sin_w0 = numpy.sin(w0)
-    alpha = sin_w0 / (2.0 * q)
-
-    if kind == "lowpass":
-        b0 = (1.0 - cos_w0) / 2.0
-        b1 = 1.0 - cos_w0
-        b2 = (1.0 - cos_w0) / 2.0
-    elif kind == "highpass":
-        b0 = (1.0 + cos_w0) / 2.0
-        b1 = -(1.0 + cos_w0)
-        b2 = (1.0 + cos_w0) / 2.0
-    elif kind == "bandpass":
-        b0 = alpha
-        b1 = 0.0
-        b2 = -alpha
-    else:  # notch
-        b0 = 1.0
-        b1 = -2.0 * cos_w0
-        b2 = 1.0
-    a0 = 1.0 + alpha
-    a1 = -2.0 * cos_w0
-    a2 = 1.0 - alpha
-    return (
-        numpy.array([b0, b1, b2], dtype=numpy.float64) / a0,
-        numpy.array([a1, a2], dtype=numpy.float64) / a0,
-    )
-
-
-def _apply_biquad(channel, b, a):
-    """One second-order section, run over a channel.
-
-    The feedback cannot be vectorized away, but it does not have to be run in
-    Python either: scipy's lfilter is this exact recursion in C, and scipy is
-    already in every install (controlnet-aux brings it). The Python Direct
-    Form I below is the fallback for an environment without it - same
-    recursion, same zero initial conditions, ~50x slower on a full track.
-    """
-    b0, b1, b2 = b
-    a1, a2 = a
-    try:
-        from scipy.signal import lfilter
-    except ImportError:
-        pass
-    else:
-        return lfilter(
-            numpy.array([b0, b1, b2], dtype=numpy.float64),
-            numpy.array([1.0, a1, a2], dtype=numpy.float64),
-            numpy.asarray(channel, dtype=numpy.float64),
-        )
-
-    out = numpy.empty_like(channel, dtype=numpy.float64)
-    x1 = x2 = y1 = y2 = 0.0
-    for i in range(channel.shape[0]):
-        x0 = float(channel[i])
-        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-        out[i] = y0
-        x2, x1 = x1, x0
-        y2, y1 = y1, y0
-    return out
-
-
-_SPECTRAL_BANDS = {
-    "low_dbfs": (20.0, 250.0),
-    "mid_dbfs": (250.0, 4000.0),
-    "high_dbfs": (4000.0, 20000.0),
-}
 
 
 def analyze_audio(audio, sample_rate=None):
@@ -2160,43 +1729,10 @@ def analyze_audio(audio, sample_rate=None):
     crest_factor_db = (
         peak_dbfs - rms_dbfs if peak_dbfs is not None and rms_dbfs is not None else None
     )
-    bands = _spectral_balance(waveform, sample_rate)
+    bands = spectral_balance(waveform, sample_rate)
     return {
         "peak_dbfs": peak_dbfs,
         "rms_dbfs": rms_dbfs,
         "crest_factor_db": crest_factor_db,
         **bands,
     }
-
-
-def _spectral_balance(waveform, sample_rate):
-    """A rough low/mid/high energy reading in dBFS, from one FFT of the
-    channel-averaged track - not a spectrogram, just enough to say whether
-    a track leans bright or boomy.
-
-    Each band's power is a share of the same Parseval sum that gives
-    rms_dbfs (mean(x**2)): a one-sided rfft bin's power is doubled to
-    account for its mirrored negative-frequency twin, except the DC and
-    (for even n) Nyquist bins, which have no twin. Summed over the full
-    spectrum this equals mean(x**2) exactly, so a *_dbfs band sits on the
-    same scale as rms_dbfs rather than ~40 dB under it (#211)."""
-    if waveform.size == 0:
-        return {name: None for name in _SPECTRAL_BANDS}
-    mono = waveform.mean(axis=0)
-    n = mono.shape[0]
-    spectrum = numpy.fft.rfft(mono)
-    power = numpy.square(numpy.abs(spectrum), dtype=numpy.float64) / (n * n)
-    if n % 2 == 0:
-        power[1:-1] *= 2.0
-    else:
-        power[1:] *= 2.0
-    freqs = numpy.fft.rfftfreq(n, d=1.0 / sample_rate)
-    result = {}
-    for name, (low, high) in _SPECTRAL_BANDS.items():
-        band = power[(freqs >= low) & (freqs < min(high, sample_rate / 2.0))]
-        if band.size == 0:
-            result[name] = None
-            continue
-        energy = float(numpy.sum(band))
-        result[name] = 10.0 * numpy.log10(energy) if energy > 0.0 else None
-    return result

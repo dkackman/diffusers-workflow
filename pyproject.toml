@@ -85,7 +85,7 @@ dependencies = [
     "av>=18.1.0",
     "soundfile>=0.14.0",
     "matplotlib>=3.11.1",
-    # BS.1770 integrated loudness / true-peak metering (dw/loudness.py, #361)
+    # BS.1770 integrated loudness / true-peak metering (dw/dsp.py, #361)
     "pyloudnorm>=0.2.0",
     # normalize_audio(limit=true)'s 4x true-peak detection (resample_poly) and
     # look-ahead minimum (minimum_filter1d) - imported directly, so declared

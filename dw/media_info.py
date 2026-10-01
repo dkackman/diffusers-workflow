@@ -11,7 +11,7 @@ import math
 import av
 import numpy
 
-from .loudness import _dbfs, integrated_lufs, true_peak_dbfs
+from .dsp import SILENCE_DBFS, dbfs, integrated_lufs, true_peak_dbfs
 
 logger = logging.getLogger("dw")
 
@@ -192,8 +192,8 @@ def probe_media(path, envelope=False):
                 info["frame_count"] = frame_count
             if audio is not None:
                 rms = math.sqrt(total / count) if count else 0.0
-                info["peak_dbfs"] = _dbfs(peak)
-                info["mean_dbfs"] = _dbfs(rms)
+                info["peak_dbfs"] = dbfs(peak, floor=SILENCE_DBFS)
+                info["mean_dbfs"] = dbfs(rms, floor=SILENCE_DBFS)
                 full = numpy.concatenate(lufs_chunks, axis=0) if lufs_chunks else None
                 info["integrated_lufs"] = integrated_lufs(full, audio.rate)
                 info["true_peak_dbfs"] = true_peak_dbfs(full)
@@ -391,8 +391,8 @@ def _as_envelope(bins):
     return {
         "interval_seconds": 1.0,
         "rms_dbfs": [
-            _dbfs(math.sqrt(total / count) if count else 0.0)
+            dbfs(math.sqrt(total / count) if count else 0.0, floor=SILENCE_DBFS)
             for total, count, _peak in bins
         ],
-        "peak_dbfs": [_dbfs(peak) for _total, _count, peak in bins],
+        "peak_dbfs": [dbfs(peak, floor=SILENCE_DBFS) for _total, _count, peak in bins],
     }

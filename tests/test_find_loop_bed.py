@@ -19,7 +19,7 @@ from dw.media_audio import decode_soundtrack
 from dw.media_types import AudioTrack
 from dw.scalar_result_validation import scalar_result_errors
 from dw.task_domains import task_argument_errors
-from dw.tasks.audio_utils import _PERIODICITY_MAX_HZ, _PERIODICITY_MIN_HZ, _harmonicity
+from dw.dsp import PERIODICITY_MAX_HZ, PERIODICITY_MIN_HZ, harmonicity
 from dw.tasks.loop_bed import _occupied_rate, find_loop_bed
 from dw.tasks.task import task_command_info
 from dw.workflow import Workflow
@@ -567,8 +567,8 @@ class TestDecodeSoundtrack:
 def _old_harmonicity(waveform, sample_rate):
     """The pre-#218 O(n^2) implementation, kept here only to pin the FFT
     replacement's numbers against it."""
-    min_lag = max(int(sample_rate / _PERIODICITY_MAX_HZ), 1)
-    max_lag = min(int(sample_rate / _PERIODICITY_MIN_HZ), waveform.shape[1] - 1)
+    min_lag = max(int(sample_rate / PERIODICITY_MAX_HZ), 1)
+    max_lag = min(int(sample_rate / PERIODICITY_MIN_HZ), waveform.shape[1] - 1)
     if max_lag <= min_lag:
         return 0.0
 
@@ -591,7 +591,7 @@ def _old_harmonicity(waveform, sample_rate):
 class TestHarmonicityMatchesTheOldImplementation:
     def _assert_matches(self, waveform, sample_rate=SR):
         old = _old_harmonicity(waveform, sample_rate)
-        new = _harmonicity(waveform, sample_rate)
+        new = harmonicity(waveform, sample_rate)
         assert numpy.isclose(old, new, rtol=1e-9, atol=1e-12)
 
     def test_noise(self):

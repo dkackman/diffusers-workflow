@@ -29,6 +29,7 @@ import math
 import numpy
 import torch
 
+from .. import dsp
 from ..events import emit_warning
 from ..for_each import MEMBER_SEPARATOR, render_path
 from ..references import author_index
@@ -319,17 +320,15 @@ def parse_windows(windows, duration):
 # --- measurement -----------------------------------------------------------
 
 
-def _dbfs(amplitude):
-    return 20 * math.log10(amplitude) if amplitude > 0 else -math.inf
-
-
 def voiced_floor_dbfs(rms):
     """The voiced floor for a stem whose frames have these rms values: its
     VOICED_LEVEL_PERCENTILE level less VOICED_FLOOR_BELOW_LEVEL_DB, never
     below VOICED_FLOOR_MIN_DBFS."""
     if len(rms) == 0:
         return VOICED_FLOOR_MIN_DBFS
-    level = _dbfs(float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE)))
+    level = dsp.dbfs(
+        float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE)), floor=-math.inf
+    )
     return max(VOICED_FLOOR_MIN_DBFS, level - VOICED_FLOOR_BELOW_LEVEL_DB)
 
 

@@ -805,7 +805,7 @@ def media_arguments(object_type, artifact):
     import torch
     from PIL import Image
 
-    from .tasks.audio_utils import as_channels_samples
+    from .dsp import as_channels_samples
     from .tasks.video_utils import frames_as_pil_list
 
     kind = object_type.kind

@@ -16,8 +16,8 @@ import numpy
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
+from ..dsp import as_channels_samples
 from .audio_utils import (
-    as_channels_samples,
     bleed_join,
     equal_power_crossfade_join,
     fit_audio_to_frames,

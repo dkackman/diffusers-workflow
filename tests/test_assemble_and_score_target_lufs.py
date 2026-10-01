@@ -93,7 +93,7 @@ def test_the_balanced_step_limits_a_laugh_track_to_the_target():
     import numpy
     import scipy.signal
 
-    from dw.loudness import integrated_lufs
+    from dw.dsp import integrated_lufs
     from dw.tasks.audio_utils import normalize_audio
 
     rate = 48000
