@@ -21,6 +21,15 @@ logger = logging.getLogger("dw")
 MEDIA_SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
 
 
+class ConstantError(ValueError):
+    """A 'constant:' variable default that failed to resolve during
+    validation, with the 'variables.<name>' path at fault."""
+
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
+
+
 class VariableNotFoundError(ValueError):
     """Raised when a workflow references a "variable:name" that isn't declared."""
 

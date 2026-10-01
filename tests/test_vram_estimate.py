@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-import dw.workflow
+import dw.validation
 from dw.vram_estimate import apply_vram_estimate, reference_count, vram_estimate_errors
 from dw.workflow import workflow_from_definition
 
@@ -275,8 +275,8 @@ def _build(definition):
 
 def test_for_each_defaults_have_no_vram_errors():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         workflow = _build(shots_definition())
         assert _vram_errors(workflow.validation_errors()) == []
@@ -284,8 +284,8 @@ def test_for_each_defaults_have_no_vram_errors():
 
 def test_for_each_member_over_ceiling_names_variables_path_when_shots_is_a_default():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         workflow = _build(shots_definition())
         errors = _vram_errors(
@@ -299,8 +299,8 @@ def test_for_each_member_over_ceiling_names_variables_path_when_shots_is_a_defau
 
 def test_for_each_member_over_ceiling_names_arguments_path_when_shots_is_supplied():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         workflow = _build(shots_definition())
         shots = copy.deepcopy(shots_definition()["variables"]["shots"])
@@ -313,8 +313,8 @@ def test_for_each_member_over_ceiling_names_arguments_path_when_shots_is_supplie
 
 def test_nulling_a_reference_brings_a_member_back_under_ceiling():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         d = shots_definition()
         d["variables"]["shots"][1]["references"][2]["from_file"] = None
@@ -327,8 +327,8 @@ def test_nulling_a_reference_brings_a_member_back_under_ceiling():
 
 def test_a_literal_for_each_list_names_the_steps_path():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         d = shots_definition()
         d["steps"][0]["for_each"] = d["variables"].pop("shots")

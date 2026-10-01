@@ -12,7 +12,7 @@ import os
 import tempfile
 from unittest.mock import patch
 
-import dw.workflow
+import dw.validation
 import dw.vram_estimate
 from dw.workflow import workflow_from_definition, workflow_from_file
 
@@ -24,8 +24,8 @@ MINIMAX_DIR = os.path.join(TEMPLATES_DIR, "minimax")
 @contextlib.contextmanager
 def cuda_24gb():
     with (
-        patch.object(dw.workflow, "get_device_type", return_value="cuda"),
-        patch.object(dw.workflow, "device_capacity_gb", return_value=24.0),
+        patch.object(dw.validation, "get_device_type", return_value="cuda"),
+        patch.object(dw.validation, "device_capacity_gb", return_value=24.0),
     ):
         yield
 

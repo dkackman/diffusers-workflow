@@ -27,23 +27,13 @@ from .previous_results import StepResults
 from .adapter_compatibility import warn_adapters
 from .elision import elide_definition, warn_elided
 from .variable_constraints import (
-    ConstraintReferenceError,
     apply_constraints,
-    constraint_reference_errors,
     resolve_constraint_references,
     snap_constraints,
 )
 from .shots import carries_shots, duplicate_shot_names, shot_references, step_shots
 from .subfolders import step_subfolder
 from . import validation
-from .validation import (
-    ERROR,
-    WARNING,
-    ValidationContext,
-    run_checks,
-    to_errors,
-    to_warnings,
-)
 from .vram_estimate import apply_vram_estimate
 from .step import Step
 from .step_cache import (
@@ -69,16 +59,14 @@ from .runs import (
     write_realized_workflow,
 )
 from .realize import realize_workflow
-from .schema import validate_data_all, format_validation_errors, load_schema
-from .for_each import expand_for_each, ForEachError
+from .schema import format_validation_errors
+from .for_each import expand_for_each
 from .variables import (
+    ConstantError,
     argument_errors,
     replace_variables,
     resolve_variable_values,
     set_variables,
-    undeclared_variable_references,
-    VariableCycleError,
-    VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
 from .tasks.task import Task
@@ -116,15 +104,6 @@ logger = logging.getLogger("dw")
 # The widest integer JavaScript's double represents exactly - the ceiling on
 # any seed the engine draws, since seeds travel as JSON through a browser
 SEED_BITS = 53
-
-
-class ConstantError(ValueError):
-    """A 'constant:' variable default that failed to resolve during
-    validation, with the 'variables.<name>' path at fault."""
-
-    def __init__(self, path, message):
-        super().__init__(message)
-        self.path = path
 
 
 def workflow_from_file(file_spec, output_dir, workflow_dir=None):
@@ -627,58 +606,14 @@ class Workflow:
         confine_to = resolved_root.root if resolved_root else None
         return validate_workflow_path(resolved, confine_to), confine_to
 
-    def sub_workflow_errors(self, expanded, source_indices=None, composing=None):
-        """Every sub-workflow step whose `path` names nothing this server can
-        reach, composes a workflow already on the chain, or resolves to a
-        workflow that does not itself validate.
-
-        `composing` is the resolved path of every workflow above this one,
-        which is what makes a cycle an error here rather than a recursion
-        the run discovers.
-        """
-        errors = []
-        composing = list(composing or [])
-        for index, step in enumerate(expanded.get("steps", []) or []):
-            reference = step.get("workflow")
-            if not isinstance(reference, dict) or not isinstance(
-                reference.get("path"), str
-            ):
-                continue
-            source = source_indices[index] if source_indices else index
-            where = f"steps[{source}].workflow.path"
-            path = reference["path"]
-            try:
-                resolved, root = self.resolve_sub_workflow_path(path)
-            except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
-                errors.append({"path": where, "message": str(e)})
-                continue
-            if resolved in composing:
-                errors.append(
-                    {
-                        "path": where,
-                        "message": (
-                            f"Sub-workflow '{path}' composes a workflow that "
-                            "is already composing it - a cycle: "
-                            + " -> ".join(composing + [resolved])
-                        ),
-                    }
-                )
-                continue
-            try:
-                child = workflow_from_file(resolved, self.output_dir, root)
-            except Exception as e:
-                errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
-                continue
-            for error in child.validation_errors(composing=composing + [resolved]):
-                errors.append(
-                    {
-                        "path": where
-                        if error["path"] is None
-                        else f"{where} -> {error['path']}",
-                        "message": f"Sub-workflow '{path}': {error['message']}",
-                    }
-                )
-        return errors
+    def open_sub_workflow(self, path):
+        """The workflow one sub-workflow step's `path` names, opened as
+        (child, resolved) - resolved is its path, which is what a
+        composition chain records. How dw.validation builds a composed child
+        without importing this module. Raises what resolution or the load
+        raises."""
+        resolved, root = self.resolve_sub_workflow_path(path)
+        return workflow_from_file(resolved, self.output_dir, root), resolved
 
     def sub_workflow_warnings(self, arguments=None):
         """An argument a sub-workflow step passes down that the workflow it
@@ -692,74 +627,13 @@ class Workflow:
         `for_each` expansion. Runs the registry's `sub_workflow_warnings`
         check; one that raises is an internal warning (B10).
         """
-        return self._warning_check("sub_workflow_warnings", arguments)
-
-    def sub_workflow_argument_warnings(self, expanded, source_indices=None):
-        """sub_workflow_warnings over an expansion already made - what the
-        registry check calls with the request's own."""
-        warnings = []
-        source_indices = source_indices or []
-        for index, step in enumerate(expanded.get("steps", []) or []):
-            reference = step.get("workflow")
-            if not isinstance(reference, dict):
-                continue
-            passed = reference.get("arguments")
-            if not isinstance(passed, dict) or not isinstance(
-                reference.get("path"), str
-            ):
-                continue
-            try:
-                resolved, root = self.resolve_sub_workflow_path(reference["path"])
-                child = workflow_from_file(resolved, self.output_dir, root)
-            except Exception:
-                # An unresolvable path is an error, reported by
-                # sub_workflow_errors - not a second complaint here
-                continue
-            declared = child.workflow_definition.get("variables") or {}
-            source = source_indices[index] if index < len(source_indices) else index
-            for name in sorted(set(passed) - set(declared)):
-                warnings.append(
-                    f"steps[{source}].workflow.arguments.{name}: "
-                    f"'{reference['path']}' declares no variable '{name}' - the "
-                    "value is dropped. Declared: "
-                    + (", ".join(sorted(declared)) or "<none>")
-                )
-        return warnings
+        return validation.run_warning_check(self, "sub_workflow_warnings", arguments)
 
     def validation_context(self, arguments=None, composing=(), *, ceiling_index=None):
-        """One validation request's ValidationContext: the expansion over
-        `arguments` (lazy and memoized, so the error pass and the warning
-        pass share it), where relative paths resolve from, the device the
-        request is checked against and the catalog's VRAM ceilings
-        (`ceiling_index`, for inherited_vram_warnings). Built per request
-        and never stored on the Workflow, so its probe cache cannot serve a
-        replaced file stale.
-
-        Building one expands nothing: the expansion runs the first time a
-        check reads it, so a context can be built ahead of
-        validation_errors' gates, which answer an expansion failure as a
-        finding.
-        """
-
-        def expand():
-            source_indices = []
-            expanded = self.expanded_definition(arguments, source_indices)
-            return expanded, source_indices
-
-        return ValidationContext(
-            workflow=self,
-            arguments=arguments,
-            base_dir=(
-                os.path.dirname(os.path.abspath(self.file_spec))
-                if self.file_spec
-                else None
-            ),
-            composing=composing,
-            device_type=get_device_type(),
-            capacity_gb=device_capacity_gb(),
-            ceiling_index=ceiling_index,
-            expand=expand,
-        )
+        """One validation request's ValidationContext (dw.validation's
+        `workflow_context`): built per request, never stored on the
+        Workflow, and it expands nothing until a check reads it."""
+        return validation.workflow_context(self, arguments, composing, ceiling_index)
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
@@ -771,67 +645,11 @@ class Workflow:
 
         `context`, when given, is the request's own ValidationContext - its
         arguments and composing chain are the ones checked - so one request
-        expands and probes once. Otherwise one is built here. Passing a
-        context together with different `arguments` or `composing` is a
-        caller bug and raises ValueError.
-
-        Past the gates (schema, 'constraint:' references, the expansion)
-        every check in `validation.ERROR_CHECKS` runs, in order; one that
-        raises is an internal error rather than a lost verdict (B10).
+        expands and probes once. Passing a context together with different
+        `arguments` or `composing` raises ValueError
+        (dw.validation's `workflow_errors`).
         """
-        if context is None:
-            context = self.validation_context(arguments, composing)
-        elif (arguments is not None and arguments != context.arguments) or (
-            composing is not None and tuple(composing) != context.composing
-        ):
-            raise ValueError(
-                "validation_errors was given a context and different "
-                "arguments or composing - pass one or the other"
-            )
-        errors = validate_data_all(self.workflow_definition, load_schema("workflow"))
-        # Only once the shape is known good: the checks walk the steps
-        # array and a definition that fails the schema may have no such
-        # array to walk
-        if errors:
-            return errors
-        # A 'constraint:' frame_snap naming nothing declared, every one of
-        # them at the path it sits at, before expanding. One that only
-        # becomes a 'constraint:' name once a variable substitutes is
-        # raised by expansion as ConstraintReferenceError, answered below
-        errors = constraint_reference_errors(self.workflow_definition)
-        if errors:
-            return errors
-        try:
-            # The context's expansion is lazy; run it here, where its
-            # failures are findings rather than an internal error in
-            # whichever check read it first
-            context.expanded
-        except ForEachError as e:
-            return [{"path": e.path, "message": str(e)}]
-        except ConstantError as e:
-            return [{"path": e.path, "message": str(e)}]
-        except ConstraintReferenceError as e:
-            return [{"path": e.path, "message": e.message}]
-        except VariableNotFoundError:
-            # Every undeclared reference, not just the first one
-            # substitution tripped over - and reported where each sits
-            # rather than as a for_each whose list arrived unsubstituted
-            return self._undeclared_variable_errors(context.arguments)
-        except VariableCycleError as e:
-            # A variable that references itself, directly or through
-            # others - there is no single path inside the definition to
-            # blame, so it is reported against 'variables' as a whole
-            return [{"path": "variables", "message": str(e)}]
-        return to_errors(run_checks(context, validation.ERROR_CHECKS, ERROR))
-
-    def _warning_check(self, name, arguments, **context_fields):
-        """The registry's warning check `name` over a context of this
-        call's own - how the warning methods below answer when called
-        directly rather than through admit(). An expansion that fails
-        raises inside the check, which makes it one internal warning."""
-        context = self.validation_context(arguments, **context_fields)
-        check = validation.warning_check(name)
-        return to_warnings(run_checks(context, [check], WARNING))
+        return validation.workflow_errors(self, arguments, composing, context)
 
     def adapter_warnings(self, arguments=None):
         """Every adapter whose file name says nothing about which checkpoint
@@ -842,7 +660,7 @@ class Workflow:
         internal warning, since its own errors are validation_errors' to
         report.
         """
-        return self._warning_check("adapter_warnings", arguments)
+        return validation.run_warning_check(self, "adapter_warnings", arguments)
 
     def inherited_vram_warnings(self, arguments=None, index=None):
         """Every catalog VRAM ceiling this workflow's expanded steps project
@@ -855,8 +673,8 @@ class Workflow:
         """
         if not index:
             return []
-        return self._warning_check(
-            "inherited_vram_warnings", arguments, ceiling_index=index
+        return validation.run_warning_check(
+            self, "inherited_vram_warnings", arguments, ceiling_index=index
         )
 
     def slice_past_end_warnings(self, arguments=None):
@@ -867,7 +685,7 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("slice_past_end_warnings", arguments)
+        return validation.run_warning_check(self, "slice_past_end_warnings", arguments)
 
     def shot_span_warnings(self, arguments=None):
         """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
@@ -878,7 +696,7 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("shot_span_warnings", arguments)
+        return validation.run_warning_check(self, "shot_span_warnings", arguments)
 
     def null_variable_argument_warnings(self, arguments=None):
         """Every required task argument fed by `variable:name` where name's
@@ -894,44 +712,9 @@ class Workflow:
 
         Runs the registry's check, like `adapter_warnings`.
         """
-        return self._warning_check("null_variable_argument_warnings", arguments)
-
-    def _undeclared_variable_errors(self, arguments=None):
-        """Every 'variable:' reference naming nothing the workflow declares.
-
-        Fatal rather than a warning: once a workflow has a 'variables'
-        block, replace_variables refuses an undeclared reference, so this is
-        a run that cannot start. Good caller `arguments` are folded in first,
-        and a reference inside one of them is reported under `arguments.`,
-        where the caller wrote it.
-        """
-        definition = copy.deepcopy(self.workflow_definition)
-        variables = definition.get("variables")
-        supplied = set()
-        if isinstance(variables, dict) and arguments:
-            if not argument_errors(definition, arguments):
-                set_variables(arguments, variables)
-                supplied = set(arguments)
-        declared = sorted(variables or {})
-
-        def where(path):
-            head, _, rest = path.partition(".")
-            if head == "variables":
-                name = rest.split(".", 1)[0].split("[", 1)[0]
-                if name in supplied:
-                    return "arguments." + rest
-            return path
-
-        return [
-            {
-                "path": where(path),
-                "message": (
-                    f"'variable:{name}' names no declared variable; "
-                    f"declared: {', '.join(declared) or '<none>'}"
-                ),
-            }
-            for path, name in undeclared_variable_references(definition)
-        ]
+        return validation.run_warning_check(
+            self, "null_variable_argument_warnings", arguments
+        )
 
     def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.

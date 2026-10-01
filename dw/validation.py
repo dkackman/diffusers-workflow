@@ -17,49 +17,59 @@ dw.workflow - and memoizes the media metadata probe for the one validation
 it was built for (B9). It is never stored on the Workflow, so a replaced
 asset is probed afresh by the next request.
 
-Three checkers whose only importer was dw/workflow.py live here as well:
-`fps_errors` (was dw/result_fps.py), `null_media_errors` (was
-dw/null_media.py) and `select_errors` (was dw/select_validation.py).
+The Workflow's validation methods are one-line calls into the functions at the
+end of this module (`workflow_errors`, `workflow_context`,
+`run_warning_check`, `undeclared_variable_errors`, `sub_workflow_errors`,
+`sub_workflow_argument_warnings`). The three step-value checkers the error
+registry runs (`fps_errors`, `null_media_errors`, `select_errors`) are in
+dw/step_value_checks.py.
 """
 
+import copy
 import logging
 import os
 from dataclasses import dataclass, field
 from typing import Callable
 
 from . import references
-from .arguments import names_no_media
+from . import get_device_type, device_capacity_gb
 from .adapter_compatibility import adapter_errors, adapter_warnings
 from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
-from .for_each import MEMBER_SEPARATOR, entry_field_warnings, render_path
+from .for_each import ForEachError, entry_field_warnings
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
+from .library import SubWorkflowNotFound
 from .locations import location_errors
 from .media import probe_metadata
 from .previous_results import previous_result_reference_errors
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors
-from .references import (
-    FROM_ARGUMENTS_KEY,
-    FROM_FILE_KEY,
-    FROM_PREVIOUS_RESULT_KEY,
-    author_index,
-)
 from .scalar_result_validation import scalar_result_errors
+from .schema import load_schema, validate_data_all
+from .security import InvalidInputError, SecurityError
 from .shot_span_preflight import shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
-from .task_domains import (
-    SELECT_RULES,
-    SELECT_THRESHOLD_RULES,
-    select_rule_problems,
-    task_argument_errors,
-)
+from .step_value_checks import fps_errors, null_media_errors, select_errors
+from .task_domains import task_argument_errors
 from .tasks.voice_attribution import voices_errors
 from .type_references import component_name_errors, component_type_errors
-from .variable_constraints import constraint_errors, constraint_warnings
+from .variable_constraints import (
+    ConstraintReferenceError,
+    constraint_errors,
+    constraint_reference_errors,
+    constraint_warnings,
+)
+from .variables import (
+    ConstantError,
+    VariableCycleError,
+    VariableNotFoundError,
+    argument_errors,
+    set_variables,
+    undeclared_variable_references,
+)
 from .video_extensions import video_extension_errors
 from .video_size_errors import video_size_errors
 from .vram_estimate import vram_estimate_errors
@@ -90,7 +100,7 @@ class Finding:
 
 class ValidationContext:
     """What one validation request's checks read. Built once per request
-    (`Workflow.validation_context`) and handed to the error pass and the
+    (`workflow_context`) and handed to the error pass and the
     warning pass alike; never stored on the Workflow.
 
     The expansion is lazy: `expand`, when given, is called the first time a
@@ -108,8 +118,8 @@ class ValidationContext:
         base_dir=None,
         composing=(),
         # What the device the request is validated for can hold - read by
-        # the factory from dw.workflow's own names, where the vram tests
-        # patch them
+        # workflow_context from this module's own names, where the vram
+        # tests patch them
         device_type=None,
         capacity_gb=None,
         # The catalog's VRAM ceilings, for inherited_vram_warnings
@@ -241,294 +251,6 @@ def to_warnings(findings):
         for f in findings
         if f.severity == WARNING
     ]
-
-
-# --- A step's result 'fps' (was dw/result_fps.py) ---------------------------
-#
-# Widened the same way `subfolder` was (dw/subfolders.py): the schema lets the
-# raw document hold a `variable:` or `item:` reference so a workflow can keep
-# one frame-rate variable rather than a literal duplicated between the step
-# that generates and the step that writes (#363). This owns the resolved-value
-# check: once substitution has run, `result.fps` has to be a real, positive
-# frame rate, and it must be a whole number - `encode_video` (dw/result.py,
-# the writer used whenever a step's result carries audio) hands the value
-# straight to PyAV as `rate=int(fps)`, so a fractional rate like 23.976 would
-# be silently floored to 23 rather than written as asked. A frame_rate
-# variable declared as a float (24.0) still passes, since it carries no
-# fractional part; only a genuine fraction is refused.
-#
-# Containment doesn't apply here - there's no path to join - so unlike
-# subfolder_errors this only ever checks value shape.
-
-FPS_KEY = "fps"
-
-# Reference prefixes substitution resolves before this pass runs. One still
-# spelled out here is one nothing resolved, and that is the undeclared-
-# variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
-
-
-def fps_errors(workflow_definition, source_indices=None):
-    """Every result 'fps' that cannot be written, as [{path, message}].
-
-    The definition handed here has already been substituted and expanded,
-    so every value in it is literal; a 'variable:' or 'item:' still spelled
-    out is left alone. `source_indices`, when given, is the source step
-    index of each step - a 'for_each' group turns one written step into
-    several, and the path an error carries has to be one the author can
-    find in the file they wrote; the member is named in the message.
-    """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
-    errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        result = step.get("result")
-        if not isinstance(result, dict) or FPS_KEY not in result:
-            continue
-        value = result[FPS_KEY]
-        if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
-            continue
-
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
-        message = None
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            message = f"Invalid fps: {value!r} - fps is a number of frames per second"
-        elif value <= 0:
-            message = f"Invalid fps: {value!r} - fps must be greater than zero"
-        elif float(value) != int(value):
-            message = (
-                f"Invalid fps: {value!r} - fps must be a whole number; the video "
-                f"writer truncates a fractional rate rather than honoring it"
-            )
-        if message is not None:
-            errors.append(
-                {
-                    "path": render_path(("steps", source, "result", FPS_KEY)),
-                    "message": f"{message}{where}",
-                }
-            )
-    return errors
-
-
-# --- An object description whose media resolved null (was dw/null_media.py) --
-#
-# `realize_args` builds a pipeline argument that names a type and where its
-# media comes from - MiniMax-H3's references are the catalog's example. When
-# that media source resolves to null (typically a `variable:` left unset), the
-# object is `OMITTED`: dropped silently when it sits in a list, since that is
-# how a template makes a reference optional (`dw/arguments.py`'s list branch).
-# But the *same* dict sitting directly under a key, not in a list, has nothing
-# to leave it out of - `realize_args` raises there, at run time, after the
-# checkpoint is already loaded (#478).
-#
-# This mirrors that raise, not the silent drop: only a bare object description
-# in "dict context" is an error here, exactly the shapes `realize_args`' own
-# dict branch would refuse. One found inside a list is left alone, since a
-# template author relies on that being silently dropped rather than reported.
-
-_FROM_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
-
-
-def _walk(value, path, in_list, errors):
-    if isinstance(value, dict):
-        if not in_list and names_no_media(value):
-            from_key = next(k for k in _FROM_KEYS if value.get(k, False) is None)
-            errors.append(
-                {
-                    "path": render_path(path + (from_key,)),
-                    "message": (
-                        f"'{path[-1]}' names an object to build but the media "
-                        f"it would be built from is null. An optional one "
-                        f"belongs in a list, where it can be left out; on its "
-                        f"own there is nothing to leave it out of"
-                    ),
-                }
-            )
-            return
-        for key, item in value.items():
-            _walk(item, path + (key,), False, errors)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _walk(item, path + (index,), True, errors)
-
-
-def null_media_errors(workflow_definition, source_indices=None):
-    """Every bare object description whose media is null, as [{path, message}].
-
-    The definition handed here has already been substituted and expanded, so a
-    `for_each` member's own arguments are checked as they will run;
-    `source_indices` maps each expanded step back to the step the author
-    wrote, and the member is named in the message - the same convention
-    reference_limit_errors uses.
-    """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
-    errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
-        if not isinstance(arguments, dict):
-            continue
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
-        step_errors = []
-        for key, value in arguments.items():
-            _walk(
-                value,
-                ("steps", source, "pipeline", "arguments", key),
-                False,
-                step_errors,
-            )
-        for error in step_errors:
-            errors.append(
-                {
-                    "path": error["path"],
-                    "message": f"{error['message']}{where}.",
-                }
-            )
-    return errors
-
-
-# --- select's arguments (was dw/select_validation.py, docs/proposals/score-and-select.md) --
-#
-# select's own signature carries no domain - `rule` is any string, and
-# `threshold`/`index` are only meaningful for some rules - so a step whose
-# rule is misspelled, or whose threshold is missing, or whose index rule has
-# none, validates clean today and dies on select's own run-time ValueError
-# after the fan-out ahead of it has already generated. Checked here in
-# `validation_errors` (free), and unchanged as select's own run-time check
-# for a value arriving from a `variable:` or an earlier step, which this
-# static pass can never see.
-
-
-def _select_problem_key(rule):
-    """The argument a select_rule_problems sentence is about: the rule when
-    it is unknown, else the one argument that rule needs."""
-    if rule not in SELECT_RULES:
-        return "rule"
-    return "threshold" if rule in SELECT_THRESHOLD_RULES else "index"
-
-
-def _select_where(name):
-    return (
-        f" in member '{name}'"
-        if isinstance(name, str) and MEMBER_SEPARATOR in name
-        else ""
-    )
-
-
-def _is_gather(value):
-    return references.is_ref(references.GATHER, value)
-
-
-def _is_expanded_gather(value):
-    """A gather: reference after for_each expansion has replaced it with the
-    list of previous_result: references it drew from - the only form
-    select_errors ever actually sees once validation_errors expands the
-    definition before calling it."""
-    return (
-        isinstance(value, list)
-        and len(value) > 0
-        and all(references.is_ref(references.PREVIOUS_RESULT, v) for v in value)
-    )
-
-
-def select_errors(workflow_definition, source_indices=None):
-    """Every select step whose arguments cannot be right, as [{path, message}]."""
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
-    errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") != "select":
-            continue
-        arguments = task.get("arguments")
-        if not isinstance(arguments, dict):
-            continue
-
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = _select_where(name)
-
-        def add(key, message):
-            path = render_path(("steps", source, "task", "arguments", key))
-            errors.append({"path": path, "message": f"{message}{where}."})
-
-        rule = arguments.get("rule")
-        if isinstance(rule, str):
-            # What the run itself refuses, in its own sentence - at most one,
-            # keyed to the argument it is about
-            problems = {
-                _select_problem_key(rule): problem
-                for problem in select_rule_problems(
-                    rule, arguments.get("threshold"), arguments.get("index")
-                )
-            }
-            if "rule" in problems:
-                add("rule", problems["rule"])
-            else:
-                # Beside it, what the run ignores and validation refuses
-                # anyway: an argument this rule does not read
-                if "threshold" in problems:
-                    add("threshold", problems["threshold"])
-                elif rule not in SELECT_THRESHOLD_RULES and "threshold" in arguments:
-                    add(
-                        "threshold",
-                        f"select: 'threshold' is only meaningful for rule "
-                        f"'first_above'/'first_below', not {rule!r}",
-                    )
-                if "index" in problems:
-                    add("index", problems["index"])
-                elif rule != "index" and "index" in arguments:
-                    add(
-                        "index",
-                        f"select: 'index' is only meaningful for rule 'index', "
-                        f"not {rule!r}",
-                    )
-
-        candidates = arguments.get("candidates")
-        scores = arguments.get("scores")
-        if "candidates" in arguments and "scores" in arguments:
-            if _is_gather(candidates) != _is_gather(scores):
-                add(
-                    "candidates",
-                    "select: 'candidates' and 'scores' must both be "
-                    "'gather:' references or both plain lists, got "
-                    f"candidates={candidates!r} scores={scores!r}",
-                )
-            elif _is_expanded_gather(candidates) and _is_expanded_gather(scores):
-                if len(candidates) != len(scores):
-                    add(
-                        "scores",
-                        "select: 'candidates' and 'scores' gather from "
-                        f"for_each groups of different sizes: candidates has "
-                        f"{len(candidates)} entries, scores has {len(scores)}",
-                    )
-
-    return errors
 
 
 # --- The error registry ------------------------------------------------------
@@ -690,8 +412,8 @@ ERROR_CHECKS = [
     # child that does not itself validate
     Check(
         "sub_workflows",
-        lambda c: c.workflow.sub_workflow_errors(
-            c.expanded, c.source_indices, list(c.composing)
+        lambda c: sub_workflow_errors(
+            c.workflow, c.expanded, c.source_indices, list(c.composing)
         ),
     ),
 ]
@@ -821,8 +543,8 @@ WARNING_CHECKS = [
     # variable for it - dropped in silence at run time (#89)
     Check(
         "sub_workflow_warnings",
-        lambda c: c.workflow.sub_workflow_argument_warnings(
-            c.expanded, c.source_indices
+        lambda c: sub_workflow_argument_warnings(
+            c.workflow, c.expanded, c.source_indices
         ),
     ),
     # A slice_audio source whose real duration is already knowable and whose
@@ -874,3 +596,241 @@ def warning_check(name):
     if check is None:
         raise KeyError(name)
     return check
+
+
+# --- What Workflow's validation methods call ---------------------------------
+#
+# `workflow` is a Workflow handed in as a value: this module never imports
+# dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`
+# and recognized by `type(workflow)`.
+
+
+def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None):
+    """One validation request's ValidationContext: the expansion over
+    `arguments` (lazy and memoized, so the error pass and the warning
+    pass share it), where relative paths resolve from, the device the
+    request is checked against and the catalog's VRAM ceilings
+    (`ceiling_index`, for inherited_vram_warnings). Built per request
+    and never stored on the Workflow, so its probe cache cannot serve a
+    replaced file stale.
+
+    Building one expands nothing: the expansion runs the first time a
+    check reads it, so a context can be built ahead of
+    workflow_errors' gates, which answer an expansion failure as a
+    finding.
+    """
+
+    def expand():
+        source_indices = []
+        expanded = workflow.expanded_definition(arguments, source_indices)
+        return expanded, source_indices
+
+    return ValidationContext(
+        workflow=workflow,
+        arguments=arguments,
+        base_dir=(
+            os.path.dirname(os.path.abspath(workflow.file_spec))
+            if workflow.file_spec
+            else None
+        ),
+        composing=composing,
+        device_type=get_device_type(),
+        capacity_gb=device_capacity_gb(),
+        ceiling_index=ceiling_index,
+        expand=expand,
+    )
+
+
+def workflow_errors(workflow, arguments=None, composing=None, context=None):
+    """Every schema violation in the definition, as [{path, message}];
+    empty when it validates. `arguments` are the caller's, so a
+    for_each over a list the caller supplies is checked as it will run.
+
+    `composing` carries the chain of sub-workflows above this one, so a
+    workflow that composes itself is an error rather than a recursion.
+
+    `context`, when given, is the request's own ValidationContext - its
+    arguments and composing chain are the ones checked - so one request
+    expands and probes once. Otherwise one is built here. Passing a
+    context together with different `arguments` or `composing` is a
+    caller bug and raises ValueError.
+
+    Past the gates (schema, 'constraint:' references, the expansion)
+    every check in `ERROR_CHECKS` runs, in order; one that raises is an
+    internal error rather than a lost verdict (B10).
+    """
+    if context is None:
+        context = workflow.validation_context(arguments, composing)
+    elif (arguments is not None and arguments != context.arguments) or (
+        composing is not None and tuple(composing) != context.composing
+    ):
+        raise ValueError(
+            "validation_errors was given a context and different "
+            "arguments or composing - pass one or the other"
+        )
+    errors = validate_data_all(workflow.workflow_definition, load_schema("workflow"))
+    # Only once the shape is known good: the checks walk the steps
+    # array and a definition that fails the schema may have no such
+    # array to walk
+    if errors:
+        return errors
+    # A 'constraint:' frame_snap naming nothing declared, every one of
+    # them at the path it sits at, before expanding. One that only
+    # becomes a 'constraint:' name once a variable substitutes is
+    # raised by expansion as ConstraintReferenceError, answered below
+    errors = constraint_reference_errors(workflow.workflow_definition)
+    if errors:
+        return errors
+    try:
+        # The context's expansion is lazy; run it here, where its
+        # failures are findings rather than an internal error in
+        # whichever check read it first
+        context.expanded
+    except ForEachError as e:
+        return [{"path": e.path, "message": str(e)}]
+    except ConstantError as e:
+        return [{"path": e.path, "message": str(e)}]
+    except ConstraintReferenceError as e:
+        return [{"path": e.path, "message": e.message}]
+    except VariableNotFoundError:
+        # Every undeclared reference, not just the first one
+        # substitution tripped over - and reported where each sits
+        # rather than as a for_each whose list arrived unsubstituted
+        return undeclared_variable_errors(workflow, context.arguments)
+    except VariableCycleError as e:
+        # A variable that references itself, directly or through
+        # others - there is no single path inside the definition to
+        # blame, so it is reported against 'variables' as a whole
+        return [{"path": "variables", "message": str(e)}]
+    return to_errors(run_checks(context, ERROR_CHECKS, ERROR))
+
+
+def run_warning_check(workflow, name, arguments, **context_fields):
+    """The registry's warning check `name` over a context of this
+    call's own - how the Workflow's warning methods answer when called
+    directly rather than through admit(). An expansion that fails
+    raises inside the check, which makes it one internal warning."""
+    context = workflow.validation_context(arguments, **context_fields)
+    check = warning_check(name)
+    return to_warnings(run_checks(context, [check], WARNING))
+
+
+def undeclared_variable_errors(workflow, arguments=None):
+    """Every 'variable:' reference naming nothing the workflow declares.
+
+    Fatal rather than a warning: once a workflow has a 'variables'
+    block, replace_variables refuses an undeclared reference, so this is
+    a run that cannot start. Good caller `arguments` are folded in first,
+    and a reference inside one of them is reported under `arguments.`,
+    where the caller wrote it.
+    """
+    definition = copy.deepcopy(workflow.workflow_definition)
+    variables = definition.get("variables")
+    supplied = set()
+    if isinstance(variables, dict) and arguments:
+        if not argument_errors(definition, arguments):
+            set_variables(arguments, variables)
+            supplied = set(arguments)
+    declared = sorted(variables or {})
+
+    def where(path):
+        head, _, rest = path.partition(".")
+        if head == "variables":
+            name = rest.split(".", 1)[0].split("[", 1)[0]
+            if name in supplied:
+                return "arguments." + rest
+        return path
+
+    return [
+        {
+            "path": where(path),
+            "message": (
+                f"'{references.make_ref(references.VARIABLE, name)}' names no "
+                f"declared variable; declared: {', '.join(declared) or '<none>'}"
+            ),
+        }
+        for path, name in undeclared_variable_references(definition)
+    ]
+
+
+def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None):
+    """Every sub-workflow step whose `path` names nothing this server can
+    reach, composes a workflow already on the chain, or resolves to a
+    workflow that does not itself validate.
+
+    `composing` is the resolved path of every workflow above this one,
+    which is what makes a cycle an error here rather than a recursion
+    the run discovers.
+    """
+    errors = []
+    composing = list(composing or [])
+    for index, step in enumerate(expanded.get("steps", []) or []):
+        reference = step.get("workflow")
+        if not isinstance(reference, dict) or not isinstance(
+            reference.get("path"), str
+        ):
+            continue
+        source = references.author_index(source_indices, index)
+        where = f"steps[{source}].workflow.path"
+        path = reference["path"]
+        try:
+            resolved, _ = workflow.resolve_sub_workflow_path(path)
+        except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
+            errors.append({"path": where, "message": str(e)})
+            continue
+        if resolved in composing:
+            errors.append(
+                {
+                    "path": where,
+                    "message": (
+                        f"Sub-workflow '{path}' composes a workflow that "
+                        "is already composing it - a cycle: "
+                        + " -> ".join(composing + [resolved])
+                    ),
+                }
+            )
+            continue
+        try:
+            child, _ = workflow.open_sub_workflow(path)
+        except Exception as e:
+            errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
+            continue
+        for error in child.validation_errors(composing=composing + [resolved]):
+            errors.append(
+                {
+                    "path": where
+                    if error["path"] is None
+                    else f"{where} -> {error['path']}",
+                    "message": f"Sub-workflow '{path}': {error['message']}",
+                }
+            )
+    return errors
+
+
+def sub_workflow_argument_warnings(workflow, expanded, source_indices=None):
+    """sub_workflow_warnings over an expansion already made - what the
+    registry check calls with the request's own."""
+    warnings = []
+    for index, step in enumerate(expanded.get("steps", []) or []):
+        reference = step.get("workflow")
+        if not isinstance(reference, dict):
+            continue
+        passed = reference.get("arguments")
+        if not isinstance(passed, dict) or not isinstance(reference.get("path"), str):
+            continue
+        try:
+            child, _ = workflow.open_sub_workflow(reference["path"])
+        except Exception:
+            # An unresolvable path is an error, reported by
+            # sub_workflow_errors - not a second complaint here
+            continue
+        declared = child.workflow_definition.get("variables") or {}
+        source = references.author_index(source_indices, index)
+        for name in sorted(set(passed) - set(declared)):
+            warnings.append(
+                f"steps[{source}].workflow.arguments.{name}: "
+                f"'{reference['path']}' declares no variable '{name}' - the "
+                "value is dropped. Declared: "
+                + (", ".join(sorted(declared)) or "<none>")
+            )
+    return warnings

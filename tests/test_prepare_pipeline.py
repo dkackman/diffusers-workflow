@@ -6,7 +6,8 @@ import copy
 
 import pytest
 
-from dw.workflow import ConstantError, Workflow, workflow_from_definition
+from dw.variables import ConstantError
+from dw.workflow import Workflow, workflow_from_definition
 
 # One definition exercising every stage the three paths used to disagree on:
 # a snap-up constraint, a for_each whose entry references another variable,

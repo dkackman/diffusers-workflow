@@ -7,7 +7,7 @@ queue rather than a run started only to fail on its first reducer step.
 
 import unittest
 
-from dw.validation import select_errors
+from dw.step_value_checks import select_errors
 
 
 def _step(name="pick", **arguments):

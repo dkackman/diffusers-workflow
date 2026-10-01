@@ -19,7 +19,7 @@ import numpy
 import pytest
 
 from dw.dissolve_frame_errors import dissolve_frame_errors
-from dw.validation import select_errors
+from dw.step_value_checks import select_errors
 from dw.slice_preflight import slice_past_end_warnings
 from dw.task_domains import (
     SELECT_RULES,
