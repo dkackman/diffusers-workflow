@@ -35,20 +35,14 @@ import torch
 from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
-from ..result import (
-    AudioVideo,
-    frames_for_encoding,
-    get_artifact_list,
-    output_file_path,
-)
+from ..media_types import AudioVideo, fit_codec_padding
+from ..output_extraction import get_artifact_list
+from ..writers import frames_for_encoding, output_file_path
 from ..shots import shot_record, without_samples
-from ..tasks.audio_utils import (
-    as_channels_samples,
-    equal_power_crossfade_join,
-    frames_to_samples,
-    slice_samples,
-)
-from ..tasks.video_utils import _fit_audio_to_frames, extract_frame, frames_as_pil_list
+from ..dsp import as_channels_samples, slice_samples
+from ..task_domains import frames_to_samples
+from ..tasks.joins import equal_power_crossfade_join
+from ..tasks.video_utils import extract_frame, frames_as_pil_list
 
 logger = logging.getLogger("dw")
 
@@ -278,13 +272,9 @@ class SegmentSpill:
 
 def _decode_segment(path):
     """Read a segment file back as a uint8 (frames, height, width, 3) tensor."""
-    import av
+    from ..media import decode_rgb_frames
 
-    with av.open(path) as container:
-        frames = [
-            frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)
-        ]
-    return torch.from_numpy(numpy.stack(frames, axis=0))
+    return torch.from_numpy(numpy.stack(decode_rgb_frames(path), axis=0))
 
 
 def run_chain(pipeline, chain_definition, arguments):
@@ -360,7 +350,7 @@ def run_chain(pipeline, chain_definition, arguments):
         # neither of those, so the shortfall was surviving here uncorrected
         # and compounding once per segment (#408).
         if segment_audio is not None and segment_rate and config.fps:
-            segment_audio = _fit_audio_to_frames(
+            segment_audio = fit_codec_padding(
                 segment_audio, len(segment_frames), config.fps, segment_rate
             )
 

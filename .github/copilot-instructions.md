@@ -2,9 +2,9 @@
 
 This is a declarative workflow engine for the HuggingFace Diffusers library that executes AI model pipelines via JSON configuration files.
 
-## REPL Worker Architecture (NEW)
+## Worker Architecture
 
-The REPL uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
+`dw.serve` uses a **persistent worker subprocess** for workflow execution to maintain GPU model cache:
 - Worker keeps models loaded in GPU across multiple runs
 - Automatic workflow file change detection (SHA256 hash)
 - Aggressive memory cleanup between runs (gc.collect + torch.cuda.empty_cache)
@@ -14,17 +14,17 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 
 **Key modules:**
 - `dw/worker.py` - Worker process with command loop and memory management
-- `dw/repl.py` - REPL with worker lifecycle (start/stop/restart)
+- `dw/worker_manager.py` - Worker lifecycle (start/stop/restart) for `JobManager`
 - Communication via `multiprocessing.Queue` (command_queue, result_queue)
 
-**Worker commands:** execute, shutdown, ping, clear_memory, memory_status
+**Worker commands:** execute, cancel, shutdown, clear_memory, memory_status, probe_cache (typed messages in `dw/worker_protocol.py`; request/reply commands carry a `request_id`)
 
 ## Architecture Overview
 
 **Core Components:**
-- `dw/workflow.py`: Main orchestrator - loads JSON workflows, handles variable substitution, manages step execution
+- `dw/workflow.py`: Main orchestrator - loads JSON workflows, handles variable substitution, manages step execution (the run's phases live in `dw/workflow_run.py`, validation in `dw/validation.py`)
 - `dw/step.py`: Individual workflow step executor - runs pipelines/tasks/sub-workflows 
-- `dw/pipeline_processors/pipeline.py`: Manages HuggingFace pipeline loading, configuration, and shared components
+- `dw/pipeline_processors/pipeline.py`: The `Pipeline` class - HuggingFace pipeline loading and shared components (placement, component loading, adapters and progress reporting are beside it in `placement.py`, `components.py`, `adapters.py`, `progress.py`)
 - `dw/tasks/task.py`: Executes utility tasks (image processing, QR codes, data gathering)
 - `dw/previous_results.py`: Handles cross-step data flow using cartesian products of previous results
 
@@ -72,7 +72,7 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 **Execution:** `python -m dw.run workflow.json variable1=value1`
 
 **Adding New Tasks:** Register a handler function in `dw/tasks/task.py` with the `@register_command("name")` decorator; `Task.run()` dispatches to the registry (falling back to image/video processor lookups for unregistered names)
-**Adding Pipeline Types:** Update `workflow_schema.json` and ensure proper component loading in `pipeline.py`
+**Adding Pipeline Types:** Update `workflow_schema.json` and ensure proper component loading in `pipeline_processors/components.py`
 
 ## Project-Specific Conventions
 
@@ -91,13 +91,14 @@ The REPL uses a **persistent worker subprocess** for workflow execution to maint
 
 ## Security
 
-**Critical security module** (`dw/security.py`) provides comprehensive input validation and protection:
+**Critical security modules**: `dw/security.py` provides comprehensive input validation and protection, and `dw/trust.py` gates the trust model for untrusted workflows:
 - **Path validation**: Prevents traversal attacks, validates file extensions, enforces directory restrictions
 - **Input sanitization**: Validates variable names (alphanumeric + underscore/hyphen only), string lengths, control characters
 - **Command safety**: Sanitizes subprocess arguments, blocks shell metacharacters, enforces `shell=False`
 - **URL validation**: Restricts to http/https schemes only
+- **Workflow trust**: Controls what untrusted workflows may import (`dw/trust.py`)
 
-All entry points (run.py, validate.py, repl.py) use security validation. When adding features:
+All entry points (run.py, validate.py, serve.py) use security validation. When adding features:
 - Always validate paths with `validate_path()` or `validate_workflow_path()`
 - Use `validate_variable_name()` for user-provided variable names
 - Sanitize URLs with `validate_url()` before remote loading

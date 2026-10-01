@@ -9,6 +9,8 @@ does so lazily: the package is an optional extra.
 
 import ipaddress
 
+from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
+
 
 def client_base_url(host, port):
     """The URL the mounted tools use to reach this same server.
@@ -19,11 +21,6 @@ def client_base_url(host, port):
     is exactly the `--host 100.x.y.z` Tailscale setup docs/REMOTE.md
     recommends. An IPv6 literal is bracketed for the URL's authority.
     """
-    # imported here rather than at module scope: dw.server.app imports this
-    # module (lazily, inside create_app), so an import back at import time
-    # would be a cycle
-    from .app import LOOPBACK_HOSTS, WILDCARD_HOSTS
-
     host = (host or "").lower()
     if host in WILDCARD_HOSTS | LOOPBACK_HOSTS:
         host = "127.0.0.1"

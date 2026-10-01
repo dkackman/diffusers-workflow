@@ -10,7 +10,7 @@ from unittest import mock
 import numpy
 import pytest
 
-from dw.media_audio import (
+from dw.media import (
     NoSoundtrack,
     audio_shape,
     extract_audio,
@@ -184,7 +184,7 @@ def test_an_excerpt_is_anchored_on_the_streams_start_time(tmp_path):
     the container's zero rather than the stream's own start: `start=2.5`
     came back from about 1.5 s - the wrong tone, silently - and `start=0.5`
     came back as a 0.13 s stub. Anchor on `stream.start_time`, as
-    `_read_frames` does for video."""
+    `media.read_frames` does for video."""
     write_shifted_two_tone_mp4(tmp_path / "shifted.mp4", offset_seconds=1.0)
     import av
 
@@ -297,7 +297,7 @@ def test_an_excerpt_from_the_top_is_cut_even_when_frames_carry_no_pts(tmp_path):
 
     write_wav(tmp_path / "score.wav", seconds=4.0)
 
-    with mock.patch("dw.media_audio.av.open", side_effect=stripping_pts(av.open)):
+    with mock.patch("dw.media.av.open", side_effect=stripping_pts(av.open)):
         data, info = extract_audio(str(tmp_path / "score.wav"), start=0.0, duration=0.5)
 
     rate, samples = read_wav(data)
@@ -313,7 +313,7 @@ def test_an_excerpt_after_a_seek_is_cut_where_asked_when_frames_carry_no_pts(tmp
     write_wav(tmp_path / "score.wav", seconds=4.0)
     reference, _ = extract_audio(str(tmp_path / "score.wav"), start=1.0, duration=0.5)
 
-    with mock.patch("dw.media_audio.av.open", side_effect=stripping_pts(av.open)):
+    with mock.patch("dw.media.av.open", side_effect=stripping_pts(av.open)):
         data, info = extract_audio(str(tmp_path / "score.wav"), start=1.0, duration=0.5)
 
     rate, samples = read_wav(data)

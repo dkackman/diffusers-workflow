@@ -17,7 +17,7 @@ import logging
 import numpy as np
 from PIL import Image
 
-from ..result import AudioVideo
+from ..media_types import AudioVideo
 from ..shots import carried_shots
 from .video_utils import frames_as_pil_list, load_audio_video
 

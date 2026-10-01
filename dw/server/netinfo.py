@@ -15,7 +15,15 @@ cannot be read still has a working server, so failure yields [].
 import socket
 import ipaddress
 
-__all__ = ["local_addresses"]
+__all__ = ["local_addresses", "LOOPBACK_HOSTS", "WILDCARD_HOSTS"]
+
+#  Host header values a locally-bound server accepts by default, regardless
+# of what --host is configured to - a loopback request always presents one
+# of these regardless of the server's own bind address.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+# Bind addresses that mean "every interface" - a request never carries one
+# of these as its Host, so they define no allowlist
+WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 
 
 def _usable(address):

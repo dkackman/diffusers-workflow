@@ -11,7 +11,7 @@ import tempfile
 from unittest.mock import patch
 from PIL import Image
 from dw.tasks.gather import gather_images, gather_videos, gather_inputs
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.security import SecurityError
 
 
@@ -173,7 +173,7 @@ class TestGatherVideos:
         """Each video comes back whole. Gathered as a bare list of frames, a
         step's artifacts would flatten into one artifact per frame and fan the
         step that consumed them out over frames instead of videos."""
-        from dw.result import get_artifact_list
+        from dw.output_extraction import get_artifact_list
 
         write_video(tmp_path / "shot.mp4")
 

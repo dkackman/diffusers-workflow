@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 
 from dw.assessment_rules import RULES_BY_NAME
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.runs import MANIFEST_FILE_NAME, shots_beside
 from dw.shots import shot_record
 from dw.tasks.assess import (
@@ -789,7 +789,7 @@ class TestStoredMediaInAWorkflow:
         return json.loads(saved[0].read_text())
 
     def test_an_asset_video_is_probed_from_the_file(self, tmp_path, monkeypatch):
-        import dw.arguments as arguments_module
+        import dw.argument_media as argument_media_module
 
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
         assets = tmp_path / "assets" / "cast"
@@ -800,7 +800,7 @@ class TestStoredMediaInAWorkflow:
         def _boom(*args, **kwargs):
             raise AssertionError("a probe's video must not be decoded eagerly")
 
-        monkeypatch.setattr(arguments_module, "load_video", _boom)
+        monkeypatch.setattr(argument_media_module, "load_video", _boom)
 
         outputs = tmp_path / "outputs"
         self.run(self.probe_workflow("asset:cast/clip.mp4"), outputs)

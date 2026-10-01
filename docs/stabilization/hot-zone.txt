@@ -1,0 +1,7 @@
+# Files the current stabilization phase is restructuring.
+# The harness implementer must not change these; a field bug whose fix
+# needs one is labelled `stabilization` and handed to owner:don.
+# One path (or directory ending in /) per line; '#' starts a comment.
+# Stage 3e merged (2026-10-01); Phase 3 complete pending gate 3.
+scripts/arch_metrics.py
+docs/stabilization/

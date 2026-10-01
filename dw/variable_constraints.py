@@ -41,11 +41,11 @@ import logging
 import math
 import numbers
 
+from . import references
+
 logger = logging.getLogger("dw")
 
 CONSTRAINTS_KEY = "variable_constraints"
-# What a chain step's `frame_snap` writes instead of repeating the numbers
-CONSTRAINT_PREFIX = "constraint:"
 # The fields a `frame_snap` block carries, which are the fields a constraint
 # is checked on - the rest of a constraint says what to do about a violation
 SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
@@ -321,6 +321,38 @@ def constraint_warnings(definition, arguments=None):
     return notices
 
 
+def snap_constraints(definition, variables):
+    """Round every value a `snap: "up"` rule rounds, in place, and say what
+    changed. Pure apart from the rounding: never raises and never emits, so
+    validation can see the value the run will use without the run's
+    warnings or refusals (those stay in apply_constraints and
+    constraint_errors)."""
+    constraints = declared_constraints(definition)
+    changes = []
+    if not constraints or not isinstance(variables, dict):
+        return changes
+    for name in sorted(constraints):
+        constraint = constraints[name]
+        if not isinstance(constraint, dict) or name not in variables:
+            continue
+        notice = snap_notice(name, variables[name], constraint)
+        if notice is not None:
+            variables[name] = snapped(variables[name], constraint)
+            changes.append((notice, name, variables[name]))
+    for variable, index, name, entry in entry_targets(definition, variables):
+        notice = snap_notice(name, entry[name], constraints[name])
+        if notice is not None:
+            entry[name] = snapped(entry[name], constraints[name])
+            changes.append(
+                (
+                    f"{variable}[{index}]: {notice}",
+                    f"{variable}[{index}].{name}",
+                    entry[name],
+                )
+            )
+    return changes
+
+
 def apply_constraints(definition, variables):
     """Refuse or round the run's variable values, before anything loads.
 
@@ -335,39 +367,34 @@ def apply_constraints(definition, variables):
     constraints = declared_constraints(definition)
     if not constraints or not isinstance(variables, dict):
         return
+    for message, label, value in snap_constraints(definition, variables):
+        emit_warning(message, kind="value_snapped", variable=label, value=value)
     for name in sorted(constraints):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in variables:
             continue
-        value = variables[name]
-        notice = snap_notice(name, value, constraint)
-        if notice is not None:
-            variables[name] = snapped(value, constraint)
-            emit_warning(
-                notice, kind="value_snapped", variable=name, value=variables[name]
-            )
-            continue
-        message = refusal(name, value, constraint)
+        message = refusal(name, variables[name], constraint)
         if message is not None:
             raise ValueError(message)
-    # The same three answers for a value sitting in a list entry, where the
-    # rule is the model's all the same (#145)
+    # The same refusal for a value sitting in a list entry, where the rule
+    # is the model's all the same (#145)
     for variable, index, name, entry in entry_targets(definition, variables):
-        constraint = constraints[name]
-        value = entry[name]
-        notice = snap_notice(name, value, constraint)
-        if notice is not None:
-            entry[name] = snapped(value, constraint)
-            emit_warning(
-                f"{variable}[{index}]: {notice}",
-                kind="value_snapped",
-                variable=f"{variable}[{index}].{name}",
-                value=entry[name],
-            )
-            continue
-        message = refusal(name, value, constraint)
+        message = refusal(name, entry[name], constraints[name])
         if message is not None:
             raise ValueError(f"{variable}[{index}]: {message}")
+
+
+class ConstraintReferenceError(ValueError):
+    """A `frame_snap: "constraint:x"` naming nothing declared, found while
+    resolving - with the JSON `path` it sits at and the `message`
+    constraint_reference_errors gives it, so validation can report it as a
+    finding. It is only reachable there when the name arrived through a
+    'variable:', which the pre-expansion check cannot see."""
+
+    def __init__(self, path, message):
+        super().__init__(f"{path}: {message}")
+        self.path = path
+        self.message = message
 
 
 def resolve_constraint_references(definition):
@@ -378,8 +405,11 @@ def resolve_constraint_references(definition):
     reports it and validation checks it - rather than twice, with a chain
     step's copy free to drift from it. A name that is not declared is an
     error rather than a silently absent constraint: a chain that snapped to
-    nothing would stitch segments the pipeline refuses.
+    nothing would stitch segments the pipeline refuses. Raises
+    ConstraintReferenceError, at the first such name's path.
     """
+    for problem in constraint_reference_errors(definition):
+        raise ConstraintReferenceError(problem["path"], problem["message"])
     constraints = declared_constraints(definition)
 
     def walk(node):
@@ -390,15 +420,10 @@ def resolve_constraint_references(definition):
         if not isinstance(node, dict):
             return
         reference = node.get("frame_snap")
-        if isinstance(reference, str) and reference.startswith(CONSTRAINT_PREFIX):
-            name = reference[len(CONSTRAINT_PREFIX) :]
-            if name not in constraints:
-                raise ValueError(
-                    f"'frame_snap': '{reference}' names no entry of this "
-                    f"workflow's 'variable_constraints'. Declared: "
-                    + (", ".join(sorted(constraints)) or "<none>")
-                )
-            node["frame_snap"] = snap_block(constraints[name])
+        if isinstance(reference, str) and reference.startswith(references.CONSTRAINT):
+            node["frame_snap"] = snap_block(
+                constraints[reference[len(references.CONSTRAINT) :]]
+            )
         for value in node.values():
             walk(value)
 
@@ -425,8 +450,8 @@ def constraint_reference_errors(definition):
             if (
                 key == "frame_snap"
                 and isinstance(value, str)
-                and value.startswith(CONSTRAINT_PREFIX)
-                and value[len(CONSTRAINT_PREFIX) :] not in constraints
+                and value.startswith(references.CONSTRAINT)
+                and value[len(references.CONSTRAINT) :] not in constraints
             ):
                 errors.append(
                     {

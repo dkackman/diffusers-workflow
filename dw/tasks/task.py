@@ -3,6 +3,7 @@ from typing import Callable, Dict
 
 from .. import resolve_device
 from ..events import emit_log
+from ..media_types import AudioVideo
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -194,6 +195,17 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
     return dissolve_videos(**arguments)
 
 
+@register_command(
+    "join_into_song", implementation="dw.tasks.join_into_song.join_into_song"
+)
+def _handle_join_into_song(task, arguments, previous_pipelines):
+    """Join dialogue shots and song shots into one video over the unbroken song"""
+    logger.debug("Joining dialogue into a song")
+    from .join_into_song import join_into_song
+
+    return join_into_song(**arguments)
+
+
 @register_command("fade_audio", implementation="dw.tasks.audio_utils.fade_audio")
 def _handle_fade_audio(task, arguments, previous_pipelines):
     """Fade an audio track in from silence and out to it"""
@@ -204,12 +216,12 @@ def _handle_fade_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "normalize_audio", implementation="dw.tasks.audio_utils.normalize_audio"
+    "normalize_audio", implementation="dw.tasks.audio_dynamics.normalize_audio"
 )
 def _handle_normalize_audio(task, arguments, previous_pipelines):
     """Scale an audio track so its peak sits at a given level"""
     logger.debug("Normalizing audio")
-    from .audio_utils import normalize_audio
+    from .audio_dynamics import normalize_audio
 
     return normalize_audio(**arguments)
 
@@ -300,6 +312,17 @@ def _handle_loop_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "find_loop_bed", implementation="dw.tasks.loop_bed.find_loop_bed", returns="json"
+)
+def _handle_find_loop_bed(task, arguments, previous_pipelines):
+    """Rank the quiet windows of a recording worth looping into a room-tone bed"""
+    logger.debug("Searching for a loop bed")
+    from .loop_bed import find_loop_bed
+
+    return find_loop_bed(**arguments)
+
+
+@register_command(
     "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
 )
 def _handle_stabilize_video(task, arguments, previous_pipelines):
@@ -320,30 +343,32 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "compress_audio", implementation="dw.tasks.audio_utils.compress_audio"
+    "compress_audio", implementation="dw.tasks.audio_dynamics.compress_audio"
 )
 def _handle_compress_audio(task, arguments, previous_pipelines):
     """Shape a track's dynamics with a compressor, limiter or gate"""
     logger.debug("Compressing audio")
-    from .audio_utils import compress_audio
+    from .audio_dynamics import compress_audio
 
     return compress_audio(**arguments)
 
 
-@register_command("filter_audio", implementation="dw.tasks.audio_utils.filter_audio")
+@register_command("filter_audio", implementation="dw.tasks.audio_dynamics.filter_audio")
 def _handle_filter_audio(task, arguments, previous_pipelines):
     """Run a track through a single lowpass/highpass/bandpass/notch filter"""
     logger.debug("Filtering audio")
-    from .audio_utils import filter_audio
+    from .audio_dynamics import filter_audio
 
     return filter_audio(**arguments)
 
 
-@register_command("analyze_audio", implementation="dw.tasks.audio_utils.analyze_audio")
+@register_command(
+    "analyze_audio", implementation="dw.tasks.audio_dynamics.analyze_audio"
+)
 def _handle_analyze_audio(task, arguments, previous_pipelines):
     """Measure a track's levels and spectral balance without changing it"""
     logger.debug("Analyzing audio")
-    from .audio_utils import analyze_audio
+    from .audio_dynamics import analyze_audio
 
     return analyze_audio(**arguments)
 
@@ -444,7 +469,6 @@ def _per_frame(image, process):
     one frame at a time and comes back as one video artifact, its soundtrack
     carried through untouched. A single image is processed as itself.
     """
-    from ..result import AudioVideo
     from ..shots import carried_shots
     from .video_utils import frames_as_pil_list, is_video
 
@@ -547,7 +571,7 @@ def _handle_grade(task, arguments, previous_pipelines):
         if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
             media = load_audio_video(media)
         else:
-            from ..arguments import fetch_image
+            from ..argument_media import fetch_image
 
             media = fetch_image(media)
 
@@ -842,22 +866,6 @@ class Task:
         """Get command name or 'unknown' if not specified"""
         return self.task_definition.get("command", "unknown")
 
-    def _check_required_arguments(self, arguments):
-        """Refuse a task whose required arguments are not all present, in the
-        validator's wording rather than Python's."""
-        if not isinstance(arguments, dict):
-            # An 'inputs' list template - consumed whole, no names to miss
-            return
-        from ..introspection import (
-            missing_task_argument_message,
-            missing_task_arguments,
-        )
-
-        missing = missing_task_arguments(self.command, arguments.keys())
-        if missing:
-            message = missing_task_argument_message(self.command, missing)
-            raise ValueError(message[0].upper() + message[1:])
-
     def run(self, arguments, previous_pipelines={}):
         """
         Execute the task with given arguments using the command registry.
@@ -885,15 +893,6 @@ class Task:
             # A task reports nothing of its own - a captioning model loading
             # and decoding is otherwise indistinguishable from a hang
             emit_phase("task", detail=self.command)
-
-            # A required argument that never arrived - because it was left
-            # out, or because a variable or an earlier step resolved to
-            # nothing - used to reach Python and come back as
-            # "resample_audio() missing 1 required positional argument:
-            # 'audio'", which names the calling convention rather than the
-            # workflow. The static pass in validation_errors refuses the
-            # literal case first; this is the backstop it cannot see (#141)
-            self._check_required_arguments(arguments)
 
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:

@@ -11,7 +11,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.server.jobs import JobManager, TERMINAL_STATES
+from dw.server.jobs import JobManager
+from dw.server.job_record import TERMINAL_STATES
+from dw.worker_manager import WorkerManager
 from dw.server.app import create_app
 
 
@@ -30,6 +32,28 @@ def valid_workflow(job_id="server_test"):
             }
         ],
     }
+
+
+def admitted_for(
+    manager,
+    workflow=None,
+    workflow_path=None,
+    base_dir=None,
+    workflow_dir=None,
+    output_dir=None,
+):
+    """The Workflow admission would hand JobManager.submit (or rerun) for
+    this request - for a test that queues on the manager directly rather
+    than through a route that admits."""
+    import copy
+
+    from dw.workflow import workflow_from_definition, workflow_from_file
+
+    root = workflow_dir or manager.workflow_dir
+    out = output_dir or manager.output_dir
+    if workflow_path is not None:
+        return workflow_from_file(workflow_path, out, root)
+    return workflow_from_definition(copy.deepcopy(workflow), out, base_dir, root)
 
 
 def video_workflow(job_id, with_cost=False):
@@ -59,10 +83,13 @@ def video_workflow(job_id, with_cost=False):
     return workflow
 
 
-class ScriptedWorkerManager:
-    """Answers execute commands with a scripted message sequence."""
+class ScriptedWorkerManager(WorkerManager):
+    """Answers execute commands with a scripted message sequence. A
+    WorkerManager with the process and its queues replaced, so request()
+    and crash_details() are the real ones."""
 
     def __init__(self, script=None):
+        super().__init__()
         self.script = script
         self.commands = []
         self.worker_active = False
@@ -83,13 +110,17 @@ class ScriptedWorkerManager:
             self._results.put({"type": "cancelled", "message": "cancelled"})
         elif command["type"] == "memory_status":
             self._results.put(
-                {"type": "memory_status", "info": {"gpu_available": True}}
+                {
+                    "type": "memory_status",
+                    "request_id": command.get("request_id"),
+                    "info": {"gpu_available": True},
+                }
             )
         elif command["type"] == "probe_cache":
             self._results.put(
                 {
                     "type": "probe_cache",
-                    "probe_id": command.get("probe_id"),
+                    "request_id": command.get("request_id"),
                     "cached": list(self.cached_steps),
                 }
             )
@@ -250,7 +281,7 @@ def test_job_lifecycle_success(server):
         # the worker received the inline definition and the arguments
         manager = client.app.state.job_manager
         execute = [c for c in manager.worker_manager.commands if c["type"] == "execute"]
-        assert execute[0]["workflow"]["id"] == "server_test"
+        assert execute[0]["definition"]["id"] == "server_test"
         assert execute[0]["arguments"] == {"prompt": "hi"}
 
 
@@ -463,7 +494,9 @@ def test_submit_accepts_a_stored_workflow_name(server, tmp_path):
         executes = [
             c for c in manager.worker_manager.commands if c["type"] == "execute"
         ]
-        assert executes[0]["workflow_path"].endswith("Basic.json")
+        assert executes[0]["source"] == "path"
+        assert executes[0]["file_spec"].endswith("Basic.json")
+        assert executes[0]["definition"]["id"] == "basic"
 
 
 def test_job_workflow_returns_an_inline_definition(server):
@@ -497,13 +530,15 @@ def test_job_workflow_404s_for_an_unknown_job(server):
         assert client.get("/api/jobs/nosuchjob/workflow").status_code == 404
 
 
-def test_job_workflow_404s_when_the_file_is_gone(server, tmp_path):
-    """The graph is a nicety: a workflow file deleted since the run leaves
-    the job itself readable, just without a definition to draw."""
+def test_job_workflow_of_a_live_job_survives_its_file_going(server, tmp_path):
+    """A live job answers from the snapshot it was admitted with, so a file
+    deleted since submit changes nothing about the graph."""
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
         os.remove(str(tmp_path / "workflows" / "Basic.json"))
-        assert client.get(f"/api/jobs/{job['id']}/workflow").status_code == 404
+        response = client.get(f"/api/jobs/{job['id']}/workflow")
+        assert response.status_code == 200
+        assert response.json()["definition"]["id"] == "basic"
         assert client.get(f"/api/jobs/{job['id']}").status_code == 200
 
 
@@ -1001,6 +1036,147 @@ def test_validate_explains_why_an_unseeded_workflow_caches_nothing(server):
         assert not any("cached_steps" in w for w in result["warnings"])
 
 
+def _shots_workspace_with_short_dissolve_assets(
+    tmp_path, monkeypatch, shots_frames=124, default_frames=None
+):
+    """A server whose default workspace's DW_ASSET_DIR is pinned (mirroring
+    dw.serve's real startup, dw/serve.py:145) and whose named 'shots'
+    workspace holds two mp4 assets too short for a dissolve_frames=130
+    dissolve - so a dissolve_videos check against 'shots' must be answered
+    from its own library, not the pinned default's.
+
+    Returns (client, workflow): client is a TestClient already inside its
+    lifespan context (the caller uses it directly, no further `with`), and
+    workflow is the dissolve_videos definition referencing the two assets.
+    """
+    from dw.workspace import Workspace
+
+    from .test_dissolve_frame_errors import dissolve_workflow, write_mp4
+
+    root = Workspace(tmp_path / "studio", "flag").ensure()
+    # Mirrors dw.serve's own startup behavior: DW_ASSET_DIR pinned globally
+    # to the default workspace's library, for the CLI/REPL and any worker
+    # that inherits the environment rather than being told which workspace's
+    # assets to use for this particular job
+    monkeypatch.setenv("DW_ASSET_DIR", root.assets)
+
+    manager = JobManager(
+        root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=root.workflows,
+    )
+    app = create_app(
+        workflow_dir=root.workflows,
+        output_dir=root.outputs,
+        job_manager=manager,
+        prompt_dir=root.prompts,
+        asset_dir=root.assets,
+        workspace=root.root,
+    )
+    client = TestClient(app, base_url="http://localhost")
+    client.__enter__()
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+
+    shots_assets = os.path.join(root.root, "shots", "assets")
+    # Too short for the dissolve declared below - the same fixture shape
+    # test_dissolve_frame_errors.py uses for the un-scoped version of
+    # this check
+    write_mp4(os.path.join(shots_assets, "a.mp4"), frames=shots_frames)
+    write_mp4(os.path.join(shots_assets, "b.mp4"), frames=shots_frames)
+    if default_frames is None:
+        # Nothing of the same name in the default workspace - if validation
+        # resolves against the pinned default library instead of the named
+        # one, it finds no file at all and dissolve_frame_errors silently
+        # reports nothing, rather than correctly flagging the overlap
+        assert not os.path.exists(os.path.join(root.assets, "a.mp4"))
+    else:
+        # The same names in the default library, so a check that looked
+        # there instead of at the named workspace reaches a different answer
+        write_mp4(os.path.join(root.assets, "a.mp4"), frames=default_frames)
+        write_mp4(os.path.join(root.assets, "b.mp4"), frames=default_frames)
+
+    workflow = dissolve_workflow(["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130)
+    return client, workflow
+
+
+def test_validate_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """B8: /api/validate's candidate.validation_errors() runs dissolve_frame_errors,
+    which resolves an 'asset:' input through fetch_asset() with no explicit
+    asset_dir - so it falls back to dw.assets.get_asset_dir()'s discovery. In
+    a real deployment dw.serve pins DW_ASSET_DIR to the *default* workspace's
+    own library at startup (dw/serve.py), and that explicit env var wins
+    outright over any base_dir-relative walk - so unless the server process
+    activates the named workspace's own library first (the ContextVar
+    dw/worker.py's execute path already uses), a dissolve check against a
+    non-default workspace silently looks at the default workspace's assets
+    instead and never sees a too-short input that exists only in its own
+    library."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
+        result = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+
+    assert result["valid"] is False
+    assert "124 frames" in result["error"]
+
+
+def test_submit_job_checks_a_dissolve_asset_against_the_named_workspace(
+    tmp_path, monkeypatch
+):
+    """The same gap as /api/validate, in the pre-queue check admission
+    runs for POST /api/jobs (and /rerun) - a bad dissolve must be refused
+    with a 400 naming the workspace's own asset, not queued because the
+    check looked at the pinned default workspace instead."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch
+    )
+    with client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+
+    assert response.status_code == 400
+    assert "124 frames" in response.json()["detail"]
+
+
+def test_a_named_workspace_asset_shadowing_a_default_one_is_checked_in_its_own_library(
+    tmp_path, monkeypatch
+):
+    """The job manager's own pre-queue check, not only the route's, resolves
+    'asset:' against the job's workspace. With the same names in the pinned
+    default library at a length too short for the dissolve, a check that
+    looked there would refuse a submission (and its rerun) that validate
+    accepts."""
+    client, workflow = _shots_workspace_with_short_dissolve_assets(
+        tmp_path, monkeypatch, shots_frames=400, default_frames=124
+    )
+    with client:
+        verdict = client.post(
+            "/api/validate",
+            json={"workflow": workflow, "workspace": "shots"},
+        ).json()
+        assert verdict["valid"] is True, verdict
+
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "workspace": "shots"},
+        )
+        assert submitted.status_code == 201, submitted.json()
+        job_id = submitted.json()["id"]
+        assert wait_for_status(client, job_id, ["succeeded"])
+
+        rerun = client.post(f"/api/jobs/{job_id}/rerun")
+        assert rerun.status_code == 201, rerun.json()
+
+
 def test_submission_carries_argument_warnings(server):
     with server(success_script) as client:
         workflow = valid_workflow()
@@ -1281,7 +1457,7 @@ def test_save_workflow_roundtrip_and_confinement(server, tmp_path):
 
 def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
     from PIL import Image
-    from dw.result import Result, read_embedded_metadata
+    from dw.writers import embed_image_metadata, read_embedded_metadata
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
@@ -1292,12 +1468,12 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         (outputs / "notes.txt").write_text("not media")
 
         # an image saved the way the engine saves it, metadata embedded
-        result = Result({"content_type": "image/png", "embed_metadata": True})
-        result.set_metadata(
-            {"step_name": "gen", "workflow": valid_workflow("from_image")}
-        )
-        result._save_image_with_metadata(
-            Image.new("RGB", (4, 4)), str(outputs / "meta-gen.0-0.0.png"), "image/png"
+        metadata = {"step_name": "gen", "workflow": valid_workflow("from_image")}
+        embed_image_metadata(
+            Image.new("RGB", (4, 4)),
+            str(outputs / "meta-gen.0-0.0.png"),
+            "image/png",
+            metadata,
         )
 
         listing = client.get("/api/gallery").json()
@@ -1325,8 +1501,8 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert client.get("/api/gallery/..%2Fsecret.png/metadata").status_code == 404
 
         # the read-side mirror also handles EXIF (jpeg) round trips
-        result._save_image_with_metadata(
-            Image.new("RGB", (4, 4)), str(outputs / "meta.jpg"), "image/jpeg"
+        embed_image_metadata(
+            Image.new("RGB", (4, 4)), str(outputs / "meta.jpg"), "image/jpeg", metadata
         )
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
@@ -1969,20 +2145,20 @@ def test_gallery_frames_computes_video_shape_only_once(server, tmp_path, monkeyp
     same shape to the selector function - it must not call video_shape a
     second time just to build the answer (#193 follow-up)."""
     from tests.test_media_frames import write_ramp_mp4
-    import dw.server.app as app_module
+    import dw.server.routes.media as media_routes
 
     with server(success_script) as client:
         outputs = tmp_path / "outputs"
         write_ramp_mp4(outputs / "shot-gen.0-0.0.mp4", frames=24, fps=6)
 
         calls = [0]
-        original = app_module.video_shape
+        original = media_routes.video_shape
 
         def counting_shape(path):
             calls[0] += 1
             return original(path)
 
-        monkeypatch.setattr(app_module, "video_shape", counting_shape)
+        monkeypatch.setattr(media_routes, "video_shape", counting_shape)
 
         response = client.get(
             "/api/gallery/shot-gen.0-0.0.mp4/frames", params={"count": 2}
@@ -2482,7 +2658,7 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
     from unittest.mock import patch
     from dw.workflow import Workflow
     from dw.pipeline_processors.pipeline import Pipeline
-    from dw.result import read_embedded_metadata
+    from dw.writers import read_embedded_metadata
     from tests.test_events import FakePipeline
 
     workflow_def = valid_workflow("reopenable")
@@ -2496,7 +2672,7 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
 
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     saved = workflow.manifest[0]["files"][0]
@@ -2518,7 +2694,11 @@ def test_job_history_survives_restart_and_reruns(tmp_path):
         worker_manager=ScriptedWorkerManager(success_script),
         history_path=history,
     )
-    job = manager.submit(workflow=valid_workflow(), arguments={"prompt": "hi"})
+    job = manager.submit(
+        admitted=admitted_for(manager, valid_workflow()),
+        workflow=valid_workflow(),
+        arguments={"prompt": "hi"},
+    )
     deadline = time.time() + 5
     while job.status not in ("succeeded", "failed") and time.time() < deadline:
         time.sleep(0.02)
@@ -2541,12 +2721,15 @@ def test_job_history_survives_restart_and_reruns(tmp_path):
     assert detail["arguments"] == {"prompt": "hi"}
 
     # and can run it again from the stored spec
-    rerun = revived.rerun(job.id)
+    rerun = revived.rerun(job.id, admitted=admitted_for(revived, valid_workflow()))
     assert rerun is not None and rerun.id != job.id
     assert rerun.spec["arguments"] == {"prompt": "hi"}
     revived.shutdown()
 
-    assert revived.rerun("nonexistent") is None
+    assert (
+        revived.rerun("nonexistent", admitted=admitted_for(revived, valid_workflow()))
+        is None
+    )
 
 
 def test_gallery_delete_and_job_linkage(server, tmp_path):
@@ -2586,8 +2769,8 @@ def test_gallery_delete_accepts_an_output_reference(server, tmp_path):
         assert not (outputs / "victim.png").exists()
 
 
-def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
-    with server(success_script) as client:
+def test_upload_media_saves_file_and_returns_no_server_path(asset_server, tmp_path):
+    with asset_server(success_script) as client:
         response = client.post(
             "/api/uploads",
             params={"filename": "source-image.png"},
@@ -2596,14 +2779,13 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
         assert response.status_code == 201
         body = response.json()
 
-        saved = tmp_path / "outputs" / "uploads"
+        saved = tmp_path / "assets" / "uploads"
         assert saved.is_dir()
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
-        assert body["path"] == str(files[0])
-        assert os.path.isabs(body["path"])
-        assert body["url"] == f"/outputs/uploads/{files[0].name}"
+        assert "path" not in body
+        assert body["url"] == f"/inputs/uploads/{files[0].name}"
 
         # served back through the same static mount the gallery uses
         fetched = client.get(body["url"])
@@ -2612,13 +2794,13 @@ def test_upload_media_saves_file_and_returns_absolute_path(server, tmp_path):
 
 
 def test_upload_media_adds_an_absolute_url_when_a_public_url_is_configured(
-    server, monkeypatch
+    asset_server, monkeypatch
 ):
     # #353: a client with no way to learn this server's origin otherwise -
     # an MCP-only agent - gets an absolute_url only when an operator
     # configured one; nothing derives an origin from request headers.
     monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
-    with server(success_script) as client:
+    with asset_server(success_script) as client:
         body = client.post(
             "/api/uploads",
             params={"filename": "source-image.png"},
@@ -2670,7 +2852,7 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
-        assert body["path"] == f"asset:uploads/{files[0].name}"
+        assert body["reference"] == f"asset:uploads/{files[0].name}"
         assert body["url"] == f"/inputs/uploads/{files[0].name}"
         assert not (tmp_path / "outputs" / "uploads").exists()
 
@@ -2691,7 +2873,7 @@ def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
             content=b"not-really-wav-bytes",
         )
         assert response.status_code == 201
-        assert response.json()["path"] == "asset:uploads/cast/priya-voice.wav"
+        assert response.json()["reference"] == "asset:uploads/cast/priya-voice.wav"
         stored = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
         assert stored.read_bytes() == b"not-really-wav-bytes"
 
@@ -2701,7 +2883,7 @@ def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
             params={"filename": "clip-02.wav", "asset_name": "cast/hal-voice.wav"},
             content=b"more-bytes",
         )
-        assert named.json()["path"] == "asset:uploads/cast/hal-voice.wav"
+        assert named.json()["reference"] == "asset:uploads/cast/hal-voice.wav"
 
         mismatched = client.post(
             "/api/uploads",
@@ -2780,7 +2962,7 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
 
 
 def test_the_asset_listing_names_its_libraries(tmp_path):
-    """'libraries' is 'asset_dirs' with the origin and writability a client
+    """'libraries' is the search path with the origin and writability a client
     needs to explain why one entry can be deleted and another can't - the
     workspace's own root first, an examples root writable: false."""
     workflows = tmp_path / "workflows"
@@ -2809,15 +2991,15 @@ def test_the_asset_listing_names_its_libraries(tmp_path):
     libraries = body["libraries"]
     assert libraries[0] == {
         "origin": "workspace",
-        "dir": str(assets),
+        "root": str(assets),
         "writable": True,
     }
     assert libraries[1] == {
         "origin": "examples",
-        "dir": str(examples / "assets"),
+        "root": str(examples / "assets"),
         "writable": False,
     }
-    assert body["asset_dirs"] == [lib["dir"] for lib in libraries]
+    assert len(libraries) == 2
 
 
 def test_a_shadowed_asset_is_reported_without_a_url(tmp_path):
@@ -2865,7 +3047,6 @@ def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     with server(success_script) as client:
         body = client.get("/api/assets").json()
     assert body["assets"] == []
-    assert body["asset_dir"] is None
     assert body["libraries"] == []
     assert body["shadowed"] == []
 
@@ -2896,17 +3077,17 @@ def test_upload_media_rejects_empty_body(server):
         assert response.status_code == 400
 
 
-def test_upload_media_ignores_path_parts_in_filename(server, tmp_path):
+def test_upload_media_ignores_path_parts_in_filename(asset_server, tmp_path):
     """A crafted filename with directory components must not escape the
     uploads folder - only the extension is used, the name is generated."""
-    with server(success_script) as client:
+    with asset_server(success_script) as client:
         response = client.post(
             "/api/uploads",
             params={"filename": "../../evil.png"},
             content=b"data",
         )
         assert response.status_code == 201
-        saved = tmp_path / "outputs" / "uploads"
+        saved = tmp_path / "assets" / "uploads"
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].parent == saved
@@ -3025,8 +3206,8 @@ def test_examples_are_listed_read_only(examples_server):
         assert listing["details"]["ltx2/Gyre"]["origin"] == "examples"
         assert listing["details"]["ltx2/Gyre"]["writable"] is False
         # the writable root is still what a save targets, and is named first
-        assert listing["sources"][0]["writable"] is True
-        assert listing["sources"][1]["origin"] == "examples"
+        assert listing["libraries"][0]["writable"] is True
+        assert listing["libraries"][1]["origin"] == "examples"
 
         # a second listing is answered from the detail cache, which holds no
         # placement of its own - the origin and writability must be merged
@@ -3068,9 +3249,7 @@ def test_saving_an_example_copies_it_into_the_writable_library(
 
         response = client.put("/api/workflows/ltx2/Gyre", json={"workflow": edited})
         assert response.status_code == 200
-        assert response.json()["path"] == str(
-            tmp_path / "workflows" / "ltx2" / "Gyre.json"
-        )
+        assert response.json()["origin"] == "workspace"
         # the example on disk did not move or change
         assert (
             json.loads((tmp_path / "examples" / "ltx2" / "Gyre.json").read_text())
@@ -3261,7 +3440,8 @@ def test_inline_base_dir_is_validated(server, tmp_path):
 def test_job_for_file_escapes_like_wildcards(tmp_path):
     """'_' in a file name must not act as a single-character wildcard and
     attribute the file to a similarly named later job."""
-    from dw.server.jobs import JobHistory, Job
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import Job
 
     history = JobHistory(str(tmp_path / "jobs.sqlite"))
 
@@ -3292,7 +3472,9 @@ def test_terminal_jobs_are_trimmed_from_memory(tmp_path):
     )
     ids = []
     for _ in range(TERMINAL_JOBS_KEPT + 5):
-        job = manager.submit(workflow=valid_workflow())
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status != "succeeded" and time.time() < deadline:
             time.sleep(0.01)
@@ -3867,11 +4049,11 @@ class TestPromptLibrary:
             assert entry["text_chars"] == len("a red fox at dawn")
             assert entry["description"] == "a fox"
 
-            # A filter narrows the names, the origins and the details together
+            # A filter narrows the names and the details together
             by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
             assert by_model["prompts"] == ["minimax/Song"]
             assert list(by_model["details"]) == ["minimax/Song"]
-            assert list(by_model["origins"]) == ["minimax/Song"]
+            assert by_model["details"]["minimax/Song"]["origin"] == "workspace"
 
             by_tag = client.get("/api/prompts?tag=Wildlife").json()
             assert by_tag["prompts"] == ["minimax/Fox"]
@@ -3884,8 +4066,8 @@ class TestPromptLibrary:
                 == []
             )
 
-            # The writable directory is reported whatever the filter
-            assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
+            # The search path is reported whatever the filter
+            assert client.get("/api/prompts?tag=music").json()["libraries"]
 
     def test_unreferenceable_names_are_refused(self, server, tmp_path):
         # A save the API accepted but no 'prompt:' reference could ever
@@ -3981,7 +4163,7 @@ class TestEnhance:
 
 
 def test_history_persists_a_finished_jobs_event_tail(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     job = _finished_job_with_events(
@@ -3998,7 +4180,8 @@ def test_history_persists_a_finished_jobs_event_tail(tmp_path):
 def test_history_keeps_only_the_last_events(tmp_path):
     """A long run emits thousands of progress events. The tail is what
     explains an outcome; the head is step-by-step noise."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
@@ -4015,7 +4198,7 @@ def test_get_reports_event_count_matching_events_for(tmp_path):
     get_job_events (events_for) still serves the persisted tail in full -
     the mismatch read as 'events lost with the process' when they were not
     (#289). event_count must equal what events_for actually returns."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(5)]
@@ -4030,7 +4213,8 @@ def test_get_reports_event_count_for_a_truncated_tail(tmp_path):
     """When a run's events were capped at MAX_PERSISTED_EVENTS, event_count
     must match the capped tail events_for serves - not the run's true,
     larger total (#289)."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(500)]
@@ -4047,7 +4231,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
     value. They must read as 'nothing stored', not crash."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     history = JobHistory(db)
@@ -4059,7 +4243,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
 
 
 def test_events_for_is_none_for_an_unknown_job(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
 
@@ -4069,7 +4253,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
     lose the rows already in it."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     with sqlite3.connect(db) as connection:
@@ -4093,7 +4277,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
 def test_recording_still_writes_every_other_column(tmp_path):
     """The insert names its columns, so widening the table cannot shift a
     value into the wrong one. This pins the columns that would have moved."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
@@ -4277,7 +4461,7 @@ def test_event_log_says_so_when_a_historical_jobs_log_was_truncated(server):
 def test_event_log_does_not_claim_truncation_for_a_complete_historical_log(server):
     """A job that genuinely emitted exactly MAX_PERSISTED_EVENTS lost nothing.
     The signal is the first stored seq, not the length of the tail."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -4322,7 +4506,7 @@ def test_a_recorded_job_reads_back_through_the_event_log_route(server):
 def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
     """The Finding-4 case with no stand-ins: a long run really recorded, read
     back through the route. The head is gone and the answer has to admit it."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -4642,13 +4826,13 @@ def test_gallery_thumbnails_are_cacheable(server, tmp_path):
 
 
 class TestInlineJobConfinement:
-    """The worker re-validates an inline job's base_dir against workflow_dir,
+    """The worker confines an inline job's file_spec to workflow_dir again,
     so what submit accepts must be what the worker accepts."""
 
     def test_inline_job_without_base_dir_is_accepted_by_the_worker(
         self, server, tmp_path
     ):
-        from dw.workflow import workflow_from_definition
+        from dw.workflow import workflow_from_snapshot
 
         with server(success_script) as client:
             job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
@@ -4658,10 +4842,10 @@ class TestInlineJobConfinement:
 
         assert command["workflow_dir"] == str(tmp_path / "workflows")
         # The worker's own load must agree with submit-time validation
-        workflow_from_definition(
-            command["workflow"],
+        workflow_from_snapshot(
+            command["definition"],
             str(tmp_path / "outputs"),
-            command["base_dir"],
+            command["file_spec"],
             command["workflow_dir"],
         )
 
@@ -4892,12 +5076,12 @@ class TestValidatePlan:
         assert "plan" not in result
 
     def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         def boom(*a, **k):
             raise RuntimeError("planner broke")
 
-        monkeypatch.setattr(app_module, "build_plan", boom)
+        monkeypatch.setattr(jobs_routes, "build_plan", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate", json={"workflow": valid_workflow("v")}
@@ -4906,7 +5090,7 @@ class TestValidatePlan:
         assert result["plan"] is None
 
     def test_sizes_reaches_the_planner(self, server, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.routes.jobs as jobs_routes
 
         seen = []
 
@@ -4914,7 +5098,7 @@ class TestValidatePlan:
             seen.append(kwargs["lookup_sizes"])
             return dict(EMPTY_PLAN)
 
-        monkeypatch.setattr(app_module, "build_plan", spy)
+        monkeypatch.setattr(jobs_routes, "build_plan", spy)
         with server(success_script) as client:
             client.post("/api/validate", json={"workflow": valid_workflow("v")})
             client.post(
@@ -4944,7 +5128,8 @@ class TestValidatePlan:
         ]
         assert len(probe) == 1
         assert probe[0]["arguments"] == {"prompt": "x"}
-        assert probe[0]["workflow"] == seeded
+        assert probe[0]["definition"] == seeded
+        assert probe[0]["source"] == "inline"
         assert probe[0]["output_dir"] == manager.output_dir
 
     def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
@@ -4976,7 +5161,13 @@ class TestValidatePlan:
         assert one["fingerprint"] != two["fingerprint"]
 
 
-PROBE = {"workflow_path": "x.json", "arguments": {}, "output_dir": "/tmp"}
+PROBE = {
+    "definition": {"id": "x", "steps": []},
+    "file_spec": "/w/x.json",
+    "source": "path",
+    "arguments": {},
+    "output_dir": "/tmp",
+}
 
 
 class TestProbeCache:
@@ -4988,7 +5179,7 @@ class TestProbeCache:
             assert manager.probe_cache(PROBE) == ["gen"]
             sent = manager.worker_manager.commands[-1]
             assert sent["type"] == "probe_cache"
-            assert sent["workflow_path"] == "x.json"
+            assert sent["file_spec"] == "/w/x.json"
 
     def test_no_worker_means_an_empty_cache(self, server):
         with server(success_script) as client:
@@ -5027,7 +5218,7 @@ class TestProbeCache:
                     worker._results.put(
                         {
                             "type": "probe_cache",
-                            "probe_id": late["probe_id"],
+                            "request_id": late["request_id"],
                             "cached": ["stale"],
                         }
                     )
@@ -5053,7 +5244,11 @@ class TestAcknowledgementRecord:
     def test_a_submit_records_none_by_default(self, server):
         with server(success_script) as client:
             manager = client.app.state.job_manager
-            job = manager.submit(workflow=valid_workflow(), arguments={})
+            job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
+                workflow=valid_workflow(),
+                arguments={},
+            )
             assert job.acknowledged == "none"
             assert manager.describe(job)["acknowledged"] == "none"
             assert manager.describe(job)["acknowledged_cost"] is None
@@ -5063,6 +5258,7 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
@@ -5082,6 +5278,7 @@ class TestAcknowledgementRecord:
                 "downloads": ["org/x"],
             }
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
@@ -5100,7 +5297,7 @@ class TestAcknowledgementRecord:
     def test_a_database_without_the_column_is_migrated(self, tmp_path):
         import sqlite3
 
-        from dw.server.jobs import JobHistory
+        from dw.server.job_history import JobHistory
 
         path = tmp_path / "old.sqlite"
         with sqlite3.connect(path) as connection:
@@ -5122,13 +5319,16 @@ class TestAcknowledgementRecord:
             manager = client.app.state.job_manager
             bound = {"fingerprint": "sha256:abc", "minutes": 3.0, "downloads": []}
             job = manager.submit(
+                admitted=admitted_for(manager, valid_workflow()),
                 workflow=valid_workflow(),
                 arguments={},
                 acknowledged="bound",
                 acknowledged_cost=bound,
             )
             wait_for_status(client, job.id, TERMINAL_STATES)
-            rerun = manager.rerun(job.id)
+            rerun = manager.rerun(
+                job.id, admitted=admitted_for(manager, valid_workflow())
+            )
             assert rerun.acknowledged == "none"
             assert rerun.spec["acknowledged_cost"] == bound
 
@@ -5264,7 +5464,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.app as app_module
+        import dw.server.admission as admission_module
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5272,7 +5472,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(app_module, "build_plan", boom)
+            monkeypatch.setattr(admission_module, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -5282,12 +5482,12 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["plan"] is None
 
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
-        import dw.server.app as app_module
+        import dw.server.admission as admission_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
-        monkeypatch.setattr(app_module, "build_plan", boom)
+        monkeypatch.setattr(admission_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
@@ -5547,6 +5747,86 @@ def test_deleting_the_last_output_of_a_run_sweeps_its_run_directory(server, tmp_
         assert outputs.exists()
 
 
+def test_deleting_a_run_opened_through_open_run_still_sweeps_the_identity_folder(
+    server, tmp_path
+):
+    """open_run (dw/runs.py) used to leave a permanent '.run.lock' file
+    inside the identity directory, which meant the sweep above could never
+    finish: os.rmdir only succeeds on a truly empty directory, and a run
+    opened for real - not hand-built the way the test above builds one -
+    would leave that lock file behind forever. The lock now lives outside
+    the output tree entirely, so a run opened through open_run sweeps clean
+    exactly like a hand-built one."""
+    from PIL import Image
+
+    from dw.runs import open_run
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        run_dir, _version = open_run(
+            str(outputs), None, "t2i", "20260913-120000-aabbccdd"
+        )
+        final = os.path.join(run_dir, "final")
+        os.makedirs(final)
+        Image.new("RGB", (2, 2)).save(os.path.join(final, "still-0.png"))
+
+        result = client.delete(
+            "/api/gallery/t2i/20260913-120000-aabbccdd/final/still-0.png"
+        ).json()
+        assert result["run_swept"] == "20260913-120000-aabbccdd"
+        assert not os.path.exists(run_dir)
+        # nothing - not even open_run's lock - is left for the identity
+        # folder above it to hold
+        assert not (outputs / "t2i").exists()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "t2i/20260913-120000-aabbccdd/still-0.png",
+        "t2i/20260913-120000-aabbccdd",
+    ],
+    ids=["last-output", "whole-run"],
+)
+def test_the_sweep_waits_for_a_run_opening_before_removing_the_identity_folder(
+    server, tmp_path, target
+):
+    """open_run creates the identity folder and then claims a run inside it
+    under a lock; a sweep that removed the emptied folder in between would
+    fail that run with FileNotFoundError. So the sweep takes the same lock
+    around the folder's removal."""
+    import threading
+
+    from filelock import FileLock
+    from PIL import Image
+
+    from dw.runs import run_lock_path
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        identity = outputs / "t2i"
+        run = identity / "20260913-120000-aabbccdd"
+        run.mkdir(parents=True)
+        Image.new("RGB", (2, 2)).save(run / "still-0.png")
+        (run / "manifest.json").write_text("{}")
+
+        responses = []
+        with FileLock(run_lock_path(str(identity))):
+            deleting = threading.Thread(
+                target=lambda: responses.append(client.delete(f"/api/gallery/{target}"))
+            )
+            deleting.start()
+            deleting.join(0.5)
+            # a run opening holds the lock: the folder must still be there
+            assert deleting.is_alive()
+            assert identity.is_dir()
+        deleting.join(5)
+
+        assert not deleting.is_alive()
+        assert responses[0].status_code == 200
+        assert not identity.exists()
+
+
 def test_a_run_with_other_files_left_is_not_swept(server, tmp_path):
     """Only the sidecars may remain: anything else is still something the
     manifest describes, so the directory stays."""
@@ -5630,7 +5910,7 @@ def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path
     with TestClient(app, base_url="http://localhost") as client:
         body = client.get("/api/assets").json()
         assert body["libraries"] == [
-            {"origin": "examples", "dir": str(examples / "assets"), "writable": False}
+            {"origin": "examples", "root": str(examples / "assets"), "writable": False}
         ]
         (asset,) = body["assets"]
         assert asset["origin"] == "examples"
@@ -5742,3 +6022,143 @@ def test_gallery_audio_serves_a_whole_wav_as_audio_wav_whatever_mimetypes_says(
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/wav"
+
+
+class TestDetailCachePruning:
+    """Request threads share the module-level detail caches."""
+
+    def test_an_insert_during_the_scan_does_not_raise(self):
+        from unittest.mock import patch
+
+        from dw.server import catalog as catalog_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_inserts(path):
+            cache[f"/new/{len(cache)}.json"] = 0
+            return False
+
+        with patch.object(
+            catalog_module.os.path, "exists", exists_while_another_thread_inserts
+        ):
+            catalog_module._prune_missing(cache)
+        assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
+
+    def test_an_entry_another_thread_already_pruned_is_not_an_error(self):
+        from unittest.mock import patch
+
+        from dw.server import catalog as catalog_module
+
+        cache = {"/gone/a.json": 1, "/gone/b.json": 2}
+
+        def exists_while_another_thread_prunes(path):
+            cache.pop("/gone/b.json", None)
+            return False
+
+        with patch.object(
+            catalog_module.os.path, "exists", exists_while_another_thread_prunes
+        ):
+            catalog_module._prune_missing(cache)
+        assert cache == {}
+
+
+INTERNAL_ERROR = "internal error - the server log has the detail"
+
+
+def test_a_refusal_during_admission_stays_a_400_for_submit_and_rerun(
+    server, monkeypatch
+):
+    """Everything up to and including admission is the client's request being
+    refused - B10 only moves what comes after it."""
+    from dw.security import SecurityError
+    from dw.server.routes import jobs as jobs_routes
+
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+
+        def refuse(*args, **kwargs):
+            raise SecurityError("path escapes the workspace")
+
+        monkeypatch.setattr(jobs_routes, "admit_for", refuse)
+
+        submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        rerun = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert submitted.status_code == 400
+    assert submitted.json()["detail"] == "path escapes the workspace"
+    assert rerun.status_code == 400
+    assert rerun.json()["detail"] == "path escapes the workspace"
+
+
+def test_a_failure_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("queue exploded")
+
+        monkeypatch.setattr(manager, "submit", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "queue exploded" not in response.text
+    assert "queue exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_rerun_failing_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("rerun exploded")
+
+        monkeypatch.setattr(manager, "rerun", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "rerun exploded" not in response.text
+    assert "rerun exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_path_job_definition_is_the_file_the_route_admitted(server, tmp_path):
+    """definition() answers from the snapshot admission built, which has to be
+    the JSON of the file it was built from."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        definition = client.app.state.job_manager.definition(job["id"])
+
+    assert definition == json.loads((tmp_path / "workflows" / "Basic.json").read_text())
+
+
+def test_a_validator_failure_is_logged_once_by_the_validate_route(
+    server, monkeypatch, caplog
+):
+    """admit() logs the failure with its traceback; the route only answers."""
+    import dw.workflow
+
+    def raise_boom(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dw.workflow.Workflow, "validation_errors", raise_boom)
+
+    with server(success_script) as client:
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/validate", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 200
+    records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(records) == 1, [r.getMessage() for r in records]

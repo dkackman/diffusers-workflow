@@ -8,7 +8,7 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.5.0"
+version = "0.6.0-alpha.1"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -85,7 +85,7 @@ dependencies = [
     "av>=18.1.0",
     "soundfile>=0.14.0",
     "matplotlib>=3.11.1",
-    # BS.1770 integrated loudness / true-peak metering (dw/loudness.py, #361)
+    # BS.1770 integrated loudness / true-peak metering (dw/dsp.py, #361)
     "pyloudnorm>=0.2.0",
     # normalize_audio(limit=true)'s 4x true-peak detection (resample_poly) and
     # look-ahead minimum (minimum_filter1d) - imported directly, so declared
@@ -113,11 +113,19 @@ dependencies = [
     "concurrent-log-handler>=0.9.29",
     "python-dotenv>=1.2.3",
     "packaging>=26.3",
+    # Cross-process lock for claiming a run's directory and version
+    # together (dw/runs.py open_run) - already installed transitively
+    # through huggingface-hub, declared directly since dw imports it too
+    "filelock>=3.12",
+    # dw.run is a client of dw.serve (dw_mcp/client.py, imported by dw/run.py)
+    # rather than an in-process runner, so httpx is a core dependency now,
+    # not just the mcp extra's
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
 server = ["fastapi>=0.141.1", "uvicorn[standard]>=0.52.4"]
-mcp = ["mcp>=2.1.1", "httpx>=0.28.1"]
+mcp = ["mcp>=2.1.1"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -129,6 +137,10 @@ dev = [
     "ruff>=0.15.0",
     "build",
     "mcp>=2.1.1",
+    "pylint>=3.3",
+    "import-linter>=2.15",
+    "networkx>=3.0",
+    "pygount>=3.2",
 ]
 
 [project.urls]
@@ -137,7 +149,6 @@ Homepage = "https://github.com/dkackman/diffusers-workflow"
 [project.scripts]
 dw-run = "dw.run:main"
 dw-validate = "dw.validate:main"
-dw-repl = "dw.repl:main"
 dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
 dw-mcp = "dw_mcp.__main__:main"
@@ -157,6 +168,7 @@ ignore = ["E501"]
 # These import a pytest fixture by name and reuse that name as a test
 # function's parameter (the idiomatic way to share a fixture across
 # modules) - pyflakes/ruff can't tell that from a genuine redefinition.
+"tests/test_cli.py" = ["F811"]
 "tests/test_jobs_listing.py" = ["F811"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]

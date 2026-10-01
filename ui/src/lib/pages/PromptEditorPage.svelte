@@ -11,6 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
+  import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go } from '../router.svelte'
   import { sharedHref } from '../routes'
@@ -249,7 +250,7 @@
       .listPrompts()
       .then((r) => {
         promptFiles = r.prompts
-        promptDir = r.prompt_dir
+        promptDir = writableRoot(r.libraries)
         promptDetails = r.details ?? {}
       })
       .catch((e) => notify.error(e.message))
@@ -390,10 +391,7 @@
     const path = savePath()!
     busy = true
     try {
-      const result = await api.savePrompt(
-        path,
-        $state.snapshot(doc) as PromptDefinition,
-      )
+      await api.savePrompt(path, $state.snapshot(doc) as PromptDefinition)
       if (folder === '__new__') {
         folder = newFolder.trim()
         newFolder = ''
@@ -402,7 +400,7 @@
       // listing, so a newly created one must be added or the select resets
       if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
       baseline = JSON.stringify($state.snapshot(doc))
-      notify.success(`Saved to ${result.path}`)
+      notify.success(`Saved to ${path}`)
       loadPromptLibrary()
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))

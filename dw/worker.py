@@ -9,18 +9,32 @@ import queue
 import logging
 import threading
 import traceback
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.workflow import workflow_from_file, workflow_from_definition
+from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, deactivate_asset_dir
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw.worker_protocol import (
+    Cancelled,
+    Failed,
+    MemoryCleared,
+    MemoryInfo,
+    MemoryStatusReply,
+    Output,
+    ProbeCacheReply,
+    Progress,
+    Succeeded,
+    WorkerCrashed,
+    WorkflowLoaded,
+)
 from dw.host_memory import (
     host_memory_fields,
     host_memory_stats,
@@ -76,6 +90,19 @@ MEMORY_GROWTH_THRESHOLD_MB = 500  # Warn if GPU memory grows by more than this
 COMMAND_POLL_TIMEOUT_SECONDS = 5
 
 
+@dataclass
+class _Job:
+    """What one _handle_execute has built so far. Each field is bound before
+    the phase that fills it, so the failure path reads whatever the run got
+    as far as setting."""
+
+    workflow: Any = None
+    context: Optional[RunContext] = None
+    asset_token: Any = None
+    baseline_peak_rss_mb: Optional[float] = None
+    job_peak_rss_mb: Optional[float] = None
+
+
 class WorkflowWorker:
     """
     Persistent worker that keeps workflows and models loaded in memory.
@@ -87,8 +114,8 @@ class WorkflowWorker:
         Initialize the worker with communication queues.
 
         Args:
-            command_queue: Queue for receiving commands from REPL
-            result_queue: Queue for sending results back to REPL
+            command_queue: Queue for receiving commands from the parent process
+            result_queue: Queue for sending results back to the parent process
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         """
         self.command_queue = command_queue
@@ -136,8 +163,9 @@ class WorkflowWorker:
 
         try:
             while True:
+                command = None
                 try:
-                    # Wait for a command from the REPL, but poll with a
+                    # Wait for a command from the parent process, but poll with a
                     # timeout rather than blocking forever. If nothing
                     # arrives, check whether the parent process is still
                     # alive - if it has died (e.g. crashed or was killed)
@@ -172,20 +200,15 @@ class WorkflowWorker:
                     elif command_type == "shutdown":
                         self._handle_shutdown()
                         break
-                    elif command_type == "ping":
-                        self._handle_ping()
                     elif command_type == "clear_memory":
-                        self._handle_clear_memory()
+                        self._handle_clear_memory(command)
                     elif command_type == "memory_status":
-                        self._handle_memory_status()
+                        self._handle_memory_status(command)
                     elif command_type == "probe_cache":
                         self._handle_probe_cache(command)
                     else:
-                        self.result_queue.put(
-                            {
-                                "type": "error",
-                                "message": f"Unknown command type: {command_type}",
-                            }
+                        self._reply(
+                            Failed(message=f"Unknown command type: {command_type}")
                         )
 
                 except KeyboardInterrupt:
@@ -193,12 +216,18 @@ class WorkflowWorker:
                     break
                 except Exception as e:
                     logger.error(f"Error processing command: {e}", exc_info=True)
-                    self.result_queue.put(
-                        {
-                            "type": "error",
-                            "message": f"Command processing error: {str(e)}",
-                            "traceback": traceback.format_exc(),
-                        }
+                    # Echoes a request's id, so a request whose handler
+                    # raised is answered rather than left to time out
+                    self._reply(
+                        Failed(
+                            message=f"Command processing error: {str(e)}",
+                            traceback=traceback.format_exc(),
+                            request_id=(
+                                command.get("request_id")
+                                if isinstance(command, dict)
+                                else None
+                            ),
+                        )
                     )
 
         finally:
@@ -209,162 +238,57 @@ class WorkflowWorker:
         """
         Execute a workflow, reusing loaded models if possible.
 
-        The command names the workflow either by path (workflow_path) or as an
-        inline definition (workflow, with an optional base_dir that relative
-        paths inside it resolve against). Models stay cached between runs of
-        the same workflow identity; pipelines are cached by what they load, so
-        an edited workflow keeps every pipeline whose definition is unchanged.
-        A {"type": "cancel"} command sent during execution stops the run at
-        the next step boundary or diffusion step.
+        The command carries the snapshot admission checked - the definition,
+        the file_spec it resolved and whether it came from a file (source
+        "path") or inline - and the worker runs exactly that: it neither
+        re-reads the file nor re-checks the definition. Models stay cached
+        between runs of the same workflow identity; pipelines are cached by
+        what they load, so an edited workflow keeps every pipeline whose
+        definition is unchanged. A {"type": "cancel"} command sent during
+        execution stops the run at the next step boundary or diffusion step.
+
+        Four phases, in order: _activate_job (log level and the job's asset
+        root), _prepare_workflow (build from the snapshot, switch identity),
+        _run_job (run it under the cancel watcher) and _report_success. The
+        failure and cancellation replies are built here, from the _Job the
+        phases filled in as far as they got.
 
         Args:
-            command: Dictionary with workflow_path or workflow (+ base_dir),
-                arguments, output_dir, log_level, and optionally asset_dir -
-                the workspace library 'asset:' resolves against
+            command: Dictionary with definition, file_spec, source,
+                workflow_dir, arguments, output_dir, log_level, and optionally
+                asset_dir - the workspace library 'asset:' resolves against
         """
-        arguments = command["arguments"]
-        output_dir = command["output_dir"]
-        log_level = command.get("log_level", "INFO")
         # Bound before the load, so a failure or a cancellation still reports
-        # whatever the run had written by then - the steps that did complete
-        # are the first thing a failed long run is asked about
-        workflow = None
-        # Bound for the same reason: the failure path evicts against what the
-        # run touched, and a run can fail before it has a context at all
-        context = None
+        # whatever the run had written by then (job.workflow), the failure
+        # path evicts against what the run touched (job.context), and the
+        # outermost finally can always deactivate whatever this execute
+        # activated (job.asset_token), however far it got
+        job = _Job()
 
         try:
-            set_log_level(log_level)
-
-            workflow, identity = self._load_workflow(command, output_dir)
-            workflow.validate(arguments=arguments)
-
-            # Switching to a different workflow frees the old one's models
-            # before the new one loads - on one accelerator, holding both is
-            # what runs out of memory
-            if identity != self.workflow_identity:
-                if self.workflow_identity is not None:
-                    self.result_queue.put(
-                        {
-                            "type": "output",
-                            "message": "Workflow changed - releasing cached models...",
-                        }
-                    )
-                    self.result_queue.put(
-                        {"type": "output", "message": self._cleanup_all()}
-                    )
-                self.workflow_identity = identity
-
-            self.result_queue.put(
-                {"type": "workflow_loaded", "workflow_name": workflow.name}
-            )
-            self.result_queue.put(
-                {
-                    "type": "output",
-                    "message": f"Executing workflow: {workflow.name}",
-                }
-            )
-
-            # Progress events stream to the client as they happen; the
-            # watcher thread keeps the command queue live so cancel works
-            # mid-run. Each phase boundary also gets its own memory_info
-            # message (#273), so get_memory answers freshly mid-run instead
-            # of refusing with job_running for the run's whole duration; the
-            # first such reading is this job's baseline for the job-scoped
-            # peak field carried on every memory_info from here on (#272)
-            job_baseline = {"peak_rss_mb": None, "job_peak_rss_mb": None}
-
-            def _on_event(event):
-                self.result_queue.put({"type": "progress", **event})
-                if event.get("event") == "phase":
-                    memory_info = self._get_memory_info()
-                    if job_baseline["peak_rss_mb"] is None:
-                        job_baseline["peak_rss_mb"] = memory_info.get(
-                            "host_memory_peak_rss_mb"
-                        )
-                    job_baseline["job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
-                        memory_info,
-                        job_baseline["peak_rss_mb"],
-                        job_baseline["job_peak_rss_mb"],
-                    )
-                    memory_info["host_memory_job_peak_rss_mb"] = job_baseline[
-                        "job_peak_rss_mb"
-                    ]
-                    self.result_queue.put({"type": "memory_info", "info": memory_info})
-
-            context = RunContext(on_event=_on_event)
-            watcher = self._watch_commands(context)
-            # Which workspace's assets this job's 'asset:' references resolve
-            # against. A server holds several workspaces and each has its own
-            # library, so the root travels with the job rather than being
-            # pinned in the environment the way the shared prompt library is
-            asset_token = (
-                activate_asset_dir(command["asset_dir"])
-                if command.get("asset_dir")
-                else None
-            )
-            try:
-                workflow.run(
-                    arguments,
-                    self.loaded_pipelines,
-                    context=context,
-                    prior_step_keys=self.prior_step_keys,
-                )
-            finally:
-                self._record_step_keys(workflow)
-                watcher.stop()
-                if asset_token is not None:
-                    deactivate_asset_dir(asset_token)
-
-            self._evict_untouched_pipelines(context)
-
-            self.run_count += 1
-
-            # Aggressive memory cleanup after execution
-            self._cleanup_between_runs()
-
-            # Report memory status - the job's final reading, carrying the
-            # same job-scoped delta the phase-boundary readings above do
-            # (#272). A run with no phase events at all (job_baseline never
-            # set) reports host_memory_job_peak_rss_mb as null rather than
-            # guessing a baseline after the fact.
-            memory_info = self._get_memory_info()
-            memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
-                memory_info,
-                job_baseline["peak_rss_mb"],
-                job_baseline["job_peak_rss_mb"],
-            )
-            self.result_queue.put({"type": "memory_info", "info": memory_info})
-
-            self.result_queue.put(
-                {
-                    "type": "success",
-                    "message": "Workflow completed successfully",
-                    "run_count": self.run_count,
-                    "manifest": getattr(workflow, "manifest", []),
-                }
-            )
+            self._activate_job(command, job)
+            self._prepare_workflow(command, job)
+            self._run_job(command, job)
+            self._report_success(job)
 
         except WorkflowCancelled:
             self._cleanup_between_runs()
-            self.result_queue.put(
-                {
-                    "type": "cancelled",
-                    "message": "Workflow run cancelled",
-                    "manifest": getattr(workflow, "manifest", []),
-                }
+            self._reply(
+                Cancelled(
+                    message="Workflow run cancelled",
+                    manifest=getattr(job.workflow, "manifest", []),
+                )
             )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
-            failure = {
-                "type": "error",
-                "message": f"Workflow execution error: {str(e)}",
-                "traceback": traceback.format_exc(),
+            failure = Failed(
+                message=f"Workflow execution error: {str(e)}",
+                traceback=traceback.format_exc(),
                 # The files the steps before the failure wrote are on
                 # disk; reporting them is what keeps a run that died at
                 # step five from looking like one that produced nothing
-                "manifest": getattr(workflow, "manifest", []),
-            }
+                manifest=getattr(job.workflow, "manifest", []),
+            )
             # The exception's traceback reaches every frame between here and
             # the failure, and those frames hold whatever a half-finished load
             # had built - so a collection that runs while the exception is
@@ -375,28 +299,137 @@ class WorkflowWorker:
             # Success and cancellation both reclaim; failure did neither, so a
             # half-loaded pipeline and any variant the attempt superseded
             # stayed resident and the next attempt loaded on top of them
-            self._evict_untouched_pipelines(context)
+            self._evict_untouched_pipelines(job.context)
             self._cleanup_between_runs()
-            self.result_queue.put(failure)
+            self._reply(failure)
+        finally:
+            if job.asset_token is not None:
+                deactivate_asset_dir(job.asset_token)
+
+    def _activate_job(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 1: the job's log level and its asset root, before anything
+        that could resolve an 'asset:' reference (B8)."""
+        set_log_level(command.get("log_level", "INFO"))
+
+        # Which workspace's assets this job's 'asset:' references resolve
+        # against. A server holds several workspaces and each has its own
+        # library, so the root travels with the job rather than being
+        # pinned in the environment the way the shared prompt library is.
+        # Active for the whole run, so every step that resolves an
+        # asset: reference reads this job's own library
+        job.asset_token = (
+            activate_asset_dir(command["asset_dir"])
+            if command.get("asset_dir")
+            else None
+        )
+
+    def _prepare_workflow(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 2: build the Workflow from the snapshot and announce it,
+        freeing the previous workflow's models first when the identity
+        changed."""
+        job.workflow, identity = self._load_workflow(command, command["output_dir"])
+
+        # Switching to a different workflow frees the old one's models
+        # before the new one loads - on one accelerator, holding both is
+        # what runs out of memory
+        if identity != self.workflow_identity:
+            if self.workflow_identity is not None:
+                self._reply(
+                    Output(message="Workflow changed - releasing cached models...")
+                )
+                self._reply(Output(message=self._cleanup_all()))
+            self.workflow_identity = identity
+
+        self._reply(WorkflowLoaded(workflow_name=job.workflow.name))
+        self._reply(Output(message=f"Executing workflow: {job.workflow.name}"))
+
+    def _run_job(self, command: Dict[str, Any], job: "_Job"):
+        """Phase 3: run the workflow, streaming its events, then reclaim."""
+        workflow = job.workflow
+
+        # Progress events stream to the client as they happen; the
+        # watcher thread keeps the command queue live so cancel works
+        # mid-run. Each phase boundary also gets its own memory_info
+        # message (#273), so get_memory answers freshly mid-run instead
+        # of refusing with job_running for the run's whole duration; the
+        # first such reading is this job's baseline for the job-scoped
+        # peak field carried on every memory_info from here on (#272)
+        def _on_event(event):
+            self._reply(Progress(event=event))
+            if event.get("event") == "phase":
+                memory_info = self._get_memory_info()
+                if job.baseline_peak_rss_mb is None:
+                    job.baseline_peak_rss_mb = memory_info.get(
+                        "host_memory_peak_rss_mb"
+                    )
+                job.job_peak_rss_mb = _job_scoped_peak_rss_mb(
+                    memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+                )
+                memory_info["host_memory_job_peak_rss_mb"] = job.job_peak_rss_mb
+                self._reply(MemoryInfo(info=memory_info))
+
+        job.context = RunContext(on_event=_on_event)
+        watcher = self._watch_commands(job.context)
+        try:
+            workflow.run(
+                command["arguments"],
+                self.loaded_pipelines,
+                context=job.context,
+                prior_step_keys=self.prior_step_keys,
+            )
+        finally:
+            self._record_step_keys(workflow)
+            watcher.stop()
+
+        self._evict_untouched_pipelines(job.context)
+
+        self.run_count += 1
+
+        # Aggressive memory cleanup after execution
+        self._cleanup_between_runs()
+
+    def _report_success(self, job: "_Job"):
+        """Phase 4: the job's final memory reading, then the success reply.
+
+        The reading carries the same job-scoped delta the phase-boundary
+        readings do (#272). A run with no phase events at all (no baseline
+        ever set) reports host_memory_job_peak_rss_mb as null rather than
+        guessing a baseline after the fact."""
+        memory_info = self._get_memory_info()
+        memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
+            memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+        )
+        self._reply(MemoryInfo(info=memory_info))
+
+        self._reply(
+            Succeeded(
+                message="Workflow completed successfully",
+                run_count=self.run_count,
+                manifest=getattr(job.workflow, "manifest", []),
+            )
+        )
 
     def _load_workflow(self, command: Dict[str, Any], output_dir: str):
-        """Build the Workflow a command names, and its cache identity."""
-        workflow_dir = command.get("workflow_dir")
-        if "workflow_path" in command and command["workflow_path"] is not None:
-            workflow_path = command["workflow_path"]
-            workflow = workflow_from_file(workflow_path, output_dir, workflow_dir)
-            return workflow, ("path", workflow_path)
-
-        workflow_data = command["workflow"]
-        workflow = workflow_from_definition(
-            workflow_data, output_dir, command.get("base_dir"), workflow_dir
+        """The admitted Workflow a command carries, and its cache identity:
+        the file_spec for a job from a file, the definition's id inline."""
+        definition = command["definition"]
+        file_spec = command["file_spec"]
+        workflow = workflow_from_snapshot(
+            definition, output_dir, file_spec, command.get("workflow_dir")
         )
-        return workflow, ("inline", workflow_data.get("id"))
+        if command.get("source") == "path":
+            return workflow, ("path", file_spec)
+        return workflow, ("inline", definition.get("id"))
+
+    def _reply(self, reply):
+        """Put one typed reply on the result queue, as its wire dict."""
+        self.result_queue.put(reply.to_wire())
 
     def _watch_commands(self, context):
-        """Watch the command queue during a run so cancel and ping still work.
+        """Watch the command queue during a run so cancel and shutdown still
+        work.
 
-        Returns an object with stop(); anything that is not cancel, ping or
+        Returns an object with stop(); anything that is not cancel or
         shutdown is refused, since one workflow runs at a time.
         """
         stop_event = threading.Event()
@@ -412,22 +445,18 @@ class WorkflowWorker:
                 if command_type == "cancel":
                     logger.info("Cancel requested")
                     context.cancel()
-                    worker.result_queue.put(
-                        {"type": "output", "message": "Cancelling..."}
-                    )
-                elif command_type == "ping":
-                    worker._handle_ping()
+                    worker._reply(Output(message="Cancelling..."))
                 elif command_type == "shutdown":
                     # Stop the run, then let the main loop see the shutdown
                     context.cancel()
                     worker.pending_shutdown = True
                 else:
-                    worker.result_queue.put(
-                        {
-                            "type": "error",
-                            "message": f"Cannot handle '{command_type}' while a "
+                    worker._reply(
+                        Failed(
+                            message=f"Cannot handle '{command_type}' while a "
                             "workflow is running",
-                        }
+                            request_id=command.get("request_id"),
+                        )
                     )
 
         thread = threading.Thread(target=watch, daemon=True, name="command-watcher")
@@ -444,34 +473,35 @@ class WorkflowWorker:
         """Handle graceful shutdown request."""
         logger.info("Shutdown requested")
         self._cleanup_all()
-        self.result_queue.put({"type": "shutdown_complete"})
 
-    def _handle_ping(self):
-        """Respond to ping to prove worker is alive."""
-        self.result_queue.put({"type": "pong", "run_count": self.run_count})
-
-    def _handle_clear_memory(self):
+    def _handle_clear_memory(self, command: Dict[str, Any]):
         """Handle explicit memory clear request."""
         logger.info("Memory clear requested")
         self._cleanup_all()
-        memory_info = self._get_memory_info()
-        self.result_queue.put({"type": "memory_cleared", "info": memory_info})
+        self._reply(
+            MemoryCleared(
+                request_id=command.get("request_id"), info=self._get_memory_info()
+            )
+        )
 
-    def _handle_memory_status(self):
+    def _handle_memory_status(self, command: Dict[str, Any]):
         """Report current memory usage."""
-        memory_info = self._get_memory_info()
-        self.result_queue.put({"type": "memory_status", "info": memory_info})
+        self._reply(
+            MemoryStatusReply(
+                request_id=command.get("request_id"), info=self._get_memory_info()
+            )
+        )
 
     def _handle_probe_cache(self, command: Dict[str, Any]):
         """Which steps the step cache would serve for a run of this command
-        - the plan's cached_steps (#85). Same fields as an execute command;
-        loads the workflow, executes nothing. A failure answers
-        cached: null with the reason rather than an error message, since
+        - the plan's cached_steps (#85). Same fields as an execute command:
+        builds the candidate admission checked, executes nothing. A failure
+        answers cached: null with the reason rather than an error message, since
         an unknown answer is a valid plan and a crashed probe is not. The
-        command's probe_id is echoed so a reply that arrives after its
-        caller gave up is not read as the answer to the next probe.
+        command's request_id is echoed so a reply that arrives after its
+        caller gave up is not read as the answer to the next request.
         """
-        probe_id = command.get("probe_id")
+        request_id = command.get("request_id")
         try:
             workflow, _ = self._load_workflow(command, command["output_dir"])
             asset_token = (
@@ -484,18 +514,11 @@ class WorkflowWorker:
             finally:
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)
-            self.result_queue.put(
-                {"type": "probe_cache", "probe_id": probe_id, "cached": cached}
-            )
+            self._reply(ProbeCacheReply(request_id=request_id, cached=cached))
         except Exception as e:
             logger.debug(f"Cache probe failed: {e}")
-            self.result_queue.put(
-                {
-                    "type": "probe_cache",
-                    "probe_id": probe_id,
-                    "cached": None,
-                    "error": str(e),
-                }
+            self._reply(
+                ProbeCacheReply(request_id=request_id, cached=None, error=str(e))
             )
 
     def _record_step_keys(self, workflow):
@@ -508,13 +531,15 @@ class WorkflowWorker:
         given entry - a name here can belong to an earlier, different job's
         step. A stale entry is harmless because Workflow.create_step_action
         judges "still shared" on the running steps' CURRENT keys
-        (Workflow._running_pipeline_keys), never on this map's other
+        (Workflow.pipeline_ownership.running), never on this map's other
         entries: a key is held only while another step of the executing run
         loads under it now. A name this map remembers from another workflow
         is not a running step, and a sibling whose key moved with this one's
         no longer claims the old key, so neither saves it from release.
         """
-        keys = getattr(workflow, "_pipeline_keys_by_step", None)
+        keys = getattr(
+            getattr(workflow, "pipeline_ownership", None), "keys_by_step", None
+        )
         if keys:
             self.prior_step_keys.update(keys)
 
@@ -751,11 +776,9 @@ def worker_main(command_queue, result_queue, log_level="INFO"):
         logger.error(f"Worker crashed: {e}", exc_info=True)
         try:
             result_queue.put(
-                {
-                    "type": "worker_crashed",
-                    "message": str(e),
-                    "traceback": traceback.format_exc(),
-                }
+                WorkerCrashed(
+                    message=str(e), traceback=traceback.format_exc()
+                ).to_wire()
             )
         except (OSError, RuntimeError) as queue_error:
             logger.error(f"Failed to send crash notification to queue: {queue_error}")

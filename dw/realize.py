@@ -9,7 +9,9 @@ run 'output:.../latest/...' picked. Everything else - 'asset:', 'constant:',
 'previous_result:', 'builtin:' and a sub-workflow's path - is a name whose
 meaning is pinned by something already recorded (the asset library, the
 manifest's dw_version, the file itself), so it is kept as written and, for a
-local sub-workflow, digested into the manifest instead.
+local sub-workflow, digested into the manifest instead. The one exception is
+the variables block, which records the values the run folded - a variable
+defaulted to a 'constant:' holds the value it realized to there.
 
 Two rules hold this module together. It never mutates its input: the caller
 hands it the definition the run is about to work from. And it never fails a
@@ -17,11 +19,11 @@ run: a reference that will not resolve is left exactly as written, so the
 engine raises its own error at the point it would have raised anyway.
 """
 
-import copy
 import hashlib
 import logging
 import os
 
+from . import references
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .runs import (
     LATEST,
@@ -32,18 +34,18 @@ from .runs import (
     version_selector,
 )
 from .security import SecurityError, validate_workflow_path
-from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
-from .variables import set_variables
+from .step_cache import copy_containers
+from .library import resolve_sub_workflow, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
 
-BUILTIN_PREFIX = "builtin:"
-VARIABLE_PREFIX = "variable:"
+BUILTIN_PREFIX = references.BUILTIN
+VARIABLE_PREFIX = references.VARIABLE
 
 
 def realize_workflow(
     definition,
-    arguments,
+    variables,
     seed,
     base_dir=None,
     prompt_dir=None,
@@ -56,8 +58,11 @@ def realize_workflow(
     Args:
         definition: The workflow as loaded, before Workflow.run's deep copy.
             Never mutated.
-        arguments: The run's argument dict, folded into the variable defaults
-            exactly as `set_variables` folds them for the run itself.
+        variables: The variables as the run folded them - arguments set,
+            list entries' references resolved, snap-up rules applied
+            (`workflow_run.prepare_definition`'s recorded variables, or
+            `Workflow.folded_variables`) - or None when none are declared.
+            Recorded as given; the definition stays unexpanded.
         seed: The seed the run resolved - an integer, never None, because
             `Workflow.run` draws one when the workflow names none.
         base_dir: The workflow file's directory, anchoring prompt discovery
@@ -78,13 +83,14 @@ def realize_workflow(
         for the manifest to carry, since the schema has nowhere to put them.
     """
     annotations = {"prompts": [], "sub_workflows": {}}
-    realized = copy.deepcopy(definition)
+    realized = copy_containers(definition)
 
+    if isinstance(realized.get("variables"), dict) and isinstance(variables, dict):
+        # Exactly what the run computed - folded by the same stage that
+        # prepared the run, so the record left beside the run's manifest
+        # matches what it used
+        realized["variables"] = copy_containers(variables)
     variables = realized.get("variables")
-    if isinstance(variables, dict):
-        # Exactly what the run computed: set_variables coerces each value to
-        # the type of the declared default and rejects an undeclared name
-        set_variables(arguments or {}, variables)
 
     realized["seed"] = seed
     # A definition can point its top-level seed at a declared variable
@@ -236,7 +242,7 @@ def read_sub_workflow(path, base_dir, workflow_dir):
     """
     try:
         candidate, root = resolve_sub_workflow(path, base_dir or ".", workflow_dir)
-        validated = validate_workflow_path(candidate, root)
+        validated = validate_workflow_path(candidate, root.root if root else None)
         with open(validated, "rb") as file:
             return file.read()
     except (SecurityError, OSError, ValueError, SubWorkflowNotFound) as e:

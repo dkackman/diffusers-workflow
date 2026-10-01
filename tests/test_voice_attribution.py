@@ -32,7 +32,7 @@ from dw.tasks.voice_attribution import (
     voices_errors,
 )
 from dw.locations import location_errors
-from dw.security import TRUST_WORKFLOWS_ENV_VAR
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.workflow import Workflow
 
 
@@ -50,7 +50,7 @@ def silence(seconds, sample_rate=16000, channels=1):
 
 
 class FakeAudio:
-    """Matches `_waveform_and_rate`'s `hasattr(audio, "audio")` branch, so no
+    """Matches `waveform_and_rate`'s `hasattr(audio, "audio")` branch, so no
     file-path/security validation is triggered."""
 
     def __init__(self, waveform, sample_rate=16000):

@@ -6,14 +6,23 @@ record, which is a store concern rather than a routing one.
 """
 
 import json
+import logging
 import time
 
 import pytest
 
 from dw.runs import REALIZED_FILE_NAME, new_run_id
-from dw.server.jobs import TERMINAL_STATES, JobHistory, JobManager
+from dw.server.jobs import JobManager
+from dw.server.job_history import JobHistory
+from dw.server.job_record import TERMINAL_STATES
 
-from .test_server import ScriptedWorkerManager, valid_workflow
+from .test_server import (
+    DyingWorkerManager,
+    ScriptedWorkerManager,
+    admitted_for,
+    success_script,
+    valid_workflow,
+)
 
 RUN_ID = new_run_id({"workflow": "spec"})
 RUN_DIR = f"server_test/{RUN_ID}"
@@ -46,38 +55,14 @@ def manager(tmp_path):
 
 
 def finished_job(manager):
-    job = manager.submit(workflow=valid_workflow(), base_dir=None)
-    deadline = time.time() + 5
-    while job.status not in TERMINAL_STATES and time.time() < deadline:
-        time.sleep(0.01)
-    assert job.status == "succeeded", job.error
-    return job
-
-
-def test_submit_checks_content_type_against_the_callers_arguments(manager):
-    """A document-default 'text/html' content_type that the caller's own
-    argument overrides to 'text/plain' must queue - JobManager.submit used
-    to validate the unsubstituted document (loaded.validate(), no
-    arguments), refusing a run that validate_workflow had already accepted
-    for the same call (#415, the run_workflow mirror of #414)."""
-    definition = {
-        "id": "se-415",
-        "variables": {"ct": "text/html"},
-        "steps": [
-            {
-                "name": "t",
-                "task": {"command": "compose_text", "arguments": {"parts": ["x"]}},
-                "result": {"content_type": "variable:ct"},
-            }
-        ],
-    }
     job = manager.submit(
-        workflow=definition, arguments={"ct": "text/plain"}, base_dir=None
+        admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
     )
     deadline = time.time() + 5
     while job.status not in TERMINAL_STATES and time.time() < deadline:
         time.sleep(0.01)
     assert job.status == "succeeded", job.error
+    return job
 
 
 def test_run_start_populates_the_job(manager):
@@ -192,17 +177,16 @@ def for_each_script(command):
     expansion and compose_text execution, not a canned response - standing
     in for the spawned worker process the way this file's other scripts do
     (ScriptedWorkerManager replaces the process, not the workflow code)."""
-    from dw.workflow import workflow_from_definition
+    from dw.workflow import workflow_from_snapshot
 
-    workflow = workflow_from_definition(
-        command["workflow"],
+    # Mirrors dw/worker.py's _handle_execute: the admitted snapshot, run
+    # with the caller's own arguments, which run() substitutes and expands
+    workflow = workflow_from_snapshot(
+        command["definition"],
         command["output_dir"],
-        command["base_dir"],
+        command["file_spec"],
         command.get("workflow_dir"),
     )
-    # Mirrors dw/worker.py's _handle_execute: validated against the
-    # caller's own arguments (#415), which run() then substitutes and expands.
-    workflow.validate(arguments=command["arguments"])
     workflow.run(command["arguments"], {})
     yield {
         "type": "success",
@@ -221,8 +205,8 @@ def test_a_for_each_job_expands_and_runs_through_the_server_job_path(tmp_path):
     )
     try:
         job = manager.submit(
+            admitted=admitted_for(manager, _for_each_workflow()),
             workflow=_for_each_workflow(),
-            base_dir=None,
             arguments={
                 "shots": [
                     {"name": "one", "text": "1"},
@@ -304,7 +288,9 @@ def test_workflow_end_event_manifest_matches_get_job_manifest(tmp_path):
         workflow_dir=str(tmp_path),
     )
     try:
-        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status not in TERMINAL_STATES and time.time() < deadline:
             time.sleep(0.01)
@@ -330,7 +316,9 @@ def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
         workflow_dir=str(tmp_path),
     )
     try:
-        job = manager.submit(workflow=valid_workflow(), base_dir=None)
+        job = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()), workflow=valid_workflow()
+        )
         deadline = time.time() + 5
         while job.status not in TERMINAL_STATES and time.time() < deadline:
             time.sleep(0.01)
@@ -342,3 +330,202 @@ def test_a_failed_job_reports_the_steps_that_completed(tmp_path):
         assert manager.history.get(job.id)["manifest"] == job.manifest
     finally:
         manager.shutdown()
+
+
+def _wait_terminal(job):
+    deadline = time.time() + 5
+    while job.status not in TERMINAL_STATES and time.time() < deadline:
+        time.sleep(0.01)
+    return job
+
+
+def _unknown_type_warnings(caplog):
+    return [r for r in caplog.records if "Unknown worker message" in r.getMessage()]
+
+
+def test_a_late_probe_reply_cannot_poison_the_next_request(tmp_path, caplog):
+    """Review Focus 3. A probe that gave up still answers eventually, onto
+    the queue the next request reads. The next memory_status must discard
+    it and answer live, and the job after that must find no stray reply."""
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        manager.worker_manager.ensure_worker()
+        manager.worker_manager._results.put(
+            {"type": "probe_cache", "request_id": "gave-up", "cached": ["stale"]}
+        )
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            status = manager.memory_status()
+            assert status["live"] is True
+            assert status["reason"] is None
+            assert status["info"] == {"gpu_available": True}
+
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        assert _unknown_type_warnings(caplog) == []
+    finally:
+        manager.shutdown()
+
+
+def stray_reply_script(command):
+    """A run whose reply stream carries a request reply nobody waited for -
+    a memory_status answer whose reader timed out before it landed."""
+    yield {"type": "memory_status", "request_id": "gave-up", "info": {}}
+    yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+
+def test_a_stray_request_reply_during_a_run_is_discarded_quietly(tmp_path, caplog):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(stray_reply_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        assert _unknown_type_warnings(caplog) == []
+        assert any(
+            r.levelno == logging.DEBUG and "memory_status" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        manager.shutdown()
+
+
+def unknown_reply_script(command):
+    yield {"type": "no_such_reply"}
+    yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+
+def test_an_unknown_reply_type_is_still_a_warning(tmp_path, caplog):
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(unknown_reply_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="dw"):
+            job = _wait_terminal(
+                manager.submit(
+                    admitted=admitted_for(manager, valid_workflow()),
+                    workflow=valid_workflow(),
+                )
+            )
+        assert job.status == "succeeded", job.error
+        [warning] = _unknown_type_warnings(caplog)
+        assert warning.levelno == logging.WARNING
+        assert "no_such_reply" in warning.getMessage()
+    finally:
+        manager.shutdown()
+
+
+class TestAWorkerThatDiesMidRequest:
+    """Review Focus 4: the reply dispatcher changes how a reply is read, not
+    what a dead worker means - the crash is still marked, and each request
+    answers the way it did."""
+
+    @pytest.fixture
+    def dying(self, tmp_path):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=DyingWorkerManager(),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=str(tmp_path),
+        )
+        manager.worker_manager.worker_active = True
+        manager.last_memory = {"gpu_available": True, "used": 42}
+        yield manager
+        manager.shutdown()
+
+    def test_memory_status_marks_the_crash_and_answers_unreachable(self, dying):
+        status = dying.memory_status()
+        assert status["live"] is False
+        assert status["reason"] == "worker_unreachable"
+        assert status["info"] == {"gpu_available": True, "used": 42}
+        assert dying.worker_manager.crashed is True
+
+    def test_a_probe_is_unknown(self, dying):
+        probe = {
+            "definition": {"id": "x", "steps": []},
+            "file_spec": "/w/x.json",
+            "source": "path",
+            "arguments": {},
+            "output_dir": "/tmp",
+        }
+        assert dying.probe_cache(probe) is None
+
+    def test_clear_memory_raises_for_the_route_to_answer_503(self, dying):
+        with pytest.raises(RuntimeError, match="died"):
+            dying.clear_memory()
+
+
+def submit_path_job(manager, tmp_path):
+    path = tmp_path / "Basic.json"
+    path.write_text(json.dumps(valid_workflow("basic"), indent=2))
+    job = manager.submit(
+        admitted=admitted_for(manager, workflow_path=str(path)),
+        workflow_path=str(path),
+    )
+    deadline = time.time() + 5
+    while job.status not in TERMINAL_STATES and time.time() < deadline:
+        time.sleep(0.01)
+    return job, path
+
+
+def test_definition_of_a_live_path_job_equals_its_file(manager, tmp_path):
+    """rerun and get_job_workflow consume definition(), so answering from the
+    snapshot must give exactly what json.load of the file gives."""
+    job, path = submit_path_job(manager, tmp_path)
+    assert manager.definition(job.id) == json.loads(path.read_text())
+
+
+def test_definition_of_a_live_path_job_survives_its_file_going(manager, tmp_path):
+    job, path = submit_path_job(manager, tmp_path)
+    expected = json.loads(path.read_text())
+    path.unlink()
+    assert manager.definition(job.id) == expected
+
+
+def test_definition_of_a_live_job_is_a_copy(manager, tmp_path):
+    job, _ = submit_path_job(manager, tmp_path)
+    manager.definition(job.id)["id"] = "mutated"
+    assert manager.definition(job.id)["id"] == "basic"
+
+
+def test_definition_of_a_restored_path_job_rereads_its_file(manager, tmp_path):
+    """Only a restored job has no snapshot, so only it depends on the file."""
+    job, path = submit_path_job(manager, tmp_path)
+    # The in-memory status turns terminal before the history row is
+    # written; a restore reads only the row
+    deadline = time.time() + 5
+    while manager.history.get(job.id) is None and time.time() < deadline:
+        time.sleep(0.01)
+    restored = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(tracked_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        assert restored.definition(job.id) == json.loads(path.read_text())
+        path.unlink()
+        assert restored.definition(job.id) is None
+    finally:
+        restored.shutdown()

@@ -12,6 +12,7 @@ import wave
 
 import numpy
 
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.slice_preflight import slice_past_end_warnings
 from dw.workflow import workflow_from_definition
@@ -65,6 +66,23 @@ class TestTheCheck:
         assert "score.wav" in warnings[0]
         assert "4.96 s source" in warnings[0]
         assert "past the end" in warnings[0]
+
+    def test_a_string_sample_rate_is_not_taken_as_a_relabel(self, monkeypatch):
+        # The run hands a string rate on uncoerced and cannot slice at it,
+        # so validation works at the file's own rate rather than float()ing
+        # the string into a relabel the run would never make
+        base_dir = workflow_dir_with_asset(monkeypatch, "score.wav", seconds=2.0)
+        definition = slice_workflow(
+            "asset:score.wav",
+            start_seconds=0.0,
+            duration_seconds=3.0,
+            sample_rate="16000",
+        )
+
+        warnings = slice_past_end_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "1.00 s past the end of a 2.00 s source" in warnings[0]
 
     def test_a_seconds_based_slice_past_a_short_asset_is_warned(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, "voice.wav", seconds=2.0)
@@ -130,6 +148,29 @@ class TestTheCheck:
 
     def test_nothing_is_reported_for_a_definition_with_no_slice_step(self):
         assert slice_past_end_warnings({"steps": [{"name": "a", "task": {}}]}) == []
+
+    def test_a_shared_cache_probes_the_source_once_across_two_calls(self, monkeypatch):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe the source only once, not once
+        # per call.
+        base_dir = workflow_dir_with_asset(monkeypatch, "score.wav", seconds=4.96)
+        definition = slice_workflow(
+            "asset:score.wav", start_frame=0, num_frames=372, fps=24
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        slice_past_end_warnings(definition, base_dir=base_dir, probe=counting_cache)
+        slice_past_end_warnings(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 1
 
 
 class TestWiredIntoTheWorkflow:

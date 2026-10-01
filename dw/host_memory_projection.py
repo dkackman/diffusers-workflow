@@ -19,7 +19,7 @@ import json
 import logging
 
 from .for_each import FOR_EACH_KEY
-from .plan import _has_seedable_step
+from .validation import _has_seedable_step
 
 logger = logging.getLogger("dw")
 

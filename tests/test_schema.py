@@ -700,9 +700,10 @@ class TestClosedObjects:
         assert "subfolder" in errors[0]["message"]
 
     def test_the_engine_injected_key_is_not_advertised(self):
-        """'argument_template' is written onto a sub-workflow by the engine,
-        so it is legal - but listing it among the properties on offer would
-        invite an author to write it by hand (#123)."""
+        """'argument_template' is how the engine names what a parent hands a
+        sub-workflow, and a file carrying one is read, so it is legal - but
+        listing it among the properties on offer would invite an author to
+        write it by hand (#123)."""
         schema = load_schema("workflow")
         errors = validate_data_all(
             {

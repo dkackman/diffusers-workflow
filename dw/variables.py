@@ -1,6 +1,7 @@
 import copy
 import logging
-from .arguments import (
+from . import references
+from .references import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
     FROM_PREVIOUS_RESULT_KEY,
@@ -14,10 +15,19 @@ from .security import (
 
 logger = logging.getLogger("dw")
 
-# The keys an object description names its media with. A "variable:" under one
+# The keys an object description names its media with. A `variable:` under one
 # of these that resolves to null has to stay present-and-null for
 # realize_object to read it as an omitted optional reference
 MEDIA_SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
+
+
+class ConstantError(ValueError):
+    """A 'constant:' variable default that failed to resolve during
+    validation, with the 'variables.<name>' path at fault."""
+
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
 
 
 class VariableNotFoundError(ValueError):
@@ -38,8 +48,8 @@ def _resolve_variable_reference(value, variables):
         VariableNotFoundError: if the referenced name isn't in variables, naming the
             variables that are actually available.
     """
-    if isinstance(value, str) and value.startswith("variable:"):
-        variable_name = value.removeprefix("variable:")
+    variable_name = references.ref_name(references.VARIABLE, value)
+    if variable_name is not None:
         logger.debug(f"Replacing variable reference: {variable_name}")
         if variable_name not in variables:
             available = ", ".join(sorted(variables.keys())) or "<none>"
@@ -100,7 +110,7 @@ def replace_variables(data, variables):
                 # names its media: realize_object reads a present-and-null
                 # 'from_file'/'from_previous_result'/'from_arguments' as
                 # OMITTED - an optional reference this run was given nothing
-                # for (_names_no_media in arguments.py). Dropping the key
+                # for (names_no_media in arguments.py). Dropping the key
                 # there turns that into a media-less stub that reaches the
                 # pipeline instead.
                 if resolved is None and k not in MEDIA_SOURCE_KEYS:
@@ -111,15 +121,21 @@ def replace_variables(data, variables):
                 result[k] = replace_variables(v, variables)
         return result
 
-    # Scalars (and anything else) pass through unchanged. copy.deepcopy guards
-    # against a caller mutating a returned mutable leaf (e.g. a PIL.Image or a
-    # list-typed variable's value) and having that reach back into `variables`.
-    return copy.deepcopy(data)
+    # Scalars (and anything else) pass through unchanged and shared. Every dict
+    # and list above is rebuilt, which is all the no-mutation promise needs,
+    # and a leaf here can be realized media that copying would duplicate (or
+    # fail on). A substituted value is shared the same way, as it always was.
+    # Where a leaf can be edited in place - conform_artifact stamps fps and
+    # fitted audio onto an artifact - isolation is the composed-child
+    # boundary's job: a child copies what its parent hands it once, on entry
+    # (Workflow._composed), so sharing past that point edits only its own copy
+    return data
 
 
 def resolve_variable_values(variables):
     """A copy of `variables` in which every "variable:name" inside a list-
-    or dict-valued variable is replaced by that variable's value.
+    or dict-valued variable is replaced by that variable's value. The copy's
+    dicts and lists are its own; its leaves are shared with `variables`.
 
     A list-driven step reads its entries from a variable, and an entry that
     says "from_file": "variable:character_a_voice" is how one variable sets
@@ -129,7 +145,7 @@ def resolve_variable_values(variables):
     reference type inside an entry is a type name by the time it is loaded.
 
     Only list and dict values are walked. A scalar value that begins with
-    "variable:" is passed through as it always was.
+    `variable:` is passed through as it always was.
 
     Raises:
         VariableNotFoundError: a reference names nothing declared
@@ -148,20 +164,20 @@ def resolve_variable_values(variables):
         value = variables[name]
         if isinstance(value, (list, dict)):
             value = walk(value, chain + [name])
-        else:
-            value = copy.deepcopy(value)
         resolved[name] = value
         return value
 
     def walk(node, chain):
         matched, _ = _resolve_variable_reference(node, variables)
         if matched:
-            return resolve(node.removeprefix("variable:"), chain)
+            return resolve(references.ref_name(references.VARIABLE, node), chain)
         if isinstance(node, list):
             return [walk(item, chain) for item in node]
         if isinstance(node, dict):
             return {key: walk(item, chain) for key, item in node.items()}
-        return copy.deepcopy(node)
+        # A leaf is shared, not copied: the containers above are the copy's
+        # own, and a leaf can be media a composing parent already realized
+        return node
 
     for name in variables:
         resolve(name, [])
@@ -185,8 +201,8 @@ def undeclared_variable_references(definition):
     found = []
 
     def walk(node, path):
-        if isinstance(node, str) and node.startswith("variable:"):
-            name = node.removeprefix("variable:")
+        name = references.ref_name(references.VARIABLE, node)
+        if name is not None:
             if name not in declared:
                 found.append((path, name))
         elif isinstance(node, dict):

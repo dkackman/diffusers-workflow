@@ -41,13 +41,14 @@ import os
 import socket
 from urllib.parse import urljoin, urlparse
 
+from . import references
 from .security import (
     InvalidInputError,
     PathTraversalError,
     validate_path,
     validate_url,
-    workflows_are_trusted,
 )
+from .trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
 
@@ -81,10 +82,12 @@ def media_roots(base_dir=None):
     if base_dir:
         candidates.append(base_dir)
 
-    from .assets import asset_search_path
+    from .assets import asset_library
 
     try:
-        candidates.extend(asset_search_path(base_dir=base_dir))
+        candidates.extend(
+            root.root for root in asset_library(base_dir=base_dir).roots()
+        )
     except Exception:
         logger.debug("Could not resolve the asset search path", exc_info=True)
 
@@ -445,9 +448,20 @@ def validate_model_name(name, base_dir=None):
                 f"Refusing a model_name of '{name}': it is a URL, not a Hub "
                 f"repo id or a local model directory ({e})."
             )
-    return validate_media_path(
-        str(name), base_dir, "a model_name", require_exists=False
-    )
+        # Not a URL either, so it is checked as a path next. Every refusal
+        # below is nested onto this same HF message (#529) - a caller who
+        # only reads the leaf ("Repo id must be in the form...") sees the one
+        # rule `download_model` states for a repo id, whichever shape of it
+        # tripped; the outer sentence still says *why this particular value*
+        # was refused (a '..' segment, or a directory outside every root).
+        try:
+            return validate_media_path(
+                str(name), base_dir, "a model_name", require_exists=False
+            )
+        except PathTraversalError as path_error:
+            raise PathTraversalError(f"{path_error} ({e}).")
+        except InvalidInputError as path_error:
+            raise InvalidInputError(f"{path_error} ({e}).")
 
 
 # The key a Hub file inside a model repo is named by - a lora's, an IP
@@ -516,19 +530,7 @@ def _is_media_key(key):
 
 def _deferred(value):
     """Whether a location is resolved later rather than being one now."""
-    return value.startswith(
-        (
-            "variable:",
-            "previous_result:",
-            "item:",
-            "gather:",
-            "asset:",
-            "output:",
-            "prompt:",
-            "constant:",
-            "builtin:",
-        )
-    )
+    return value.startswith(references.DEFERRED)
 
 
 def _check(value, base_dir, what):
@@ -580,11 +582,7 @@ def location_errors(definition, source_indices=None, base_dir=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_suffixes(step))
     return errors
 

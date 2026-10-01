@@ -17,6 +17,7 @@ caller's to answer for; the caller's `arguments` are separately resolved
 against the workspace by the validate route.
 """
 
+from . import references
 from .assets import ASSET_PREFIX
 from .for_each import MEMBER_SEPARATOR, render_path
 from .prompts import PROMPT_PREFIX
@@ -31,7 +32,7 @@ from .security import (
 # Substitution and expansion run before this pass, so every string reaching
 # it is literal. One still spelled with a deferred prefix is nothing this
 # pass resolved, and the undeclared-variable pass owns that complaint
-_UNRESOLVED_PREFIXES = ("variable:", "item:", "previous_result:", "gather:")
+_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _output_name(reference):
@@ -67,11 +68,7 @@ def reference_name_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

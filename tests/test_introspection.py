@@ -4,9 +4,9 @@ from dw.introspection import (
     describe_pipeline,
     describe_task,
     unknown_call_arguments,
-    workflow_argument_warnings,
     load_pipeline_class,
 )
+from dw.argument_warnings import workflow_argument_warnings
 
 import pytest
 
@@ -355,3 +355,18 @@ def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
 
         # No target passed at all: silent
         assert workflow_argument_warnings(step(match_levels="rms")) == []
+
+
+def test_a_bleed_over_one_input_is_warned_about():
+    """One input has no seam for audio_bleed_ms to act on (#565), whether
+    `videos` is a literal list or a variable holding one."""
+    definition = _concat_step(audio_bleed_ms=100, videos=["a.mp4"])
+    warnings = workflow_argument_warnings(definition)
+    assert len(warnings) == 1 and "one input" in warnings[0]
+
+    definition = _concat_step(audio_bleed_ms="variable:bleed", videos="variable:shots")
+    definition["variables"].update(bleed=100, shots=["a.mp4"])
+    assert len(workflow_argument_warnings(definition)) == 1
+    arguments = {"shots": ["a.mp4", "b.mp4"]}
+    assert workflow_argument_warnings(definition, arguments) == []
+    assert workflow_argument_warnings(_concat_step(audio_bleed_ms=100)) == []

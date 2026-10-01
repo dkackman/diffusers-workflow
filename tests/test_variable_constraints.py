@@ -35,6 +35,7 @@ from dw.variable_constraints import (
     violations,
 )
 from dw.workflow import workflow_from_definition
+from dw.workflow_run import prepare_definition
 from tests.test_examples import REPO_ROOT
 
 H3 = {
@@ -349,8 +350,8 @@ class TestAConstraintReachesAListEntry:
         definition["variables"]["tail_len"] = 130  # off the 17n+5 grid; snaps up to 141
         workflow = Workflow(definition, str(tmp_path), "listed.json")
 
-        prepared, _seed = workflow._prepare_definition(
-            copy.deepcopy(definition), {}, str(tmp_path)
+        prepared, _seed, _recorded = prepare_definition(
+            workflow, copy.deepcopy(definition), {}, str(tmp_path)
         )
 
         (shot,) = prepared["steps"]
@@ -596,3 +597,57 @@ class TestTheCatalogReportsAnEntrysBound:
             lists = derive_catalog_metadata(json.load(handle))["lists"]
 
         assert "constraints" not in lists["shots"]
+
+
+class TestValidationSeesTheSnappedValue:
+    """Validation must judge the value the run will use, not the one typed."""
+
+    def _definition(self):
+        definition = workflow_with({"num_frames": H3}, {"num_frames": 124})
+        definition["steps"][0]["task"]["arguments"] = {"n": "variable:num_frames"}
+        return definition
+
+    def test_expanded_definition_carries_the_snapped_value(self, tmp_path):
+        workflow = workflow_from_definition(self._definition(), str(tmp_path))
+        expanded = workflow.expanded_definition({"num_frames": 130})
+        assert expanded["steps"][0]["task"]["arguments"]["n"] == 141
+        # Checks that fall back to the workflow's variables (vram_estimate)
+        # must see the snapped value too
+        assert expanded["variables"]["num_frames"] == 141
+
+    def test_expanding_emits_no_warning_and_does_not_raise_on_a_refusal(self, tmp_path):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        workflow = workflow_from_definition(self._definition(), str(tmp_path))
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            workflow.expanded_definition({"num_frames": 130})
+            workflow.expanded_definition({"num_frames": 61})
+        finally:
+            deactivate_context(token)
+        assert [e for e in events if e["event"] == "warning"] == []
+
+    def test_a_list_entry_value_is_snapped_at_validate_time(self, tmp_path):
+        definition = workflow_with_shots(
+            {"num_frames": H3}, [{"name": "a", "num_frames": 130}]
+        )
+        workflow = workflow_from_definition(definition, str(tmp_path))
+        expanded = workflow.expanded_definition()
+        # The step reads the entry's `num_frames` field as `frames`
+        # (workflow_with_shots's fixed argument name), so the snapped value
+        # shows up there, not under the entry's own field name.
+        assert 141 in _values_under(expanded["steps"], "frames")
+
+
+def _values_under(node, key):
+    found = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == key:
+                found.append(v)
+            found.extend(_values_under(v, key))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_values_under(item, key))
+    return found

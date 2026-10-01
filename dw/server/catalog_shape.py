@@ -15,6 +15,7 @@ read structure (a concat step, a `references` argument), never checkpoints.
 
 import re
 
+from .. import references
 from ..for_each import list_fields
 from ..variable_constraints import declared_constraints, entry_constraint_fields
 
@@ -117,8 +118,9 @@ def _component_type(step):
 def _fed_by(value):
     """Distinct step names a value's previous_result references name."""
     found = set()
-    if isinstance(value, str) and value.startswith("previous_result:"):
-        found.add(value.split(":", 1)[1].split(".", 1)[0])
+    name = references.ref_name(references.PREVIOUS_RESULT, value)
+    if name is not None:
+        found.add(name.split(".", 1)[0])
     elif isinstance(value, list):
         for item in value:
             found |= _fed_by(item)
@@ -147,13 +149,10 @@ def _needs_input_media(steps):
             # A list argument (gather_images' `urls`) carries the same fact
             # one level in.
             candidates = value if isinstance(value, list) else [value]
-            if any(
-                isinstance(item, str) and item.startswith("variable:")
-                for item in candidates
-            ):
+            if any(references.is_ref(references.VARIABLE, item) for item in candidates):
                 return True
         for value in _walk(arguments):
-            if isinstance(value, str) and value.startswith("asset:"):
+            if references.is_ref(references.ASSET, value):
                 return True
             if isinstance(value, dict) and "location" in value:
                 return True
@@ -169,7 +168,7 @@ def _cuts_together(steps):
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
             videos = _arguments(step).get("videos")
-            if isinstance(videos, str) and videos.startswith(("variable:", "gather:")):
+            if references.is_ref((references.VARIABLE, references.GATHER), videos):
                 return True
             sources = _fed_by(videos)
             if isinstance(videos, list):
@@ -178,7 +177,8 @@ def _cuts_together(steps):
                 sources |= {
                     item
                     for item in videos
-                    if isinstance(item, str) and not item.startswith("previous_result:")
+                    if isinstance(item, str)
+                    and not references.is_ref(references.PREVIOUS_RESULT, item)
                 }
             if len(sources) >= 2:
                 return True

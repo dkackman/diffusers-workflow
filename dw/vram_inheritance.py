@@ -28,45 +28,9 @@ the pre-queue check covers every server submission.
 """
 
 from .vram_estimate import KEY as ESTIMATE_KEY
-from .vram_estimate import vram_estimate_errors
+from .vram_estimate import pipeline_identity, vram_estimate_errors
 
 KIND = "vram_projection_inherited"
-_VARIABLE_PREFIX = "variable:"
-
-
-def _resolved(value, variables):
-    """A `variable:` reference resolved against a template's own defaults -
-    the index reads templates as written, not substituted."""
-    if isinstance(value, str) and value.startswith(_VARIABLE_PREFIX):
-        return variables.get(value[len(_VARIABLE_PREFIX) :])
-    return value
-
-
-def pipeline_identity(step, variables=None):
-    """(component_type, model_name, workflow) for a step that loads a
-    pipeline, or None for a step that does not."""
-    pipeline = step.get("pipeline") if isinstance(step, dict) else None
-    if not isinstance(pipeline, dict):
-        return None
-    variables = variables or {}
-    configuration = pipeline.get("configuration")
-    from_pretrained = pipeline.get("from_pretrained_arguments")
-    configuration = configuration if isinstance(configuration, dict) else {}
-    from_pretrained = from_pretrained if isinstance(from_pretrained, dict) else {}
-    identity = tuple(
-        _resolved(value, variables)
-        for value in (
-            configuration.get("component_type"),
-            from_pretrained.get("model_name"),
-            from_pretrained.get("workflow"),
-        )
-    )
-    if not all(isinstance(part, (str, type(None))) for part in identity):
-        return None
-    if identity[1] is None:
-        # No checkpoint named - nothing to match a catalog entry on
-        return None
-    return identity
 
 
 def template_identity(definition):

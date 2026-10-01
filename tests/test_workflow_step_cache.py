@@ -7,12 +7,15 @@ import copy
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from dw.events import RunContext
 from dw.step_cache import step_cache
 from dw.step import Step
+from dw.pipeline_processors.config_objects import get_group_offload_configuration
 from dw.pipeline_processors.pipeline import Pipeline
-from dw import workflow as workflow_module
+from dw import workflow_run as workflow_run_module
 from dw.workflow import Workflow
 
 
@@ -63,10 +66,10 @@ def _workflow_def():
     }
 
 
-def build_test_workflow_and_call_count_spy():
+def build_test_workflow_and_call_count_spy(output_dir):
     """Returns (workflow, call_count) where call_count() reports how many
     times the step's body (Step.run) actually executed."""
-    workflow = Workflow(_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_workflow_def(), output_dir, "test.json")
 
     calls = {"n": 0}
 
@@ -88,9 +91,9 @@ def build_test_workflow_and_call_count_spy():
     return workflow, call_count
 
 
-def test_second_run_with_unchanged_step_reuses_cached_result():
+def test_second_run_with_unchanged_step_reuses_cached_result(tmp_path):
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({})
@@ -102,9 +105,29 @@ def test_second_run_with_unchanged_step_reuses_cached_result():
             p.stop()
 
 
-def test_second_run_with_changed_variable_recomputes_that_step():
+def test_a_fully_cached_rerun_loads_no_pipeline(tmp_path):
+    """Two runs that share no pipelines dict are the released-pipeline case:
+    the second run's hit must not load a model nothing will call."""
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
+
+    try:
+        with patch.object(Pipeline, "load") as load:
+            workflow.run({})
+            loads_first_run = load.call_count
+            workflow.run({})
+        assert call_count() == 1
+        assert load.call_count == loads_first_run
+        # release_pipeline and the worker's prior-key map still address it
+        assert "generate" in workflow.pipeline_ownership.keys_by_step
+    finally:
+        for p in workflow._test_patcher:
+            p.stop()
+
+
+def test_second_run_with_changed_variable_recomputes_that_step(tmp_path):
+    step_cache.clear()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({"prompt": "a cat"})
@@ -116,7 +139,9 @@ def test_second_run_with_changed_variable_recomputes_that_step():
             p.stop()
 
 
-def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
+def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
+    tmp_path,
+):
     """A realized argument that copy.deepcopy chokes on makes the step
     uncacheable - the run must continue normally, not abort."""
 
@@ -124,7 +149,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
         def __deepcopy__(self, memo):
             raise TypeError("this object cannot be copied")
 
-    original_realize_args = workflow_module.realize_args
+    original_realize_args = workflow_run_module.realize_args
 
     def realize_and_poison(target, base_dir, apply_key_conventions=True):
         original_realize_args(
@@ -134,10 +159,10 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing():
             target[0]["pipeline"]["arguments"]["image"] = NotCopyable()
 
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
-        with patch.object(workflow_module, "realize_args", realize_and_poison):
+        with patch.object(workflow_run_module, "realize_args", realize_and_poison):
             workflow.run({})
             workflow.run({})
 
@@ -175,10 +200,8 @@ def _pipeline_reference_workflow_def():
     }
 
 
-def build_pipeline_reference_workflow_and_call_count_spy():
-    workflow = Workflow(
-        _pipeline_reference_workflow_def(), "/tmp/test_output", "test.json"
-    )
+def build_pipeline_reference_workflow_and_call_count_spy(output_dir):
+    workflow = Workflow(_pipeline_reference_workflow_def(), output_dir, "test.json")
 
     calls = {"n": 0}
 
@@ -200,17 +223,21 @@ def build_pipeline_reference_workflow_and_call_count_spy():
     return workflow, call_count
 
 
-def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligible():
+def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligible(
+    tmp_path,
+):
     """A step reached by a later step's pipeline_reference may be served
     from cache - create_step_action runs on a hit too, so
-    _pipeline_keys_by_step still records the referenced step's pipeline and
+    pipeline_ownership.keys_by_step still records the referenced step's pipeline and
     the referencing step's lookup resolves.
 
     Here A's inputs never change (so A hits on run 2) while B's inputs
     change every run (so B always re-executes and always needs to resolve
     its pipeline_reference to 'A' this run)."""
     step_cache.clear()
-    workflow, call_count = build_pipeline_reference_workflow_and_call_count_spy()
+    workflow, call_count = build_pipeline_reference_workflow_and_call_count_spy(
+        str(tmp_path)
+    )
 
     try:
         workflow.run({"prompt_b": "first"})
@@ -223,12 +250,12 @@ def test_pipeline_reference_still_resolves_when_referenced_step_is_cache_eligibl
             p.stop()
 
 
-def test_cache_hit_still_touches_the_steps_pipeline():
+def test_cache_hit_still_touches_the_steps_pipeline(tmp_path):
     """A hit must run create_step_action's bookkeeping - it is the only
     caller of touch_pipeline, and the worker evicts every pipeline a run
     did not touch."""
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
     pipelines = {}
 
     try:
@@ -274,6 +301,58 @@ def _shared_components_workflow_def():
     }
 
 
+def _run_twice_recording_order(tmp_path, definition, argument_sets):
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    order = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        order.append(self.name)
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        for arguments in argument_sets:
+            workflow.run(arguments)
+    finally:
+        for p in patchers:
+            p.stop()
+    return order
+
+
+def test_a_step_borrowing_a_pipeline_misses_when_the_source_model_changes(tmp_path):
+    definition = _pipeline_reference_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order == ["A", "B", "A", "B"]
+
+
+def test_a_step_reusing_components_misses_when_the_sharing_model_changes(tmp_path):
+    definition = _shared_components_workflow_def()
+    definition["variables"]["model_a"] = "m1"
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path,
+        definition,
+        [{"model_a": "m1", "prompt_b": "x"}, {"model_a": "m2", "prompt_b": "x"}],
+    )
+    assert order[len(order) // 2 :] == order[: len(order) // 2]
+
+
 def _mock_pipeline_load_with_sharing(self, shared_components):
     """Stand-in for Pipeline.load that keeps the sharing contract: a fresh
     load resolves what it reuses and publishes what it shares."""
@@ -282,14 +361,12 @@ def _mock_pipeline_load_with_sharing(self, shared_components):
     self.publish_shared_components(shared_components)
 
 
-def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
+def test_cache_hit_republishes_shared_components_for_a_later_cold_step(tmp_path):
     """A hit on the sharing step must still republish into this run's
     shared_components dict, or a later step that has to load fresh raises
     'Cannot reuse component ... Shared so far: nothing'."""
     step_cache.clear()
-    workflow = Workflow(
-        _shared_components_workflow_def(), "/tmp/test_output", "test.json"
-    )
+    workflow = Workflow(_shared_components_workflow_def(), str(tmp_path), "test.json")
     pipelines = {}
 
     def fake_step_run(self, previous_results, previous_pipelines, step_action):
@@ -307,7 +384,7 @@ def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
 
         # B's pipeline is gone (released, or evicted by the worker), so run
         # three must load it fresh while A is served from cache
-        b_key = workflow._pipeline_keys_by_step["B"]
+        b_key = workflow.pipeline_ownership.keys_by_step["B"]
         pipelines.pop(b_key, None)
 
         seen = []
@@ -328,13 +405,13 @@ def test_cache_hit_republishes_shared_components_for_a_later_cold_step():
             p.stop()
 
 
-def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline():
+def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline(tmp_path):
     """release_pipeline is not a no-op on a hit - create_step_action ran,
     so the step's key is recorded and the pop finds it."""
     step_cache.clear()
     definition = _workflow_def()
     definition["steps"][0]["release_pipeline"] = True
-    workflow = Workflow(definition, "/tmp/test_output", "test.json")
+    workflow = Workflow(definition, str(tmp_path), "test.json")
 
     def fake_step_run(self, previous_results, previous_pipelines, step_action):
         return FakeResult()
@@ -350,7 +427,7 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline():
         workflow.run({}, previous_pipelines=pipelines)
         assert pipelines == {}
         # Put it back so the hit run has something to release
-        pipelines[workflow._pipeline_keys_by_step["generate"]] = MagicMock()
+        pipelines[workflow.pipeline_ownership.keys_by_step["generate"]] = MagicMock()
 
         workflow.run({}, previous_pipelines=pipelines)
 
@@ -360,13 +437,314 @@ def test_release_pipeline_on_a_cache_hit_step_releases_its_pipeline():
             p.stop()
 
 
-def test_workflow_without_a_seed_skips_the_step_cache_entirely():
+def test_release_pipeline_on_a_hit_that_loaded_nothing_emits_no_release(tmp_path):
+    """A hit whose pipeline was never loaded this run has nothing to release,
+    so it must not announce a pipeline_released on the event stream."""
+    step_cache.clear()
+    definition = _workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        cold_events = []
+        workflow.run({}, context=RunContext(on_event=cold_events.append))
+        warm_events = []
+        workflow.run({}, context=RunContext(on_event=warm_events.append))
+
+        def released(events):
+            return [e for e in events if e["event"] == "pipeline_released"]
+
+        assert released(cold_events)
+        assert released(warm_events) == []
+    finally:
+        for p in patchers:
+            p.stop()
+
+
+def _loading_recorder(names):
+    """A Pipeline.load stand-in that keeps the sharing contract and records
+    which pipeline loaded, by its model name, in order."""
+
+    def load(self, shared_components):
+        names.append(
+            self.pipeline_definition.get("from_pretrained_arguments", {}).get(
+                "model_name"
+            )
+        )
+        _mock_pipeline_load_with_sharing(self, shared_components)
+
+    return load
+
+
+def _run_recording_loads(tmp_path, definition, argument_sets):
+    """Runs the definition once per argument set with no pipelines carried
+    between runs, and returns (loads per run, executed steps per run)."""
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    loads, executed = [], []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        executed[-1].append(self.name)
+        return FakeResult()
+
+    with patch.object(Step, "run", fake_step_run):
+        for arguments in argument_sets:
+            loads.append([])
+            executed.append([])
+            with patch.object(Pipeline, "load", _loading_recorder(loads[-1])):
+                workflow.run(arguments)
+    return loads, executed
+
+
+def test_a_hit_whose_components_only_a_later_hit_reuses_loads_nothing(tmp_path):
+    """B reuses A's component, but B is itself a hit - nothing this run calls
+    either pipeline, so neither loads."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _shared_components_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "first"}],
+    )
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_a_deferred_hit_loads_before_a_cold_step_that_reuses_its_components(
+    tmp_path,
+):
+    """A hits and B misses: A's pipeline loads once, ahead of B, so B's load
+    finds the component A shares."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _shared_components_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "second"}],
+    )
+    assert executed[1] == ["B"]
+    assert loads[1] == ["model-a", "model-b"]
+
+
+def test_a_deferred_hit_loads_before_a_cold_step_that_references_its_pipeline(
+    tmp_path,
+):
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _pipeline_reference_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "second"}],
+    )
+    assert executed[1] == ["B"]
+    assert loads[1] == ["model-a"]
+
+
+def test_a_fully_cached_pipeline_reference_rerun_loads_nothing(tmp_path):
+    """A hit on the referencing step must not demand the referenced pipeline
+    when that pipeline was deferred - nothing will call it."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _pipeline_reference_workflow_def(),
+        [{"prompt_b": "first"}, {"prompt_b": "first"}],
+    )
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_a_cold_step_loads_a_deferred_chain_of_borrowed_components(tmp_path):
+    """C reuses B's component and B reuses A's: loading B for C needs A's
+    component published first, even though C names only B."""
+    definition = _shared_components_workflow_def()
+    definition["variables"]["prompt_c"] = "x"
+    definition["steps"][1]["pipeline"]["shared_components"] = ["vae"]
+    definition["steps"][1]["pipeline"]["arguments"]["prompt"] = "fixed b"
+    definition["steps"].append(
+        {
+            "name": "C",
+            "pipeline": {
+                "configuration": {"component_type": "{MockPipeline}"},
+                "from_pretrained_arguments": {"model_name": "model-c"},
+                "reused_components": ["vae"],
+                "arguments": {"prompt": "variable:prompt_c"},
+            },
+        }
+    )
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        definition,
+        [{"prompt_c": "first"}, {"prompt_c": "second"}],
+    )
+    assert executed[1] == ["C"]
+    assert loads[1] == ["model-a", "model-b", "model-c"]
+
+
+def _shared_components_def_with_group_offload():
+    """A (which shares) declares a group-offloaded component, the way
+    templates/ltx2/two-stage's base step does."""
+    definition = _shared_components_workflow_def()
+    definition["steps"][0]["pipeline"]["configuration"]["components"] = {
+        "text_encoder": {
+            "group_offload": {"offload_type": "leaf_level", "use_stream": True}
+        }
+    }
+    return definition
+
+
+def _editing_loader(names):
+    """A Pipeline.load stand-in that edits its own definition as the real
+    load does: placement resolves each component's group_offload block in
+    place, through the same helper, on the dict the step definition holds."""
+    record = _loading_recorder(names)
+
+    def load(self, shared_components):
+        for component in self.configuration.get("components", {}).values():
+            get_group_offload_configuration(component, self.device)
+        record(self, shared_components)
+
+    return load
+
+
+def test_a_rerun_after_a_load_that_edits_its_definition_is_fully_cached(tmp_path):
+    """B's entry is keyed on A's pipeline. The cold run looks B up after A
+    has loaded and edited its definition; the rerun looks it up with A a
+    deferred hit that never loaded - the key must be the same both times."""
+    step_cache.clear()
+    workflow = Workflow(
+        _shared_components_def_with_group_offload(), str(tmp_path), "test.json"
+    )
+    loads, executed = [], []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        executed[-1].append(self.name)
+        return FakeResult()
+
+    with patch.object(Step, "run", fake_step_run):
+        for _ in range(2):
+            loads.append([])
+            executed.append([])
+            with patch.object(Pipeline, "load", _editing_loader(loads[-1])):
+                workflow.run({"prompt_b": "first"})
+
+    assert loads[0] == ["model-a", "model-b"], "the cold run loaded both"
+    assert executed[1] == []
+    assert loads[1] == []
+
+
+def test_the_probe_after_a_load_that_edits_its_definition_names_every_step(
+    tmp_path,
+):
+    """cache_hits never loads, so it must key B on the definition as written
+    - the same key the run stored - or it reports a miss the run would not
+    have."""
+    step_cache.clear()
+    workflow = Workflow(
+        _shared_components_def_with_group_offload(), str(tmp_path), "test.json"
+    )
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _editing_loader([])),
+    ):
+        workflow.run({"prompt_b": "first"})
+        assert workflow.cache_hits({"prompt_b": "first"}) == ["A", "B"]
+
+
+def test_a_released_deferred_hit_still_shares_its_components(tmp_path):
+    """release_pipeline frees a pipeline but keeps what it published: a cold
+    reuser after a released, deferred source loads the source, finds its
+    component, and the source does not stay resident."""
+    definition = _shared_components_workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    pipelines = {}
+    loads = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _loading_recorder(loads)),
+    ):
+        workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
+        pipelines.clear()
+        loads.clear()
+        events = []
+        workflow.run(
+            {"prompt_b": "second"},
+            previous_pipelines=pipelines,
+            context=RunContext(on_event=events.append),
+        )
+
+    assert loads == ["model-a", "model-b"]
+    assert workflow.pipeline_ownership.keys_by_step["A"] not in pipelines
+    # The release A asked for happened, later - and says so, once
+    released = [e for e in events if e["event"] == "pipeline_released"]
+    assert [(e["step"], e["index"]) for e in released] == [("A", 0)]
+    assert "reason" not in released[0]
+
+
+def test_a_reference_to_a_released_deferred_hit_still_says_it_was_released(
+    tmp_path,
+):
+    definition = _pipeline_reference_workflow_def()
+    definition["steps"][0]["release_pipeline"] = True
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ):
+        with pytest.raises(ValueError, match="released"):
+            workflow.run({"prompt_b": "first"})
+        with pytest.raises(ValueError, match="released"):
+            workflow.run({"prompt_b": "second"})
+
+
+def test_a_cold_step_whose_pipeline_is_resident_loads_no_component_source(
+    tmp_path,
+):
+    """B's reused components are only resolved when B loads; a resident B
+    does not need A's weights for them."""
+    step_cache.clear()
+    workflow = Workflow(_shared_components_workflow_def(), str(tmp_path), "test.json")
+    pipelines = {}
+    loads = []
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _loading_recorder(loads)),
+    ):
+        workflow.run({"prompt_b": "first"}, previous_pipelines=pipelines)
+        pipelines.pop(workflow.pipeline_ownership.keys_by_step["A"])
+        loads.clear()
+        workflow.run({"prompt_b": "second"}, previous_pipelines=pipelines)
+
+    assert loads == []
+
+
+def test_workflow_without_a_seed_skips_the_step_cache_entirely(tmp_path):
     """A workflow that names no seed draws a fresh one every run, so no
     step can ever hit - it must not pay the deepcopy or pin a Result."""
     step_cache.clear()
     definition = _workflow_def()
     del definition["seed"]
-    workflow = Workflow(definition, "/tmp/test_output", "test.json")
+    workflow = Workflow(definition, str(tmp_path), "test.json")
 
     copied = []
     real_deepcopy = copy.deepcopy
@@ -401,12 +779,12 @@ def test_workflow_without_a_seed_skips_the_step_cache_entirely():
             p.stop()
 
 
-def test_cache_hit_marks_its_manifest_entry_and_event_reused():
+def test_cache_hit_marks_its_manifest_entry_and_event_reused(tmp_path):
     """A hit republishes an earlier run's files - both the manifest entry
     and the step_end event say so, so nothing downstream credits this run
     with writing them."""
     step_cache.clear()
-    workflow, call_count = build_test_workflow_and_call_count_spy()
+    workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
         workflow.run({})
@@ -557,25 +935,25 @@ def _run_with_per_step_counts(workflow, arguments, fail_on=None):
     return counts
 
 
-def test_renaming_the_workflow_id_does_not_reuse_the_old_ids_entry():
+def test_renaming_the_workflow_id_does_not_reuse_the_old_ids_entry(tmp_path):
     """Saved files carry the workflow id, so an entry keyed by the bare step
     name would republish the previous id's paths and write none of its own."""
     step_cache.clear()
-    first = Workflow(_workflow_def(), "/tmp/test_output", "test.json")
+    first = Workflow(_workflow_def(), str(tmp_path), "test.json")
     assert _run_with_per_step_counts(first, {}) == {"generate": 1}
 
     renamed_def = _workflow_def()
     renamed_def["id"] = "test_step_cache_renamed"
-    renamed = Workflow(renamed_def, "/tmp/test_output", "test.json")
+    renamed = Workflow(renamed_def, str(tmp_path), "test.json")
 
     assert _run_with_per_step_counts(renamed, {}) == {"generate": 1}
 
 
-def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses():
+def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses(tmp_path):
     """A -> B, fixed seed. Change A, run, cancel after A's put but before
     B's: the next unchanged run must not serve B computed from the old A."""
     step_cache.clear()
-    workflow = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+    workflow = Workflow(_two_step_def(True), str(tmp_path), "test.json")
 
     assert _run_with_per_step_counts(workflow, {"a_prompt": "one"}) == {"A": 1, "B": 1}
     # A changes and is re-put; the run dies before B's put
@@ -588,11 +966,11 @@ def test_step_whose_upstream_was_recomputed_by_a_cancelled_run_misses():
     assert _run_with_per_step_counts(workflow, {"a_prompt": "two"}) == {"B": 1}
 
 
-def test_unreferenced_non_final_step_is_cached_without_its_result_list():
+def test_unreferenced_non_final_step_is_cached_without_its_result_list(tmp_path):
     """B does not read A and A is not the workflow's return value, so A's
     entry keeps its saved_files but drops the realized media."""
     step_cache.clear()
-    workflow = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+    workflow = Workflow(_two_step_def(False), str(tmp_path), "test.json")
 
     _run_with_per_step_counts(workflow, {})
 
@@ -604,14 +982,16 @@ def test_unreferenced_non_final_step_is_cached_without_its_result_list():
     assert b_entry["result"].result_list == ["B artifact"]
 
 
-def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained():
+def test_adding_a_downstream_reference_misses_on_a_result_that_was_not_retained(
+    tmp_path,
+):
     """A ran unreferenced (so its entry holds no result); a later run whose
     B reads A needs the real thing and must re-run A."""
     step_cache.clear()
-    without = Workflow(_two_step_def(False), "/tmp/test_output", "test.json")
+    without = Workflow(_two_step_def(False), str(tmp_path), "test.json")
     assert _run_with_per_step_counts(without, {}) == {"A": 1, "B": 1}
 
-    with_reference = Workflow(_two_step_def(True), "/tmp/test_output", "test.json")
+    with_reference = Workflow(_two_step_def(True), str(tmp_path), "test.json")
 
     counts = _run_with_per_step_counts(with_reference, {})
 
@@ -622,18 +1002,18 @@ class TestCacheHits:
     """cache_hits() answers the plan's cached_steps (#85): what the next
     run would reuse, by the run's own preparation, executing nothing."""
 
-    def test_a_cold_cache_reports_no_hits(self):
+    def test_a_cold_cache_reports_no_hits(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             assert workflow.cache_hits({}) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_after_a_run_the_probe_names_what_the_next_run_reuses(self):
+    def test_after_a_run_the_probe_names_what_the_next_run_reuses(self, tmp_path):
         step_cache.clear()
-        workflow, call_count = build_test_workflow_and_call_count_spy()
+        workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({})
             probe = workflow.cache_hits({})
@@ -648,9 +1028,9 @@ class TestCacheHits:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_a_changed_argument_is_a_miss(self):
+    def test_a_changed_argument_is_a_miss(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({"prompt": "a cat"})
             assert workflow.cache_hits({"prompt": "a dog"}) == []
@@ -658,9 +1038,9 @@ class TestCacheHits:
             for p in workflow._test_patcher:
                 p.stop()
 
-    def test_an_unseeded_workflow_has_no_hits(self):
+    def test_an_unseeded_workflow_has_no_hits(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         del workflow.workflow_definition["seed"]
         try:
             workflow.run({})
@@ -671,11 +1051,101 @@ class TestCacheHits:
 
     def test_the_probe_writes_nothing(self, tmp_path):
         step_cache.clear()
-        workflow, _ = build_test_workflow_and_call_count_spy()
-        workflow.output_dir = str(tmp_path)
+        workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.cache_hits({})
             assert list(tmp_path.iterdir()) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
+
+
+def _borrow_chain_workflow_def():
+    """A shares its vae, B reuses it on its own pipeline, C references B's
+    pipeline. Only A names the model the vae comes from."""
+    return {
+        "id": "test_step_cache_borrow_chain",
+        "seed": 42,
+        "variables": {"model_a": "m1"},
+        "steps": [
+            {
+                "name": "A",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "variable:model_a"},
+                    "shared_components": ["vae"],
+                    "arguments": {"prompt": "fixed a"},
+                },
+            },
+            {
+                "name": "B",
+                "pipeline": {
+                    "configuration": {"component_type": "{MockPipeline}"},
+                    "from_pretrained_arguments": {"model_name": "model-b"},
+                    "reused_components": ["vae"],
+                    "arguments": {"prompt": "fixed b"},
+                },
+            },
+            {
+                "name": "C",
+                "pipeline_reference": {
+                    "reference_name": "B",
+                    "arguments": {"prompt": "fixed c"},
+                },
+            },
+        ],
+    }
+
+
+def test_a_change_up_a_borrow_chain_misses_every_step_below_it(tmp_path):
+    """C's own definition and B's never name A's model, so a snapshot that
+    folded in only B's own key served C a stale hit - output made with the
+    old vae - after A's model changed."""
+    loads, executed = _run_recording_loads(
+        tmp_path,
+        _borrow_chain_workflow_def(),
+        [{"model_a": "m1"}, {"model_a": "m2"}],
+    )
+    assert executed[1] == ["A", "B", "C"]
+
+
+def _multi_hop_step_cache_def():
+    """A shares vae, B reuses it and shares it on, D reuses B's."""
+    definition = _borrow_chain_workflow_def()
+    definition["id"] = "test_step_cache_multi_hop"
+    definition["variables"]["model_b"] = "model-b"
+    b_pipeline = definition["steps"][1]["pipeline"]
+    b_pipeline["from_pretrained_arguments"]["model_name"] = "variable:model_b"
+    b_pipeline["shared_components"] = ["vae"]
+    definition["steps"][2] = {
+        "name": "D",
+        "pipeline": {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "model-d"},
+            "reused_components": ["vae"],
+            "arguments": {"prompt": "fixed d"},
+        },
+    }
+    return definition
+
+
+def test_a_change_at_the_origin_of_a_multi_hop_borrow_misses_every_borrower(
+    tmp_path,
+):
+    _, executed = _run_recording_loads(
+        tmp_path,
+        _multi_hop_step_cache_def(),
+        [{"model_a": "m1"}, {"model_a": "m2"}],
+    )
+    assert executed[1] == ["A", "B", "D"]
+
+
+def test_a_change_to_an_intermediate_borrower_misses_every_step_below_it(
+    tmp_path,
+):
+    _, executed = _run_recording_loads(
+        tmp_path,
+        _multi_hop_step_cache_def(),
+        [{"model_b": "model-b"}, {"model_b": "model-b2"}],
+    )
+    assert executed[1] == ["B", "D"]

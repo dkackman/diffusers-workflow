@@ -93,8 +93,8 @@ def test_the_balanced_step_limits_a_laugh_track_to_the_target():
     import numpy
     import scipy.signal
 
-    from dw.loudness import integrated_lufs
-    from dw.tasks.audio_utils import normalize_audio
+    from dw.dsp import integrated_lufs
+    from dw.tasks.audio_dynamics import normalize_audio
 
     rate = 48000
     t = numpy.arange(rate * 4) / rate
@@ -115,3 +115,12 @@ def test_the_balanced_step_limits_a_laugh_track_to_the_target():
     true_peak = numpy.abs(scipy.signal.resample_poly(limited, 4, 1, axis=1)).max()
     assert 20 * numpy.log10(true_peak) <= -3.0 + 0.05
     assert limited.shape == wave.shape
+
+
+def test_the_description_places_the_limit_ceiling_on_the_mix_not_the_film():
+    # #497 v2 (#474 Q6): the limiter holds -3 dBTP on the mix; the AAC mux
+    # of the film measured -2.54 dBTP, so the description must say where the
+    # ceiling holds rather than promise it on the film.
+    description = load_definition()["description"]
+    assert "holds on the mix 'balanced' writes, not on the film" in description
+    assert "about 1 dB above it" in description

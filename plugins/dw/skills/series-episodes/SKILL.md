@@ -82,7 +82,10 @@ composes into, not something to re-derive:
 - **bed**: if the episode's score is shorter than the cut, stretch it first
   with the `loop_audio` task (`target_frames` = the cut's `total_frames`,
   `fps` matching) rather than letting `assemble-and-score` pad the tail
-  with silence.
+  with silence. A dialogue episode also needs room tone under its line
+  gaps: `find_loop_bed` on the recut (`output:` it, so the run's shots keep
+  every candidate inside one shot) names the stretch to `slice_audio` and
+  the `gain` to `mix_audio` it at.
 - **match_levels**: shots generated independently drift in loudness -
   `assemble-and-score`'s `match_levels` (`"rms"` or `"peak"`) evens them
   before the cut; leaving it null only warns on a wide spread instead of
@@ -126,7 +129,8 @@ Judge a finished episode with `assess_output(name)` before listening end
 to end: it measures every seam and the shots' levels, and says where to look.
 A `shot_dead_air` finding is an H3 dialogue gap (0.5-2s of near-silence
 between lines) inside one shot, not a seam problem - see `minimax-h3`'s
-room-tone bed recipe (`slice_audio` -> `loop_audio` -> `mix_audio`) rather
+room-tone bed recipe (`find_loop_bed`, then `slice_audio` -> `loop_audio` ->
+`mix_audio`) rather
 than treating it as a cut to fix.
 
 `output:` a shot straight from its generation run rather than downloading
@@ -162,7 +166,7 @@ returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
 arguments={"input_audio": "output:<name>"})` first (free; it takes the
 episode's muxed soundtrack directly), then `run_workflow(...,
 acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
-wait_seconds=55)`, then `get_output_text` on the result, and
+wait_seconds=60)`, then `get_output_text` on the result, and
 `delete_output(job_id=...)` the scratch run afterward. This workflow's
 plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
 minutes; it runs in a few seconds.
@@ -170,6 +174,7 @@ minutes; it runs in a few seconds.
 ## Sources
 
 `workflows/templates/assemble-and-score.json`, `dw/tasks/audio_utils.py`
-(`loop_audio`, `match_levels`, `normalize_audio`), `dw/tasks/pair_audio.py`,
+(`loop_audio`), `dw/tasks/joins.py` (`match_levels`),
+`dw/tasks/audio_dynamics.py` (`normalize_audio`), `dw/tasks/pair_audio.py`,
 `docs/WORKSPACES.md` (the shared asset library), the `minimax-h3` skill
 this composes into.

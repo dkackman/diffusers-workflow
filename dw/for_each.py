@@ -28,15 +28,15 @@ member onto a different entry's cache line.
 
 import copy
 
-from .arguments import FROM_PREVIOUS_RESULT_KEY, PREVIOUS_RESULT_PREFIX
+from . import references
+from .references import MEMBER_SEPARATOR as MEMBER_SEPARATOR
+from .references import render_path as render_path
+from .references import FROM_PREVIOUS_RESULT_KEY
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
 from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
-ITEM_PREFIX = "item:"
-GATHER_PREFIX = "gather:"
-MEMBER_SEPARATOR = "@"
 # Each entry is a full generation. Stated against the step cache's bound
 # (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
 # evicts its own earlier members, so this is kept well under it
@@ -133,7 +133,7 @@ def _entry_keys(entries, path):
     """The key of every entry - its 'name' when it is an object carrying
     one, else its index - validated and unique."""
     if not isinstance(entries, list):
-        if isinstance(entries, str) and entries.startswith("variable:"):
+        if references.is_ref(references.VARIABLE, entries):
             hint = f" - '{entries}' was not substituted; is the variable declared?"
         else:
             hint = ""
@@ -187,20 +187,20 @@ def _rewrite(value, path, groups, member):
     if isinstance(value, list):
         rebuilt = []
         for index, item in enumerate(value):
-            if isinstance(item, str) and item.startswith(GATHER_PREFIX):
+            if references.is_ref(references.GATHER, item):
                 # A gather inside a list splices into it
                 rebuilt.extend(_gather(item, path + (index,), groups))
             else:
                 rebuilt.append(_rewrite(item, path + (index,), groups, member))
         return rebuilt
     if isinstance(value, str):
-        if value.startswith(GATHER_PREFIX):
+        if references.is_ref(references.GATHER, value):
             return _gather(value, path, groups)
-        if value.startswith(ITEM_PREFIX):
+        if references.is_ref(references.ITEM, value):
             return _item(value, path, member)
-        if value.startswith(PREVIOUS_RESULT_PREFIX):
-            reference = value[len(PREVIOUS_RESULT_PREFIX) :]
-            return PREVIOUS_RESULT_PREFIX + _rewrite_reference(
+        if references.is_ref(references.PREVIOUS_RESULT, value):
+            reference = references.ref_name(references.PREVIOUS_RESULT, value)
+            return references.PREVIOUS_RESULT + _rewrite_reference(
                 reference, path, groups, member
             )
         return value
@@ -219,7 +219,7 @@ def _copy_leaf(value):
 
     An open handle or a live model object reaching a member is not a reason
     to fail a run - the step cache makes the same choice for a realized
-    argument it cannot deep-copy (dw/workflow.py).
+    argument it cannot deep-copy (dw/step_cache.py, copy_containers).
     """
     try:
         return copy.deepcopy(value)
@@ -232,7 +232,7 @@ def _item(value, path, member):
         raise ForEachError(
             render_path(path), f"'{value}' is only meaningful inside a for_each step"
         )
-    field = value[len(ITEM_PREFIX) :]
+    field = references.ref_name(references.ITEM, value)
     entry = member["entry"]
     if field == "":
         return _copy_leaf(entry)
@@ -252,7 +252,7 @@ def _item(value, path, member):
 
 
 def _gather(value, path, groups):
-    group = value[len(GATHER_PREFIX) :]
+    group = references.ref_name(references.GATHER, value)
     if group not in groups:
         raise ForEachError(
             render_path(path),
@@ -260,7 +260,7 @@ def _gather(value, path, groups):
             f"for_each steps available here: {sorted(groups)}",
         )
     return [
-        PREVIOUS_RESULT_PREFIX + member_name(group, key)
+        references.PREVIOUS_RESULT + member_name(group, key)
         for key in groups[group]["keys"]
     ]
 
@@ -268,7 +268,7 @@ def _gather(value, path, groups):
 def _rewrite_reference(reference, path, groups, member):
     """A previous_result reference (without its prefix) as the expanded
     definition spells it: unchanged unless it names a for_each group."""
-    if reference.startswith("variable:"):
+    if references.is_ref(references.VARIABLE, reference):
         return reference
     group = next((g for g in groups if reference_resolves_to(reference, g)), None)
     if group is None:
@@ -289,7 +289,7 @@ def _rewrite_reference(reference, path, groups, member):
     raise ForEachError(
         render_path(path),
         f"'{reference}' names the for_each step '{group}' {where}. Use "
-        f"'{GATHER_PREFIX}{group}' for every member's result, or a reference "
+        f"'{references.GATHER}{group}' for every member's result, or a reference "
         f"from a for_each step over the same list for the same-keyed member",
     )
 
@@ -314,15 +314,15 @@ def list_fields(definition):
         if not isinstance(step, dict):
             continue
         target = step.get(FOR_EACH_KEY)
-        if not (isinstance(target, str) and target.startswith("variable:")):
+        if not references.is_ref(references.VARIABLE, target):
             continue
-        variable = target.removeprefix("variable:")
+        variable = references.ref_name(references.VARIABLE, target)
         entry = found.setdefault(variable, {"fields": set(), "steps": []})
         entry["steps"].append(step.get("name"))
         for value in _strings(step):
-            if not value.startswith(ITEM_PREFIX):
+            if not references.is_ref(references.ITEM, value):
                 continue
-            field = value[len(ITEM_PREFIX) :]
+            field = references.ref_name(references.ITEM, value)
             if field == "":
                 entry["fields"] = None
             elif entry["fields"] is not None:
@@ -394,16 +394,3 @@ def _strings(value):
         for key, item in value.items():
             if key != FOR_EACH_KEY:
                 yield from _strings(item)
-
-
-def render_path(path):
-    """'steps[3].task.arguments.videos[1]' - the same shape schema errors use."""
-    rendered = ""
-    for part in path:
-        if isinstance(part, int):
-            rendered += f"[{part}]"
-        elif rendered:
-            rendered += f".{part}"
-        else:
-            rendered = str(part)
-    return rendered

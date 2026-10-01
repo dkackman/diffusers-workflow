@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from dw.arguments import fetch_image
+from dw.argument_media import fetch_image
 from dw.locations import (
     contained_matches,
     location_errors,
@@ -30,8 +30,8 @@ from dw.locations import (
 from dw.security import (
     InvalidInputError,
     PathTraversalError,
-    TRUST_WORKFLOWS_ENV_VAR,
 )
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.tasks.gather import gather_images
 
 
@@ -292,11 +292,11 @@ class TestModelName:
     def test_an_absolute_path_outside_every_root_is_refused(
         self, untrusted, workflow_dir
     ):
-        with pytest.raises(PathTraversalError):
+        with pytest.raises(PathTraversalError, match="Repo id must be in the form"):
             validate_model_name("/etc/passwd", workflow_dir)
 
     def test_a_traversal_shaped_name_is_refused(self, untrusted, workflow_dir):
-        with pytest.raises(PathTraversalError):
+        with pytest.raises(PathTraversalError, match="Repo id must be in the form"):
             validate_model_name("org/name/../../x", workflow_dir)
 
     def test_a_local_model_directory_inside_a_root_is_allowed(

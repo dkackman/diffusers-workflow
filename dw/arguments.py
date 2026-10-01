@@ -1,15 +1,29 @@
-import io
 import os
 import copy
 import logging
-import tempfile
-from urllib.parse import unquote, urlparse
 from inspect import Parameter, signature
-from .type_helpers import load_type_from_name, load_constant_from_name, has_method
+from . import references
+from .references import (
+    FROM_ARGUMENTS_KEY,
+    FROM_FILE_KEY,
+    FROM_PREVIOUS_RESULT_KEY,
+)
+from .type_helpers import (
+    NON_TYPE_KEYS,
+    load_type_from_name,
+    load_constant_from_name,
+    has_method,
+)
 from .prompts import PROMPT_PREFIX, fetch_prompt
 from .assets import fetch_asset, is_asset_reference
 from .runs import fetch_output, is_output_reference
-from diffusers.utils import load_image, load_video
+from .argument_media import (
+    is_media_reference,
+    fetch_media,
+    fetch_image_with_context,
+    fetch_video,
+    fetch_video_with_context,
+)
 from PIL import Image
 from .security import (
     validate_path,
@@ -21,13 +35,9 @@ from .security import (
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_AUDIO_EXTENSIONS,
 )
-from .locations import safe_get, validate_media_path
+from .locations import validate_media_path
 
 logger = logging.getLogger("dw")
-
-# Keys that end in '_type' but name a category rather than a python type. Any other such
-# key can be escaped where it is used, by wrapping its value in braces
-NON_TYPE_KEYS = {"content_type", "offload_type"}
 
 
 class EscapedString(str):
@@ -45,27 +55,6 @@ class EscapedString(str):
 def is_escaped(value):
     """Whether a value is a type reference escaped with {} braces"""
     return isinstance(value, str) and value.startswith("{") and value.endswith("}")
-
-
-# The key naming the file an argument object is constructed from
-FROM_FILE_KEY = "from_file"
-
-# The key naming the step whose output an argument object is constructed from
-FROM_PREVIOUS_RESULT_KEY = "from_previous_result"
-
-# The key holding the arguments an argument object is constructed from, for a type
-# that takes its contents as plain fields rather than opening media itself
-FROM_ARGUMENTS_KEY = "from_arguments"
-
-# The prefix marking a value as a reference to an earlier step's output. Those are
-# substituted once that step has run, so an object whose arguments hold one is
-# constructed then rather than at load time
-PREVIOUS_RESULT_PREFIX = "previous_result:"
-
-# The prefix marking a value as a reference to a constant declared in python - the
-# schedule a distilled model was trained on, the negative prompt a model family ships.
-# Copying those into a workflow is how they go stale when the library moves on
-CONSTANT_PREFIX = "constant:"
 
 
 class _Omitted:
@@ -117,7 +106,7 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             (asset:, output:, constant:, prompt:, a {media_type, location}
             dict) always resolve regardless of this flag - only the fallback
             that guesses from the key name is gated. The top-level variables
-            dict is realized with this off (dw/workflow.py): a variable's own
+            dict is realized with this off (dw/workflow_run.py): a variable's own
             name is not the argument it will end up filling, so 'image' guessed
             a variable named that way into a PIL Image before the step that
             actually names its argument 'video' ever saw the value (#365).
@@ -127,29 +116,14 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
-            # An asset reference resolves to the path of a file in the asset
-            # library, and does it first: what it stands for is a path, so
-            # everything below - the media conventions, an object's
-            # 'from_file' - then handles it as the path it always was
-            if is_path_reference(v) or isinstance(v, (list, dict)):
-                v = arg[k] = resolve_path_references(v, base_dir)
-            # A constant resolves under any argument name, and before the
-            # conventions below - what it holds is the value, not a file to load
-            if is_constant_reference(v):
-                arg[k] = fetch_constant(v)
-            # A stored prompt resolves the same way - to its text, under any
-            # name, before the media conventions could mistake it for a file.
-            # The workflow's directory anchors prompt-library discovery
-            elif is_prompt_reference(v):
-                arg[k] = fetch_prompt(v, base_dir=base_dir)
-            # An explicit media reference loads under any argument name - the
-            # key conventions below only cover arguments named like their media
-            elif is_media_reference(v):
-                arg[k] = fetch_media(v, base_dir)
+            v, handled = _realize_explicit_reference(v, base_dir)
+            arg[k] = v
+            if handled:
+                continue
             # Handle image loading for keys ending in '_image' or exactly 'image'
-            elif apply_key_conventions and (k.endswith("_image") or k == "image"):
+            if apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
-                arg[k] = _fetch_image_with_context(v, base_dir, k)
+                arg[k] = fetch_image_with_context(v, base_dir, k)
             # get_frame/get_first_frame/get_last_frame only ever need one frame
             # out of their 'video' - loading the ordinary way decodes the whole
             # clip to throw all but one frame away, which is what OOM-killed a
@@ -165,73 +139,112 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = _fetch_video_with_context(v, base_dir, k)
+                arg[k] = fetch_video_with_context(v, base_dir, k)
             # Handle type references, and the keys that only look like one
             elif apply_key_conventions and (
                 k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
             ):
-                if isinstance(v, EscapedString):
-                    # An earlier pass already consumed this value's escape
-                    continue
-                if k in NON_TYPE_KEYS:
-                    # The value stays a string, but the {} escape is still honored
-                    # so both the escaped and the bare spelling name the category
-                    if is_escaped(v):
-                        arg[k] = EscapedString(v.strip("{}"))
-                    continue
-                logger.debug(f"Processing type reference for key: {k}")
-                # Allow escaping type references using {} brackets
-                # this is for instances when the argument name is "something_type" but it is
-                # not a reference to a python type, but rather a category or something else
-                if isinstance(v, str):
-                    if is_escaped(v):
-                        arg[k] = EscapedString(v.strip("{}"))
-                    else:
-                        arg[k] = load_type_from_name(v, k)
-                elif isinstance(v, type):
-                    # the value already a type
-                    arg[k] = v
-            # Recursively process nested dictionaries, then build any object they
-            # describe - the type reference it names is realized by the recursion
+                _realize_type_reference(arg, k, v)
             else:
-                realize_args(v, base_dir)
-                realized = realize_object(v, base_dir)
-                if realized is OMITTED:
-                    raise ValueError(
-                        f"'{k}' names an object to build but the media it "
-                        f"would be built from is null. An optional one belongs "
-                        f"in a list, where it can be left out; on its own "
-                        f"there is nothing to leave it out of"
-                    )
-                arg[k] = realized
+                _realize_nested(arg, k, v, base_dir)
 
     # Recursively process lists
     elif isinstance(arg, list):
-        logger.debug("Processing list arguments")
-        for i, item in enumerate(arg):
-            if is_path_reference(item):
-                item = arg[i] = resolve_path_references(item, base_dir)
-            if is_constant_reference(item):
-                arg[i] = fetch_constant(item)
-                continue
-            if is_prompt_reference(item):
-                arg[i] = fetch_prompt(item, base_dir=base_dir)
-                continue
-            if is_media_reference(item):
-                arg[i] = fetch_media(item, base_dir)
-                continue
-            try:
-                realize_args(item, base_dir)
-            except ValueError as error:
-                if isinstance(item, dict) and "name" in item:
-                    raise ValueError(f"{error} (step '{item['name']}')") from error
-                raise
-            arg[i] = realize_object(item, base_dir)
-        # An optional entry whose media is null leaves the list rather than
-        # reaching the pipeline as a reference with nothing in it
-        if any(item is OMITTED for item in arg):
-            kept = [item for item in arg if item is not OMITTED]
-            arg[:] = kept
+        _realize_list(arg, base_dir)
+
+
+def _realize_explicit_reference(value, base_dir, containers=True):
+    """Resolve the references that name their own value, whatever the argument
+    is called, in the order they apply.
+
+    Returns (value, handled). A path reference ('asset:'/'output:'), or a list
+    or dict that may hold one, resolves first and always: what it stands for
+    is a path, so everything after - the media conventions, an object's
+    'from_file' - then handles it as the path it always was. That alone is not
+    'handled': the caller carries the resolved value on to the conventions.
+    A constant resolves before the conventions - what it holds is the value,
+    not a file to load - and a stored prompt the same way, to its text, before
+    the media conventions could mistake it for a file (the workflow's
+    directory anchors prompt-library discovery). An explicit media reference
+    loads under any argument name, since the key conventions only cover
+    arguments named like their media. Those three are handled.
+
+    `containers` is whether a list or dict value resolves too: a dict
+    argument's values do, a list's items resolve as strings only - a list
+    item that is a container is realized by the recursion instead."""
+    if is_path_reference(value) or (containers and isinstance(value, (list, dict))):
+        value = resolve_path_references(value, base_dir)
+    if is_constant_reference(value):
+        return fetch_constant(value), True
+    if is_prompt_reference(value):
+        return fetch_prompt(value, base_dir=base_dir), True
+    if is_media_reference(value):
+        return fetch_media(value, base_dir), True
+    return value, False
+
+
+def _realize_type_reference(arg, k, v):
+    """Realize the value of a '*_type'/'*_dtype'/'dtype' key: a type name
+    loads as the type, and the keys that only look like one stay strings."""
+    if isinstance(v, EscapedString):
+        # An earlier pass already consumed this value's escape
+        return
+    if k in NON_TYPE_KEYS:
+        # The value stays a string, but the {} escape is still honored
+        # so both the escaped and the bare spelling name the category
+        if is_escaped(v):
+            arg[k] = EscapedString(v.strip("{}"))
+        return
+    logger.debug(f"Processing type reference for key: {k}")
+    # Allow escaping type references using {} brackets
+    # this is for instances when the argument name is "something_type" but it is
+    # not a reference to a python type, but rather a category or something else
+    if isinstance(v, str):
+        if is_escaped(v):
+            arg[k] = EscapedString(v.strip("{}"))
+        else:
+            arg[k] = load_type_from_name(v, k)
+    elif isinstance(v, type):
+        # the value already a type
+        arg[k] = v
+
+
+def _realize_nested(arg, k, v, base_dir):
+    """Recursively process a nested value, then build any object it
+    describes - the type reference it names is realized by the recursion."""
+    realize_args(v, base_dir)
+    realized = realize_object(v, base_dir)
+    if realized is OMITTED:
+        raise ValueError(
+            f"'{k}' names an object to build but the media it "
+            f"would be built from is null. An optional one belongs "
+            f"in a list, where it can be left out; on its own "
+            f"there is nothing to leave it out of"
+        )
+    arg[k] = realized
+
+
+def _realize_list(arg, base_dir):
+    """Realize a list in place: each entry resolves as an explicit reference
+    or is processed and built as an object."""
+    logger.debug("Processing list arguments")
+    for i, item in enumerate(arg):
+        item, handled = _realize_explicit_reference(item, base_dir, containers=False)
+        arg[i] = item
+        if handled:
+            continue
+        try:
+            realize_args(item, base_dir)
+        except ValueError as error:
+            if isinstance(item, dict) and "name" in item:
+                raise ValueError(f"{error} (step '{item['name']}')") from error
+            raise
+        arg[i] = realize_object(item, base_dir)
+    # An optional entry whose media is null leaves the list rather than
+    # reaching the pipeline as a reference with nothing in it
+    if any(item is OMITTED for item in arg):
+        kept = [item for item in arg if item is not OMITTED]
+        arg[:] = kept
 
 
 def is_path_reference(value):
@@ -268,12 +281,12 @@ def resolve_path_references(value, base_dir=None):
 
 def is_constant_reference(value):
     """Whether a value references a constant declared in python."""
-    return isinstance(value, str) and value.startswith(CONSTANT_PREFIX)
+    return references.is_ref(references.CONSTANT, value)
 
 
 def is_prompt_reference(value):
     """Whether a value references a stored prompt in the prompt library."""
-    return isinstance(value, str) and value.startswith(PROMPT_PREFIX)
+    return references.is_ref(PROMPT_PREFIX, value)
 
 
 def fetch_constant(reference):
@@ -286,8 +299,8 @@ def fetch_constant(reference):
 
     Mutable values are copied. The workflow holds the module's own object otherwise,
     and a pipeline that consumes its sigmas in place would edit the library's
-    constant for every later run in the process - the REPL keeps one alive for a
-    whole session.
+    constant for every later run in the process - the server's persistent worker
+    keeps one alive for a whole session.
 
     Args:
         reference: The 'constant:dotted.NAME' string
@@ -299,7 +312,7 @@ def fetch_constant(reference):
         ValueError: If the name resolves to nothing, or to something callable
         InvalidInputError: If the name is not a dotted python name
     """
-    name = validate_constant_name(reference.removeprefix(CONSTANT_PREFIX).strip())
+    name = validate_constant_name(reference.removeprefix(references.CONSTANT).strip())
 
     try:
         value = load_constant_from_name(name)
@@ -312,7 +325,7 @@ def fetch_constant(reference):
     if callable(value):
         raise ValueError(
             f"'{name}' is a {type(value).__name__}, not a constant - "
-            f"'{CONSTANT_PREFIX}' reads a value, and a type is named with a "
+            f"'{references.CONSTANT}' reads a value, and a type is named with a "
             f"'_type' argument instead"
         )
 
@@ -345,41 +358,6 @@ def realize_constants(arg):
                 realize_constants(item)
 
 
-def is_media_reference(value):
-    """Whether a value is an explicit media reference.
-
-    The form { "media_type": "image", "location": "subject.png" } says what the
-    media is instead of relying on what its argument is called, so a "mask" or
-    "depth_map" argument can load a file too. A bare {"location": ...} dict is
-    NOT treated as one - it stays whatever its consumer expects.
-    """
-    return isinstance(value, dict) and "media_type" in value and "location" in value
-
-
-def fetch_media(spec, base_dir=None):
-    """Load the media an explicit reference names.
-
-    Args:
-        spec: Dict with 'media_type' ('image' or 'video') and 'location'
-        base_dir: Directory relative paths are resolved against
-
-    Returns:
-        The loaded media - or the location string unchanged when it is a
-        deferred variable/previous_result reference
-
-    Raises:
-        ValueError: If media_type names neither image nor video
-        SecurityError: If the location fails validation
-    """
-    media_type = spec["media_type"]
-    location = {"location": spec["location"]}
-    if media_type == "image":
-        return fetch_image(location, base_dir)
-    if media_type == "video":
-        return fetch_video(location, base_dir)
-    raise ValueError(f"Unknown media_type {media_type!r} - use 'image' or 'video'")
-
-
 def object_type_key(value, from_key):
     """The '*_type' key of an object description, or None if it is not one.
 
@@ -408,12 +386,12 @@ def object_type_key(value, from_key):
     return type_keys[0]
 
 
-def _names_no_media(value):
+def names_no_media(value):
     """Whether a dict is an object description whose media came out null.
 
     It has to name a type, the way every object description does, and the
     key saying where its media comes from has to be there and be null -
-    which is what a "variable:" source resolves to when the variable is
+    which is what a `variable:` source resolves to when the variable is
     declared null. A dict missing the source key altogether is not this: it
     is whatever it always was, and is left alone.
     """
@@ -467,7 +445,7 @@ def realize_object(value, base_dir=None):
             from a file, or a file location that cannot be resolved
         SecurityError: If the file it names fails validation
     """
-    if isinstance(value, dict) and _names_no_media(value):
+    if isinstance(value, dict) and names_no_media(value):
         # An optional reference this run was given nothing for
         return OMITTED
 
@@ -508,14 +486,14 @@ def realize_object(value, base_dir=None):
     if isinstance(location, str):
         # These resolve per step iteration, after objects are already built -
         # a clear error here beats a path-validation failure naming the wrong cause
-        if location.startswith("previous_result:"):
+        if references.is_ref(references.PREVIOUS_RESULT, location):
             raise ValueError(
                 f"'{FROM_FILE_KEY}' cannot reference a previous step's result - "
                 f"it names a file the object is constructed from. Use "
                 f"'{FROM_PREVIOUS_RESULT_KEY}' to build it from what a step "
                 f"generated instead"
             )
-        if location.startswith("variable:"):
+        if references.is_ref(references.VARIABLE, location):
             raise ValueError(
                 f"'{FROM_FILE_KEY}' references {location!r} but no such "
                 f"variable is defined"
@@ -678,7 +656,7 @@ def names_a_previous_result(value):
         return any(names_a_previous_result(item) for item in value.values())
     if isinstance(value, list):
         return any(names_a_previous_result(item) for item in value)
-    return isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX)
+    return references.is_ref(references.PREVIOUS_RESULT, value)
 
 
 def construct_object(object_type, arguments):
@@ -818,9 +796,8 @@ def media_arguments(object_type, artifact):
         ValueError: If the artifact is not the media the kind calls for
     """
     import torch
-    from PIL import Image
 
-    from .tasks.audio_utils import as_channels_samples
+    from .dsp import as_channels_samples
     from .tasks.video_utils import frames_as_pil_list
 
     kind = object_type.kind
@@ -921,260 +898,6 @@ def resolve_relative_path(path, base_dir):
     return path
 
 
-def _describe_value_source(value):
-    """A short, human phrase for what a mistyped value already is - the
-    'source' half of an argument-mismatch error, since the type name alone
-    (PIL.Image.Image) doesn't say *how* it got there."""
-    if hasattr(value, "mode") and hasattr(value, "size"):
-        return "an already-loaded image"
-    if isinstance(value, tuple) and value and hasattr(value[0], "size"):
-        return "already-loaded video frames"
-    return f"a {type(value).__name__}"
-
-
-def _fetch_image_with_context(v, base_dir, key):
-    """fetch_image, with the argument key folded into a type-mismatch error -
-    a bare 'got <class ...>' names neither the argument nor what the value
-    already was (#365)."""
-    try:
-        return fetch_image(v, base_dir)
-    except ValueError as error:
-        raise ValueError(
-            f"{error} (argument '{key}' expected an image, got "
-            f"{_describe_value_source(v)} - check what variable or previous "
-            f"result feeds it)"
-        ) from error
-
-
-def _fetch_video_with_context(v, base_dir, key):
-    """fetch_video, with the same argument-key context as
-    _fetch_image_with_context."""
-    try:
-        return fetch_video(v, base_dir)
-    except ValueError as error:
-        raise ValueError(
-            f"{error} (argument '{key}' expected a video, got "
-            f"{_describe_value_source(v)} - check what variable or previous "
-            f"result feeds it)"
-        ) from error
-
-
-def fetch_image(img_spec, base_dir=None):
-    """
-    Load image from file path or URL with security validation.
-
-    Args:
-        img_spec: Image specification (file path, URL, dict with 'location' key, PIL Image, or list of any of these)
-        base_dir: Directory relative file paths are resolved against - the
-            workflow file's directory. Defaults to the process working directory
-
-    Returns:
-        Loaded PIL Image, list of PIL Images, or None if img_spec is None
-
-    Raises:
-        SecurityError: If validation fails
-        ValueError: If img_spec is invalid type
-    """
-    if img_spec is None:
-        return None
-
-    # Handle lists of images (recursively process each)
-    if isinstance(img_spec, list):
-        logger.debug(f"Loading list of {len(img_spec)} images")
-        return [fetch_image(img, base_dir) for img in img_spec]
-
-    # If already a PIL Image, return as-is (allows multiple realize_args calls)
-    if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
-        logger.debug("Image already loaded, returning as-is")
-        return img_spec
-
-    # Handle dict format: {"location": "url_or_path"}
-    if isinstance(img_spec, dict):
-        if "location" not in img_spec:
-            raise ValueError(
-                f"Image dict must have 'location' key, got keys: {list(img_spec.keys())}"
-            )
-        img_spec = img_spec["location"]
-
-    if not isinstance(img_spec, str):
-        raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
-
-    # Skip cross-step and variable references — these are resolved later during execution
-    if img_spec.startswith("previous_result:") or img_spec.startswith("variable:"):
-        logger.debug(f"Skipping deferred reference: {img_spec}")
-        return img_spec
-
-    logger.debug(f"Loading image from: {img_spec}")
-
-    try:
-        # Check if it's a URL
-        if isinstance(img_spec, str) and (
-            img_spec.startswith("http://") or img_spec.startswith("https://")
-        ):
-            # Fetched here rather than by load_image, which follows redirects
-            # without re-checking them; load_image still does the EXIF
-            # transpose and RGB conversion on the decoded result
-            response = safe_get(img_spec, "an image argument", timeout=60)
-            return load_image(Image.open(io.BytesIO(response.content)))
-        else:
-            # Treat as file path, relative to the workflow file, and confined
-            # to the directories this workflow may read (dw/locations.py)
-            validated_path = validate_media_path(
-                str(img_spec), base_dir, "an image argument"
-            )
-            # Validate file extension
-            ext = os.path.splitext(validated_path)[1].lower()
-            if ext not in ALLOWED_IMAGE_EXTENSIONS:
-                raise SecurityError(f"Image file extension not allowed: {ext}")
-            return load_image(validated_path)
-
-    except SecurityError:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to load image {img_spec}: {e}")
-        raise
-
-
-def _with_frame_rate(frames, location):
-    """The loaded frames carrying the rate their file declares, and the
-    shot boundaries its run (or kept-asset sidecar) recorded for it.
-
-    `load_video` reads frames and drops both: a step that paired a 24 fps
-    file with a soundtrack wrote it back at 8 - three times long, silently
-    (#104) - and a video loaded from an `asset:`/`output:` path had no
-    `shots` to hand `pair_audio`, even when the server had them on file
-    for that exact video (#398). The rate is read from the container
-    without decoding anything; the shots come from `shots_beside`, which
-    only looks at a real local path, so a URL carries none. A file that
-    says neither stays a plain list.
-    """
-    from .runs import shots_beside
-    from .tasks.video_utils import FrameList, file_fps
-
-    if not isinstance(frames, list):
-        return frames
-    fps = file_fps(location)
-    shots = (
-        shots_beside(location)
-        if not (location.startswith("http://") or location.startswith("https://"))
-        else None
-    )
-    return FrameList(frames, fps, shots) if (fps or shots) else frames
-
-
-def _fetch_remote_video(url):
-    """A video URL's frames, fetched through `safe_get` and decoded from a
-    temporary file. `load_video` would fetch the URL itself and follow its
-    redirects unchecked; handed a path, it only decodes. The suffix comes
-    from the URL, as `load_video`'s own download names it, since a `.gif`
-    decodes differently."""
-    from .tasks.video_utils import FrameList, file_fps
-
-    response = safe_get(url, "a video argument", timeout=300)
-    suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
-    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    try:
-        with handle:
-            handle.write(response.content)
-        frames = load_video(handle.name)
-        fps = file_fps(handle.name)
-    finally:
-        os.remove(handle.name)
-    # A URL has no run beside it, so it carries no shots
-    return FrameList(frames, fps, None) if fps else frames
-
-
-def fetch_video(video_spec, base_dir=None):
-    """
-    Load video from file path or URL with security validation.
-
-    Args:
-        video_spec: Video specification (file path, URL, dict with 'location' key, loaded frames, or list of any of these)
-        base_dir: Directory relative file paths are resolved against - the
-            workflow file's directory. Defaults to the process working directory
-
-    Returns:
-        Loaded video frames, list of video frames, or None if video_spec is None
-
-    Raises:
-        SecurityError: If validation fails
-        ValueError: If video_spec is invalid type
-    """
-    if video_spec is None:
-        return None
-
-    # An explicit {"media_type": ..., "location": ...} reference says what the
-    # media is regardless of the argument it fills - a still handed to a
-    # 'video' argument this way loads as an image rather than hitting the
-    # extension gate below (#443). Checked ahead of the list/dict handling so
-    # it also applies per-item inside a list of mixed video/image references,
-    # which realize_args's own is_media_reference check never sees - a list
-    # is not itself a dict, so a 'video'-named list reaches fetch_video whole
-    if is_media_reference(video_spec):
-        return fetch_media(video_spec, base_dir)
-
-    # Handle lists of videos (need to distinguish from video frames)
-    # Check if it's a list of specifications (dicts/strings) rather than video frames
-    if isinstance(video_spec, list) and len(video_spec) > 0:
-        # If first element is a dict with 'location' or a string, treat as list of video specs
-        if isinstance(video_spec[0], (dict, str)):
-            logger.debug(f"Loading list of {len(video_spec)} videos")
-            return [fetch_video(vid, base_dir) for vid in video_spec]
-        # Otherwise assume it's already loaded video frames
-        else:
-            logger.debug("Video frames already loaded, returning as-is")
-            return video_spec
-
-    # If already loaded video frames (tuple), return as-is
-    if isinstance(video_spec, tuple):
-        logger.debug("Video frames already loaded, returning as-is")
-        return video_spec
-
-    # Handle dict format: {"location": "url_or_path"}
-    if isinstance(video_spec, dict):
-        if "location" not in video_spec:
-            raise ValueError(
-                f"Video dict must have 'location' key, got keys: {list(video_spec.keys())}"
-            )
-        video_spec = video_spec["location"]
-
-    if not isinstance(video_spec, str):
-        raise ValueError(
-            f"Video specification must be a string, got {type(video_spec)}"
-        )
-
-    # Skip cross-step and variable references — these are resolved later during execution
-    if video_spec.startswith("previous_result:") or video_spec.startswith("variable:"):
-        logger.debug(f"Skipping deferred reference: {video_spec}")
-        return video_spec
-
-    logger.debug(f"Loading video from: {video_spec}")
-
-    try:
-        # Check if it's a URL
-        if isinstance(video_spec, str) and (
-            video_spec.startswith("http://") or video_spec.startswith("https://")
-        ):
-            return _fetch_remote_video(video_spec)
-        else:
-            # Treat as file path, relative to the workflow file, and confined
-            # to the directories this workflow may read (dw/locations.py)
-            validated_path = validate_media_path(
-                str(video_spec), base_dir, "a video argument"
-            )
-            # Validate file extension
-            ext = os.path.splitext(validated_path)[1].lower()
-            if ext not in ALLOWED_VIDEO_EXTENSIONS:
-                raise SecurityError(f"Video file extension not allowed: {ext}")
-            return _with_frame_rate(load_video(validated_path), validated_path)
-
-    except SecurityError:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to load video {video_spec}: {e}")
-        raise
-
-
 # get_frame and its two fixed-index siblings, and the assessment probes
 # (dw/tasks/assess.py), which stream the file themselves - decoding it to a
 # frame list first dropped the soundtrack they measure and failed every probe
@@ -1208,8 +931,8 @@ def _realize_lazy_frame_arguments(arguments, base_dir):
         video = arguments["video"]
         if is_path_reference(video) or isinstance(video, (list, dict)):
             video = resolve_path_references(video, base_dir)
-        deferred = isinstance(video, str) and (
-            video.startswith("previous_result:") or video.startswith("variable:")
+        deferred = references.is_ref(
+            (references.PREVIOUS_RESULT, references.VARIABLE), video
         )
         url = isinstance(video, str) and (
             video.startswith("http://") or video.startswith("https://")

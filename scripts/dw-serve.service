@@ -17,6 +17,7 @@ After=network.target
 WorkingDirectory=%h/diffusers-workflow
 Environment=VIRTUAL_ENV=%h/diffusers-workflow/venv
 Environment=PATH=%h/diffusers-workflow/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DW_MCP_MAX_WAIT_SECONDS=1800
 ExecStart=%h/diffusers-workflow/venv/bin/python -m dw.serve --host 0.0.0.0 --port 8765 --mcp --token xyz --workspace %h/diffusers-workspace --examples-dir %h/diffusers-workflow/workflows
 KillSignal=SIGTERM
 TimeoutStopSec=30

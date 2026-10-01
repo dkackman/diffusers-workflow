@@ -14,12 +14,11 @@ any module on the system.
 import re
 import inspect
 import logging
-import difflib
-from .variables import undeclared_variable_references
+from . import references
 
 logger = logging.getLogger("dw")
 
-_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CLASS_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # Matches a docstring parameter header, with or without a declared type:
 #     prompt (`str` or `List[str]`, *optional*):
@@ -122,7 +121,7 @@ def load_allowed_class(name):
     module_name, _, class_name = (name or "").rpartition(".")
     if module_name and module_name not in ALLOWED_MODULES:
         raise ValueError(f"Module {module_name!r} is not on the allowlist")
-    if not _NAME_PATTERN.match(class_name):
+    if not CLASS_NAME_PATTERN.match(class_name):
         raise ValueError(f"Not a valid class name: {name!r}")
 
     import importlib
@@ -154,6 +153,22 @@ def _json_safe_default(value):
     return repr(value)
 
 
+def _args_block_start(lines):
+    """Index of the 'Args:' / 'Parameters:' line, or None."""
+    for i, line in enumerate(lines):
+        if line.strip() in ("Args:", "Parameters:"):
+            return i
+    return None
+
+
+def _open_entry(target, header):
+    """Start the entry `header` (a _DOC_PARAM_PATTERN match) names in
+    `target`; returns (name, the description parts so far)."""
+    name = header.group(1)
+    target[name] = {"doc_type": header.group(2)}
+    return name, [header.group(3)] if header.group(3) else []
+
+
 def _parse_docstring_args(docstring):
     """Parameter descriptions from a docstring's 'Args:' block.
 
@@ -168,17 +183,9 @@ def _parse_docstring_args(docstring):
     """
     documented = {}
     documented_kwargs = {}
-    if not docstring:
-        return documented, documented_kwargs
-
-    lines = docstring.splitlines()
-    try:
-        start = next(
-            i
-            for i, line in enumerate(lines)
-            if line.strip() in ("Args:", "Parameters:")
-        )
-    except StopIteration:
+    lines = docstring.splitlines() if docstring else []
+    start = _args_block_start(lines)
+    if start is None:
         return documented, documented_kwargs
 
     # The entry being described, and where its description is accumulating:
@@ -222,9 +229,7 @@ def _parse_docstring_args(docstring):
                 kwargs_indent = None
             elif kwargs_indent is None:
                 kwargs_indent = indent
-            current = name
-            target[current] = {"doc_type": header.group(2)}
-            parts = [header.group(3)] if header.group(3) else []
+            current, parts = _open_entry(target, header)
         elif current:
             parts.append(stripped)
         elif target is documented_kwargs and kwargs_indent is None:
@@ -233,9 +238,7 @@ def _parse_docstring_args(docstring):
             kwargs_indent = indent
             header = _DOC_PARAM_PATTERN.match(stripped)
             if header and not header.group(1).startswith("*"):
-                current = header.group(1)
-                target[current] = {"doc_type": header.group(2)}
-                parts = [header.group(3)] if header.group(3) else []
+                current, parts = _open_entry(target, header)
     if current:
         target[current]["description"] = " ".join(parts).strip()
     return documented, documented_kwargs
@@ -640,9 +643,9 @@ def _null_fed_variable(written_steps, source_index, key, declared_variables):
     if not isinstance(arguments, dict):
         return None
     value = arguments.get(key)
-    if not isinstance(value, str) or not value.startswith("variable:"):
+    name = references.ref_name(references.VARIABLE, value)
+    if name is None:
         return None
-    name = value[len("variable:") :]
     return name if name in declared_variables else None
 
 
@@ -718,11 +721,7 @@ def task_signature_errors(
         arguments = task.get("arguments")
         if not isinstance(command, str):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"
@@ -777,452 +776,3 @@ def task_signature_errors(
         for key in unknown:
             report(key, unknown_task_argument_message(command, key))
     return errors
-
-
-_TYPE_REFERENCE_KEYS = ("component_type", "scheduler_type", "config_type")
-
-# A class-name-shaped string, bare or dotted - excludes a {}-escaped literal
-# and a variable:/constant:/asset:/... reference, which use ':' or braces
-# and are checked elsewhere
-_DOTTED_NAME_PATTERN = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"
-)
-
-
-def _type_reference_candidates(key):
-    """Names to suggest a close match from, keyed by which field was wrong."""
-    if key == "component_type":
-        return list_pipelines() + list_classes("models")
-    if key == "scheduler_type":
-        return list_classes("schedulers")
-    return list_classes("quantization")
-
-
-def _type_reference_error(key, value, path):
-    """One component_type/scheduler_type/config_type value, checked against
-    the resolver the run itself uses for a '*_type' value
-    (type_helpers.load_type_from_name) - not load_allowed_class's narrower
-    ALLOWED_MODULES, which would refuse names the catalog already relies on
-    (e.g. 'transformers.AutoProcessor', 'dw.community_pipelines...') that
-    TRUSTED_TOP_LEVEL_PACKAGES lets the run itself load. Using the real
-    resolver is what makes #345's own invariant hold: this can never refuse
-    a name that would in fact have run.
-
-    Returns an error dict ({path, message}), or None if `value` would resolve.
-    """
-    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
-        return None
-
-    from .type_helpers import load_type_from_name
-    from .security import UntrustedWorkflowError
-
-    try:
-        load_type_from_name(value, key)
-    except UntrustedWorkflowError as e:
-        return {"path": path, "message": str(e)}
-    except (ImportError, AttributeError, ValueError):
-        class_name = value.rsplit(".", 1)[-1]
-        suggestions = difflib.get_close_matches(
-            class_name, _type_reference_candidates(key), n=3, cutoff=0.6
-        )
-        message = f"{key} {value!r} does not exist"
-        if suggestions:
-            message += f" (closest matches: {', '.join(suggestions)})"
-        return {"path": path, "message": message}
-    return None
-
-
-def _is_type_key(key):
-    """Whether realize_args loads this key's value as a type - the same test
-    it applies at run time, so validation refuses only what the run would."""
-    from .arguments import NON_TYPE_KEYS
-
-    return (
-        isinstance(key, str)
-        and key not in NON_TYPE_KEYS
-        and (key.endswith("_type") or key.endswith("_dtype") or key == "dtype")
-    )
-
-
-def _loose_type_reference_error(key, value, path):
-    """Any other '*_type' / '*_dtype' / 'dtype' value the run loads as a type
-    (a pipeline's torch_dtype, say), put to the same untrusted gate. Only the
-    gate's refusal is reported: a name that merely fails to resolve is left
-    to the run, since realize_args reads some of these keys as something
-    other than a type."""
-    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
-        return None
-
-    from .type_helpers import load_type_from_name
-    from .security import UntrustedWorkflowError
-
-    try:
-        load_type_from_name(value, key)
-    except UntrustedWorkflowError as e:
-        return {"path": path, "message": str(e)}
-    except (ImportError, AttributeError, ValueError):
-        pass
-    return None
-
-
-def _constant_reference_error(value, path):
-    """One literal 'constant:' value, resolved the way the run resolves it
-    (arguments.fetch_constant) - so the untrusted walk rules, a callable and
-    a name that does not exist are each refused here rather than after the
-    job is queued. A 'variables' default is resolved earlier, by
-    expanded_definition, and reported at 'variables.<name>'."""
-    from .arguments import fetch_constant, is_constant_reference
-    from .security import InvalidInputError, UntrustedWorkflowError
-
-    if not is_constant_reference(value):
-        return None
-    try:
-        fetch_constant(value)
-    except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
-        return {"path": path, "message": str(e)}
-    return None
-
-
-def _walk_type_references(node, path, errors):
-    from .arguments import is_media_reference
-
-    # A {media_type, location} dict is loaded as media, and its media_type
-    # names a kind rather than a type - realize_args never reads it as one
-    if isinstance(node, dict) and not is_media_reference(node):
-        for k, v in node.items():
-            if k in _TYPE_REFERENCE_KEYS:
-                error = _type_reference_error(k, v, path + (k,))
-            elif _is_type_key(k):
-                error = _loose_type_reference_error(k, v, path + (k,))
-            else:
-                error = _constant_reference_error(v, path + (k,))
-            if error is not None:
-                errors.append(error)
-            else:
-                _walk_type_references(v, path + (k,), errors)
-    elif isinstance(node, list):
-        for i, item in enumerate(node):
-            error = _constant_reference_error(item, path + (i,))
-            if error is not None:
-                errors.append(error)
-            else:
-                _walk_type_references(item, path + (i,), errors)
-
-
-def component_type_errors(workflow_definition, source_indices=None):
-    """Every component_type/scheduler_type/config_type in a step's pipeline
-    naming a class the run itself could not load, as [{path, message}] - a
-    misspelled class used to validate clean and only die ~3s into the run,
-    after the worker had already loaded a checkpoint the plan's
-    downloads_required quoted for a pipeline that could never exist (#345).
-    Every other key the run loads as a type ('torch_dtype', any '*_type')
-    and every literal 'constant:' value in the step are checked the same way,
-    so the untrusted gate refuses them here rather than after the queue
-    (#409).
-
-    A class outside the trusted ecosystem entirely (UntrustedWorkflowError,
-    see _type_reference_error) is reported with a distinct message from one
-    that is merely spelled wrong - "not allowed" is not "does not exist".
-
-    The definition handed here has already been substituted and expanded,
-    matching task_signature_errors; source_indices maps each expanded step
-    back to the step the author wrote.
-    """
-    from .for_each import MEMBER_SEPARATOR, render_path
-
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
-    errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
-        found = []
-        # The whole step, since realize_args loads a type or a constant
-        # wherever one sits in it - a task's arguments as much as a pipeline
-        _walk_type_references(step, (), found)
-        for error in found:
-            full_message = f"{error['message']}{where}"
-            if not full_message.endswith("."):
-                full_message += "."
-            errors.append(
-                {
-                    "path": render_path(("steps", source) + error["path"]),
-                    "message": full_message,
-                }
-            )
-    return errors
-
-
-def component_name_errors(workflow_definition, source_indices=None):
-    """Every name under a step's `pipeline.configuration.components` that
-    the named component_type's constructor does not register, as
-    [{path, message}] - a component name it does not have was previously
-    caught only ~3s into the run's `loading` phase, after a checkpoint (and
-    for an IC-LoRA step, the LoRA weights) the plan had already quoted for
-    downloading (#442). Checked the same way `workflow_argument_warnings`
-    checks a `__call__` argument: against the class's own constructor
-    signature, so the rule can never refuse a name that would in fact have
-    worked, and only for a bare, loadable component_type - escaped and
-    dotted ones are left alone.
-
-    `reused_components` names are excluded: those are configured by the step
-    that shared them, not loaded here, so a name only valid because it was
-    reused is not a mistake.
-
-    The definition handed here has already been substituted and expanded,
-    matching component_type_errors; source_indices maps each expanded step
-    back to the step the author wrote.
-    """
-    from .for_each import MEMBER_SEPARATOR, render_path
-
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
-    errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
-        configuration = pipeline.get("configuration")
-        if not isinstance(configuration, dict):
-            continue
-        component_type = configuration.get("component_type")
-        if not isinstance(component_type, str) or not _NAME_PATTERN.match(
-            component_type
-        ):
-            continue
-        components = configuration.get("components")
-        if not isinstance(components, dict):
-            continue
-        reused = set(configuration.get("reused_components") or [])
-        component_names = [name for name in components if name not in reused]
-        unknown = unknown_pipeline_components(component_type, component_names)
-        if not unknown:
-            continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
-        for component_name in unknown:
-            errors.append(
-                {
-                    "path": render_path(
-                        (
-                            "steps",
-                            source,
-                            "pipeline",
-                            "configuration",
-                            "components",
-                            component_name,
-                        )
-                    ),
-                    "message": (
-                        f"Step '{step.get('name')}': {component_type} has no "
-                        f"component '{component_name}'{where}."
-                    ),
-                }
-            )
-    return errors
-
-
-def _resolved_value(arguments, key, values):
-    """`arguments[key]` as a number, resolving a `variable:name` reference
-    against `values` (declared defaults merged with the caller's own
-    arguments, the way `constraint_warnings` resolves a constrained
-    variable). `None` when the key is absent, not a `variable:` reference or
-    a literal, or the reference does not resolve to a number - callers tell
-    that apart from an actual 0 by checking `key in arguments` themselves
-    where it matters."""
-    if key not in arguments:
-        return None
-    value = arguments[key]
-    if isinstance(value, str) and value.startswith("variable:"):
-        value = values.get(value[len("variable:") :])
-    return value if isinstance(value, (int, float)) else None
-
-
-def _inert_crossfade_warnings(step, command, arguments):
-    """concat_videos draws its crossfade from the trimmed-off material, so
-    with nothing trimmed a `crossfade_ms` the author wrote does nothing. A
-    referenced trim is unknown until the run and is left alone."""
-    if command != "concat_videos":
-        return []
-    crossfade = arguments.get("crossfade_ms")
-    trim = arguments.get("trim_frames", 0)
-    if not isinstance(crossfade, (int, float)) or crossfade <= 0 or trim != 0:
-        return []
-    return [
-        f"Step '{step.get('name')}': 'crossfade_ms' has no effect when "
-        f"'trim_frames' is 0 - the crossfade is drawn from the trimmed "
-        f"material. At a hard cut, 'audio_bleed_ms' or 'seam_fade_ms' is "
-        f"what shapes the seam"
-    ]
-
-
-def _inert_seam_fade_warnings(step, command, arguments, values):
-    """concat_videos takes the bleed path, not the fade path, at a hard cut
-    with nothing trimmed while audio_bleed_ms is non-zero - so a seam_fade_ms
-    the author wrote alongside it does nothing (#288). Both variables are
-    ordinary `variable:` references in the templates that pair them, so
-    `seam_fade_ms` and `audio_bleed_ms` are resolved against `values`
-    (declared defaults merged with the caller's own arguments) rather than
-    left alone the way an unresolved `trim_frames` is - it is exactly the
-    templated case, with `audio_bleed_ms` left at its non-zero default and
-    only `seam_fade_ms` passed as an argument, that this warning exists for.
-    `trim_frames` stays a literal-only check, as in `_inert_crossfade_warnings`."""
-    if command != "concat_videos":
-        return []
-    if "seam_fade_ms" not in arguments or "audio_bleed_ms" not in arguments:
-        return []
-    seam_fade = _resolved_value(arguments, "seam_fade_ms", values)
-    bleed = _resolved_value(arguments, "audio_bleed_ms", values)
-    trim = arguments.get("trim_frames", 0)
-    if seam_fade is None or seam_fade <= 0 or bleed is None or bleed <= 0 or trim != 0:
-        return []
-    return [
-        f"Step '{step.get('name')}': 'seam_fade_ms' has no effect while "
-        f"'audio_bleed_ms' is {bleed} - a hard cut takes the bleed path "
-        f"instead of the fade path. Pass 'audio_bleed_ms': 0 for "
-        f"'seam_fade_ms' to apply."
-    ]
-
-
-def _inert_bleed_gain_warnings(step, command, arguments, values):
-    """concat_videos applies audio_bleed_gain_db to the bled tail
-    audio_bleed_ms carries across the seam - with no bleed there is nothing
-    for the gain to shape, so an audio_bleed_gain_db the author wrote does
-    nothing while audio_bleed_ms is 0, whether that 0 is an explicit
-    argument or the task's own default left untouched (#290, the same no-op
-    class #288 closed for seam_fade_ms). `audio_bleed_ms` is read with the
-    task's default of 0 rather than requiring the key, since "forgot the
-    bleed" is exactly the case this warning is for; resolved against
-    `values` for the same reason _inert_seam_fade_warnings is - a templated
-    case pairs both as `variable:` references."""
-    if command != "concat_videos":
-        return []
-    if "audio_bleed_gain_db" not in arguments:
-        return []
-    gain = _resolved_value(arguments, "audio_bleed_gain_db", values)
-    bleed = (
-        _resolved_value(arguments, "audio_bleed_ms", values)
-        if "audio_bleed_ms" in arguments
-        else 0
-    )
-    if gain is None or gain == 0 or bleed is None or bleed != 0:
-        return []
-    return [
-        f"Step '{step.get('name')}': 'audio_bleed_gain_db' has no effect "
-        f"when 'audio_bleed_ms' is 0 - pass a non-zero 'audio_bleed_ms' for "
-        f"the gain to apply."
-    ]
-
-
-def _inert_match_levels_dbfs_warnings(step, command, arguments):
-    """concat_videos and dissolve_videos only call match_levels() - the
-    function that reads match_levels_dbfs as its target - when match_levels
-    itself is truthy (`if match_levels:`), so a caller who passes only the
-    target dBFS and leaves match_levels unset (off by default) has stated an
-    intent the engine silently drops: the shots join unmatched with no trace,
-    warning or otherwise (#291, the same "modifier without its enabler" class
-    #288 and #290 closed for seam_fade_ms and audio_bleed_gain_db). Literal
-    check only, like _inert_crossfade_warnings' trim_frames - match_levels is
-    "rms"/"peak"/falsy, not a number a variable: reference would need
-    resolving to compare against a domain."""
-    if command not in ("concat_videos", "dissolve_videos"):
-        return []
-    if "match_levels_dbfs" not in arguments or arguments.get("match_levels"):
-        return []
-    dbfs = arguments.get("match_levels_dbfs")
-    if not isinstance(dbfs, (int, float)):
-        return []
-    return [
-        f"Step '{step.get('name')}': 'match_levels_dbfs' has no effect when "
-        f'\'match_levels\' is unset - pass "rms" or "peak" for the target '
-        f"to apply."
-    ]
-
-
-def workflow_argument_warnings(workflow_definition, arguments=None):
-    """Best-effort pre-load check of a workflow's arguments.
-
-    For each pipeline step whose component_type is a bare diffusers class
-    name, reports argument names that class's __call__ does not accept - the
-    typo that today surfaces as a TypeError after the model has loaded.
-    Escaped ({...}) and dotted component types are left alone. Task steps
-    get the same check against their registered implementation's signature.
-
-    `arguments`, when given, is a caller's own values for this run -
-    checks that need a task argument's actual value (an inert `crossfade_ms`
-    or `seam_fade_ms`) resolve a `variable:name` reference against the
-    caller's arguments merged over the workflow's declared defaults, the
-    same values `constraint_warnings` checks a constraint against.
-    """
-    warnings = []
-    values = {**(workflow_definition.get("variables") or {}), **(arguments or {})}
-    declared = sorted(workflow_definition.get("variables") or {})
-    for path, name in undeclared_variable_references(workflow_definition):
-        hint = (
-            " - a reference is the whole value, nothing is interpolated around it"
-            if any(c in name for c in " ,")
-            else ""
-        )
-        warnings.append(
-            f"{path}: 'variable:{name}' names no declared variable{hint}; "
-            f"declared: {', '.join(declared) or '<none>'}"
-        )
-    for step in workflow_definition.get("steps", []):
-        task = step.get("task")
-        if task and isinstance(task.get("arguments"), dict):
-            command = task.get("command")
-            # An unknown or missing task argument is an error rather than a
-            # warning now (task_signature_errors, #141) - reported once, by
-            # the pass whose verdict it changes
-            warnings.extend(_inert_crossfade_warnings(step, command, task["arguments"]))
-            warnings.extend(
-                _inert_seam_fade_warnings(step, command, task["arguments"], values)
-            )
-            warnings.extend(
-                _inert_bleed_gain_warnings(step, command, task["arguments"], values)
-            )
-            warnings.extend(
-                _inert_match_levels_dbfs_warnings(step, command, task["arguments"])
-            )
-        pipeline = step.get("pipeline")
-        if not pipeline:
-            continue
-        component_type = pipeline.get("configuration", {}).get("component_type")
-        if not isinstance(component_type, str) or not _NAME_PATTERN.match(
-            component_type
-        ):
-            continue
-        argument_names = list(pipeline.get("arguments", {}))
-        unknown = unknown_call_arguments(component_type, argument_names)
-        for argument_name in unknown:
-            warnings.append(
-                f"Step '{step.get('name')}': {component_type} does not accept "
-                f"argument '{argument_name}'"
-            )
-    return warnings

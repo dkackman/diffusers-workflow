@@ -239,8 +239,8 @@ def emit_warning(message, **data):
     stream and the job's `warnings` list and nothing else, so a diagnostic
     that only reaches the log does not exist out there (#82).
 
-    Logged as well as emitted, because the CLI and the REPL have no event
-    sink and the log is the whole of their surface.
+    Logged as well as emitted, because the CLI has no event
+    sink and the log is the whole of its surface.
     """
     logger.warning(message)
     get_context().emit("warning", message=message, **data)
@@ -268,8 +268,8 @@ def emit_log(message, **data):
     them, not a new state. The modular block lead-in (#95) is the same shape
     at the other end of a step.
 
-    Logged as well as emitted, because the CLI and the REPL have no event
-    sink and the log is the whole of their surface.
+    Logged as well as emitted, because the CLI has no event
+    sink and the log is the whole of its surface.
     """
     logger.info(message)
     get_context().emit("log", message=message, **data)

@@ -11,7 +11,9 @@ import pytest
 import torch
 from PIL import Image
 
-from dw.result import AudioVideo, Result, get_artifact_list
+from dw.media_types import AudioVideo
+from dw.output_extraction import get_artifact_list
+from dw.result import Result
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import Task
 
@@ -66,12 +68,15 @@ class TestConcatVideos:
         assert result.audio.shape == (2, 400)
 
     def test_mixed_inputs_keep_the_audio_that_exists(self):
+        # #553: the silent first video now fills its own length with
+        # silence rather than being skipped, which is why it needs fps -
+        # the same requirement trimming or crossfading audio already has
         videos = [frames(4), audio_video(8, 1)]
 
-        result = concat_videos(videos)
+        result = concat_videos(videos, fps=4)
 
         assert len(result.frames) == 12
-        assert result.audio.shape == (2, 200)
+        assert result.audio.shape == (2, 100 + 200)
 
     def test_mismatched_sample_rates_are_resampled_to_the_highest(self, caplog):
         """#108: a 24 kHz voice clip paired onto a 32 kHz generation used to
@@ -97,7 +102,7 @@ class TestConcatVideos:
 
         with caplog.at_level("WARNING"):
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 1),
             ):
                 concat_videos(videos)
@@ -417,6 +422,56 @@ class TestVideoFiles:
         assert result.audio.shape == (2, 8 / 4 * 8000)
 
 
+class TestSilentInputAmongSoundedOnes:
+    """#553: a silent input contributed zero duration to the joined track,
+    shifting every later shot's audio early instead of the gap it actually
+    left in the picture."""
+
+    def test_a_silent_middle_shot_does_not_shift_the_third_shots_audio(self):
+        sound, silent, more_sound = (
+            audio_video(8, 0.5),
+            frames(8),
+            audio_video(8, 0.25),
+        )
+
+        result = concat_videos([sound, silent, more_sound], fps=4)
+
+        # Each shot is 8 frames @ 4fps @ 100Hz = 200 samples; the silent shot
+        # must still occupy its own 200 samples rather than contributing none
+        assert result.audio.shape == (2, 600)
+        third = result.shots[-1]
+        assert third["start_sample"] == 400
+        assert third["start_frame"] == 16
+
+    def test_shots_stay_contiguous_across_the_silent_gap(self):
+        sound, silent, more_sound = (
+            audio_video(8, 0.5),
+            frames(8),
+            audio_video(8, 0.25),
+        )
+
+        result = concat_videos([sound, silent, more_sound], fps=4)
+
+        for earlier, later in zip(result.shots, result.shots[1:]):
+            assert (
+                earlier["start_sample"] + earlier["num_samples"]
+                == later["start_sample"]
+            )
+
+    def test_a_silent_first_shot_is_also_filled(self):
+        silent, sound = frames(8), audio_video(8, 0.5)
+
+        result = concat_videos([silent, sound], fps=4)
+
+        assert result.audio.shape == (2, 400)
+        assert result.shots[-1]["start_sample"] == 200
+
+    def test_no_input_carrying_audio_still_leaves_audio_none(self):
+        result = concat_videos([frames(4), frames(4)], fps=4)
+
+        assert result.audio is None
+
+
 class TestLevelMatching:
     """Independently generated shots land at whatever level the model chose,
     and cutting a -2.6 dBFS shot against a -12.6 dBFS one is audible as a
@@ -470,7 +525,10 @@ class TestLevelMatching:
         assert float(numpy.abs(result.audio[:, :100]).max()) == 0.0
 
     def test_a_shot_with_no_soundtrack_joins_as_before(self):
-        result = concat_videos([frames(4), audio_video(4, 0.5)], match_levels="rms")
+        # #553: fps is now required to fill the silent shot's own length
+        result = concat_videos(
+            [frames(4), audio_video(4, 0.5)], match_levels="rms", fps=4
+        )
 
         assert result.audio is not None
         assert len(result.frames) == 8
@@ -554,7 +612,7 @@ class TestWarningsReachTheCaller:
         token = activate_context(RunContext(on_event=events.append))
         try:
             with patch(
-                "dw.tasks.concat_videos.load_audio_video",
+                "dw.tasks.joins.load_audio_video",
                 return_value=audio_video(8, 0.5),
             ):
                 concat_videos(["first.mp4", audio_video(8, 0.5, sample_rate=200)])
@@ -671,7 +729,7 @@ class TestJoinedAudioFitsTheFrameGrid:
     pair_audio's single-track case."""
 
     def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
@@ -684,7 +742,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert "joined_audio_padded_to_frames" in caplog.text or "padded" in caplog.text
 
     def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(4), numpy.full((2, 90), 0.5, dtype=numpy.float32), 100
@@ -755,6 +813,86 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert result.audio.shape[1] == 90 + 100
 
 
+class TestPerInputAudioConforming:
+    """#562: only the aggregate joined track was reconciled against the
+    frame grid, at the very end (see TestJoinedAudioFitsTheFrameGrid) - so a
+    middle input's own shortfall against its own frame grid shifted every
+    seam after it before that final catch-up, small enough per seam to miss
+    analyze_sync_drift's single-seam threshold but compounding across
+    however many joins came after it."""
+
+    def test_a_middle_inputs_own_shortfall_lands_the_next_seam_on_grid(self):
+        from dw.task_domains import frames_to_samples
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        result = concat_videos([audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4)
+
+        third_shot = result.shots[-1]
+        assert third_shot["start_sample"] == frames_to_samples(8, 4, 100)
+
+    def test_a_middle_inputs_shortfall_is_still_warned(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        short = AudioVideo(
+            frames(4), numpy.full((2, 70), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), short, audio_video(4, 0.5)], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [
+            e for e in events if e.get("kind") == "joined_audio_padded_to_frames"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["pad_samples"] == 30
+
+    def test_an_over_length_input_warns_and_is_left_unaligned(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.task_domains import frames_to_samples
+
+        long = AudioVideo(
+            frames(4), numpy.full((2, 130), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = concat_videos([audio_video(4, 0.5), long], fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "audio_frame_drift"]
+        assert len(warnings) == 1
+        assert warnings[0]["video"] == "video 2"
+        assert warnings[0]["drift_samples"] == 30
+        # #378: an overrun is measured, never trimmed
+        assert result.audio.shape[1] == 100 + 130
+        assert result.shots[-1]["num_samples"] == frames_to_samples(4, 4, 100) + 30
+
+    def test_a_sub_frame_overrun_draws_no_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        barely_long = AudioVideo(
+            frames(4), numpy.full((2, 105), 0.5, dtype=numpy.float32), 100
+        )
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([audio_video(4, 0.5), barely_long], fps=4)
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "audio_frame_drift"] == []
+
+
 class TestFrameRateTravelsWithTheJoin:
     """result.fps defaults to 8, so a 24 fps cut that says nothing there
     used to be written three times slow against audio of the right length -
@@ -781,3 +919,75 @@ class TestFrameRateTravelsWithTheJoin:
 
     def test_nothing_is_carried_when_nothing_knows(self):
         assert concat_videos([frames(4), frames(4)]).fps is None
+
+
+class TestBleedWithOneInput:
+    """A bleed needs a seam between inputs; one input has none, and the
+    request must not vanish silently (#565)."""
+
+    def _warnings(self, videos, **kwargs):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(videos, **kwargs)
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e["event"] == "warning"]
+
+    def test_one_input_with_a_bleed_warns(self):
+        warnings = self._warnings([audio_video(4, 0.5)], audio_bleed_ms=100)
+        assert [w["kind"] for w in warnings] == ["bleed_no_seam"]
+        assert "audio_bleed_ms" in warnings[0]["message"]
+
+    def test_one_input_without_a_bleed_is_quiet(self):
+        assert self._warnings([audio_video(4, 0.5)]) == []
+
+    def test_two_inputs_with_a_bleed_do_not_get_the_warning(self):
+        warnings = self._warnings(
+            [audio_video(8, 0.5), audio_video(8, 0.5)], audio_bleed_ms=100
+        )
+        assert "bleed_no_seam" not in [w.get("kind") for w in warnings]
+
+
+class TestBleedTrace:
+    """#566: a bleed that applied leaves a log line naming its seams."""
+
+    def test_each_bled_seam_is_logged_with_what_it_joins(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(8, 0.5), audio_video(8, 0.5), audio_video(8, 0.5)],
+                audio_bleed_ms=200,
+                audio_bleed_gain_db=-6,
+                fps=4,
+            )
+        finally:
+            deactivate_context(token)
+
+        logs = [e for e in events if e.get("command") == "audio_bleed"]
+        assert [e["seam"] for e in logs] == [1, 2]
+        assert all(e["gain_db"] == -6 and e["bleed_ms"] == 200 for e in logs)
+        assert "seam 1 (" in logs[0]["message"] and "-6 dB" in logs[0]["message"]
+
+    def test_the_tonal_warning_names_its_seam(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        rate = 8000
+        tone = numpy.sin(2 * numpy.pi * 200 * numpy.arange(2 * rate) / rate)
+        first = AudioVideo(frames(8), numpy.tile(tone, (2, 1)).astype("float32"), rate)
+        second = AudioVideo(frames(8), numpy.zeros((2, 2 * rate), numpy.float32), rate)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos([first, second], audio_bleed_ms=500, fps=4)
+        finally:
+            deactivate_context(token)
+
+        warnings = [e for e in events if e.get("kind") == "bleed_tonal_material"]
+        assert warnings and warnings[0]["seam"] == 1
+        assert "seam 1 (" in warnings[0]["message"]

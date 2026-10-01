@@ -55,6 +55,24 @@ remaining deferred fix is recorded in
   workflows** (#479, stages #501-#502), shipped 2026-09-27. Record, including
   what was deferred (the host-memory half, measured calibration):
   `complete/h3-vram-ceiling-references-complete.md`.
+- **A true-peak limit mode for `normalize_audio`** (#474, stages
+  #496-#497), shipped 2026-09-27. Record, including what was deferred
+  (holding the ceiling on the encoded film, true-peak in the post-encode
+  check, `compress_audio`'s limit mode):
+  `complete/normalize-audio-limiter-complete.md`.
+- **`join_into_song`, a spoken scene breaking into a song** (#486, stages
+  #513-#514), shipped 2026-09-27. Record, including what was deferred (a
+  template, register-external-output, the `concat_videos` silent-input
+  desync filed as #553): `complete/join-into-song-complete.md`.
+- **`find_loop_bed`, ranked room-tone loop windows** (#218, stages
+  #544-#545), shipped 2026-09-27. Record, including what was deferred (a
+  sync route, in-workflow wiring into `slice_audio`, thresholds for louder
+  rooms): `complete/find-loop-bed-complete.md`.
+- **`ltx2/refine-clip`, LTX-2.5's two-stage refine on an existing mp4**
+  (#543, stage #549), shipped 2026-09-28 as one template with no engine
+  task. Record, including what was deferred (a 1x refine and the
+  VAE-encode task it needs, encoding the source soundtrack into audio
+  latents): `complete/ltx2-refine-clip-complete.md`.
 
 ## Declined
 

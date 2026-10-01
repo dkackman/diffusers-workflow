@@ -8,7 +8,7 @@ diffusers-workflow wraps the [Hugging Face Diffusers library](https://github.com
 in an engine that runs image, video and audio generation as jobs, and puts
 two front ends on it: an **MCP server**, so Claude Code (or any MCP client)
 can author, run and inspect generations; and a **web UI** for doing the same
-by hand. A CLI and REPL sit underneath for when you want neither.
+by hand. A CLI sits underneath for when you want neither.
 
 **Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
@@ -176,16 +176,24 @@ pages and the HTTP API.
 
 ## The command line
 
-The engine also runs standalone, with no server involved:
+`dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
+its progress, and reports the run directory the server wrote to - start the
+server first.
 
 ```bash
+python -m dw.serve
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 python -m dw.validate workflows/models/flux-dev.json
 ```
 
-An interactive REPL (`python -m dw.repl`) keeps models resident between runs
-for 2-4x faster iteration. See [REPL Commands](docs/REPL_COMMANDS.md).
+`dw.run` takes `WORKFLOW [name=value ...] [--server URL] [--workspace NAME]
+[--token TOKEN]` - `--server` defaults to `DW_MCP_URL`, else
+`http://127.0.0.1:8765`; `--token` to `DW_API_TOKEN`. Where the output lands,
+which workspace's `prompts:`/`asset:` references resolve, and the output
+layout are all `dw.serve` flags now (`--workspace`, `--output-dir`,
+`--prompt-dir`, `--asset-dir`, `--output-layout` on the server) - `dw.run`
+only says which server and which of its workspaces to run in.
 
 ## What's underneath
 
@@ -204,8 +212,8 @@ file from someone else the way you'd treat a `.py` script — see
 [Trust model](docs/SECURITY.md#trust-model).
 
 Under the hood the engine also handles: quantization (BitsAndBytes, TorchAO,
-GGUF, SDNQ, optimum-quanto); inference acceleration (TeaCache,
-FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
+GGUF, SDNQ, optimum-quanto); inference acceleration
+(FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
 A1111-style prompt weighting; long-video chaining with audio-driven length;
 step-output caching, so re-running a fixed-seed workflow finishes instantly;
 and utility tasks for upscaling, face restoration, segmentation, captioning,
@@ -221,7 +229,7 @@ frame interpolation and more.
 - [Workspaces](docs/WORKSPACES.md) — Where your content lives, run directories, and several workspaces on one server
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
-- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer, TeaCache
+- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer
 - [Fast on 24GB](docs/RECIPES_24GB.md) — Recommended speed/memory configurations per model family
 - [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
 - [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
@@ -231,8 +239,7 @@ frame interpolation and more.
 
 ### Reference
 
-- [REPL Commands](docs/REPL_COMMANDS.md) — Interactive REPL command reference
-- [Worker Guide](docs/REPL_WORKER_GUIDE.md) — GPU persistence and troubleshooting
+- [Worker Guide](docs/WORKER_GUIDE.md) — GPU persistence and troubleshooting
 - [Dependencies](docs/DEPENDENCIES.md) — Installation details
 - [Security](docs/SECURITY.md) — Security model
 - [Testing](docs/TESTING.md) — Running the test suite

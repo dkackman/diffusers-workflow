@@ -3,15 +3,12 @@ import pytest
 import torch
 import tempfile
 from unittest.mock import MagicMock
-from dw.workflow import (
-    Workflow,
-    workflow_from_file,
-    pipeline_cache_key,
-    referenced_result_names,
-    release_unreferenced_results,
-    workflow_output_subfolder,
-)
+from dw.workflow import Workflow, workflow_from_file
+from dw.library import workflow_output_subfolder
+from dw.step_cache import referenced_result_names
+from dw.workflow_run import release_unreferenced_results
 from dw.pipeline_processors.pipeline import Pipeline
+from dw.step_cache import pipeline_cache_key
 import os
 
 # Referenced by test_validation_realizes_a_constant_default_list via
@@ -268,6 +265,53 @@ class TestSubWorkflowSeedInheritance:
         assert action.workflow_definition["seed"] == 99
 
 
+class TestSubWorkflowHandedArguments:
+    """A composed child reads what its parent step handed it from the
+    parent's own dict. Written into the child's definition, those realized
+    objects were deep-copied again by every validate() and run() of it."""
+
+    def child_action(self, tmp_path, step_arguments, child_extra=None):
+        child = tmp_path / "child.json"
+        child.write_text(
+            json.dumps(
+                {
+                    "id": "c",
+                    **(child_extra or {}),
+                    "steps": TestSubWorkflowSeedInheritance().child_steps(),
+                }
+            )
+        )
+        workflow_reference = {"path": str(child)}
+        if step_arguments is not None:
+            workflow_reference["arguments"] = step_arguments
+        parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "")
+        step = {"name": "child", "workflow": workflow_reference}
+        return parent.create_step_action(step, {}, {}, 1, "cpu")
+
+    def test_handed_arguments_stay_out_of_the_child_definition(self, tmp_path):
+        handed = {"prompt": "a cat"}
+        action = self.child_action(tmp_path, handed)
+
+        assert action.argument_template is handed
+        assert "argument_template" not in action.workflow_definition
+
+    def test_a_step_handing_nothing_still_shadows_the_files_template(self, tmp_path):
+        action = self.child_action(
+            tmp_path, None, {"argument_template": {"prompt": "from file"}}
+        )
+
+        assert action.argument_template == {}
+
+    def test_an_uncomposed_workflow_reads_its_files_template(self, tmp_path):
+        workflow = Workflow(
+            {"id": "w", "argument_template": {"prompt": "x"}, "steps": []},
+            str(tmp_path),
+            "",
+        )
+
+        assert workflow.argument_template == {"prompt": "x"}
+
+
 class TestGlobalRngIsolation:
     """Workflow.run must not reseed the RNG the process may rely on"""
 
@@ -340,7 +384,7 @@ class TestSubWorkflowConfinement:
         # #422: the refusal named only the rejected name, not where
         # 'builtin:' looks
         from dw.security import InvalidInputError
-        from dw.workflow_sources import builtin_root
+        from dw.library import builtin_root
 
         workflow_dir = tmp_path / "workflows"
         workflow_dir.mkdir()
@@ -981,7 +1025,7 @@ class TestSubWorkflowNameResolution:
         without copying the template into the workspace."""
         import json
 
-        from dw.workspace import WORKFLOW_PATH_ENV_VAR
+        from dw.library import WORKFLOW_PATH_ENV_VAR
 
         examples = tmp_path / "examples"
         (examples / "templates").mkdir(parents=True)
@@ -1034,7 +1078,7 @@ class TestSubWorkflowNameResolution:
         assert action.workflow_dir == str(examples)
 
     def test_a_name_that_resolves_nowhere_says_where_it_looked(self, tmp_path):
-        from dw.workflow_sources import SubWorkflowNotFound
+        from dw.library import SubWorkflowNotFound
 
         with pytest.raises(SubWorkflowNotFound) as exc_info:
             self._resolve(tmp_path, "minimax/does-not-exist")
@@ -1121,6 +1165,84 @@ class TestComposedStepSavesOnce:
             "sub.child-write"
         )
 
+    def test_the_childs_own_entry_is_tagged_with_the_composing_step(self, tmp_path):
+        """A parent that declares no result leaves the child's own manifest
+        entry in place under the child's step name ('write') - it now also
+        carries 'parent_step' naming the composing step ('sub'), so a
+        consumer can tie the entry back to what produced it without parsing
+        filenames (#560)."""
+        workflow = self._compose(tmp_path, parent_result=False)
+
+        by_step = {entry["step"]: entry for entry in workflow.manifest}
+        assert "parent_step" not in by_step["sub"]
+        assert by_step["write"]["parent_step"] == "sub"
+
+
+class TestForEachOverComposedTemplate:
+    """A for_each step whose members each compose a catalog template, with
+    no result of its own, used to list every member's files under the same
+    repeated child step name with nothing tying an entry to its member
+    (#560)."""
+
+    def _run(self, tmp_path):
+        import json
+
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        child = {
+            "id": "child",
+            "variables": {"text": "x"},
+            "steps": [
+                {
+                    "name": "write",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["variable:text"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        }
+        (workflows / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "variables": {"shots": [{"name": "answer"}, {"name": "insist"}]},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"text": "item:name"},
+                    },
+                }
+            ],
+        }
+        parent_path = workflows / "parent.json"
+        parent_path.write_text(json.dumps(parent))
+
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(
+            str(parent_path), str(tmp_path / "outputs"), str(workflows)
+        )
+        workflow.run({}, {})
+        return workflow
+
+    def test_each_members_files_are_tagged_with_its_own_member_name(self, tmp_path):
+        workflow = self._run(tmp_path)
+
+        write_entries = [e for e in workflow.manifest if e["step"] == "write"]
+        assert len(write_entries) == 2
+        assert {e["parent_step"] for e in write_entries} == {
+            "shot@answer",
+            "shot@insist",
+        }
+        member_entries = {
+            e["parent_step"]: e["files"] for e in write_entries if e["files"]
+        }
+        assert len(member_entries) == 2
+
 
 class TestSubWorkflowPreviousResultArgument:
     """A 'previous_result:' argument folded into a sub-workflow step is
@@ -1204,7 +1326,7 @@ class TestSubWorkflowPreviousResultArgument:
         self, tmp_path, monkeypatch
     ):
         """This used to raise: 'Refusing to read an audio argument at
-        <dw.result.AudioTrack object at 0x...>: it resolves outside every
+        <dw.media_types.AudioTrack object at 0x...>: it resolves outside every
         directory this workflow may read' (#404)."""
         workflow = self._compose(tmp_path, monkeypatch)
 
@@ -1355,5 +1477,50 @@ class TestSubWorkflowValidation:
 
         warnings = workflow.sub_workflow_warnings()
 
-        assert [w["path"] for w in warnings] == ["steps[0].workflow.arguments.promt"]
-        assert "declares no variable" in warnings[0]["message"]
+        assert all(isinstance(w, str) for w in warnings)
+        assert warnings and warnings[0].startswith(
+            "steps[0].workflow.arguments.promt: "
+        )
+        assert "declares no variable" in warnings[0]
+
+    def test_sub_workflow_warnings_are_strings_at_the_authors_step(self, tmp_path):
+        """The path in the warning names the step index the author wrote,
+        not the index the step lands at after for_each expansion (#89)."""
+        import json
+
+        workflows = self._tree(tmp_path)
+        (workflows / "child.json").write_text(
+            json.dumps(
+                {
+                    "id": "child",
+                    "variables": {"prompt": "a cat"},
+                    "steps": [
+                        {
+                            "name": "noop",
+                            "task": {
+                                "command": "compose_text",
+                                "arguments": {"parts": ["variable:prompt"]},
+                            },
+                            "result": {"content_type": "text/plain"},
+                        }
+                    ],
+                }
+            )
+        )
+        workflow = self._parent(workflows, "child", {"promt": "a dog"})
+        workflow.workflow_definition["steps"].insert(
+            0,
+            {
+                "name": "fan",
+                "for_each": [{"name": "a"}, {"name": "b"}],
+                "task": {"command": "no_op", "arguments": {}},
+                "result": {"content_type": "text/plain"},
+            },
+        )
+
+        warnings = workflow.sub_workflow_warnings()
+
+        assert all(isinstance(w, str) for w in warnings)
+        assert warnings and warnings[0].startswith(
+            "steps[1].workflow.arguments.promt: "
+        )

@@ -7,7 +7,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.tasks.dissolve_videos import dissolve_videos
 
 
@@ -23,6 +23,12 @@ def audio_video(num_frames, level, tone, fps=4, sample_rate=100):
     samples = int(num_frames / fps * sample_rate)
     audio = numpy.full((2, samples), float(tone), dtype=numpy.float32)
     return AudioVideo(frames(num_frames, level), audio, sample_rate)
+
+
+def unrated_video():
+    """Audio from a pipeline that reported no rate."""
+    clip = audio_video(8, 0, 1.0)
+    return AudioVideo(clip.frames, clip.audio, None)
 
 
 class TestDissolveVideos:
@@ -61,6 +67,56 @@ class TestDissolveVideos:
     def test_a_video_too_short_for_its_seams_is_refused(self):
         with pytest.raises(ValueError, match="too few"):
             dissolve_videos([frames(10, 0), frames(5, 0), frames(10, 0)], 3)
+
+    def test_every_shortfall_is_named_in_the_one_error(self):
+        """Validation reports every short video; the run used to raise only
+        the first, so a second short one surfaced on the next attempt."""
+        with pytest.raises(ValueError) as raised:
+            dissolve_videos([frames(2, 0), frames(10, 0), frames(1, 0)], 3)
+
+        message = str(raised.value)
+        assert "video 0 has 2 frames" in message
+        assert "video 2 has 1 frames" in message
+        assert "; " in message
+
+    def test_a_single_shortfall_keeps_its_message(self):
+        with pytest.raises(ValueError) as raised:
+            dissolve_videos([frames(10, 0), frames(5, 0), frames(10, 0)], 3)
+
+        assert str(raised.value) == (
+            "video 1 has 5 frames, too few for its 2 dissolve(s) of 3 frames"
+        )
+
+    def test_a_track_with_no_sample_rate_is_not_joined_silently(self):
+        """A pipeline that reports no rate leaves AudioVideo.sample_rate None.
+        Dissolve has never guessed one: unpinned, the target cannot be chosen
+        (TypeError from max); pinned, the mismatch is warned and the resample
+        refuses the unrated track."""
+        videos = [
+            unrated_video(),
+            audio_video(8, 0, 1.0, sample_rate=32000),
+        ]
+        with pytest.raises(TypeError):
+            dissolve_videos(videos, 2, fps=4)
+
+    def test_a_pinned_rate_warns_and_then_refuses_an_unrated_track(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        videos = [
+            unrated_video(),
+            audio_video(8, 0, 1.0, sample_rate=32000),
+        ]
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            with pytest.raises(ValueError, match="sample_rate above zero"):
+                dissolve_videos(videos, 2, fps=4, sample_rate=48000)
+        finally:
+            deactivate_context(token)
+
+        assert [e.get("kind") for e in events if e.get("event") == "warning"] == [
+            "sample_rate_mismatch"
+        ]
 
     def test_negative_counts_are_refused(self):
         with pytest.raises(ValueError, match="negative"):
@@ -212,7 +268,7 @@ class TestJoinedAudioFitsTheFrameGrid:
     remedy on pair_audio's single-track case."""
 
     def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
@@ -227,7 +283,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert "padded" in caplog.text
 
     def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(8, 0), numpy.full((2, 190), 0.5, dtype=numpy.float32), 100

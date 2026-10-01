@@ -1,7 +1,7 @@
 """Job queue over the persistent worker process.
 
-One runner thread executes jobs FIFO against the single GPU worker - the
-same WorkerManager the REPL uses. Jobs collect their progress events with
+One runner thread executes jobs FIFO against the single GPU worker, managed
+by WorkerManager. Jobs collect their progress events with
 sequence numbers so an SSE client can attach late (or reconnect) and replay
 from where it left off.
 """
@@ -11,18 +11,31 @@ import copy
 import json
 import queue
 import secrets
-import sqlite3
 import time
 import uuid
 import logging
 import threading
 
-from ..download_watch import format_progress
-from ..repl_worker import WorkerManager
-from ..workflow import SEED_BITS, workflow_from_file, workflow_from_definition
-from ..introspection import workflow_argument_warnings
-from ..schema import format_validation_errors
-from ..variables import argument_errors
+from ..worker_protocol import (
+    Cancelled,
+    ClearMemory,
+    Execute,
+    Failed,
+    MemoryCleared,
+    MemoryInfo,
+    MemoryStatus,
+    MemoryStatusReply,
+    Output,
+    ProbeCache,
+    Progress,
+    Succeeded,
+    UnknownReply,
+    WorkerCrashed,
+    WorkflowLoaded,
+    parse_reply,
+)
+from ..worker_manager import WorkerManager
+from ..workflow_run import SEED_BITS
 from ..security import (
     SecurityError,
     validate_json_size,
@@ -34,699 +47,24 @@ from ..realize import VARIABLE_PREFIX
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
-from .observed_cost import EVENT_CAP, LOADING_MARKER
+from .job_history import JobHistory
+from .job_record import (
+    ACK_NONE,
+    CANCELLED,
+    FAILED,
+    QUEUED,
+    RERUN_SPEC_KEYS,
+    RUNNING,
+    SUCCEEDED,
+    TERMINAL_STATES,
+    Job,
+)
 
 logger = logging.getLogger("dw")
-
-QUEUED = "queued"
-RUNNING = "running"
-SUCCEEDED = "succeeded"
-FAILED = "failed"
-CANCELLED = "cancelled"
-TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
-
-# Which form of cost acknowledgement a job was queued with (#85): none (the
-# web UI and every HTTP caller that sends nothing), a bare boolean, or one
-# bound to the plan that was validated
-ACK_NONE = "none"
-ACK_BOOLEAN = "boolean"
-ACK_BOUND = "bound"
-
-# The spec fields a rerun needs - shared by persistence and live rerun
-RERUN_SPEC_KEYS = (
-    "workflow_path",
-    "workflow",
-    "base_dir",
-    # A rerun belongs in the workspace the original ran in, so the roots
-    # that decided that are part of what history keeps
-    "workspace",
-    "output_dir",
-    "asset_dir",
-    # so a rerun is attributed to the same catalog entry
-    "catalog_name",
-    "workflow_dir",
-    # what the original run was consented to, kept for the record - a
-    # rerun's own request decides its form
-    "acknowledged_cost",
-)
 
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
-
-# A long run emits thousands of progress events; the tail is what explains
-# the outcome. Bounded so history stays a summary store, not an event log
-MAX_PERSISTED_EVENTS = 200
-
-
-class JobHistory:
-    """Finished jobs, persisted so the Jobs view survives server restarts.
-
-    Records land at terminal state only - a crash mid-run loses that run's
-    row, which is the right trade for never blocking the runner on disk.
-    The last MAX_PERSISTED_EVENTS progress events ride along, so a job can
-    still explain itself after a restart; everything earlier is dropped.
-    """
-
-    def __init__(self, db_path):
-        self.db_path = str(db_path)
-        self._lock = threading.Lock()
-        with self._connect() as connection:
-            connection.execute("""CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    workflow TEXT,
-                    status TEXT,
-                    created_at REAL,
-                    started_at REAL,
-                    finished_at REAL,
-                    arguments TEXT,
-                    spec TEXT,
-                    manifest TEXT,
-                    warnings TEXT,
-                    error TEXT,
-                    events TEXT
-                )""")
-            # Databases written before events were persisted are missing the
-            # column; ALTER is the whole migration, and rows keep NULL
-            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
-            if "events" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
-            # Every row predating workspaces belongs to the default one -
-            # history that cannot say which workspace a job ran in stops
-            # making sense the moment there are two
-            if "workspace" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN workspace TEXT DEFAULT 'default'"
-                )
-                connection.execute(
-                    "UPDATE jobs SET workspace = 'default' WHERE workspace IS NULL"
-                )
-            # The catalog name the job was run from, beside `workflow` (the
-            # definition's id). Ids are not unique across a catalog forever;
-            # names are, and a later runtime-by-workflow join wants the exact
-            # one. Rows before this column stay NULL: old history is
-            # unjoinable, new history is exact
-            if "workflow_name" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN workflow_name TEXT")
-            # Which run of the workflow this job was - the directory under the
-            # output root that holds its manifest and its realized workflow.
-            # NULL for every row predating run tracking, and the manager
-            # refuses to guess one from file paths
-            if "run_id" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
-            if "run_dir" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
-            # That run's ordinal among the workflow's runs - the 'v4' the
-            # gallery shows. NULL before the column, and for a job that
-            # never opened a run
-            if "run_version" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_version INTEGER")
-            # Which form of cost acknowledgement queued the job. Rows before
-            # the column are 'none' - nothing recorded is nothing recorded
-            if "acknowledged" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'"
-                )
-            # The worker's own high-water mark for this run (#243) - NULL for
-            # a row predating the column and for any run that never reported
-            # one (cancelled/errored before the worker's final memory_info)
-            if "host_memory_peak_rss_mb" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN host_memory_peak_rss_mb REAL"
-                )
-            # This job's own contribution to that process-lifetime figure -
-            # growth since the job's first phase-boundary reading, or its
-            # current rss when it caused no growth (#272). NULL for a row
-            # predating the column and for any run that never got a
-            # memory_info message at all
-            if "host_memory_job_peak_rss_mb" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN host_memory_job_peak_rss_mb REAL"
-                )
-
-    def _connect(self):
-        # WAL mode lets a reader (the web UI polling job status, an MCP
-        # get_job call) proceed without blocking behind whatever write the
-        # worker is mid-transaction on, and vice versa - the default
-        # rollback-journal mode takes a database-wide lock for the
-        # duration of a write. journal_mode is a property of the database
-        # file, not the connection, but PRAGMA is cheap and idempotent, so
-        # it is set on every connect rather than assumed to have stuck.
-        connection = sqlite3.connect(self.db_path, timeout=5)
-        connection.execute("PRAGMA journal_mode=WAL")
-        return connection
-
-    def record(self, job):
-        # The spec's workflow_name/warnings are derived; keep what rerun needs
-        rerun_spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
-        with self._lock, self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
-                " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace, workflow_name, run_id, run_dir,"
-                " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb, run_version) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    job.id,
-                    job.workflow_name,
-                    job.status,
-                    job.created_at,
-                    job.started_at,
-                    job.finished_at,
-                    json.dumps(job.spec.get("arguments", {}), default=str),
-                    json.dumps(rerun_spec, default=str),
-                    json.dumps(job.manifest, default=str),
-                    json.dumps(job.warnings, default=str),
-                    job.error,
-                    json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
-                    job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
-                    job.catalog_name,
-                    job.run_id,
-                    job.run_dir,
-                    job.acknowledged,
-                    # A test double or an older in-memory Job predating this
-                    # column reports None here rather than failing record()
-                    # (#243) - the same "absent means unknown" the column
-                    # itself allows
-                    getattr(job, "host_memory_peak_rss_mb", None),
-                    getattr(job, "host_memory_job_peak_rss_mb", None),
-                    getattr(job, "run_version", None),
-                ),
-            )
-
-    def recent_summaries(self, limit=200, workspace=None, statuses=None):
-        """Summary rows only - the jobs list is polled, and parsing four JSON
-        blobs per row just to show six scalars was pure waste.
-
-        `workspace` filters to one workspace's rows; omitted, history spans
-        all of them the way the list already did before workspaces existed.
-        `statuses` filters to a set of terminal states - in SQL rather than
-        over the returned rows, or the newest-first cap above would be
-        spent on rows the filter then drops.
-        """
-        query = (
-            "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name, run_id, acknowledged, run_version"
-            " FROM jobs"
-        )
-        params = []
-        clauses = []
-        if workspace:
-            clauses.append("workspace = ?")
-            params.append(workspace)
-        if statuses:
-            statuses = list(statuses)
-            placeholders = ", ".join("?" for _ in statuses)
-            clauses.append(f"status IN ({placeholders})")
-            params.extend(statuses)
-        if clauses:
-            query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(query, params).fetchall()
-        return [
-            {
-                "id": row[0],
-                "workflow": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "started_at": row[4],
-                "finished_at": row[5],
-                "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
-                "workflow_name": row[7],
-                "run_id": row[8],
-                "acknowledged": row[9] or ACK_NONE,
-                "run_version": row[10],
-                "historical": True,
-            }
-            for row in rows
-        ]
-
-    def get(self, job_id):
-        with self._lock, self._connect() as connection:
-            row = connection.execute(
-                "SELECT id, workflow, status, created_at, started_at, finished_at,"
-                " arguments, spec, manifest, warnings, error, workspace,"
-                " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version FROM jobs WHERE id = ?",
-                (job_id,),
-            ).fetchone()
-        return self._to_detail(row) if row else None
-
-    def watermark(self):
-        """How far the table has got - what a derived figure caches against.
-
-        A job landing changes every observed cost and changes no file, so an
-        mtime cache cannot see it (dw/server/observed_cost.py). Counted over
-        `workflow_name IS NOT NULL` rather than every row, because
-        `orphan_workflow_history` (#274) detaches a deleted workflow's rows by
-        clearing that column rather than deleting the row - an ordinary
-        `COUNT(*)` would not move, and `ObservedCosts` would keep serving the
-        purged figure until an unrelated job happened to land. Counting only
-        the joinable rows falls by exactly the amount a purge detaches, the
-        same as a prune lowering it.
-        """
-        with self._lock, self._connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*), MAX(finished_at) FROM jobs"
-                " WHERE workflow_name IS NOT NULL"
-            ).fetchone()
-        return (row[0], row[1]) if row else (0, None)
-
-    def finished_runs(self):
-        """Every successful, named run grouped by (workspace, workflow name),
-        as the rows an observed cost is derived from.
-
-        One query for the whole catalog rather than one per workflow. The
-        cold/warm split is decided in SQL on the persisted event tail - a
-        `loading` phase as `json.dumps` wrote it - so 200 events per row are
-        never parsed to answer a yes/no question, and whether that tail hit
-        its cap comes back too, because a run whose `loading` phase was
-        trimmed away has to count as neither rather than as warm.
-
-        Rows with no `workflow_name` (recorded before the column existed, or
-        run from an inline definition, or orphaned by `orphan_workflow_history`)
-        are unjoinable and left out. The workspace dimension is always in the
-        key here; whether a caller treats two workspaces as one history (a
-        shared catalog source, #154) or as separate (a workspace's own
-        writable copy, #274) is decided in `ObservedCosts.rows_for`, which is
-        the layer that knows which kind of source it was asked about.
-        """
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT workflow_name, workspace, started_at, finished_at,"
-                " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
-                " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb"
-                " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
-                " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
-                (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
-            ).fetchall()
-        grouped = {}
-        for (
-            name,
-            workspace,
-            started,
-            finished,
-            arguments,
-            manifest,
-            had_load,
-            at_cap,
-            peak_rss_mb,
-            job_peak_rss_mb,
-        ) in rows:
-            key = (workspace or DEFAULT_WORKSPACE_NAME, name)
-            grouped.setdefault(key, []).append(
-                {
-                    "started_at": started,
-                    "finished_at": finished,
-                    "duration": finished - started,
-                    "arguments": arguments,
-                    "manifest": manifest,
-                    "had_load": bool(had_load),
-                    "events_at_cap": bool(at_cap),
-                    "host_memory_peak_rss_mb": peak_rss_mb,
-                    "host_memory_job_peak_rss_mb": job_peak_rss_mb,
-                }
-            )
-        return grouped
-
-    def orphan_workflow_history(self, workspace, workflow_name):
-        """Detach this (workspace, workflow_name)'s finished runs from cost
-        history (#274).
-
-        Deleting a workflow does not delete the job rows that ran it - those
-        stay for `list_jobs`/`get_job` and any other audit trail - but a name
-        reused afterwards, in this workspace or a fresh one copied from it,
-        must not inherit the old identity's figures. Setting `workflow_name`
-        to NULL is enough: `finished_runs()` already excludes rows where it
-        is NULL, the same rule that already excludes a run from an inline
-        definition.
-        """
-        with self._lock, self._connect() as connection:
-            connection.execute(
-                "UPDATE jobs SET workflow_name = NULL"
-                " WHERE workspace = ? AND workflow_name = ?",
-                (workspace, workflow_name),
-            )
-
-    def events_for(self, job_id):
-        """A finished job's persisted event tail. [] for a job recorded
-        before events were kept, None for a job history has never seen -
-        the caller needs to tell 'no events' from 'no such job'."""
-        with self._lock, self._connect() as connection:
-            row = connection.execute(
-                "SELECT events FROM jobs WHERE id = ?", (job_id,)
-            ).fetchone()
-        if row is None:
-            return None
-        if not row[0]:
-            return []
-        try:
-            return json.loads(row[0])
-        except json.JSONDecodeError:
-            return []
-
-    def job_for_file(self, file_name, workspace=None):
-        """The most recent job that actually wrote this output file.
-
-        LIKE metacharacters are escaped - generated names routinely contain
-        '_', which would otherwise match any character and let a similarly
-        named later job claim the file.
-
-        A manifest entry marked 'reused' is a step-cache hit republishing an
-        earlier run's files, so it is skipped: attribution belongs to the job
-        that wrote the file, not to every later run that reused it.
-
-        `workspace` narrows the scan to one workspace - two workspaces can
-        each produce a file with the same relative name, and without this a
-        later job in another workspace could wrongly claim the match.
-        """
-        escaped = (
-            file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        )
-        # Unbounded on purpose: every later fixed-seed rerun republishes the
-        # file with 'reused', so a LIMIT would let the writing job fall out of
-        # the window after that many reruns and leave the file unattributed.
-        # The LIKE filter already restricts the scan to manifests naming it.
-        query = (
-            "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
-        )
-        params = [f"%{escaped}%"]
-        if workspace:
-            query += " AND workspace = ?"
-            params.append(workspace)
-        query += " ORDER BY finished_at DESC"
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(query, params).fetchall()
-        for row in rows:
-            if self._manifest_wrote(row[2], file_name):
-                return {"id": row[0], "status": row[1]}
-        return None
-
-    @staticmethod
-    def _manifest_wrote(manifest_text, file_name):
-        """Whether this manifest names the file in an entry it wrote itself.
-
-        A manifest that will not parse falls back to the LIKE match that
-        found it - a row recorded before entries carried 'reused' cannot
-        have been a reuse anyway.
-        """
-        try:
-            manifest = json.loads(manifest_text)
-        except (TypeError, ValueError):
-            return True
-        if not isinstance(manifest, list):
-            return True
-        # A manifest entry names a file the way the run recorded it - a
-        # server-recorded manifest holds names relative to the output
-        # directory (_relative_output_names), a directly-run workflow's holds
-        # absolute paths. The caller names it relative to the output
-        # directory, so match on the tail either way - the same relationship
-        # the LIKE substring match relied on
-        wanted = file_name.replace(os.sep, "/")
-
-        def names_file(path):
-            normalized = path.replace(os.sep, "/")
-            return normalized == wanted or normalized.endswith("/" + wanted)
-
-        return any(
-            not entry.get("reused")
-            and any(names_file(path) for path in entry.get("files") or [])
-            for entry in manifest
-            if isinstance(entry, dict)
-        )
-
-    @staticmethod
-    def _to_detail(row):
-        def parse(text, fallback):
-            try:
-                return json.loads(text)
-            except (TypeError, ValueError):
-                return fallback
-
-        spec = parse(row[7], {})
-        # The persisted tail is capped at MAX_PERSISTED_EVENTS, and
-        # get_job_events serves that same tail - so counting it, rather than
-        # hardcoding 0, keeps event_count truthful about what a caller who
-        # pages through get_job_events will actually see (#289)
-        events = parse(row[16], [])
-        return {
-            "id": row[0],
-            "workflow": row[1],
-            "status": row[2],
-            "created_at": row[3],
-            "started_at": row[4],
-            "finished_at": row[5],
-            "arguments": parse(row[6], {}),
-            "spec": spec,
-            "manifest": parse(row[8], []),
-            "warnings": parse(row[9], []),
-            "error": row[10],
-            "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
-            "workflow_name": row[12],
-            "run_id": row[13],
-            "run_dir": row[14],
-            "run_version": row[17],
-            "acknowledged": row[15] or ACK_NONE,
-            "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
-            "traceback": None,
-            "event_count": len(events) if isinstance(events, list) else 0,
-            "historical": True,
-        }
-
-
-class Job:
-    """One workflow execution request and everything observed about it."""
-
-    def __init__(self, spec):
-        self.id = uuid.uuid4().hex[:12]
-        self.spec = spec
-        self.workflow_name = spec.get("workflow_name", "unknown")
-        self.catalog_name = spec.get("catalog_name")
-        self.status = QUEUED
-        self.created_at = time.time()
-        self.started_at = None
-        self.finished_at = None
-        self.manifest = []
-        # A copy: run-time warnings are appended to this list (see
-        # _note_progress) and the spec is what a rerun is built from
-        self.warnings = list(spec.get("warnings", []))
-        self.error = None
-        self.traceback = None
-        # Which run this job turned out to be - reported by the worker's
-        # run_start event, unknown until then and forever for a job that
-        # never got that far
-        self.run_id = None
-        self.run_dir = None
-        self.run_version = None
-        # Which form of cost acknowledgement queued this job (#85)
-        self.acknowledged = spec.get("acknowledged") or ACK_NONE
-        # The worker's own high-water mark for this run, from its final
-        # memory_info message - None for a run that never got that far (#243)
-        self.host_memory_peak_rss_mb = None
-        # This job's own contribution to that process-lifetime figure -
-        # growth since the job's first phase boundary, or the job's current
-        # rss when it caused no growth (#272). None for a run that never got
-        # a memory_info message at all
-        self.host_memory_job_peak_rss_mb = None
-        self.events = []
-        # The running summary a poll reads - see _note_progress. Kept as the
-        # events arrive rather than derived from the log on request, because
-        # the log is trimmed to its last MAX_PERSISTED_EVENTS and a caller
-        # polling a long render should not have to page through it to learn
-        # that something moved
-        self.last_event_at = None
-        self.phase = None
-        self.phase_detail = None
-        self.phase_started_at = None
-        self.step_name = None
-        self.parent_step = None
-        self.step_index = None
-        self.total_steps = None
-        self.denoise_step = None
-        self.denoise_total_steps = None
-        self.condition = threading.Condition()
-
-    def add_event(self, event):
-        with self.condition:
-            # `at` is seconds since the job started (since it was created,
-            # for the events before that). Phases say what a step is waiting
-            # on; only a clock on each event says what it cost - the
-            # lead-in from `step_start` to the first `pipeline_step` on a
-            # reused pipeline is the number a "slow start" report needs
-            since = self.started_at if self.started_at is not None else self.created_at
-            self.events.append(
-                {"seq": len(self.events), "at": round(time.time() - since, 1), **event}
-            )
-            self._note_progress(event)
-            self.condition.notify_all()
-
-    def _note_progress(self, event):
-        """Fold one event into the running summary.
-
-        A single-step generation emits `generating` and then nothing until it
-        is done, so 'no new events' is the normal state of a healthy run and
-        says nothing about whether it is progressing. What answers that is
-        how long it has been that way, and how far into the denoise loop it
-        got - both of which are here rather than in the event log.
-        """
-        now = time.time()
-        self.last_event_at = now
-        kind = event.get("event")
-        if kind == "phase":
-            self.phase = event.get("phase")
-            self.phase_detail = event.get("detail")
-            self.phase_started_at = now
-        elif kind == "pipeline_step":
-            self.denoise_step = event.get("step")
-            self.denoise_total_steps = event.get("total_steps")
-        elif kind == "download_progress":
-            # Folded into phase_detail rather than a field of its own - a
-            # poller already reads phase_detail for what the loading phase
-            # is waiting on, and the next "phase" event (loading ending)
-            # overwrites it same as any other detail (#343)
-            self.phase_detail = format_progress(
-                event.get("repo_id"),
-                event.get("downloaded_bytes"),
-                event.get("bytes_per_second"),
-                event.get("seconds_since_bytes_changed"),
-            )
-        elif kind == "warning":
-            # Both channels, on purpose: the event log keeps the moment it
-            # happened, `warnings` keeps it where a caller who polled the
-            # finished job will actually look, since a warning about the
-            # artifact outlives the run that noticed it (#82). The step it
-            # fired in is the run's, not the warning's - the engine warns
-            # from inside a step without knowing which one it is.
-            #
-            # A phase-stall report (#176) is the exception: it is a moment,
-            # not a fact about the result - a 90 s cold load says "still in
-            # phase 'loading'" three times and then succeeds - so it stays
-            # in the event log only. `warnings` is the channel a consumer
-            # reads after the run, and the regression suites assert it is
-            # empty on a clean one.
-            message = event.get("message")
-            if message and event.get("kind") != "phase_stall":
-                named = f"{self.step_name}: {message}" if self.step_name else message
-                if named not in self.warnings:
-                    self.warnings.append(named)
-        elif kind == "step_start":
-            self.step_name = event.get("step")
-            # A sub-workflow counts its own steps from zero; what a caller
-            # watching a composed run needs is where the run it queued has
-            # got to, so the parent's counter wins when the event carries
-            # one and the step name stays the child's (#90)
-            self.parent_step = event.get("parent_step")
-            self.step_index = event.get("parent_index", event.get("index"))
-            self.total_steps = event.get("parent_total_steps", event.get("total_steps"))
-            # A new step's denoise loop has not started; the previous step's
-            # count would read as this one's progress
-            self.denoise_step = None
-            self.denoise_total_steps = None
-
-    def progress(self):
-        """Where a running job has got to, or None for one that has not
-        started - a terminal job has a manifest, which is a better answer
-        than a stale phase, except for FAILED: the manifest is only the
-        steps that finished, not the one that was running when the job died,
-        and that phase (`loading` / `generating` / `decoding` / `saving`) is
-        the fastest way to tell what killed it without reading a traceback
-        (#269). Frozen at `finished_at` rather than read against the current
-        clock, so `seconds_in_phase` reports how long the dead step had been
-        running rather than growing forever after the job is long over."""
-        if self.last_event_at is None or self.status not in (RUNNING, FAILED):
-            return None
-        now = (
-            self.finished_at
-            if self.status == FAILED and self.finished_at
-            else time.time()
-        )
-        summary = {
-            "step": self.step_name,
-            # The step of the queued workflow the one above is running
-            # inside, for a composed run; null when they are the same thing
-            "parent_step": self.parent_step,
-            "step_index": self.step_index,
-            "total_steps": self.total_steps,
-            "phase": self.phase,
-            "phase_detail": self.phase_detail,
-            "seconds_in_phase": (
-                round(now - self.phase_started_at, 1) if self.phase_started_at else None
-            ),
-            # The one number that separates a slow run from a hung one -
-            # but only once the denoise loop is running, see below
-            "seconds_since_event": round(now - self.last_event_at, 1),
-            # Always present, null until the loop starts. A key that only
-            # appears once there is a count to report cannot be told apart
-            # from a key that is missing because nothing is happening: the
-            # lead-in to `generating` - encoding the prompt and any
-            # reference image or audio - is over a minute of silence on a
-            # large video model, and read as an absent counter it looks
-            # exactly like a wedged denoise loop. Null here means the loop
-            # has not started; a number that stops moving is the stuck one
-            "denoise_step": self.denoise_step,
-            "denoise_total_steps": self.denoise_total_steps,
-        }
-        return summary
-
-    def finish(self, status, error=None, traceback_text=None):
-        self.status = status
-        self.finished_at = time.time()
-        self.error = error
-        self.traceback = traceback_text
-        self.add_event({"event": "job_status", "status": status})
-
-    def events_after(self, after_seq):
-        # Clamped: an 'after' below -1 would slice from the END of the log
-        # (events[-4:] for after=-5) and silently drop the earlier events a
-        # client asking for everything expects
-        after_seq = max(after_seq, -1)
-        with self.condition:
-            return self.events[after_seq + 1 :]
-
-    def wait_for_event(self, after_seq, timeout):
-        """Block until an event past after_seq exists or the job ends."""
-        with self.condition:
-            if len(self.events) > after_seq + 1 or self.status in TERMINAL_STATES:
-                return
-            self.condition.wait(timeout)
-
-    def summary(self):
-        return {
-            "id": self.id,
-            "workflow": self.workflow_name,
-            "workflow_name": self.catalog_name,
-            "status": self.status,
-            "created_at": self.created_at,
-            "started_at": self.started_at,
-            "finished_at": self.finished_at,
-            # Which workspace this job runs in - a live job's spec may not
-            # carry one yet (e.g. a caller that never named a workspace),
-            # so it defaults the same way history's column does
-            "workspace": self.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
-            "run_id": self.run_id,
-            # The run's ordinal - 'v4' - so the job that just ran can be
-            # named the way the gallery will name it
-            "run_version": self.run_version,
-            "acknowledged": self.acknowledged,
-        }
-
-    def detail(self):
-        return {
-            **self.summary(),
-            "arguments": self.spec.get("arguments", {}),
-            "warnings": self.warnings,
-            "manifest": self.manifest,
-            "error": self.error,
-            "traceback": self.traceback,
-            "event_count": len(self.events),
-            "run_dir": self.run_dir,
-            "acknowledged_cost": self.spec.get("acknowledged_cost"),
-            "progress": self.progress(),
-        }
 
 
 class JobManager:
@@ -770,6 +108,8 @@ class JobManager:
 
     def submit(
         self,
+        *,
+        admitted,
         workflow_path=None,
         workflow=None,
         arguments=None,
@@ -783,14 +123,21 @@ class JobManager:
         acknowledged_cost=None,
         warnings=None,
     ):
-        """Validate a job request and queue it. Raises ValueError on a bad
-        request so the HTTP layer can answer 400 before anything runs.
+        """Record a job request and queue it.
+
+        Callers admit first (`dw.server.admission.admit`) and pass the
+        admitted Workflow as `admitted`. submit records and queues; it does
+        not re-check. The job carries admission's snapshot - its definition,
+        file_spec and name - and the worker runs that, so a file edited
+        while the job waits runs as it was admitted. Raises ValueError only
+        when the request names neither or both of `workflow_path` and
+        `workflow`.
 
         `workflow_dir` overrides this job's confinement root for a workflow
         that lives outside the writable directory - an example or a builtin,
         which the caller has already resolved against the search path. The
-        worker re-validates against whatever this job records, so the
-        override travels with the job rather than widening the manager.
+        worker confines the job's file_spec to whatever this job records, so
+        the override travels with the job rather than widening the manager.
 
         `output_dir`, `asset_dir` and `workspace` name which workspace this
         job runs in. They travel with the job for the same reason: one
@@ -804,9 +151,12 @@ class JobManager:
         (none/boolean/bound) and `acknowledged_cost` the bound object - both
         recorded, neither checked here; the route checks (#85).
 
-        `warnings` are the caller's own, added to the job's - the route's
-        inherited VRAM ceiling (#502), which needs the catalog this manager
-        does not hold.
+        `warnings` are the admission's (`Admission.warnings`) - every warning
+        /api/validate reports for this request - recorded on the job.
+
+        `workflow_path`, `workflow` and `base_dir` are the request as the
+        caller made it, kept for a rerun (which admits afresh) and for
+        `definition()`; the snapshot is not persisted.
         """
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
@@ -819,46 +169,22 @@ class JobManager:
         os.makedirs(job_output_dir, exist_ok=True)
 
         if workflow_path is not None:
-            # Loads and schema-validates now - a bad path or file fails the
-            # request, not the queue. Checked against the caller's arguments,
-            # not the document alone - a bare validate() checks the document
-            # with no arguments and so could refuse a run _candidate_for had
-            # already accepted for the same call (#415, the run_workflow
-            # mirror of #414)
-            loaded = workflow_from_file(workflow_path, job_output_dir, confinement)
-            errors = loaded.validation_errors(arguments=arguments)
-            if errors:
-                raise Exception(format_validation_errors(errors))
-            spec = {
-                "workflow_path": workflow_path,
-                "workflow_name": loaded.name,
-                "arguments": arguments,
-                "workflow_dir": confinement,
-            }
+            spec = {"workflow_path": workflow_path, "source": "path"}
         else:
-            # workflow_from_definition validates base_dir - it is HTTP-supplied
-            # path input and goes through the security layer like every path
-            loaded = workflow_from_definition(
-                copy.deepcopy(workflow), job_output_dir, base_dir, confinement
-            )
-            errors = loaded.validation_errors(arguments=arguments)
-            if errors:
-                raise Exception(format_validation_errors(errors))
+            # Without one, the directory admission resolved relative paths
+            # against - the synthetic file_spec's own - kept so a rerun
+            # admits against the same directory
             spec = {
                 "workflow": workflow,
-                # Must match workflow_from_definition's fallback - the worker
-                # re-validates this against workflow_dir
-                "base_dir": base_dir
-                or (os.path.abspath(confinement) if confinement else os.getcwd()),
-                "workflow_name": loaded.name,
-                "arguments": arguments,
-                # Must be the same root the worker re-validates base_dir
-                # against (workflow_from_definition -> validate_path) - this
-                # job's own confinement, not the manager's process-wide
-                # default, or a named workspace's inline job fails after a
-                # 201 the moment base_dir and workflow_dir disagree
-                "workflow_dir": confinement,
+                "base_dir": base_dir or os.path.dirname(admitted.file_spec),
+                "source": "inline",
             }
+        # The snapshot admission checked: what the worker builds and runs
+        spec["definition"] = admitted.workflow_definition
+        spec["file_spec"] = admitted.file_spec
+        spec["workflow_name"] = admitted.name
+        spec["arguments"] = arguments
+        spec["workflow_dir"] = confinement
 
         # Which workspace this job runs in, and the roots that follow from
         # it - recorded on the job so history, the worker command and a
@@ -873,29 +199,7 @@ class JobManager:
         spec["output_dir"] = job_output_dir
         if asset_dir:
             spec["asset_dir"] = asset_dir
-
-        # The caller's own arguments, checked against the variables this
-        # workflow declares. set_variables makes the same check at the top of
-        # the run, so a bad name failed a job that had already been queued -
-        # and a workflow declaring no variables dropped every argument in
-        # silence. Refused here instead, while it is still a 400
-        problems = argument_errors(loaded.workflow_definition, arguments)
-        if problems:
-            raise ValueError(
-                "; ".join(
-                    f"{problem['path']}: {problem['message']}" for problem in problems
-                )
-            )
-
-        # Signature-level check of pipeline arguments - the typo that would
-        # otherwise be a TypeError after the model loads becomes a warning
-        # the client sees at submission
-        spec["warnings"] = workflow_argument_warnings(
-            loaded.workflow_definition, arguments
-        )
-        # What the caller worked out and this manager cannot - a VRAM ceiling
-        # inherited from the catalog needs the workspace's search path (#502)
-        spec["warnings"] += list(warnings or [])
+        spec["warnings"] = list(warnings or [])
 
         job = Job(spec)
         with self._lock:
@@ -915,38 +219,46 @@ class JobManager:
         return self.history.get(job_id)
 
     def definition(self, job_id):
-        """The workflow JSON a job ran, for a read-only view of it.
+        """The workflow JSON a job names, for a read-only view of it and for
+        what a rerun will draw its seed into.
 
-        An inline definition comes straight from the spec; a job launched
-        from a path is re-read from disk, confined to the root the job ran
-        against. None when there is no such job, or when the file it named
-        has since moved, grown past the size limit or stopped parsing - a
-        graph of the run is a nicety, never a reason to fail the page.
+        A job launched from a path answers with that file as it is now, the
+        same file a rerun admits - re-read from disk, confined to the root
+        the job ran against. When the file can no longer be read (it moved,
+        grew past the size limit or stopped parsing), a live job falls back
+        to the snapshot admission checked, so the page still shows what ran.
+        A restored job has no snapshot (it is not persisted). An inline
+        definition comes straight from the spec. None when there is no such
+        job, or nothing is left to show - a graph of the run is a nicety,
+        never a reason to fail the page.
         """
         job = self.jobs.get(job_id)
         if job is not None:
             spec = job.spec
+            snapshot = spec.get("definition")
         else:
             historical = self.history.get(job_id)
             if historical is None:
                 return None
             spec = historical.get("spec") or {}
+            snapshot = None
         inline = spec.get("workflow")
         if inline is not None:
             return copy.deepcopy(inline)
         path = spec.get("workflow_path")
-        if not path:
-            return None
-        try:
-            validated = validate_workflow_path(
-                path, spec.get("workflow_dir") or self.workflow_dir
-            )
-            validate_json_size(validated)
-            with open(validated, "r") as file:
-                return json.load(file)
-        except (SecurityError, OSError, ValueError):
-            logger.debug(f"No workflow definition available for job {job_id}")
-            return None
+        if path:
+            try:
+                validated = validate_workflow_path(
+                    path, spec.get("workflow_dir") or self.workflow_dir
+                )
+                validate_json_size(validated)
+                with open(validated, "r") as file:
+                    return json.load(file)
+            except (SecurityError, OSError, ValueError):
+                logger.debug(f"Workflow file for job {job_id} can no longer be read")
+        if snapshot is not None:
+            return copy.deepcopy(snapshot)
+        return None
 
     def realized(self, job_id):
         """The realized workflow a job ran, or None when the job predates
@@ -1000,50 +312,28 @@ class JobManager:
         name = seed.removeprefix(VARIABLE_PREFIX)
         return name if name in (definition.get("variables") or {}) else None
 
-    def rerun_spec(self, job_id):
+    def rerun_spec(self, job_id, new_seed=False):
         """The spec and arguments a rerun of `job_id` would submit, as
         (spec, arguments), or None for an unknown job - split from rerun()
-        so a route can plan the run before queuing it (#85)."""
+        so a route can admit the run before queuing it (#85).
+
+        `new_seed` draws a fresh seed into the workflow's seed variable
+        (see rerun). Raises ValueError when it cannot, and when the named
+        workspace the job ran in is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
             spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
-            return spec, job.spec.get("arguments", {})
-        historical = self.history.get(job_id)
-        if historical is None:
-            return None
-        spec = {
-            key: historical["spec"][key]
-            for key in RERUN_SPEC_KEYS
-            if key in historical["spec"]
-        }
-        return spec, historical["arguments"]
-
-    def rerun(
-        self, job_id, new_seed=False, acknowledged=ACK_NONE, acknowledged_cost=None
-    ):
-        """Queue a fresh job from a previous job's spec.
-
-        Every root the original ran against (workflow_dir/output_dir/
-        asset_dir/workspace) rides along, not just the workflow identity -
-        otherwise a rerun of a job from a named workspace would fall back to
-        the manager's process-wide default and silently run somewhere else.
-
-        `new_seed` draws a fresh seed into the workflow's seed variable. A
-        plain rerun of a seeded workflow repeats its arguments exactly, which
-        makes every step a step-cache hit: it republishes the earlier run's
-        files in a fraction of a second and generates nothing. That is the
-        cache doing its job - the same seed and the same inputs would produce
-        the same pixels - so the way to actually get another image is to
-        change the seed, and this is that.
-
-        `acknowledged` and `acknowledged_cost` are this request's own; the
-        original's bound object rides along in the spec for the record when
-        the request brought none.
-        """
-        prepared = self.rerun_spec(job_id)
-        if prepared is None:
-            return None
-        spec, arguments = prepared
+            arguments = job.spec.get("arguments", {})
+        else:
+            historical = self.history.get(job_id)
+            if historical is None:
+                return None
+            spec = {
+                key: historical["spec"][key]
+                for key in RERUN_SPEC_KEYS
+                if key in historical["spec"]
+            }
+            arguments = historical["arguments"]
 
         if new_seed:
             variable = self.seed_variable(job_id)
@@ -1065,16 +355,58 @@ class JobManager:
             and not os.path.isdir(spec["output_dir"])
         ):
             raise ValueError(f"Workspace '{workspace}' the job ran in no longer exists")
+        return spec, arguments
 
+    def rerun(
+        self,
+        job_id,
+        *,
+        admitted,
+        new_seed=False,
+        acknowledged=ACK_NONE,
+        acknowledged_cost=None,
+        warnings=None,
+        arguments=None,
+    ):
+        """Queue a fresh job from a previous job's spec.
+
+        Every root the original ran against (workflow_dir/output_dir/
+        asset_dir/workspace) rides along, not just the workflow identity -
+        otherwise a rerun of a job from a named workspace would fall back to
+        the manager's process-wide default and silently run somewhere else.
+
+        `new_seed` draws a fresh seed into the workflow's seed variable. A
+        plain rerun of a seeded workflow repeats its arguments exactly, which
+        makes every step a step-cache hit: it republishes the earlier run's
+        files in a fraction of a second and generates nothing. That is the
+        cache doing its job - the same seed and the same inputs would produce
+        the same pixels - so the way to actually get another image is to
+        change the seed, and this is that.
+
+        Like submit, rerun does not re-check: callers admit first. The route
+        admits the arguments `rerun_spec(job_id, new_seed)` answered and
+        passes them back as `arguments`, with the admission's `warnings` and
+        its Workflow as `admitted`, so what is queued is what was admitted -
+        the seed is not drawn twice.
+
+        `acknowledged` and `acknowledged_cost` are this request's own; the
+        original's bound object rides along in the spec for the record when
+        the request brought none.
+        """
+        prepared = self.rerun_spec(job_id, new_seed=new_seed and arguments is None)
+        if prepared is None:
+            return None
+        spec, recorded = prepared
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
-            arguments=arguments,
+            admitted=admitted,
+            arguments=recorded if arguments is None else arguments,
             base_dir=spec.get("base_dir"),
             workflow_dir=spec.get("workflow_dir"),
             output_dir=spec.get("output_dir"),
             asset_dir=spec.get("asset_dir"),
-            workspace=workspace,
+            workspace=spec.get("workspace"),
             catalog_name=spec.get("catalog_name"),
             acknowledged=acknowledged,
             acknowledged_cost=(
@@ -1082,6 +414,7 @@ class JobManager:
                 if acknowledged_cost is not None
                 else spec.get("acknowledged_cost")
             ),
+            warnings=warnings,
         )
 
     def queue_position(self, job_id):
@@ -1226,23 +559,21 @@ class JobManager:
             job.add_event({"event": "job_status", "status": RUNNING})
             try:
                 self.worker_manager.ensure_worker(self.log_level)
-                command = {
-                    "type": "execute",
-                    "arguments": job.spec["arguments"],
+                command = Execute(
+                    # The snapshot admission checked, which the worker runs
+                    # as it is rather than reading the file again
+                    definition=job.spec.get("definition"),
+                    file_spec=job.spec.get("file_spec"),
+                    source=job.spec.get("source"),
+                    workflow_dir=job.spec.get("workflow_dir"),
                     # The job's own roots, so a job queued for one workspace
                     # still runs in it after the manager has served another
-                    "output_dir": job.spec.get("output_dir") or self.output_dir,
-                    "log_level": self.log_level,
-                }
-                if job.spec.get("asset_dir"):
-                    command["asset_dir"] = job.spec["asset_dir"]
-                if "workflow_path" in job.spec:
-                    command["workflow_path"] = job.spec["workflow_path"]
-                else:
-                    command["workflow"] = job.spec["workflow"]
-                    command["base_dir"] = job.spec["base_dir"]
-                command["workflow_dir"] = job.spec.get("workflow_dir")
-                self.worker_manager.send_command(command)
+                    output_dir=job.spec.get("output_dir") or self.output_dir,
+                    arguments=job.spec["arguments"],
+                    log_level=self.log_level,
+                    asset_dir=job.spec.get("asset_dir") or None,
+                )
+                self.worker_manager.send_command(command.to_wire())
                 outcome = self._consume_results(job)
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
@@ -1256,7 +587,7 @@ class JobManager:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _record_manifest(self, job, message):
+    def _record_manifest(self, job, manifest):
         """What the run wrote, named the way clients address outputs.
 
         Recorded for a failed or cancelled run as well as a successful one -
@@ -1265,7 +596,7 @@ class JobManager:
         produced nothing" and "this run produced four of five shots"
         (T015)."""
         job.manifest = self._relative_manifest(
-            message.get("manifest", []), job.spec.get("output_dir")
+            manifest if manifest is not None else [], job.spec.get("output_dir")
         )
 
     def _relative_manifest(self, manifest, output_dir=None):
@@ -1327,76 +658,86 @@ class JobManager:
                 reason = f"Worker process died: {detail or e}"
                 logger.error(f"Job {job.id}: {reason}")
                 return (FAILED, reason, None)
-            message_type = message.get("type")
+            reply = parse_reply(message)
 
-            if message_type == "progress":
-                event = {k: v for k, v in message.items() if k != "type"}
-                if "files" in event:
-                    event["files"] = self._relative_output_names(
-                        event["files"], job.spec.get("output_dir")
-                    )
-                if "manifest" in event:
-                    # workflow_end carries the run's full manifest nested
-                    # under this key - it must match get_job's rendering of
-                    # the same list rather than leaking absolute paths (#284)
-                    event["manifest"] = self._relative_manifest(
-                        event["manifest"], job.spec.get("output_dir")
-                    )
-                if event.get("event") == "run_start":
-                    job.run_id = event.get("run_id")
-                    job.run_dir = event.get("run_dir")
-                    job.run_version = event.get("version")
-                job.add_event(event)
-            elif message_type in ("output", "workflow_loaded"):
-                text = message.get("message") or message.get("workflow_name", "")
-                job.add_event({"event": "log", "message": text})
-            elif message_type == "memory_info":
-                # One per phase boundary now, not just once post-run (#273) -
-                # each folds into the cached reading memory_status() answers
-                # from while the job is busy, which is what makes that call
-                # fresh instead of a refusal for the run's whole duration
-                self._record_memory(message.get("info"))
-                job.add_event({"event": "memory", "info": self.last_memory})
-                # The worker's own high-water mark, latest reading wins (it
-                # is monotonic for the process' life) - persisted as a real
-                # column rather than only inside the trimmed event tail (#243)
-                info = message.get("info") or {}
-                peak = info.get("host_memory_peak_rss_mb")
-                if peak is not None:
-                    job.host_memory_peak_rss_mb = peak
-                # This job's own contribution to that process-lifetime peak,
-                # computed against its own baseline (#272) - max() is
-                # defensive; by construction each reading only grows
-                job_peak = info.get("host_memory_job_peak_rss_mb")
-                if job_peak is not None:
-                    job.host_memory_job_peak_rss_mb = max(
-                        job_peak, job.host_memory_job_peak_rss_mb or 0
-                    )
-            elif message_type == "success":
-                self._record_manifest(job, message)
+            if isinstance(reply, Progress):
+                self._record_progress(job, dict(reply.event))
+            elif isinstance(reply, Output):
+                job.add_event({"event": "log", "message": reply.message or ""})
+            elif isinstance(reply, WorkflowLoaded):
+                job.add_event({"event": "log", "message": reply.workflow_name or ""})
+            elif isinstance(reply, MemoryInfo):
+                self._record_run_memory(job, reply.info)
+            elif isinstance(reply, Succeeded):
+                self._record_manifest(job, reply.manifest)
                 return (SUCCEEDED, None, None)
-            elif message_type == "cancelled":
-                self._record_manifest(job, message)
+            elif isinstance(reply, Cancelled):
+                self._record_manifest(job, reply.manifest)
                 return (CANCELLED, None, None)
-            elif message_type == "error":
+            elif isinstance(reply, Failed) and reply.request_id is None:
                 # A failed run's steps too: the ones before the failure wrote
                 # real files, and a job that reports an empty manifest hides
                 # them behind the error that stopped the run
-                self._record_manifest(job, message)
-                return (
-                    FAILED,
-                    message.get("message"),
-                    message.get("traceback"),
-                )
-            elif message_type == "worker_crashed":
+                self._record_manifest(job, reply.manifest)
+                return (FAILED, reply.message, reply.traceback)
+            elif isinstance(reply, WorkerCrashed):
                 self.worker_manager.mark_crashed()
                 return (
                     FAILED,
-                    f"Worker crashed: {message.get('message')}",
-                    message.get("traceback"),
+                    f"Worker crashed: {reply.message}",
+                    reply.traceback,
                 )
+            elif isinstance(reply, UnknownReply):
+                logger.warning(f"Unknown worker message type: {reply.type}")
             else:
-                logger.warning(f"Unknown worker message type: {message_type}")
+                # A request's reply (memory_status, memory_cleared,
+                # probe_cache, or an error answering one) whose reader gave
+                # up before it landed - nobody is waiting for it now
+                logger.debug(f"Discarding a stray worker reply: {reply.TYPE}")
+
+    def _record_progress(self, job, event):
+        """One run event onto the job, its file names relativised the way
+        clients address outputs."""
+        if "files" in event:
+            event["files"] = self._relative_output_names(
+                event["files"], job.spec.get("output_dir")
+            )
+        if "manifest" in event:
+            # workflow_end carries the run's full manifest nested under this
+            # key - it must match get_job's rendering of the same list rather
+            # than leaking absolute paths (#284)
+            event["manifest"] = self._relative_manifest(
+                event["manifest"], job.spec.get("output_dir")
+            )
+        if event.get("event") == "run_start":
+            job.run_id = event.get("run_id")
+            job.run_dir = event.get("run_dir")
+            job.run_version = event.get("version")
+        job.add_event(event)
+
+    def _record_run_memory(self, job, info):
+        """A memory reading the run reported. One per phase boundary now,
+        not just once post-run (#273) - each folds into the cached reading
+        memory_status() answers from while the job is busy, which is what
+        makes that call fresh instead of a refusal for the run's whole
+        duration."""
+        self._record_memory(info)
+        job.add_event({"event": "memory", "info": self.last_memory})
+        # The worker's own high-water mark, latest reading wins (it is
+        # monotonic for the process' life) - persisted as a real column
+        # rather than only inside the trimmed event tail (#243)
+        info = info or {}
+        peak = info.get("host_memory_peak_rss_mb")
+        if peak is not None:
+            job.host_memory_peak_rss_mb = peak
+        # This job's own contribution to that process-lifetime peak, computed
+        # against its own baseline (#272) - max() is defensive; by
+        # construction each reading only grows
+        job_peak = info.get("host_memory_job_peak_rss_mb")
+        if job_peak is not None:
+            job.host_memory_job_peak_rss_mb = max(
+                job_peak, job.host_memory_job_peak_rss_mb or 0
+            )
 
     def is_busy(self):
         """True while a job is running or queued - the window in which the
@@ -1464,32 +805,19 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             return None
         # A probe that timed out still answers eventually, onto the same
-        # queue the next probe reads - so each carries an id and a reader
+        # queue the next request reads - so each carries an id and request()
         # discards every reply that is not its own, rather than reporting
         # the previous workflow's hit list as this plan's
-        probe_id = uuid.uuid4().hex
-        deadline = time.monotonic() + timeout
         try:
-            self.worker_manager.send_command(
-                {"type": "probe_cache", "probe_id": probe_id, **command}
+            reply = self.worker_manager.request(
+                ProbeCache(request_id=uuid.uuid4().hex, **command), timeout
             )
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                result = self.worker_manager.get_result(timeout=remaining)
-                if (
-                    result.get("type") == "probe_cache"
-                    and result.get("probe_id") == probe_id
-                ):
-                    break
-                logger.debug(f"Discarding a stale worker message: {result.get('type')}")
         except (RuntimeError, queue.Empty) as e:
             logger.debug(f"Worker did not answer the cache probe: {e}")
             return None
         finally:
             self._worker_lock.release()
-        cached = result.get("cached")
+        cached = getattr(reply, "cached", None)
         return list(cached) if isinstance(cached, list) else None
 
     def memory_status(self, timeout=5):
@@ -1509,8 +837,9 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             return self._cached_memory("worker_busy")
         try:
-            self.worker_manager.send_command({"type": "memory_status"})
-            result = self.worker_manager.get_result(timeout=timeout)
+            reply = self.worker_manager.request(
+                MemoryStatus(request_id=uuid.uuid4().hex), timeout
+            )
         except (RuntimeError, queue.Empty) as e:
             # A dead worker is exactly when the last reading taken before it
             # died is worth the most, so report that rather than failing the
@@ -1526,8 +855,8 @@ class JobManager:
             return self._cached_memory("worker_unreachable")
         finally:
             self._worker_lock.release()
-        if result.get("type") == "memory_status":
-            self._record_memory(result.get("info"))
+        if isinstance(reply, MemoryStatusReply):
+            self._record_memory(reply.info)
             return {
                 "live": True,
                 "info": self.last_memory,
@@ -1542,9 +871,8 @@ class JobManager:
         memory reading taken right after. Callers must check `is_busy()`
         first - this does not itself refuse a running/queued job, and racing
         one would clear state a queued run still expects resident. The
-        30s timeout (vs. `memory_status`'s 5s) matches the REPL's `memory
-        clear` (`repl_commands.py`): actually freeing CUDA memory takes
-        longer than reading a counter does.
+        30s timeout (vs. `memory_status`'s 5s) allows for this: actually
+        freeing CUDA memory takes longer than reading a counter does.
 
         Returns the reading taken after the clear, or None when there was no
         worker to clear - nothing was resident in that case."""
@@ -1559,11 +887,12 @@ class JobManager:
         if not self._worker_lock.acquire(timeout=2):
             raise RuntimeError("worker busy")
         try:
-            self.worker_manager.send_command({"type": "clear_memory"})
-            result = self.worker_manager.get_result(timeout=timeout)
+            reply = self.worker_manager.request(
+                ClearMemory(request_id=uuid.uuid4().hex), timeout
+            )
         finally:
             self._worker_lock.release()
-        if result.get("type") != "memory_cleared":
-            raise RuntimeError(f"unexpected worker reply: {result.get('type')}")
-        self._record_memory(result.get("info"))
+        if not isinstance(reply, MemoryCleared):
+            raise RuntimeError(f"unexpected worker reply: {reply.TYPE}")
+        self._record_memory(reply.info)
         return self.last_memory

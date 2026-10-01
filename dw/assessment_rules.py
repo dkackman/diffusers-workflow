@@ -32,7 +32,7 @@ The thresholds were settled against real runs on the server in stage D
 `tests/test_assessment_rules.py` pins those quotes to this table.
 """
 
-from .tasks.audio_utils import LEVEL_SPREAD_WARN_DB
+from .tasks.joins import LEVEL_SPREAD_WARN_DB
 
 SEVERITIES = ("info", "warn")
 
@@ -112,8 +112,9 @@ RULES = (
         "severity": "warn",
         "says": (
             "the shot holds a gap this long, well below the floor a line's own room"
-            " tone sits at - cut a room-tone bed from the take with slice_audio, loop"
-            " it to the gap's length with loop_audio, and mix it under the line with"
+            " tone sits at - find_loop_bed on the cut names a quiet stretch inside"
+            " one shot and the gain to lay it at; cut it with slice_audio, loop it"
+            " to the gap's length with loop_audio, and mix it under the line with"
             " mix_audio rather than leaving the drop silent"
         ),
         "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",

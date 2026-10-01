@@ -8,15 +8,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dw.pipeline_processors.pipeline import (
-    Pipeline,
-    warn_if_safety_checker_blanked,
+from dw.pipeline_processors.components import (
     configure_components,
-    declared_component_names,
     enable_cache_on_transformer,
     get_block_configs,
     load_component,
+)
+from dw.pipeline_processors.pipeline import (
+    Pipeline,
+    declared_component_names,
     optional_component_names,
+    warn_if_safety_checker_blanked,
 )
 
 
@@ -316,7 +318,7 @@ class TestComponentTiling:
                 setattr(self, name, component)
 
     def test_true_uses_the_model_default_tile_size(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -328,7 +330,7 @@ class TestComponentTiling:
         assert decoder.tiling == {}
 
     def test_an_object_passes_the_tile_sizes_through(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -352,7 +354,7 @@ class TestComponentTiling:
         }
 
     def test_omitted_leaves_the_component_alone(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -364,7 +366,7 @@ class TestComponentTiling:
         assert decoder.tiling is None
 
     def test_a_component_that_cannot_tile_says_so(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         class Plain:
             def to(self, device):
@@ -400,7 +402,7 @@ class TestComponentAttnProcessor:
                 setattr(self, name, component)
 
     def test_the_named_type_is_constructed_and_set(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -416,7 +418,7 @@ class TestComponentAttnProcessor:
         assert isinstance(decoder.processor, self._Processor)
 
     def test_omitted_leaves_the_component_alone(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         decoder = self._Decoder()
         configure_components(
@@ -428,7 +430,7 @@ class TestComponentAttnProcessor:
         assert decoder.processor is None
 
     def test_a_component_that_takes_no_processor_says_so(self):
-        from dw.pipeline_processors.pipeline import configure_components
+        from dw.pipeline_processors.components import configure_components
 
         class Plain:
             def to(self, device):
@@ -759,3 +761,184 @@ class TestFailedLoadIsTornDown:
             pipeline.load(shared)
 
         assert shared == {}
+
+
+class TestImageCrfMismatchDiagnosis:
+    """#511: diffusers' `image_crf` re-compression error names a re-encoding
+    knob that does not fix an argument holding a video where an image was
+    required - the caller needs a still, not a different crf."""
+
+    def _definition(self):
+        return {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "some/repo"},
+            "arguments": {"image": "variable:image"},
+        }
+
+    def test_an_audiovideo_argument_is_named_in_the_rewritten_error(self, monkeypatch):
+        from dw.media_types import AudioVideo
+
+        def _raise(self, arguments):
+            raise ValueError("re-compression requires you to set `image_crf`")
+
+        monkeypatch.setattr(Pipeline, "_run_once", _raise)
+
+        pipeline = Pipeline(self._definition(), 42, "cpu")
+        pipeline.pipeline = MagicMock()
+
+        video = AudioVideo(frames=[], audio=None, sample_rate=None)
+        with pytest.raises(ValueError, match="expected an image but received a video"):
+            pipeline.run({"image": video})
+
+    def test_names_every_offending_argument(self):
+        from dw.media_types import AudioVideo
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        video = AudioVideo(frames=[], audio=None, sample_rate=None)
+        error = ValueError("re-compression requires you to set `image_crf`")
+
+        diagnosed = _diagnose_image_crf_error(
+            error, {"image": video, "conditioning_image": video, "prompt": "a cat"}
+        )
+
+        assert diagnosed is not None
+        assert "conditioning_image" in str(diagnosed)
+        assert "image" in str(diagnosed)
+        assert "get_last_frame" in str(diagnosed)
+        assert "video_frames" in str(diagnosed)
+
+    def test_a_different_value_error_is_left_alone(self):
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        error = ValueError("some unrelated failure")
+        assert _diagnose_image_crf_error(error, {"image": "not a video"}) is None
+
+    def test_the_same_message_with_no_video_argument_is_left_alone(self):
+        """The text alone isn't enough - it has to actually be this mismatch."""
+        from dw.pipeline_processors.pipeline import _diagnose_image_crf_error
+
+        error = ValueError("re-compression requires you to set `image_crf`")
+        assert _diagnose_image_crf_error(error, {"image": "a/path.png"}) is None
+
+
+class LoadablePipeline:
+    """A stand-in for a diffusers pipeline class: constructed directly (no
+    model_name, so no download), with the adapter and offload methods load()
+    calls. Everything load() does to the definition around it is real"""
+
+    def __init__(self, **constructor_arguments):
+        self.constructor_arguments = constructor_arguments
+        self.loras = []
+        self.adapters = None
+        self.ip_adapter = None
+        self.group_offload = None
+
+    def load_lora_weights(self, model_name, adapter_name=None, **kwargs):
+        if "unexpected" in kwargs:
+            raise TypeError("load_lora_weights() got an unexpected keyword")
+        self.loras.append((model_name, adapter_name, kwargs))
+
+    def set_adapters(self, names, weights):
+        self.adapters = (list(names), list(weights))
+
+    def load_ip_adapter(self, model_name, **kwargs):
+        self.ip_adapter = (model_name, kwargs)
+
+    def set_ip_adapter_scale(self, scale):
+        self.ip_adapter_scale = scale
+
+    def enable_group_offload(self, **kwargs):
+        self.group_offload = kwargs
+
+
+class TestLoadLeavesTheDefinitionAlone:
+    """Loading edits what it is handed - group offload turns device names into
+    torch.device objects and pops the stream flags off CUDA, load_loras and
+    load_ip_adapter pop their keys, and the generator is set on the argument
+    template. None of it may reach the workflow's own step definition"""
+
+    @staticmethod
+    def step_definition(image):
+        return {
+            "name": "generate",
+            "pipeline": {
+                "configuration": {
+                    "component_type": LoadablePipeline,
+                    "group_offload": {
+                        "onload_device": "cpu",
+                        "offload_device": "cpu",
+                        "offload_type": "leaf_level",
+                        "use_stream": True,
+                        "record_stream": True,
+                    },
+                },
+                "from_pretrained_arguments": {"torch_dtype": torch.bfloat16},
+                "loras": [
+                    {
+                        "model_name": "some/lora",
+                        "adapter_name": "style",
+                        "scale": 0.8,
+                        "weight_name": "style.safetensors",
+                    },
+                    {"model_name": "other/lora"},
+                ],
+                "ip_adapter": {
+                    "model_name": "some/ip-adapter",
+                    "scale": 0.5,
+                    "subfolder": "models",
+                },
+                "arguments": {"prompt": "a cat", "image": image},
+            },
+        }
+
+    def test_a_real_load_leaves_the_step_definition_as_it_was(self):
+        import copy
+
+        step = self.step_definition("a/path.png")
+        before = copy.deepcopy(step)
+
+        pipeline = Pipeline(step["pipeline"], 42, "cpu")
+        pipeline.load({})
+
+        # The load really did its edits - on its own copy
+        loaded = pipeline.pipeline
+        assert loaded.loras[0] == (
+            "some/lora",
+            "style",
+            {"weight_name": "style.safetensors"},
+        )
+        assert loaded.adapters == (["style", "1"], [0.8, 1.0])
+        assert loaded.ip_adapter == ("some/ip-adapter", {"subfolder": "models"})
+        assert "use_stream" not in loaded.group_offload
+        assert loaded.group_offload["onload_device"] == torch.device("cpu")
+
+        assert step == before
+
+    def test_the_generator_never_reaches_the_workflows_arguments(self):
+        image = object()
+        step = self.step_definition(image)
+        arguments = step["pipeline"]["arguments"]
+
+        pipeline = Pipeline(step["pipeline"], 42, "cpu")
+        pipeline.load({})
+
+        assert isinstance(pipeline.argument_template["generator"], torch.Generator)
+        assert "generator" not in arguments
+        # A shallow copy: realized media is shared, not duplicated
+        assert pipeline.argument_template["image"] is image
+
+    def test_a_failed_load_leaves_the_step_definition_as_it_was(self):
+        import copy
+
+        step = self.step_definition("a/path.png")
+        # The second lora names nothing load_lora_weights accepts, after the
+        # first has already been popped
+        step["pipeline"]["loras"][1]["unexpected"] = True
+        before = copy.deepcopy(step)
+
+        pipeline = Pipeline(step["pipeline"], 42, "cpu")
+        with pytest.raises(TypeError):
+            pipeline.load({})
+
+        assert step["pipeline"]["loras"] == before["pipeline"]["loras"]
+        assert "generator" not in step["pipeline"]["arguments"]

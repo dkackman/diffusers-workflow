@@ -1,9 +1,8 @@
 import logging
 from itertools import product
 
+from . import references
 from .arguments import (
-    FROM_PREVIOUS_RESULT_KEY,
-    PREVIOUS_RESULT_PREFIX,
     build_objects,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
@@ -36,10 +35,11 @@ def get_iterations(argument_template, previous_results):
     if isinstance(argument_template, list):
         iterations = []
         for entry in argument_template:
-            if isinstance(entry, str) and entry.startswith(PREVIOUS_RESULT_PREFIX):
+            if references.is_ref(references.PREVIOUS_RESULT, entry):
                 iterations.extend(
                     get_previous_results(
-                        previous_results, entry[len(PREVIOUS_RESULT_PREFIX) :]
+                        previous_results,
+                        references.ref_name(references.PREVIOUS_RESULT, entry),
                     )
                 )
             elif isinstance(entry, dict):
@@ -171,7 +171,7 @@ def resolve_chain_prompts(step_action, previous_results):
     """Resolve a pipeline chain's per-segment prompts against previous results.
 
     A chain's "prompts" list is not part of the step's argument template, so the
-    cartesian pass that expands "previous_result:" everywhere else never reaches
+    cartesian pass that expands `previous_result:` everywhere else never reaches
     it. That matters for a chain whose opening segment is written by a different
     step from the ones that continue it - a continuation prompt declares a video
     reference the first segment does not have.
@@ -194,9 +194,9 @@ def resolve_chain_prompts(step_action, previous_results):
 
     resolved = []
     for entry in prompts:
-        if isinstance(entry, str) and entry.startswith("previous_result:"):
+        if references.is_ref(references.PREVIOUS_RESULT, entry):
             artifacts = get_previous_results(
-                previous_results, entry.removeprefix("previous_result:")
+                previous_results, references.ref_name(references.PREVIOUS_RESULT, entry)
             )
             if not artifacts:
                 raise ValueError(f"Chain prompt reference '{entry}' produced no result")
@@ -214,7 +214,7 @@ def resolve_chain_prompts(step_action, previous_results):
 def find_previous_result_refs(arguments):
     """Find all values in an argument structure that reference previous results.
 
-    A reference is written either as a value with the "previous_result:" prefix, or
+    A reference is written either as a value with the `previous_result:` prefix, or
     as the step name a 'from_previous_result' object description is built from. Both
     are found at any depth: an argument that takes a constructed object holds it
     inside a list - MiniMax-H3's 'references' - so the reference is nested rather
@@ -234,22 +234,16 @@ def find_previous_result_refs(arguments):
 
 
 def _collect_refs(value, path, found):
-    """Walk an argument structure, collecting every reference by its path."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            # The object description names its step bare, the way it would name a
-            # file - the prefix would only repeat what the key already says
-            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
-                found[path + (key,)] = item
-            else:
-                _collect_refs(item, path + (key,), found)
+    """Walk an argument structure, collecting every reference by its path.
 
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _collect_refs(item, path + (index,), found)
-
-    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
-        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+    The object description names its step bare, the way it would name a
+    file - the prefix would only repeat what the key already says - and is
+    not read for a prefixed spelling.
+    """
+    for where, name, _ in references.iter_previous_result_references(
+        value, descend_into_from=False, path=path
+    ):
+        found[where] = name
 
 
 def substitute_at_path(container, path, value):
@@ -363,11 +357,7 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = references.author_index(source_indices, index)
             location = render_path(("steps", source) + path)
             # Which expansion it was: the source path alone points at the one
             # step the author wrote, and every member reports the same path
@@ -395,17 +385,12 @@ def _collect_reference_paths(value, path, found):
 
     Both spellings: the 'previous_result:' prefix on a string, and the
     'from_previous_result' key of a constructed object, which names a step
-    without the prefix.
+    without the prefix. A key whose value is a 'variable:' reference is
+    one nothing resolved, and is left alone.
     """
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
-                if not item.startswith("variable:"):
-                    found[path + (key,)] = item
-                continue
-            _collect_reference_paths(item, path + (key,), found)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _collect_reference_paths(item, path + (index,), found)
-    elif isinstance(value, str) and value.startswith(PREVIOUS_RESULT_PREFIX):
-        found[path] = value[len(PREVIOUS_RESULT_PREFIX) :]
+    for where, name, via in references.iter_previous_result_references(
+        value, descend_into_from=False, path=path
+    ):
+        if via == "key" and references.is_ref(references.VARIABLE, name):
+            continue
+        found[where] = name

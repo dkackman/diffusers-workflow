@@ -43,24 +43,23 @@ const shadowedAsset = (
 
 const WORKSPACE_LIBRARY: AssetLibrary = {
   origin: 'workspace',
-  dir: '/ws/assets',
+  root: '/ws/assets',
   writable: true,
 }
 const SHARED_LIBRARY: AssetLibrary = {
   origin: 'common',
-  dir: '/root/common/assets',
+  root: '/root/common/assets',
   writable: true,
 }
 const EXAMPLES_LIBRARY: AssetLibrary = {
   origin: 'examples',
-  dir: '/examples/assets',
+  root: '/examples/assets',
   writable: false,
 }
 
 const listing = vi.hoisted(() => ({
   assets: [] as AssetFile[],
-  asset_dir: '/ws/assets' as string | null,
-  asset_dirs: ['/ws/assets'] as string[],
+  workspace: 'default',
   libraries: [] as AssetLibrary[],
   shadowed: [] as ShadowedAsset[],
 }))
@@ -102,8 +101,6 @@ vi.mock('../toast', () => ({
 
 beforeEach(() => {
   listing.assets = [asset('iris.png'), asset('cast/priya.jpg')]
-  listing.asset_dir = '/ws/assets'
-  listing.asset_dirs = ['/ws/assets']
   listing.libraries = [WORKSPACE_LIBRARY]
   listing.shadowed = []
   deleteAsset.mockResolvedValue(undefined)

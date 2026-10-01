@@ -1,3 +1,4 @@
+import gc
 import pytest
 import os
 import tempfile
@@ -6,6 +7,22 @@ from PIL import Image
 
 # Suppress FutureWarnings from dependencies (e.g., timm library deprecated imports)
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
+
+
+def pytest_xdist_auto_num_workers(config):
+    # Every worker pays a torch import, which costs a run of one or two files
+    # more than it saves; `-n auto` parallelizes a directory or the whole suite
+    if any(os.path.isfile(arg.split("::")[0]) for arg in config.args):
+        return 0
+    return None
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    # The engine calls gc.collect() between steps; over the whole suite's heap
+    # each one costs ~0.2s, a third of the run. Freezing what earlier tests
+    # left behind keeps a collection to the objects this test creates.
+    gc.freeze()
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +34,18 @@ def _trust_workflows_by_default(monkeypatch):
     False (or unsets it) to exercise the untrusted-by-default behavior.
     """
     monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_dir(tmp_path, monkeypatch):
+    """Point dw's settings directory at the test's own tmp_path.
+
+    Every run takes a lock under it (dw.runs.run_lock_path), so without
+    this the suite writes into the real ~/.diffusers_helper - and a test
+    would read whatever settings.json the machine running it happens to
+    hold. A test about the settings directory itself sets its own.
+    """
+    monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path / "helper"))
 
 
 @pytest.fixture(autouse=True)

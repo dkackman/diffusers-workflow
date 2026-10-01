@@ -92,7 +92,7 @@ All accept an `image` argument with processing parameters:
 | Command | Description | Extra Arguments |
 | ------- | ----------- | --------------- |
 | `remove_background` | Remove image background | |
-| `resize_center_crop` | Resize with center crop | `width`, `height` |
+| `resize_center_crop` | Crop to a centered square, then stretch to width x height - distorts a non-square target | `width`, `height` |
 | `resize_resample` | Resample to nearest 64px multiple | |
 | `resize_rescale` | Resize to exact dimensions | `width`, `height` |
 | `resize_bucket` | Snap to closest model-native aspect ratio | `resolution`, `ratios`, `alignment` |
@@ -212,7 +212,7 @@ video generation" in the workflow guide):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, which is read with the audio muxed into it; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, this task does not resize one for you, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518). To fit the odd video: `video_frames` to get its frames, `resize_rescale` to the target size (`resize_center_crop` squares the frame first and then stretches it, distorting a non-square target), then `pair_audio(fit="video")` to put its soundtrack back before passing it here (#551) |
 | `trim_frames` | No | Frames dropped from the head of every video after the first (default: 0) |
 | `crossfade_ms` | No | Equal-power crossfade at each audio seam, drawn from the trimmed material - no effect when `trim_frames` is 0, and validation warns when one is written there (default: 75) |
 | `audio_bleed_ms` | No | How long the outgoing video's tail rings on over the head of the next one, at seams with nothing trimmed to crossfade (default: 0, off) |
@@ -358,7 +358,7 @@ montage cut to a score wants:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`. Every video must be the same frame size - unlike a sample-rate mismatch, there is no reconciliation for a size mismatch, so a statically-resolvable (`asset:`/`output:`/literal path) size disagreement is refused at validate; one only known at run time still fails there (#504) |
+| `videos` | Yes | The videos to join, in order - `previous_result` references, or the path or URL of a video file an earlier run wrote, one entry per video as with `concat_videos`; an entry may also be a `{"location": ...}` dict wrapping either. Every video must be the same frame size - unlike a sample-rate mismatch, this task does not resize one for you, so a statically-resolvable (`asset:`/`output:`/literal path, wrapped in a `{"location": ...}` dict or not) size disagreement is refused at validate; a `previous_result:` or other reference not yet resolved still fails only at run time (#504, #518). To fit the odd video: `video_frames` to get its frames, `resize_rescale` to the target size (`resize_center_crop` squares the frame first and then stretches it, distorting a non-square target), then `pair_audio(fit="video")` to put its soundtrack back before passing it here (#551) |
 | `dissolve_frames` | No | Frames of overlap at each seam, blended linearly (default: 12). 0 is a hard cut |
 | `fade_in_frames` | No | Frames over which the first video rises out of `fade_color` (default: 0) |
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
@@ -374,6 +374,74 @@ crossfaded over exactly the seam's span so they stay in step with the picture;
 when any input is silent the result is, and `pair_audio` puts a score under it.
 
 **Example:** [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json)
+
+### join_into_song
+
+Join a spoken scene into a musical number: dialogue shots keep their own
+audio, and the shots sung after them play over the *unbroken* song rather
+than the separate slices each was generated against. The song's entry point
+is `dialogue length - cue_seconds`, and a workflow cannot do that arithmetic
+itself - a hand-computed literal goes stale the moment one dialogue shot is
+regenerated at another length. This task measures the joined dialogue at run
+time and places the song from it, so the offset never goes stale:
+
+```json
+{
+    "task": {
+        "command": "join_into_song",
+        "arguments": {
+            "dialogue": ["previous_result:line_a", "previous_result:line_b"],
+            "song_shots": "gather:sung",
+            "song": "asset:song.mp3",
+            "cue_seconds": 1.5
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `dialogue` | Yes | The spoken shots, in order, each keeping its own audio - a non-empty list, the same entries `concat_videos`' `videos` takes: `previous_result` references, or the path or URL of a video file an earlier run wrote, each optionally wrapped in a `{"location": ...}` dict. A shot with no track is filled with silence for its length |
+| `song_shots` | Yes | The sung shots, in order - a non-empty list in the same shapes as `dialogue`. Their own audio is discarded; they play over `song` |
+| `song` | Yes | The unbroken track the song shots were sliced from - an audio result, a video or audio file's path, or anything carrying `.audio` and `.sample_rate`. Its rate is the output's |
+| `cue_seconds` | No | The song time that lands on the first song shot's frame 0 - the start of the slice that shot was generated against. `0` (the default) starts the song exactly at the cut; above `0` the song enters that long before it, under the last spoken line. Longer than the dialogue is refused - the song would have to start before the film. Must be ≥ 0 |
+| `dialogue_target_lufs` | No | Integrated loudness (BS.1770) each dialogue shot is gained to, with one static gain per shot. Omitted (the default), the shots keep their own levels. A shot too short (under 400 ms) or too quiet to measure is left at its own level, with a `dialogue_unmatched` warning |
+| `duck_delay_ms` | No | How long after the song enters the dialogue starts to duck (default: `0`). At or past the dialogue's end, nothing ducks. Must be ≥ 0 |
+| `duck_db` | No | How far the dialogue ducks, in dB (default: `-12`). Must be ≤ 0 |
+| `duck_ramp_ms` | No | The length of the linear ramp into the duck (default: `250`). Must be ≥ 0 |
+| `fps` | No | The rate the videos play at, needed only when none of them carries one of its own - a pipeline's frames carry none, a file brings its own. Must be > 0 |
+
+The timeline, in samples at the song's rate: each dialogue shot's track is
+fitted to its own frames (trimmed or padded with silence, warning
+`dialogue_fitted_to_frames` past a frame's worth of difference), so the
+joined dialogue ends exactly where the first song shot's frame 0 is - call
+that sample `D`. The song is placed at `D - cue_seconds * sample_rate`, so
+song time `cue_seconds` lands on that frame, and it runs to the end of the
+picture; a song shorter than that warns `song_short` and is padded with
+silence rather than looped. The dialogue ducks by `duck_db` from
+`duck_delay_ms` after the song enters, over a linear `duck_ramp_ms` ramp. The
+song shots' own audio is discarded, and a dialogue shot with no track of its
+own is filled with silence for its length rather than skipped, so later
+shots do not land early.
+
+Frames are joined one for one, so every video must share one frame size and
+one frame rate: a mismatch is refused rather than resampled, as is a join
+where no video carries a rate and `fps` is not given, or an `fps` that
+contradicts the rate the videos carry. A step that wrote its video with
+`result.fps` hands that rate on, so a shot written at 12 fps from 24 fps frames
+is a 12 fps shot to the join, as it is when read back with `output:`.
+
+There is no final normalization here - what level a deliverable sits at is
+the workflow's to decide, with [`normalize_audio`](#normalize_audio) after
+this step; the templates that mux to video normalize to -3 dBFS peak, as
+with any `pair_audio` mux.
+
+The result is one `video/mp4`: the dialogue's frames then the song shots',
+over the mix, with a shot record per input (`shot@<key>`, named from the
+step's `dialogue` then `song_shots` references, as `for_each` names a
+member), each shot's samples measured off the built waveform rather than
+derived from its frames.
 
 ### stabilize_video
 
@@ -774,10 +842,168 @@ The bed is laid under the cut with `mix_audio` and attached to the picture with
   "result": { "content_type": "video/mp4", "fps": 24 } }
 ```
 
-Where the bed itself comes from is the open question: a few seconds of a
-generated shot's own ambience, cut out with `slice_audio` from a stretch with
-nothing tonal in it, is the material that matches — the room the shots were
-generated in.
+The bed's source: [`find_loop_bed`](#find_loop_bed) picks the stretch. Run it
+against the cut (or a stem of it) over the range that should hold room tone,
+copy the top candidate's `start_seconds`/`duration_seconds` into `slice_audio`,
+`loop_audio` the slice to the cut's length, and `mix_audio` it in at the
+candidate's `gain` — the room the shots were generated in, picked by
+measurement rather than by ear.
+
+### find_loop_bed
+
+Pick the window of a recording worth looping into the room-tone bed above,
+measured as it will sound looped rather than as it sits in the source. A
+level check alone misses three things, each found on a real episode:
+
+- near-programme material — faint speech attenuated ~30 dB reads as quiet,
+  and is audible once it repeats every lap.
+- lap-rate modulation — the loop's repeat rate beats against the source's own
+  level movement, invisible in one pass through the source.
+- ticks — a 1 ms transient is invisible to 50 ms RMS and recurs once per lap.
+
+```json
+{
+    "task": {
+        "command": "find_loop_bed",
+        "arguments": {
+            "audio": "output:episode/latest/final/cut.mp4",
+            "start_seconds": 30.0,
+            "end_seconds": 90.0
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path, `asset:`/`output:` reference of an audio or video file (a video is read audio-only - frames are never decoded), or a track or video from `previous_result:` |
+| `start_seconds` / `end_seconds` | No | The range to search; the whole file if omitted |
+| `min_seconds` / `max_seconds` | No | Shortest/longest window tried (default `0.5` / `2.0`) |
+| `max_bin_dbfs` | No | Every 50 ms bin of a window must be at or below this (default `-55`) |
+| `max_mean_dbfs` | No | A window's mean (RMS) level must be at or below this (default `-60`) |
+| `max_spike_db` | No | Most a window's largest 1 ms peak may sit above its median 1 ms peak (default `12`) |
+| `crossfade_ms` | No | The crossfade candidates are looped with - `loop_audio`'s own default, so what is measured is what `loop_audio` will make (default `250`) |
+| `loop_seconds` | No | Length of the looped result that is measured (default `10.0`) |
+| `target_bed_dbfs` | No | The level each candidate's `gain` is computed to reach (default `-60`) |
+| `max_candidates` | No | How many ranked candidates to return (default `5`) |
+| `shots` | No | Shot boundaries, the assessment probes' shape: `[{name, start_frame, num_frames}]`, optionally with `start_sample`/`num_samples`; overrides the shots a video carries or its run records |
+| `fps` | No | Frame rate the shots' frames count at, for a source with none of its own (an audio file); a video's own rate otherwise |
+
+Every window on a 50 ms grid, from `min_seconds` to `max_seconds` long, is
+judged against four rules in order and counted in `rejected` under the first
+one it fails, so `rejected` is a tally of the whole grid:
+
+- `too_loud` — a 50 ms bin above `max_bin_dbfs`, or a mean above `max_mean_dbfs`.
+- `silent` — digital silence: a mean of zero, or a median 1 ms peak of zero
+  (more than half the window is exact zeros, whatever sits in the rest).
+- `spike` — its largest 1 ms peak more than `max_spike_db` above its median
+  1 ms peak. The largest peak is also looked for in the 5 ms just outside
+  each end, unless that neighbouring bin is itself too loud, so a window
+  ending on a click is thrown out rather than putting the click's onset at
+  the loop's seam.
+- `tonal` — the flatness/harmonicity test `bleed_join` uses, taken over every
+  0.1 s and every 0.2 s block inside the window (one per 50 ms step; no
+  longer than `min_seconds`). A window is tonal when any block in it is. Faint
+  speech comes and goes, and over a whole window the pauses dilute a
+  syllable below the threshold; in the block it sits in, it is not diluted.
+  Two lengths, because 0.1 s sits inside one syllable and 0.2 s holds enough
+  periods of a low hum. Flatness is measured over the band the source
+  actually occupies: a source resampled up (a 16 kHz bed mixed at 24 kHz)
+  has an empty band above its own Nyquist that reads as tonal whatever the
+  material is, as `bleed_join`'s tail does (#198). A candidate's `flatness`
+  and `harmonicity` are the readings of its blocks closest to failing
+  (lowest flatness, highest harmonicity).
+
+On a cut, a bed must come from inside one shot: a window across a cut
+loops the seam's change of room as a once-per-lap step. Shots resolve in the
+probes' order - the `shots` argument (`shots_source: "argument"`), else the
+shots a video from an earlier step carries (`"artifact"`), else the ones the
+run manifest beside the file records (`"manifest"`, which is why
+`output:` the joined file finds them unasked), else none (`null`, the search
+above unchanged). With shots, a window that crosses a boundary, or lies where
+no shot covers, is counted under `rejected.shot_boundary` before the four
+rules (so theirs count only in-shot windows), each candidate names its
+`shot` (`shot@<name>` from a manifest), and `source.shots` lists each shot's
+`{name, start_seconds, end_seconds}` as placed in the soundtrack. A shot with
+both frames and recorded samples is placed at their overlap - the picture's
+cut and the audio's can sit a few samples apart. A shot placed by frames on
+a source with no frame rate is refused; pass `fps`.
+
+The survivors are thinned so no two overlap, steadiest source first, to a
+pool of up to 200 (`LOOPED_POOL`). The pool does not depend on
+`max_candidates`, which only cuts the final ranking, so asking for one
+candidate returns the default run's first. Each one in the pool is then
+looped with `loop_audio`'s own crossfade to `loop_seconds` and measured:
+`ripple_db` (the 5-95% spread of the looped 50 ms bins), `envelope_peak_db`/
+`envelope_peak_hz` (the strongest level wobble) and `lap_component_db` (the
+wobble at the lap rate). Candidates are ranked by looped `ripple_db`, lowest
+first; one whose `envelope_peak_db` is above -15 dB carries the
+`lap_modulation` warning.
+
+```json
+{
+    "source": { "duration_seconds": 620.4, "sample_rate": 44100, "searched": [30.0, 90.0], "shots_source": null },
+    "criteria": { "min_seconds": 0.5, "max_seconds": 2.0, "target_bed_dbfs": -60.0 },
+    "candidates": [
+        {
+            "rank": 1,
+            "start_seconds": 41.28,
+            "duration_seconds": 1.35,
+            "end_seconds": 42.63,
+            "shot": null,
+            "mean_dbfs": -63.1,
+            "max_bin_dbfs": -57.4,
+            "spike_db": 4.2,
+            "flatness": 0.61,
+            "harmonicity": 0.08,
+            "looped": {
+                "ripple_db": 1.1,
+                "envelope_peak_db": -24.0,
+                "envelope_peak_hz": 0.4,
+                "lap_hz": 0.096,
+                "lap_component_db": -26.0
+            },
+            "gain_db": 3.1,
+            "gain": 1.43,
+            "warnings": []
+        }
+    ],
+    "rejected": { "too_loud": 812, "silent": 0, "spike": 14, "tonal": 203 },
+    "findings": []
+}
+```
+
+`start_seconds`/`duration_seconds` are `slice_audio`'s arguments and `gain`
+is `mix_audio`'s multiplier for reaching `target_bed_dbfs` — the answer picks
+a window and builds nothing, so the remedy is a copy. Finding nothing is an
+answer, not an error: `candidates` is `[]`, `rejected` counts the windows
+each rule threw out, and one `no_loop_bed` finding says which rule to relax.
+
+Like the assessment probes it answers JSON and decides nothing, but it
+searches rather than checking a finished cut, so it is not one of them — it
+stays out of `list_tasks`' `assessment` list. The result must be saved as
+`application/json`.
+
+```json
+{
+    "variables": { "audio": "output:episode/latest/final/cut.mp4" },
+    "steps": [
+        { "name": "bed", "task": { "command": "find_loop_bed",
+                                    "arguments": { "audio": "variable:audio" } },
+          "result": { "content_type": "application/json" } }
+    ]
+}
+```
+
+run against the finished cut once it exists, then read back over MCP with
+`get_output_text` (JSON results are text) rather than `get_output_audio`.
+
+Out-of-range literals (`min_seconds`/`max_seconds`/`loop_seconds` at or below
+zero, `max_candidates` at or below zero, a negative `crossfade_ms`, and the
+like) are refused at validation. `end_seconds` at or before `start_seconds`,
+`min_seconds` above `max_seconds`, a range past the end of the file, and a
+source shorter than `min_seconds` fail at run time — they depend on the file.
 
 ### resample_audio
 
@@ -1097,6 +1323,8 @@ voiced, so a weak answer is visible as weak rather than silently accepted.
 | `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
 | `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
 | `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
+| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
+| `device` | No | Where the models run |
 
 A literal `voices` is checked at validation as well as on the step: fewer
 than two voices, a bad name, a malformed span, or a span-list reference under
@@ -1104,8 +1332,6 @@ than two voices, a bad name, a malformed span, or a span-list reference under
 bare path as a voice meets the same location policy as `audio`. What needs
 the song itself - a span past its end, a clip's voiced length - is the
 step's to refuse.
-| `separate` | No | Isolate the vocal stem with htdemucs before embedding (default `true`); `false` for audio that is already a dry vocal |
-| `device` | No | Where the models run |
 
 The result: `voices` (the names), `separated`, `duration_seconds`, `lines[]`
 (`start`, `end`, `text`, `scores`, `voice`, `margin`, `voiced_seconds`,
@@ -1202,6 +1428,11 @@ can be upscaled without losing what was generated alongside it:
 
 Captioning (`image_to_text`) is the exception - describe a frame, taken with
 `get_first_frame`, rather than a video.
+
+A file path or `asset:`/`output:` reference to a video is not accepted here,
+even though the route above takes a video from a step - route it through
+`video_frames` first: an image command's `image` argument must be an
+`AudioVideo`, a frame array, or a still image.
 
 ## Image Upscaling
 

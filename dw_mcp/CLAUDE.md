@@ -57,7 +57,7 @@ for the engine it is about to drive, so nothing is read from this package's
 own install (the `GUIDES` table lives in `dw/server/guides.py`). They exist
 because a request names a subject and the catalog is written in shapes, and an
 agent with nowhere to look up the shape authors a fresh workflow instead of
-composing one. Only `dw_mcp/server.py` imports the MCP SDK; the
+composing one. Only `dw_mcp/server.py` and the `tools_*.py` modules (the tools, one class per group, each a method whose docstring is the description; `server.py` registers the bound methods in listing order) import the MCP SDK; the
 handlers in `catalog.py`, `authoring.py`, `prompts.py`, `diagnose.py`,
 `media.py`, `assets.py`, `models.py`, `exports.py` and `workspaces.py` are plain `(client, **kwargs)` functions, which is what makes
 them testable without an MCP session. It is a top-level package rather than
@@ -73,7 +73,9 @@ changed since (`_acknowledgement_body` in `diagnose.py`; the 409 is rendered
 with the new estimate by `DwClient._format_detail`). The three job-queuing tools return as
 soon as the job is queued, since a generation outlasts any client's tool-call
 timeout; `run_workflow(wait_seconds=N)` then folds the first `wait_for_job`
-into the same call (same `MAX_WAIT_SECONDS` clamp, same budget fields), because
+into the same call (same `MAX_WAIT_SECONDS` clamp - 55 unless a deployment
+raises it with `DW_MCP_MAX_WAIT_SECONDS`, and interpolated into the tool
+descriptions, so no doc or skill quotes a number - same budget fields), because
 measured over ~1,400 agent-driven cases almost every run was followed by a
 wait turn of its own. `delete_output(job_id=...)` is the same economy for
 cleanup: the job record's `run_dir` is the `<workflow>/<run id>` the

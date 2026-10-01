@@ -7,6 +7,7 @@ This test demonstrates GPU model persistence in the worker process.
 import os
 import sys
 import logging
+import weakref
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -17,7 +18,7 @@ from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.step import Step
 from dw.tasks.model_cache import _cache as _model_cache, cached_model, clear_model_cache
-from dw import get_device
+from dw import get_device, pipeline_ownership
 
 # Setup logging
 logging.basicConfig(
@@ -26,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_pipeline_caching():
+def test_pipeline_caching(tmp_path):
     """Test that pipelines are reused from cache instead of being reloaded."""
 
     # Create a minimal workflow definition
@@ -47,7 +48,7 @@ def test_pipeline_caching():
         ],
     }
 
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
 
     # Create a pipeline cache (simulating worker's loaded_pipelines)
     pipeline_cache = {}
@@ -138,7 +139,7 @@ def test_pipeline_caching():
             logger.info("=" * 60)
 
 
-def test_pipeline_caching_different_steps():
+def test_pipeline_caching_different_steps(tmp_path):
     """Test that different steps create different cached pipelines."""
 
     workflow_def = {
@@ -163,7 +164,7 @@ def test_pipeline_caching_different_steps():
         ],
     }
 
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
+    workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     pipeline_cache = {}
 
     load_call_count = 0
@@ -247,10 +248,10 @@ def _release_workflow_def():
     }
 
 
-def test_release_pipeline_evicts_after_step():
+def test_release_pipeline_evicts_after_step(tmp_path):
     """A step with release_pipeline drops its pipeline from the cache; others stay."""
 
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     pipeline_cache = {}
 
     def mock_pipeline_load(self, shared_components):
@@ -260,13 +261,13 @@ def test_release_pipeline_evicts_after_step():
         with patch.object(
             Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
         ):
-            with patch("dw.workflow.empty_device_cache") as empty_cache:
+            with patch("dw.pipeline_ownership.empty_device_cache") as empty_cache:
                 workflow.run({}, previous_pipelines=pipeline_cache)
 
     # The cache is keyed by pipeline identity, not step name - the run's
     # step->key map says which entry belongs to which step
-    released_key = workflow._pipeline_keys_by_step["generate"]
-    kept_key = workflow._pipeline_keys_by_step["keep"]
+    released_key = workflow.pipeline_ownership.keys_by_step["generate"]
+    kept_key = workflow.pipeline_ownership.keys_by_step["keep"]
     assert released_key not in pipeline_cache, "released pipeline should be evicted"
     assert kept_key in pipeline_cache, "other pipelines stay cached"
     # the between-step cleanup returns cached blocks to the device - once per
@@ -275,7 +276,7 @@ def test_release_pipeline_evicts_after_step():
     assert empty_cache.call_count == len(_release_workflow_def()["steps"]) + 1
 
 
-def test_release_pipeline_happens_before_the_result_is_written():
+def test_release_pipeline_happens_before_the_result_is_written(tmp_path):
     """A released pipeline is gone by the time the step writes its files.
 
     The write does not touch the pipeline - the result is already in host
@@ -283,7 +284,7 @@ def test_release_pipeline_happens_before_the_result_is_written():
     release that waits for the write holds ~10 GB of weights on the device
     for minutes after the last thing that needed them.
     """
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     pipeline_cache = {}
     cached_at_save = {}
 
@@ -295,7 +296,7 @@ def test_release_pipeline_happens_before_the_result_is_written():
         step_name = self.name
 
         def save(*save_args, **save_kwargs):
-            key = workflow._pipeline_keys_by_step.get(step_name)
+            key = workflow.pipeline_ownership.keys_by_step.get(step_name)
             cached_at_save[step_name] = key in pipeline_cache
             return []
 
@@ -304,10 +305,106 @@ def test_release_pipeline_happens_before_the_result_is_written():
 
     with patch.object(Pipeline, "load", mock_pipeline_load):
         with patch.object(Step, "run", mock_run):
-            with patch("dw.workflow.empty_device_cache"):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
                 workflow.run({}, previous_pipelines=pipeline_cache)
 
     assert cached_at_save == {"generate": False, "keep": True}
+
+
+def test_a_released_pipeline_is_freed_before_the_result_is_written(tmp_path):
+    """A released pipeline is not only out of the cache by the time the
+    step writes its files - nothing in the run still holds it.
+
+    The release pops the pipeline and then collects: a frame that still
+    held the step's action (or the popped pipeline) through that collect
+    would keep the weights resident through the save, and the cache-key
+    check above would still pass. A weakref sees the difference.
+    """
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
+    loaded = {}
+    alive_at_save = {}
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+        loaded[self.pipeline_definition["from_pretrained_arguments"]["model_name"]] = (
+            weakref.ref(self)
+        )
+
+    def mock_run(self, results, pipelines, step_action):
+        result = MagicMock(result_list=[])
+        model_name = f"model-{self.name}"
+
+        def save(*save_args, **save_kwargs):
+            alive_at_save[self.name] = loaded[model_name]() is not None
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch.object(pipeline_ownership, "empty_device_cache"):
+                workflow.run({}, previous_pipelines={})
+
+    # The kept step's pipeline is alive at its save, so a dead reference on
+    # the released one is the release's doing, not the weakref's
+    assert alive_at_save == {"generate": False, "keep": True}
+
+
+def test_a_released_resident_pipeline_and_its_wrapper_are_freed_before_the_write(
+    tmp_path,
+):
+    """The same, for a pipeline already resident from an earlier run: the
+    step's action is then a new wrapper around the resident model, distinct
+    from the pipeline the release pops, and both must be gone by the time
+    the step writes its files."""
+    keep_resident = _release_workflow_def()
+    keep_resident["steps"][0].pop("release_pipeline")
+    pipelines = {}
+    loaded = {}
+    wrappers = {}
+    alive_at_save = {}
+    loads = []
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+        loads.append(self.pipeline_definition["from_pretrained_arguments"])
+        loaded[self.pipeline_definition["from_pretrained_arguments"]["model_name"]] = (
+            weakref.ref(self)
+        )
+
+    def mock_run(self, results, pipelines, step_action):
+        wrappers[self.name] = weakref.ref(step_action)
+        result = MagicMock(result_list=[])
+        name = self.name
+
+        def save(*save_args, **save_kwargs):
+            alive_at_save[name] = (
+                loaded[f"model-{name}"]() is not None,
+                wrappers[name]() is not None,
+            )
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch.object(pipeline_ownership, "empty_device_cache"):
+                # The first run leaves both pipelines resident
+                Workflow(keep_resident, str(tmp_path), "test.json").run(
+                    {}, previous_pipelines=pipelines
+                )
+                alive_at_save.clear()
+                Workflow(_release_workflow_def(), str(tmp_path), "test.json").run(
+                    {}, previous_pipelines=pipelines
+                )
+
+    # The second run loaded nothing: each step reused its resident pipeline
+    # through a new wrapper
+    assert len(loads) == 2
+    # (resident pipeline alive, wrapper alive) at each step's save
+    assert alive_at_save == {"generate": (False, False), "keep": (True, True)}
 
 
 def _release_models_workflow_def(release):
@@ -337,11 +434,11 @@ def _release_models_workflow_def(release):
 
 
 @pytest.mark.parametrize("release,expect_cached", [(True, False), (False, True)])
-def test_release_models_evicts_task_models_after_step(release, expect_cached):
+def test_release_models_evicts_task_models_after_step(release, expect_cached, tmp_path):
     """release_models drops cached task models; without it they stay for the run."""
 
     workflow = Workflow(
-        _release_models_workflow_def(release), "/tmp/test_output", "test.json"
+        _release_models_workflow_def(release), str(tmp_path), "test.json"
     )
 
     def mock_pipeline_load(self, shared_components):
@@ -354,7 +451,7 @@ def test_release_models_evicts_task_models_after_step(release, expect_cached):
             with patch.object(
                 Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
             ):
-                with patch("dw.workflow.empty_device_cache"):
+                with patch("dw.pipeline_ownership.empty_device_cache"):
                     workflow.run({}, previous_pipelines={})
 
         assert bool(_model_cache) is expect_cached
@@ -362,10 +459,10 @@ def test_release_models_evicts_task_models_after_step(release, expect_cached):
         clear_model_cache()
 
 
-def test_cache_hit_republishes_shared_components():
+def test_cache_hit_republishes_shared_components(tmp_path):
     """A warm sharing step must refill the fresh shared_components dict, or a
     later reusing step that missed the cache finds nothing."""
-    workflow = Workflow({"id": "share", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "share", "steps": []}, str(tmp_path), "t.json")
 
     sharing_def = {
         "name": "loader",
@@ -376,7 +473,7 @@ def test_cache_hit_republishes_shared_components():
             "arguments": {},
         },
     }
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
     cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
@@ -387,9 +484,40 @@ def test_cache_hit_republishes_shared_components():
     assert shared["transformer"] is cached.pipeline.transformer
 
 
-def test_redefined_step_evicts_prior_pipeline_before_loading():
+def test_a_resident_pipeline_that_cannot_share_fails_before_the_step_writes(
+    tmp_path,
+):
+    """Reusing a resident pipeline republishes its shared components before
+    anything is computed for the step's own output: a publish that refuses
+    raises its own error and leaves no subfolder of the step's behind."""
+    workflow = Workflow({"id": "share", "steps": []}, str(tmp_path), "t.json")
+    sharing_def = {
+        "name": "loader",
+        "pipeline": {
+            "configuration": {"component_type": "{Mock}"},
+            "from_pretrained_arguments": {"model_name": "m"},
+            "shared_components": ["transformer"],
+            "arguments": {},
+        },
+        "result": {"content_type": "image/png", "subfolder": "final"},
+    }
+    from dw.step_cache import pipeline_cache_key
+
+    cached = Pipeline(sharing_def["pipeline"], 1, "cpu", MagicMock())
+    cache = {pipeline_cache_key(sharing_def["pipeline"]): cached}
+
+    with patch.object(
+        cached, "publish_shared_components", side_effect=ValueError("not loaded")
+    ):
+        with pytest.raises(ValueError, match="not loaded"):
+            workflow.create_step_action(sharing_def, {}, cache, 1, "cpu")
+
+    assert not (tmp_path / "final").exists()
+
+
+def test_redefined_step_evicts_prior_pipeline_before_loading(tmp_path):
     """The swap must never hold the old and new model stacks at once."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -407,8 +535,8 @@ def test_redefined_step_evicts_prior_pipeline_before_loading():
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
-    workflow._prior_step_keys = {"gen": old_key}
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.prior = {"gen": old_key}
 
     seen_at_load = {}
 
@@ -449,7 +577,7 @@ def _load_with(workflow, step, cache, key):
     return seen_at_load["still_cached"]
 
 
-def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
+def test_a_pipeline_another_running_step_currently_maps_to_is_not_released(tmp_path):
     """#150 carries step->key across jobs. Two steps that resolved to the
     same pipeline last time, and a rerun that changes only the first: the
     old model is still the second step's cache hit THIS run - its current
@@ -457,17 +585,17 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
     resident model, and holds both stacks while the first step's
     replacement loads, the exact transition #150 avoids. The end-of-run
     sweep (_evict_untouched_pipelines) drops it if nothing touched it."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
     cache = {shared_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
-    workflow._prior_step_keys = {"gen": shared_key, "gen_again": shared_key}
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.prior = {"gen": shared_key, "gen_again": shared_key}
     # gen_again still loads shared-model this run: its current key is the
     # one gen is about to leave behind
-    workflow._running_pipeline_keys = {
+    workflow.pipeline_ownership.running = {
         "gen": pipeline_cache_key(changed_step["pipeline"]),
         "gen_again": shared_key,
     }
@@ -478,24 +606,24 @@ def test_a_pipeline_another_running_step_currently_maps_to_is_not_released():
     )
 
 
-def test_a_prior_key_no_running_step_currently_maps_to_is_released():
-    """_prior_step_keys is merged across every job the worker has ever run
+def test_a_prior_key_no_running_step_currently_maps_to_is_released(tmp_path):
+    """pipeline_ownership.prior is merged across every job the worker has ever run
     and never pruned (Worker._record_step_keys), so it can carry a step
     name from an earlier, unrelated workflow that happened to resolve to
     the same pipeline. That name is not a step this run executes, so no
     running step's current key is the old key - it must not save the key
     from release."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     shared_key = pipeline_cache_key(_model_step("x", "shared-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
     cache = {shared_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
     # stale_step mapped to shared_key in some earlier, different workflow's
     # run - it is not a step of the workflow this run executes
-    workflow._prior_step_keys = {"gen": shared_key, "stale_step": shared_key}
-    workflow._running_pipeline_keys = {
+    workflow.pipeline_ownership.prior = {"gen": shared_key, "stale_step": shared_key}
+    workflow.pipeline_ownership.running = {
         "gen": pipeline_cache_key(changed_step["pipeline"])
     }
 
@@ -505,7 +633,7 @@ def test_a_prior_key_no_running_step_currently_maps_to_is_released():
     )
 
 
-def test_a_prior_key_every_sharing_step_moved_off_is_released():
+def test_a_prior_key_every_sharing_step_moved_off_is_released(tmp_path):
     """Two steps (or a for_each group) reading one model variable, and a
     rerun that changes it: every step's PRIOR key is the old key and every
     step's current key is the new one. Judged on prior keys, the first
@@ -513,29 +641,29 @@ def test_a_prior_key_every_sharing_step_moved_off_is_released():
     its replacement loaded - the OOM transition #150 fixed. Judged on the
     siblings' current keys, nobody is on the old key and it is released
     before the load."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_key = pipeline_cache_key(_model_step("x", "old-model")["pipeline"])
     changed_step = _model_step("gen", "new-model")
     new_key = pipeline_cache_key(changed_step["pipeline"])
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "shared", "steps": []}, "/tmp/test_output", "t.json")
-    workflow._prior_step_keys = {"gen": old_key, "gen_again": old_key}
-    workflow._running_pipeline_keys = {"gen": new_key, "gen_again": new_key}
+    workflow = Workflow({"id": "shared", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.prior = {"gen": old_key, "gen_again": old_key}
+    workflow.pipeline_ownership.running = {"gen": new_key, "gen_again": new_key}
 
     assert _load_with(workflow, changed_step, cache, old_key) is False, (
         "a key no running step still maps to must be released before the load"
     )
 
 
-def test_run_records_the_current_key_of_every_pipeline_step():
+def test_run_records_the_current_key_of_every_pipeline_step(tmp_path):
     """The wiring under the guard: Workflow.run records, from the realized
     steps it hands to create_step_action, the key each pipeline step loads
     under this run. create_step_action records the key it hashed per step
-    (_pipeline_keys_by_step), so the two maps must be identical - computed
+    (pipeline_ownership.keys_by_step), so the two maps must be identical - computed
     by the same function over the same dicts."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     definition = {
         "id": "keys",
@@ -549,16 +677,16 @@ def test_run_records_the_current_key_of_every_pipeline_step():
             },
         ],
     }
-    workflow = Workflow(definition, "/tmp/test_output", "t.json")
+    workflow = Workflow(definition, str(tmp_path), "t.json")
     hashed_by_create_step_action = {}
     original = Workflow.create_step_action
 
-    def spy(self, step_definition, *args):
+    def spy(self, step_definition, *args, **kwargs):
         if "pipeline" in step_definition:
             hashed_by_create_step_action[step_definition["name"]] = pipeline_cache_key(
                 step_definition["pipeline"]
             )
-        return original(self, step_definition, *args)
+        return original(self, step_definition, *args, **kwargs)
 
     def mock_load(self, shared_components):
         self.pipeline = MagicMock()
@@ -570,16 +698,18 @@ def test_run_records_the_current_key_of_every_pipeline_step():
     ):
         workflow.run({})
 
-    assert set(workflow._running_pipeline_keys) == {"gen", "gen_again"}
-    assert workflow._running_pipeline_keys == hashed_by_create_step_action
-    assert workflow._running_pipeline_keys == workflow._pipeline_keys_by_step
+    assert set(workflow.pipeline_ownership.running) == {"gen", "gen_again"}
+    assert workflow.pipeline_ownership.running == hashed_by_create_step_action
     assert (
-        workflow._running_pipeline_keys["gen"]
-        != (workflow._running_pipeline_keys["gen_again"])
+        workflow.pipeline_ownership.running == workflow.pipeline_ownership.keys_by_step
+    )
+    assert (
+        workflow.pipeline_ownership.running["gen"]
+        != (workflow.pipeline_ownership.running["gen_again"])
     )
 
 
-def test_pipeline_released_is_reported_on_the_event_stream():
+def test_pipeline_released_is_reported_on_the_event_stream(tmp_path):
     """The release is announced, and before the step's files are written.
 
     A consumer cannot time the release by polling memory: it happens inside
@@ -590,7 +720,7 @@ def test_pipeline_released_is_reported_on_the_event_stream():
     from dw.events import RunContext
 
     events = []
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
 
     def mock_pipeline_load(self, shared_components):
         self.pipeline = MagicMock()
@@ -599,7 +729,7 @@ def test_pipeline_released_is_reported_on_the_event_stream():
         with patch.object(
             Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
         ):
-            with patch("dw.workflow.empty_device_cache"):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
                 workflow.run(
                     {},
                     previous_pipelines={},
@@ -620,14 +750,14 @@ def test_pipeline_released_is_reported_on_the_event_stream():
     )
 
 
-def test_superseded_release_is_reported_on_the_event_stream():
+def test_superseded_release_is_reported_on_the_event_stream(tmp_path):
     """A release the caller never asked for still reaches the event stream.
 
     Without it a reload on top of a resident model looks exactly like a cold
     load, which is what made #150 take three jobs to diagnose.
     """
     from dw.events import RunContext, activate_context, deactivate_context
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -645,8 +775,8 @@ def test_superseded_release_is_reported_on_the_event_stream():
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
 
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
-    workflow._prior_step_keys = {"gen": old_key}
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.prior = {"gen": old_key}
 
     events = []
     context = RunContext(on_event=lambda event: events.append(event))
@@ -663,7 +793,7 @@ def test_superseded_release_is_reported_on_the_event_stream():
     assert released[0]["reason"] == "superseded"
 
 
-def test_release_pipeline_returns_host_caches_before_announcing_it():
+def test_release_pipeline_returns_host_caches_before_announcing_it(tmp_path):
     """The release hands pinned/arena host memory back then, not at job end.
 
     `pipeline_released` dropped the device memory but left ~10 GB of pinned
@@ -676,11 +806,11 @@ def test_release_pipeline_returns_host_caches_before_announcing_it():
 
     events = []
     pipeline_cache = {}
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
     at_release = []
 
     def fake_release():
-        key = workflow._pipeline_keys_by_step.get("generate")
+        key = workflow.pipeline_ownership.keys_by_step.get("generate")
         at_release.append(
             {
                 "released_cached": key in pipeline_cache,
@@ -696,8 +826,8 @@ def test_release_pipeline_returns_host_caches_before_announcing_it():
         with patch.object(
             Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
         ):
-            with patch("dw.workflow.empty_device_cache"):
-                with patch("dw.workflow.release_host_caches", fake_release):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
+                with patch("dw.pipeline_ownership.release_host_caches", fake_release):
                     workflow.run(
                         {},
                         previous_pipelines=pipeline_cache,
@@ -706,14 +836,12 @@ def test_release_pipeline_returns_host_caches_before_announcing_it():
 
     assert at_release == [{"released_cached": False, "announced": False}]
     # the step that did not ask for a release leaves its pipeline warm
-    assert workflow._pipeline_keys_by_step["keep"] in pipeline_cache
+    assert workflow.pipeline_ownership.keys_by_step["keep"] in pipeline_cache
 
 
-def test_release_models_returns_host_caches():
+def test_release_models_returns_host_caches(tmp_path):
     """release_models is the task-model sibling of release_pipeline (#368)."""
-    workflow = Workflow(
-        _release_models_workflow_def(True), "/tmp/test_output", "test.json"
-    )
+    workflow = Workflow(_release_models_workflow_def(True), str(tmp_path), "test.json")
     calls = []
 
     def mock_pipeline_load(self, shared_components):
@@ -725,9 +853,9 @@ def test_release_models_returns_host_caches():
             with patch.object(
                 Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
             ):
-                with patch("dw.workflow.empty_device_cache"):
+                with patch("dw.pipeline_ownership.empty_device_cache"):
                     with patch(
-                        "dw.workflow.release_host_caches",
+                        "dw.pipeline_ownership.release_host_caches",
                         lambda: calls.append(bool(_model_cache)) or 0.0,
                     ):
                         workflow.run({}, previous_pipelines={})
@@ -737,10 +865,10 @@ def test_release_models_returns_host_caches():
     assert calls == [False], "emptied once, after the task models were dropped"
 
 
-def test_superseded_release_returns_host_caches():
+def test_superseded_release_returns_host_caches(tmp_path):
     """A redefined step's old pipeline hands its host memory back before the
     new one loads, not once the job ends (#368)."""
-    from dw.workflow import pipeline_cache_key
+    from dw.step_cache import pipeline_cache_key
 
     old_def = {
         "configuration": {"component_type": "{Mock}"},
@@ -757,8 +885,8 @@ def test_superseded_release_returns_host_caches():
     }
     old_key = pipeline_cache_key(old_def)
     cache = {old_key: MagicMock()}
-    workflow = Workflow({"id": "swap", "steps": []}, "/tmp/test_output", "t.json")
-    workflow._prior_step_keys = {"gen": old_key}
+    workflow = Workflow({"id": "swap", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.prior = {"gen": old_key}
     order = []
 
     def mock_load(self, shared_components):
@@ -767,7 +895,7 @@ def test_superseded_release_returns_host_caches():
 
     with patch.object(Pipeline, "load", mock_load):
         with patch(
-            "dw.workflow.release_host_caches",
+            "dw.pipeline_ownership.release_host_caches",
             lambda: order.append(("release", old_key in cache)) or 0.0,
         ):
             workflow.create_step_action(new_step, {}, cache, 1, "cpu")
@@ -775,11 +903,11 @@ def test_superseded_release_returns_host_caches():
     assert order == [("release", False), "load"]
 
 
-def test_release_host_caches_runs_for_real_on_the_release_path():
+def test_release_host_caches_runs_for_real_on_the_release_path(tmp_path):
     """The unmocked call is harmless where there is no CUDA or glibc."""
     from dw.host_memory import release_host_caches
 
-    workflow = Workflow(_release_workflow_def(), "/tmp/test_output", "test.json")
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
 
     def mock_pipeline_load(self, shared_components):
         self.pipeline = MagicMock()
@@ -789,9 +917,133 @@ def test_release_host_caches_runs_for_real_on_the_release_path():
             Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
         ):
             with patch(
-                "dw.workflow.release_host_caches",
+                "dw.pipeline_ownership.release_host_caches",
                 wraps=release_host_caches,
             ) as real:
                 workflow.run({}, previous_pipelines={})
 
     assert real.call_count == 1
+
+
+def _sharing_step(name, model_name, shares=(), reuses=()):
+    pipeline = {
+        "configuration": {"component_type": "{MockPipeline}"},
+        "from_pretrained_arguments": {"model_name": model_name},
+        "arguments": {"prompt": f"fixed {name}"},
+    }
+    if shares:
+        pipeline["shared_components"] = list(shares)
+    if reuses:
+        pipeline["reused_components"] = list(reuses)
+    return {"name": name, "pipeline": pipeline}
+
+
+def _loads_per_run(tmp_path, definition, argument_sets):
+    """Runs an unseeded definition (no step cache) once per argument set,
+    carrying the pipeline dict between runs as the worker does, and returns
+    the model names each run loaded, in order."""
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    pipeline_cache = {}
+    loads = []
+
+    def mock_pipeline_load(self, shared_components):
+        loads[-1].append(self.pipeline_definition["from_pretrained_arguments"])
+        self.resolve_reused_components(shared_components)
+        self.pipeline = MagicMock()
+        self.publish_shared_components(shared_components)
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(
+            Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+        ):
+            for arguments in argument_sets:
+                loads.append([])
+                workflow.run(arguments, previous_pipelines=pipeline_cache)
+    return [[load["model_name"] for load in run] for run in loads]
+
+
+def test_a_pipeline_reusing_a_changed_component_is_not_reused_from_the_cache(
+    tmp_path,
+):
+    """A shares its vae and B reuses it on its own pipeline. Only a fresh
+    load resolves reused components, so a B still resident from a run where
+    A was another model holds that model's vae: when A's model changes, B
+    has to load again rather than be handed back from the pipeline cache."""
+    definition = {
+        "id": "test_borrow_chain_pipeline_cache",
+        "variables": {"model_a": "m1"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "model-b", reuses=["vae"]),
+        ],
+    }
+    loads = _loads_per_run(tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}])
+    assert loads[1] == ["m2", "model-b"]
+
+
+def _multi_hop_definition():
+    """A shares vae, B reuses it and shares it on, D reuses B's."""
+    return {
+        "id": "test_multi_hop_pipeline_cache",
+        "variables": {"model_a": "m1", "model_b": "model-b"},
+        "steps": [
+            _sharing_step("A", "variable:model_a", shares=["vae"]),
+            _sharing_step("B", "variable:model_b", shares=["vae"], reuses=["vae"]),
+            _sharing_step("D", "model-d", reuses=["vae"]),
+        ],
+    }
+
+
+def test_a_change_at_the_origin_of_a_multi_hop_borrow_reloads_every_borrower(
+    tmp_path,
+):
+    loads = _loads_per_run(
+        tmp_path, _multi_hop_definition(), [{"model_a": "m1"}, {"model_a": "m2"}]
+    )
+    assert loads[1] == ["m2", "model-b", "model-d"]
+
+
+def test_a_change_to_an_intermediate_borrower_reloads_every_step_below_it(
+    tmp_path,
+):
+    """B's own definition decides what it passes on (its placement and
+    optimizations act on the component in place), so D, which reuses from B,
+    reloads when B changes; A, above it, stays resident."""
+    loads = _loads_per_run(
+        tmp_path,
+        _multi_hop_definition(),
+        [{"model_b": "model-b"}, {"model_b": "model-b2"}],
+    )
+    assert loads[1] == ["model-b2", "model-d"]
+
+
+def test_identical_steps_passing_a_component_on_share_one_pipeline(tmp_path):
+    """Three identical steps (for_each members, say) that each reuse vae and
+    share it on hold the same loaded pipeline, as they did before a borrow
+    chain was part of identity - one resident copy, not one per member."""
+    from dw.step_cache import step_pipeline_keys
+
+    definition = {
+        "id": "test_identical_pass_through",
+        "steps": [_sharing_step("S", "model-s", shares=["vae"])]
+        + [
+            {
+                **_sharing_step("m", "model-m", shares=["vae"], reuses=["vae"]),
+                "name": f"m{index}",
+            }
+            for index in range(3)
+        ],
+    }
+    keys = step_pipeline_keys(definition["steps"])
+    assert keys["m0"] == keys["m1"] == keys["m2"]
+    assert _loads_per_run(tmp_path, definition, [{}]) == [["model-s", "model-m"]]
+
+
+def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):
+    """The table holds effective keys, which a step's own definition cannot
+    give, so a step it lacks is never quietly re-hashed."""
+    workflow = Workflow({"id": "table", "steps": []}, str(tmp_path), "t.json")
+    workflow.pipeline_ownership.running = {"other": "k"}
+
+    with pytest.raises(RuntimeError, match="'gen' is not in this run's pipeline"):
+        workflow.create_step_action(_model_step("gen", "m"), {}, {}, 1, "cpu")

@@ -6,7 +6,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo
 from dw.task_domains import task_argument_errors
 from dw.tasks.grade import grade_image
 from dw.tasks.task import Task

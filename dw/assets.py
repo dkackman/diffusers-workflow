@@ -14,27 +14,27 @@ written there loads it unchanged.
 
 import contextvars
 import logging
-import os
 
-from .security import validate_asset_reference, validate_path
-from .workspace import ASSETS_SUBDIR, discover_library, library_fallbacks
+from . import references
+from .library import (
+    ASSET_DIR_ENV_VAR,
+    ASSETS_KIND,
+    library_path_from_env,
+)
+from .security import validate_asset_reference
+from .workspace import ASSETS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
 # The prefix marking a value as a reference to a stored asset
-ASSET_PREFIX = "asset:"
-
-# Set by an entry point from --asset-dir, and inherited by a spawned worker,
-# the way DW_PROMPT_DIR is
-ASSET_DIR_ENV_VAR = "DW_ASSET_DIR"
-
+ASSET_PREFIX = references.ASSET
 
 # The asset library of the run in progress. A server holds several
 # workspaces and each has its own assets, so this cannot be a process-wide
 # environment variable there the way the prompt library can - there is one
 # prompt library, shared, but assets belong to a workspace. Set per job by
-# the worker; unset for the CLI and REPL, which have one workspace per
-# process and read the environment below
+# the worker; unset for the CLI, which has one workspace per
+# process and reads the environment below
 _active_asset_dir = contextvars.ContextVar("dw_asset_dir", default=None)
 
 
@@ -69,16 +69,15 @@ def get_asset_dir(base_dir=None):
 
 def is_asset_reference(value):
     """Whether a value references a file in the asset library."""
-    return isinstance(value, str) and value.startswith(ASSET_PREFIX)
+    return references.is_ref(references.ASSET, value)
 
 
-def asset_search_path(asset_dir=None, base_dir=None):
-    """Every directory an 'asset:' reference is looked for in, in order.
-
-    The workspace's own library first, then the read-only ones an entry
-    point put on the path (workspace.library_fallbacks - the assets a
-    --examples-dir tree brings with it), so an example workflow reaches the
-    media it ships with while an upload still lands in the workspace.
+def asset_library(asset_dir=None, base_dir=None):
+    """The asset library as a `LibraryPath`: the workspace's own first, then
+    the read-only ones an entry point put on the path (the shared `common`
+    library and the assets a --examples-dir tree brings with it), so an
+    example workflow reaches the media it ships with while an upload still
+    lands in the workspace.
 
     Args:
         asset_dir: The first directory; defaults to get_asset_dir()
@@ -86,10 +85,10 @@ def asset_search_path(asset_dir=None, base_dir=None):
             asset directory is configured
     """
     primary = asset_dir or get_asset_dir(base_dir)
-    return [primary] + library_fallbacks(ASSETS_SUBDIR, primary)
+    return library_path_from_env(ASSETS_KIND, primary)
 
 
-def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
+def resolve_asset_reference(reference, asset_dir=None, base_dir=None, library=None):
     """Resolve an 'asset:' reference to the file it names.
 
     Args:
@@ -97,6 +96,10 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
         asset_dir: Directory the name is rooted at; defaults to get_asset_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             asset directory is configured
+        library: The `LibraryPath` to resolve over, for a caller that holds
+            the search path itself (the server's, for a workspace); it
+            replaces `asset_dir` and `base_dir`, which are ignored
+            when it is given
 
     Returns:
         The validated absolute path of the asset file
@@ -108,16 +111,15 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None):
             the search path
     """
     name = validate_asset_reference(reference.removeprefix(ASSET_PREFIX).strip())
-    roots = asset_search_path(asset_dir, base_dir)
-    for root in roots:
-        # Confined to the library it was found in: the name is joined onto a
-        # directory, so the containment check is what makes a name a name
-        # rather than a path
-        path = validate_path(os.path.join(root, name), root)
-        if os.path.isfile(path):
-            logger.debug(f"Resolved {reference} to {path}")
-            return path
-    searched = ", ".join(roots)
+    library = library or asset_library(asset_dir, base_dir)
+    # Confined to the library it was found in: the name is joined onto a
+    # directory, so the containment check is what makes a name a name
+    # rather than a path
+    found = library.find(name, refuse=True)
+    if found:
+        logger.debug(f"Resolved {reference} to {found[0]}")
+        return found[0]
+    searched = ", ".join(root.root for root in library.roots())
     raise ValueError(
         f"Asset '{name}' not found in {searched} - an 'asset:' reference "
         f"names a file in the asset library, with its extension, like "

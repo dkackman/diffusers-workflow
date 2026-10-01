@@ -15,6 +15,8 @@ import type {
   PipelineDescription,
   PromptDefinition,
   PromptDetail,
+  LibraryRoot,
+  ShadowedEntry,
   ServerInfo,
   ValidationResult,
   WorkflowCost,
@@ -250,11 +252,11 @@ function archiveFrom(path: string) {
 export const api = {
   listWorkflows: () =>
     request<{
-      /** The writable directory - where a save lands, whatever source a
-       * workflow was read from. */
-      workflow_dir: string
-      /** The search path, writable root first. */
-      sources?: { root: string; origin: string; writable: boolean }[]
+      workspace?: string
+      /** The search path in order; the writable workspace root is where a
+       * save lands, whatever library a workflow was read from. */
+      libraries: LibraryRoot[]
+      shadowed: ShadowedEntry[]
       workflows: string[]
       details: Record<
         string,
@@ -280,9 +282,9 @@ export const api = {
            * (or absent) means unknown - never derived. */
           cost?: WorkflowCost[] | null
           /** Which source it came from: 'workspace', 'examples', 'builtin'. */
-          origin?: string
+          origin: string
           /** False for a read-only source: offer save-a-copy, not delete. */
-          writable?: boolean
+          writable: boolean
         }
       >
     }>('/api/workflows'),
@@ -469,7 +471,7 @@ export const api = {
    * than the random one a browser upload gets, and `shared` puts it in the
    * library every workspace under this root shares. */
   uploadMedia: (file: File, assetName?: string, shared = false) =>
-    request<{ path: string; url: string; reference?: string }>(
+    request<{ url: string; reference?: string }>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
@@ -479,8 +481,7 @@ export const api = {
    * one and any example library - each entry tagged with which. */
   listAssets: () =>
     request<{
-      asset_dir: string | null
-      asset_dirs: string[]
+      workspace: string
       assets: AssetFile[]
       folders: string[]
       libraries: AssetLibrary[]
@@ -565,24 +566,23 @@ export const api = {
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{ name: string; path: string; warnings: string[] }>(
-      `/api/workflows/${encodePath(name)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow }),
-      },
-    ),
+    request<{
+      name: string
+      workspace: string
+      origin: string
+      warnings: string[]
+    }>(`/api/workflows/${encodePath(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow }),
+    }),
   listPrompts: () =>
     request<{
-      /** The writable library - where a save lands. */
-      prompt_dir: string
-      /** The search path, writable library first. Absent from an older
-       * server, which had only the one. */
-      prompt_dirs?: string[]
+      /** The search path in order; the writable workspace root is where a
+       * save lands. */
+      libraries: LibraryRoot[]
+      shadowed: ShadowedEntry[]
       prompts: string[]
-      /** Which library each name came from: 'workspace' or 'examples'. */
-      origins?: Record<string, string>
       details: Record<string, PromptDetail>
     }>('/api/prompts'),
   /** The prompt plus which library it came from, read off the response
@@ -596,14 +596,11 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string; path: string }>(
-      `/api/prompts/${encodePath(name)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      },
-    ),
+    request<{ name: string }>(`/api/prompts/${encodePath(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    }),
   deletePrompt: (name: string) =>
     request<{ name: string; deleted: boolean }>(
       `/api/prompts/${encodePath(name)}`,

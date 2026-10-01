@@ -11,10 +11,9 @@ import pytest
 import torch
 from PIL import Image
 
-from dw.result import AudioVideo
+from dw.media_types import AudioVideo, fit_codec_padding
 from dw.tasks.task import _VIDEO_PROCESSOR_COMMANDS, Task
 from dw.tasks.video_utils import (
-    _fit_audio_to_frames,
     extract_frame,
     frame_count,
     get_frame,
@@ -271,7 +270,7 @@ class TestFramesAsArray:
         assert array.dtype == numpy.uint8
 
     def test_an_audio_video_gives_its_frames(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import frames_as_array
 
         video = AudioVideo([Image.new("RGB", (8, 8))] * 2, "waveform", 24000)
@@ -341,7 +340,7 @@ class TestLoadAudioVideo:
         fetch_video, which used to hand on a bare frame list - so a 24 fps
         file was written back at the 8 fps default, three times long, with
         nothing said about it (#104)."""
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.tasks.video_utils import FrameList
 
         path = self.write_video(tmp_path / "shot.mp4", fps=24, num_frames=24)
@@ -354,13 +353,13 @@ class TestLoadAudioVideo:
     def test_a_file_that_states_no_rate_stays_a_plain_list(self, tmp_path):
         """Not knowing the rate is a state, not an error - the frames are
         already read by the time it is asked for."""
-        from dw.arguments import _with_frame_rate
+        from dw.argument_media import _with_frame_rate
 
         assert _with_frame_rate(["a", "b"], str(tmp_path / "gone.mp4")) == ["a", "b"]
 
     def test_the_rate_reaches_the_paired_video(self, tmp_path):
         """End to end over the two functions #104 sits between."""
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.tasks.pair_audio import pair_audio
 
         path = self.write_video(tmp_path / "shot.mp4", fps=24, num_frames=24)
@@ -380,7 +379,7 @@ class TestLoadAudioVideo:
         the file's fps - #398."""
         import json
 
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.runs import MANIFEST_FILE_NAME
         from dw.tasks.video_utils import FrameList
 
@@ -424,7 +423,7 @@ class TestLoadAudioVideo:
         the same workflow."""
         import json
 
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.runs import MANIFEST_FILE_NAME
         from dw.tasks.pair_audio import pair_audio
 
@@ -518,7 +517,7 @@ class TestIsVideoLocation:
     def test_an_already_loaded_video_is_not(self):
         from PIL import Image
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import is_video_location
 
         assert not is_video_location(AudioVideo([Image.new("RGB", (2, 2))], None, None))
@@ -598,6 +597,7 @@ class TestVideoFileReference:
     ):
         """The whole point of #367: a get_frame step's 'video' must not go
         through the eager, whole-clip fetch_video/load_video path."""
+        import dw.argument_media as argument_media_module
         import dw.arguments as arguments_module
         from dw.tasks.video_utils import VideoFileReference
 
@@ -606,7 +606,7 @@ class TestVideoFileReference:
         def _boom(*args, **kwargs):
             raise AssertionError("load_video must not be called for get_frame (#367)")
 
-        monkeypatch.setattr(arguments_module, "load_video", _boom)
+        monkeypatch.setattr(argument_media_module, "load_video", _boom)
 
         task = {
             "command": "get_frame",
@@ -647,7 +647,7 @@ class TestIsVideo:
         import torch
         from PIL import Image
 
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.video_utils import is_video
 
         assert is_video(AudioVideo([Image.new("RGB", (2, 2))], None, None))
@@ -853,7 +853,7 @@ class TestFrameGrid:
         # - loaded through the real fetch_video path, not a mock of it
         import os
         import tempfile
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.tasks.video_utils import frame_grid
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -887,7 +887,7 @@ class TestGetFrameOnAStill:
     def test_get_frame_of_a_still_loaded_through_fetch_video(self):
         import os
         import tempfile
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
         from dw.tasks.video_utils import get_frame
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -916,7 +916,7 @@ class TestFitAudioToFrames:
     FRAMES, FPS, RATE, EXPECTED = 24, 24.0, 48000, 48000
 
     def fit(self, audio):
-        return _fit_audio_to_frames(audio, self.FRAMES, self.FPS, self.RATE)
+        return fit_codec_padding(audio, self.FRAMES, self.FPS, self.RATE)
 
     @pytest.mark.parametrize(
         "shape, axis",

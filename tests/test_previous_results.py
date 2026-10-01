@@ -11,7 +11,7 @@ from dw.previous_results import (
     find_previous_result_refs,
     previous_result_reference_errors,
 )
-from dw.workflow import release_unreferenced_results
+from dw.workflow_run import release_unreferenced_results
 from dw.result import Result
 from PIL import Image
 

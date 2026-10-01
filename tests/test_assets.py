@@ -8,11 +8,11 @@ from PIL import Image
 
 from dw.arguments import realize_args
 from dw.assets import (
-    ASSET_DIR_ENV_VAR,
     get_asset_dir,
     is_asset_reference,
     resolve_asset_reference,
 )
+from dw.library import ASSET_DIR_ENV_VAR
 from dw.security import InvalidInputError, SecurityError
 from dw.workspace import WORKSPACE_ENV_VAR, WORKSPACE_SOURCE_ENV_VAR
 
@@ -167,3 +167,20 @@ class TestStoredPromptText:
         monkeypatch.setenv("DW_PROMPT_DIR", str(library))
         with pytest.raises(ValueError, match="reference prefix"):
             fetch_prompt("prompt:sneaky")
+
+
+class TestListItemsResolveAsStringsOnly:
+    def test_a_media_reference_dict_in_a_list_is_not_path_resolved_first(
+        self, asset_dir
+    ):
+        """A list's items resolve a path reference only when the item itself
+        is one; a {media_type, location} dict is loaded with its location as
+        written, so an asset: location is not resolved the way the same dict
+        under a dict key is."""
+        under_key = {"mask": {"media_type": "image", "location": "asset:iris.png"}}
+        realize_args(under_key)
+        assert isinstance(under_key["mask"], Image.Image)
+
+        in_list = [{"media_type": "image", "location": "asset:iris.png"}]
+        with pytest.raises(Exception):
+            realize_args(in_list)

@@ -7,8 +7,8 @@ rather than a mock of it, mirroring tests/test_slice_preflight.py (#402).
 """
 
 import os
-import tempfile
 
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.shot_span_preflight import shot_span_warnings
 from dw.workflow import workflow_from_definition
@@ -16,8 +16,8 @@ from dw.workflow import workflow_from_definition
 from tests.test_assess import write_mp4
 
 
-def workflow_dir_with_asset(monkeypatch, name, frames):
-    base_dir = tempfile.mkdtemp()
+def workflow_dir_with_asset(monkeypatch, tmp_path, name, frames):
+    base_dir = str(tmp_path)
     asset_dir = os.path.join(base_dir, "assets")
     os.makedirs(asset_dir)
     write_mp4(os.path.join(asset_dir, name), frames=frames, fps=24)
@@ -42,10 +42,12 @@ def seams_workflow(video, shots):
 
 
 class TestTheCheck:
-    def test_a_shots_record_past_a_short_asset_is_warned(self, monkeypatch):
+    def test_a_shots_record_past_a_short_asset_is_warned(self, monkeypatch, tmp_path):
         # Mirrors the issue's own repro shape: a shot reaching well past the
         # file's real frame count.
-        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, "clip.mp4", frames=248
+        )
         definition = seams_workflow(
             "asset:clip.mp4",
             [
@@ -60,8 +62,27 @@ class TestTheCheck:
         assert "'b'" in warnings[0]
         assert "176 past the file's 248 frames" in warnings[0]
 
-    def test_shots_within_the_source_validate_clean(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+    def test_a_location_dict_video_is_probed(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, "clip.mp4", frames=248
+        )
+        definition = seams_workflow(
+            {"location": "asset:clip.mp4"},
+            [
+                {"name": "a", "start_frame": 0, "num_frames": 124},
+                {"name": "b", "start_frame": 124, "num_frames": 300},
+            ],
+        )
+
+        warnings = shot_span_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "176 past the file's 248 frames" in warnings[0]
+
+    def test_shots_within_the_source_validate_clean(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, "clip.mp4", frames=248
+        )
         definition = seams_workflow(
             "asset:clip.mp4",
             [
@@ -80,8 +101,8 @@ class TestTheCheck:
 
         assert shot_span_warnings(definition) == []
 
-    def test_an_output_reference_too_short_is_warned(self):
-        output_root = tempfile.mkdtemp()
+    def test_an_output_reference_too_short_is_warned(self, tmp_path):
+        output_root = str(tmp_path)
         run_dir = os.path.join(output_root, "cut", "20260101-000000-abc")
         os.makedirs(run_dir)
         write_mp4(os.path.join(run_dir, "final.mp4"), frames=48, fps=24)
@@ -103,10 +124,40 @@ class TestTheCheck:
     def test_nothing_is_reported_for_a_definition_with_no_probe_step(self):
         assert shot_span_warnings({"steps": [{"name": "a", "task": {}}]}) == []
 
+    def test_a_shared_cache_probes_the_source_once_across_two_calls(
+        self, monkeypatch, tmp_path
+    ):
+        # B9: a memoizing `probe` passed in by the caller (a per-validation
+        # cache in a later task) must be genuinely consulted - two calls to
+        # the check sharing one cache probe the source only once, not once
+        # per call.
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, "clip.mp4", frames=248
+        )
+        definition = seams_workflow(
+            "asset:clip.mp4",
+            [{"name": "a", "start_frame": 0, "num_frames": 124}],
+        )
+        calls = []
+        cache = {}
+
+        def counting_cache(path):
+            if path not in cache:
+                calls.append(path)
+                cache[path] = probe_metadata(path)
+            return cache[path]
+
+        shot_span_warnings(definition, base_dir=base_dir, probe=counting_cache)
+        shot_span_warnings(definition, base_dir=base_dir, probe=counting_cache)
+
+        assert len(calls) == 1
+
 
 class TestWiredIntoTheWorkflow:
-    def test_reachable_from_the_workflow_method(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, "clip.mp4", frames=248)
+    def test_reachable_from_the_workflow_method(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, "clip.mp4", frames=248
+        )
         definition = seams_workflow(
             "asset:clip.mp4",
             [

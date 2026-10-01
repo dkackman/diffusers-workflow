@@ -1,6 +1,6 @@
 # dw/server
 
-Guidance for the HTTP server package.
+Guidance for the HTTP server package. `app.py` is the factory (`create_app`); `routes/` holds one router per resource, registered by `include_routers` in order; `deps.py` (workspace lookup), `outputs.py` (output/asset resolution), `catalog.py` (listings), `http_security.py` (middleware), `admission.py` and `jobs.py` / `job_history.py` / `job_record.py` are the services they call.
 
 `dw.serve --mcp` additionally serves the MCP tool surface at `/mcp`
 (`mcp_mount.py`, Streamable HTTP, same bearer token) so an agent on another
@@ -21,14 +21,14 @@ uses for the SPA. `dw_mcp/guides.py` is a proxy of these routes.
 it referenced - under `<workspace>/exports/<job id>/`. `EXPORTS_SUBDIR` lives
 in `dw/workspace.py` rather than here, since `RESERVED_WORKSPACE_NAMES` needs
 it and `dw/workspace.py` must not import from `dw.server`; this module
-re-imports it. `app.py`'s `POST /api/jobs/{id}/export` calls it and returns
+re-imports it. `routes/jobs.py`'s `POST /api/jobs/{id}/export` calls it and returns
 the summary plus a `zip_url`; `GET /exports/{id}.zip` builds the archive on
 request from the same directory rather than keeping a second copy.
 
 A listing that walks a root with `os.walk` (the gallery and assets via
-`_iter_gallery_files`, workflows and prompts via `workflow_names`) drops a
+`iter_gallery_files`, workflows and prompts via `workflow_names`) drops a
 file symlink resolving outside that root (`contained`, `dw/security.py`,
 which resolves both sides so a linked workspace root still works), and
-`_zip_download` skips links - reads by name were already confined (#412).
+`zip_download` skips links - reads by name were already confined (#412).
 
 See docs/SERVER.md.

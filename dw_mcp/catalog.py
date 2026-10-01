@@ -281,9 +281,11 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     always null for audio and video, since neither format has a slot this
     writer uses. `job` is the fallback recipe when one is known - `next`
     then names `get_job_workflow(job_id)`, which reads the run's realized
-    workflow instead. A kept asset (`source: "asset"`) has no job at all,
-    so nothing on the server remembers which run made it; `next` says so
-    rather than pretending a lookup exists.
+    workflow instead. A kept asset (`source: "asset"`) carries `job` too
+    when `keep_output` recorded one at keep time - `run_id`/`version` are
+    that source run's own, not the asset's; a kept asset with no recorded
+    job (kept before this, or from a file with no job history) still
+    answers `job: null`, and `next` says so.
 
     `name` is a gallery name - the `name` field `list_gallery` reports, not
     its `label` (a display-only basename that is not a valid reference) -
@@ -312,9 +314,9 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             )
         elif body.get("source") == "asset":
             hints.append(
-                "metadata is null and this is a kept asset, which carries "
-                "no provenance - nothing on the server remembers which job, "
-                "if any, produced the file it was kept from."
+                "metadata is null and this is a kept asset with no "
+                "recorded job - it was kept before provenance tracking, "
+                "or from a file with no job history of its own."
             )
     if media and body.get("source") == "asset":
         hints.append(

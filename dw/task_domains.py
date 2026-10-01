@@ -32,7 +32,7 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 import logging
 import numbers
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .references import MEMBER_SEPARATOR, author_index, render_path
 
 logger = logging.getLogger("dw")
 
@@ -105,6 +105,20 @@ TASK_ARGUMENT_DOMAINS = {
         "crossfade_ms": NON_NEGATIVE,
         "sample_rate": POSITIVE,
     },
+    "find_loop_bed": {
+        "start_seconds": NON_NEGATIVE,
+        "end_seconds": POSITIVE,
+        "min_seconds": POSITIVE,
+        "max_seconds": POSITIVE,
+        "max_bin_dbfs": NON_POSITIVE,
+        "max_mean_dbfs": NON_POSITIVE,
+        "max_spike_db": NON_NEGATIVE,
+        "crossfade_ms": NON_NEGATIVE,
+        "loop_seconds": POSITIVE,
+        "target_bed_dbfs": NON_POSITIVE,
+        "max_candidates": POSITIVE,
+        "fps": POSITIVE,
+    },
     "fade_audio": {
         "fade_in_ms": NON_NEGATIVE,
         "fade_out_ms": NON_NEGATIVE,
@@ -127,6 +141,13 @@ TASK_ARGUMENT_DOMAINS = {
         "seam_fade_ms": NON_NEGATIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
+    },
+    "join_into_song": {
+        "cue_seconds": NON_NEGATIVE,
+        "duck_delay_ms": NON_NEGATIVE,
+        "duck_db": NON_POSITIVE,
+        "duck_ramp_ms": NON_NEGATIVE,
+        "fps": POSITIVE,
     },
     "loop_frames": {"num_frames": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
@@ -180,7 +201,7 @@ def as_number(value):
 
     A workflow variable declared null carries no type, so a number supplied
     for it on the command line arrives as a string - the tasks coerce those
-    (`_as_number` in audio_utils), so this reads them too. Booleans are not
+    (`coerce_number` in audio_utils), so this reads them too. Booleans are not
     numbers here whatever Python thinks, and a `variable:`/`item:`/
     `previous_result:` string is somebody else's complaint.
     """
@@ -281,11 +302,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
         domains = TASK_ARGUMENT_DOMAINS.get(command)
         if not domains:
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"
@@ -309,3 +326,158 @@ def task_argument_errors(workflow_definition, source_indices=None):
                 }
             )
     return errors
+
+
+# The four rules a checker and a task both apply. Each was written twice -
+# once where validate refuses it for free and once where the task refuses it
+# at run time - and two of the copies drifted (the run's frame-size refusal
+# stopped at the first mismatch and called its reference "video 0"; the
+# checker's slice arithmetic lacked #557's end rounding). Each now has one
+# home here, and both sides call it: the checker for the inputs it can know
+# before the run, the task for the ones it is actually handed.
+
+
+def dissolve_shortfalls(frame_counts, dissolve_frames):
+    """One sentence per video too short for its share of the overlaps.
+
+    `frame_counts` is one entry per video in join order, None where the count
+    is not known (validation cannot probe a `previous_result:`) - such an
+    entry is skipped but still counts as a neighbour, since a seam is a seam
+    whether or not its other side has been measured. An inner video carries
+    two dissolves, an end one carries one.
+    """
+    last = len(frame_counts) - 1
+    shortfalls = []
+    for index, frame_count in enumerate(frame_counts):
+        if frame_count is None:
+            continue
+        seams = (index > 0) + (index < last)
+        if frame_count < seams * dissolve_frames:
+            shortfalls.append(
+                f"video {index} has {frame_count} frames, too few for its "
+                f"{seams} dissolve(s) of {dissolve_frames} frames"
+            )
+    return shortfalls
+
+
+def frame_size_error(command, sizes):
+    """The refusal sentence for videos of different frame sizes, or None when
+    they all agree: `"{command} needs every video at one size: ..."`, naming
+    every video whose size disagrees with the first known one.
+
+    The one producer - `check_same_frame_size` raises it at run time and
+    `video_size_errors` leads its validation message with it.
+
+    `sizes` maps a video's index in the join to its (width, height); a video
+    whose size is not known is absent. The reference is named by its real
+    index, and every mismatch is listed, because each one is a fix the caller
+    has to make - a report stopping at the first sends them back for the
+    next.
+    """
+    mismatches = _frame_size_mismatches(sizes)
+    if mismatches is None:
+        return None
+    return f"{command} needs every video at one size: {mismatches}"
+
+
+def _frame_size_mismatches(sizes):
+    """The mismatches half of `frame_size_error`'s sentence, or None."""
+    if not sizes:
+        return None
+    first_index = next(iter(sizes))
+    first_size = sizes[first_index]
+    parts = [f"video {first_index} is {first_size[0]}x{first_size[1]}"]
+    for index, size in sizes.items():
+        if index != first_index and size != first_size:
+            parts.append(f"video {index} is {size[0]}x{size[1]}")
+    return ", ".join(parts) if len(parts) > 1 else None
+
+
+# Padding shorter than this at the end of a slice is the rounding that
+# frame-aligned slicing produces, not a slice that overran its source
+SLICE_PAD_WARN_MS = 10.0
+
+
+def frames_to_samples(frames, fps, sample_rate):
+    """The number of audio samples spanning a run of video frames."""
+    return int(round(frames / fps * sample_rate))
+
+
+def slice_region(
+    sample_rate,
+    start_seconds=None,
+    duration_seconds=None,
+    start_frame=None,
+    num_frames=None,
+    fps=None,
+    total=None,
+):
+    """The region a `slice_audio` call asks for, as `(start, length)` in
+    samples, or None when it cannot be worked out.
+
+    Seconds win over frames, as in the run. A frame-addressed end is rounded
+    once, not as two rounded halves (#557), so a slice meant to reach the
+    source's exact end does. A slice with no duration (or no `num_frames`)
+    runs to the source's end, which takes `total`, the source's length in
+    samples: validation does not know it and gets None, the run does. None
+    is also an unusable shape - frames with no `fps`, or nothing addressed.
+    Arguments are already numbers (the caller coerces them).
+    """
+    if start_seconds is not None or duration_seconds is not None:
+        start = int(round((start_seconds or 0) * sample_rate))
+        if duration_seconds is not None:
+            return start, int(round(duration_seconds * sample_rate))
+    elif start_frame is not None or num_frames is not None:
+        if not fps:
+            return None
+        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        if num_frames is not None:
+            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            return start, end - start
+    else:
+        return None
+    if total is None:
+        return None
+    return start, max(total - start, 0)
+
+
+def slice_padding(total_samples, start, length, sample_rate):
+    """The seconds of silence a slice pads past its source's end, or None
+    when there is none worth saying - under `SLICE_PAD_WARN_MS`, which is
+    frame-aligned rounding rather than a slice that overran.
+
+    `start` and `length` are in samples, computed the way `slice_audio`
+    computes them (a frame-addressed end rounded directly, #557), so the
+    checker and the run agree on the same figure for the same arguments.
+    """
+    if not sample_rate:
+        return None
+    available = max(0, min(total_samples - start, length))
+    padded = length - available
+    if padded <= 0:
+        return None
+    padded_seconds = padded / float(sample_rate)
+    if padded_seconds * 1000.0 < SLICE_PAD_WARN_MS:
+        return None
+    return padded_seconds
+
+
+SELECT_RULES = frozenset({"argmax", "argmin", "first_above", "first_below", "index"})
+SELECT_THRESHOLD_RULES = frozenset({"first_above", "first_below"})
+
+
+def select_rule_problems(rule, threshold, index):
+    """Why `select` cannot run this rule with these arguments, one sentence
+    each: an unknown rule, a threshold rule with no threshold, or the index
+    rule with no index. Empty when the rule has what it needs.
+
+    Only what the run itself refuses - an argument a rule does not use is
+    validation's own complaint, since the run ignores it.
+    """
+    if rule not in SELECT_RULES:
+        return [f"select: unknown rule: {rule!r}"]
+    if rule in SELECT_THRESHOLD_RULES and threshold is None:
+        return [f"select rule '{rule}' requires a threshold"]
+    if rule == "index" and index is None:
+        return ["select rule 'index' requires an index"]
+    return []

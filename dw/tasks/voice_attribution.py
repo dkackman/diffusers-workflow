@@ -29,11 +29,14 @@ import math
 import numpy
 import torch
 
+from .. import dsp
 from ..events import emit_warning
 from ..for_each import MEMBER_SEPARATOR, render_path
+from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
-from .audio_utils import _waveform_and_rate, load_audio, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import waveform_and_rate, load_audio
 from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
@@ -240,11 +243,7 @@ def voices_errors(workflow_definition, source_indices=None):
         try:
             parse_voices(voices, None, minimum)
         except ValueError as error:
-            source = (
-                source_indices[index]
-                if source_indices is not None and index < len(source_indices)
-                else index
-            )
+            source = author_index(source_indices, index)
             name = step.get("name")
             where = (
                 f" in member '{name}'"
@@ -322,17 +321,15 @@ def parse_windows(windows, duration):
 # --- measurement -----------------------------------------------------------
 
 
-def _dbfs(amplitude):
-    return 20 * math.log10(amplitude) if amplitude > 0 else -math.inf
-
-
 def voiced_floor_dbfs(rms):
     """The voiced floor for a stem whose frames have these rms values: its
     VOICED_LEVEL_PERCENTILE level less VOICED_FLOOR_BELOW_LEVEL_DB, never
     below VOICED_FLOOR_MIN_DBFS."""
     if len(rms) == 0:
         return VOICED_FLOOR_MIN_DBFS
-    level = _dbfs(float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE)))
+    level = dsp.dbfs(
+        float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE)), floor=-math.inf
+    )
     return max(VOICED_FLOOR_MIN_DBFS, level - VOICED_FLOOR_BELOW_LEVEL_DB)
 
 
@@ -604,6 +601,94 @@ def embed(encoder, samples):
 # --- the task --------------------------------------------------------------
 
 
+def _clip_duration(path, clips):
+    """Load a reference clip into `clips` and answer its length in seconds."""
+    clip, rate = load_audio(path)
+    clips[path] = (clip, rate)
+    return clip.shape[1] / rate
+
+
+def _stem(mix, rate, separate, device, dtype):
+    if separate:
+        return separate_vocals(mix, rate, device, dtype)
+    return _mono_16k(mix, rate)
+
+
+def _embed_references(references, clips, song, encoder, separate, device, dtype):
+    """One embedding per voice, from its clip or its spans of the song."""
+    embeddings = {}
+    for name, reference in references.items():
+        if isinstance(reference, str):
+            clip = _Voicing(
+                _stem(*clips[reference], separate, device, dtype),
+                _EMBEDDER_SAMPLE_RATE,
+            )
+            samples = clip.samples([(0.0, len(clip.waveform) / clip.sample_rate)])
+        else:
+            samples = song.samples(reference)
+        voiced = len(samples) / _EMBEDDER_SAMPLE_RATE
+        if voiced < MIN_VOICED_SECONDS:
+            raise ValueError(
+                f"{COMMAND}: voice '{name}''s reference holds only {voiced:.2f} s "
+                f"of voice{' after separation' if separate else ''} (needs "
+                f"{MIN_VOICED_SECONDS} s) - point it at a stretch where that "
+                "voice sings"
+            )
+        embeddings[name] = embed(encoder, samples)
+    return embeddings
+
+
+def _attribute_lines(parsed_lines, song, encoder, embeddings, too_similar, separate):
+    """Score each parsed line against every voice."""
+    attributed = []
+    for line in parsed_lines:
+        voiced = song.seconds(line["start"], line["end"])
+        embedding = None
+        if voiced >= MIN_VOICED_SECONDS:
+            embedding = embed(encoder, song.samples([(line["start"], line["end"])]))
+        attributed.append(
+            {
+                "start": _round(line["start"], 3),
+                "end": _round(line["end"], 3),
+                "text": line["text"],
+                **score_line(
+                    embedding, embeddings, voiced, too_similar, separated=separate
+                ),
+            }
+        )
+    return attributed
+
+
+def _similarity_warnings(similarity):
+    """A warning (also emitted) for each pair of references too alike to tell apart."""
+    warnings = []
+    for pair in similarity:
+        if pair["too_similar"]:
+            message = (
+                f"{COMMAND}: the references for '{pair['voices'][0]}' and "
+                f"'{pair['voices'][1]}' score {pair['cosine']} against each "
+                f"other, above {VOICES_TOO_SIMILAR} - any line between them "
+                "is a weak answer whatever its scores say"
+            )
+            warnings.append(
+                {
+                    "kind": "voices_too_similar",
+                    "voices": pair["voices"],
+                    "cosine": pair["cosine"],
+                    "threshold": VOICES_TOO_SIMILAR,
+                    "message": message,
+                }
+            )
+            emit_warning(
+                message,
+                kind="voices_too_similar",
+                command=COMMAND,
+                voices=pair["voices"],
+                cosine=pair["cosine"],
+            )
+    return warnings
+
+
 def attribute_voices(
     audio,
     voices,
@@ -659,17 +744,16 @@ def attribute_voices(
         window_seconds=window_seconds,
         min_reference_seconds=min_reference_seconds,
     )
-    waveform, sample_rate = _waveform_and_rate(audio, None, COMMAND)
+    waveform, sample_rate = waveform_and_rate(audio, None, COMMAND)
     duration = waveform.shape[1] / sample_rate
 
     clips = {}
-
-    def clip_duration(path):
-        clip, rate = load_audio(path)
-        clips[path] = (clip, rate)
-        return clip.shape[1] / rate
-
-    references = parse_voices(voices, duration, min_reference_seconds, clip_duration)
+    references = parse_voices(
+        voices,
+        duration,
+        min_reference_seconds,
+        lambda path: _clip_duration(path, clips),
+    )
     parsed_lines = parse_lines(lines, duration, window_seconds)
     parsed_windows = None
     if windows is not None:
@@ -686,75 +770,21 @@ def attribute_voices(
     dtype = torch.float32
     separate = bool(separate)
 
-    def stem(mix, rate):
-        if separate:
-            return separate_vocals(mix, rate, device, dtype)
-        return _mono_16k(mix, rate)
-
-    song = _Voicing(stem(waveform, sample_rate), _EMBEDDER_SAMPLE_RATE)
+    song = _Voicing(
+        _stem(waveform, sample_rate, separate, device, dtype), _EMBEDDER_SAMPLE_RATE
+    )
     encoder = _load_embedder(device, dtype)
-
-    embeddings = {}
-    for name, reference in references.items():
-        if isinstance(reference, str):
-            clip = _Voicing(stem(*clips[reference]), _EMBEDDER_SAMPLE_RATE)
-            samples = clip.samples([(0.0, len(clip.waveform) / clip.sample_rate)])
-        else:
-            samples = song.samples(reference)
-        voiced = len(samples) / _EMBEDDER_SAMPLE_RATE
-        if voiced < MIN_VOICED_SECONDS:
-            raise ValueError(
-                f"{COMMAND}: voice '{name}''s reference holds only {voiced:.2f} s "
-                f"of voice{' after separation' if separate else ''} (needs "
-                f"{MIN_VOICED_SECONDS} s) - point it at a stretch where that "
-                "voice sings"
-            )
-        embeddings[name] = embed(encoder, samples)
+    embeddings = _embed_references(
+        references, clips, song, encoder, separate, device, dtype
+    )
 
     similarity = reference_similarity(embeddings)
     too_similar = [pair["voices"] for pair in similarity if pair["too_similar"]]
-    warnings = []
-    for pair in similarity:
-        if pair["too_similar"]:
-            message = (
-                f"{COMMAND}: the references for '{pair['voices'][0]}' and "
-                f"'{pair['voices'][1]}' score {pair['cosine']} against each "
-                f"other, above {VOICES_TOO_SIMILAR} - any line between them "
-                "is a weak answer whatever its scores say"
-            )
-            warnings.append(
-                {
-                    "kind": "voices_too_similar",
-                    "voices": pair["voices"],
-                    "cosine": pair["cosine"],
-                    "threshold": VOICES_TOO_SIMILAR,
-                    "message": message,
-                }
-            )
-            emit_warning(
-                message,
-                kind="voices_too_similar",
-                command=COMMAND,
-                voices=pair["voices"],
-                cosine=pair["cosine"],
-            )
+    warnings = _similarity_warnings(similarity)
 
-    attributed = []
-    for line in parsed_lines:
-        voiced = song.seconds(line["start"], line["end"])
-        embedding = None
-        if voiced >= MIN_VOICED_SECONDS:
-            embedding = embed(encoder, song.samples([(line["start"], line["end"])]))
-        attributed.append(
-            {
-                "start": _round(line["start"], 3),
-                "end": _round(line["end"], 3),
-                "text": line["text"],
-                **score_line(
-                    embedding, embeddings, voiced, too_similar, separated=separate
-                ),
-            }
-        )
+    attributed = _attribute_lines(
+        parsed_lines, song, encoder, embeddings, too_similar, separate
+    )
 
     rolled = []
     if parsed_windows is not None:

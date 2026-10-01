@@ -196,6 +196,9 @@ export interface PromptDetail {
   intended_model: string
   tags: string[]
   text: string
+  /** Which library the prompt came from, and whether a save can reach it. */
+  origin: LibraryRoot['origin']
+  writable: boolean
 }
 
 export interface EnhancerPreset {
@@ -299,13 +302,26 @@ export interface AssetFile {
   url: string
 }
 
-/** One root on the asset search path - what `asset_dirs` names, plus the
- * origin and writability a client needs to explain why a delete can reach
- * one root and not another. */
-export interface AssetLibrary {
-  origin: AssetFile['origin']
-  dir: string
+/** One root on a library's search path - the `libraries` field every
+ * library listing (workflows, prompts, assets) carries, in search order,
+ * with the origin and writability a client needs to explain why a delete can
+ * reach one root and not another. */
+export interface LibraryRoot {
+  origin: 'workspace' | 'common' | 'examples' | 'builtin'
+  root: string
   writable: boolean
+}
+
+export interface AssetLibrary extends LibraryRoot {
+  origin: AssetFile['origin']
+}
+
+/** An entry a nearer library hides, as every listing's `shadowed` field
+ * names it. */
+export interface ShadowedEntry {
+  name: string
+  origin: LibraryRoot['origin']
+  shadowed_by: LibraryRoot['origin']
 }
 
 /** An asset a nearer library hides: same shape as `AssetFile` except there

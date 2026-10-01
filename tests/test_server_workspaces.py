@@ -174,14 +174,17 @@ class TestScopedRoutes:
                 content=b"png",
             )
             assert uploaded.status_code == 201
-            assert uploaded.json()["path"].startswith("asset:uploads/")
+            assert uploaded.json()["reference"].startswith("asset:uploads/")
 
             assert client.get("/api/assets").json()["assets"] == []
             scoped = client.get("/api/assets?workspace=shots").json()
             assert len(scoped["assets"]) == 1
-            assert scoped["asset_dir"] == os.path.join(
-                workspace_root.root, "shots", "assets"
-            )
+            assert scoped["workspace"] == "shots"
+            assert scoped["libraries"][0] == {
+                "origin": "workspace",
+                "root": os.path.join(workspace_root.root, "shots", "assets"),
+                "writable": True,
+            }
 
     def test_an_unknown_workspace_is_refused_rather_than_created(
         self, server, workspace_root
@@ -450,7 +453,8 @@ class TestKeepingOutputs:
         # outputs and assets share one temporary filesystem, so a link is
         # always possible here
         assert body["linked"] is True
-        assert os.stat(source).st_ino == os.stat(body["path"]).st_ino
+        kept_path = os.path.join(workspace_root.assets, "clip.mp4")
+        assert os.stat(source).st_ino == os.stat(kept_path).st_ino
 
     def test_it_copies_when_it_cannot_link(self, server, workspace_root, monkeypatch):
         """A different filesystem, or one with no links, still keeps the
@@ -466,8 +470,10 @@ class TestKeepingOutputs:
                 "/api/assets/keep", json={"name": "Gyre/run/clip.mp4"}
             ).json()
         assert body["linked"] is False
-        assert os.stat(source).st_ino != os.stat(body["path"]).st_ino
-        with open(body["path"], "rb") as kept:
+        assert body["reference"] == "asset:clip.mp4"
+        kept_path = os.path.join(workspace_root.assets, "clip.mp4")
+        assert os.stat(source).st_ino != os.stat(kept_path).st_ino
+        with open(kept_path, "rb") as kept:
             assert kept.read() == b"clip"
 
     def test_the_name_defaults_to_the_files_own(self, server, workspace_root):
@@ -568,6 +574,69 @@ class TestKeepingOutputs:
 
         sidecar = os.path.join(workspace_root.assets, "qa-cast", "manifest.json")
         assert os.path.isfile(sidecar)
+
+    def test_a_kept_outputs_job_survives_and_reports_through_the_gallery(
+        self, server, workspace_root
+    ):
+        """#556: keeping a file copied only its bytes, so a kept asset's
+        `get_gallery_metadata` reported `job: null` even when the source file's
+        job was still in history - keep_output now carries the source job, run
+        id and version into the same sidecar #393 uses for shots."""
+
+        class FinishedJob:
+            id = "9bd7d90745c3"
+            workflow_name = "w"
+            catalog_name = None
+            status = "complete"
+            created_at = 1.0
+            started_at = 1.0
+            finished_at = 2.0
+            manifest = [
+                {
+                    "step": "generate",
+                    "files": ["Gyre/20260905-101500-bbbbbbbb/still.png"],
+                }
+            ]
+            warnings = []
+            error = None
+            run_id = "20260905-101500-bbbbbbbb"
+            run_dir = "Gyre/20260905-101500-bbbbbbbb"
+            acknowledged = "none"
+            spec = {"arguments": {}, "workflow_path": "w.json", "workspace": None}
+            events = []
+
+        run_dir = os.path.join(workspace_root.outputs, "Gyre/20260905-101500-bbbbbbbb")
+        os.makedirs(run_dir, exist_ok=True)
+        with open(os.path.join(run_dir, "still.png"), "wb") as handle:
+            handle.write(b"png-bytes")
+
+        with server() as client:
+            manager = client.app.state.job_manager
+            manager.history.record(FinishedJob())
+
+            kept = client.post(
+                "/api/assets/keep",
+                json={
+                    "name": "Gyre/20260905-101500-bbbbbbbb/still.png",
+                    "asset_name": "qa-cast/hero.png",
+                },
+            )
+            assert kept.status_code == 201
+
+            metadata = client.get("/api/gallery/asset:qa-cast/hero.png/metadata").json()
+
+        assert metadata["source"] == "asset"
+        assert metadata["job"] == {"id": "9bd7d90745c3", "status": "complete"}
+        assert metadata["run_id"] == "20260905-101500-bbbbbbbb"
+        assert metadata["version"] == 1
+
+        sidecar = os.path.join(workspace_root.assets, "qa-cast", "manifest.json")
+        with open(sidecar) as handle:
+            saved = json.load(handle)
+        provenance = saved["steps"][0]["provenance"]
+        assert provenance["job"] == {"id": "9bd7d90745c3", "status": "complete"}
+        assert provenance["run_id"] == "20260905-101500-bbbbbbbb"
+        assert provenance["source"] == "Gyre/20260905-101500-bbbbbbbb/still.png"
 
     def test_keeping_stays_inside_the_workspace(self, server, workspace_root):
         """The source is read from the named workspace's outputs and the copy
@@ -737,7 +806,8 @@ class TestRunning:
         record the manager's process-wide workflow_dir as its confinement
         while base_dir defaulted to the job's own workflow_dir - the worker
         then re-validated base_dir against a workflow_dir it did not match,
-        and a 201 always failed. base_dir and workflow_dir must agree."""
+        and a 201 always failed. The directory the job's file_spec names and
+        workflow_dir must agree."""
         with server() as client:
             client.post("/api/workspaces", json={"name": "shots"})
             response = client.post(
@@ -754,7 +824,9 @@ class TestRunning:
             shots_workflows = os.path.join(workspace_root.root, "shots", "workflows")
             assert command["workflow_dir"] == shots_workflows
             assert (
-                os.path.commonpath([command["base_dir"], shots_workflows])
+                os.path.commonpath(
+                    [os.path.dirname(command["file_spec"]), shots_workflows]
+                )
                 == shots_workflows
             )
 
@@ -883,7 +955,7 @@ def test_history_migrates_rows_that_predate_workspaces(tmp_path):
     cannot say where a job ran stops making sense once there are two."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     path = str(tmp_path / "jobs.sqlite")
     # the schema as it was: no workspace column
@@ -991,7 +1063,7 @@ class TestSharedAssets:
             )
             assert uploaded.status_code == 201
             body = uploaded.json()
-            assert body["path"] == "asset:uploads/cast/priya.png"
+            assert body["reference"] == "asset:uploads/cast/priya.png"
             assert body["shared"] is True
 
             for workspace in ("", "?workspace=episode-four"):

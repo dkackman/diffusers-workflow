@@ -1,6 +1,6 @@
 # Inference Acceleration
 
-Speed up generation by caching intermediate computations and skipping redundant transformer steps. Two systems are available: diffusers built-in caching and TeaCache. Beyond caching, `torch.compile`, attention backend selection, layerwise casting, and device-level settings (TF32, cuDNN) also affect throughput - see below. Memory offloading trades speed for VRAM and is covered in depth in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading).
+Speed up generation by caching intermediate computations and skipping redundant transformer steps. Diffusers' built-in caching (`first_block`, `mag` and the others below) provides it. Beyond caching, `torch.compile`, attention backend selection, layerwise casting, and device-level settings (TF32, cuDNN) also affect throughput - see below. Memory offloading trades speed for VRAM and is covered in depth in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading).
 
 For ready-made configurations that combine these levers per model family, see [RECIPES_24GB.md](RECIPES_24GB.md).
 
@@ -123,64 +123,6 @@ embeddings across denoising steps, recomputing only what the latents need:
 
 No parameters.
 
-## TeaCache
-
-Training-free acceleration that monkey-patches the transformer's forward function. Uses polynomial-rescaled L1 distance to determine when to skip computation.
-
-```json
-"configuration": {
-    "component_type": "FluxPipeline",
-    "teacache": {
-        "rel_l1_thresh": 0.6
-    }
-}
-```
-
-TeaCache requires `num_inference_steps` in the pipeline arguments — it needs to know the total step count.
-
-### Configuration
-
-| Property | Description |
-| -------- | ----------- |
-| `rel_l1_thresh` | Cache threshold. Model-specific defaults apply if omitted. |
-| `coefficients` | Array of 5 polynomial coefficients. Override model defaults. |
-| `variant` | Explicit model variant for multi-variant architectures. |
-
-### Supported Models
-
-Model coefficients and defaults are stored in [teacache_models.json](../dw/teacache_models.json). Currently implemented with a custom forward function:
-
-- **Flux** (FluxTransformer2DModel) — thresholds: 0.25 (~1.5x), 0.4 (~1.8x), 0.6 (~2.0x), 0.8 (~2.25x)
-
-Registry includes coefficients for Mochi, LTX-Video, CogVideoX, HunyuanVideo, Wan2.1, and Lumina2 (forward functions pending). For any model other than Flux, use the [diffusers built-in caches](#diffusers-built-in-cache) instead - `first_block` or `mag` cover the models the registry lists.
-
-### Variants
-
-Some models have multiple variants with different coefficients:
-
-```json
-"teacache": {
-    "rel_l1_thresh": 0.2,
-    "variant": "cogvideox_2b"
-}
-```
-
-**Example:** [step-caching.json](../workflows/templates/step-caching.json)
-
-## Cache vs TeaCache
-
-| | Diffusers Cache | TeaCache |
-| --- | --- | --- |
-| Setup | Built into diffusers | Custom forward functions |
-| Model support | Any transformer with CacheMixin | Requires per-model implementation |
-| Maintenance | Maintained by HuggingFace | Maintained in this project |
-| Configuration | Set once at load time | Applied per-execution via context manager |
-| Approach | Various algorithms (block, magnitude, Taylor) | Polynomial-rescaled L1 distance |
-
-They are **mutually exclusive** — use one or the other, not both.
-
-For most cases, start with `first_block` cache. Use TeaCache when you need fine-tuned control over Flux acceleration thresholds.
-
 ## Attention Backends
 
 Select the attention implementation diffusers uses for the duration of each pipeline call, via a context manager wrapped around `pipeline(...)`:
@@ -244,7 +186,7 @@ Compile a component once it is fully configured - the graph captures final dtype
 
 Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks with the caches above. Notes:
 
-- **First run pays the compile cost.** The [REPL](REPL_COMMANDS.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
+- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
 - **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.

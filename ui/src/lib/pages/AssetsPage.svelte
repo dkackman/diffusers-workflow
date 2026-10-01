@@ -221,7 +221,7 @@
         assetName || undefined,
         uploadTarget === 'shared',
       )
-      notify.success(`Uploaded as ${result.reference ?? result.path}`)
+      notify.success(`Uploaded as ${result.reference ?? result.url}`)
       await load()
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
@@ -327,7 +327,7 @@
       {section.label}
       <span class="muted">({section.assets.length})</span>
     </button>
-    <span class="path muted">{section.dir}</span>
+    <span class="path muted">{section.root}</span>
     <span class="flex"></span>
     {#if !section.writable}
       <span class="muted" title="read-only: this server cannot write to it"

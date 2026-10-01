@@ -1,5 +1,5 @@
 """
-Unit tests for the --trust-workflows gate: dw/security.py's trust helpers,
+Unit tests for the --trust-workflows gate: dw/trust.py's trust helpers,
 their wiring into dw/type_helpers.py's dotted-name loader, and into
 dw/pipeline_processors/pipeline.py's pre_load_modules loop.
 
@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from dw.security import (
-    UntrustedWorkflowError,
+from dw.security import UntrustedWorkflowError
+from dw.trust import (
     require_trusted_dotted_name,
     require_trusted_pre_load_modules,
     set_trust_workflows,
@@ -315,7 +315,7 @@ class TestRemoteCodeIsGated:
     not be able to reach whatever the importlib gate refuses."""
 
     def test_trust_remote_code_refused_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         with pytest.raises(UntrustedWorkflowError, match="trust_remote_code"):
@@ -324,7 +324,7 @@ class TestRemoteCodeIsGated:
             )
 
     def test_custom_pipeline_refused_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         with pytest.raises(UntrustedWorkflowError, match="custom_pipeline"):
@@ -333,7 +333,7 @@ class TestRemoteCodeIsGated:
             )
 
     def test_plain_arguments_and_a_false_flag_pass_when_untrusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         _untrust(monkeypatch)
         require_trusted_from_pretrained_arguments({"model_name": "a/b"}, "x")
@@ -342,7 +342,7 @@ class TestRemoteCodeIsGated:
         )
 
     def test_allowed_when_trusted(self, monkeypatch):
-        from dw.security import require_trusted_from_pretrained_arguments
+        from dw.trust import require_trusted_from_pretrained_arguments
 
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
         require_trusted_from_pretrained_arguments(
@@ -351,7 +351,7 @@ class TestRemoteCodeIsGated:
 
     def test_load_component_refuses_before_touching_the_hub(self, monkeypatch):
         from unittest.mock import MagicMock
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         _untrust(monkeypatch)
         component_type = MagicMock()
@@ -491,7 +491,8 @@ def _catalog_files():
 def _catalog_references(node):
     """Every '*_type' / '*_dtype' / 'dtype' value a run would load, keyed by
     the key it sits under, and every 'constant:' reference."""
-    from dw.arguments import NON_TYPE_KEYS, is_constant_reference, is_escaped
+    from dw.arguments import is_constant_reference, is_escaped
+    from dw.type_helpers import NON_TYPE_KEYS
 
     if isinstance(node, dict):
         for key, value in node.items():

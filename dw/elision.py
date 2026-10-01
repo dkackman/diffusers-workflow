@@ -45,9 +45,12 @@ unreferenced in turn, so it runs to a fixed point.
 
 import logging
 
-from .step_cache import reference_resolves_to, referenced_result_names
-
-VARIABLE_PREFIX = "variable:"
+from . import references
+from .step_cache import (
+    reference_resolves_to,
+    referenced_result_names,
+    step_pipeline_keys,
+)
 
 logger = logging.getLogger("dw")
 
@@ -129,9 +132,7 @@ def _carry_release(elided, kept):
     the last step that ran before this one is exactly where it belongs. With
     nothing before it, nothing was loaded and the flag is dropped.
     """
-    from .workflow import pipeline_cache_key
-
-    if not kept:
+    if not kept or not isinstance(kept[-1], dict):
         return False
     predecessor = kept[-1]
     carried = False
@@ -142,9 +143,27 @@ def _carry_release(elided, kept):
         return carried
     elided_pipeline = elided.get("pipeline")
     kept_pipeline = predecessor.get("pipeline")
-    if not elided_pipeline or not kept_pipeline:
+    if not (
+        isinstance(elided_pipeline, dict)
+        and isinstance(kept_pipeline, dict)
+        and elided_pipeline
+        and kept_pipeline
+    ):
         return carried
-    if pipeline_cache_key(elided_pipeline) == pipeline_cache_key(kept_pipeline):
+    # Effective keys, over the steps as they will run: two pipelines with
+    # one definition that reuse components from different sources are not
+    # the same loaded pipeline
+    keys = step_pipeline_keys(
+        [
+            step
+            for step in kept + [elided]
+            if isinstance(step, dict)
+            and isinstance(step.get("name"), str)
+            and isinstance(step.get("pipeline", {}), dict)
+        ]
+    )
+    elided_key = keys.get(elided.get("name"))
+    if elided_key is not None and elided_key == keys.get(predecessor.get("name")):
         predecessor["release_pipeline"] = True
         carried = True
     return carried
@@ -188,7 +207,7 @@ def overriding_variables(written, substituted_steps):
 
 def _reads_variable(tree, name):
     """Whether anything in `tree` references 'variable:<name>'."""
-    reference = VARIABLE_PREFIX + name
+    reference = references.VARIABLE + name
     if isinstance(tree, str):
         return tree == reference
     if isinstance(tree, dict):

@@ -8,7 +8,7 @@ and out of `warnings`, where the regression suites assert `warnings: []`
 on a clean run.
 """
 
-from dw.server.jobs import Job
+from dw.server.job_record import Job
 
 
 def _job():

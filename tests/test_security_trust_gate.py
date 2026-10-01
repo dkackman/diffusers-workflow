@@ -26,10 +26,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dw.security import (
+from dw.security import UntrustedWorkflowError
+from dw.trust import (
     CONSTRUCTIBLE_BASE_CLASSES,
     TRUST_WORKFLOWS_ENV_VAR,
-    UntrustedWorkflowError,
     set_trust_workflows,
     workflows_are_trusted,
 )
@@ -229,7 +229,7 @@ class TestUntrustedRefusesBeforeImport:
         """Neither goes through our importlib, so the proof is that
         from_pretrained - the thing that would fetch and import - is never
         called, and no socket is opened."""
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         if extra.get("custom_pipeline") == "PROBE_PATH":
             # a local custom pipeline is a .py diffusers would import
@@ -472,7 +472,7 @@ class TestTrustedLetsEachSurfaceThrough:
         [{"trust_remote_code": True}, {"custom_pipeline": "someone/pipeline"}],
     )
     def test_remote_code_arguments_reach_from_pretrained(self, trusted, extra):
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         component_type = MagicMock()
         component_type.__name__ = "ProbePipeline"
@@ -608,7 +608,7 @@ class TestAReExportIsNotAnAllowedClass:
             _realize({"component_type": REEXPORTED})
 
     def test_validation_reports_the_refusal(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", REEXPORTED, "steps[0]")
         assert error is not None and "dw_outside_probe" in error["message"]
@@ -699,7 +699,7 @@ class TestOnlyConstructibleClassesUntrusted:
         assert fake_module.constructed == []
 
     def test_validation_reports_it(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", SIDE_EFFECT, "steps[0]")
         assert error is not None and "--trust-workflows" in error["message"]
@@ -755,7 +755,7 @@ class TestOnlyConstructibleClassesUntrusted:
     def test_a_registered_virtual_subclass_is_not_accepted(
         self, untrusted, fake_module
     ):
-        from dw.security import is_constructible_class
+        from dw.trust import is_constructible_class
         from torchao.core.config import AOBaseConfig
 
         AOBaseConfig.register(fake_module.Handler)
@@ -779,15 +779,22 @@ class TestOnlyConstructibleClassesUntrusted:
 # --------------------------------------------------- validate-time probes
 
 
-def _probe_recorder(monkeypatch, module, info):
+def _probe_recorder(info):
+    """A `probe=` callable that records every path it is asked about.
+
+    The checkers take their probe as an injected keyword (`probe_metadata`
+    by default, B9) rather than reaching for a module-level name at call
+    time, so intercepting it means passing this in explicitly - a
+    monkeypatch of the module's `probe_metadata` attribute would not reach a
+    default already bound into the function at import time.
+    """
     calls = []
 
     def fake(path):
         calls.append(path)
         return info
 
-    monkeypatch.setattr(module, "probe_media", fake)
-    return calls
+    return calls, fake
 
 
 @pytest.fixture
@@ -858,7 +865,7 @@ class TestValidateTimeProbesStayInsideTheRoots:
     refuse to read contains, or whether it exists."""
 
     VIDEO = {"kind": "video", "frame_count": 7}
-    AUDIO = {"kind": "audio", "duration_seconds": 1.5}
+    AUDIO = {"kind": "audio", "duration_seconds": 1.5, "sample_rate": 8000}
 
     def test_a_dissolve_input_outside_the_roots_is_not_probed(
         self, untrusted, roots, monkeypatch
@@ -866,9 +873,11 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.dissolve_frame_errors as module
 
         base_dir, outside = roots
-        calls = _probe_recorder(monkeypatch, module, self.VIDEO)
+        calls, fake = _probe_recorder(self.VIDEO)
         videos = [str(outside / "clip.mp4"), str(outside / "clip.mp4")]
-        errors = module.dissolve_frame_errors(_dissolve(videos), base_dir=base_dir)
+        errors = module.dissolve_frame_errors(
+            _dissolve(videos), base_dir=base_dir, probe=fake
+        )
         assert errors == []
         assert calls == []
 
@@ -878,9 +887,11 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.dissolve_frame_errors as module
 
         base_dir, _ = roots
-        calls = _probe_recorder(monkeypatch, module, self.VIDEO)
+        calls, fake = _probe_recorder(self.VIDEO)
         errors = module.dissolve_frame_errors(
-            _dissolve(["clip.mp4", str(base_dir / "clip.mp4")]), base_dir=base_dir
+            _dissolve(["clip.mp4", str(base_dir / "clip.mp4")]),
+            base_dir=base_dir,
+            probe=fake,
         )
         assert errors and "7 frames" in errors[0]["message"]
         assert calls and all(str(base_dir) in path for path in calls)
@@ -891,9 +902,9 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.slice_preflight as module
 
         base_dir, outside = roots
-        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        calls, fake = _probe_recorder(self.AUDIO)
         warnings = module.slice_past_end_warnings(
-            _slice(str(outside / "voice.wav")), base_dir=base_dir
+            _slice(str(outside / "voice.wav")), base_dir=base_dir, probe=fake
         )
         assert warnings == []
         assert calls == []
@@ -904,9 +915,9 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.slice_preflight as module
 
         base_dir, _ = roots
-        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        calls, fake = _probe_recorder(self.AUDIO)
         warnings = module.slice_past_end_warnings(
-            _slice("voice.wav"), base_dir=base_dir
+            _slice("voice.wav"), base_dir=base_dir, probe=fake
         )
         assert warnings and "1.50 s source" in warnings[0]
         assert calls == [str(base_dir / "voice.wav")]
@@ -919,9 +930,12 @@ class TestValidateTimeProbesStayInsideTheRoots:
         base_dir, outside = roots
         monkeypatch.chdir(outside)
         (base_dir / "voice.wav").unlink()
-        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        calls, fake = _probe_recorder(self.AUDIO)
         assert (
-            module.slice_past_end_warnings(_slice("voice.wav"), base_dir=base_dir) == []
+            module.slice_past_end_warnings(
+                _slice("voice.wav"), base_dir=base_dir, probe=fake
+            )
+            == []
         )
         assert calls == []
 
@@ -929,9 +943,9 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.slice_preflight as module
 
         base_dir, outside = roots
-        calls = _probe_recorder(monkeypatch, module, self.AUDIO)
+        calls, fake = _probe_recorder(self.AUDIO)
         warnings = module.slice_past_end_warnings(
-            _slice(str(outside / "voice.wav")), base_dir=base_dir
+            _slice(str(outside / "voice.wav")), base_dir=base_dir, probe=fake
         )
         assert warnings
         assert calls == [str(outside / "voice.wav")]
@@ -944,9 +958,9 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.shot_span_preflight as module
 
         base_dir, outside = roots
-        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
+        calls, fake = _probe_recorder(self.OVERRUN_VIDEO)
         warnings = module.shot_span_warnings(
-            _seams(str(outside / "clip.mp4")), base_dir=base_dir
+            _seams(str(outside / "clip.mp4")), base_dir=base_dir, probe=fake
         )
         assert warnings == []
         assert calls == []
@@ -957,8 +971,10 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.shot_span_preflight as module
 
         base_dir, _ = roots
-        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
-        warnings = module.shot_span_warnings(_seams("clip.mp4"), base_dir=base_dir)
+        calls, fake = _probe_recorder(self.OVERRUN_VIDEO)
+        warnings = module.shot_span_warnings(
+            _seams("clip.mp4"), base_dir=base_dir, probe=fake
+        )
         assert warnings and "7 frames" in warnings[0]
         assert calls == [str(base_dir / "clip.mp4")]
 
@@ -968,9 +984,9 @@ class TestValidateTimeProbesStayInsideTheRoots:
         import dw.shot_span_preflight as module
 
         base_dir, outside = roots
-        calls = _probe_recorder(monkeypatch, module, self.OVERRUN_VIDEO)
+        calls, fake = _probe_recorder(self.OVERRUN_VIDEO)
         warnings = module.shot_span_warnings(
-            _seams(str(outside / "clip.mp4")), base_dir=base_dir
+            _seams(str(outside / "clip.mp4")), base_dir=base_dir, probe=fake
         )
         assert warnings
         assert calls == [str(outside / "clip.mp4")]

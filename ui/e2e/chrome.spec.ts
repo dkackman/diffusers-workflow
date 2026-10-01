@@ -116,11 +116,11 @@ test('saving surfaces a toast, not a pinned banner', async ({ page }) => {
   await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   // success text arrives as a toast...
-  await expect(page.getByText(/Saved to .*z-image\.json/)).toBeVisible({
+  await expect(page.getByText('Saved to models/z-image')).toBeVisible({
     timeout: 30_000,
   })
   // ...and auto-dismisses instead of pinning the page down
-  await expect(page.getByText(/Saved to .*z-image\.json/)).toHaveCount(0, {
+  await expect(page.getByText('Saved to models/z-image')).toHaveCount(0, {
     timeout: 10_000,
   })
 })

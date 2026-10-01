@@ -134,9 +134,9 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await page.getByPlaceholder('folder name').fill('e2e-scratch')
   await page.getByPlaceholder('MyWorkflow').fill('E2EScratch')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(
-    page.getByText(/Saved to .*e2e-scratch.E2EScratch\.json/),
-  ).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('Saved to e2e-scratch/E2EScratch')).toBeVisible({
+    timeout: 30_000,
+  })
   // the picker now offers the folder it just created
   await expect(page.locator('select.folderpick')).toHaveValue('e2e-scratch')
 

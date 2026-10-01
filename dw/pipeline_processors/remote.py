@@ -11,7 +11,7 @@ from ..locations import (
     token_host_allowed,
     validate_remote_encoder_url,
 )
-from ..security import workflows_are_trusted
+from ..trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
 

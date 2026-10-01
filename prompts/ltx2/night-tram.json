@@ -1,0 +1,10 @@
+{
+  "text": "A yellow vintage tram is gliding into frame from the left along a rain-wet city street at night, a wide shot from a low angle in side view as the camera remains static. Its polished body is catching the streetlamps in a long warm band of light, its windows are glowing from the cabin within, and the overhead wire is throwing short blue sparks at every joint. Initially the electric whine of the motor is steady and bright, the rails are clattering a soft rhythm under the wheels, and rain is falling on the asphalt in a constant hiss, the puddles mirroring the tram's headlights so the street doubles in amber. A moment later the tram is slowing toward a small shelter, its brake note bending into a small three-note melody, and the camera is pushing forward into a medium shot from the same low angle, the shelter's glass filling the right of frame. Simultaneously a small tabby cat is turning on the bench inside as the doors slide open on a soft two-tone chime, warm light is spilling across the wet platform, and rain is running in bright threads down the shelter's glass, the street settling to the sound of the water alone. The tram's lights are flaring off the dark asphalt in crisp detail as the cat is watching the tram pull on into the night.",
+  "description": "Night tram arrives at an empty shelter with a cat; brake note bends into a three-note melody, rain and reflections",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "t2v",
+    "urban",
+    "night"
+  ]
+}

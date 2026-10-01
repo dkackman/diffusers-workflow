@@ -242,11 +242,14 @@ def get_output_frames(
     selector per call: `at` (moments: seconds, or "frame:N"), `count` (an
     evenly spaced contact sheet) or `seams` (True, or seam numbers from 1:
     the last frame before and the first frame after each boundary, side by
-    side). `boundaries` is the list of frame indexes each shot after the
-    first starts at - the running sum of the shots' `frame_count` from
-    `get_gallery_metadata` on their own files - `names` the shots' names.
-    Without `boundaries`, an output joined from shots uses the boundaries
-    its run recorded (`get_gallery_metadata`'s `media.shots`).
+    side). `boundaries` and `names` are modifiers of `seams` only, for a
+    file with no `media.shots` of its own - they do nothing alongside `at`
+    or `count`, and passing either without `seams` is refused. `boundaries`
+    is the list of frame indexes each shot after the first starts at - the
+    running sum of the shots' `frame_count` from `get_gallery_metadata` on
+    their own files - `names` the shots' names. Without `boundaries`, an
+    output joined from shots uses the boundaries its run recorded
+    (`get_gallery_metadata`'s `media.shots`).
 
     `crop` is `[x, y, width, height]` in the video's own source pixels -
     the same convention `get_output_image` uses - resolved once against
@@ -275,6 +278,13 @@ def get_output_frames(
         raise DwApiError(
             "Pass exactly one of `at`, `count` or `seams`"
             + (f" - got {', '.join(chosen)}" if chosen else "")
+        )
+    if (boundaries or names) and not seams:
+        modifiers = [n for n, v in (("boundaries", boundaries), ("names", names)) if v]
+        raise DwApiError(
+            f"`{'` and `'.join(modifiers)}` only appl{'y' if len(modifiers) > 1 else 'ies'} "
+            "alongside `seams` - pass `seams=true` (or seam numbers) to use "
+            f"{'them' if len(modifiers) > 1 else 'it'}"
         )
     if hear is not None:
         if not at:

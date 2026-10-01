@@ -3,7 +3,7 @@ import io
 import logging
 from diffusers.utils import load_image
 from PIL import Image
-from ..arguments import fetch_image
+from ..argument_media import fetch_image
 from ..security import SecurityError
 from ..locations import contained_matches, safe_get, validate_media_glob
 from .video_utils import load_audio_video

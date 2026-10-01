@@ -1,9 +1,23 @@
 import logging
 from .events import WorkflowCancelled, get_context
+from .introspection import missing_task_argument_message, missing_task_arguments
 from .result import Result
 from .previous_results import get_iterations, resolve_chain_prompts
+from .tasks.task import Task
 
 logger = logging.getLogger("dw")
+
+
+def _check_required_arguments(command, arguments):
+    """Refuse a task whose required arguments are not all present, in the
+    validator's wording rather than Python's."""
+    if not isinstance(arguments, dict):
+        # An 'inputs' list template - consumed whole, no names to miss
+        return
+    missing = missing_task_arguments(command, arguments.keys())
+    if missing:
+        message = missing_task_argument_message(command, missing)
+        raise ValueError(message[0].upper() + message[1:])
 
 
 class Step:
@@ -28,7 +42,7 @@ class Step:
 
         consumed_by_normalizer is whether a later step resets this result's
         level (normalize_audio/match_levels) before anything ships it - see
-        step_cache.normalized_downstream and result.py's headroom checks."""
+        step_cache.normalized_downstream and audio_qc.py's headroom checks."""
         self.step_definition = step_definition
         self.workflow_definition = workflow_definition
         self.consumed_by_normalizer = consumed_by_normalizer
@@ -105,6 +119,15 @@ class Step:
                     total_iterations=len(iterations),
                 )
                 self.iteration = i
+                # A required argument that never arrived - because it was left
+                # out, or because a variable or an earlier step resolved to
+                # nothing - used to reach Python and come back as
+                # "resample_audio() missing 1 required positional argument:
+                # 'audio'", which names the calling convention rather than the
+                # workflow. The static pass in validation_errors refuses the
+                # literal case first; this is the backstop it cannot see (#141)
+                if isinstance(step_action, Task):
+                    _check_required_arguments(step_action.command, arguments)
                 iteration_result = step_action.run(arguments, previous_pipelines)
                 result.add_result(iteration_result)
 

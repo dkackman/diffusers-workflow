@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from dw.plan import build_plan, gate_warnings, unseeded_cache_warnings
+from dw.plan import build_plan, gate_warnings
+from dw.validation import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
 

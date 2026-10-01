@@ -3,24 +3,15 @@ Unit tests for waveform utilities - shape normalization, frame-aligned
 slicing, and seam joining.
 """
 
-import builtins
-from unittest import mock
-
 import numpy
 import pytest
 import torch
 
-from dw.tasks.audio_utils import (
-    as_channels_samples,
-    bleed_join,
-    crossfade_concat,
-    equal_power_crossfade_join,
-    frames_to_samples,
-    load_audio,
-    resample_audio,
-    resample_waveform,
-    slice_samples,
-)
+from dw.dsp import as_channels_samples, slice_samples
+from dw.dsp import resample_waveform
+from dw.tasks.audio_utils import load_audio, resample_audio
+from dw.tasks.joins import bleed_join, crossfade_concat, equal_power_crossfade_join
+from dw.task_domains import frames_to_samples
 
 
 def samples(track):
@@ -250,10 +241,10 @@ class TestLoadAudio:
             crossfade_audio,
             fade_audio,
             mix_audio,
-            normalize_audio,
             resample_audio,
             slice_audio,
         )
+        from dw.tasks.audio_dynamics import normalize_audio
 
         path = self._write_video(tmp_path / "cut.mp4")
 
@@ -426,7 +417,7 @@ class TestBleedJoin:
 
     def test_upsampled_speech_still_warns_when_native_rate_given(self, caplog):
         """The other half of the #198 band-limiting: the native rate tells
-        _spectral_flatness where the tail's own Nyquist is, but _harmonicity
+        dsp.spectral_flatness where the tail's own Nyquist is, but dsp.harmonicity
         turns a rate into lag bounds in samples of the waveform it is handed -
         which is at the target rate. Passing the native rate there searched
         180-1500 Hz on a 48 kHz track instead of 60-500, missing the voiced
@@ -603,7 +594,7 @@ class TestGainAudio:
         assert numpy.allclose(gained, 10 ** (-6.0 / 20))
 
     def test_the_peak_lands_on_the_target(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track = numpy.array([[0.1, -0.25, 0.05]], dtype=numpy.float32)
 
@@ -617,14 +608,14 @@ class TestGainAudio:
         )
 
     def test_silence_is_left_alone(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         assert numpy.all(
             samples(normalize_audio(numpy.zeros((1, 10)), sample_rate=100)) == 0
         )
 
     def test_a_target_above_full_scale_is_refused(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         with pytest.raises(ValueError, match="full scale"):
             normalize_audio(numpy.ones((1, 10)), peak_dbfs=1.0, sample_rate=100)
@@ -643,7 +634,7 @@ class TestGainAudio:
         return tone[numpy.newaxis, :].astype(numpy.float32), rate
 
     def test_target_lufs_hits_its_target_on_a_sparse_signal(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone(density=0.1)
 
@@ -651,12 +642,12 @@ class TestGainAudio:
             normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
         )
 
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
 
     def test_target_lufs_hits_its_target_on_a_dense_signal(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone(density=1.0)
 
@@ -664,7 +655,7 @@ class TestGainAudio:
             normalize_audio(track, peak_dbfs=0.0, target_lufs=-16.0, sample_rate=rate)
         )
 
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         assert integrated_lufs(scaled, rate) == pytest.approx(-16.0, abs=0.5)
 
@@ -672,7 +663,7 @@ class TestGainAudio:
         self,
     ):
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         # A loud, dense tone: reaching -1 LUFS would need to push the gain
         # up past the -1 dBFS ceiling, so the ceiling has to win.
@@ -697,7 +688,7 @@ class TestGainAudio:
         assert warnings[0]["shortfall_lu"] > 0
 
     def test_default_behavior_is_unchanged_without_target_lufs(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone()
 
@@ -716,7 +707,7 @@ class TestGainAudio:
         # #392: without target_lufs the peak ceiling is the only constraint,
         # and a caller reading job events should see that named explicitly
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone()
 
@@ -737,7 +728,7 @@ class TestGainAudio:
         # #392: the caller needs to know the gain was set by the LUFS target,
         # not just that a gain was applied
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone(density=0.1)
 
@@ -761,7 +752,7 @@ class TestGainAudio:
         # #392: the ceiling-capped case (already warned via target_lufs_capped)
         # should also name peak_ceiling as the constraint in the summary log
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, rate = self._tone(amplitude=0.5, density=1.0)
 
@@ -794,7 +785,7 @@ class TestNormalizeAudioLimit:
 
     def _run(self, waveform, **kwargs):
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         events = []
         token = activate_context(RunContext(on_event=events.append))
@@ -818,7 +809,7 @@ class TestNormalizeAudioLimit:
         return 20 * numpy.log10(numpy.abs(up).max())
 
     def _lufs(self, track):
-        from dw.loudness import integrated_lufs
+        from dw.dsp import integrated_lufs
 
         return integrated_lufs(samples(track), self.RATE)
 
@@ -842,7 +833,7 @@ class TestNormalizeAudioLimit:
     def test_the_peak_only_path_could_not_reach_that_target(self):
         # The case the limiter exists for: without it the burst caps the gain
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         events = []
         token = activate_context(RunContext(on_event=events.append))
@@ -883,7 +874,7 @@ class TestNormalizeAudioLimit:
     def test_dense_material_still_reaches_a_target_inside_the_cap(self):
         # One correction pass left this 0.4 LU short, and a real laugh-track
         # episode 2 LU short; the gain is searched for instead
-        from dw.tasks.audio_utils import LIMITER_TOLERANCE_LU
+        from dw.dsp import LIMITER_TOLERANCE_LU
 
         track, logs, warnings = self._run(
             self._dense(), peak_dbfs=-3.0, target_lufs=-12.0
@@ -896,6 +887,21 @@ class TestNormalizeAudioLimit:
         assert "target_lufs_capped" not in warnings
         assert 0 < logs[0]["max_gain_reduction_db"] < 12.0
         assert logs[0]["limited_fraction"] > 0.3
+
+    def test_gain_db_is_the_searched_static_gain_not_the_plain_lufs_gain(self):
+        # #540: the limiter takes back loudness on dense material, so the
+        # static gain the search settles on to still land on target_lufs
+        # runs past the plain (unlimited) gain a naive target_lufs - measured
+        # would give - gain_db reports that searched gain, not the plain one
+        from dw.dsp import integrated_lufs
+
+        waveform = self._dense()
+        measured_lufs = integrated_lufs(waveform.T, self.RATE)
+        plain_gain_db = -12.0 - measured_lufs
+        track, logs, warnings = self._run(waveform, peak_dbfs=-3.0, target_lufs=-12.0)
+
+        assert "target_lufs_capped" not in warnings
+        assert logs[0]["gain_db"] > plain_gain_db + 0.1
 
     def test_a_target_the_cap_stops_short_of_says_by_how_much(self):
         # Past the cap the track lands short; the warning's shortfall is the
@@ -919,7 +925,7 @@ class TestNormalizeAudioLimit:
         assert warnings["limiter_heavy"]["max_gain_reduction_db"] > 6.0
 
     def test_a_target_the_ceiling_allows_leaves_the_limiter_idle(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         track, logs, warnings = self._run(
             self._bursty(), peak_dbfs=-3.0, target_lufs=-30.0
@@ -972,7 +978,7 @@ class TestNormalizeAudioLimit:
         assert time.perf_counter() - started < 10.0
 
     def test_limit_must_be_a_bool(self):
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         with pytest.raises(ValueError, match="limit"):
             normalize_audio(self._bursty(), limit="yes", sample_rate=self.RATE)
@@ -980,30 +986,30 @@ class TestNormalizeAudioLimit:
     def test_limit_false_is_the_default(self):
         import inspect
 
-        from dw.tasks.audio_utils import normalize_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         assert inspect.signature(normalize_audio).parameters["limit"].default is False
 
     def test_timings_are_pinned(self):
         # The plan fixes these rather than exposing them: ~5 ms look-ahead,
         # ~150 ms release, 12 dB most reduction, 6 dB heavy
-        from dw.tasks import audio_utils
+        from dw import dsp
 
-        assert audio_utils.LIMITER_LOOKAHEAD_MS == 5.0
-        assert audio_utils.LIMITER_RELEASE_MS == 150.0
-        assert audio_utils.LIMITER_HOLD_MS == 20.0
-        assert audio_utils.LIMITER_MAX_REDUCTION_DB == 12.0
-        assert audio_utils.LIMITER_HEAVY_DB == 6.0
-        assert audio_utils.LIMITER_TOLERANCE_LU == 0.1
-        assert audio_utils.LIMITER_SEARCH_PASSES == 8
+        assert dsp.LIMITER_LOOKAHEAD_MS == 5.0
+        assert dsp.LIMITER_RELEASE_MS == 150.0
+        assert dsp.LIMITER_HOLD_MS == 20.0
+        assert dsp.LIMITER_MAX_REDUCTION_DB == 12.0
+        assert dsp.LIMITER_HEAVY_DB == 6.0
+        assert dsp.LIMITER_TOLERANCE_LU == 0.1
+        assert dsp.LIMITER_SEARCH_PASSES == 8
 
     def test_the_curve_ramps_down_before_the_transient(self):
         # Look-ahead: the gain is already down when the burst arrives
-        from dw.tasks.audio_utils import _limiter_curve, _true_peak_envelope
+        from dw.dsp import limiter_curve, true_peak_envelope
 
         waveform = self._bursty()
-        envelope = _true_peak_envelope(waveform) * 10 ** (12 / 20)
-        curve = _limiter_curve(envelope, 10 ** (-3 / 20), self.RATE)
+        envelope = true_peak_envelope(waveform) * 10 ** (12 / 20)
+        curve = limiter_curve(envelope, 10 ** (-3 / 20), self.RATE)
         start = waveform.shape[1] // 2
         assert curve[start] < 1.0
         assert curve[start - int(0.004 * self.RATE)] < 1.0
@@ -1019,7 +1025,7 @@ class TestAudioTasksTakeAnAudioVideo:
     soundtrack, and takes the sample rate that video carries."""
 
     def video(self, level=1.0, rate=100, samples=400):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         return AudioVideo(
             [], numpy.full((2, samples), level, dtype=numpy.float32), rate
@@ -1090,7 +1096,8 @@ class TestAudioTasksTakeAnAudioVideo:
         )
 
     def test_fade_and_normalize_take_a_video(self):
-        from dw.tasks.audio_utils import fade_audio, normalize_audio
+        from dw.tasks.audio_utils import fade_audio
+        from dw.tasks.audio_dynamics import normalize_audio
 
         faded = samples(fade_audio(self.video(), fade_out_ms=1000))
         assert faded.shape == (400, 2) and faded[-1, 0] == pytest.approx(0.0, abs=1e-6)
@@ -1142,7 +1149,7 @@ class TestAudioTasksTakeAnAudioVideo:
             crossfade_audio([self.video(), numpy.ones((2, 100))])
 
     def test_a_silent_video_is_refused(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.audio_utils import fade_audio
 
         with pytest.raises(ValueError, match="carries none"):
@@ -1212,7 +1219,7 @@ class TestLoopAudio:
         assert steps.max() < 0.1
 
     def test_it_takes_the_rate_from_a_generated_video(self):
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
         from dw.tasks.audio_utils import loop_audio
 
         video = AudioVideo([], numpy.zeros((2, 400), dtype=numpy.float32), 100)
@@ -1362,6 +1369,66 @@ class TestSlicingPastTheEndOfATrack:
         assert warnings[0]["padded_seconds"] == pytest.approx(2.0)
 
 
+class TestSliceEndingExactlyAtTheSourceReachesIt:
+    """#557: a frame-addressed slice used to round its start and its length
+    separately (round(start_frame) samples + round(num_frames) samples), so
+    a slice meant to reach the source's exact end could land a sample short
+    and fire a 'dropping its tail' warning whose own figures read 0.00 s.
+    The end is now rounded once - round(end_frame * sr / fps) - so a slice
+    whose start_frame + num_frames is the source's own frame count reaches
+    its last sample exactly and warns about nothing.
+    """
+
+    def events_from(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = call()
+        finally:
+            deactivate_context(token)
+        return result, [e for e in events if e.get("kind") == "slice_trimmed_tail"]
+
+    def tone(self, count, rate, channels=1):
+        return numpy.full((channels, count), 0.5, dtype=numpy.float32)
+
+    def test_the_557_repro_lands_exactly_and_warns_nothing(self):
+        from dw.tasks.audio_utils import slice_audio
+
+        # 294 frames @ 24 fps, 44.1 kHz -> 540225 samples total; the second
+        # half (147..294) is exactly the tail the #557 repro sliced
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(540225, 44100),
+                start_frame=147,
+                num_frames=147,
+                fps=24,
+                sample_rate=44100,
+            )
+        )
+
+        assert samples(sliced).shape == (270113, 1)
+        assert warnings == []
+
+    def test_a_sub_ten_millisecond_remainder_says_nothing(self):
+        """Even outside the frame-addressed case, a remainder too short to
+        act on is rounding noise, not a dropped tail worth flagging."""
+        from dw.tasks.audio_utils import slice_audio
+
+        sliced, warnings = self.events_from(
+            lambda: slice_audio(
+                self.tone(10000, 1000),
+                start_seconds=0,
+                duration_seconds=9.9955,
+                sample_rate=1000,
+            )
+        )
+
+        assert samples(sliced).shape == (9996, 1)
+        assert warnings == []
+
+
 class TestSliceAudioCarriesSourceLevel:
     """#309: a slice out of already-quiet source material (room tone) is not
     a defect the slice introduced - slice_audio measures the source's own
@@ -1490,7 +1557,7 @@ class TestCompressAudio:
     settling curve."""
 
     def test_a_loud_signal_is_compressed_toward_the_threshold(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         track = numpy.ones((1, 10), dtype=numpy.float32)
 
@@ -1509,7 +1576,7 @@ class TestCompressAudio:
         assert numpy.all(compressed == pytest.approx(expected_gain, abs=1e-5))
 
     def test_limit_mode_holds_the_signal_at_the_threshold(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         track = numpy.ones((1, 10), dtype=numpy.float32)
 
@@ -1527,7 +1594,7 @@ class TestCompressAudio:
         assert numpy.all(limited == pytest.approx(10 ** (-6.0 / 20), abs=1e-5))
 
     def test_gate_mode_attenuates_a_signal_below_the_threshold(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         track = numpy.full((1, 10), 0.1, dtype=numpy.float32)
 
@@ -1548,7 +1615,7 @@ class TestCompressAudio:
     def test_a_signal_under_the_threshold_passes_through_unchanged_in_compress_mode(
         self,
     ):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         track = numpy.full((1, 10), 0.1, dtype=numpy.float32)
 
@@ -1565,7 +1632,7 @@ class TestCompressAudio:
         assert numpy.all(compressed == pytest.approx(0.1, abs=1e-6))
 
     def test_silence_is_left_alone(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         assert numpy.all(
             samples(
@@ -1577,7 +1644,7 @@ class TestCompressAudio:
         )
 
     def test_the_input_is_not_modified(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         track = numpy.ones((1, 10), dtype=numpy.float32)
         compress_audio(track, threshold_dbfs=-6.0, sample_rate=100)
@@ -1585,7 +1652,7 @@ class TestCompressAudio:
         assert numpy.all(track == 1.0)
 
     def test_an_unknown_mode_is_refused(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         with pytest.raises(ValueError, match="mode"):
             compress_audio(
@@ -1593,13 +1660,13 @@ class TestCompressAudio:
             )
 
     def test_a_threshold_above_full_scale_is_refused(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         with pytest.raises(ValueError, match="full scale"):
             compress_audio(numpy.ones((1, 10)), threshold_dbfs=1.0, sample_rate=100)
 
     def test_a_waveform_needs_a_sample_rate(self):
-        from dw.tasks.audio_utils import compress_audio
+        from dw.tasks.audio_dynamics import compress_audio
 
         with pytest.raises(ValueError, match="sample_rate"):
             compress_audio(numpy.ones((1, 10)), threshold_dbfs=-6.0)
@@ -1619,32 +1686,8 @@ class TestFilterAudio:
         # skip the filter's brief settling transient
         return float(numpy.sqrt(numpy.mean(numpy.square(waveform[:, 200:]))))
 
-    def test_the_scipy_path_and_the_python_fallback_agree(self):
-        """_apply_biquad runs the recursion through scipy's lfilter, which is
-        in every install, and keeps the per-sample Python form for an
-        environment without it. Two implementations of one filter, so they are
-        pinned to each other rather than each to its own expectations."""
-        from dw.tasks import audio_utils
-
-        rng = numpy.random.default_rng(0)
-        channel = rng.standard_normal(4000).astype(numpy.float32)
-        b, a = audio_utils._biquad_coefficients("lowpass", 1000.0, 0.707, 8000)
-
-        through_scipy = audio_utils._apply_biquad(channel, b, a)
-        real_import = builtins.__import__
-
-        def without_scipy(name, *args, **kwargs):
-            if name.startswith("scipy"):
-                raise ImportError("no scipy")
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch.object(builtins, "__import__", without_scipy):
-            in_python = audio_utils._apply_biquad(channel, b, a)
-
-        assert numpy.abs(through_scipy - in_python).max() < 1e-9
-
     def test_lowpass_passes_low_frequencies_and_attenuates_high_ones(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         low = self.tone(frequency=100)
         high = self.tone(frequency=3500)
@@ -1660,7 +1703,7 @@ class TestFilterAudio:
         assert self.rms(high_out) < 0.1
 
     def test_highpass_passes_high_frequencies_and_attenuates_low_ones(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         low = self.tone(frequency=100)
         high = self.tone(frequency=3500)
@@ -1676,7 +1719,7 @@ class TestFilterAudio:
         assert self.rms(high_out) > 0.6
 
     def test_the_input_is_not_modified(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         track = self.tone(frequency=440)
         original = track.copy()
@@ -1685,7 +1728,7 @@ class TestFilterAudio:
         assert numpy.array_equal(track, original)
 
     def test_an_unknown_kind_is_refused(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         with pytest.raises(ValueError, match="kind"):
             filter_audio(
@@ -1693,19 +1736,19 @@ class TestFilterAudio:
             )
 
     def test_a_non_positive_q_is_refused(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         with pytest.raises(ValueError, match="q"):
             filter_audio(numpy.ones((1, 100)), cutoff_hz=100, q=0, sample_rate=8000)
 
     def test_a_cutoff_at_or_above_nyquist_is_refused(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         with pytest.raises(ValueError, match="Nyquist"):
             filter_audio(numpy.ones((1, 100)), cutoff_hz=4000, sample_rate=8000)
 
     def test_a_waveform_needs_a_sample_rate(self):
-        from dw.tasks.audio_utils import filter_audio
+        from dw.tasks.audio_dynamics import filter_audio
 
         with pytest.raises(ValueError, match="sample_rate"):
             filter_audio(numpy.ones((1, 10)), cutoff_hz=100)
@@ -1722,7 +1765,7 @@ class TestAnalyzeAudio:
         )
 
     def test_a_full_scale_tone_reads_its_own_peak_rms_and_crest_factor(self):
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         result = analyze_audio(self.tone(), sample_rate=8000)
 
@@ -1731,7 +1774,7 @@ class TestAnalyzeAudio:
         assert result["crest_factor_db"] == pytest.approx(3.01, abs=0.05)
 
     def test_a_low_tone_reads_louder_in_the_low_band_than_the_high_band(self):
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         result = analyze_audio(
             self.tone(samples=16000, rate=16000, frequency=100), sample_rate=16000
@@ -1743,14 +1786,14 @@ class TestAnalyzeAudio:
         # #211: bands are shares of the same power that gives rms_dbfs, so
         # a tone with all its energy in one band should read that band at
         # (not tens of dB under) rms_dbfs.
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         result = analyze_audio(self.tone(), sample_rate=8000)
 
         assert result["low_dbfs"] == pytest.approx(result["rms_dbfs"], abs=0.05)
 
     def test_silence_reads_none_throughout(self):
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         result = analyze_audio(numpy.zeros((1, 8000)), sample_rate=8000)
 
@@ -1759,7 +1802,7 @@ class TestAnalyzeAudio:
         assert result["crest_factor_db"] is None
 
     def test_the_input_is_not_modified(self):
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         track = self.tone()
         original = track.copy()
@@ -1768,7 +1811,7 @@ class TestAnalyzeAudio:
         assert numpy.array_equal(track, original)
 
     def test_a_waveform_needs_a_sample_rate(self):
-        from dw.tasks.audio_utils import analyze_audio
+        from dw.tasks.audio_dynamics import analyze_audio
 
         with pytest.raises(ValueError, match="sample_rate"):
             analyze_audio(numpy.ones((1, 10)))

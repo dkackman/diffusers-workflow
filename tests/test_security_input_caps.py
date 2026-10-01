@@ -127,23 +127,26 @@ class TestVariableValueLength:
             client.get("/api/jobs").json().get("jobs")
         )
 
-    def test_the_cli_refuses_it_before_loading_anything(self, monkeypatch, tmp_path):
-        import dw.run as run_module
+    def test_the_cli_refuses_it_before_loading_anything(self, tmp_path):
+        """dw.run is a client of dw.serve now (Task 6): there is no local
+        workflow load to watch for, but the oversized argument must still
+        be refused before any request reaches the server."""
+        import httpx
 
-        loaded = []
-        monkeypatch.setattr(
-            run_module,
-            "workflow_from_file",
-            lambda *a, **k: loaded.append(a),
-            raising=False,
+        import dw.run as run_module
+        from dw_mcp.client import DwClient
+
+        def handler(request):
+            raise AssertionError("no request should have been made")
+
+        client = DwClient(
+            base_url="http://testserver", transport=httpx.MockTransport(handler)
         )
         workflow = tmp_path / "w.json"
         workflow.write_text(json.dumps(_workflow()))
-        monkeypatch.setattr("sys.argv", ["dw-run", str(workflow), f"p={OVERSIZED}"])
-        with pytest.raises(SystemExit) as exit_info:
-            run_module.main()
-        assert exit_info.value.code != 0
-        assert loaded == []
+
+        code = run_module.main([str(workflow), f"p={OVERSIZED}"], client=client)
+        assert code != 0
 
 
 class TestOtherDocumentedLimits:

@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from dw.security import TRUST_WORKFLOWS_ENV_VAR
+from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 
@@ -639,7 +639,7 @@ class TestContained:
 
     def test_a_root_that_is_itself_a_link_contains_its_files(self, tree, tmp_path):
         from dw.security import contained
-        from dw.workflow_sources import workflow_names
+        from dw.library import workflow_names
 
         (tree["workflows"] / "flux").mkdir()
         (tree["workflows"] / "flux" / "dev.json").write_text("{}")
@@ -667,21 +667,6 @@ class TestListingsKeepWhatBelongs:
         assert "wf/20260924T000000Z-deadbeef/real.png" in names
         assert "alias.png" in names
         assert "leak.png" not in names
-
-    def test_the_repl_listing_drops_the_link(self, tree):
-        from types import SimpleNamespace
-
-        from dw.repl_commands import WorkflowCommands
-
-        (tree["workflows"] / "mine.json").write_text("{}")
-        link(tree["workflows"] / "leak.json", tree["outside"] / "secret.json")
-        commands = WorkflowCommands.__new__(WorkflowCommands)
-        commands.repl = SimpleNamespace(
-            globals={"workflow_dir": str(tree["workflows"])}
-        )
-        names = commands.workflow_names()
-        assert "mine" in names
-        assert "leak" not in names
 
     def test_the_export_zip_keeps_its_ordinary_files(self, client, tree):
         export = tree["root"] / "exports" / "job-3"

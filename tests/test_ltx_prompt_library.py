@@ -54,7 +54,8 @@ def _prompt(path):
 
 
 def test_there_are_ltx_prompts():
-    assert len(PROMPTS) == 10
+    # An empty glob would let every parametrized sweep below pass vacuously
+    assert PROMPTS
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=os.path.basename)

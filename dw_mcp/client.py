@@ -11,7 +11,7 @@ import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8765"
 
-# Twin of dw.server.app.LOOPBACK_HOSTS. Duplicated rather than imported:
+# Twin of dw/server/netinfo.py's LOOPBACK_HOSTS. Duplicated rather than imported:
 # importing anything under dw/ runs dw/__init__.py and pulls in torch, which
 # this pure HTTP client must not do (tests/test_mcp_server.py guards that).
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -106,6 +106,12 @@ class DwApiError(Exception):
     def __init__(self, message, status_code=None):
         super().__init__(message)
         self.status_code = status_code
+
+
+class DwTimeoutError(DwApiError):
+    """The server was reached (or at least not refused) but did not answer
+    within the client's timeout - distinct from no server at all, since a
+    request that timed out may still have been acted on."""
 
 
 def resolve_token(explicit=None):
@@ -356,7 +362,7 @@ class DwClient:
                 "and try again."
             )
         except httpx.TimeoutException:
-            raise DwApiError(
+            raise DwTimeoutError(
                 f"Request to {path} timed out after {self.timeout}s. The "
                 "server may be busy loading a model."
             )

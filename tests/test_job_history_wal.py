@@ -2,7 +2,7 @@
 not block behind a writer) for a near-zero-risk one-line change. See
 docs/proposals/maintenance-screen.md, "Phase 0"."""
 
-from dw.server.jobs import JobHistory
+from dw.server.job_history import JobHistory
 
 
 def test_the_jobs_database_uses_wal_mode(tmp_path):

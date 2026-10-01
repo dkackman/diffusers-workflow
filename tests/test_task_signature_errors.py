@@ -20,8 +20,9 @@ from dw.introspection import (
     missing_task_arguments,
     task_signature_errors,
     unknown_task_arguments,
-    workflow_argument_warnings,
 )
+from dw.argument_warnings import workflow_argument_warnings
+from dw.step import Step
 from dw.tasks.task import Task
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -185,13 +186,20 @@ class TestARequiredArgumentFedByANullVariable:
 
 class TestTheRunTimeBackstop:
     """The static pass sees literals. A required argument that arrived from a
-    variable or an earlier step and resolved to nothing reaches the command,
+    variable or an earlier step and resolved to nothing reaches the step,
     which refuses it in the validator's wording rather than Python's."""
 
-    def test_the_command_refuses_and_says_which_argument(self):
-        task = Task({"command": "resample_audio", "arguments": {}}, "cpu")
+    def test_the_step_refuses_and_says_which_argument(self):
+        task = Task(
+            {
+                "command": "resample_audio",
+                "arguments": {"target_sample_rate": 16000},
+            },
+            "cpu",
+        )
+        step = Step({"name": "resample", "result": {}}, default_seed=1)
         with pytest.raises(ValueError) as caught:
-            task.run({"target_sample_rate": 16000})
+            step.run({}, {}, task)
         message = str(caught.value)
         assert "resample_audio" in message
         assert "'audio'" in message
@@ -199,8 +207,9 @@ class TestTheRunTimeBackstop:
 
     def test_an_inputs_list_template_is_left_alone(self):
         """`inputs` is consumed whole - there are no names to miss."""
+        step = Step({"name": "gather", "result": {}}, default_seed=1)
         task = Task({"command": "gather_inputs", "inputs": [1, 2]}, "cpu")
-        task._check_required_arguments([1, 2])
+        step.run({}, {}, task)
 
 
 class TestTheCatalogItself:

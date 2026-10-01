@@ -11,13 +11,14 @@ refuses defers to the run, and `location_errors` reports the refusal.
 
 import os
 
+from . import references
 from .assets import fetch_asset, is_asset_reference
 from .locations import is_http_url, validate_media_path
 from .runs import fetch_output, is_output_reference
 
 # Left to the run-time check: not yet resolved to a real file at the point
 # validation walks the expanded definition.
-UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
+UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def resolve_probe_path(value, base_dir, what="a media argument"):
@@ -28,7 +29,13 @@ def resolve_probe_path(value, base_dir, what="a media argument"):
     An `asset:`/`output:` reference resolves through its own confined
     resolver; a literal path is resolved against `base_dir` and must pass
     `validate_media_path`.
+
+    A `{"location": ...}` media value - which the run accepts wherever it
+    takes a path - is unwrapped once and then treated exactly as the string
+    it wraps, confinement included.
     """
+    if isinstance(value, dict):
+        value = value.get("location")
     if not isinstance(value, str) or not value:
         return None
     if value.startswith(UNRESOLVED_PREFIXES) or is_http_url(value):

@@ -1,6 +1,6 @@
 """The extension of a `video` argument, checked before the run when it can be.
 
-`fetch_video` (`dw/arguments.py`) loads every argument named `video` or
+`fetch_video` (`dw/argument_media.py`) loads every argument named `video` or
 `*_video`, and every `{"media_type": "video", "location": ...}` reference
 whatever it is named, as a video file - and refuses one whose extension is
 not `ALLOWED_VIDEO_EXTENSIONS` there, at run time. A still image handed to
@@ -20,17 +20,14 @@ gates a URL's extension, so refusing one here would refuse something the run
 itself accepts.
 """
 
-from .arguments import (
-    CONSTANT_PREFIX,
-    PROMPT_PREFIX,
-    is_media_reference,
-)
+from . import references
+from .argument_media import is_media_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
 # Left to the run-time check: not yet resolved to anything an extension can
 # be read off, at the point validation walks the expanded definition
-_UNRESOLVED_PREFIXES = ("previous_result:", "variable:", "item:", "gather:")
+_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _is_video_key(key):
@@ -46,7 +43,7 @@ def _extension_problem(value):
         return None
     if value.startswith(_UNRESOLVED_PREFIXES):
         return None
-    if value.startswith(CONSTANT_PREFIX) or value.startswith(PROMPT_PREFIX):
+    if references.is_ref((references.CONSTANT, references.PROMPT), value):
         return None
     ext = value.rsplit(".", 1)
     if len(ext) != 2 or not ext[1] or "/" in ext[1]:
@@ -114,11 +111,7 @@ def video_extension_errors(workflow_definition, source_indices=None):
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = references.author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

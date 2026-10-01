@@ -14,6 +14,7 @@
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { writableRoot } from '../libraries'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { goWs } from '../router.svelte'
@@ -203,7 +204,7 @@
       )
     api.listWorkflows().then((r) => {
       workflowFiles = r.workflows.map((file) => `${file}.json`)
-      workflowDir = r.workflow_dir
+      workflowDir = writableRoot(r.libraries)
     })
     loadPromptLibrary()
     validation = null
@@ -341,7 +342,7 @@
     if (!(await validate())) return
     busy = true
     try {
-      const result = await api.saveWorkflow(
+      await api.saveWorkflow(
         path,
         $state.snapshot(workflow) as WorkflowDefinition,
       )
@@ -356,7 +357,7 @@
         workflowFiles = [...workflowFiles, `${path}.json`]
       }
       baseline = JSON.stringify($state.snapshot(workflow))
-      notify.success(`Saved to ${result.path}`)
+      notify.success(`Saved to ${path}`)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {

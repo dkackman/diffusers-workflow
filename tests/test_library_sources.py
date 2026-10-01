@@ -8,18 +8,22 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.assets import asset_search_path, resolve_asset_reference
-from dw.prompts import fetch_prompt, prompt_search_path, resolve_prompt_reference
+from dw.assets import asset_library, resolve_asset_reference
+from dw.prompts import fetch_prompt, prompt_library, resolve_prompt_reference
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
-from dw.workflow_sources import EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
+from dw.library import (
+    EXAMPLES_ORIGIN,
+    PROMPTS_KIND,
+    WORKSPACE_ORIGIN,
+    library_path_from_env,
+    pin_library_path,
+)
 from dw.workspace import (
     ASSETS_SUBDIR,
     PROMPTS_SUBDIR,
     Workspace,
     example_libraries,
-    library_fallbacks,
-    set_library_fallbacks,
 )
 
 from .test_server import ScriptedWorkerManager, success_script, valid_workflow
@@ -77,18 +81,24 @@ class TestDerivation:
     def test_fallbacks_round_trip_through_the_environment(self, trees):
         # This is how the worker subprocess learns them: spawn inherits the
         # environment, it does not inherit the argument parser
-        _workspace, checkout = trees
-        set_library_fallbacks(PROMPTS_SUBDIR, [str(checkout / "prompts")])
-        assert library_fallbacks(PROMPTS_SUBDIR) == [str(checkout / "prompts")]
+        workspace, checkout = trees
+        pin_library_path(PROMPTS_KIND, workspace, [str(checkout / "workflows")])
+        roots = library_path_from_env(PROMPTS_KIND, workspace.prompts).roots()
+        assert [r.root for r in roots] == [workspace.prompts, str(checkout / "prompts")]
+        assert [r.origin for r in roots] == [WORKSPACE_ORIGIN, EXAMPLES_ORIGIN]
 
-    def test_the_primary_library_is_not_repeated_as_a_fallback(self, trees):
+    def test_the_primary_library_is_not_repeated_as_a_fallback(
+        self, trees, monkeypatch
+    ):
         _workspace, checkout = trees
-        set_library_fallbacks(PROMPTS_SUBDIR, [str(checkout / "prompts")])
-        assert library_fallbacks(PROMPTS_SUBDIR, str(checkout / "prompts")) == []
+        monkeypatch.setenv("DW_PROMPT_PATH", str(checkout / "prompts"))
+        roots = library_path_from_env(PROMPTS_KIND, str(checkout / "prompts"))
+        assert [r.root for r in roots.roots()] == [str(checkout / "prompts")]
 
-    def test_a_missing_root_is_dropped(self, tmp_path):
-        set_library_fallbacks(PROMPTS_SUBDIR, [str(tmp_path / "gone")])
-        assert library_fallbacks(PROMPTS_SUBDIR) == []
+    def test_a_missing_root_is_dropped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DW_PROMPT_PATH", str(tmp_path / "gone"))
+        roots = library_path_from_env(PROMPTS_KIND, str(tmp_path / "front"))
+        assert [r.root for r in roots.roots()] == [str(tmp_path / "front")]
 
 
 class TestResolution:
@@ -104,8 +114,14 @@ class TestResolution:
 
     def test_the_workspace_comes_first_on_the_path(self, libraries):
         workspace, checkout = libraries
-        assert prompt_search_path() == [workspace.prompts, str(checkout / "prompts")]
-        assert asset_search_path() == [workspace.assets, str(checkout / "assets")]
+        assert [r.root for r in prompt_library().roots()] == [
+            workspace.prompts,
+            str(checkout / "prompts"),
+        ]
+        assert [r.root for r in asset_library().roots()] == [
+            workspace.assets,
+            str(checkout / "assets"),
+        ]
 
     def test_an_example_prompt_resolves(self, libraries):
         _workspace, checkout = libraries
@@ -167,10 +183,12 @@ class TestServer:
         api, workspace, checkout = client
         body = api.get("/api/prompts").json()
         assert set(body["prompts"]) == {"mine", "flux/daffodil", "shared"}
-        assert body["origins"]["mine"] == WORKSPACE_ORIGIN
-        assert body["origins"]["flux/daffodil"] == EXAMPLES_ORIGIN
-        assert body["prompt_dir"] == workspace.prompts
-        assert body["prompt_dirs"] == [workspace.prompts, str(checkout / "prompts")]
+        assert body["details"]["mine"]["origin"] == WORKSPACE_ORIGIN
+        assert body["details"]["flux/daffodil"]["origin"] == EXAMPLES_ORIGIN
+        assert [library["root"] for library in body["libraries"]] == [
+            workspace.prompts,
+            str(checkout / "prompts"),
+        ]
         assert body["details"]["flux/daffodil"]["text"] == "a biomechanical daffodil"
 
     def test_an_example_prompt_reads(self, client):
@@ -197,7 +215,8 @@ class TestServer:
             json={"prompt": {"text": "changed"}},
         )
         assert saved.status_code == 200
-        assert saved.json()["path"].startswith(os.path.abspath(workspace.prompts))
+        assert saved.json()["name"] == "flux/daffodil"
+        assert os.path.isfile(os.path.join(workspace.prompts, "flux", "daffodil.json"))
         with open(checkout / "prompts" / "flux" / "daffodil.json") as file:
             assert json.load(file)["text"] == "a biomechanical daffodil"
         assert api.get("/api/prompts/flux/daffodil").json()["text"] == "changed"
@@ -211,8 +230,7 @@ class TestServer:
             "iris.png": EXAMPLES_ORIGIN,
             "shared.png": EXAMPLES_ORIGIN,
         }
-        assert body["asset_dir"] == workspace.assets
-        assert body["asset_dirs"] == [
+        assert [library["root"] for library in body["libraries"]] == [
             os.path.abspath(workspace.assets),
             str(checkout / "assets"),
         ]
@@ -247,3 +265,41 @@ class TestServer:
         assert missing["valid"] is False
         assert missing["errors"][0]["path"] == "arguments.image"
         assert os.path.abspath(workspace.assets) in missing["errors"][0]["message"]
+
+
+def test_two_apps_in_one_process_each_list_their_own_examples(tmp_path):
+    """Per-app state stays per app: two apps built in one process, each with
+    its own examples directory, answer `GET /api/workflows` with their own
+    workflow and never the other's. A characterization test - it holds before
+    and after the routers moved out of the `create_app` closure."""
+
+    def build(label):
+        root = tmp_path / label
+        workflows = root / "workflows"
+        workflows.mkdir(parents=True)
+        examples = root / "examples"
+        examples.mkdir()
+        with open(examples / f"{label}-example.json", "w") as file:
+            json.dump(valid_workflow(f"{label}_example"), file)
+        manager = JobManager(
+            str(root / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(root / "jobs.sqlite"),
+            workflow_dir=str(workflows),
+        )
+        return create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(root / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(root / "prompts"),
+            examples_dirs=[str(examples)],
+        )
+
+    first, second = build("alpha"), build("beta")
+    with TestClient(first, base_url="http://localhost") as one:
+        with TestClient(second, base_url="http://localhost") as two:
+            listed_one = one.get("/api/workflows").json()["workflows"]
+            listed_two = two.get("/api/workflows").json()["workflows"]
+
+    assert "alpha-example" in listed_one and "beta-example" not in listed_one
+    assert "beta-example" in listed_two and "alpha-example" not in listed_two

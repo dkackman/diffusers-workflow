@@ -7,13 +7,13 @@ The probes silently clip an overrunning shot record to the file (`_clip` in
 (`_shot_span_findings`, same module) - a message correct but late once the
 run has already spent the decode. Mirrors `slice_preflight.py` (#402): walk
 the expanded definition, `resolve_path_references` an `asset:`/`output:`
-video into a real path, and `probe_media` it - the same resolution and
-decode the run itself would do, just ahead of the queue.
+video into a real path, and `probe_metadata` it - the same resolution the
+run itself would do, and its frame count without the decode (B9).
 
 Deliberately narrower than the run-time check, same as #402's: a
 `previous_result:` video (nothing written yet), a remote URL, a literal path
-outside the directories the run may read, or a source `probe_media` cannot
-read, all answer "unknown" rather than guessing - silence here is correct,
+outside the directories the run may read, or a source `probe_metadata`
+cannot read, all answer "unknown" rather than guessing - silence here is correct,
 not a gap, since the run-time warning still fires once the file exists. Only
 the `shots` argument's `start_frame`/`num_frames` are checked; a `shots`
 argument sourced from a `variable:`/`previous_result:`/`gather:` reference
@@ -21,16 +21,17 @@ names no records yet and is left to the run-time check.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_media
+from .media import probe_metadata
 from .probe_paths import resolve_probe_path
+from .references import author_index
 
 PROBE_COMMANDS = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
 
 
-def _frame_count(path):
+def _frame_count(path, probe):
     """The frame count a probe would see for this file, or None when it
     cannot be probed or carries no video stream."""
-    info = probe_media(path)
+    info = probe(path)
     if info is None or info.get("kind") != "video":
         return None
     return info.get("frame_count")
@@ -42,7 +43,9 @@ def _as_number(value):
     return value
 
 
-def shot_span_warnings(workflow_definition, source_indices=None, base_dir=None):
+def shot_span_warnings(
+    workflow_definition, source_indices=None, base_dir=None, *, probe=probe_metadata
+):
     """Every assessment-probe step whose `shots` argument already reaches
     past a statically-resolvable video's real frame count, as messages.
 
@@ -50,6 +53,9 @@ def shot_span_warnings(workflow_definition, source_indices=None, base_dir=None):
     `slice_past_end_warnings` follows: `source_indices` maps an expanded step
     back to the one the author wrote, and a path inside a `for_each` member
     names the member.
+
+    `probe` defaults to the metadata-only `probe_metadata` (B9); see
+    `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
@@ -72,7 +78,7 @@ def shot_span_warnings(workflow_definition, source_indices=None, base_dir=None):
         path = resolve_probe_path(task_args.get("video"), base_dir, "a video argument")
         if path is None:
             continue
-        frame_count = _frame_count(path)
+        frame_count = _frame_count(path, probe)
         if frame_count is None:
             continue
 
@@ -93,11 +99,7 @@ def shot_span_warnings(workflow_definition, source_indices=None, base_dir=None):
         if not problems:
             continue
 
-        source = (
-            source_indices[index]
-            if source_indices is not None and index < len(source_indices)
-            else index
-        )
+        source = author_index(source_indices, index)
         name = step.get("name")
         where = (
             f" in member '{name}'"

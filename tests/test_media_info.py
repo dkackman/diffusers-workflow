@@ -7,7 +7,7 @@ import math
 import numpy
 import pytest
 
-from dw.media_info import probe_media
+from dw.media import probe_media, probe_metadata
 
 
 def write_wav(path, seconds=2.0, sample_rate=8000, amplitude=0.5):
@@ -324,3 +324,156 @@ class TestEnvelope:
         )
         power = numpy.mean([10 ** (db / 10) for db in info["envelope"]["rms_dbfs"]])
         assert 10 * math.log10(power) == pytest.approx(info["mean_dbfs"], abs=0.1)
+
+
+class TestProbeMetadata:
+    """probe_metadata answers the same header-level fields probe_media does,
+    for a fraction of the cost - validation only ever needs metadata, never
+    a level or a loudness figure, so it should never pay for a full decode
+    of a file it is only checking the shape of (B9)."""
+
+    PARITY_KEYS = ("kind", "width", "height", "duration_seconds")
+
+    @pytest.mark.parametrize(
+        "extension",
+        ["mp4", "mkv"],
+        ids=["header-frame-count", "no-header-frame-count"],
+    )
+    def test_frame_count_and_shape_match_probe_media(self, tmp_path, extension):
+        # mp4 writes libx264's frame count into the stream header; mkv does
+        # not (video.frames comes back 0), so probe_media falls back to a
+        # full decode to count frames there - the exact case probe_metadata
+        # has to match without paying for that decode.
+        path = tmp_path / f"shot.{extension}"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+        decoded = probe_media(str(path))
+        header = probe_metadata(str(path))
+
+        assert header["frame_count"] == decoded["frame_count"] == 12
+        for key in self.PARITY_KEYS:
+            assert header[key] == decoded[key]
+        assert header["fps"] == pytest.approx(decoded["fps"])
+
+    def test_an_audio_file_matches_probe_media_on_the_shared_keys(self, tmp_path):
+        write_wav(tmp_path / "score.wav", seconds=2.0, sample_rate=8000)
+
+        decoded = probe_media(str(tmp_path / "score.wav"))
+        header = probe_metadata(str(tmp_path / "score.wav"))
+
+        assert header["kind"] == decoded["kind"] == "audio"
+        assert header["sample_rate"] == decoded["sample_rate"] == 8000
+        assert header["channels"] == decoded["channels"] == 2
+        assert header["duration_seconds"] == pytest.approx(
+            decoded["duration_seconds"], abs=0.01
+        )
+
+    def test_it_carries_no_loudness_keys(self, tmp_path):
+        write_wav(tmp_path / "score.wav", seconds=2.0, sample_rate=8000)
+
+        info = probe_metadata(str(tmp_path / "score.wav"))
+
+        for key in ("peak_dbfs", "mean_dbfs", "integrated_lufs", "true_peak_dbfs"):
+            assert key not in info
+
+    def test_a_video_soundtrack_is_never_decoded_for_its_level(self, tmp_path):
+        write_mp4(tmp_path / "shot.mp4", frames=12, fps=6, with_audio=True)
+
+        info = probe_metadata(str(tmp_path / "shot.mp4"))
+
+        assert info["kind"] == "video"
+        assert info["sample_rate"] == 8000
+        for key in ("peak_dbfs", "mean_dbfs", "integrated_lufs", "true_peak_dbfs"):
+            assert key not in info
+
+    def test_a_file_that_is_not_media_answers_none(self, tmp_path):
+        (tmp_path / "notes.txt").write_text("not media")
+
+        assert probe_metadata(str(tmp_path / "notes.txt")) is None
+
+    def test_it_never_calls_container_decode(self, tmp_path, monkeypatch):
+        # Neither branch - header count present (mp4) or counted by
+        # demuxing (mkv) - may call decode: that is the whole point of a
+        # metadata-only probe. Patched on the av class itself (not a
+        # string "dw..." target), so any call anywhere raises.
+        import av
+
+        def _boom(self, *args, **kwargs):
+            raise AssertionError("probe_metadata must not decode")
+
+        monkeypatch.setattr(av.container.InputContainer, "decode", _boom)
+
+        write_mp4(tmp_path / "shot.mp4", frames=12, fps=6, with_audio=True)
+        write_mp4(tmp_path / "shot.mkv", frames=12, fps=6, with_audio=True)
+
+        info_mp4 = probe_metadata(str(tmp_path / "shot.mp4"))
+        info_mkv = probe_metadata(str(tmp_path / "shot.mkv"))
+
+        assert info_mp4["frame_count"] == 12
+        assert info_mkv["frame_count"] == 12
+
+    def test_a_damaged_track_still_reports_header_fields(self, tmp_path):
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+        raw = bytearray(path.read_bytes())
+        mid = len(raw) // 2
+        for i in range(mid, len(raw), 64):
+            raw[i] = (raw[i] + 137) % 256
+        path.write_bytes(bytes(raw))
+
+        info = probe_metadata(str(path))
+
+        assert info is not None
+        assert info["kind"] == "video"
+
+    def test_a_codec_outside_the_allowlist_falls_back_to_a_decode(
+        self, tmp_path, monkeypatch
+    ):
+        # Demuxing counts one packet per frame exactly only for a codec dw
+        # actually writes; anything else must fall back to probe_media's
+        # real decode rather than trust a count that might not hold
+        # (review round 1, B9). `_video_codec_name` is its own function
+        # precisely so this can be exercised without a fixture encoded
+        # with a genuinely unlisted codec.
+        import dw.media as media_info_module
+
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+        monkeypatch.setattr(
+            media_info_module, "_video_codec_name", lambda video: "flv1"
+        )
+
+        info = probe_metadata(str(path))
+
+        assert info["frame_count"] == 12
+
+    def test_a_demux_failure_falls_back_to_a_decode(self, tmp_path, monkeypatch):
+        # A demux that raises partway through must not silently drop
+        # frame_count when probe_media could still supply it (review round
+        # 1, B9) - it falls back to a real decode instead. `decode()` itself
+        # calls `demux()` internally (proven empirically), so the fake only
+        # breaks the *first* call - probe_metadata's own attempt - and lets
+        # every later one (probe_media's fallback decode, on a freshly
+        # opened container) run for real; otherwise no fallback could ever
+        # succeed, decode and demux failing together.
+        import av
+
+        orig_demux = av.container.InputContainer.demux
+        state = {"failed_once": False}
+
+        def _boom_once(self, *args, **kwargs):
+            if not state["failed_once"]:
+                state["failed_once"] = True
+                raise RuntimeError("demux exploded")
+            return orig_demux(self, *args, **kwargs)
+
+        monkeypatch.setattr(av.container.InputContainer, "demux", _boom_once)
+
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6, width=32, height=16)
+
+        info = probe_metadata(str(path))
+
+        assert state["failed_once"]
+        assert info["frame_count"] == 12

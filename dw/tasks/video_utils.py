@@ -8,14 +8,22 @@ to pull a single frame out of any of them, always as a PIL image.
 """
 
 import logging
-import math
 import re
 
 import numpy
 import torch
 from PIL import Image
 
-from ..result import AudioVideo
+from ..media import decode_audio_video
+from ..media_frames import (
+    compose_grid,
+    default_columns,
+    evenly_spaced_indices,
+    frames_at,
+    grid_tile,
+)
+from ..media_types import AudioVideo, fit_codec_padding
+from ..task_domains import frame_size_error
 
 logger = logging.getLogger("dw")
 
@@ -68,8 +76,6 @@ def get_frame(video, frame_index=0):
         The frame as a PIL image
     """
     if isinstance(video, VideoFileReference):
-        from ..media_frames import frames_at
-
         return frames_at(video.path, [f"frame:{frame_index}"])[0]["image"]
     return extract_frame(video, frame_index)
 
@@ -103,23 +109,21 @@ def check_same_frame_size(clips, task_name):
         task_name: Named in the error
 
     Joining is frame-by-frame concatenation, which either fails deep in numpy
-    or, for a PIL list, produces a film that changes size mid-cut. Naming the
-    two sizes points at the shot that was rendered differently rather than at
-    the join.
+    or, for a PIL list, produces a film that changes size mid-cut. Naming
+    every mismatched size, against the first known one by its real index,
+    points at each shot that was rendered differently rather than at the
+    join - the same sentence validate gives for sizes it can already probe
+    (dw/video_size_errors.py).
     """
-    sizes = []
-    for clip in clips:
+    sizes = {}
+    for index, clip in enumerate(clips):
         if isinstance(clip, numpy.ndarray):
-            sizes.append((int(clip.shape[2]), int(clip.shape[1])))
-        else:
-            sizes.append(tuple(clip[0].size) if len(clip) else None)
-    first = next((size for size in sizes if size is not None), None)
-    for index, size in enumerate(sizes):
-        if size is not None and size != first:
-            raise ValueError(
-                f"{task_name} needs every video at one size: video 0 is "
-                f"{first[0]}x{first[1]}, video {index} is {size[0]}x{size[1]}"
-            )
+            sizes[index] = (int(clip.shape[2]), int(clip.shape[1]))
+        elif len(clip):
+            sizes[index] = tuple(clip[0].size)
+    error = frame_size_error(task_name, sizes)
+    if error is not None:
+        raise ValueError(error)
 
 
 def frames_as_pil_list(video):
@@ -253,15 +257,15 @@ def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
     count = min(count, total)
     fps = getattr(video, "fps", None)
 
-    indices = _evenly_spaced_indices(total, count)
+    indices = evenly_spaced_indices(total, count)
     tiles = [
-        _grid_tile(extract_frame(video, index), index, fps, tile_width, label)
+        grid_tile(extract_frame(video, index), index, fps, tile_width, label)
         for index in indices
     ]
 
     if columns is None:
-        columns = _default_columns(len(tiles))
-    return _compose_grid(tiles, columns)
+        columns = default_columns(len(tiles))
+    return compose_grid(tiles, columns)
 
 
 def _positive_int(value, command, name):
@@ -277,63 +281,6 @@ def _positive_int(value, command, name):
     if value < 1:
         raise ValueError(f"{command} needs '{name}' of at least 1, got {value}")
     return value
-
-
-def _evenly_spaced_indices(total, count):
-    """`count` frame indices spaced evenly across [0, total - 1], inclusive
-    of both ends. Rounding can coincide two spacings on one index in a short
-    clip; those collapse rather than repeating the same frame as a tile."""
-    if count == 1:
-        return [0]
-    raw = numpy.linspace(0, total - 1, num=count)
-    seen = []
-    for value in raw.round().astype(int).tolist():
-        if not seen or seen[-1] != value:
-            seen.append(value)
-    return seen
-
-
-def _default_columns(count):
-    """A grid biased wide: rows no more than columns, columns >= sqrt(count)."""
-    rows = math.isqrt(count) or 1
-    return math.ceil(count / rows)
-
-
-def _grid_tile(frame, index, fps, tile_width, label):
-    tile_height = max(1, round(frame.height * tile_width / frame.width))
-    tile = frame.resize((tile_width, tile_height), Image.LANCZOS).convert("RGB")
-    if not label:
-        return tile
-
-    from PIL import ImageDraw, ImageFont
-
-    text = _format_timestamp(index, fps) if fps else f"#{index}"
-    draw = ImageDraw.Draw(tile)
-    font_size = max(10, tile_width // 16)
-    try:
-        font = ImageFont.truetype("Arial", font_size)
-    except (IOError, OSError):
-        font = ImageFont.load_default(size=font_size)
-    draw.text(
-        (4, 4), text, font=font, fill="white", stroke_width=2, stroke_fill="black"
-    )
-    return tile
-
-
-def _format_timestamp(index, fps):
-    seconds = index / fps
-    minutes, remainder = divmod(seconds, 60)
-    return f"{int(minutes):02d}:{remainder:04.1f}"
-
-
-def _compose_grid(tiles, columns):
-    tile_width, tile_height = tiles[0].size
-    rows = math.ceil(len(tiles) / columns)
-    grid = Image.new("RGB", (columns * tile_width, rows * tile_height), (0, 0, 0))
-    for position, tile in enumerate(tiles):
-        row, col = divmod(position, columns)
-        grid.paste(tile, (col * tile_width, row * tile_height))
-    return grid
 
 
 def is_video(value):
@@ -451,24 +398,6 @@ class FrameList(list):
         self.shots = shots
 
 
-def file_fps(path):
-    """The rate a video file declares, or None - a container that will not
-    open, carries no video stream or states no rate is a rate we do not
-    know, never an error: the caller is loading frames it has already read.
-    """
-    try:
-        import av
-
-        with av.open(path) as container:
-            stream = container.streams.video[0] if container.streams.video else None
-            return (
-                float(stream.average_rate) if stream and stream.average_rate else None
-            )
-    except Exception as e:
-        logger.debug(f"No frame rate for {path}: {e}")
-        return None
-
-
 def load_audio_video(location, base_dir=None):
     """Load a video file - frames and the audio muxed with them - as an AudioVideo.
 
@@ -530,38 +459,9 @@ def is_video_location(value):
 
 def _decode_audio_video(handle):
     """Decode a path or file object's video and audio streams in one pass."""
-    import av
-    from av.audio.resampler import AudioResampler
-
-    frames = []
-    chunks = []
-    sample_rate = None
-
-    with av.open(handle) as container:
-        video_stream = container.streams.video[0]
-        frame_rate = (
-            float(video_stream.average_rate) if video_stream.average_rate else None
-        )
-        streams = [video_stream]
-        if container.streams.audio:
-            audio_stream = container.streams.audio[0]
-            streams.append(audio_stream)
-            sample_rate = audio_stream.rate
-            # Planar float is the layout AudioVideo carries: (channels, samples)
-            resampler = AudioResampler(format="fltp")
-
-        for frame in container.decode(*streams):
-            if isinstance(frame, av.VideoFrame):
-                frames.append(Image.fromarray(frame.to_ndarray(format="rgb24")))
-            else:
-                chunks.extend(f.to_ndarray() for f in resampler.resample(frame))
-
-        if sample_rate is not None:
-            chunks.extend(f.to_ndarray() for f in resampler.resample(None))
-
-    audio = numpy.concatenate(chunks, axis=1).astype(numpy.float32) if chunks else None
+    frames, audio, sample_rate, frame_rate = decode_audio_video(handle)
     if audio is not None and frame_rate:
-        audio = _fit_audio_to_frames(audio, len(frames), frame_rate, sample_rate)
+        audio = fit_codec_padding(audio, len(frames), frame_rate, sample_rate)
     logger.debug(
         f"Decoded {len(frames)} frames and "
         f"{audio.shape[1] if audio is not None else 0} audio samples"
@@ -573,66 +473,3 @@ def _decode_audio_video(handle):
     return AudioVideo(
         frames, audio, sample_rate if audio is not None else None, fps=frame_rate
     )
-
-
-# How far a decoded track may be off the frames' own duration and still be
-# treated as codec padding rather than a track of its own length. AAC codes
-# 1024 samples at a time, so a file's audio runs up to one such block long -
-# a hundredth of a second, which accumulates into visible lip-sync drift once
-# a dozen shots are joined end to end
-AUDIO_FIT_TOLERANCE_SECONDS = 0.25
-
-
-def _fit_audio_to_frames(audio, frame_count, frame_rate, sample_rate):
-    """Trim or pad a decoded track to exactly the frames' own duration.
-
-    Only when the difference is codec padding. A track that genuinely runs to
-    a different length than the picture - a song laid over a short clip - is
-    left alone.
-
-    `audio` may be a numpy array (the decode path) or a torch tensor still on
-    its generating device (an in-memory pipeline output, #197) - the pad and
-    trim below keep whichever type and device it arrived with rather than
-    forcing a host round trip the caller may not want yet.
-    """
-    axis = _sample_axis(audio)
-    if axis is None:
-        return audio
-
-    expected = round(frame_count / frame_rate * sample_rate)
-    difference = audio.shape[axis] - expected
-    if difference == 0 or abs(difference) > AUDIO_FIT_TOLERANCE_SECONDS * sample_rate:
-        return audio
-
-    logger.debug(
-        f"Fitting decoded audio to {frame_count} frames ({difference:+} samples)"
-    )
-    if difference > 0:
-        trim = [slice(None)] * audio.ndim
-        trim[axis] = slice(None, expected)
-        return audio[tuple(trim)]
-    if isinstance(audio, torch.Tensor):
-        # torch.nn.functional.pad takes its pairs from the last axis backwards
-        padding = [0, 0] * audio.ndim
-        padding[2 * (audio.ndim - 1 - axis) + 1] = -difference
-        return torch.nn.functional.pad(audio, padding)
-    widths = [(0, 0)] * audio.ndim
-    widths[axis] = (0, -difference)
-    return numpy.pad(audio, widths)
-
-
-def _sample_axis(audio):
-    """The axis a waveform's samples run along, or None if it has no such axis.
-
-    Not a fixed index: a generated track arrives in any of the layouts
-    _as_stereo reads - (channels, samples), (samples, channels), or a bare
-    (samples,) - and a mono one written (samples,) or (samples, 1) used to
-    reach shape[1] here and either raise IndexError or fit the wrong axis
-    into a silent no-op. Channels are few and samples are many, so the
-    longer axis is the sample axis.
-    """
-    if audio.ndim == 1:
-        return 0
-    if audio.ndim != 2:
-        return None
-    return 0 if audio.shape[0] > audio.shape[1] else 1

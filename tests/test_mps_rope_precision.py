@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import torch
 
-from dw.pipeline_processors.pipeline import apply_mps_rope_precision
+from dw.pipeline_processors.placement import apply_mps_rope_precision
 
 
 class Rope(torch.nn.Module):

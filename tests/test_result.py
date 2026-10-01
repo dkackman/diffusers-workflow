@@ -17,14 +17,11 @@ import torch
 from PIL import Image
 from unittest.mock import patch
 from dw.previous_results import get_previous_results
-from dw.result import (
-    AudioVideo,
-    Result,
-    as_audio_track,
-    get_artifact_list,
-    guess_extension,
-    normalize_audio,
-)
+from dw.media_types import AudioVideo
+from dw.content_types import guess_extension
+from dw.output_extraction import get_artifact_list
+from dw.result import Result
+from dw.writers import as_audio_track, normalize_audio
 from dw.security import SecurityError
 from dw.shots import shot_record
 
@@ -49,7 +46,7 @@ class TestResult:
         assert result.result_list == ["test_string"]
 
     def test_add_selected_unwraps_value_and_records_metadata(self):
-        from dw.tasks.select import Selected
+        from dw.media_types import Selected
 
         result = Result({})
         result.add_result(Selected(value="b", position=1, score=0.9))
@@ -99,7 +96,7 @@ class TestResult:
     def test_get_artifact_properties_reads_audio_video_attributes(self):
         # How a step hands one half of a video-with-audio artifact to the next -
         # LTX-2's frames into a latent upsampler, its soundtrack into the mux
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         result = Result({})
         result.add_result([AudioVideo(["frame"], "waveform", 24000)])
@@ -111,7 +108,7 @@ class TestResult:
     def test_get_artifact_properties_keeps_an_attribute_holding_none(self):
         # A pipeline that reported no sample rate carries None, which is the
         # answer - not a missing property
-        from dw.result import AudioVideo
+        from dw.media_types import AudioVideo
 
         result = Result({})
         result.add_result([AudioVideo(["frame"], "waveform", None)])
@@ -405,7 +402,7 @@ class TestGetArtifactList:
     def test_audios_with_a_recorded_rate_become_audio_tracks(self):
         # attach_audio_sample_rate put the rate on the output; each item
         # carries it from here on, so a workflow declares nothing
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         class MockResult:
             audios = numpy.zeros((2, 2, 100), dtype=numpy.float32)
@@ -539,7 +536,7 @@ class TestModularOutputs:
 
     def test_generated_audio_is_muxed_into_the_video(self):
         # A frame count far longer than the audio keeps the mismatch outside
-        # _fit_audio_to_frames's codec-padding tolerance, so the audio passes
+        # fit_codec_padding's codec-padding tolerance, so the audio passes
         # through unchanged and this test stays about muxing, not fitting.
         outputs = {
             "videos": [["frame"] * 1000],
@@ -774,7 +771,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             # The audio stream decoded 1970 samples, 30 short of the 2000
             # the fit predicted - an encoder trimming its own
             # priming/padding.
@@ -809,7 +806,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.97, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -833,7 +830,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.95, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -858,7 +855,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 1.0, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -874,7 +871,7 @@ class TestSaveAudioVideo:
         artifact = AudioVideo(frames, audio, 1000, shots=shots)
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"audio_stream_seconds": 2.0, "sample_rate": 1000},
         ):
             warnings = self.warnings_from(
@@ -964,6 +961,91 @@ class TestSaveAudioVideo:
         export.assert_called_once()
 
 
+class TestConformArtifacts:
+    """#561: a composed child's own last step, when its parent owns saving
+    (parent_saves_this in workflow.py), never calls save() - so without a
+    way to reach the fps stamp-back and audio-to-frames fit outside of
+    save_audio_video, a child's declared fps never lands on the artifact it
+    hands up, and the parent (or a previous_result: consumer) falls back to
+    DEFAULT_VIDEO_FPS. conform_artifacts is workflow.py's replacement for
+    the skipped save() call."""
+
+    def test_declared_fps_is_stamped_without_a_save_call(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.fps == 24
+
+    def test_audio_is_fit_to_the_frame_count_without_a_save_call(self):
+        frames = ["frame"] * 48
+        audio = torch.zeros((2, 1900))  # 48 frames @ 24fps @ 1000Hz -> 2000
+        artifact = AudioVideo(frames, audio, 1000)
+        result = Result({"content_type": "video/mp4", "fps": 24})
+        result.add_result(artifact)
+
+        result.conform_artifacts()
+
+        assert artifact.audio.shape == (2, 2000)
+
+    def test_every_audio_video_artifact_in_the_result_is_conformed(self):
+        first = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        second = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+        result = Result({"content_type": "video/mp4", "fps": 30})
+        result.add_result([first, second])
+
+        result.conform_artifacts()
+
+        assert first.fps == 30
+        assert second.fps == 30
+
+    def test_a_non_audio_video_artifact_is_left_alone(self):
+        result = Result({"content_type": "image/png", "fps": 24})
+        result.add_result("not-an-audio-video")
+
+        result.conform_artifacts()  # must not raise
+
+    def test_stamped_fps_survives_a_fresh_result_across_the_workflow_boundary(self):
+        # #561 reopened: Workflow.run hands a composed child's result_list to
+        # the *parent* step's own, separate Result (Step.run's add_result) -
+        # a fresh _artifact_cache. Stamping only the artifact get_artifacts()
+        # returned (the original fix) left result_list holding the raw
+        # pipeline output; the parent's own get_artifact_list() then rebuilt
+        # a brand new, unstamped AudioVideo from it and fell back to
+        # DEFAULT_VIDEO_FPS when it wrote the file - the fix has to survive
+        # the actual save() call on a *different* Result instance, not just
+        # a direct get_artifacts()/attribute check on the same one.
+        frames = ["frame"] * 48
+        audio = [torch.zeros((2, 1900))]  # 48 frames @ 24fps @ 1000Hz -> 2000
+        pipeline_output = types.SimpleNamespace(
+            frames=[frames], audio=audio, audio_sample_rate=1000
+        )
+        child_result = Result({"content_type": "video/mp4", "fps": 24})
+        child_result.add_result(pipeline_output)
+
+        child_result.conform_artifacts()
+
+        # What Workflow.run returns to the parent's Step.run, folded via
+        # add_result into a fresh Result with no fps of its own declared -
+        # the shape of a for_each member's "shot" step result block in #561
+        parent_result = Result({"content_type": "video/mp4"})
+        parent_result.add_result(child_result.result_list)
+
+        with (
+            patch("dw.result.encode_video") as encode,
+            patch("dw.result.export_to_video") as export,
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                parent_result.save(temp_dir, "test")
+
+        export.assert_not_called()
+        assert encode.call_args.kwargs["fps"] == 24
+        assert encode.call_args.kwargs["audio"].shape == (2, 2000)
+
+
 class TestNormalizeAudio:
     """Test conversion of pipeline audio output into writable waveforms"""
 
@@ -1034,7 +1116,8 @@ class TestSaveAudio:
             assert sample_rate == 44100
 
     def test_saving_a_silent_video_as_audio_names_the_problem(self):
-        from dw.result import AudioVideo, normalize_audio
+        from dw.media_types import AudioVideo
+        from dw.writers import normalize_audio
 
         with pytest.raises(ValueError, match="carries no audio"):
             normalize_audio(AudioVideo([], None, None))
@@ -1042,7 +1125,7 @@ class TestSaveAudio:
     def test_a_track_saves_at_the_rate_it_carries(self):
         # A generated track knows its own rate - generate_speech produces one at
         # whatever its model runs at - so the workflow does not have to declare it
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav"})
@@ -1060,7 +1143,7 @@ class TestSaveAudio:
         # save_artifact per waveform - the recursion must keep re-wrapping as an
         # AudioTrack by checking for a carried sample_rate, not by isinstance, so
         # a batch saved this way still saves at the rate it carries
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav"})
@@ -1083,7 +1166,7 @@ class TestSaveAudio:
         # even though the task-argument-level guard (#180) had nothing to
         # object to.
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav", "sample_rate": 44100})
@@ -1108,7 +1191,7 @@ class TestSaveAudio:
 
     def test_a_declared_rate_matching_the_carried_rate_is_not_a_warning(self):
         from dw.events import RunContext, activate_context, deactivate_context
-        from dw.result import AudioTrack
+        from dw.media_types import AudioTrack
 
         with tempfile.TemporaryDirectory() as temp_dir:
             result = Result({"content_type": "audio/wav", "sample_rate": 24000})
@@ -1504,6 +1587,22 @@ class TestVideoFrameRate:
 
         assert encode.call_args.kwargs["fps"] == 12
 
+    def test_a_declared_rate_is_handed_on_to_a_later_step(self):
+        # A previous_result: consumer reads this same instance - a 24 fps
+        # shot written at 12 must read as 12 there, as its file does (#513)
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        self.save({"content_type": "video/mp4", "fps": 12}, artifact)
+
+        assert artifact.fps == 12
+
+    def test_an_undeclared_rate_is_not_written_back(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        self.save({"content_type": "video/mp4"}, artifact)
+
+        assert artifact.fps is None
+
     def test_the_old_default_holds_when_nothing_knows_the_rate(self):
         artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
 
@@ -1565,7 +1664,7 @@ class TestFramesForEncoding:
     pipeline returned (#97)."""
 
     def test_float_frames_in_zero_to_one_become_a_uint8_tensor(self):
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.zeros((2, 4, 4, 3), dtype=numpy.float32)
         frames[1] = 1.0
@@ -1581,7 +1680,7 @@ class TestFramesForEncoding:
     def test_the_source_array_is_left_alone(self):
         """A later step can still read this result through a
         'previous_result:' reference, and the step cache retains it."""
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.full((2, 2, 2, 3), 0.5, dtype=numpy.float32)
         frames_for_encoding(frames)
@@ -1591,14 +1690,14 @@ class TestFramesForEncoding:
     def test_frames_outside_the_range_are_handed_over_untouched(self):
         """That is diffusers' own 'assume they are pixel values' branch -
         left to it rather than reproduced here."""
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.full((1, 2, 2, 3), 255.0, dtype=numpy.float32)
 
         assert frames_for_encoding(frames) is frames
 
     def test_anything_that_is_not_a_float_array_is_passed_through(self):
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         already_uint8 = numpy.zeros((1, 2, 2, 3), dtype=numpy.uint8)
         assert frames_for_encoding(already_uint8) is already_uint8
@@ -1683,7 +1782,7 @@ class TestMonoAudioForMuxing:
         assert track.shape == (100, 2)
 
     def test_upmix_warns(self, monkeypatch):
-        import dw.result as result_module
+        import dw.writers as result_module
 
         warnings = []
         monkeypatch.setattr(
@@ -1704,7 +1803,7 @@ class TestAlphaIntoJpeg:
     workflow asked for a format that cannot carry what the pipeline made."""
 
     def _save(self, monkeypatch, temp_dir, result_def):
-        import dw.result as result_module
+        import dw.writers as result_module
 
         warnings = []
         monkeypatch.setattr(
@@ -1786,7 +1885,8 @@ class TestNoHeadroom:
             result.save(temp_dir, "song")
 
     def save_muxed(self, waveform):
-        from dw.result import AudioVideo, Result
+        from dw.media_types import AudioVideo
+        from dw.result import Result
 
         result = Result({"content_type": "video/mp4"})
         result.add_result(AudioVideo("frames", waveform, 48000))
@@ -1842,7 +1942,7 @@ class TestNoHeadroom:
         written file is fine - the caller should see nothing, not a stale
         warning about a file that turned out clean."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": -1.12, "kind": "video"},
         ):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
@@ -1856,7 +1956,7 @@ class TestNoHeadroom:
         one save, which is what made the 'saving' phase ~5x slower once
         #261 added the second check. They now share one decode."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": -1.12, "mean_dbfs": -20.0, "kind": "video"},
         ) as probe:
             self.save_muxed(torch.ones((2, 100)))
@@ -1873,7 +1973,7 @@ class TestNoHeadroom:
         mux can land under full scale after starting over it. A video always
         gets the ground-truth post-encode read."""
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"peak_dbfs": 0.94, "kind": "video"},
         ):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
@@ -1884,7 +1984,7 @@ class TestNoHeadroom:
     def test_an_unprobeable_video_mux_falls_back_to_the_prediction(self):
         """No ground truth available (a broken/short file) - the pre-encode
         guess is the only signal there is, so it still reaches the caller."""
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
         assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
@@ -1930,9 +2030,9 @@ class TestTheWrittenLevel:
         a wav hot enough to decode over would have drawn the waveform
         warning first, which is the branch the next test covers.
         """
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": peak_dbfs}):
+        with patch("dw.media.probe_media", return_value={"peak_dbfs": peak_dbfs}):
             return self.warnings_from(
                 lambda: warn_if_written_above_full_scale(
                     "/runs/final/music_video.mp4", **kwargs
@@ -1953,9 +2053,9 @@ class TestTheWrittenLevel:
         assert self.measured_at(-2.48) == []
 
     def test_a_file_with_no_soundtrack_is_quiet(self):
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", return_value={"kind": "video"}):
+        with patch("dw.media.probe_media", return_value={"kind": "video"}):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_above_full_scale("/runs/final/silent.mp4")
@@ -1964,9 +2064,9 @@ class TestTheWrittenLevel:
             )
 
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_above_full_scale("/runs/final/broken.mp4")
@@ -1979,7 +2079,7 @@ class TestTheWrittenLevel:
 
         result = Result({"content_type": "audio/wav", "sample_rate": 44100})
         result.add_result(numpy.zeros((2, 4410), dtype=numpy.float32))
-        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+        with patch("dw.audio_qc.warn_if_written_above_full_scale") as measured:
             result.save(str(tmp_path), "song")
 
         measured.assert_called_once()
@@ -1992,7 +2092,7 @@ class TestTheWrittenLevel:
         image = Image.new("RGB", (4, 4))
         result = Result({"content_type": "image/png"})
         result.add_result(image)
-        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+        with patch("dw.audio_qc.warn_if_written_above_full_scale") as measured:
             result.save(str(tmp_path), "frame")
 
         measured.assert_not_called()
@@ -2056,7 +2156,7 @@ class TestConsumedByNormalizer:
         waveform = numpy.zeros((2, 100), dtype=numpy.float32)
         waveform[0][0] = 1.0
 
-        with patch("dw.media_info.probe_media", return_value={"peak_dbfs": 0.5}):
+        with patch("dw.media.probe_media", return_value={"peak_dbfs": 0.5}):
             warnings = self.warnings_from(
                 lambda: self.save_audio(waveform, True, str(tmp_path))
             )
@@ -2083,9 +2183,9 @@ class TestNearSilentWrite:
         return [e for e in captured if e["event"] == "warning"]
 
     def measured_at(self, mean_dbfs, **kwargs):
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
-        with patch("dw.media_info.probe_media", return_value={"mean_dbfs": mean_dbfs}):
+        with patch("dw.media.probe_media", return_value={"mean_dbfs": mean_dbfs}):
             return self.warnings_from(
                 lambda: warn_if_written_near_silent("/runs/final/line.wav", **kwargs)
             )
@@ -2105,10 +2205,10 @@ class TestNearSilentWrite:
         sent every one of those to an investigation. The trigger is
         unchanged (mean still below -40); only the message and the added
         peak_dbfs field distinguish it from a genuinely empty render."""
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"mean_dbfs": -54.46, "peak_dbfs": -18.5},
         ):
             (warning,) = self.warnings_from(
@@ -2125,10 +2225,10 @@ class TestNearSilentWrite:
         """#261's -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize both
         have low peaks too - those still get the "check the step" message,
         not the ambience one."""
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch(
-            "dw.media_info.probe_media",
+            "dw.media.probe_media",
             return_value={"mean_dbfs": -68.7, "peak_dbfs": -55.0},
         ):
             (warning,) = self.warnings_from(
@@ -2160,9 +2260,9 @@ class TestNearSilentWrite:
         assert self.measured_at(-74.8, source_already_quiet=True) == []
 
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
-        with patch("dw.media_info.probe_media", side_effect=OSError("truncated")):
+        with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (
                 self.warnings_from(
                     lambda: warn_if_written_near_silent("/runs/final/broken.wav")

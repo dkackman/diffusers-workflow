@@ -3,11 +3,20 @@
 ## Running Tests
 
 ```bash
-# All tests
+# All tests - parallel across every core (pytest-xdist, `-n auto` in pytest.ini)
 pytest tests/ -v
 
-# Single file
+# Single file - naming test files runs them in one process, since a worker's
+# torch import costs more than it saves there; -n N forces workers anyway
 pytest tests/test_security.py -v
+
+# Debugging with -s or --pdb needs one process
+pytest tests/ -n0 -s
+
+# The real-model tests (an accelerator, plus SD 1.5 and facebook/mms-tts-eng,
+# which download on first run) are the release gate, and are
+# excluded by default; one process, since each test holds a model on the device
+pytest tests/ -m integration -n0
 
 # Match pattern
 pytest tests/ -k "variables" -v
@@ -38,15 +47,15 @@ Around 120 files and 3,600+ tests as of this writing (`pytest tests/ --collect-o
 | test_integration.py | End-to-end workflow tests |
 | test_task.py | Task dispatch |
 | test_schema.py | JSON schema validation |
-| test_worker.py | REPL worker subprocess |
-| test_repl_commands.py, test_repl_hierarchical.py, test_repl_reorganization.py | REPL command structure |
+| test_worker.py | Worker subprocess |
+| test_worker_manager.py | Worker process lifecycle management |
 | test_pipeline_caching.py, test_pipeline_components.py, test_modular_pipeline.py | Pipeline caching, component discovery, `load_components` |
 | test_device.py, test_device_helpers.py | Device selection, shared device/dtype helpers |
 | test_image_utils.py, test_resize_bucket.py, test_strip_exif_and_watermark.py, test_tensor_image.py, test_list_images.py | Image processing task commands |
 | test_diffusion_upscale.py, test_interpolate_frames.py, test_depth_estimator.py, test_segment.py | Diffusion upscale, RIFE interpolation, depth hints, segmentation |
 | test_image_to_text.py, test_text_generation.py | Captioning and text generation tasks |
 | test_model_cache.py | Shared task model cache |
-| test_prompt_weighting.py, test_teacache.py | Prompt weighting device handling, TeaCache forward guard |
+| test_prompt_weighting.py | Prompt weighting device handling |
 | test_argument_updates.py | Cached pipelines pick up fresh arguments across runs |
 | test_examples.py | Validates every workflow in `workflows/` against the schema |
 | test_mcp_client.py, test_mcp_catalog.py, test_mcp_authoring.py, test_mcp_diagnose.py, test_mcp_media.py, test_mcp_server.py | MCP tool surface |

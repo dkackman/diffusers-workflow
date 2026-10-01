@@ -580,6 +580,23 @@ came from. Spell the member out: `{"reference_type": "…",
 fails the run with a precise error naming the members that do exist, but the
 guide says it here first.
 
+A member may reference an *earlier* member of its own list directly
+(`"image": "previous_result:shot@accuse"` inside `shot@deflect`), but it
+cannot interpose a derivation on that reference — "shot 2 starts where shot
+1 ended," a still pulled from shot 1's last frame with `get_last_frame`.
+There is no step between two members of the same `for_each` list: a step
+meant to derive that still (say, named `last`) would itself have to sit
+after `shot` in the file to read `shot@accuse`'s result, which makes it a
+step *after* the whole list, and referencing it from inside the list is a
+`previous_result:` naming no earlier step — refused at validate. Split the
+list at the dependency instead: run the members up to and including the one
+being derived from as their own `for_each` (or, for a single entry, an
+ordinary step), add an ordinary `get_last_frame` step after it reading
+`previous_result:shot@accuse`, and run the remaining members as a second
+`for_each` whose dependent entry takes that derived still — as a variable
+value or, over the API/MCP, folded into the entry itself — rather than a
+bare `previous_result:` reference to the video.
+
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`
 default before checking it, so a list defaulted to a constant validates the
@@ -660,10 +677,13 @@ the entry an item needs.
    loads the same checkpoint, and its per-image figure times the number of
    images is the number to quote. Say "a few minutes" only when no entry with
    that pipeline has been measured.
-5. `wait_for_job` rather than a polling loop; call it again if it returns
-   `still_running: true`. One call blocks for at most 55 seconds whatever
-   `timeout_seconds` says, so a minutes-long render takes several - the
-   reply's `timeout_capped` and `waited_seconds` say which happened. A
+5. `wait_for_job` rather than a polling loop, asking for the job's
+   `plan.estimate` (in seconds, plus a margin) as `timeout_seconds`, so one
+   call can cover the whole run. The server caps a single call, and the
+   tool's description states the cap: the reply's
+   `timeout_applied_seconds` and `timeout_capped` say what you got, and
+   `waited_seconds` how long it took. Call it again if it returns
+   `still_running: true`. Without `timeout_seconds` a call waits 20 seconds. A
    running job's `progress` carries the step being run; the phase
    (`loading`, `generating`, `decoding`, `saving`) with the model it names in
    `phase_detail`; `seconds_in_phase`, time spent in that phase; and
@@ -695,7 +715,7 @@ the entry an item needs.
    arguments={"input_audio": "output:<name>"})` first (free; it takes an
    audio file or a video's muxed soundtrack directly), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
-   "downloads": [...]})` bound to that plan with `wait_seconds=55`, then
+   "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
    scratch run afterward. This workflow's plan comes back
    `basis: "unknown"` with `minutes: null` - nothing is curated or observed
@@ -738,6 +758,78 @@ workflow.
   `templates/multi-image-reference.json`, and for video the MiniMax
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
+
+### A spoken scene breaking into a song
+
+A musical number: spoken shots, each carrying its own dialogue audio, then
+shots lip-synced to one song, with the song entering under the last spoken
+line. A `concat_videos` join is wrong here - it keeps each sung shot's own
+audio, the separate slices it was generated against, where the number wants
+the song unbroken. The task for it is
+[`join_into_song`](TASKS.md#join_into_song) (`get_guide("tasks",
+section="join_into_song")`), and the recipe is four parts:
+
+1. **Pick `cue_seconds`**: the song time that lands on the first sung shot's
+   frame 0. The song enters that long before the cut, under the last line;
+   `0` starts it exactly at the cut. It may not be longer than the dialogue.
+2. **Generate the sung shots against `slice_audio` slices of the song**, as
+   `templates/minimax/music-video` does (its `slice` and `shot` steps). The
+   first slice starts at `cue_seconds`, and each next one starts where the one
+   before it ended, so the slices tile the song with no gap: `start_seconds`
+   is `cue_seconds` plus the length of every sung shot before it
+   (`num_frames / fps` - 24 fps for H3), `duration_seconds` its own length.
+   The shots, not the slices, are what the join reads.
+3. **`join_into_song`** with the dialogue shots, the sung shots, the
+   *unbroken* song and the same `cue_seconds`. It measures the joined
+   dialogue at run time and places the song so `cue_seconds` lands on the
+   first sung frame, ducks the dialogue under it, and discards the sung
+   shots' own audio. It does not set the output level.
+4. **`normalize_audio` to -3 dBFS, then `pair_audio`**, as every template
+   that muxes to video does - the encoder can add up to ~2 dB, and the
+   written-peak warning reads the file.
+
+The tail, with the shots from earlier runs (`output:` or `asset:`) or from
+earlier steps of the same workflow (`previous_result:`, `gather:`):
+
+```json
+{
+    "name": "joined",
+    "task": {
+        "command": "join_into_song",
+        "arguments": {
+            "dialogue": ["asset:scene/line-1.mp4", "asset:scene/line-2.mp4"],
+            "song_shots": ["asset:scene/sung-1.mp4", "asset:scene/sung-2.mp4"],
+            "song": "asset:scene/song.mp3",
+            "cue_seconds": 1.5
+        }
+    }
+},
+{
+    "name": "balanced",
+    "task": {
+        "command": "normalize_audio",
+        "arguments": { "audio": "previous_result:joined", "peak_dbfs": -3.0 }
+    }
+},
+{
+    "name": "number",
+    "task": {
+        "command": "pair_audio",
+        "arguments": {
+            "video": "previous_result:joined",
+            "audio": "previous_result:balanced",
+            "fit": "video"
+        }
+    },
+    "result": { "content_type": "video/mp4", "subfolder": "final" }
+}
+```
+
+`joined` and `balanced` save nothing and are read by later steps, so they run
+and write no file of their own; `number` is the deliverable, and its shot map
+(`get_gallery_metadata`'s `media.shots`) names one shot per input. The frame
+rate comes from the shots themselves - pass `fps` to the join only when none
+of its inputs carries one.
 
 ### Saying which output is the deliverable
 
@@ -933,7 +1025,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `seam_click` | a longer `crossfade_ms` on the join | recut |
 | `seam_hole` | `audio_bleed_ms` on the join, so the outgoing tail rings on across the seam | recut |
 | `seam_frame_jump` | a `dissolve_videos` join, or regenerate the incoming shot from the outgoing shot's last frame. If the cut was meant, leave it alone | recut, or regenerate |
-| `shot_dead_air` | cut a room-tone bed from the take with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
+| `shot_dead_air` | `find_loop_bed` on the cut names a quiet stretch inside one shot and its gain; cut that bed with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
 
@@ -953,8 +1045,8 @@ Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `
 A task command's implementation declares what it hands back - most answer an
 `artifact` (a file `result` saves in one of the media content types above),
 some (`judge`) answer a bare `scalar` that cannot be saved at all, and some
-(the assessment probes in [TASKS.md](TASKS.md), and `attribute_voices`) answer
-a `json` document - every measurement taken, in one dict. A step on a `json` command must set
+(the assessment probes in [TASKS.md](TASKS.md), `find_loop_bed`, and
+`attribute_voices`) answer a `json` document - every measurement taken, in one dict. A step on a `json` command must set
 `content_type` to `application/json`, which saves it as one document; a step on a `scalar` command
 may not carry a `result` at all. Both are checked in validation, by the
 command's own declared kind rather than a name match.
@@ -1167,8 +1259,8 @@ MiniMax H3 example uses on-demand VAEs for this reason.
 
 #### Releasing a pipeline mid-workflow
 
-Pipelines stay loaded for the whole run (and across REPL runs) so repeated steps reuse
-them. When a workflow chains two large models that cannot both fit - generate with one,
+Pipelines stay loaded for the whole run (and across runs, in the server's persistent
+worker) so repeated steps reuse them. When a workflow chains two large models that cannot both fit - generate with one,
 upscale with another - release the first once its step completes instead of configuring
 offload on everything:
 
@@ -1181,8 +1273,8 @@ offload on everything:
 ```
 
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
-saved. A later `pipeline_reference` to a released step is an error, and the REPL's
-cross-run cache will not retain it.
+saved. A later `pipeline_reference` to a released step is an error, and the process-wide
+step cache will not retain it.
 
 #### Releasing task models mid-workflow
 
@@ -1353,7 +1445,7 @@ stays alive for the steps that reuse it.
 
 ### Cache Acceleration
 
-Two mutually exclusive ways to speed up inference by skipping redundant computation:
+A `cache` block speeds up inference by skipping redundant computation:
 
 ```json
 "configuration": {
@@ -1367,15 +1459,6 @@ Two mutually exclusive ways to speed up inference by skipping redundant computat
 `max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
-
-```json
-"configuration": {
-    "teacache": { "rel_l1_thresh": 0.4 }
-}
-```
-
-`teacache` enables TeaCache, currently for Flux transformers, and requires
-`num_inference_steps` among the pipeline's arguments.
 
 ### Device and Dtype
 
@@ -1803,7 +1886,7 @@ beside `minimax-music3` hides half a shelf, and `tests/test_prompt_library.py` s
 the repo's library for a variant.
 
 The library's location is resolved in order: the `DW_PROMPT_DIR` environment
-variable (which `--prompt-dir` on both `dw.run` and `dw.serve` sets), then
+variable (which `--prompt-dir` on `dw.serve` sets), then
 `./prompts` in the working directory when it exists, then the first `prompts/`
 folder found walking up from the workflow file's own directory - which is how
 a repo workflow run from any working directory still reaches the library beside
@@ -1842,7 +1925,7 @@ a `from_file`, a list of any of them, or a task argument that names a file. What
 the path is unchanged; only where the path comes from is.
 
 The library's location is resolved in order: the `DW_ASSET_DIR` environment variable
-(which `--asset-dir` on both `dw.run` and `dw.serve` sets), then the workspace's
+(which `--asset-dir` on `dw.serve` sets), then the workspace's
 `assets/` when a workspace was named explicitly, then `./assets` in the working
 directory when it exists, then the first `assets/` folder found walking up from the
 workflow file's own directory. See [Workspaces](WORKSPACES.md).

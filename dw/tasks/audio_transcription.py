@@ -20,13 +20,13 @@ from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
 from .model_cache import cached_model, hf_pipeline_placement
-from .audio_utils import _waveform_and_rate, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
 
 _DEFAULT_ASR_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000
-_WHISPER_WINDOW_SECONDS = 30
 # Public: dw/scalar_result_validation.py checks a literal `timestamps`
 # argument against this same tuple to catch a `result.content_type` that
 # does not match the {text, chunks} dict shape timestamps switches the
@@ -73,7 +73,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         raise ValueError(
             f"timestamps must be one of {TIMESTAMP_KINDS}, got {timestamps!r}"
         )
-    waveform, waveform_rate = _waveform_and_rate(audio, sample_rate, "transcribe_audio")
+    waveform, waveform_rate = waveform_and_rate(audio, sample_rate, "transcribe_audio")
     mono = _downmixed_mono(waveform)
     if waveform_rate != _ASR_SAMPLE_RATE:
         mono = resample_waveform(mono.reshape(1, -1), waveform_rate, _ASR_SAMPLE_RATE)[
@@ -99,9 +99,14 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
 
     # Whisper takes 30 s per window and refuses a longer clip ("more than 3000
     # mel input features") unless it predicts timestamps, which is how its
-    # long-form mode stitches windows. Asked for only of Whisper and only past
-    # 30 s: transformers raises for a CTC model unless the value is "char" or
-    # "word", and for any other seq2seq model at all
+    # long-form mode stitches windows. Without timestamps, Whisper's decoder
+    # can also emit an early end-of-text after a pause between lines - a
+    # multi-line clip with gaps between shots then transcribes only the first
+    # line even well under 30 s (#559). Forcing return_timestamps on for every
+    # Whisper call, plain-text included, avoids both: only "word"/"segment"
+    # callers see the chunks, plain mode still returns just the full text.
+    # Asked for only of Whisper: transformers raises for a CTC model unless
+    # the value is "char" or "word", and for any other seq2seq model at all
     is_whisper = getattr(pipe, "type", None) == "seq2seq_whisper"
     options = {}
     if timestamps == "word":
@@ -109,7 +114,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         options["return_timestamps"] = "word"
     elif timestamps == "segment":
         options["return_timestamps"] = True
-    elif is_whisper and len(mono) > _WHISPER_WINDOW_SECONDS * _ASR_SAMPLE_RATE:
+    elif is_whisper:
         options["return_timestamps"] = True
     result = pipe(
         {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE},

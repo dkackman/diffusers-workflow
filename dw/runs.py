@@ -26,7 +26,12 @@ import json
 import logging
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
+
+from filelock import FileLock
+
+from . import references
 
 logger = logging.getLogger("dw")
 
@@ -49,7 +54,7 @@ REALIZED_FILE_NAME = "workflow.json"
 # The prefix marking a value as a reference to a file an earlier run wrote.
 # Like 'asset:', it stands for a path - what a previous run made is an input
 # like any other, and multi-stage work is what a workflow engine is for
-OUTPUT_PREFIX = "output:"
+OUTPUT_PREFIX = references.OUTPUT
 
 # The segment that means "the newest run of this workflow that has the
 # file", so a workflow can name the stage before it without being edited
@@ -72,7 +77,7 @@ def version_selector(segment):
 # The pattern is not only documentation - the gallery reads it to group a
 # workflow's runs under one folder rather than listing every run separately
 # The trailing counter appears only when two runs of the same spec start in
-# the same second - see run_directory
+# the same second - see open_run
 RUN_ID_PATTERN = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$")
 
 # Characters allowed in a path segment derived from a workflow's name or file
@@ -112,7 +117,7 @@ def output_root():
 
 def is_output_reference(value):
     """Whether a value references a file an earlier run wrote."""
-    return isinstance(value, str) and value.startswith(OUTPUT_PREFIX)
+    return references.is_ref(references.OUTPUT, value)
 
 
 def _runs_newest_first(directory):
@@ -449,13 +454,18 @@ def _recorded_version(run_dir):
     return version
 
 
-def _run_ids(identity_dir):
+def _run_ids(identity_dir, exclude=None):
     """Every run directory under one workflow identity, oldest first.
 
     Run ids sort by their UTC timestamp, so this order is chronological
     to the second - the same property `latest` relies on. Within one second
     the spec digest decides, which is arbitrary but stable; nothing here
     needs finer ordering than that.
+
+    `exclude` drops one name from the listing - the directory `open_run`
+    just claimed, whose manifest is not written yet. Without it, a run
+    opening would count its own bare directory as an unrecorded sibling and
+    rank itself one number too high.
     """
     try:
         entries = os.listdir(identity_dir)
@@ -465,15 +475,17 @@ def _run_ids(identity_dir):
         (
             name
             for name in entries
-            if is_run_id(name) and os.path.isdir(os.path.join(identity_dir, name))
+            if name != exclude
+            and is_run_id(name)
+            and os.path.isdir(os.path.join(identity_dir, name))
         ),
         key=run_id_sort_key,
     )
 
 
-def _ranked_versions(identity_dir):
+def _ranked_versions(identity_dir, exclude=None):
     """({run id: version}, {run id: recorded version or None})."""
-    run_ids = _run_ids(identity_dir)
+    run_ids = _run_ids(identity_dir, exclude=exclude)
     recorded = {
         run_id: _recorded_version(os.path.join(identity_dir, run_id))
         for run_id in run_ids
@@ -522,7 +534,7 @@ def run_versions(identity_dir):
     return _ranked_versions(identity_dir)[0]
 
 
-def record_run_versions(identity_dir):
+def record_run_versions(identity_dir, exclude=None):
     """Write each ranked number into the manifest of a run that has one but
     records no version, and return every run's ordinal.
 
@@ -533,9 +545,11 @@ def record_run_versions(identity_dir):
     is left alone - writing one would invent a record of a run nobody
     recorded - and stays ranked.
 
+    `exclude` is passed straight to `_run_ids` - see there.
+
     Best effort: a manifest that cannot be rewritten keeps its ranked number.
     """
-    versions, recorded = _ranked_versions(identity_dir)
+    versions, recorded = _ranked_versions(identity_dir, exclude=exclude)
     for run_id, version in versions.items():
         if recorded[run_id] is not None:
             continue
@@ -555,43 +569,108 @@ def record_run_versions(identity_dir):
     return versions
 
 
-def assign_run_version(output_dir, identity):
-    """The ordinal the run about to open under `identity` takes.
+# Where open_run's locks live: never inside the output tree, so claiming a
+# run leaves nothing behind for a sweep to trip over once every run under an
+# identity is gone - see open_run. Keyed on the identity directory's real
+# path rather than nested under it, one file per identity, in a directory
+# any run of any workflow shares
+_RUN_LOCK_DIR_NAME = "run-locks"
 
-    One past the highest ordinal any sibling holds - not one past the newest
-    run's, because run ids are chronological only across seconds: two runs
-    started in the same second are ordered by their spec digest, so the last
-    id is not reliably the highest number. Three quick reruns are exactly
-    that case.
 
-    Pins the ranked numbers of older runs on the way (`record_run_versions`),
-    so history that predates the field stops moving once a new run joins it.
-    Sharing that ranking rather than deriving the maximum separately is what
-    keeps the number assigned here and the number the gallery reports from
-    drifting apart.
+def run_lock_path(identity_dir):
+    """Where the lock for one workflow identity's runs lives, outside the
+    output tree entirely - see open_run for why.
 
-    Best effort, like everything else that writes a run's bookkeeping: a
-    directory that cannot be read yields 1 rather than failing the run.
+    Under dw's settings directory rather than the system temp directory:
+    a shared /tmp directory created by one OS user refuses every other
+    user's lock file, and TMPDIR or a systemd PrivateTmp would give the
+    server and a CLI run two different lock directories for the same
+    outputs."""
+    from .settings import get_settings_dir
+
+    lock_dir = os.path.join(get_settings_dir(), _RUN_LOCK_DIR_NAME)
+    os.makedirs(lock_dir, exist_ok=True)
+    digest = hashlib.sha256(os.path.realpath(identity_dir).encode()).hexdigest()
+    return os.path.join(lock_dir, f"{digest}.lock")
+
+
+def open_run(output_dir, file_spec, workflow_id, run_id):
+    """Claim this execution's directory and its ordinal together.
+
+    Both used to be computed independently and only written down later -
+    `run_directory` picked a free name, `assign_run_version` separately
+    read the siblings for the next number - so two processes opening a run
+    of the same workflow at once (a CLI run beside a server job) could take
+    the same directory, or compute the same version before either had
+    written anything to say it was taken. Claiming both under one lock
+    held across both operations is what makes 'the run has a directory and
+    a number' atomic rather than two hopeful reads.
+
+    The lock lives outside the output tree - under dw's settings
+    directory, keyed on the identity directory's real path - rather than
+    beside the runs it guards. A lock file living in `<identity>/` would be
+    a permanent, non-run file there, and the sweep that removes an identity
+    directory once every run under it is gone (`_prune_empty_run_directory`
+    / `delete_output` in dw/server/app.py) walks upward with a plain
+    `os.rmdir`, which only succeeds on a directory holding nothing at all.
+    A run opening therefore leaves *nothing* in the identity directory but
+    the run directory itself. The limit that follows: the lock serialises
+    processes of one OS user on one host - two users, or two hosts sharing
+    an output directory, each lock under their own settings directory.
+
+    The identity directory is created inside the lock, immediately before
+    the run directory is claimed - not once up front - so a sweep that
+    removes it between two opens cannot leave a later opener trying to
+    claim a run directory under a path that no longer exists.
+
+    The directory is claimed with an exclusive `os.mkdir` before the
+    version is computed, and its own name is then excluded from the
+    ranking - otherwise a run would count its own bare, manifest-less
+    directory as an unrecorded sibling and rank one number too high. A stub
+    manifest is written before the lock is released, so the claim and the
+    number are both visible to the very next opener.
+
+    A disk error while any of this is happening (the identity directory or
+    the run directory cannot be created) is raised rather than swallowed:
+    unlike the manifest writes elsewhere in this module, which are best
+    effort because the run's files already exist without them, a run that
+    cannot claim its directory has nowhere to write its outputs at all, so
+    there is nothing to be best-effort about.
+
+    Returns:
+        (run_dir, version)
     """
-    versions = record_run_versions(os.path.join(output_dir, identity))
-    return max(versions.values(), default=0) + 1
-
-
-def run_directory(output_dir, file_spec, workflow_id, run_id):
-    """Where one execution writes: <output_dir>/<identity>/<run id>.
-
-    One execution gets one directory, so a run id already taken - two runs
-    of the same spec started in the same second, which is what a quick
-    rerun is - takes a counter rather than writing into the earlier run's
-    directory and burying its manifest.
-    """
-    base = os.path.join(output_dir, workflow_identity(file_spec, workflow_id), run_id)
-    candidate = base
-    counter = 1
-    while os.path.exists(candidate):
-        counter += 1
-        candidate = f"{base}-{counter}"
-    return candidate
+    identity = workflow_identity(file_spec, workflow_id)
+    identity_dir = os.path.join(output_dir, identity)
+    with FileLock(run_lock_path(identity_dir)):
+        os.makedirs(identity_dir, exist_ok=True)
+        candidate = os.path.join(identity_dir, run_id)
+        counter = 1
+        # A sibling identity's sweep can remove the empty parent folder
+        # between os.makedirs and the mkdir claim. Retry on FileNotFoundError
+        # by recreating the identity directory.
+        attempts = 0
+        max_attempts = 3
+        while True:
+            try:
+                os.mkdir(candidate)
+                break
+            except FileExistsError:
+                counter += 1
+                candidate = os.path.join(identity_dir, f"{run_id}-{counter}")
+            except FileNotFoundError:
+                attempts += 1
+                if attempts >= max_attempts:
+                    raise
+                os.makedirs(identity_dir, exist_ok=True)
+        name = os.path.basename(candidate)
+        versions = record_run_versions(identity_dir, exclude=name)
+        version = max(versions.values(), default=0) + 1
+        write_manifest(
+            candidate,
+            {"run_id": name, RUN_VERSION_KEY: version, "status": "running"},
+        )
+    return candidate, version
 
 
 def write_manifest(run_dir, manifest):
@@ -605,8 +684,14 @@ def write_manifest(run_dir, manifest):
     path = os.path.join(run_dir, MANIFEST_FILE_NAME)
     try:
         os.makedirs(run_dir, exist_ok=True)
-        with open(path, "w") as file:
-            json.dump(manifest, file, indent=2, default=str)
+        fd, tmp_path = tempfile.mkstemp(dir=run_dir, prefix=f".{MANIFEST_FILE_NAME}-")
+        try:
+            with os.fdopen(fd, "w") as file:
+                json.dump(manifest, file, indent=2, default=str)
+            os.replace(tmp_path, path)
+        except OSError:
+            os.unlink(tmp_path)
+            raise
     except OSError as e:
         logger.warning(f"Could not write {path}: {e}")
         return None
@@ -689,20 +774,25 @@ def recorded_shots(output_root, relative_path):
     return None
 
 
-def record_kept_shots(directory, file_name, shots):
+def record_kept_shots(directory, file_name, shots, provenance=None):
     """Write or update the manifest sidecar beside a kept asset so
     `shots_beside` can read the shot boundaries the source run recorded for
-    it (#393).
+    it (#393), and `kept_provenance` can read which job and run it was kept
+    from (#556).
 
     Keeping a file copies its bytes but not the run directory it lived in,
     so a join's shot records - `pair_audio`'s picture is unchanged, but
     nothing carried them past `keep_output` - were unreachable from the
-    asset and every probe saw `shots_source: "none"`. One manifest per
-    directory, keyed by file name, in the same shape a run's own
-    `manifest.json` uses, so the existing manifest-reading path (used by
-    both outputs and assets) picks it up with no change of its own. A
-    re-keep replaces the entry for that name rather than leaving a stale
-    one from a differently-shot source; `shots` of None or [] removes it.
+    asset and every probe saw `shots_source: "none"`. Likewise the job that
+    wrote the file is the one thing `keep_output` knows and a plain asset
+    never can, since nothing on the server otherwise remembers which job
+    produced an asset. One manifest per directory, keyed by file name, in
+    the same shape a run's own `manifest.json` uses, so the existing
+    manifest-reading path (used by both outputs and assets) picks it up
+    with no change of its own. A re-keep replaces the entry for that name
+    rather than leaving a stale one from a differently-shot or
+    differently-sourced kept file; `shots` and `provenance` of None (or
+    `shots` of []) remove the entry entirely.
     """
     manifest_path = os.path.join(directory, MANIFEST_FILE_NAME)
     manifest = _read_manifest(directory) or {}
@@ -711,8 +801,13 @@ def record_kept_shots(directory, file_name, shots):
         for entry in manifest.get("steps") or []
         if not (isinstance(entry, dict) and entry.get("files") == [file_name])
     ]
-    if shots:
-        steps.append({"step": "keep_output", "files": [file_name], "shots": shots})
+    if shots or provenance:
+        entry = {"step": "keep_output", "files": [file_name]}
+        if shots:
+            entry["shots"] = shots
+        if provenance:
+            entry["provenance"] = provenance
+        steps.append(entry)
     if not steps:
         try:
             os.remove(manifest_path)
@@ -765,4 +860,35 @@ def shots_beside(path):
             shots = shots_for_file(entry.get("shots"), own, files)
             if shots:
                 return shots
+    return None
+
+
+def kept_provenance(path):
+    """The job/run `keep_output` recorded for a kept asset, read back from
+    the same sidecar manifest `shots_beside` reads (#556). None when the
+    file was never kept through `keep_output` (no sidecar, or an entry with
+    no `provenance` - kept before this fix, or the source had no job
+    history of its own)."""
+    path = os.path.abspath(path)
+    run_dir = os.path.dirname(path)
+    for _ in range(MANIFEST_SEARCH_DEPTH):
+        if os.path.isfile(os.path.join(run_dir, MANIFEST_FILE_NAME)):
+            break
+        parent = os.path.dirname(run_dir)
+        if parent == run_dir:
+            return None
+        run_dir = parent
+    else:
+        return None
+    manifest = _read_manifest(run_dir)
+    if manifest is None:
+        return None
+    own = os.path.relpath(path, run_dir).replace(os.sep, "/")
+    for entry in manifest.get("steps") or []:
+        if not isinstance(entry, dict) or entry.get("reused"):
+            continue
+        if own in (entry.get("files") or []):
+            provenance = entry.get("provenance")
+            if provenance:
+                return provenance
     return None

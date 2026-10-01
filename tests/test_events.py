@@ -16,7 +16,8 @@ from dw.events import RunContext, WorkflowCancelled, get_context, current_contex
 from dw.log_setup import setup_logging
 from dw.result import Result
 from dw.runs import is_run_id
-from dw.workflow import Workflow, pipeline_cache_key
+from dw.step_cache import pipeline_cache_key
+from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
 
 
@@ -72,20 +73,20 @@ def _workflow_def(steps=1):
     }
 
 
-def _run(workflow_def, context, fake=None):
+def _run(output_dir, workflow_def, context, fake=None):
     def mock_load(self, shared_components):
         self.pipeline = fake if fake is not None else FakePipeline()
 
-    workflow = Workflow(workflow_def, "/tmp/test_output", "test.json")
+    workflow = Workflow(workflow_def, output_dir, "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             return workflow.run({}, previous_pipelines={}, context=context)
 
 
-def test_progress_event_sequence():
+def test_progress_event_sequence(tmp_path):
     events = []
     context = RunContext(on_event=events.append)
-    _run(_workflow_def(), context)
+    _run(str(tmp_path), _workflow_def(), context)
 
     names = [event["event"] for event in events]
     assert names[0] == "run_start"
@@ -107,16 +108,16 @@ def test_progress_event_sequence():
     assert all(event["total_steps"] == 3 for event in denoise)
 
 
-def test_pre_cancelled_run_raises_before_any_step():
+def test_pre_cancelled_run_raises_before_any_step(tmp_path):
     events = []
     context = RunContext(on_event=events.append)
     context.cancel()
     with pytest.raises(WorkflowCancelled):
-        _run(_workflow_def(), context)
+        _run(str(tmp_path), _workflow_def(), context)
     assert "step_start" not in [event["event"] for event in events]
 
 
-def test_cancel_mid_denoise_stops_the_pipeline_call():
+def test_cancel_mid_denoise_stops_the_pipeline_call(tmp_path):
     events = []
     context = RunContext(on_event=events.append)
 
@@ -129,15 +130,15 @@ def test_cancel_mid_denoise_stops_the_pipeline_call():
 
     context._on_event = cancelling_sink
     with pytest.raises(WorkflowCancelled):
-        _run(_workflow_def(), context)
+        _run(str(tmp_path), _workflow_def(), context)
     denoise = [event for event in events if event["event"] == "pipeline_step"]
     assert len(denoise) == 1, "the callback after the cancel must raise"
 
 
-def test_no_callback_injection_without_signature_support():
+def test_no_callback_injection_without_signature_support(tmp_path):
     events = []
     context = RunContext(on_event=events.append)
-    _run(_workflow_def(), context, fake=FakePipelineNoCallback())
+    _run(str(tmp_path), _workflow_def(), context, fake=FakePipelineNoCallback())
     names = [event["event"] for event in events]
     assert "pipeline_step" not in names
     assert names[-1] == "workflow_end"
@@ -152,7 +153,7 @@ def test_manifest_and_save_paths(tmp_path):
 
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     assert len(workflow.manifest) == 1
@@ -228,8 +229,8 @@ def test_setup_logging_is_idempotent(tmp_path):
         handler.close()
 
 
-def test_pipeline_reference_resolves_by_step_name_and_errors_when_missing():
-    workflow = Workflow({"id": "ref", "steps": []}, "/tmp/test_output", "t.json")
+def test_pipeline_reference_resolves_by_step_name_and_errors_when_missing(tmp_path):
+    workflow = Workflow({"id": "ref", "steps": []}, str(tmp_path), "t.json")
     cache = {}
 
     def mock_load(self, shared_components):
@@ -307,7 +308,7 @@ def test_sub_workflow_events_flow_into_parent_context(tmp_path):
 
     workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={}, context=context)
 
     workflows_seen = {e["workflow"] for e in events if "workflow" in e}
@@ -527,7 +528,7 @@ def test_each_run_records_its_own_version(tmp_path):
         workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
         workflow = Workflow(workflow_def, str(tmp_path), "test.json")
         with patch.object(Pipeline, "load", mock_load):
-            with patch("dw.workflow.empty_device_cache"):
+            with patch("dw.pipeline_ownership.empty_device_cache"):
                 workflow.run({}, previous_pipelines={})
         # The run's own directory, not the one its files came from: a
         # cached step reports the earlier run's files while still being a
@@ -555,7 +556,7 @@ def test_the_version_is_on_disk_before_the_first_step_runs(tmp_path):
     workflow_def["steps"][0]["result"] = {"content_type": "image/png"}
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     assert seen["version"] == 1

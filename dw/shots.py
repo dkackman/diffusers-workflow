@@ -35,11 +35,11 @@ track (`pair_audio`), or builds a video with no shots at all.
 
 import copy
 
-from .arguments import PREVIOUS_RESULT_PREFIX
+from . import references as ref_prefixes
 
 # The step names a for_each member as `<group>@<entry>`; only a member of the
 # group conventionally called `shot` names a shot
-SHOT_REFERENCE_PREFIX = f"{PREVIOUS_RESULT_PREFIX}shot@"
+SHOT_REFERENCE_PREFIX = f"{ref_prefixes.PREVIOUS_RESULT}shot@"
 
 
 def shot_record(
@@ -254,17 +254,35 @@ def shot_reference_names(references):
     for reference in references:
         if isinstance(reference, str) and reference.startswith(SHOT_REFERENCE_PREFIX):
             # `previous_result:shot@x.field` names the member, not the field
-            member = reference[len(PREVIOUS_RESULT_PREFIX) :]
+            member = reference[len(ref_prefixes.PREVIOUS_RESULT) :]
             names.append(member.split(".", 1)[0])
         elif isinstance(reference, str) and reference.startswith(
-            PREVIOUS_RESULT_PREFIX
+            ref_prefixes.PREVIOUS_RESULT
         ):
             # `previous_result:step.field` names the step, not the field
-            step = reference[len(PREVIOUS_RESULT_PREFIX) :]
+            step = reference[len(ref_prefixes.PREVIOUS_RESULT) :]
             names.append(step.split(".", 1)[0])
         else:
             names.append(None)
     return names
+
+
+def shot_references(arguments):
+    """The list of references naming a step's joined inputs, in join order.
+
+    concat_videos and dissolve_videos take theirs as `videos`;
+    join_into_song takes two lists, `dialogue` then `song_shots`, and joins
+    them in that order, so the two together are its inputs' references.
+    """
+    if not isinstance(arguments, dict):
+        return None
+    videos = arguments.get("videos")
+    if videos is not None:
+        return videos
+    dialogue, song_shots = arguments.get("dialogue"), arguments.get("song_shots")
+    if isinstance(dialogue, list) and isinstance(song_shots, list):
+        return dialogue + song_shots
+    return None
 
 
 def named_shots(shots, names):
@@ -344,6 +362,16 @@ def step_shots(saved_shots, saved_files, references=None):
         for path in files
         for shot in copy.deepcopy(saved_shots[path])
     ]
+
+
+def carries_shots(command):
+    """True for a task that passes an input's shots through without joining.
+
+    A name collision belongs to the step that joined the inputs; a step
+    that only carries the list over would repeat it where the caller can
+    do nothing about it (#568).
+    """
+    return command in ("pair_audio", "interpolate_frames")
 
 
 def duplicate_shot_names(shots):

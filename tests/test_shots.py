@@ -24,7 +24,8 @@ import numpy
 from PIL import Image
 
 from dw.pipeline_processors.chain import run_chain
-from dw.result import AudioVideo, Result
+from dw.media_types import AudioVideo
+from dw.result import Result
 from dw.runs import MANIFEST_FILE_NAME, recorded_shots
 from dw.shots import (
     carried_shots,
@@ -37,7 +38,8 @@ from dw.shots import (
     shots_for_file,
     step_shots,
 )
-from dw.tasks.audio_utils import frames_to_samples, slice_audio
+from dw.tasks.audio_utils import slice_audio
+from dw.task_domains import frames_to_samples
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.pair_audio import pair_audio
@@ -71,13 +73,14 @@ def audio_video(num_frames, level, fps=4, sample_rate=100):
 EXPECTED_SITES = {
     ("dw/tasks/concat_videos.py", "concat_videos"): ("populates", 1),
     ("dw/tasks/dissolve_videos.py", "dissolve_videos"): ("populates", 1),
+    ("dw/tasks/join_into_song.py", "join_into_song"): ("populates", 1),
     ("dw/pipeline_processors/chain.py", "run_chain"): ("populates", 2),
     ("dw/tasks/task.py", "_per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),
     ("dw/tasks/pair_audio.py", "pair_audio"): ("remeasures", 1),
     ("dw/tasks/video_utils.py", "_decode_audio_video"): ("none", 1),
-    ("dw/result.py", "pair_audio_with_frames"): ("none", 1),
+    ("dw/output_extraction.py", "pair_audio_with_frames"): ("none", 1),
 }
 
 _SHOTS_HELPER_BY_DECISION = {
@@ -262,9 +265,7 @@ class TestConcatVideosShots:
         )
         videos = [resolved, audio_video(4, 2)]
 
-        with patch(
-            "dw.tasks.concat_videos.load_audio_video", return_value=audio_video(4, 1)
-        ):
+        with patch("dw.tasks.joins.load_audio_video", return_value=audio_video(4, 1)):
             result = concat_videos(videos, fps=4)
 
         assert result.shots[0]["name"] == "ep3-shot1-incident.mp4"
@@ -397,7 +398,7 @@ class TestDissolveVideosShots:
         videos = [resolved, frames(10)]
 
         with patch(
-            "dw.tasks.dissolve_videos.load_audio_video",
+            "dw.tasks.joins.load_audio_video",
             return_value=frames(10),
         ):
             result = dissolve_videos(videos, 3)
@@ -1205,4 +1206,14 @@ def test_workflow_run_warns_when_two_joined_inputs_share_inner_shot_names(tmp_pa
         if e["event"] == "warning" and e.get("kind") == "shot_name_collision"
     ]
     assert set(warning["names"]) == {"shot@accuse", "shot@deflect"}
-    assert "cut" in warning["message"]
+    assert warning["message"].startswith("joined shots share a name")
+    assert warning["command"] == "cut"
+
+
+def test_carrying_commands_do_not_own_a_name_collision():
+    from dw.shots import carries_shots
+
+    assert carries_shots("pair_audio")
+    assert carries_shots("interpolate_frames")
+    assert not carries_shots("concat_videos")
+    assert not carries_shots("dissolve_videos")

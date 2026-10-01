@@ -5,9 +5,10 @@ fingerprint over the work, so an acknowledgement can be bound to it and a
 run whose shape changed after consent refused (#85, stage 2).
 
 Everything here is derived from the same resolvers the run uses -
-`realize_workflow` folds the arguments and inlines the prompts, and
-`Workflow.expanded_definition` substitutes and expands `for_each` - so the
-plan describes the run and not an approximation of it. Nothing here knows a
+`Workflow.expanded_definition` folds the arguments, substitutes and expands
+`for_each` through the stages the run prepares with, and `realize_workflow`
+records those folded variables and inlines the prompts - so the plan
+describes the run and not an approximation of it. Nothing here knows a
 model: every minute comes from a `cost` block and every repo name from a
 `from_pretrained_arguments`.
 """
@@ -31,7 +32,7 @@ from .realize import (
     realize_workflow,
 )
 from .security import validate_url
-from .workflow import Workflow
+from .validation import _is_seeded
 
 logger = logging.getLogger("dw")
 
@@ -61,7 +62,8 @@ def build_plan(
         candidate: The Workflow the route built - it carries the file spec
             (so base_dir), the output root and the confinement a run has.
         arguments: The caller's arguments, already past `argument_errors`;
-            an undeclared name or an uncoercible value raises here.
+            like validation, bad ones would be left unfolded (the defaults
+            planned) rather than raised here.
         device: The backend that is serving - 'cuda', 'mps' or 'cpu'.
         prompt_dir: The prompt library, for inlining.
         cache_dir: The hub cache to check downloads against; None for the
@@ -93,7 +95,7 @@ def build_plan(
     )
     realized, annotations = realize_workflow(
         definition,
-        arguments,
+        candidate.folded_variables(arguments),
         seed=0,
         base_dir=base_dir,
         prompt_dir=prompt_dir,
@@ -101,11 +103,9 @@ def build_plan(
         workflow_dir=candidate.workflow_dir,
         pin_outputs=False,
     )
-    # Arguments are already folded into the realized variables, so the
-    # expansion takes none; it substitutes and expands exactly as the run
-    expanded = Workflow(
-        realized, candidate.output_dir, candidate.file_spec, candidate.workflow_dir
-    ).expanded_definition()
+    # The expansion validation took, which folds and expands exactly as
+    # the run does (Workflow._fold, Workflow._expand)
+    expanded = candidate.expanded_definition(arguments)
     # The plan is what the run does, and a run does not execute a step
     # nothing reads (dw/elision.py, #122) - so the step count, the downloads
     # and the fingerprint are all taken after elision, and the acknowledged
@@ -115,8 +115,21 @@ def build_plan(
     measured_entries = list_entries(definition, definition)
     step_count = len(expanded.get("steps") or [])
     cache_hits = cached_steps(definition, realized, arguments, cache_probe)
+    # The work includes the text a stored prompt holds now, not only its
+    # name - so the fingerprint is taken over the expansion with each
+    # 'prompt:' inlined, as realization inlines it into the record
+    work, _ = realize_workflow(
+        expanded,
+        None,
+        seed=0,
+        base_dir=base_dir,
+        prompt_dir=prompt_dir,
+        output_root=candidate.output_dir,
+        workflow_dir=candidate.workflow_dir,
+        pin_outputs=False,
+    )
     return {
-        "fingerprint": fingerprint(expanded, definition, annotations),
+        "fingerprint": fingerprint(work, definition, annotations),
         "steps": step_count,
         "elided_steps": elided,
         "list_entries": entries,
@@ -194,56 +207,6 @@ def cached_steps(definition, realized, arguments, cache_probe):
         return None
     answer = cache_probe(arguments or {})
     return len(answer) if isinstance(answer, list) else None
-
-
-def unseeded_cache_warnings(definition, arguments=None):
-    """Say once, where a caller is already looking, that an unseeded workflow
-    gets no step cache at all.
-
-    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
-    there, and the difference is the one that matters: without a `seed` the
-    cache is off, so nothing is ever reused however many times the same
-    workflow runs (#107).
-
-    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
-    step: a task-only utility has no generative randomness a `seed` would
-    pin down in the first place, and each of its steps is a pure function of
-    its inputs - a repeat run is already free without one (#247)
-    """
-    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
-        return []
-    return [
-        "This workflow sets no 'seed', so the step cache is disabled and "
-        "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed': 'variable:seed' with a "
-        "declared default in 'variables' to make a repeat run reuse what it "
-        "already produced"
-    ]
-
-
-def _has_seedable_step(definition):
-    """Whether any step could consume a seed: a pipeline (inline or
-    referenced) or a sub-workflow, which may hold one in turn. A workflow
-    built entirely of `task` steps has nothing a seed would affect."""
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
-            return True
-    return False
-
-
-def _is_seeded(definition, arguments):
-    """Whether a run of this workflow has a seed before it draws one - read
-    from the definition as written and the caller's arguments, since
-    realization pins a seed of its own into the copy."""
-    seed = definition.get("seed")
-    if isinstance(seed, str) and seed.startswith(VARIABLE_PREFIX):
-        name = seed.removeprefix(VARIABLE_PREFIX)
-        if name in (arguments or {}):
-            return arguments[name] is not None
-        return (definition.get("variables") or {}).get(name) is not None
-    return seed is not None
 
 
 def fingerprint(expanded, definition, annotations=None):
@@ -403,6 +366,174 @@ def _scalar_driver_shifted(definition, expanded, list_entries):
     return False
 
 
+def _own_price(definition, expanded, list_entries, device, measured_entries):
+    """The workflow's own price, reset to unknown when a scalar driver moved."""
+    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
+    if own["basis"] == CATALOG and _scalar_driver_shifted(
+        definition, expanded, list_entries
+    ):
+        # A scalar cost_driver (H3's num_frames, say) moved away from the
+        # value the curated cost was measured against, and _repriced only
+        # re-prices a for_each list's length - so the catalog figure would
+        # otherwise be quoted for a run it was never measured for (#267)
+        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    return own
+
+
+def _read_child(path, base_dir, workflow_dir):
+    """A composed child's definition and its cost block, or (None, None)
+    when it is a builtin (the parent's to price) or unreadable."""
+    # A builtin is the parent's to price; a local child prices itself
+    raw = read_sub_workflow(path, base_dir, workflow_dir)
+    if raw is None:
+        return None, None
+    try:
+        child_definition = json.loads(raw)
+        return child_definition, child_definition.get("cost")
+    except (ValueError, AttributeError):
+        return None, None
+
+
+def _child_observed(
+    observed_for_child, path, child_definition, step_arguments, own_minutes
+):
+    """A child's observed figure, only when the total can honestly end up
+    basis: observed."""
+    # A child's observed figure only ever feeds a total that can
+    # honestly end up basis: observed (own["minutes"] is None, below) -
+    # a priced parent's own basis is 'catalog', and summing an observed
+    # child into it produced a total that did not match either figure
+    # while still claiming 'catalog' (#315)
+    if (
+        own_minutes is not None
+        or observed_for_child is None
+        or child_definition is None
+    ):
+        return None
+    try:
+        # `step_arguments` are the composing step's own overrides -
+        # passed through so a child observed lookup buckets against
+        # the value this step actually runs with rather than always
+        # the child's stored defaults (#341)
+        return observed_for_child(path, child_definition, step_arguments)
+    except Exception:
+        return None
+
+
+def _child_catalog_price(child_definition, child_cost, step_arguments, device):
+    """A child priced from its own cost block, re-priced for the composing
+    step's arguments."""
+    child_list_entries = {}
+    child_measured_entries = {}
+    child_expanded = {"variables": {}}
+    if child_definition is not None:
+        child_measured_entries = _list_entries(child_definition, child_definition)
+        # The composing step's own `arguments` are what the child
+        # actually runs with - folded over its declared defaults the
+        # same way a caller's arguments are, since `expanded` has
+        # already substituted them to concrete values (#341)
+        effective_variables = dict(child_definition.get("variables") or {})
+        effective_variables.update(step_arguments)
+        child_expanded = {"variables": effective_variables}
+        child_list_entries = _list_entries(child_definition, child_expanded)
+    child = _price(child_cost, device, child_list_entries, child_measured_entries)
+    if (
+        child["basis"] == CATALOG
+        and child_definition is not None
+        and _scalar_driver_shifted(child_definition, child_expanded, child_list_entries)
+    ):
+        # A scalar cost_driver the composing step overrode (H3's
+        # num_frames at 345 against a default of 124, say) is the
+        # same #267 failure one level down - the child's own
+        # catalog figure was never measured for the value this
+        # step actually passes it (#341)
+        child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    return child
+
+
+class _ChildTotals:
+    """What the composed children add up to, folded in one child at a time."""
+
+    def __init__(self, minutes, partial, unpriced):
+        self.minutes = minutes
+        self.partial = partial
+        self.unpriced = unpriced
+        self.had_child = False
+        self.all_observed = True
+        self.runs = []
+        self.measured_on = set()
+
+    def add(self, path, child, observed):
+        self.had_child = True
+        if observed:
+            self.runs.append(child["runs"])
+            self.measured_on.add(child["measured_on"])
+        else:
+            self.all_observed = False
+        if child["minutes"] is None:
+            self.partial = True
+            self.unpriced.append(path)
+        elif self.minutes is not None:
+            self.minutes += child["minutes"]
+        else:
+            self.minutes = child["minutes"]
+
+
+def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
+    """The final estimate from the parent's own price and its children's."""
+    minutes = totals.minutes
+    partial = totals.partial
+    unpriced = totals.unpriced
+    if minutes is None:
+        partial = False
+        unpriced = []
+    top_basis = own["basis"]
+    top_measured_on = own["measured_on"]
+    top_runs = None
+    if (
+        own["minutes"] is None
+        and totals.had_child
+        and totals.all_observed
+        and not partial
+    ):
+        # Every composing child's share of the total was this box's own
+        # history rather than a static figure, and the parent contributed
+        # nothing of its own to disagree with that - so the whole total is
+        # as good as observed rather than "unknown" (#268), mirroring the
+        # existing rule that a child's catalog cost is skipped once the
+        # *parent* has an observed figure, to avoid double-counting.
+        # The children's own `runs`/`measured_on` come along with the
+        # inherited basis (#275) - an "observed" estimate with `runs: null`
+        # says it was measured but not how many times, which is the number
+        # a caller uses to decide how much to trust the figure. `runs` is
+        # the weakest history across children (the min), and `measured_on`
+        # is named only when every child agrees on the device.
+        top_basis = OBSERVED
+        top_runs = min(totals.runs) if totals.runs else None
+        top_measured_on = (
+            next(iter(totals.measured_on)) if len(totals.measured_on) == 1 else None
+        )
+    rounded = round(minutes, 1) if minutes is not None else None
+    result = {
+        "minutes": rounded,
+        "basis": top_basis,
+        "device": device,
+        "measured_on": top_measured_on,
+        "partial": partial,
+        "unpriced": unpriced,
+        "runs": top_runs,
+        "cached_minutes": _cached_minutes(rounded, cached_steps, total_steps),
+    }
+    if top_basis == OBSERVED:
+        # The rolled-up-from-children case (#268): no curated figure of the
+        # parent's own exists to blend toward (that is this branch's own
+        # precondition, above), so a thin roll-up gets the low_confidence
+        # flag rather than a blend. Never changes `minutes`, so
+        # `cached_minutes` above already reflects it.
+        result = _tempered(result, None)
+    return result
+
+
 def estimate(
     definition,
     expanded,
@@ -449,22 +580,13 @@ def estimate(
     children included, already measured.
     """
     measured = _observed(observed, device)
-    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
-    if own["basis"] == CATALOG and _scalar_driver_shifted(
-        definition, expanded, list_entries
-    ):
-        # A scalar cost_driver (H3's num_frames, say) moved away from the
-        # value the curated cost was measured against, and _repriced only
-        # re-prices a for_each list's length - so the catalog figure would
-        # otherwise be quoted for a run it was never measured for (#267)
-        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    own = _own_price(definition, expanded, list_entries, device, measured_entries)
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
         measured["cached_minutes"] = _cached_minutes(
             measured["minutes"], cached_steps, total_steps
         )
         return measured
-    minutes = own["minutes"]
     # An unpriced parent (own["minutes"] is None) whose total ends up coming
     # only from a priced child is not a complete figure - the parent's own
     # steps (a for_each step with no cost block, say) contributed nothing to
@@ -472,138 +594,22 @@ def estimate(
     # of it (#242). `unpriced` names each contributor that landed here, so a
     # caller can tell a trivial utility step from an unpriced 12-shot loop
     # apart rather than just seeing `partial: true` (#252)
-    partial = minutes is None and not _only_composes_children(definition)
+    partial = own["minutes"] is None and not _only_composes_children(definition)
     unpriced = [definition.get("id", "workflow")] if partial else []
-    had_child = False
-    children_all_observed = True
-    child_runs = []
-    child_measured_on = set()
+    totals = _ChildTotals(own["minutes"], partial, unpriced)
     for path, step_arguments in _sub_workflow_paths(expanded):
-        had_child = True
-        # A builtin is the parent's to price; a local child prices itself
-        raw = read_sub_workflow(path, base_dir, workflow_dir)
-        child_definition = None
-        child_cost = None
-        if raw is not None:
-            try:
-                child_definition = json.loads(raw)
-                child_cost = child_definition.get("cost")
-            except (ValueError, AttributeError):
-                child_definition = None
-                child_cost = None
-        child_observed = None
-        # A child's observed figure only ever feeds a total that can
-        # honestly end up basis: observed (own["minutes"] is None, below) -
-        # a priced parent's own basis is 'catalog', and summing an observed
-        # child into it produced a total that did not match either figure
-        # while still claiming 'catalog' (#315)
-        if (
-            own["minutes"] is None
-            and observed_for_child is not None
-            and child_definition is not None
-        ):
-            try:
-                # `step_arguments` are the composing step's own overrides -
-                # passed through so a child observed lookup buckets against
-                # the value this step actually runs with rather than always
-                # the child's stored defaults (#341)
-                child_observed = observed_for_child(
-                    path, child_definition, step_arguments
-                )
-            except Exception:
-                child_observed = None
-        child = _observed(child_observed, device)
-        if child is None:
-            children_all_observed = False
-            child_list_entries = {}
-            child_measured_entries = {}
-            child_expanded = {"variables": {}}
-            if child_definition is not None:
-                child_measured_entries = _list_entries(
-                    child_definition, child_definition
-                )
-                # The composing step's own `arguments` are what the child
-                # actually runs with - folded over its declared defaults the
-                # same way a caller's arguments are, since `expanded` has
-                # already substituted them to concrete values (#341)
-                effective_variables = dict(child_definition.get("variables") or {})
-                effective_variables.update(step_arguments)
-                child_expanded = {"variables": effective_variables}
-                child_list_entries = _list_entries(child_definition, child_expanded)
-            child = _price(
-                child_cost, device, child_list_entries, child_measured_entries
-            )
-            if (
-                child["basis"] == CATALOG
-                and child_definition is not None
-                and (
-                    _scalar_driver_shifted(
-                        child_definition, child_expanded, child_list_entries
-                    )
-                )
-            ):
-                # A scalar cost_driver the composing step overrode (H3's
-                # num_frames at 345 against a default of 124, say) is the
-                # same #267 failure one level down - the child's own
-                # catalog figure was never measured for the value this
-                # step actually passes it (#341)
-                child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
-        else:
-            child_runs.append(child["runs"])
-            child_measured_on.add(child["measured_on"])
-        if child["minutes"] is None:
-            partial = True
-            unpriced.append(path)
-        elif minutes is not None:
-            minutes += child["minutes"]
-        else:
-            minutes = child["minutes"]
-    if minutes is None:
-        partial = False
-        unpriced = []
-    top_basis = own["basis"]
-    top_measured_on = own["measured_on"]
-    top_runs = None
-    if own["minutes"] is None and had_child and children_all_observed and not partial:
-        # Every composing child's share of the total was this box's own
-        # history rather than a static figure, and the parent contributed
-        # nothing of its own to disagree with that - so the whole total is
-        # as good as observed rather than "unknown" (#268), mirroring the
-        # existing rule that a child's catalog cost is skipped once the
-        # *parent* has an observed figure, to avoid double-counting.
-        # The children's own `runs`/`measured_on` come along with the
-        # inherited basis (#275) - an "observed" estimate with `runs: null`
-        # says it was measured but not how many times, which is the number
-        # a caller uses to decide how much to trust the figure. `runs` is
-        # the weakest history across children (the min), and `measured_on`
-        # is named only when every child agrees on the device.
-        top_basis = OBSERVED
-        top_runs = min(child_runs) if child_runs else None
-        top_measured_on = (
-            next(iter(child_measured_on)) if len(child_measured_on) == 1 else None
+        child_definition, child_cost = _read_child(path, base_dir, workflow_dir)
+        child_observed = _child_observed(
+            observed_for_child, path, child_definition, step_arguments, own["minutes"]
         )
-    result = {
-        "minutes": round(minutes, 1) if minutes is not None else None,
-        "basis": top_basis,
-        "device": device,
-        "measured_on": top_measured_on,
-        "partial": partial,
-        "unpriced": unpriced,
-        "runs": top_runs,
-        "cached_minutes": _cached_minutes(
-            round(minutes, 1) if minutes is not None else None,
-            cached_steps,
-            total_steps,
-        ),
-    }
-    if top_basis == OBSERVED:
-        # The rolled-up-from-children case (#268): no curated figure of the
-        # parent's own exists to blend toward (that is this branch's own
-        # precondition, above), so a thin roll-up gets the low_confidence
-        # flag rather than a blend. Never changes `minutes`, so
-        # `cached_minutes` above already reflects it.
-        result = _tempered(result, None)
-    return result
+        child = _observed(child_observed, device)
+        is_observed = child is not None
+        if not is_observed:
+            child = _child_catalog_price(
+                child_definition, child_cost, step_arguments, device
+            )
+        totals.add(path, child, is_observed)
+    return _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
 
 
 def _observed(observed, device):
