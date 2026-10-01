@@ -155,7 +155,9 @@ def admit(
             # and the caller's list is the one a for_each expands over. The
             # context expands lazily, inside validation_errors' gates, so an
             # expansion failure is still answered there as a finding
-            context = candidate.validation_context(checked, ceiling_index=ceiling_index)
+            context = validation.workflow_context(
+                candidate, checked, ceiling_index=ceiling_index
+            )
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
             raise _validator_failure(e) from e

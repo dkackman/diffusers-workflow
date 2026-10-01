@@ -481,26 +481,6 @@ class Workflow:
         resolved, root = self.resolve_sub_workflow_path(path)
         return workflow_from_file(resolved, self.output_dir, root), resolved
 
-    def sub_workflow_warnings(self, arguments=None):
-        """An argument a sub-workflow step passes down that the workflow it
-        composes declares no variable for - dropped in silence at run time,
-        and composition is exactly where a name drifts (#89).
-
-        `arguments` are the caller's, folded in the same way every other
-        warning source uses them. Each entry is a string, `"path: message"`,
-        matching every other warnings source - and the path names the step
-        index the *author* wrote, not the index the step lands at after
-        `for_each` expansion. Runs the registry's `sub_workflow_warnings`
-        check; one that raises is an internal warning (B10).
-        """
-        return validation.run_warning_check(self, "sub_workflow_warnings", arguments)
-
-    def validation_context(self, arguments=None, composing=(), *, ceiling_index=None):
-        """One validation request's ValidationContext (dw.validation's
-        `workflow_context`): built per request, never stored on the
-        Workflow, and it expands nothing until a check reads it."""
-        return validation.workflow_context(self, arguments, composing, ceiling_index)
-
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
         empty when it validates. `arguments` are the caller's, so a
@@ -516,71 +496,6 @@ class Workflow:
         (dw.validation's `workflow_errors`).
         """
         return validation.workflow_errors(self, arguments, composing, context)
-
-    def adapter_warnings(self, arguments=None):
-        """Every adapter whose file name says nothing about which checkpoint
-        partition it was trained for - valid, and worth saying, since
-        nothing at run time will (#155).
-
-        Runs the registry's check: a definition the expander refuses is one
-        internal warning, since its own errors are validation_errors' to
-        report.
-        """
-        return validation.run_warning_check(self, "adapter_warnings", arguments)
-
-    def inherited_vram_warnings(self, arguments=None, index=None):
-        """Every catalog VRAM ceiling this workflow's expanded steps project
-        past, matched by pipeline identity (`dw/vram_inheritance.py`) - for a
-        workflow that declares no `vram_estimate` of its own. A warning, not
-        an error: the catalog's numbers were measured on the catalog's
-        offload and quantization config (#479).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        if not index:
-            return []
-        return validation.run_warning_check(
-            self, "inherited_vram_warnings", arguments, ceiling_index=index
-        )
-
-    def slice_past_end_warnings(self, arguments=None):
-        """Every `slice_audio` step whose source's real duration is already
-        knowable and whose requested slice reaches past it - valid, padded
-        with silence rather than refused, but worth saying before the run
-        rather than only after it (#402).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(self, "slice_past_end_warnings", arguments)
-
-    def shot_span_warnings(self, arguments=None):
-        """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
-        `analyze_sync_drift`) whose `shots` argument already reaches past a
-        statically-knowable video's real frame count - valid, silently
-        clipped to the file rather than refused, but worth saying before the
-        run rather than only after it (#425).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(self, "shot_span_warnings", arguments)
-
-    def null_variable_argument_warnings(self, arguments=None):
-        """Every required task argument fed by `variable:name` where name's
-        value is null - downgraded out of `validation_errors` when
-        `arguments` is None (#364), surfaced here so a caller checking the
-        document without arguments of its own (save_workflow,
-        validate_workflow with no `arguments`) still sees it, just not as a
-        reason the document is invalid.
-
-        Empty once `arguments` is given: at that point the same condition is
-        a hard error in `validation_errors`, since a real run or a validate
-        call naming its own arguments needed the variable to hold something.
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(
-            self, "null_variable_argument_warnings", arguments
-        )
 
     def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
@@ -600,11 +515,6 @@ class Workflow:
             logger.error(message)
             raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")
-
-    def cache_hits(self, arguments):
-        """The steps the step cache would serve for a run with `arguments`,
-        in step order, executing nothing (dw.workflow_run's `cache_hits`)."""
-        return workflow_run.cache_hits(self, arguments)
 
     def _owned_arguments(self, arguments):
         """The composed child's own copy of what its parent handed it

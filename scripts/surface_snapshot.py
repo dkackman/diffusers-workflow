@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from dw import validation  # noqa: E402
 from dw.introspection import describe_task, list_tasks  # noqa: E402
 from dw.server.app import create_app  # noqa: E402
 from dw.server.jobs import JobManager  # noqa: E402
@@ -253,7 +254,12 @@ def catalog_validation(root):
             continue
         for name in ("validation_errors", *WARNING_CHECKS):
             try:
-                entry[name] = stable_message(getattr(workflow, name)())
+                found = (
+                    workflow.validation_errors()
+                    if name == "validation_errors"
+                    else validation.run_warning_check(workflow, name, None)
+                )
+                entry[name] = stable_message(found)
             except Exception as error:
                 entry[name] = f"error: {type(error).__name__}: {error}"
         verdicts[path.relative_to(repo).as_posix()] = entry

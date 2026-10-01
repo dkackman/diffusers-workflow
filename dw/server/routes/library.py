@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from ...argument_warnings import workflow_argument_warnings
 from ...prompts import RESERVED_TEXT_PREFIXES
 from ...schema import format_validation_errors, load_schema, validate_data
+from ... import validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
 from ...library import (
@@ -295,7 +296,9 @@ def save_workflow(
     # to shape-first discovery
     metadata = derive_catalog_metadata(request.workflow)
     warnings = list(workflow_argument_warnings(request.workflow))
-    warnings += candidate.null_variable_argument_warnings()
+    warnings += validation.run_warning_check(
+        candidate, "null_variable_argument_warnings", None
+    )
     if not metadata["summary"]:
         warnings.append(
             "No summary: add a 'description' (its first sentence becomes "

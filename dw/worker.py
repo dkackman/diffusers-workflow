@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dw import workflow_run
 from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, deactivate_asset_dir
@@ -510,7 +511,9 @@ class WorkflowWorker:
                 else None
             )
             try:
-                cached = workflow.cache_hits(command.get("arguments") or {})
+                cached = workflow_run.cache_hits(
+                    workflow, command.get("arguments") or {}
+                )
             finally:
                 if asset_token is not None:
                     deactivate_asset_dir(asset_token)

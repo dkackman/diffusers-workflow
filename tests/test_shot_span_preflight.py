@@ -8,6 +8,7 @@ rather than a mock of it, mirroring tests/test_slice_preflight.py (#402).
 
 import os
 
+from dw import validation
 from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.shot_span_preflight import shot_span_warnings
@@ -169,7 +170,7 @@ class TestWiredIntoTheWorkflow:
             definition, os.path.join(base_dir, "workflow.json")
         )
 
-        warnings = workflow.shot_span_warnings()
+        warnings = validation.run_warning_check(workflow, "shot_span_warnings", None)
 
         assert len(warnings) == 1
         assert "'b'" in warnings[0]

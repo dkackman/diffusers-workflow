@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dw import workflow_run
 from dw.events import WorkflowCancelled
 from dw.pipeline_ownership import PipelineOwnership
 
@@ -278,29 +279,35 @@ def test_a_failed_run_drops_the_traceback_before_reclaiming():
     assert alive_at_cleanup == [False]
 
 
-class ProbableWorkflow(StubWorkflow):
-    def __init__(self, hits):
-        super().__init__()
-        self.hits = hits
-        self.probed_with = None
+def probe_answering(hits, seen=None):
+    """A stand-in for `workflow_run.cache_hits`, recording what it was asked."""
 
-    def cache_hits(self, arguments):
-        self.probed_with = arguments
-        return list(self.hits)
+    def cache_hits(workflow, arguments):
+        if seen is not None:
+            seen["workflow"] = workflow
+            seen["arguments"] = arguments
+        return list(hits)
+
+    return cache_hits
 
 
 def test_probe_cache_answers_with_the_workflows_hits():
     worker = _make_worker()
-    workflow = ProbableWorkflow(["gen"])
+    workflow = StubWorkflow()
+    seen = {}
     command = snapshot_command(
         type="probe_cache", request_id="p-1", arguments={"prompt": "p"}
     )
-    with patch("dw.worker.workflow_from_snapshot", return_value=workflow):
+    with (
+        patch("dw.worker.workflow_from_snapshot", return_value=workflow),
+        patch.object(workflow_run, "cache_hits", probe_answering(["gen"], seen)),
+    ):
         worker._handle_probe_cache(command)
     assert _drain(worker.result_queue) == [
         {"type": "probe_cache", "request_id": "p-1", "cached": ["gen"]}
     ]
-    assert workflow.probed_with == {"prompt": "p"}
+    assert seen["workflow"] is workflow
+    assert seen["arguments"] == {"prompt": "p"}
 
 
 def test_probe_cache_reports_a_failure_as_unknown_not_as_a_crash():
@@ -318,14 +325,16 @@ def test_probe_cache_activates_the_jobs_asset_dir(tmp_path):
     worker = _make_worker()
     seen = {}
 
-    class AssetAwareWorkflow(ProbableWorkflow):
-        def cache_hits(self, arguments):
-            from dw.assets import get_asset_dir
+    def asset_aware_cache_hits(workflow, arguments):
+        from dw.assets import get_asset_dir
 
-            seen["asset_dir"] = get_asset_dir()
-            return []
+        seen["asset_dir"] = get_asset_dir()
+        return []
 
-    with patch("dw.worker.workflow_from_snapshot", return_value=AssetAwareWorkflow([])):
+    with (
+        patch("dw.worker.workflow_from_snapshot", return_value=StubWorkflow()),
+        patch.object(workflow_run, "cache_hits", asset_aware_cache_hits),
+    ):
         worker._handle_probe_cache(
             snapshot_command(type="probe_cache", asset_dir=str(tmp_path))
         )

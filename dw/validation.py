@@ -659,7 +659,7 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
     internal error rather than a lost verdict (B10).
     """
     if context is None:
-        context = workflow.validation_context(arguments, composing)
+        context = workflow_context(workflow, arguments, composing)
     elif (arguments is not None and arguments != context.arguments) or (
         composing is not None and tuple(composing) != context.composing
     ):
@@ -709,7 +709,7 @@ def run_warning_check(workflow, name, arguments, **context_fields):
     call's own - how the Workflow's warning methods answer when called
     directly rather than through admit(). An expansion that fails
     raises inside the check, which makes it one internal warning."""
-    context = workflow.validation_context(arguments, **context_fields)
+    context = workflow_context(workflow, arguments, **context_fields)
     check = warning_check(name)
     return to_warnings(run_checks(context, [check], WARNING))
 
