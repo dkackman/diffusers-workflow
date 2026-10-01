@@ -832,7 +832,7 @@ def _type_reference_error(key, value, path):
 def _is_type_key(key):
     """Whether realize_args loads this key's value as a type - the same test
     it applies at run time, so validation refuses only what the run would."""
-    from .arguments import NON_TYPE_KEYS
+    from .type_helpers import NON_TYPE_KEYS
 
     return (
         isinstance(key, str)
@@ -881,7 +881,7 @@ def _constant_reference_error(value, path):
 
 
 def _walk_type_references(node, path, errors):
-    from .arguments import is_media_reference
+    from .argument_media import is_media_reference
 
     # A {media_type, location} dict is loaded as media, and its media_type
     # names a kind rather than a type - realize_args never reads it as one

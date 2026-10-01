@@ -10,6 +10,10 @@ from .security import (
     workflows_are_trusted,
 )
 
+# Keys that end in '_type' but name a category rather than a python type. Any other such
+# key can be escaped where it is used, by wrapping its value in braces
+NON_TYPE_KEYS = {"content_type", "offload_type"}
+
 
 def get_type(module_name, type_name):
     module = __import__(module_name)

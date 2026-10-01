@@ -291,7 +291,7 @@ class TestRedirects:
     def test_fetch_image_does_not_follow_a_redirect_inside(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         transport = _Transport(
             {
@@ -345,7 +345,7 @@ class TestRedirects:
         """Parser differential: the host policy and the HTTP client must
         agree on which host a URL names, or the policy checks one and the
         request goes to the other."""
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         transport = _Transport({}).install(monkeypatch)
         with patch(
@@ -365,7 +365,7 @@ class TestRedirects:
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
         """The refusal comes before the request, not after the response."""
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         transport = _Transport({}).install(monkeypatch)
         with patch("dw.locations.socket.getaddrinfo", fake_resolver()):
@@ -378,7 +378,7 @@ class TestRedirects:
     ):
         """The policy is not 'refuse redirects': a CDN hop is followed, and
         the image still comes back transposed and converted by load_image."""
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         rgba = io.BytesIO()
         Image.new("RGBA", (3, 2), "blue").save(rgba, format="PNG")
@@ -407,7 +407,7 @@ class TestRedirects:
     def test_a_relative_redirect_is_checked_against_its_origin(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         transport = _Transport(
             {
@@ -429,7 +429,7 @@ class TestRedirects:
     def test_the_refusal_names_the_redirect_target(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
 
         _Transport(
             {
@@ -451,7 +451,7 @@ class TestRedirects:
     def test_a_redirect_chain_is_capped(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
-        from dw.arguments import fetch_image
+        from dw.argument_media import fetch_image
         from dw.locations import MAX_MEDIA_REDIRECTS
 
         routes = {
@@ -493,7 +493,7 @@ class TestRedirects:
     def test_fetch_video_does_not_follow_a_redirect_inside(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
 
         transport = _Transport(
             {
@@ -538,7 +538,7 @@ class TestRedirects:
     ):
         """The frames are decoded from what the final hop answered, and the
         rate is read off the fetched file."""
-        from dw.arguments import fetch_video
+        from dw.argument_media import fetch_video
 
         frames = [Image.new("RGB", (4, 4), color) for color in ("red", "blue")]
         gif = io.BytesIO()

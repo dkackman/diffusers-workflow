@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import references
-from .arguments import _names_no_media
+from .arguments import names_no_media
 from .adapter_compatibility import adapter_errors, adapter_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
@@ -344,7 +344,7 @@ _FROM_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, FROM_ARGUMENTS_KEY)
 
 def _walk(value, path, in_list, errors):
     if isinstance(value, dict):
-        if not in_list and _names_no_media(value):
+        if not in_list and names_no_media(value):
             from_key = next(k for k in _FROM_KEYS if value.get(k, False) is None)
             errors.append(
                 {

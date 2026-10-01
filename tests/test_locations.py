@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from dw.arguments import fetch_image
+from dw.argument_media import fetch_image
 from dw.locations import (
     contained_matches,
     location_errors,

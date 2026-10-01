@@ -491,7 +491,8 @@ def _catalog_files():
 def _catalog_references(node):
     """Every '*_type' / '*_dtype' / 'dtype' value a run would load, keyed by
     the key it sits under, and every 'constant:' reference."""
-    from dw.arguments import NON_TYPE_KEYS, is_constant_reference, is_escaped
+    from dw.arguments import is_constant_reference, is_escaped
+    from dw.type_helpers import NON_TYPE_KEYS
 
     if isinstance(node, dict):
         for key, value in node.items():

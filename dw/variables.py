@@ -101,7 +101,7 @@ def replace_variables(data, variables):
                 # names its media: realize_object reads a present-and-null
                 # 'from_file'/'from_previous_result'/'from_arguments' as
                 # OMITTED - an optional reference this run was given nothing
-                # for (_names_no_media in arguments.py). Dropping the key
+                # for (names_no_media in arguments.py). Dropping the key
                 # there turns that into a media-less stub that reaches the
                 # pipeline instead.
                 if resolved is None and k not in MEDIA_SOURCE_KEYS:

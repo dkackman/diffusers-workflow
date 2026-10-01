@@ -203,7 +203,7 @@ MCP-submitted or not - see the blanket-choice note just above.
 |-------------|-----------------|
 | `workflow.py` | Workflow file paths, JSON size, output directories, sub-workflow paths |
 | `run.py`, `validate.py` | CLI arguments, variable names and values |
-| `arguments.py` | Image/video/audio URLs, file paths, file extensions (`validate_media_location`, `fetch_image`, `fetch_video`) |
+| `arguments.py`, `argument_media.py` | Image/video/audio URLs, file paths, file extensions (`validate_media_location`; `fetch_image`, `fetch_video` in `argument_media.py`) |
 | `tasks/gather.py` | URLs passed to the `gather` task |
 | `result.py` | Output directories and filenames |
 | `server/app.py`, `server/jobs.py` | Every HTTP-supplied path — workflow files confined to the workflow directory, gallery files to the output directory, inline-workflow `base_dir`, `Origin`-header guard on every request |

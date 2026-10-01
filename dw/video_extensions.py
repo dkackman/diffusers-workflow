@@ -21,10 +21,7 @@ itself accepts.
 """
 
 from . import references
-from .arguments import (
-    PROMPT_PREFIX,
-    is_media_reference,
-)
+from .argument_media import is_media_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
@@ -46,7 +43,7 @@ def _extension_problem(value):
         return None
     if value.startswith(_UNRESOLVED_PREFIXES):
         return None
-    if value.startswith(references.CONSTANT) or value.startswith(PROMPT_PREFIX):
+    if references.is_ref((references.CONSTANT, references.PROMPT), value):
         return None
     ext = value.rsplit(".", 1)
     if len(ext) != 2 or not ext[1] or "/" in ext[1]:
