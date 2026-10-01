@@ -17,16 +17,9 @@ from .content_types import (
     guess_extension,
     refuse_active_content_type,
 )
-from .audio_qc import (
-    NEAR_SILENT_WARN_DBFS,
-    _probe_written_media,
-    warn_if_written_above_full_scale,
-    warn_if_written_near_silent,
-    warn_without_headroom,
-)
+from .audio_qc import check_written_media, warn_without_headroom
 from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
-    AUDIO_FIT_TOLERANCE_SECONDS,
     AudioTrack,
     AudioVideo,
     Selected,
@@ -45,6 +38,8 @@ from .writers import (
     normalize_audio,
     output_file_path,
     write_audio,
+    write_json_file,
+    write_text_file,
 )
 from .security import (
     SecurityError,
@@ -71,6 +66,22 @@ AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode
 # Distinguishes "the artifact has no such attribute" from "it has one holding None" -
 # an AudioVideo whose pipeline reported no sample rate carries exactly that
 _NO_PROPERTY = object()
+
+
+def _refuse_scalar_artifact(artifact, file_base_name):
+    """Refuse a number or bool: it is not an artifact."""
+    if isinstance(artifact, (int, float, bool)):
+        # Static validation (dw/scalar_result_validation.py, #212) refuses
+        # a 'result' block on a command declared to return a scalar, but
+        # a command name reached only through a 'variable:' is literal
+        # only at run time and so invisible to that check - this is the
+        # same refusal for the one path that can still get here, naming
+        # the value rather than failing inside soundfile/PIL/open() with
+        # a bare TypeError after the step's own work is already done
+        raise ValueError(
+            f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
+            "not an artifact - a 'result' block cannot save it"
+        )
 
 
 class Result:
@@ -378,56 +389,12 @@ class Result:
             logger.warning(f"Skipping None artifact for {file_base_name}")
             return []
 
-        if isinstance(artifact, (int, float, bool)):
-            # Static validation (dw/scalar_result_validation.py, #212) refuses
-            # a 'result' block on a command declared to return a scalar, but
-            # a command name reached only through a 'variable:' is literal
-            # only at run time and so invisible to that check - this is the
-            # same refusal for the one path that can still get here, naming
-            # the value rather than failing inside soundfile/PIL/open() with
-            # a bare TypeError after the step's own work is already done
-            raise ValueError(
-                f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
-                "not an artifact - a 'result' block cannot save it"
-            )
+        _refuse_scalar_artifact(artifact, file_base_name)
 
         if isinstance(artifact, dict):
-            # Recursively save dictionary items
-            logger.debug(
-                f"Saving dictionary artifact with keys: {list(artifact.keys())}"
+            return self._save_mapping_artifact(
+                output_dir, artifact, file_base_name, content_type, extension
             )
-            saved_files = []
-            for k, v in artifact.items():
-                if isinstance(v, torch.Tensor) and not content_type.startswith("audio"):
-                    # A modular pipeline's leftover output not part of the
-                    # video/audio pairing (dw's own 'latents', from an H3
-                    # upscale step's output: [..., "latents"]) is raw model
-                    # state, not media - it has no video/image/json rendering
-                    # under the step's declared content_type, and trying one
-                    # crashed the exporter deep inside its own error (#507).
-                    # It stays reachable as previous_result:<step>.<key>
-                    # straight off the in-memory result; only the file write
-                    # here is skipped.
-                    emit_warning(
-                        f"'{k}' in '{file_base_name}' is a raw tensor, not "
-                        f"media - skipped saving it under content_type "
-                        f"{content_type!r}. It is still available as "
-                        f"previous_result:<step>.{k}.",
-                        kind="non_media_artifact_skipped",
-                        key=k,
-                        content_type=content_type,
-                    )
-                    continue
-                saved_files.extend(
-                    self.save_artifact(
-                        output_dir,
-                        v,
-                        f"{file_base_name}-{k}",
-                        content_type,
-                        extension,
-                    )
-                )
-            return saved_files
 
         output_path = output_file_path(output_dir, f"{file_base_name}{extension}")
         logger.info(f"Saving artifact to {output_path}")
@@ -449,111 +416,16 @@ class Result:
         self._predicted_peak_dbfs = None
 
         try:
-            if content_type.startswith("video"):
-                if isinstance(artifact, AudioVideo):
-                    self.save_audio_video(artifact, output_path, content_type)
-                else:
-                    export_to_video(artifact, output_path, fps=self.video_fps(artifact))
-            elif content_type == "image/gif":
-                export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
-            elif content_type.startswith("audio"):
-                waveforms = normalize_audio(artifact)
-                # Declared rate > the rate a generated track carries > default
-                declared_rate = self.result_definition.get("sample_rate")
-                carried_rate = getattr(artifact, "sample_rate", None)
-                # A template's 'result.sample_rate' relabels the file at save
-                # time exactly the way a task argument's 'sample_rate' does -
-                # and #180's guard only caught the argument, not this. A
-                # caller who passed the source's own correct rate as the
-                # argument (so the argument-level check is clean) still got
-                # the wrong file with `warnings: []` when the *result* block
-                # hardcoded a different rate (#205). Same warning either way.
-                if (
-                    declared_rate is not None
-                    and carried_rate is not None
-                    and declared_rate != carried_rate
-                ):
-                    warn_on_rate_override("save_artifact", carried_rate, declared_rate)
-                sample_rate = declared_rate or carried_rate or DEFAULT_AUDIO_SAMPLE_RATE
-                # A batched waveform holds several songs - save each one separately
-                if len(waveforms) > 1:
-                    saved_files = []
-                    for k, waveform in enumerate(waveforms):
-                        saved_files.extend(
-                            self.save_artifact(
-                                output_dir,
-                                # Keep the rate the track carries across the
-                                # recursion - a bare waveform would fall back
-                                # to the default
-                                (
-                                    AudioTrack(waveform.T, sample_rate)
-                                    if getattr(artifact, "sample_rate", None)
-                                    is not None
-                                    else waveform
-                                ),
-                                f"{file_base_name}-{k}",
-                                content_type,
-                                extension,
-                            )
-                        )
-                    return saved_files
-                self._no_headroom_warned = (
-                    False
-                    if self._consumed_by_normalizer
-                    else warn_without_headroom(
-                        waveforms[0],
-                        os.path.basename(output_path),
-                        lossless=content_type not in LOSSY_AUDIO_CONTENT_TYPES,
-                    )
-                    is not None
-                )
-                write_audio(
-                    output_path,
-                    waveforms[0],
-                    sample_rate,
-                    **self.get_audio_write_arguments(content_type),
-                )
-            elif content_type.endswith("json"):
-                with open(output_path, "w") as file:
-                    file.write(json.dumps(artifact, indent=4))
-            elif content_type.startswith("text"):
-                if not isinstance(artifact, str):
-                    # Static validation (dw/scalar_result_validation.py, #498)
-                    # catches a literal transcribe_audio(timestamps=...)
-                    # against the wrong content_type before the queue, but a
-                    # 'timestamps' reached through a 'variable:' is literal
-                    # only at run time - this names the same mismatch for
-                    # the one path that can still get here (a
-                    # transcribe_audio 'chunks' list, in practice), instead
-                    # of a bare write() TypeError after the step already ran
-                    raise ValueError(
-                        f"'{file_base_name}' is a {type(artifact).__name__}, not "
-                        "text - a command whose result is JSON-shaped (for "
-                        "example transcribe_audio with timestamps set) needs "
-                        "'result.content_type' set to 'application/json', not "
-                        f"{content_type!r}"
-                    )
-                with open(output_path, "w") as file:
-                    file.write(artifact)
-            elif hasattr(artifact, "save"):
-                if content_type.startswith("image/"):
-                    artifact = flatten_alpha_for(
-                        artifact, content_type, os.path.basename(output_path)
-                    )
-                if (
-                    self.metadata is not None
-                    and self.result_definition.get("embed_metadata", False)
-                    and content_type.startswith("image/")
-                ):
-                    embed_image_metadata(
-                        artifact, output_path, content_type, self.metadata
-                    )
-                else:
-                    artifact.save(output_path)
-            else:
-                raise ValueError(
-                    f"Content type {content_type} does not match result type {type(artifact)}"
-                )
+            batched = self._write_artifact_file(
+                output_dir,
+                artifact,
+                file_base_name,
+                content_type,
+                extension,
+                output_path,
+            )
+            if batched is not None:
+                return batched
         except Exception as e:
             logger.error(
                 f"Error saving artifact to {output_path}: {str(e)}", exc_info=True
@@ -568,133 +440,14 @@ class Result:
         # save - a video mux's overshoot is not reliably positive (#174),
         # so a video always gets the ground-truth post-encode check
         if content_type.startswith("audio") or content_type.startswith("video"):
-            # One decode pass shared between the two checks below (#262) -
-            # each used to probe the file independently, which for a video
-            # is a full audio+video decode and doubled the 'saving' phase's
-            # wall clock for no second answer
-            probed_info = _probe_written_media(output_path)
-            # The shot map (#426) was re-measured against the fitted
-            # in-memory track before this file was even encoded - a
-            # prediction, not the file's own ground truth. A lossy mux can
-            # still trim or pad past that (AAC's frame alignment cost the
-            # #426 repro 29-30 samples on top of what fitting alone
-            # accounted for), so once the file is probed the shots are
-            # re-measured again against what actually decodes from it - the
-            # same length assess.py's read_media() trims audio to
-            # (`audio_stream_seconds`, the audio *stream's* own reported
-            # duration - not the container's `duration_seconds`, which can
-            # disagree with it by a handful of samples on a lossy mux and
-            # would leave a residual overrun the probe still reports).
-            if (
-                content_type.startswith("video")
-                and getattr(artifact, "shots", None)
-                and probed_info
-                and probed_info.get("audio_stream_seconds") is not None
-                and probed_info.get("sample_rate")
-            ):
-                from .shots import measured_num_samples
-
-                written_samples = int(
-                    round(
-                        probed_info["audio_stream_seconds"] * probed_info["sample_rate"]
-                    )
-                )
-                measured_num_samples(artifact.shots, written_samples)
-                frame_count = len(getattr(artifact, "frames", []) or [])
-                video_fps = self.video_fps(artifact)
-                if frame_count and video_fps:
-                    expected_samples = int(
-                        round(frame_count / video_fps * probed_info["sample_rate"])
-                    )
-                    shortfall = expected_samples - written_samples
-                    # Only a residual the save-time fit (fit_codec_padding)
-                    # would have padded: past its tolerance the track was
-                    # left at its own length, audio_video_length_mismatch
-                    # already names that gap, and "the mux trimmed it" would
-                    # misexplain it.
-                    tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
-                    if 0 < shortfall < probed_info["sample_rate"] / video_fps:
-                        # Under a frame: the encoder's alignment on every
-                        # joined deliverable, not something a caller can act
-                        # on - logged, with the shots already re-measured
-                        emit_log(
-                            f"{os.path.basename(output_path)}'s soundtrack "
-                            f"decodes {shortfall} sample(s) short of its "
-                            f"{frame_count}-frame grid after muxing; the shot "
-                            "map is measured against what it decodes to",
-                            file=os.path.basename(output_path),
-                            shortfall_samples=shortfall,
-                        )
-                    elif 0 < shortfall <= tolerance:
-                        emit_warning(
-                            f"{os.path.basename(output_path)}'s soundtrack decodes "
-                            f"{shortfall} sample(s) short of its {frame_count}-frame "
-                            f"grid after muxing, even though it was padded to the "
-                            f"grid before encoding - the mux itself (commonly AAC's "
-                            f"frame alignment) trimmed it further. The shot map has "
-                            f"been re-measured against what the file actually "
-                            f"decodes to, so it stays accurate, but a consumer "
-                            f"reading exact sample counts should expect this small "
-                            f"residual gap.",
-                            kind="joined_audio_short_after_mux",
-                            file=os.path.basename(output_path),
-                            shortfall_samples=shortfall,
-                            written_samples=written_samples,
-                            expected_samples=expected_samples,
-                        )
-            written_peak = warn_if_written_above_full_scale(
+            check_written_media(
                 output_path,
-                already_warned=(
-                    self._consumed_by_normalizer
-                    if content_type not in LOSSY_AUDIO_CONTENT_TYPES
-                    else (self._no_headroom_warned or self._consumed_by_normalizer)
-                )
-                if content_type.startswith("audio")
-                else False,
-                info=probed_info,
-                lossless=content_type.startswith("audio")
-                and content_type not in LOSSY_AUDIO_CONTENT_TYPES,
-            )
-            # A video's pre-encode prediction was held rather than emitted
-            # (#174 amendment): the post-encode probe is the ground truth,
-            # so a clean or genuinely-clipped result each get exactly one
-            # answer - nothing here, or `audio_clipped` from the probe
-            # itself. The only time the held prediction is worth anything is
-            # when the probe could not measure the file at all, in which
-            # case it is the one signal available and is surfaced late
-            # rather than dropped silently
-            #
-            # Note the gap this leaves: a written peak between
-            # HEADROOM_WARN_DBFS (around -0.5) and CLIPPED_WARN_DBFS (0.0)
-            # produces no warning here - the post-encode probe only speaks
-            # when the file is genuinely at or over full scale, so a mux
-            # that predicted risk but measured merely close-but-clean says
-            # nothing. That is the file's own ground truth, not a threshold
-            # bug.
-            if (
-                content_type.startswith("video")
-                and self._no_headroom_warned
-                and written_peak is None
-            ):
-                emit_warning(
-                    f"The soundtrack written to {os.path.basename(output_path)} "
-                    f"was predicted to peak at {self._predicted_peak_dbfs:+.1f} "
-                    f"dBFS before encoding, and the written file could not be "
-                    f"re-measured to confirm whether the mux corrected it - add "
-                    f"a 'normalize_audio' step (peak_dbfs: -1) before the step "
-                    f"that saves it, or 'match_levels' on the join that made it.",
-                    kind="audio_no_headroom",
-                    file=os.path.basename(output_path),
-                    peak_dbfs=round(self._predicted_peak_dbfs, 2),
-                )
-            source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
-            warn_if_written_near_silent(
-                output_path,
-                info=probed_info,
-                source_already_quiet=(
-                    source_mean_dbfs is not None
-                    and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
-                ),
+                artifact,
+                content_type,
+                video_fps=self.video_fps,
+                consumed_by_normalizer=self._consumed_by_normalizer,
+                headroom_warned=self._no_headroom_warned,
+                predicted_peak_dbfs=self._predicted_peak_dbfs,
             )
 
         emit_log(
@@ -704,6 +457,163 @@ class Result:
             seconds=round(time.monotonic() - started, 1),
         )
         return [output_path]
+
+    def _save_mapping_artifact(
+        self, output_dir, artifact, file_base_name, content_type, extension
+    ):
+        """Save a dict artifact one entry per file, named `<base>-<key>`."""
+        # Recursively save dictionary items
+        logger.debug(f"Saving dictionary artifact with keys: {list(artifact.keys())}")
+        saved_files = []
+        for k, v in artifact.items():
+            if isinstance(v, torch.Tensor) and not content_type.startswith("audio"):
+                # A modular pipeline's leftover output not part of the
+                # video/audio pairing (dw's own 'latents', from an H3
+                # upscale step's output: [..., "latents"]) is raw model
+                # state, not media - it has no video/image/json rendering
+                # under the step's declared content_type, and trying one
+                # crashed the exporter deep inside its own error (#507).
+                # It stays reachable as previous_result:<step>.<key>
+                # straight off the in-memory result; only the file write
+                # here is skipped.
+                emit_warning(
+                    f"'{k}' in '{file_base_name}' is a raw tensor, not "
+                    f"media - skipped saving it under content_type "
+                    f"{content_type!r}. It is still available as "
+                    f"previous_result:<step>.{k}.",
+                    kind="non_media_artifact_skipped",
+                    key=k,
+                    content_type=content_type,
+                )
+                continue
+            saved_files.extend(
+                self.save_artifact(
+                    output_dir,
+                    v,
+                    f"{file_base_name}-{k}",
+                    content_type,
+                    extension,
+                )
+            )
+        return saved_files
+
+    def _write_artifact_file(
+        self, output_dir, artifact, file_base_name, content_type, extension, output_path
+    ):
+        """Write one artifact by content type.
+
+        Returns the saved paths for a batched audio waveform (each song went
+        through `save_artifact` itself), else None.
+        """
+        if content_type.startswith("video"):
+            self._write_video_file(artifact, output_path, content_type)
+        elif content_type == "image/gif":
+            export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
+        elif content_type.startswith("audio"):
+            return self._write_audio_file(
+                output_dir,
+                artifact,
+                file_base_name,
+                content_type,
+                extension,
+                output_path,
+            )
+        elif content_type.endswith("json"):
+            write_json_file(artifact, output_path)
+        elif content_type.startswith("text"):
+            write_text_file(artifact, output_path, file_base_name, content_type)
+        elif hasattr(artifact, "save"):
+            self._write_saveable(artifact, output_path, content_type)
+        else:
+            raise ValueError(
+                f"Content type {content_type} does not match result type {type(artifact)}"
+            )
+        return None
+
+    def _write_video_file(self, artifact, output_path, content_type):
+        if isinstance(artifact, AudioVideo):
+            self.save_audio_video(artifact, output_path, content_type)
+        else:
+            export_to_video(artifact, output_path, fps=self.video_fps(artifact))
+
+    def _write_audio_file(
+        self, output_dir, artifact, file_base_name, content_type, extension, output_path
+    ):
+        waveforms = normalize_audio(artifact)
+        # Declared rate > the rate a generated track carries > default
+        declared_rate = self.result_definition.get("sample_rate")
+        carried_rate = getattr(artifact, "sample_rate", None)
+        # A template's 'result.sample_rate' relabels the file at save
+        # time exactly the way a task argument's 'sample_rate' does -
+        # and #180's guard only caught the argument, not this. A
+        # caller who passed the source's own correct rate as the
+        # argument (so the argument-level check is clean) still got
+        # the wrong file with `warnings: []` when the *result* block
+        # hardcoded a different rate (#205). Same warning either way.
+        if (
+            declared_rate is not None
+            and carried_rate is not None
+            and declared_rate != carried_rate
+        ):
+            warn_on_rate_override("save_artifact", carried_rate, declared_rate)
+        sample_rate = declared_rate or carried_rate or DEFAULT_AUDIO_SAMPLE_RATE
+        # A batched waveform holds several songs - save each one separately
+        if len(waveforms) > 1:
+            saved_files = []
+            for k, waveform in enumerate(waveforms):
+                saved_files.extend(
+                    self.save_artifact(
+                        output_dir,
+                        # Keep the rate the track carries across the
+                        # recursion - a bare waveform would fall back
+                        # to the default
+                        (
+                            AudioTrack(waveform.T, sample_rate)
+                            if getattr(artifact, "sample_rate", None) is not None
+                            else waveform
+                        ),
+                        f"{file_base_name}-{k}",
+                        content_type,
+                        extension,
+                    )
+                )
+            return saved_files
+        self._no_headroom_warned = (
+            False
+            if self._consumed_by_normalizer
+            else warn_without_headroom(
+                waveforms[0],
+                os.path.basename(output_path),
+                lossless=content_type not in LOSSY_AUDIO_CONTENT_TYPES,
+            )
+            is not None
+        )
+        write_audio(
+            output_path,
+            waveforms[0],
+            sample_rate,
+            **self.get_audio_write_arguments(content_type),
+        )
+        return None
+
+    def _write_saveable(self, artifact, output_path, content_type):
+        """Save anything with a `.save`: flatten alpha, embed metadata.
+
+        The flattened image stays local - the caller's `artifact` is never
+        rebound, and an image skips the post-write checks that read it.
+        """
+        if content_type.startswith("image/"):
+            artifact = flatten_alpha_for(
+                artifact, content_type, os.path.basename(output_path)
+            )
+        if (
+            self.metadata is not None
+            and self.result_definition.get("embed_metadata", False)
+            and content_type.startswith("image/")
+        ):
+            embed_image_metadata(artifact, output_path, content_type, self.metadata)
+        else:
+            artifact.save(output_path)
 
     def video_fps(self, artifact):
         """The frame rate this video is written at.

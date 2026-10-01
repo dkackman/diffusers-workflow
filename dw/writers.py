@@ -348,3 +348,29 @@ def embed_image_metadata(image, output_path, content_type, metadata):
             image.save(output_path)
     else:
         image.save(output_path)
+
+
+def write_json_file(artifact, output_path):
+    with open(output_path, "w") as file:
+        file.write(json.dumps(artifact, indent=4))
+
+
+def write_text_file(artifact, output_path, file_base_name, content_type):
+    if not isinstance(artifact, str):
+        # Static validation (dw/scalar_result_validation.py, #498)
+        # catches a literal transcribe_audio(timestamps=...)
+        # against the wrong content_type before the queue, but a
+        # 'timestamps' reached through a 'variable:' is literal
+        # only at run time - this names the same mismatch for
+        # the one path that can still get here (a
+        # transcribe_audio 'chunks' list, in practice), instead
+        # of a bare write() TypeError after the step already ran
+        raise ValueError(
+            f"'{file_base_name}' is a {type(artifact).__name__}, not "
+            "text - a command whose result is JSON-shaped (for "
+            "example transcribe_audio with timestamps set) needs "
+            "'result.content_type' set to 'application/json', not "
+            f"{content_type!r}"
+        )
+    with open(output_path, "w") as file:
+        file.write(artifact)

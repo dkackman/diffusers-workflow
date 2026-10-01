@@ -12,7 +12,9 @@ import os
 import numpy
 
 from .dsp import dbfs
-from .events import emit_warning
+from .content_types import LOSSY_AUDIO_CONTENT_TYPES
+from .events import emit_log, emit_warning
+from .media_types import AUDIO_FIT_TOLERANCE_SECONDS
 
 logger = logging.getLogger("dw")
 
@@ -254,3 +256,168 @@ def warn_if_written_near_silent(
         fields["peak_dbfs"] = round(peak, 2)
     emit_warning(message, **fields)
     return mean
+
+
+def remeasure_shots_after_mux(artifact, probed_info, output_path, video_fps):
+    """Re-measure a joined video's shot map against what its file decodes to.
+
+    `video_fps` is called only when the video carries shots and the probe
+    read an audio stream - it emits `fps_mismatch` on every call, so the call
+    count is part of the behaviour.
+    """
+    # The shot map (#426) was re-measured against the fitted
+    # in-memory track before this file was even encoded - a
+    # prediction, not the file's own ground truth. A lossy mux can
+    # still trim or pad past that (AAC's frame alignment cost the
+    # #426 repro 29-30 samples on top of what fitting alone
+    # accounted for), so once the file is probed the shots are
+    # re-measured again against what actually decodes from it - the
+    # same length assess.py's read_media() trims audio to
+    # (`audio_stream_seconds`, the audio *stream's* own reported
+    # duration - not the container's `duration_seconds`, which can
+    # disagree with it by a handful of samples on a lossy mux and
+    # would leave a residual overrun the probe still reports).
+    if not (
+        getattr(artifact, "shots", None)
+        and probed_info
+        and probed_info.get("audio_stream_seconds") is not None
+        and probed_info.get("sample_rate")
+    ):
+        return
+    from .shots import measured_num_samples
+
+    written_samples = int(
+        round(probed_info["audio_stream_seconds"] * probed_info["sample_rate"])
+    )
+    measured_num_samples(artifact.shots, written_samples)
+    frame_count = len(getattr(artifact, "frames", []) or [])
+    fps = video_fps(artifact)
+    if not (frame_count and fps):
+        return
+    expected_samples = int(round(frame_count / fps * probed_info["sample_rate"]))
+    shortfall = expected_samples - written_samples
+    # Only a residual the save-time fit (fit_codec_padding)
+    # would have padded: past its tolerance the track was
+    # left at its own length, audio_video_length_mismatch
+    # already names that gap, and "the mux trimmed it" would
+    # misexplain it.
+    tolerance = AUDIO_FIT_TOLERANCE_SECONDS * probed_info["sample_rate"]
+    name = os.path.basename(output_path)
+    if 0 < shortfall < probed_info["sample_rate"] / fps:
+        # Under a frame: the encoder's alignment on every
+        # joined deliverable, not something a caller can act
+        # on - logged, with the shots already re-measured
+        emit_log(
+            f"{name}'s soundtrack "
+            f"decodes {shortfall} sample(s) short of its "
+            f"{frame_count}-frame grid after muxing; the shot "
+            "map is measured against what it decodes to",
+            file=name,
+            shortfall_samples=shortfall,
+        )
+    elif 0 < shortfall <= tolerance:
+        emit_warning(
+            f"{name}'s soundtrack decodes "
+            f"{shortfall} sample(s) short of its {frame_count}-frame "
+            f"grid after muxing, even though it was padded to the "
+            f"grid before encoding - the mux itself (commonly AAC's "
+            f"frame alignment) trimmed it further. The shot map has "
+            f"been re-measured against what the file actually "
+            f"decodes to, so it stays accurate, but a consumer "
+            f"reading exact sample counts should expect this small "
+            f"residual gap.",
+            kind="joined_audio_short_after_mux",
+            file=name,
+            shortfall_samples=shortfall,
+            written_samples=written_samples,
+            expected_samples=expected_samples,
+        )
+
+
+def written_peak_already_warned(content_type, consumed_by_normalizer, headroom_warned):
+    """Whether the pre-write headroom check already spoke for this file.
+
+    Only a plain audio save suppresses the post-write check; a lossless one
+    only when a normalizer consumed it, a lossy one also when the pre-write
+    warning fired. A video always gets the ground-truth check.
+    """
+    if not content_type.startswith("audio"):
+        return False
+    if content_type not in LOSSY_AUDIO_CONTENT_TYPES:
+        return consumed_by_normalizer
+    return headroom_warned or consumed_by_normalizer
+
+
+def warn_held_prediction(output_path, predicted_peak_dbfs):
+    emit_warning(
+        f"The soundtrack written to {os.path.basename(output_path)} "
+        f"was predicted to peak at {predicted_peak_dbfs:+.1f} "
+        f"dBFS before encoding, and the written file could not be "
+        f"re-measured to confirm whether the mux corrected it - add "
+        f"a 'normalize_audio' step (peak_dbfs: -1) before the step "
+        f"that saves it, or 'match_levels' on the join that made it.",
+        kind="audio_no_headroom",
+        file=os.path.basename(output_path),
+        peak_dbfs=round(predicted_peak_dbfs, 2),
+    )
+
+
+def check_written_media(
+    output_path,
+    artifact,
+    content_type,
+    *,
+    video_fps,
+    consumed_by_normalizer,
+    headroom_warned,
+    predicted_peak_dbfs,
+):
+    """The post-write checks on an audio or video file, in their fixed order:
+    probe once, shot re-measure, clipping, the held prediction, near-silence.
+
+    `video_fps` is the saving `Result`'s bound method, called by
+    `remeasure_shots_after_mux` only.
+    """
+    # One decode pass shared between the checks below (#262) -
+    # each used to probe the file independently, which for a video
+    # is a full audio+video decode and doubled the 'saving' phase's
+    # wall clock for no second answer
+    probed_info = _probe_written_media(output_path)
+    is_video = content_type.startswith("video")
+    if is_video:
+        remeasure_shots_after_mux(artifact, probed_info, output_path, video_fps)
+    written_peak = warn_if_written_above_full_scale(
+        output_path,
+        already_warned=written_peak_already_warned(
+            content_type, consumed_by_normalizer, headroom_warned
+        ),
+        info=probed_info,
+        lossless=content_type.startswith("audio")
+        and content_type not in LOSSY_AUDIO_CONTENT_TYPES,
+    )
+    # A video's pre-encode prediction was held rather than emitted
+    # (#174 amendment): the post-encode probe is the ground truth,
+    # so a clean or genuinely-clipped result each get exactly one
+    # answer - nothing here, or `audio_clipped` from the probe
+    # itself. The only time the held prediction is worth anything is
+    # when the probe could not measure the file at all, in which
+    # case it is the one signal available and is surfaced late
+    # rather than dropped silently
+    #
+    # Note the gap this leaves: a written peak between
+    # HEADROOM_WARN_DBFS (around -0.5) and CLIPPED_WARN_DBFS (0.0)
+    # produces no warning here - the post-encode probe only speaks
+    # when the file is genuinely at or over full scale, so a mux
+    # that predicted risk but measured merely close-but-clean says
+    # nothing. That is the file's own ground truth, not a threshold
+    # bug.
+    if is_video and headroom_warned and written_peak is None:
+        warn_held_prediction(output_path, predicted_peak_dbfs)
+    source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
+    warn_if_written_near_silent(
+        output_path,
+        info=probed_info,
+        source_already_quiet=(
+            source_mean_dbfs is not None and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
+        ),
+    )

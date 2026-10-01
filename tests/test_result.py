@@ -2079,7 +2079,7 @@ class TestTheWrittenLevel:
 
         result = Result({"content_type": "audio/wav", "sample_rate": 44100})
         result.add_result(numpy.zeros((2, 4410), dtype=numpy.float32))
-        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+        with patch("dw.audio_qc.warn_if_written_above_full_scale") as measured:
             result.save(str(tmp_path), "song")
 
         measured.assert_called_once()
@@ -2092,7 +2092,7 @@ class TestTheWrittenLevel:
         image = Image.new("RGB", (4, 4))
         result = Result({"content_type": "image/png"})
         result.add_result(image)
-        with patch("dw.result.warn_if_written_above_full_scale") as measured:
+        with patch("dw.audio_qc.warn_if_written_above_full_scale") as measured:
             result.save(str(tmp_path), "frame")
 
         measured.assert_not_called()
