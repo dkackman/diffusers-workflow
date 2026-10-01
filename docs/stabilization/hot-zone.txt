@@ -5,17 +5,3 @@
 # Stage 4c merged (2026-10-01); stage 4d is the gate.
 scripts/arch_metrics.py
 docs/stabilization/
-# 4c Task 1: modules receiving moved rules in their docstrings
-dw/subfolders.py
-dw/reference_names.py
-dw/pipeline_processors/placement.py
-dw/previous_results.py
-dw/runs.py
-dw/step_cache.py
-dw/variable_constraints.py
-dw/shots.py
-dw/__init__.py
-dw/settings.py
-dw/server/job_history.py
-dw/realize.py
-dw_mcp/__init__.py
