@@ -13,6 +13,9 @@ when a release ships.
   - `builtin:builtin:x.json` no longer loads `x.json`: only the leading prefix is stripped, so the name `builtin:x.json` is looked up and reported as `SubWorkflowNotFound`.
   - At run time a missing `builtin:` workflow now raises `SubWorkflowNotFound` (naming the packaged root) instead of `validate_workflow_path`'s missing-file error.
   - The realized workflow's sub-workflow digest and a composed child's observed cost now fall back to the same catalog root, so a catalog sub-workflow a run could open is also digested and costed.
+- A run that fails before it opens its run directory no longer rewrites the previous run's `manifest.json` when the same workflow instance is reused: `Workflow.run` resets the directory and version it carried.
+- The per-variant lines of a kernels "Cannot find a build variant" error are sorted by dw (`kernel_availability.stable_message`), so the message no longer varies by process.
+- The `argument_template` schema description now says what the code does: handed arguments are held on the child at run time, never written into the definition, and an authored value is the fallback.
 
 ### 0.6.0
 

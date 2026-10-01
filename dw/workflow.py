@@ -542,6 +542,13 @@ class Workflow:
         # What elision dropped this run, filled by prepare_definition and
         # read by the warning pass and the manifest (#122)
         self._elided_steps = []
+        # A reused Workflow (the persistent worker's) still holds the last
+        # run's directory: a run that fails before open_run would otherwise
+        # rewrite that run's manifest. A composed child's values were set by
+        # its parent just before this call, so they stay
+        if not self._run_dir_inherited:
+            self._run_dir = None
+            self._run_version = None
         record = workflow_run.RunRecord(arguments)
         try:
             prepared = workflow_run.prepare_run(self, record)

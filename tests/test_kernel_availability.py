@@ -31,6 +31,16 @@ def _get_kernel_that_fails(repo_id):
     raise FileNotFoundError("no build variant for this torch/CUDA combination")
 
 
+def _get_kernel_that_lists_variants(repo_id):
+    raise FileNotFoundError(
+        "Cannot find a build variant for this system\n"
+        "torch29-cxx11-cu126-x86_64-linux\n"
+        "torch211-cxx11-cu126-x86_64-linux\n"
+        "torch210-cxx11-cu128-x86_64-linux\n"
+        "Available variants are listed above"
+    )
+
+
 def _get_kernel_that_works(repo_id):
     return object()
 
@@ -101,6 +111,29 @@ class TestKernelAvailabilityFault:
         assert fault is not None
         assert "pkg.Natten" in fault
         assert "no build variant" in fault
+
+    def test_the_variant_lines_of_a_build_variant_error_come_out_sorted(
+        self, monkeypatch
+    ):
+        class _ListsVariants:
+            def __init__(self):
+                get_kernel = _get_kernel_that_lists_variants
+                get_kernel("shi-labs/natten")
+
+        monkeypatch.setattr(
+            kernel_availability,
+            "load_type_from_name",
+            _resolving({"pkg.Natten": _ListsVariants}),
+        )
+        fault = kernel_availability_fault("pkg.Natten")
+        lines = fault.split("\n")
+        assert lines[1:4] == [
+            "torch210-cxx11-cu128-x86_64-linux",
+            "torch211-cxx11-cu126-x86_64-linux",
+            "torch29-cxx11-cu126-x86_64-linux",
+        ]
+        assert lines[0].endswith("Cannot find a build variant for this system")
+        assert lines[4] == "Available variants are listed above"
 
     def test_a_kernel_backed_processor_that_constructs_cleanly_is_not_faulted(
         self, monkeypatch

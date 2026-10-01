@@ -210,27 +210,6 @@ WARNING_CHECKS = (
 )
 
 
-def stable_message(value):
-    """Sorts the per-variant lines of a kernels-hub "Cannot find a build
-    variant" error, which the hub library lists in set order (different on
-    every process). The lines are sorted in place, so their position against
-    the rest of the message still counts; any other string passes through
-    untouched."""
-    if isinstance(value, str):
-        if "Cannot find a build variant" not in value:
-            return value
-        lines = value.split("\n")
-        slots = [i for i, line in enumerate(lines) if line.startswith("torch")]
-        for i, line in zip(slots, sorted(lines[i] for i in slots)):
-            lines[i] = line
-        return "\n".join(lines)
-    if isinstance(value, list):
-        return [stable_message(item) for item in value]
-    if isinstance(value, dict):
-        return {key: stable_message(item) for key, item in value.items()}
-    return value
-
-
 def catalog_validation(root):
     """`validation_errors()` and the warning checks that need no server state
     (no `ceiling_index`, no observed costs) for every JSON under `workflows/`
@@ -259,7 +238,7 @@ def catalog_validation(root):
                     if name == "validation_errors"
                     else validation.run_warning_check(workflow, name, None)
                 )
-                entry[name] = stable_message(found)
+                entry[name] = found
             except Exception as error:
                 entry[name] = f"error: {type(error).__name__}: {error}"
         verdicts[path.relative_to(repo).as_posix()] = entry
