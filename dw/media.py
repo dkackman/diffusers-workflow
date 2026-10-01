@@ -686,7 +686,7 @@ def probe_media(path, envelope=False):
             # A track that opens fine can still fail mid-decode (damage
             # past the header); the fields already gathered - duration,
             # format - are still true, so report those rather than
-            # failing the whole probe. Matches read_embedded_metadata's
+            # failing the whole probe. Matches writers.read_embedded_metadata's
             # precedent of degrading rather than raising.
             logger.debug(f"Decode failed partway through {path}: {e}")
             return info

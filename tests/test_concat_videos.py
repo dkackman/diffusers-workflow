@@ -12,7 +12,8 @@ import torch
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.result import Result, get_artifact_list
+from dw.output_extraction import get_artifact_list
+from dw.result import Result
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import Task
 

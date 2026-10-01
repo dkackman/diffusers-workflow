@@ -463,7 +463,7 @@ MATCH_CEILING_DBFS = -0.5
 
 LEVEL_SPREAD_WARN_DB = 6.0
 
-# Mirrors result.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
+# Mirrors audio_qc.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
 # own near-silent check treats as having no real content. Gaining an input
 # already this quiet up to the target raises a noise floor rather than
 # leveling a performance, and #434 found a +29.9 dB case that only reached

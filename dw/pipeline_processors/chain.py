@@ -36,11 +36,8 @@ from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
-from ..result import (
-    frames_for_encoding,
-    get_artifact_list,
-    output_file_path,
-)
+from ..output_extraction import get_artifact_list
+from ..writers import frames_for_encoding, output_file_path
 from ..shots import shot_record, without_samples
 from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples

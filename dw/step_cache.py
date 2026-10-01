@@ -261,7 +261,7 @@ def borrowed_pipeline_keys(steps, index, pipeline_keys):
 
 
 # Tasks that reset a result's level before anything downstream ships it -
-# a result only these read is not itself a headroom concern (dw/result.py,
+# a result only these read is not itself a headroom concern (dw/audio_qc.py,
 # warn_without_headroom)
 NORMALIZING_COMMANDS = {"normalize_audio", "match_levels"}
 

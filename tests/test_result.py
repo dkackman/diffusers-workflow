@@ -18,13 +18,10 @@ from PIL import Image
 from unittest.mock import patch
 from dw.previous_results import get_previous_results
 from dw.media_types import AudioVideo
-from dw.result import (
-    Result,
-    as_audio_track,
-    get_artifact_list,
-    guess_extension,
-    normalize_audio,
-)
+from dw.content_types import guess_extension
+from dw.output_extraction import get_artifact_list
+from dw.result import Result
+from dw.writers import as_audio_track, normalize_audio
 from dw.security import SecurityError
 from dw.shots import shot_record
 
@@ -49,7 +46,7 @@ class TestResult:
         assert result.result_list == ["test_string"]
 
     def test_add_selected_unwraps_value_and_records_metadata(self):
-        from dw.tasks.select import Selected
+        from dw.media_types import Selected
 
         result = Result({})
         result.add_result(Selected(value="b", position=1, score=0.9))
@@ -1120,7 +1117,7 @@ class TestSaveAudio:
 
     def test_saving_a_silent_video_as_audio_names_the_problem(self):
         from dw.media_types import AudioVideo
-        from dw.result import normalize_audio
+        from dw.writers import normalize_audio
 
         with pytest.raises(ValueError, match="carries no audio"):
             normalize_audio(AudioVideo([], None, None))
@@ -1667,7 +1664,7 @@ class TestFramesForEncoding:
     pipeline returned (#97)."""
 
     def test_float_frames_in_zero_to_one_become_a_uint8_tensor(self):
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.zeros((2, 4, 4, 3), dtype=numpy.float32)
         frames[1] = 1.0
@@ -1683,7 +1680,7 @@ class TestFramesForEncoding:
     def test_the_source_array_is_left_alone(self):
         """A later step can still read this result through a
         'previous_result:' reference, and the step cache retains it."""
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.full((2, 2, 2, 3), 0.5, dtype=numpy.float32)
         frames_for_encoding(frames)
@@ -1693,14 +1690,14 @@ class TestFramesForEncoding:
     def test_frames_outside_the_range_are_handed_over_untouched(self):
         """That is diffusers' own 'assume they are pixel values' branch -
         left to it rather than reproduced here."""
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         frames = numpy.full((1, 2, 2, 3), 255.0, dtype=numpy.float32)
 
         assert frames_for_encoding(frames) is frames
 
     def test_anything_that_is_not_a_float_array_is_passed_through(self):
-        from dw.result import frames_for_encoding
+        from dw.writers import frames_for_encoding
 
         already_uint8 = numpy.zeros((1, 2, 2, 3), dtype=numpy.uint8)
         assert frames_for_encoding(already_uint8) is already_uint8
@@ -1785,7 +1782,7 @@ class TestMonoAudioForMuxing:
         assert track.shape == (100, 2)
 
     def test_upmix_warns(self, monkeypatch):
-        import dw.result as result_module
+        import dw.writers as result_module
 
         warnings = []
         monkeypatch.setattr(
@@ -1806,7 +1803,7 @@ class TestAlphaIntoJpeg:
     workflow asked for a format that cannot carry what the pipeline made."""
 
     def _save(self, monkeypatch, temp_dir, result_def):
-        import dw.result as result_module
+        import dw.writers as result_module
 
         warnings = []
         monkeypatch.setattr(
@@ -2033,7 +2030,7 @@ class TestTheWrittenLevel:
         a wav hot enough to decode over would have drawn the waveform
         warning first, which is the branch the next test covers.
         """
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
         with patch("dw.media.probe_media", return_value={"peak_dbfs": peak_dbfs}):
             return self.warnings_from(
@@ -2056,7 +2053,7 @@ class TestTheWrittenLevel:
         assert self.measured_at(-2.48) == []
 
     def test_a_file_with_no_soundtrack_is_quiet(self):
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
         with patch("dw.media.probe_media", return_value={"kind": "video"}):
             assert (
@@ -2067,7 +2064,7 @@ class TestTheWrittenLevel:
             )
 
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
-        from dw.result import warn_if_written_above_full_scale
+        from dw.audio_qc import warn_if_written_above_full_scale
 
         with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (
@@ -2186,7 +2183,7 @@ class TestNearSilentWrite:
         return [e for e in captured if e["event"] == "warning"]
 
     def measured_at(self, mean_dbfs, **kwargs):
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch("dw.media.probe_media", return_value={"mean_dbfs": mean_dbfs}):
             return self.warnings_from(
@@ -2208,7 +2205,7 @@ class TestNearSilentWrite:
         sent every one of those to an investigation. The trigger is
         unchanged (mean still below -40); only the message and the added
         peak_dbfs field distinguish it from a genuinely empty render."""
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch(
             "dw.media.probe_media",
@@ -2228,7 +2225,7 @@ class TestNearSilentWrite:
         """#261's -68.7 dBFS Bark clip and S-F077's -60 dBFS normalize both
         have low peaks too - those still get the "check the step" message,
         not the ambience one."""
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch(
             "dw.media.probe_media",
@@ -2263,7 +2260,7 @@ class TestNearSilentWrite:
         assert self.measured_at(-74.8, source_already_quiet=True) == []
 
     def test_a_file_that_will_not_probe_does_not_fail_the_run(self):
-        from dw.result import warn_if_written_near_silent
+        from dw.audio_qc import warn_if_written_near_silent
 
         with patch("dw.media.probe_media", side_effect=OSError("truncated")):
             assert (

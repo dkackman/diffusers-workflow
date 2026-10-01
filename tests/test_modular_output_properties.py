@@ -3,7 +3,7 @@ sampling_rate, latents]`) keeps the dict the pipeline returned as its result
 (step.py adds each iteration's raw output), and `previous_result:<step>.<key>`
 names a key of that dict, spelled as the pipeline spells it (#499).
 
-The pairing into an AudioVideo (`modular_artifacts`, dw/result.py) happens only
+The pairing into an AudioVideo (`modular_artifacts`, dw/output_extraction.py) happens only
 when the result is saved or read whole, so `sample_rate` - the AudioVideo's name
 for it - is not a key the dict has. Asking for it used to come back as an empty
 list, which gave the step reading it zero iterations, succeeding having written

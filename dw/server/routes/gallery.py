@@ -99,7 +99,7 @@ def _gallery_entries(root, ws):
             # busting when a file's content changes without its name
             # changing (e.g. a manual overwrite outside the engine) -
             # normal reruns get a fresh name instead, see
-            # dw/result.py's output_file_path
+            # dw/writers.py's output_file_path
             "url": served_url(output_path, ws, int(stat.st_mtime)),
             "kind": kind,
             "size": stat.st_size,

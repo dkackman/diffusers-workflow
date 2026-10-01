@@ -32,7 +32,7 @@ from ...media_frames import (
     resolve_crop_box,
     seam_tiles,
 )
-from ...result import read_embedded_metadata
+from ...writers import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
 from ...security import MAX_DECODE_PIXELS
 from ...workspace import Workspace

@@ -1,4 +1,4 @@
-from dw.result import output_file_path
+from dw.writers import output_file_path
 
 
 def test_output_file_path_no_collision_is_unchanged(tmp_path):

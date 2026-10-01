@@ -25,9 +25,14 @@ type it finds on disk under a `Content-Security-Policy: sandbox`, since a
 planted file never passes through here.
 """
 
+import logging
+import mimetypes
+
 from . import references
 from .references import MEMBER_SEPARATOR, render_path
 from .security import InvalidInputError, validate_content_type
+
+logger = logging.getLogger("dw")
 
 CONTENT_TYPE_KEY = "content_type"
 
@@ -175,3 +180,28 @@ __all__ = [
     "content_type_fault",
     "refuse_active_content_type",
 ]
+
+
+def guess_extension(content_type):
+    """Determine file extension from MIME type.
+
+    Args:
+        content_type: MIME type string
+
+    Returns:
+        String containing file extension with leading dot
+    """
+    if not content_type:
+        logger.warning("No content type provided for extension guess")
+        return ""
+
+    # Audio is looked up first - soundfile picks the container from the extension and
+    # does not recognize every extension mimetypes suggests, such as '.oga' for ogg
+    if content_type in AUDIO_FORMATS:
+        return AUDIO_FORMATS[content_type][0]
+
+    ext = mimetypes.guess_extension(content_type)
+    if ext is not None:
+        return ext
+
+    return ""
