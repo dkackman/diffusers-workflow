@@ -24,6 +24,7 @@ search rather than a check of a finished cut, so it is not listed among them.
 import logging
 import math
 import os
+import types
 
 import numpy
 
@@ -388,6 +389,333 @@ def _empty_finding(rejected, criteria):
     return {"rule": "no_loop_bed", "rejected_by": rule, "message": message}
 
 
+def _coerce_arguments(shots, **raw):
+    """Coerce and check the arguments; returns them as a namespace, less `shots`.
+
+    `raw` is the command's numeric arguments in signature order (the order
+    their errors are reported in); `max_candidates` is the one integer.
+    """
+    values = {
+        name: coerce_number(
+            value, int if name == "max_candidates" else float, name, COMMAND
+        )
+        for name, value in raw.items()
+    }
+    if shots is not None:
+        _check_shots(shots)
+    check_arguments(COMMAND, **values)
+    if values["min_seconds"] > values["max_seconds"]:
+        raise ValueError(
+            f"{COMMAND} needs 'min_seconds' ({values['min_seconds']:g}) at or "
+            f"below 'max_seconds' ({values['max_seconds']:g})"
+        )
+    return types.SimpleNamespace(**values)
+
+
+def _search_window(waveform, sample_rate, args):
+    """The mono source, its duration and the (first, last) seconds searched.
+
+    Refused when the source or the range holds no window.
+    """
+    start_seconds, end_seconds = args.start_seconds, args.end_seconds
+    min_seconds = args.min_seconds
+    mono = numpy.asarray(waveform, dtype=numpy.float64)
+    mono = mono.mean(axis=0) if mono.ndim == 2 else mono
+    duration = mono.shape[0] / sample_rate
+    if duration < min_seconds:
+        raise ValueError(
+            f"{COMMAND}: the source is {duration:.2f} s long, shorter than "
+            f"'min_seconds' ({min_seconds:g}) - there is no window to find"
+        )
+
+    first = 0.0 if start_seconds is None else start_seconds
+    last = duration if end_seconds is None else end_seconds
+    # Half a sample of slack: an end_seconds copied from a rounded duration
+    # is the end of the file, not past it
+    slack = 0.5 / sample_rate
+    if first >= duration:
+        raise ValueError(
+            f"{COMMAND}: 'start_seconds' ({first:g}) is past the end of the "
+            f"{duration:.2f} s source"
+        )
+    if last > duration + slack:
+        raise ValueError(
+            f"{COMMAND}: 'end_seconds' ({last:g}) is past the end of the "
+            f"{duration:.2f} s source"
+        )
+    if last <= first:
+        raise ValueError(
+            f"{COMMAND} needs 'end_seconds' ({last:g}) after 'start_seconds' "
+            f"({first:g})"
+        )
+    if last - first < min_seconds:
+        raise ValueError(
+            f"{COMMAND}: the range {first:g}-{last:g} s is shorter than "
+            f"'min_seconds' ({min_seconds:g}) - there is no window to find"
+        )
+    return mono, duration, first, last
+
+
+def _tonal_scales(
+    searched, bin_length, sample_rate, bin_seconds, count, shortest, usable
+):
+    """The tonal test's blocks, measured once over the range at each block length.
+
+    A block is only worth measuring when every bin in it is quiet and not
+    silent, since any window holding one of the others is thrown out before
+    tonality. Each entry is (block length in bins, flatness, harmonicity, tonal).
+    """
+    native_rate = _occupied_rate(searched, sample_rate)
+    scales = []  # (block length in bins, flatness, harmonicity, tonal)
+    for block_seconds in TONAL_BLOCK_SECONDS:
+        block_bins = max(1, min(shortest, int(round(block_seconds / bin_seconds))))
+        if any(block_bins == known[0] for known in scales):
+            continue
+        needed = numpy.zeros(count, dtype=bool)
+        if count >= block_bins:
+            needed[: count - block_bins + 1] = _sliding(usable, block_bins).all(axis=1)
+        scales.append(
+            (
+                block_bins,
+                *_tonal_blocks(
+                    searched, bin_length, sample_rate, block_bins, needed, native_rate
+                ),
+            )
+        )
+    return scales
+
+
+def _edge_ticks(power, peaks, bin_threshold):
+    """The loudest 1 ms peak just outside each window start and end: (before, after).
+
+    The loudest few 1 ms peaks at the tail of the bin before each start and
+    the head of the bin after each end. A neighbour loud enough to be thrown
+    out on its own is louder material, not a tick, and the window stops short
+    of it.
+    """
+    edge_quiet = power <= bin_threshold
+    tails = numpy.where(edge_quiet, peaks[:, -TICK_GUARD_PEAKS:].max(axis=1), 0.0)
+    heads = numpy.where(edge_quiet, peaks[:, :TICK_GUARD_PEAKS].max(axis=1), 0.0)
+    before = numpy.concatenate(([0.0], tails[:-1]))
+    after = numpy.concatenate((heads[1:], [0.0]))
+    return before, after
+
+
+def _scan_windows(
+    power,
+    peaks,
+    bin_shot,
+    scales,
+    edges,
+    lengths,
+    args,
+):
+    """Judge every (start, length) window; returns (survivors, rejected).
+
+    Vectorised per window length: every pair is judged at once and counted
+    under the first rule it fails - loudness, silence, ticks, tonality - so
+    `rejected` is a tally of every window on the grid, and each survivor
+    carries its source ripple for the pre-rank.
+    """
+    before, after = edges
+    shortest, longest = lengths
+    bin_threshold = 10.0 ** (args.max_bin_dbfs / 10.0)
+    mean_threshold = 10.0 ** (args.max_mean_dbfs / 10.0)
+    spike_ratio = 10.0 ** (args.max_spike_db / 20.0)
+    rejected = dict.fromkeys(REJECTION_RULES, 0)
+    if bin_shot is not None:
+        rejected["shot_boundary"] = 0
+    survivors = []  # (source ripple, start bin, length in bins, readings)
+    for length in range(shortest, longest + 1):
+        windows = _sliding(power, length)  # (starts, length)
+        loudest = windows.max(axis=1)
+        mean = windows.mean(axis=1)
+        if bin_shot is None:
+            crossing = numpy.zeros(windows.shape[0], dtype=bool)
+        else:
+            # A window is inside one shot when every bin it holds is: the
+            # same shot throughout, and none a boundary cuts or no shot covers
+            owners = _sliding(bin_shot, length)
+            crossing = (owners.min(axis=1) != owners.max(axis=1)) | (
+                owners.min(axis=1) < 0
+            )
+            rejected["shot_boundary"] += int(crossing.sum())
+        loud = ~crossing & ((loudest > bin_threshold) | (mean > mean_threshold))
+        peak_windows = _sliding(peaks, length).reshape(windows.shape[0], -1)
+        median = numpy.median(peak_windows, axis=1)
+        # More than half the window's 1 ms peaks at zero is digital silence
+        # with something in it, not room tone - and would read every
+        # sample of that something as a tick
+        silent = ~crossing & ~loud & ((mean <= 0.0) | (median <= 0.0))
+        largest = numpy.maximum(
+            peak_windows.max(axis=1),
+            numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
+        )
+        ticked = ~crossing & ~loud & ~silent & (largest > spike_ratio * median)
+        any_tonal = numpy.zeros(windows.shape[0], dtype=bool)
+        for block_bins, _, _, block_tonal in scales:
+            inside = _sliding(block_tonal, length - block_bins + 1)
+            any_tonal |= inside[: windows.shape[0]].any(axis=1)
+        tonal = ~crossing & ~loud & ~silent & ~ticked & any_tonal
+        rejected["too_loud"] += int(loud.sum())
+        rejected["silent"] += int(silent.sum())
+        rejected["spike"] += int(ticked.sum())
+        rejected["tonal"] += int(tonal.sum())
+        kept = numpy.flatnonzero(~crossing & ~loud & ~silent & ~ticked & ~tonal)
+        if kept.size == 0:
+            continue
+
+        in_db = _bin_db(windows[kept])
+        low, high = numpy.percentile(in_db, RIPPLE_PERCENTILES, axis=1)
+        for position, start in enumerate(kept):
+            # The block nearest to failing, at either length, which is what
+            # the test judged
+            flatness = min(
+                float(flat[start : start + length - bins + 1].min())
+                for bins, flat, _, _ in scales
+            )
+            harmonicity = max(
+                float(harm[start : start + length - bins + 1].max())
+                for bins, _, harm, _ in scales
+            )
+            survivors.append(
+                (
+                    float(high[position] - low[position]),
+                    int(start),
+                    length,
+                    {
+                        "mean_dbfs": 10.0 * math.log10(float(mean[start])),
+                        "max_bin_dbfs": 10.0 * math.log10(float(loudest[start])),
+                        "spike_db": 20.0
+                        * math.log10(float(largest[start] / median[start])),
+                        "flatness": flatness,
+                        "harmonicity": harmonicity,
+                    },
+                )
+            )
+    return survivors, rejected
+
+
+def _rank_and_loop(
+    survivors,
+    searched,
+    offset,
+    bin_length,
+    sample_rate,
+    bin_shot,
+    spans,
+    args,
+):
+    """Thin, loop and rank the survivors; returns (kept, ranked candidates)."""
+    # Step 5: steadiest first, thinned so no two overlap, up to a pool that
+    # does not depend on how many candidates were asked for
+    survivors.sort(key=lambda entry: (entry[0], -entry[2], entry[1]))
+    kept = []
+    pool = max(LOOPED_POOL, args.max_candidates)
+    for ripple, start, length, readings in survivors:
+        if len(kept) >= pool:
+            break
+        end = start + length
+        if any(start < k_end and k_start < end for k_start, k_end, _ in kept):
+            continue
+        kept.append((start, end, readings))
+
+    # Steps 6 and 7: loop each, measure the bed, rank by its ripple
+    candidates = []
+    for start, end, readings in kept:
+        segment = searched[start * bin_length : end * bin_length]
+        looped = _looped(segment, sample_rate, args.crossfade_ms, args.loop_seconds)
+        start_at = (offset + start * bin_length) / sample_rate
+        seconds = (end - start) * bin_length / sample_rate
+        gain_db = args.target_bed_dbfs - readings["mean_dbfs"]
+        warnings = []
+        peak = looped["envelope_peak_db"]
+        if peak is not None and peak > LAP_MODULATION_WARN_DB:
+            warnings.append("lap_modulation")
+        candidates.append(
+            {
+                "start_seconds": round(start_at, 3),
+                "duration_seconds": round(seconds, 3),
+                "end_seconds": round(start_at + seconds, 3),
+                "shot": None if bin_shot is None else spans[bin_shot[start]][0],
+                "mean_dbfs": _round(readings["mean_dbfs"]),
+                "max_bin_dbfs": _round(readings["max_bin_dbfs"]),
+                "spike_db": _round(readings["spike_db"]),
+                "flatness": _round(readings["flatness"], 3),
+                "harmonicity": _round(readings["harmonicity"], 3),
+                "looped": looped,
+                "gain_db": _round(gain_db),
+                "gain": _round(10.0 ** (gain_db / 20.0), 3),
+                "warnings": warnings,
+            }
+        )
+    candidates.sort(key=lambda c: (c["looped"]["ripple_db"], c["start_seconds"]))
+    candidates = [
+        {"rank": rank, **candidate}
+        for rank, candidate in enumerate(candidates[: args.max_candidates], start=1)
+    ]
+    return kept, candidates
+
+
+def _answer(
+    candidates,
+    rejected,
+    args,
+    survivor_count,
+    kept_count,
+    duration,
+    sample_rate,
+    first,
+    last,
+    shots_source,
+    spans,
+):
+    """The command's JSON answer, with the finding when nothing was found."""
+    criteria = {
+        "max_bin_dbfs": args.max_bin_dbfs,
+        "max_mean_dbfs": args.max_mean_dbfs,
+        "max_spike_db": args.max_spike_db,
+        "tonal_flatness": TONAL_FLATNESS_THRESHOLD,
+        "harmonicity": HARMONICITY_THRESHOLD,
+        "crossfade_ms": args.crossfade_ms,
+        "loop_seconds": args.loop_seconds,
+        "min_seconds": args.min_seconds,
+        "max_seconds": args.max_seconds,
+        "target_bed_dbfs": args.target_bed_dbfs,
+    }
+    findings = [] if candidates else [_empty_finding(rejected, criteria)]
+    logger.info(
+        f"{COMMAND}: {survivor_count} windows passed level and tick tests, "
+        f"{kept_count} looped, {len(candidates)} returned; rejected {rejected}"
+    )
+    return {
+        "source": {
+            "duration_seconds": round(duration, 3),
+            "sample_rate": int(sample_rate),
+            "searched": [round(first, 3), round(last, 3)],
+            "shots_source": shots_source,
+            **(
+                {
+                    "shots": [
+                        {
+                            "name": name,
+                            "start_seconds": round(first / sample_rate, 3),
+                            "end_seconds": round(end / sample_rate, 3),
+                        }
+                        for name, first, end in spans
+                    ]
+                }
+                if spans is not None
+                else {}
+            ),
+        },
+        "criteria": criteria,
+        "candidates": candidates,
+        "rejected": rejected,
+        "findings": findings,
+    }
+
+
 def find_loop_bed(
     audio,
     start_seconds=None,
@@ -461,22 +789,8 @@ def find_loop_bed(
     Returns:
         A JSON-safe dict: source, criteria, candidates, rejected, findings
     """
-    start_seconds = coerce_number(start_seconds, float, "start_seconds", COMMAND)
-    end_seconds = coerce_number(end_seconds, float, "end_seconds", COMMAND)
-    min_seconds = coerce_number(min_seconds, float, "min_seconds", COMMAND)
-    max_seconds = coerce_number(max_seconds, float, "max_seconds", COMMAND)
-    max_bin_dbfs = coerce_number(max_bin_dbfs, float, "max_bin_dbfs", COMMAND)
-    max_mean_dbfs = coerce_number(max_mean_dbfs, float, "max_mean_dbfs", COMMAND)
-    max_spike_db = coerce_number(max_spike_db, float, "max_spike_db", COMMAND)
-    crossfade_ms = coerce_number(crossfade_ms, float, "crossfade_ms", COMMAND)
-    loop_seconds = coerce_number(loop_seconds, float, "loop_seconds", COMMAND)
-    target_bed_dbfs = coerce_number(target_bed_dbfs, float, "target_bed_dbfs", COMMAND)
-    max_candidates = coerce_number(max_candidates, int, "max_candidates", COMMAND)
-    fps = coerce_number(fps, float, "fps", COMMAND)
-    if shots is not None:
-        _check_shots(shots)
-    check_arguments(
-        COMMAND,
+    args = _coerce_arguments(
+        shots,
         start_seconds=start_seconds,
         end_seconds=end_seconds,
         min_seconds=min_seconds,
@@ -490,48 +804,10 @@ def find_loop_bed(
         max_candidates=max_candidates,
         fps=fps,
     )
-    if min_seconds > max_seconds:
-        raise ValueError(
-            f"{COMMAND} needs 'min_seconds' ({min_seconds:g}) at or below "
-            f"'max_seconds' ({max_seconds:g})"
-        )
 
     waveform, sample_rate, source_fps, carried, path = _read_source(audio)
     shots, shots_source = _resolve_shots(shots, carried, path)
-    mono = numpy.asarray(waveform, dtype=numpy.float64)
-    mono = mono.mean(axis=0) if mono.ndim == 2 else mono
-    duration = mono.shape[0] / sample_rate
-    if duration < min_seconds:
-        raise ValueError(
-            f"{COMMAND}: the source is {duration:.2f} s long, shorter than "
-            f"'min_seconds' ({min_seconds:g}) - there is no window to find"
-        )
-
-    first = 0.0 if start_seconds is None else start_seconds
-    last = duration if end_seconds is None else end_seconds
-    # Half a sample of slack: an end_seconds copied from a rounded duration
-    # is the end of the file, not past it
-    slack = 0.5 / sample_rate
-    if first >= duration:
-        raise ValueError(
-            f"{COMMAND}: 'start_seconds' ({first:g}) is past the end of the "
-            f"{duration:.2f} s source"
-        )
-    if last > duration + slack:
-        raise ValueError(
-            f"{COMMAND}: 'end_seconds' ({last:g}) is past the end of the "
-            f"{duration:.2f} s source"
-        )
-    if last <= first:
-        raise ValueError(
-            f"{COMMAND} needs 'end_seconds' ({last:g}) after 'start_seconds' "
-            f"({first:g})"
-        )
-    if last - first < min_seconds:
-        raise ValueError(
-            f"{COMMAND}: the range {first:g}-{last:g} s is shorter than "
-            f"'min_seconds' ({min_seconds:g}) - there is no window to find"
-        )
+    mono, duration, first, last = _search_window(waveform, sample_rate, args)
 
     offset = int(round(first * sample_rate))
     stop = min(int(round(last * sample_rate)), mono.shape[0])
@@ -539,214 +815,36 @@ def find_loop_bed(
     bin_length, power, peaks = _envelope(searched, sample_rate)
     bin_seconds = bin_length / sample_rate
     count = power.shape[0]
-    spans = _shot_spans(shots, fps or source_fps, sample_rate) if shots else None
+    fps = args.fps or source_fps
+    spans = _shot_spans(shots, fps, sample_rate) if shots else None
     bin_shot = (
         _bin_shots(spans, offset, bin_length, count) if spans is not None else None
     )
 
-    shortest = max(1, int(round(min_seconds / bin_seconds)))
-    longest = min(count, int(round(max_seconds / bin_seconds)))
-    rejected = dict.fromkeys(REJECTION_RULES, 0)
-    if spans is not None:
-        rejected["shot_boundary"] = 0
-    bin_threshold = 10.0 ** (max_bin_dbfs / 10.0)
-    mean_threshold = 10.0 ** (max_mean_dbfs / 10.0)
-    spike_ratio = 10.0 ** (max_spike_db / 20.0)
-
-    # The tonal test's blocks, measured once over the range at each block
-    # length: a block is only worth measuring when every bin in it is quiet
-    # and not silent, since any window holding one of the others is thrown
-    # out before tonality
+    shortest = max(1, int(round(args.min_seconds / bin_seconds)))
+    longest = min(count, int(round(args.max_seconds / bin_seconds)))
+    bin_threshold = 10.0 ** (args.max_bin_dbfs / 10.0)
     usable = (power <= bin_threshold) & (power > 0.0)
-    native_rate = _occupied_rate(searched, sample_rate)
-    scales = []  # (block length in bins, flatness, harmonicity, tonal)
-    for block_seconds in TONAL_BLOCK_SECONDS:
-        block_bins = max(1, min(shortest, int(round(block_seconds / bin_seconds))))
-        if any(block_bins == known[0] for known in scales):
-            continue
-        needed = numpy.zeros(count, dtype=bool)
-        if count >= block_bins:
-            needed[: count - block_bins + 1] = _sliding(usable, block_bins).all(axis=1)
-        scales.append(
-            (
-                block_bins,
-                *_tonal_blocks(
-                    searched, bin_length, sample_rate, block_bins, needed, native_rate
-                ),
-            )
-        )
-
-    # A tick just outside a window: the loudest few 1 ms peaks at the tail of
-    # the bin before each start and the head of the bin after each end. A
-    # neighbour loud enough to be thrown out on its own is louder material,
-    # not a tick, and the window stops short of it
-    edge_quiet = power <= bin_threshold
-    tails = numpy.where(edge_quiet, peaks[:, -TICK_GUARD_PEAKS:].max(axis=1), 0.0)
-    heads = numpy.where(edge_quiet, peaks[:, :TICK_GUARD_PEAKS].max(axis=1), 0.0)
-    before = numpy.concatenate(([0.0], tails[:-1]))
-    after = numpy.concatenate((heads[1:], [0.0]))
-
-    # Steps 2 to 4, vectorised per window length: every (start, length) pair
-    # is judged at once and counted under the first rule it fails - loudness,
-    # silence, ticks, tonality - so `rejected` is a tally of every window on
-    # the grid, and each survivor carries its source ripple for the pre-rank
-    survivors = []  # (source ripple, start bin, length in bins, readings)
-    for length in range(shortest, longest + 1):
-        windows = _sliding(power, length)  # (starts, length)
-        loudest = windows.max(axis=1)
-        mean = windows.mean(axis=1)
-        if bin_shot is None:
-            crossing = numpy.zeros(windows.shape[0], dtype=bool)
-        else:
-            # A window is inside one shot when every bin it holds is: the
-            # same shot throughout, and none a boundary cuts or no shot covers
-            owners = _sliding(bin_shot, length)
-            crossing = (owners.min(axis=1) != owners.max(axis=1)) | (
-                owners.min(axis=1) < 0
-            )
-            rejected["shot_boundary"] += int(crossing.sum())
-        loud = ~crossing & ((loudest > bin_threshold) | (mean > mean_threshold))
-        peak_windows = _sliding(peaks, length).reshape(windows.shape[0], -1)
-        median = numpy.median(peak_windows, axis=1)
-        # More than half the window's 1 ms peaks at zero is digital silence
-        # with something in it, not room tone - and would read every
-        # sample of that something as a tick
-        silent = ~crossing & ~loud & ((mean <= 0.0) | (median <= 0.0))
-        largest = numpy.maximum(
-            peak_windows.max(axis=1),
-            numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
-        )
-        ticked = ~crossing & ~loud & ~silent & (largest > spike_ratio * median)
-        any_tonal = numpy.zeros(windows.shape[0], dtype=bool)
-        for block_bins, _, _, block_tonal in scales:
-            inside = _sliding(block_tonal, length - block_bins + 1)
-            any_tonal |= inside[: windows.shape[0]].any(axis=1)
-        tonal = ~crossing & ~loud & ~silent & ~ticked & any_tonal
-        rejected["too_loud"] += int(loud.sum())
-        rejected["silent"] += int(silent.sum())
-        rejected["spike"] += int(ticked.sum())
-        rejected["tonal"] += int(tonal.sum())
-        kept = numpy.flatnonzero(~crossing & ~loud & ~silent & ~ticked & ~tonal)
-        if kept.size == 0:
-            continue
-
-        in_db = _bin_db(windows[kept])
-        low, high = numpy.percentile(in_db, RIPPLE_PERCENTILES, axis=1)
-        for position, start in enumerate(kept):
-            # The block nearest to failing, at either length, which is what
-            # the test judged
-            flatness = min(
-                float(flat[start : start + length - bins + 1].min())
-                for bins, flat, _, _ in scales
-            )
-            harmonicity = max(
-                float(harm[start : start + length - bins + 1].max())
-                for bins, _, harm, _ in scales
-            )
-            survivors.append(
-                (
-                    float(high[position] - low[position]),
-                    int(start),
-                    length,
-                    {
-                        "mean_dbfs": 10.0 * math.log10(float(mean[start])),
-                        "max_bin_dbfs": 10.0 * math.log10(float(loudest[start])),
-                        "spike_db": 20.0
-                        * math.log10(float(largest[start] / median[start])),
-                        "flatness": flatness,
-                        "harmonicity": harmonicity,
-                    },
-                )
-            )
-
-    # Step 5: steadiest first, thinned so no two overlap, up to a pool that
-    # does not depend on how many candidates were asked for
-    survivors.sort(key=lambda entry: (entry[0], -entry[2], entry[1]))
-    kept = []
-    pool = max(LOOPED_POOL, max_candidates)
-    for ripple, start, length, readings in survivors:
-        if len(kept) >= pool:
-            break
-        end = start + length
-        if any(start < k_end and k_start < end for k_start, k_end, _ in kept):
-            continue
-        kept.append((start, end, readings))
-
-    # Steps 6 and 7: loop each, measure the bed, rank by its ripple
-    candidates = []
-    for start, end, readings in kept:
-        segment = searched[start * bin_length : end * bin_length]
-        looped = _looped(segment, sample_rate, crossfade_ms, loop_seconds)
-        start_at = (offset + start * bin_length) / sample_rate
-        seconds = (end - start) * bin_length / sample_rate
-        gain_db = target_bed_dbfs - readings["mean_dbfs"]
-        warnings = []
-        peak = looped["envelope_peak_db"]
-        if peak is not None and peak > LAP_MODULATION_WARN_DB:
-            warnings.append("lap_modulation")
-        candidates.append(
-            {
-                "start_seconds": round(start_at, 3),
-                "duration_seconds": round(seconds, 3),
-                "end_seconds": round(start_at + seconds, 3),
-                "shot": None if bin_shot is None else spans[bin_shot[start]][0],
-                "mean_dbfs": _round(readings["mean_dbfs"]),
-                "max_bin_dbfs": _round(readings["max_bin_dbfs"]),
-                "spike_db": _round(readings["spike_db"]),
-                "flatness": _round(readings["flatness"], 3),
-                "harmonicity": _round(readings["harmonicity"], 3),
-                "looped": looped,
-                "gain_db": _round(gain_db),
-                "gain": _round(10.0 ** (gain_db / 20.0), 3),
-                "warnings": warnings,
-            }
-        )
-    candidates.sort(key=lambda c: (c["looped"]["ripple_db"], c["start_seconds"]))
-    candidates = [
-        {"rank": rank, **candidate}
-        for rank, candidate in enumerate(candidates[:max_candidates], start=1)
-    ]
-
-    criteria = {
-        "max_bin_dbfs": max_bin_dbfs,
-        "max_mean_dbfs": max_mean_dbfs,
-        "max_spike_db": max_spike_db,
-        "tonal_flatness": TONAL_FLATNESS_THRESHOLD,
-        "harmonicity": HARMONICITY_THRESHOLD,
-        "crossfade_ms": crossfade_ms,
-        "loop_seconds": loop_seconds,
-        "min_seconds": min_seconds,
-        "max_seconds": max_seconds,
-        "target_bed_dbfs": target_bed_dbfs,
-    }
-    findings = [] if candidates else [_empty_finding(rejected, criteria)]
-    logger.info(
-        f"{COMMAND}: {len(survivors)} windows passed level and tick tests, "
-        f"{len(kept)} looped, {len(candidates)} returned; rejected {rejected}"
+    scales = _tonal_scales(
+        searched, bin_length, sample_rate, bin_seconds, count, shortest, usable
     )
-    return {
-        "source": {
-            "duration_seconds": round(duration, 3),
-            "sample_rate": int(sample_rate),
-            "searched": [round(first, 3), round(last, 3)],
-            "shots_source": shots_source,
-            **(
-                {
-                    "shots": [
-                        {
-                            "name": name,
-                            "start_seconds": round(first / sample_rate, 3),
-                            "end_seconds": round(end / sample_rate, 3),
-                        }
-                        for name, first, end in spans
-                    ]
-                }
-                if spans is not None
-                else {}
-            ),
-        },
-        "criteria": criteria,
-        "candidates": candidates,
-        "rejected": rejected,
-        "findings": findings,
-    }
+    edges = _edge_ticks(power, peaks, bin_threshold)
+    survivors, rejected = _scan_windows(
+        power, peaks, bin_shot, scales, edges, (shortest, longest), args
+    )
+    kept, candidates = _rank_and_loop(
+        survivors, searched, offset, bin_length, sample_rate, bin_shot, spans, args
+    )
+    return _answer(
+        candidates,
+        rejected,
+        args,
+        len(survivors),
+        len(kept),
+        duration,
+        sample_rate,
+        first,
+        last,
+        shots_source,
+        spans,
+    )
