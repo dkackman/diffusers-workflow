@@ -22,7 +22,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError
-from ...library import SubWorkflowNotFound, resolve_sub_workflow
+from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
     ACKNOWLEDGED_COST_FIELD,
@@ -548,18 +548,15 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
             *that* value rather than always the child's stored
             defaults, which silently answered the default bucket's
             history for every override."""
-            base_dir = (
-                os.path.dirname(os.path.abspath(candidate.file_spec))
-                if candidate.file_spec
-                else None
+            file_spec = os.path.abspath(
+                candidate.file_spec or os.path.join(".", "workflow.json")
             )
             try:
-                child_path, child_library_root = resolve_sub_workflow(
-                    path, base_dir or ".", candidate.workflow_dir
+                child_path, child_root = resolve_sub_workflow_reference(
+                    path, file_spec, candidate.workflow_dir
                 )
             except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
                 return None
-            child_root = child_library_root.root if child_library_root else None
             child_name = catalog_name_from_root(child_path, child_root)
             if not child_name:
                 return None

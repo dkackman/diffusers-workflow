@@ -33,9 +33,9 @@ from .runs import (
     resolve_output_reference,
     version_selector,
 )
-from .security import SecurityError, validate_workflow_path
+from .security import SecurityError
 from .step_cache import copy_containers
-from .library import resolve_sub_workflow, SubWorkflowNotFound
+from .library import resolve_sub_workflow_reference, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
 
@@ -233,16 +233,21 @@ def read_sub_workflow(path, base_dir, workflow_dir):
     """The bytes of the sub-workflow file a step's `path` names, or None
     when it cannot be read.
 
-    Resolved the way `Workflow.create_step_action` resolves it - beside the
-    referencing file, then across the workflow search path, then through
-    `validate_workflow_path` confined to the root it came from - so a path
-    this run could not have loaded is not one realization (or the planner)
-    reads either, and a catalog name the run composed is read rather than
-    recorded as unreadable (#90).
+    Resolved by `resolve_sub_workflow_reference`, the resolver
+    `Workflow.create_step_action` uses - beside the referencing file, then
+    across the workflow search path, confined to the root it came from - so
+    a path this run could not have loaded is not one realization (or the
+    planner) reads either, and a catalog name the run composed is read
+    rather than recorded as unreadable (#90). `base_dir` is the referencing
+    file's directory; a run with no `workflow_dir` is confined to the
+    catalog root above it.
     """
     try:
-        candidate, root = resolve_sub_workflow(path, base_dir or ".", workflow_dir)
-        validated = validate_workflow_path(candidate, root.root if root else None)
+        # Only the directory of the referencing file is known here; the
+        # resolver wants the file, and takes its directory back off
+        validated, _ = resolve_sub_workflow_reference(
+            path, os.path.join(base_dir or ".", "workflow.json"), workflow_dir
+        )
         with open(validated, "rb") as file:
             return file.read()
     except (SecurityError, OSError, ValueError, SubWorkflowNotFound) as e:

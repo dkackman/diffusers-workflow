@@ -28,7 +28,9 @@ in.
 import logging
 import os
 
+from . import references
 from .security import (
+    InvalidInputError,
     PathTraversalError,
     SecurityError,
     contained,
@@ -715,3 +717,54 @@ def resolve_sub_workflow(path, base_dir, confine_to):
             return candidate, root
 
     raise SubWorkflowNotFound(path, tried)
+
+
+def resolve_sub_workflow_reference(path, file_spec, confine_to):
+    """Where one sub-workflow step's `path` resolves to, validated and
+    confined, as (path, root) - `root` is the directory the child is confined
+    to (None when the run is unconfined). The one preamble every site that
+    asks shares: a run (`create_step_action`), validation, the realized
+    workflow's digest and the observed-cost lookup, so a path one can open is
+    a path the others can.
+
+    `file_spec` is the workflow that names the step; `confine_to` its
+    `workflow_dir`.
+
+      - `builtin:<name>.json` is looked up only in `builtin_root()`, the
+        packaged workflows, and confined to it whatever `confine_to` is
+      - any other relative path in an unconfined run is confined to the
+        catalog root (`catalog_root_dir`) so it can reach a sibling folder
+        but not leave the catalog
+      - everything else goes through `resolve_sub_workflow`'s search path
+
+    Raises SubWorkflowNotFound, SecurityError or InvalidInputError, each
+    carrying the message the run itself would fail with.
+    """
+    builtin_name = references.ref_name(references.BUILTIN, path)
+    if builtin_name is not None:
+        if (
+            not builtin_name.endswith(".json")
+            or "/" in builtin_name
+            or "\\" in builtin_name
+        ):
+            raise InvalidInputError(
+                f"Invalid builtin workflow name: {builtin_name}. It must "
+                "be a bare '<name>.json' filename with no path segments - "
+                f"'builtin:' only looks in the packaged workflows root: "
+                f"{builtin_root()}"
+            )
+        root = builtin_root()
+        resolved = os.path.join(root, builtin_name)
+        # The name is bare, so it lands in `root`; the validator's answer is
+        # what gets stat'ed
+        candidate = validate_path(resolved, root, allow_create=True)
+        if not os.path.isfile(candidate):
+            raise SubWorkflowNotFound(path, [resolved])
+        return validate_workflow_path(resolved, root), root
+    if confine_to is None and not os.path.isabs(path):
+        confine_to = catalog_root_dir(file_spec)
+    resolved, library_root = resolve_sub_workflow(
+        path, os.path.dirname(file_spec), confine_to
+    )
+    confine_to = library_root.root if library_root else None
+    return validate_workflow_path(resolved, confine_to), confine_to

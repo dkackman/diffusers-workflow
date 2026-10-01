@@ -7,6 +7,13 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.7.0
+
+- A sub-workflow path is resolved by one function (`library.resolve_sub_workflow_reference`) at every site, so a path a run can open is one validation, the realized workflow's digest and the observed-cost lookup can open too.
+  - `builtin:builtin:x.json` no longer loads `x.json`: only the leading prefix is stripped, so the name `builtin:x.json` is looked up and reported as `SubWorkflowNotFound`.
+  - A run with no `workflow_dir` now resolves a catalog name (`models/x`) in a sub-workflow step through the catalog root, as validation already did, and a missing builtin fails with `SubWorkflowNotFound` naming the packaged root.
+  - The realized workflow's sub-workflow digest and a composed child's observed cost now fall back to the same catalog root, so a catalog sub-workflow a run could open is also digested and costed.
+
 ### 0.6.0
 
 <!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.5.0..54f8a3c9 (stabilization/gate-3). -->

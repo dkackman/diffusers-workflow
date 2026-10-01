@@ -773,7 +773,8 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
         where = f"steps[{source}].workflow.path"
         path = reference["path"]
         try:
-            resolved, _ = workflow.resolve_sub_workflow_path(path)
+            resolution = workflow.resolve_sub_workflow_path(path)
+            resolved = resolution[0]
         except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
             errors.append({"path": where, "message": str(e)})
             continue
@@ -790,7 +791,7 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
             )
             continue
         try:
-            child, _ = workflow.open_sub_workflow(path)
+            child, _ = workflow.open_sub_workflow(path, resolution)
         except Exception as e:
             errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
             continue

@@ -3,7 +3,6 @@ import os
 import json
 import copy
 import logging
-from . import references
 from .arguments import realize_constants, fetch_constant, is_constant_reference
 from .events import (
     RunContext,
@@ -51,11 +50,8 @@ from .security import (
     UntrustedWorkflowError,
 )
 from .library import (
-    builtin_root,
-    catalog_root_dir,
-    resolve_sub_workflow,
+    resolve_sub_workflow_reference,
     workflow_output_subfolder,
-    SubWorkflowNotFound,
 )
 
 logger = logging.getLogger("dw")
@@ -445,40 +441,17 @@ class Workflow:
         Raises SubWorkflowNotFound, SecurityError or InvalidInputError,
         each carrying the message the run would have failed with.
         """
-        confine_to = self.workflow_dir
-        if references.is_ref(references.BUILTIN, path):
-            builtin_name = path.replace(references.BUILTIN, "")
-            if (
-                not builtin_name.endswith(".json")
-                or "/" in builtin_name
-                or "\\" in builtin_name
-            ):
-                raise InvalidInputError(
-                    f"Invalid builtin workflow name: {builtin_name}. It must "
-                    "be a bare '<name>.json' filename with no path segments - "
-                    f"'builtin:' only looks in the packaged workflows root: "
-                    f"{builtin_root()}"
-                )
-            confine_to = builtin_root()
-            resolved = os.path.join(confine_to, builtin_name)
-            if not os.path.isfile(resolved):
-                raise SubWorkflowNotFound(path, [resolved])
-            return validate_workflow_path(resolved, confine_to), confine_to
-        if confine_to is None and not os.path.isabs(path):
-            confine_to = catalog_root_dir(self.file_spec)
-        resolved, resolved_root = resolve_sub_workflow(
-            path, os.path.dirname(self.file_spec), confine_to
-        )
-        confine_to = resolved_root.root if resolved_root else None
-        return validate_workflow_path(resolved, confine_to), confine_to
+        return resolve_sub_workflow_reference(path, self.file_spec, self.workflow_dir)
 
-    def open_sub_workflow(self, path):
+    def open_sub_workflow(self, path, resolved=None):
         """The workflow one sub-workflow step's `path` names, opened as
         (child, resolved) - resolved is its path, which is what a
         composition chain records. How dw.validation builds a composed child
-        without importing this module. Raises what resolution or the load
-        raises."""
-        resolved, root = self.resolve_sub_workflow_path(path)
+        without importing this module. `resolved` is what
+        `resolve_sub_workflow_path` already answered for `path`, as
+        (path, root); given, it is opened without resolving again. Raises
+        what resolution or the load raises."""
+        resolved, root = resolved or self.resolve_sub_workflow_path(path)
         return workflow_from_file(resolved, self.output_dir, root), resolved
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
@@ -824,58 +797,10 @@ class Workflow:
 
         try:
             # Sub-workflow steps are confined to the same directory this
-            # workflow is (workflow_dir for a server-submitted run)
-            confine_to = self.workflow_dir
-            # Handle built-in workflows
-            if references.is_ref(references.BUILTIN, path):
-                builtin_name = path.replace(references.BUILTIN, "")
-                # Validate builtin workflow name
-                if (
-                    not builtin_name.endswith(".json")
-                    or "/" in builtin_name
-                    or "\\" in builtin_name
-                ):
-                    raise InvalidInputError(
-                        f"Invalid builtin workflow name: {builtin_name}. "
-                        "It must be a bare '<name>.json' filename with no "
-                        "path segments - 'builtin:' only looks in the "
-                        f"packaged workflows root: {builtin_root()}"
-                    )
-                # Builtins ship inside the package, outside any
-                # workflow_dir - confine them to their own directory
-                # instead (the name check above already forbids escaping it)
-                confine_to = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "workflows"
-                )
-                path = os.path.join(confine_to, builtin_name)
-            # Everything else - a relative path, or a catalog name as
-            # list_workflows reports it - goes through the search path.
-            # A template under templates/ names a model config as
-            # '../models/x.json', so a path relative to the referencing
-            # file still resolves first and the '..' is collapsed here,
-            # which is what lets the validator judge where the path
-            # actually lands rather than refusing the spelling;
-            # containment is still checked on the resolved path below.
-            # An unconfined run (no workflow_dir - a bare CLI
-            # invocation) used to rely on the '..' regex alone to stop a
-            # relative reference from leaving the file's own directory;
-            # normalizing the path removes that guard, so confine it to
-            # the catalog root instead - the referencing file's nearest
-            # ancestor literally named 'workflows', which still lets it
-            # climb to a sibling folder like models/ but not out of the
-            # catalog
-            else:
-                if confine_to is None and not os.path.isabs(path):
-                    confine_to = catalog_root_dir(self.file_spec)
-                path, resolved_root = resolve_sub_workflow(
-                    path, os.path.dirname(self.file_spec), confine_to
-                )
-                confine_to = resolved_root.root if resolved_root else None
-
-            # Validate the resolved path - confined when this workflow
-            # itself is (an inline/server-submitted run), so a
-            # sub-workflow step cannot escape that boundary
-            validated_path = validate_workflow_path(path, confine_to)
+            # workflow is (workflow_dir for a server-submitted run); the
+            # resolver confines a builtin to the packaged root instead and
+            # validates the path it hands back
+            validated_path, confine_to = self.resolve_sub_workflow_path(path)
             workflow = workflow_from_file(validated_path, self.output_dir, confine_to)
 
         except SecurityError as e:
