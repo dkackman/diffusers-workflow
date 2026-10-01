@@ -101,7 +101,7 @@ class TestDissolveVideos:
         assert str(raised.value).startswith(
             "dissolve_videos: 'video 1' has audio with no sample rate"
         )
-        assert "audio_sample_rate" in str(raised.value)
+        assert "through an output: reference" in str(raised.value)
 
     def test_a_pinned_rate_still_refuses_an_unrated_track(self):
         from dw.events import RunContext, activate_context, deactivate_context

@@ -125,7 +125,7 @@ class TestConcatVideos:
         assert message.startswith(
             "concat_videos: 'video 1' has audio with no sample rate"
         )
-        assert "audio_sample_rate" in message
+        assert "join the saved file through an output: reference" in message
 
     def test_an_explicit_sample_rate_pins_the_target(self):
         videos = [audio_video(8, 1), audio_video(8, 2, sample_rate=200)]

@@ -84,8 +84,10 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
     for name, video, waveform in zip(names, videos, waveforms):
         if waveform is not None and not video.sample_rate:
             raise ValueError(
-                f"{command}: '{name}' has audio with no sample rate - set "
-                "'audio_sample_rate' in the result of the step that made it"
+                f"{command}: '{name}' has audio with no sample rate (the "
+                "pipeline that made it reported none) - save that step with "
+                "'audio_sample_rate' in its result and join the saved file "
+                "through an output: reference"
             )
     rates = [
         video.sample_rate
