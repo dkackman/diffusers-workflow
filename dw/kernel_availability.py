@@ -11,7 +11,7 @@ pipeline has already loaded its transformer and text encoder onto the GPU.
 ~88s of loading to learn what construction alone would have said in under
 two seconds (#178).
 
-The processor class is resolved exactly as `dw/pipeline_processors/pipeline.py`
+The processor class is resolved exactly as `dw/pipeline_processors/components.py`
 resolves it at run time - `load_type_from_name`, then a zero-argument
 construction, since every 'attn_processor_type' site (the top-level
 `unet`/`transformer` blocks and the generic per-component
@@ -56,7 +56,7 @@ def _attn_processor_locations(configuration):
     """Yield (path_suffix, value) for every 'attn_processor_type' string in
     one step's pipeline configuration - the top-level 'unet'/'transformer'
     blocks and any 'components' entry, matching every site
-    dw/pipeline_processors/pipeline.py constructs one from.
+    dw/pipeline_processors/components.py constructs one from.
     """
     if not isinstance(configuration, dict):
         return

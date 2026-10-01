@@ -351,7 +351,7 @@ class TestRemoteCodeIsGated:
 
     def test_load_component_refuses_before_touching_the_hub(self, monkeypatch):
         from unittest.mock import MagicMock
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         _untrust(monkeypatch)
         component_type = MagicMock()

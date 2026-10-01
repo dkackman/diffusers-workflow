@@ -76,7 +76,7 @@ bash ./install.sh
 
 ## Troubleshooting
 
-**Hugging Face authentication (401/403 downloading a model):** Most workflows under `workflows/` (Flux, LTX-2, MiniMax...) point at **gated** models on the Hub — repos that require the owner to approve your account before you can download them. A run against one of these fails with an actionable error naming the repo and `huggingface-cli login` (mapped from the Hub's 401/403 in `load_component()`, `dw/pipeline_processors/pipeline.py`) — request access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)) and then log in once, locally:
+**Hugging Face authentication (401/403 downloading a model):** Most workflows under `workflows/` (Flux, LTX-2, MiniMax...) point at **gated** models on the Hub — repos that require the owner to approve your account before you can download them. A run against one of these fails with an actionable error naming the repo and `huggingface-cli login` (mapped from the Hub's 401/403 in `load_component()`, `dw/pipeline_processors/components.py`) — request access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)) and then log in once, locally:
 
 ```bash
 huggingface-cli login

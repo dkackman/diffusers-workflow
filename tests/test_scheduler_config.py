@@ -9,7 +9,7 @@ recording what was asked of them.
 
 import pytest
 
-from dw.pipeline_processors.pipeline import load_and_configure_scheduler
+from dw.pipeline_processors.components import load_and_configure_scheduler
 
 
 class FakeScheduler:

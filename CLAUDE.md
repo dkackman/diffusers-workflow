@@ -244,7 +244,7 @@ Every device a workflow names passes through `resolve_device()`, which translate
 
 The same translation reaches the settings that carry a device or a CUDA-only feature, so a template written on the CUDA box runs unchanged on a Mac and a caller (an MCP agent included) never has to know the backend: SDNQ `quantization_device`/`return_device` go through `resolve_device()`, and `use_quantized_matmul(_conv)` is turned off on MPS, where it falls back to `torch._int_mm`, ~500x slower (`portable_quantization_arguments`, `config_objects.py`). Group-offload `use_stream`/`record_stream` are dropped when the onload device is not CUDA/XPU. `vram_estimate` checks against the serving device's own `cost` entries, else its `device_capacity_gb()` (Metal's recommended working set on a Mac), else every entry. `device_memory_stats()` reports real unified-memory figures on MPS. Each adaptation logs a warning, and torch's MPS CPU-fallback warning is let through the blanket `UserWarning` filter. `HF_ENABLE_PARALLEL_LOADING` defaults to off on macOS (`_parallel_loading_default`): diffusers' per-shard loader threads copying onto MPS at once segfaulted the LTX-2.5 SDNQ transformer load; it is chosen by platform because diffusers reads it at import, before dw can ask torch for a device.
 
-A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `pipeline.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
+A `components` entry can additionally set `residency: "on_demand"`, which rests the component on the CPU and wraps its `forward`/`encode`/`decode` to move it to the device around each call (`apply_on_demand_placement` in `dw/pipeline_processors/placement.py`). The wrappers use `functools.wraps` because callers introspect the signature — MiniMax H3's denoiser picks its arguments from `signature(transformer.forward)`. It is mutually exclusive with `group_offload` on the same component, and like `group_offload` it suppresses the wholesale `pipeline.to(device)` at load.
 
 Settings in `~/.diffusers_helper/settings.json` (`dw/settings.py`): `device`, `workspace`, `output_layout`, `public_url`, `enable_tf32`, `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename`.
 
@@ -317,7 +317,7 @@ same reason - default setup cannot load a pack.
 - **Cartesian product explosion** — multiple `previous_result` references multiply: 4 images × 3 masks = 12 iterations
 - **Component sharing requires exact key matching** between `shared_components` and `reused_components`
 - **Built-in workflows** need explicit argument mapping: `"prompt": "variable:prompt"`
-- **MPS differences from CUDA**: no bitsandbytes, no flash_attn, no triton, no torch.compile (`torch.autocast("mps")` works on torch 2.14, but dw does not use it). Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
+- **MPS differences from CUDA**: no bitsandbytes, no flash_attn, no triton, no torch.compile (`torch.autocast("mps")` works on torch 2.14, but dw does not use it). Model offloading has less benefit on unified memory, and `"offload": "sequential"` is downgraded to `"model"` with a warning there (`place_component`, `dw/pipeline_processors/placement.py`) — per-submodule streaming hands back no residency when the CPU and the accelerator share one pool. `exclude_from_cpu_offload` is sequential-only and does not survive the downgrade.
 - **`{}`-escaped strings** in JSON arguments: `"{nf4}"` stays as string `"nf4"`, without braces it would try to load as a type
 - **A stored prompt's `text` may not begin with a reference prefix** (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) — the engine rejects it to prevent double resolution or iteration expansion
 - **Audio+video muxing**: pipelines that generate audio alongside video (LTX-2) have the two muxed into one `video/mp4` file with PyAV in `result.py`
@@ -520,7 +520,7 @@ same reason - default setup cannot load a pack.
 - **A null `model_name` switches a lora off** — a template's `loras` list
   is fixed JSON, so the way a caller drops its adapter is to pass the
   variable behind `model_name` as `null` (H3: `lora_model_name`).
-  `load_loras` skips the entry, `active_loras` (`dw/pipeline_processors/pipeline.py`)
+  `load_loras` skips the entry, `active_loras` (`dw/pipeline_processors/adapters.py`)
   keeps placement from deferring for it, and `adapter_warnings`/`warn_adapters`
   (`dw/adapter_compatibility.py`, kind `lora_disabled`) say so at the path
   the caller wrote, since a turbo lora's step count and shift no longer fit.

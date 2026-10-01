@@ -8,7 +8,8 @@ import torch
 
 import dw
 from dw.pipeline_processors.config_objects import get_group_offload_configuration
-from dw.pipeline_processors.pipeline import Pipeline, configure_components
+from dw.pipeline_processors.components import configure_components
+from dw.pipeline_processors.pipeline import Pipeline
 from dw.tasks.task import Task
 
 
@@ -71,7 +72,7 @@ class TestPlacement:
     def test_a_components_device_is_translated_before_it_is_placed(
         self, cuda_is_missing
     ):
-        from dw.pipeline_processors.pipeline import place_component
+        from dw.pipeline_processors.placement import place_component
 
         class FakeComponent:
             def __init__(self):
@@ -93,7 +94,7 @@ class TestPlacement:
         # workflow landing on MPS has to be seen as MPS by the time it is placed
         import logging
 
-        from dw.pipeline_processors.pipeline import place_component
+        from dw.pipeline_processors.placement import place_component
 
         class FakeComponent:
             def __init__(self):

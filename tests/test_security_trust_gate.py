@@ -229,7 +229,7 @@ class TestUntrustedRefusesBeforeImport:
         """Neither goes through our importlib, so the proof is that
         from_pretrained - the thing that would fetch and import - is never
         called, and no socket is opened."""
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         if extra.get("custom_pipeline") == "PROBE_PATH":
             # a local custom pipeline is a .py diffusers would import
@@ -472,7 +472,7 @@ class TestTrustedLetsEachSurfaceThrough:
         [{"trust_remote_code": True}, {"custom_pipeline": "someone/pipeline"}],
     )
     def test_remote_code_arguments_reach_from_pretrained(self, trusted, extra):
-        from dw.pipeline_processors.pipeline import load_component
+        from dw.pipeline_processors.components import load_component
 
         component_type = MagicMock()
         component_type.__name__ = "ProbePipeline"

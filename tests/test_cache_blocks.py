@@ -249,7 +249,7 @@ def test_cache_state_needs_a_context():
 
 
 def test_cache_context_supplies_state():
-    from dw.pipeline_processors.pipeline import stateful_cache_context
+    from dw.pipeline_processors.components import stateful_cache_context
 
     model = _cached_tiny_model()
     manager = _state_manager(model)
@@ -260,7 +260,7 @@ def test_cache_context_supplies_state():
 
 def test_cache_state_does_not_leak_between_runs():
     """A pipeline this process keeps loaded must not reuse the last run's residuals."""
-    from dw.pipeline_processors.pipeline import stateful_cache_context
+    from dw.pipeline_processors.components import stateful_cache_context
 
     model = _cached_tiny_model()
     manager = _state_manager(model)
@@ -280,7 +280,7 @@ def test_cache_context_clears_after_an_error():
     any context was ever set) rather than via the state manager's private
     context attribute, whose name is diffusers' own implementation detail.
     """
-    from dw.pipeline_processors.pipeline import stateful_cache_context
+    from dw.pipeline_processors.components import stateful_cache_context
 
     model = _cached_tiny_model()
     manager = _state_manager(model)
@@ -296,7 +296,7 @@ def test_cache_context_clears_after_an_error():
 @pytest.mark.parametrize("transformer", [None, object()])
 def test_cache_context_is_a_noop_without_caching(transformer):
     """Pipelines with no transformer, or an uncached one, pass straight through."""
-    from dw.pipeline_processors.pipeline import stateful_cache_context
+    from dw.pipeline_processors.components import stateful_cache_context
 
     with stateful_cache_context(_FakePipeline(transformer)):
         pass
@@ -344,7 +344,7 @@ class _DualStreamBlock(torch.nn.Module):
 
 class _DualStreamModel(torch.nn.Module, diffusers.CacheMixin):
     """Mixes in CacheMixin so `cache_context` is the same public method
-    dw.pipeline_processors.pipeline.stateful_cache_context calls in production,
+    dw.pipeline_processors.components.stateful_cache_context calls in production,
     rather than a test-only stand-in for it.
     """
 
