@@ -319,6 +319,17 @@ def _assignment(node):
     return (target.id if isinstance(target, ast.Name) else None), value
 
 
+def _ends_with_prefix(text, prefixes):
+    """True when `text` ends with a whole prefix: `" as asset:"` does,
+    `"_output:"` (the tail of some other word) does not."""
+    for prefix in prefixes:
+        if text.endswith(prefix):
+            before = text[: -len(prefix)][-1:]
+            if not (before.isalnum() or before == "_"):
+                return True
+    return False
+
+
 def prefix_handling_sites(tree, constants, prefixes):
     """Every hand-written handling of a reference prefix in one parsed module,
     as (line, form) with form one of "a".."e"."""
@@ -381,7 +392,7 @@ def prefix_handling_sites(tree, constants, prefixes):
         ):
             text = node.value
             if any(text.startswith(p) and len(text) > len(p) for p in prefixes) or (
-                id(node) in fragments and text.endswith(tuple(prefixes))
+                id(node) in fragments and _ends_with_prefix(text, prefixes)
             ):
                 found.append((node.lineno, "e"))
     return found

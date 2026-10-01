@@ -244,3 +244,18 @@ def test_an_fstring_fragment_ending_in_a_prefix_is_counted(tmp_path):
         )
     )
     assert metrics["prefix_handling"] == 1
+
+
+def test_a_fragment_ending_in_a_word_that_merely_ends_like_a_prefix_is_not_counted(
+    tmp_path,
+):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/a.py": 'M = f"{x}_output:{y}"\nN = f"{x} audio_item:{y}"\n'
+                'K = f"kept as asset:{y}"\n'
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 1
