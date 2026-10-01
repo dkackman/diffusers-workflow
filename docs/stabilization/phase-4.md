@@ -317,7 +317,7 @@ Work on branch `stabilization/phase-4b` in the worktree, from `develop` at `4bb9
 - **Preflight runs the same check, and formats what CI formats.**
   - It gains a `run_step "architecture ratchet"` step.
   - `ruff format` / `ruff check --fix` move from `.` to `dw dw_mcp tests scripts`, so preflight stops rewriting the docs' code blocks. CI's own format and lint steps gain `scripts` to match.
-- **`baseline.json` stays at `docs/stabilization/baseline.json`.** Moving it after the freeze would break the harness's stage B, which reads it by that path. 4d may revisit, with stage C.
+- **`baseline.json` stays at `docs/stabilization/baseline.json`.** dw's CI reads it by that path, and from stage C on so does the harness's waiver check. Moving it later means moving both.
 
 ### Review Focus (4b)
 
@@ -504,7 +504,7 @@ The gate, in this order. The first step waits on Don.
 
 ### Task 2: Lift the freeze
 
-- [ ] **Step 1:** On `develop`, delete `docs/stabilization/FREEZE`, empty `hot-zone.txt` to its header comment (the file stays: stage C reads it for later refactors), and push. Then confirm in one harness session that `features_pass` runs.
+- [ ] **Step 1:** On `develop`, delete `docs/stabilization/FREEZE` and push. `hot-zone.txt` keeps `scripts/arch_metrics.py` permanently, because the harness must not edit its own ruler, and drops `docs/stabilization/`. The file stays: stage C reads it for later refactors. Don confirms that the harness's next pass runs `features_pass` and that the unpark pass ran.
 
 ### Task 3: The gate report and tag
 
@@ -513,7 +513,7 @@ The gate, in this order. The first step waits on Don.
   - the release notes collected under `### 0.7.0`;
   - LCOM4 (`Workflow` now 1);
   - the CLAUDE.md numbers per file;
-  - the candidate checks Task 4 of 4c listed for the kept gotchas;
+  - the candidate checks for the kept gotchas (from 4c Task 4's report, "Step 2: candidate checks");
   - the six seam-map rules marked "—" (nothing enforces them), as follow-ups.
 - [ ] **Step 2:** Re-baseline (`--write`); the diff against 4c's is nothing, or only decreases.
 - [ ] **Step 3:** Tag `stabilization-gate-4` on `develop`, and push the tag.
@@ -525,7 +525,7 @@ The gate, in this order. The first step waits on Don.
   - `templates/ltx2/two-stage`, cold, plus the B2 cached rerun;
   - the inline `for_each` workflow over a `prompt:` and an `asset:`.
 
-  It also runs one catalog template that uses `concat_videos` (4a changed its rule; `dialogue-short` or `assemble-and-score`), and measures the `for_each` run's memory against gate 3. That measurement is where the ruled-out leaf sharing would show its cost (Decisions (4a)).
+  It also runs one catalog template that uses `concat_videos` (4a changed its rule; `dialogue-short` or `assemble-and-score`). The `for_each` run's time is compared with gate 3's (16.0 s cold), and its memory (`memory_status` before and after) is recorded as the first baseline for the ruled-out leaf sharing (Decisions (4a)). Gate 3 recorded no memory.
 
 ### Task 5: Close Phase 4
 

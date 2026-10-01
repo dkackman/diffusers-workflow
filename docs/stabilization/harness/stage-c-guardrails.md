@@ -27,14 +27,22 @@ without the freeze. Requirements:
    become independent of FREEZE and stay on for as long as the file they
    read exists on `origin/develop`:
    - the hot-zone refusal (stage A), driven by `docs/stabilization/hot-zone.txt`.
-     dw keeps using it for the files a refactor is restructuring;
+     dw keeps using it for the files a refactor is restructuring. From now on
+     read it from `origin/develop` (as stage B reads the metrics script), not
+     from the session's commit: a session branched before a hot zone went
+     live must still see it;
    - the metrics ratchet (stage B);
    - the new-module rule (item 2).
 
    Keep the one-helper rule: the driver and `guard.py` read each switch
    through the shared helper. Do not copy a check.
 
-2. **New-module approval replaces the new-file refusal.** After the freeze,
+2. **New-module approval replaces the new-file refusal.** This reverses stage
+   B's rule 4 ("there is no label that waives the ratchet") on purpose: after
+   the freeze a planned new module has to be possible, and an approved rise
+   is how. Stage B's merge-base comparison stays the detector. This stage
+   adds a check of the waiver's paperwork, and only that check reads
+   `baseline.json`, which stage B deliberately never read. After the freeze,
    new workflows, prompts, templates and plugin skills are ordinary feature
    work, so the stage A refusal for new files under `workflows/`, `prompts/`
    and `plugins/` ends with FREEZE. A new Python module under `dw/` or
@@ -46,10 +54,9 @@ without the freeze. Requirements:
      and the commit that raises it names the rise and why in its message.
    - Without the label, the refusal stands, worded as now: name the metric
      and both values, say what to do, and park the issue for Don.
-   - dw's CI checks every push against `baseline.json`
-     (`scripts/arch_metrics.py --check`), so a session that raises the
-     baseline without the label is caught at hand-off here, and at the
-     latest on CI.
+   - dw's CI (`scripts/arch_metrics.py --check`) passes once `baseline.json`
+     matches, and it knows nothing about labels. This hook is the only
+     check that ties a raise to the label.
 
 3. **An architecture review on every hand-off that touches `dw/` or
    `dw_mcp/`.** Use the reviewer role that already exists; do not add one.
@@ -84,7 +91,19 @@ without the freeze. Requirements:
    - It files nothing when nothing moved, and it does not fix anything:
      consolidation is designed, not drive-by.
 
-5. **Prompts: pointers, not prose.** At most five lines in total across the
+   `arch-approved` now covers three things: stage A's new-file waiver while a
+   freeze is on, the ratchet-rise waiver (item 2) and the review override
+   (item 3). For all three, only Don may add it.
+
+5. **Unpark what the freeze parked.** Stage A parked mid-build features with
+   `stabilization` and `owner:don`, to resume when the freeze lifted. When
+   FREEZE is gone, the lead lists the open issues carrying `stabilization`.
+   For each, it either drops the label and restores the owner it had before
+   (from the issue's label history), or leaves it with Don with a one-line
+   comment saying why. It does this once, and reports the list in its
+   summary.
+
+6. **Prompts: pointers, not prose.** At most five lines in total across the
    role prompts:
    - the implementer is told the ratchet, the new-module rule and the
      architecture review exist, and names the hook and the map;
@@ -95,7 +114,7 @@ without the freeze. Requirements:
    Remove the freeze-only lines stage A added once they no longer apply.
    Do not restate rules the hooks enforce.
 
-6. **Tests,** beside the existing guard tests:
+7. **Tests,** beside the existing guard tests:
    - FREEZE absent: features resume; the hot-zone and ratchet refusals still
      fire;
    - a new `dw/` module refused without `arch-approved`;
@@ -104,12 +123,14 @@ without the freeze. Requirements:
    - a new `workflows/` template allowed after FREEZE is gone;
    - the reviewer's checklist loaded from a fixture `ARCHITECTURE.md`,
      never inlined;
-   - the curator's cadence filing nothing on a quiet fixture report.
+   - the curator's cadence filing nothing on a quiet fixture report;
+   - the hot zone read from `origin/develop`, not the session's commit;
+   - the unpark pass restoring a parked issue's previous owner.
 
    Use small fixture trees, never the real dw repository. Run the harness
    test suite.
 
-7. **Size discipline.** No new document. One `HARNESS-ROADMAP.md` entry of
+8. **Size discipline.** No new document. One `HARNESS-ROADMAP.md` entry of
    10 lines or fewer, recording that stage C replaced the freeze gates. Do
    not grow `CLAUDE.md` by more than three lines.
 
@@ -117,6 +138,7 @@ Finish with a summary covering:
 - every file changed;
 - which gates stay on without FREEZE and which end with it;
 - how `arch-approved` and the baseline raise are checked together;
+- the issues the unpark pass touched;
 - the test results;
 - anything that would still let a second owner or an unapproved module
   reach `develop`.
