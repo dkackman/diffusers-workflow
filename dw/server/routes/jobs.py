@@ -84,6 +84,16 @@ def _historical_log_note(stored):
     return None
 
 
+def internal_error(message):
+    """Log the exception being handled with its traceback and return the
+    500 that answers it: the detail is the category, never the message,
+    which can carry a path or a value. Raised from inside an except block."""
+    logger.exception(message)
+    return HTTPException(
+        status_code=500, detail="internal error - the server log has the detail"
+    )
+
+
 @router.post("/api/jobs", status_code=201)
 def submit_job(
     http_request: Request,
@@ -130,6 +140,15 @@ def submit_job(
             check_bound_acknowledgement(
                 admission.plan, request.acknowledged_cost, workspace
             )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # workflow_from_file / validate / the security layer all raise for
+        # bad requests - everything up to here is the client's fault
+        raise HTTPException(status_code=400, detail=str(e))
+    # Admission succeeded: from here a failure is the server's, not the
+    # request's, and its message may carry internals - the log keeps it
+    try:
         job = manager.submit(
             # The Workflow admission built and checked - what the job
             # runs, whatever happens to the file while it waits
@@ -157,13 +176,9 @@ def submit_job(
             # The job carries every warning validate would have answered
             warnings=admission.warnings,
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # workflow_from_file / validate / the security layer all raise for
-        # bad requests - every failure here is the client's fault
-        raise HTTPException(status_code=400, detail=str(e))
-    return manager.describe(job)
+        return manager.describe(job)
+    except Exception:
+        raise internal_error("Job submission failed after admission")
 
 
 @router.get("/api/jobs")
@@ -296,6 +311,12 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             check_bound_acknowledgement(
                 admission.plan, body.acknowledged_cost, workspace
             )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Admission succeeded: a failure from here is the server's (see submit_job)
+    try:
         job = manager.rerun(
             job_id,
             acknowledged=form,
@@ -307,13 +328,13 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             arguments=arguments,
             admitted=admission.workflow,
         )
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        return manager.describe(job)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if job is None:
-        raise HTTPException(status_code=404, detail="Unknown job")
-    return manager.describe(job)
+    except Exception:
+        raise internal_error("Job rerun failed after admission")
 
 
 @router.post("/api/jobs/{job_id}/export", status_code=201)
@@ -661,8 +682,8 @@ def validate_workflow(
         # Not the schema's verdict on the workflow - validation_errors()
         # reports that by returning it. It is the validator itself
         # failing, and its message could carry internals, so the log
-        # keeps the detail and the client is told the category
-        logger.exception("Workflow could not be validated")
+        # keeps the detail (admission logged it) and the client is told the
+        # category
         detail = "The workflow could not be validated - the server log has the detail"
         return {
             "valid": False,

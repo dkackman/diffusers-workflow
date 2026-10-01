@@ -221,15 +221,21 @@ class JobManager:
     def definition(self, job_id):
         """The workflow JSON a job ran, for a read-only view of it.
 
-        An inline definition comes straight from the spec; a job launched
-        from a path is re-read from disk, confined to the root the job ran
-        against. None when there is no such job, or when the file it named
-        has since moved, grown past the size limit or stopped parsing - a
+        A live job answers from the snapshot admission checked, so the file
+        moving, growing or breaking after submit changes nothing. A restored
+        job has no snapshot (it is not persisted): an inline definition
+        comes straight from the spec, and one launched from a path is
+        re-read from disk, confined to the root the job ran against. None
+        when there is no such job, or when the file it named has since
+        moved, grown past the size limit or stopped parsing - a
         graph of the run is a nicety, never a reason to fail the page.
         """
         job = self.jobs.get(job_id)
         if job is not None:
             spec = job.spec
+            snapshot = spec.get("definition")
+            if snapshot is not None:
+                return copy.deepcopy(snapshot)
         else:
             historical = self.history.get(job_id)
             if historical is None:

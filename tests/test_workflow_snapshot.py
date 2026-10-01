@@ -28,10 +28,15 @@ TEMPLATES = sorted(
     "path", TEMPLATES, ids=[os.path.relpath(p, WORKFLOWS) for p in TEMPLATES]
 )
 def test_a_snapshot_is_the_workflow_its_file_makes(path, tmp_path):
-    loaded = workflow_from_file(path, str(tmp_path), WORKFLOWS)
+    # Two independent reads of the one file: the snapshot is built from what
+    # the first recorded and compared with the second, so a snapshot that only
+    # echoes the instance it was built from cannot pass
+    admitted = workflow_from_file(path, str(tmp_path), WORKFLOWS)
     snapshot = workflow_from_snapshot(
-        loaded.workflow_definition, str(tmp_path), loaded.file_spec, WORKFLOWS
+        admitted.workflow_definition, str(tmp_path), admitted.file_spec, WORKFLOWS
     )
+    loaded = workflow_from_file(path, str(tmp_path), WORKFLOWS)
+    assert loaded is not admitted
 
     assert snapshot.workflow_definition == loaded.workflow_definition
     assert snapshot.file_spec == loaded.file_spec
@@ -79,3 +84,18 @@ def test_a_snapshot_never_opens_its_file(tmp_path):
 
     assert workflow.workflow_definition == definition
     assert workflow.file_spec == str(root / "gone.json")
+
+
+def test_a_relative_file_spec_is_made_absolute_without_a_workflow_dir(
+    tmp_path, monkeypatch
+):
+    """With a workflow_dir the file_spec is confined; with none it is still
+    normalized, so every name derived from it matches admission's."""
+    monkeypatch.chdir(tmp_path)
+
+    workflow = workflow_from_snapshot(
+        {"id": "relative", "steps": []}, str(tmp_path / "outputs"), "wf/relative.json"
+    )
+
+    assert workflow.file_spec == os.path.abspath("wf/relative.json")
+    assert os.path.isabs(workflow.file_spec)

@@ -530,13 +530,15 @@ def test_job_workflow_404s_for_an_unknown_job(server):
         assert client.get("/api/jobs/nosuchjob/workflow").status_code == 404
 
 
-def test_job_workflow_404s_when_the_file_is_gone(server, tmp_path):
-    """The graph is a nicety: a workflow file deleted since the run leaves
-    the job itself readable, just without a definition to draw."""
+def test_job_workflow_of_a_live_job_survives_its_file_going(server, tmp_path):
+    """A live job answers from the snapshot it was admitted with, so a file
+    deleted since submit changes nothing about the graph."""
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
         os.remove(str(tmp_path / "workflows" / "Basic.json"))
-        assert client.get(f"/api/jobs/{job['id']}/workflow").status_code == 404
+        response = client.get(f"/api/jobs/{job['id']}/workflow")
+        assert response.status_code == 200
+        assert response.json()["definition"]["id"] == "basic"
         assert client.get(f"/api/jobs/{job['id']}").status_code == 200
 
 
@@ -6059,3 +6061,105 @@ class TestDetailCachePruning:
         ):
             catalog_module._prune_missing(cache)
         assert cache == {}
+
+
+INTERNAL_ERROR = "internal error - the server log has the detail"
+
+
+def test_a_refusal_during_admission_stays_a_400_for_submit_and_rerun(
+    server, monkeypatch
+):
+    """Everything up to and including admission is the client's request being
+    refused - B10 only moves what comes after it."""
+    from dw.security import SecurityError
+    from dw.server.routes import jobs as jobs_routes
+
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+
+        def refuse(*args, **kwargs):
+            raise SecurityError("path escapes the workspace")
+
+        monkeypatch.setattr(jobs_routes, "admit_for", refuse)
+
+        submitted = client.post("/api/jobs", json={"workflow": valid_workflow()})
+        rerun = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert submitted.status_code == 400
+    assert submitted.json()["detail"] == "path escapes the workspace"
+    assert rerun.status_code == 400
+    assert rerun.json()["detail"] == "path escapes the workspace"
+
+
+def test_a_failure_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("queue exploded")
+
+        monkeypatch.setattr(manager, "submit", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/jobs", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "queue exploded" not in response.text
+    assert "queue exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_rerun_failing_after_admission_is_a_500_that_logs_its_traceback(
+    server, monkeypatch, caplog
+):
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("rerun exploded")
+
+        monkeypatch.setattr(manager, "rerun", explode)
+        with caplog.at_level(logging.ERROR):
+            response = client.post(f"/api/jobs/{first['id']}/rerun")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == INTERNAL_ERROR
+    assert "rerun exploded" not in response.text
+    assert "rerun exploded" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_a_path_job_definition_is_the_file_the_route_admitted(server, tmp_path):
+    """definition() answers from the snapshot admission built, which has to be
+    the JSON of the file it was built from."""
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow_path": "Basic"}).json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        definition = client.app.state.job_manager.definition(job["id"])
+
+    assert definition == json.loads((tmp_path / "workflows" / "Basic.json").read_text())
+
+
+def test_a_validator_failure_is_logged_once_by_the_validate_route(
+    server, monkeypatch, caplog
+):
+    """admit() logs the failure with its traceback; the route only answers."""
+    import dw.workflow
+
+    def raise_boom(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dw.workflow.Workflow, "validation_errors", raise_boom)
+
+    with server(success_script) as client:
+        with caplog.at_level(logging.ERROR):
+            response = client.post("/api/validate", json={"workflow": valid_workflow()})
+
+    assert response.status_code == 200
+    records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(records) == 1, [r.getMessage() for r in records]
