@@ -16,7 +16,7 @@ when a release ships.
 - A run that fails before it opens its run directory no longer rewrites the previous run's `manifest.json` when the same workflow instance is reused: `Workflow.run` resets the directory and version it carried.
 - The per-variant lines of a kernels "Cannot find a build variant" error are sorted by dw (`kernel_availability.stable_message`), so the message no longer varies by process.
 - The `argument_template` schema description now says what the code does: handed arguments are held on the child at run time, never written into the definition, and an authored value is the fallback.
-- `gain_audio` rounds a frame-addressed region's end once, as `slice_audio` does, so a region can no longer end one sample short of the matching slice.
+- `gain_audio` rounds a frame-addressed region's end once, as `slice_audio` does, so a region's end can no longer be one sample off the matching slice's.
 - `concat_videos` refuses a track with no sample rate (`concat_videos: '<name>' has audio with no sample rate`) instead of joining it unresampled at the wrong speed and pitch; `dissolve_videos` gives the same message in place of the resample error. Save that step with `audio_sample_rate` in its result and join the saved file through an `output:` reference. An unpinned `dissolve_videos` with such a track now raises this `ValueError` rather than a `TypeError`.
 
 ### 0.6.0

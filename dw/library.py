@@ -81,8 +81,7 @@ def catalog_root(directory):
 
     The root a run with no workflow_dir of its own confines a relative
     sub-workflow reference to, so a template under templates/ can still climb
-    to a sibling models/ without leaving the catalog. `catalog_root_dir`
-    (below) is this rule asked for a file rather than a directory.
+    to a sibling models/ without leaving the catalog.
     """
     directory = os.path.normpath(os.path.abspath(directory))
     parts = directory.split(os.sep)
@@ -116,20 +115,6 @@ def workflow_output_subfolder(file_spec):
         return ""
 
     return os.path.join(*parts[index + 1 :]) if index + 1 < len(parts) else ""
-
-
-def catalog_root_dir(file_spec):
-    """The nearest ancestor directory literally named 'workflows' of
-    file_spec, else file_spec's own directory.
-
-    Used to confine a relative sub-workflow reference when a run carries no
-    workflow_dir of its own (an unconfined CLI run) - the same "last
-    'workflows' segment" rule workflow_output_subfolder uses for output
-    naming, but returning the directory itself rather than what sits under
-    it. It is `catalog_root` asked for a file rather than a directory, so
-    the resolver (resolve_sub_workflow) confines to exactly this root.
-    """
-    return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
 class LibraryRoot:

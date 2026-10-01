@@ -214,7 +214,7 @@ def catalog_validation(root):
     """`validation_errors()` and the warning checks that need no server state
     (no `ceiling_index`, no observed costs) for every JSON under `workflows/`
     and `dw/workflows/`. Keyed by repo-relative path. A same-machine
-    comparison: `validation_context` reads the device. A file that will not
+    comparison: `workflow_context` reads the device. A file that will not
     load, or a check that raises, is recorded as its error string."""
     repo = Path(__file__).resolve().parent.parent
     files = sorted(
