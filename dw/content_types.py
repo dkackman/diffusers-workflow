@@ -178,6 +178,7 @@ __all__ = [
     "REFUSED_ACTIVE_CONTENT_TYPES",
     "content_type_errors",
     "content_type_fault",
+    "guess_extension",
     "refuse_active_content_type",
 ]
 
