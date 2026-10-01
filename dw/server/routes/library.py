@@ -52,7 +52,7 @@ from ..catalog import (
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     observed_for_name,
-    prompt_roots,
+    prompt_library,
     selected_workspace,
     sources_for,
     workspace_root,
@@ -475,19 +475,17 @@ def _find_prompt(state, name):
     """(path, writable) for the first root on the search path that holds
     this name. 404s when no root does, the way resolve_prompt_name does
     for a name that cannot be referenced at all."""
-    for index, root in enumerate(prompt_roots(state)):
-        try:
-            # allow_create so a name that is simply absent from this root
-            # is a miss to carry on from, rather than a 404 raised out of
-            # the middle of the search
-            path = resolve_prompt_name(root, name, allow_create=True)
-        except HTTPException as error:
-            # a name no workflow could reference is a miss too, not the
-            # 400 a save would get for it
-            raise HTTPException(status_code=404, detail=error.detail)
-        if os.path.isfile(path):
-            return path, index == 0
-    raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+    # a name no workflow could reference is a miss, not the 400 a save
+    # would get for it
+    try:
+        validate_prompt_reference(name.removesuffix(".json"))
+    except InvalidInputError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    found = prompt_library(state).find(name.removesuffix(".json"))
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+    path, root = found
+    return path, root.writable
 
 
 @router.get("/api/prompts")
@@ -500,14 +498,14 @@ def list_prompts(
     state = request.app.state
     # A stray file too deep or oddly named can sit in the directory, but
     # no workflow could reference it - listing it would only invite that
-    paths = {}
-    origins = {}
-    roots = prompt_roots(state)
-    for index, root in enumerate(roots):
-        for name in workflow_names(root):
-            if referenceable(name) and name not in paths:
-                paths[name] = os.path.join(root, f"{name}.json")
-                origins[name] = WORKSPACE_ORIGIN if index == 0 else EXAMPLES_ORIGIN
+    library = prompt_library(state)
+    winners, _shadowed = library.entries(
+        lambda root: [name for name in workflow_names(root) if referenceable(name)]
+    )
+    paths = {
+        name: os.path.join(root.root, f"{name}.json") for name, root in winners.items()
+    }
+    origins = {name: root.origin for name, root in winners.items()}
     details = prompt_details(paths)
 
     # Narrowing happens after the details are read, since that is where a
@@ -540,7 +538,7 @@ def list_prompts(
         # The writable library, unchanged: what a save is written to,
         # and what a client that predates the search path expects
         "prompt_dir": state.prompt_dir,
-        "prompt_dirs": roots,
+        "prompt_dirs": [root.root for root in library.roots()],
         "prompts": sorted(details),
         "origins": origins,
         "details": details,

@@ -21,6 +21,13 @@ from starlette.background import BackgroundTask
 
 from .. import settings
 from ..assets import ASSET_PREFIX
+from ..library import (
+    ASSETS_KIND,
+    WORKSPACE_ORIGIN,
+    LibraryPath,
+    LibraryRoot,
+    library_path,
+)
 from ..runs import OUTPUT_PREFIX, is_output_reference, run_versions, split_run_path
 from ..security import (
     ALLOWED_AUDIO_EXTENSIONS,
@@ -73,25 +80,25 @@ def common_assets(ws):
     return getattr(ws, "common_assets", None)
 
 
-def asset_roots(state, ws):
+def asset_library(state, ws, primary=None):
     """The asset search path of one workspace: its own library, then the
     one shared by every workspace under this root, then the read-only
-    ones an --examples-dir tree brought with it. The same order 'asset:'
-    resolves in (dw/assets.asset_search_path), so what the browser lists
-    is what a job would load."""
-    roots = []
-    for root in [ws.assets, common_assets(ws), *state.example_asset_dirs]:
-        if not root:
-            continue
-        root = os.path.abspath(root)
-        if root not in roots and os.path.isdir(root):
-            roots.append(root)
-    return roots
+    ones an --examples-dir tree brought with it. The same path the worker
+    resolves 'asset:' over (`library_path_from_env`), so what the browser
+    lists is what a job would load.
+
+    `primary` names the front when it is not the workspace's own - the
+    directory a job actually ran against. Roots that are not directories
+    yet are left off: there is nothing there to list or serve.
+    """
+    return library_path(
+        ASSETS_KIND, ws, state.examples_dirs, primary=primary
+    ).existing()
 
 
-def resolution_roots(state, ws):
-    """`asset_roots(state, ws)`, falling back to the workspace's own (possibly
-    nonexistent) library when the search path is empty.
+def resolution_library(state, ws):
+    """`asset_library(state, ws)`, falling back to the workspace's own
+    (possibly nonexistent) library when the search path is empty.
 
     A caller resolving a name still needs *somewhere* to fail against:
     with no root at all the 404 would name no directory, leaving the
@@ -100,44 +107,34 @@ def resolution_roots(state, ws):
     thinks they're working in, even when that library hasn't been
     created yet.
 
-    Never `[None]`: a server configured with no asset library at all has
-    nothing to point at either, and `_asset_in` turns the resulting empty
-    list into the "no asset library" 404 rather than joining `None`.
+    A server configured with no asset library at all has nothing to point
+    at either, and `asset_in` turns the resulting empty path into the "no
+    asset library" 404.
     """
-    roots = asset_roots(state, ws)
-    if roots:
-        return roots
-    return [os.path.abspath(ws.assets)] if ws.assets else []
+    library = asset_library(state, ws)
+    if library.roots() or not ws.assets:
+        return library
+    return LibraryPath(ASSETS_KIND, [LibraryRoot(ws.assets, WORKSPACE_ORIGIN, True)])
 
 
-def asset_roots_for_job(state, job_id, ws):
+def asset_library_for_job(state, job_id, ws):
     """The asset search path a job's own run used, for export: its spec's
-    `asset_dir` (or the historical row's), then the read-only example
-    libraries an --examples-dir tree brought with it - the same shape
-    `asset_roots` builds for the selected workspace, but rooted at
-    wherever the job actually ran rather than at the workspace the
-    caller happens to be scoped to now. A job that ran in one workspace
-    while the caller exports it scoped to another must still find its
-    own 'asset:' files, not the other workspace's.
+    `asset_dir` (or the historical row's), then the shared and read-only
+    example libraries - the same path `asset_library` builds for the
+    selected workspace, but fronted by wherever the job actually ran
+    rather than by the workspace the caller happens to be scoped to now. A
+    job that ran in one workspace while the caller exports it scoped to
+    another must still find its own 'asset:' files, not the other
+    workspace's.
 
-    Falls back to `asset_roots(state, ws)` when the job carries no asset_dir
-    of its own - an inline-workflow job, or one recorded before this
-    field existed."""
+    Falls back to `asset_library(state, ws)` when the job carries no
+    asset_dir of its own - an inline-workflow job, or one recorded before
+    this field existed."""
     job = state.job_manager.get(job_id)
     if job is None:
-        return asset_roots(state, ws)
+        return asset_library(state, ws)
     spec = (job.get("spec") or {}) if isinstance(job, dict) else job.spec
-    asset_dir = spec.get("asset_dir")
-    if not asset_dir:
-        return asset_roots(state, ws)
-    roots = []
-    for root in [asset_dir, common_assets(ws), *state.example_asset_dirs]:
-        if not root:
-            continue
-        root = os.path.abspath(root)
-        if root not in roots and os.path.isdir(root):
-            roots.append(root)
-    return roots
+    return asset_library(state, ws, primary=spec.get("asset_dir"))
 
 
 def served_url(path, ws, version=None):
@@ -221,33 +218,23 @@ def resolve_output_file(state, name, root=None):
     return path
 
 
-def asset_in(name, roots):
-    """The file a bare asset name has in one of these roots, or a 404.
+def asset_in(name, library):
+    """The file a bare asset name has on this search path, or a 404.
 
-    `_asset_file` with the search path already in hand, for a caller
-    resolving many names against the one workspace: each call to
-    `resolve_asset_reference` walks the pinned fallbacks on its own, so
-    calling it once per root re-walked them all every time - the name is
-    validated once here instead, and each root is then just a join and
-    an isfile check.
+    `asset_file` with the path already in hand, for a caller resolving many
+    names against the one workspace: the path is built once rather than
+    once per name, and `find` confines each candidate to its own root - a
+    symlink that leaves it is a miss for that root, not a 500, and on a
+    total miss the same 404 every other miss gets.
     """
     try:
         validate_asset_reference(name)
     except SecurityError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    for root in roots:
-        candidate = os.path.join(root, name)
-        if not os.path.isfile(candidate):
-            continue
-        try:
-            return validate_path(candidate, root)
-        except SecurityError:
-            # A symlink under this root can still point outside it -
-            # isfile follows the link and says yes, and validate_path
-            # is what actually catches the escape. That's a miss for
-            # this root, not a 500: fall through to the next one and,
-            # on a total miss, the same 404 every other miss gets.
-            continue
+    found = library.find(name)
+    if found:
+        return found[0]
+    roots = [root.root for root in library.roots()]
     if not roots:
         detail = f"Unknown asset {name!r}: this workspace has no asset library"
     else:
@@ -259,14 +246,14 @@ def asset_file(state, reference, ws):
     """The file an 'asset:' reference names in this workspace, or a 404.
 
     Looked for down the same search path a run resolves 'asset:' in
-    (asset_roots), so what the API can read is what a job would load.
+    (`asset_library`), so what the API can read is what a job would load.
     A miss names every root that was searched, so the caller sees
     their own workspace library among them rather than just the last
     (often an examples directory they never wrote to).
     """
     return asset_in(
         reference.removeprefix(ASSET_PREFIX).strip(),
-        resolution_roots(state, ws),
+        resolution_library(state, ws),
     )
 
 

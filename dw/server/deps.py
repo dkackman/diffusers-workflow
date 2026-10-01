@@ -13,7 +13,7 @@ from fastapi import HTTPException, Request
 
 from ..security import SecurityError
 from ..vram_inheritance import build_index
-from ..library import library_path
+from ..library import PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
     Workspace,
@@ -49,7 +49,9 @@ def workspace_for(state, name):
         return state.default_workspace
     root = workspace_root(state)
     try:
-        selected = named_workspace(root, name)
+        # Prompts are shared by reference: a named workspace reads the one
+        # library this server was started with, wherever --prompt-dir put it
+        selected = named_workspace(root, name, prompts_root=state.prompt_dir)
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not _holds_a_workspace(selected.root):
@@ -101,17 +103,19 @@ def ceiling_index(state, ws):
     return index
 
 
-def prompt_roots(state):
+def prompt_library(state):
     """The prompt search path: the library this server writes to, then
     the read-only ones an --examples-dir tree brought with it. A name in
     an earlier root shadows the same name later, as on the workflow
-    search path."""
-    roots = [state.prompt_dir]
-    primary = os.path.abspath(state.prompt_dir)
-    for root in state.example_prompt_dirs:
-        if os.path.abspath(root) != primary:
-            roots.append(root)
-    return roots
+    search path. Shared by every workspace, so it names none. The server's
+    own library stays on the path before it exists - a save creates it -
+    while an examples tree's that is not a directory is dropped."""
+    return library_path(
+        PROMPTS_KIND,
+        state.default_workspace,
+        state.examples_dirs,
+        primary=state.prompt_dir,
+    )
 
 
 def observed_for_name(state, name, definition, arguments=None, *, workspace=None):

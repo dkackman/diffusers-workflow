@@ -100,7 +100,9 @@ def asset_search_path(asset_dir=None, base_dir=None):
     return [root.root for root in asset_library(asset_dir, base_dir).roots()]
 
 
-def resolve_asset_reference(reference, asset_dir=None, base_dir=None, exact=False):
+def resolve_asset_reference(
+    reference, asset_dir=None, base_dir=None, exact=False, library=None
+):
     """Resolve an 'asset:' reference to the file it names.
 
     Args:
@@ -110,6 +112,9 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None, exact=Fals
             asset directory is configured
         exact: Resolve against `asset_dir` alone rather than the whole
             search path (see asset_library)
+        library: The `LibraryPath` to resolve over, for a caller that holds
+            the search path itself (the server's, for a workspace); it
+            replaces `asset_dir`, `base_dir` and `exact`
 
     Returns:
         The validated absolute path of the asset file
@@ -121,7 +126,7 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None, exact=Fals
             the search path
     """
     name = validate_asset_reference(reference.removeprefix(ASSET_PREFIX).strip())
-    library = asset_library(asset_dir, base_dir, exact)
+    library = library or asset_library(asset_dir, base_dir, exact)
     # Confined to the library it was found in: the name is joined onto a
     # directory, so the containment check is what makes a name a name
     # rather than a path

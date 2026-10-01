@@ -663,3 +663,36 @@ class TestPromptRefusalIsNotAMissEither:
             resolve_prompt_reference(
                 "prompt:ghost", prompt_dir=str(library), exact=True
             )
+
+
+class TestExistingAndFrontless:
+    def test_existing_drops_the_roots_that_are_not_directories(self, tmp_path):
+        from dw.workspace import ConfiguredWorkspace
+
+        shared = tmp_path / "root" / "common" / "assets"
+        shared.mkdir(parents=True)
+        workspace = ConfiguredWorkspace(
+            workflows=None,
+            assets=str(tmp_path / "not-yet"),
+            outputs=str(tmp_path / "outputs"),
+            prompts=None,
+            root=str(tmp_path / "root"),
+        )
+        path = library_path("assets", workspace)
+        assert [r.root for r in path.roots()] == [
+            str(tmp_path / "not-yet"),
+            str(shared),
+        ]
+        assert [r.root for r in path.existing().roots()] == [str(shared)]
+
+    def test_a_workspace_with_no_asset_library_has_no_front(self, tmp_path):
+        from dw.workspace import ConfiguredWorkspace
+
+        workspace = ConfiguredWorkspace(
+            workflows=None,
+            assets=None,
+            outputs=str(tmp_path / "outputs"),
+            prompts=None,
+            root=None,
+        )
+        assert library_path("assets", workspace).roots() == []

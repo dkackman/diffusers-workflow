@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dw import assets, validation
+from dw.library import library_path
 from dw.server import admission as admission_module
 from dw.server.admission import admit
 from dw.server.app import create_app
@@ -397,8 +398,8 @@ def test_admit_answers_a_schema_failure_with_no_warnings(root):
         ceiling_index={},
         output_dir=root.outputs,
         workflow_dir=root.workflows,
-        asset_roots=[root.assets],
-        prompt_roots=[root.prompts],
+        asset_library=library_path("assets", root),
+        prompt_library=library_path("prompts", root),
     )
 
     assert not admission.ok
@@ -441,8 +442,8 @@ def test_admission_checks_content_type_against_the_callers_arguments(root):
             ceiling_index={},
             output_dir=root.outputs,
             workflow_dir=root.workflows,
-            asset_roots=[root.assets],
-            prompt_roots=[root.prompts],
+            asset_library=library_path("assets", root),
+            prompt_library=library_path("prompts", root),
         )
 
     assert admitted({"ct": "text/plain"}).ok
@@ -544,8 +545,8 @@ def test_a_failing_warning_source_logs_loudly_only_when_admissible(
             ceiling_index={},
             output_dir=root.outputs,
             workflow_dir=root.workflows,
-            asset_roots=[root.assets],
-            prompt_roots=[root.prompts],
+            asset_library=library_path("assets", root),
+            prompt_library=library_path("prompts", root),
         )
 
     assert admission.ok == (level == "ERROR")

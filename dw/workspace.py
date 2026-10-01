@@ -398,12 +398,14 @@ def workspace_names(workspace):
     return [DEFAULT_WORKSPACE_NAME] + names
 
 
-def named_workspace(workspace, name):
+def named_workspace(workspace, name, prompts_root=None):
     """One workspace under this root, by name.
 
     The default name resolves to the root's own workspace; any other name
-    resolves to '<root>/<name>', sharing the root's prompt library. The name
-    is validated before it is joined, so nothing here can leave the root.
+    resolves to '<root>/<name>', sharing the prompt library - the root's
+    `prompts/`, or `prompts_root` when a server was started with a
+    --prompt-dir of its own. The name is validated before it is joined, so
+    nothing here can leave the root.
     """
 
     if name is None or name == DEFAULT_WORKSPACE_NAME:
@@ -413,7 +415,7 @@ def named_workspace(workspace, name):
         os.path.join(workspace.root, name),
         workspace.source,
         name=name,
-        prompts_root=os.path.join(workspace.root, PROMPTS_SUBDIR),
+        prompts_root=prompts_root or os.path.join(workspace.root, PROMPTS_SUBDIR),
         common_root=os.path.join(workspace.root, COMMON_SUBDIR),
     )
 

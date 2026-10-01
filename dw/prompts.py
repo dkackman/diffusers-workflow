@@ -85,7 +85,9 @@ def prompt_search_path(prompt_dir=None, base_dir=None):
     return [root.root for root in prompt_library(prompt_dir, base_dir).roots()]
 
 
-def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, exact=False):
+def resolve_prompt_reference(
+    reference, prompt_dir=None, base_dir=None, exact=False, library=None
+):
     """Resolve a 'prompt:' reference to the file it names.
 
     Args:
@@ -95,6 +97,9 @@ def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, exact=Fa
             prompt directory is configured
         exact: Resolve against `prompt_dir` alone rather than the whole
             search path (see prompt_library)
+        library: The `LibraryPath` to resolve over, for a caller that holds
+            the search path itself (the server's); it replaces `prompt_dir`,
+            `base_dir` and `exact`
 
     Returns:
         The validated absolute path of the prompt file
@@ -105,7 +110,7 @@ def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, exact=Fa
             on the search path
     """
     name = validate_prompt_reference(reference.removeprefix(PROMPT_PREFIX).strip())
-    library = prompt_library(prompt_dir, base_dir, exact)
+    library = library or prompt_library(prompt_dir, base_dir, exact)
     found = library.find(name, refuse=True)
     if found:
         return found[0]

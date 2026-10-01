@@ -161,6 +161,14 @@ class LibraryPath:
         """The roots, in search order."""
         return list(self._roots)
 
+    def existing(self):
+        """This path without the roots that are not directories yet - the
+        front of a path is kept before a save creates it, and a client
+        listing or serving from the library has nothing to read there."""
+        return LibraryPath(
+            self.kind, [root for root in self._roots if os.path.isdir(root.root)]
+        )
+
     def __repr__(self):
         return f"LibraryPath({self.kind!r}, {list(self._roots)!r})"
 
@@ -291,10 +299,11 @@ def _assemble(kind, primary, candidates):
     `candidates` is `[(directory, origin, writable)]`. A candidate that is
     the front, or that an earlier candidate already named, is dropped, and so
     is one that is not a directory - the same for every library. The front is
-    kept whether or not it exists yet: a save creates it.
+    kept whether or not it exists yet: a save creates it. A front of None is
+    a server with no library of that kind: the path is the roots behind it.
     """
-    roots = [primary]
-    seen = {primary.root}
+    roots = [primary] if primary else []
+    seen = {primary.root} if primary else set()
     for directory, origin, writable in candidates:
         root = LibraryRoot(directory, origin, writable)
         if root.root in seen or not os.path.isdir(root.root):
@@ -349,7 +358,8 @@ def library_path(
     - appears once, writable, rather than twice with two different answers
     about whether it can be saved to. A root that is not a directory is
     dropped, for every kind; the writable front is kept whether or not it
-    exists yet.
+    exists yet; a workspace with no library of that kind (a server configured
+    folder by folder, with no asset directory) has no front at all.
 
     The packaged workflows are off the path by default. They are the pieces
     a 'builtin:' sub-workflow step names, resolved by the engine where that
@@ -364,7 +374,9 @@ def library_path(
 
     front = primary or _front_directory(kind, workspace)
     candidates = read_only_candidates(kind, workspace, examples_dirs, include_builtin)
-    return _assemble(kind, LibraryRoot(front, WORKSPACE_ORIGIN, True), candidates)
+    return _assemble(
+        kind, LibraryRoot(front, WORKSPACE_ORIGIN, True) if front else None, candidates
+    )
 
 
 def _pinned_roots(kind):

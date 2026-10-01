@@ -33,9 +33,9 @@ from ..runs import is_output_reference, resolve_output_reference
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .deps import ceiling_index, prompt_roots
+from .deps import ceiling_index, prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
-from .outputs import resolution_roots
+from .outputs import resolution_library
 
 logger = logging.getLogger("dw")
 
@@ -99,8 +99,8 @@ def admit(
     ceiling_index,
     output_dir,
     workflow_dir,
-    asset_roots,
-    prompt_roots,
+    asset_library,
+    prompt_library,
     supplied=True,
     plan_for=None,
 ):
@@ -111,7 +111,7 @@ def admit(
     plan (validate always; submit only for a bound acknowledgement) and only
     when the request is admissible.
 
-    `asset_roots` and `prompt_roots` are the search paths the workspace's
+    `asset_library` and `prompt_library` are the `LibraryPath`s the workspace's
     'asset:' and 'prompt:' references resolve over; `ceiling_index` is the
     catalog's VRAM ceilings for inherited_vram_warnings.
 
@@ -177,8 +177,8 @@ def admit(
                 definition,
                 arguments,
                 outputs=workspace.outputs,
-                asset_roots=asset_roots,
-                prompt_roots=prompt_roots,
+                asset_library=asset_library,
+                prompt_library=prompt_library,
             )
         except Exception as e:
             raise _validator_failure(e) from e
@@ -196,7 +196,7 @@ def admit(
 
 
 def argument_reference_errors(
-    definition, arguments, *, outputs, asset_roots, prompt_roots
+    definition, arguments, *, outputs, asset_library, prompt_library
 ):
     """The 'asset:', 'prompt:' and 'output:' references that name nothing
     this workspace can reach, in the values a run would actually use -
@@ -212,33 +212,12 @@ def argument_reference_errors(
     wrote the bad reference or merely didn't override one.
 
     Resolved through the engine's own resolvers over the roots this
-    workspace searches (`asset_roots`, `prompt_roots`, and its `outputs`),
+    workspace searches (`asset_library`, `prompt_library`, and its `outputs`),
     so validation agrees with what the run would find - an asset that
     exists in another workspace is a miss here for the same reason it would
     be a miss there. Only the reference is resolved, never loaded: the point
     is to answer before any bytes move.
     """
-
-    def over_roots(roots, resolve):
-        """Resolve against each root in turn, and on a total miss raise
-        the *first* root's error rather than the last.
-
-        The resolvers name the path they searched in their message, and
-        the first root is the workspace's own library plus the read-only
-        fallbacks the environment pins - which is the path a run would
-        report. The last root's message would name an examples directory
-        and leave out the workspace, reading as though the library the
-        caller works in was never looked in."""
-        first = None
-        for root in roots:
-            try:
-                return resolve(root)
-            except Exception as e:
-                first = first or e
-        # `roots` is never empty here: the asset branch answers an empty
-        # search path itself, and the prompt path always holds the
-        # server's own library. Re-raising None would be a TypeError
-        raise first
 
     def _string_leaves(value, path):
         """Every string in `value`, paired with the path it sits at.
@@ -282,26 +261,21 @@ def argument_reference_errors(
         for path, leaf in _string_leaves(value, base_path):
             try:
                 if is_asset_reference(leaf):
-                    if not asset_roots:
+                    if not asset_library.roots():
                         # A server configured with no asset library has
-                        # no root to fail against: over_roots would
-                        # re-raise its "first error", which is None,
-                        # and the caller would read a TypeError about
-                        # BaseException in place of a verdict
+                        # no root to fail against: the resolver would
+                        # name no directory it searched
                         name = leaf.removeprefix(ASSET_PREFIX).strip()
                         raise ValueError(
                             f"Unknown asset {name!r}: "
                             "this workspace has no asset library"
                         )
-                    over_roots(
-                        asset_roots,
-                        lambda root: resolve_asset_reference(leaf, asset_dir=root),
-                    )
+                    # One resolve over the whole path, the way a run does:
+                    # a miss names every root it looked in, the workspace's
+                    # own first
+                    resolve_asset_reference(leaf, library=asset_library)
                 elif leaf.startswith(PROMPT_PREFIX):
-                    over_roots(
-                        prompt_roots,
-                        lambda root: resolve_prompt_reference(leaf, prompt_dir=root),
-                    )
+                    resolve_prompt_reference(leaf, library=prompt_library)
                 elif is_output_reference(leaf):
                     resolve_output_reference(leaf, root=outputs)
             except Exception as e:
@@ -363,8 +337,8 @@ def admit_for(state, workspace, **request):
     return admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
-        asset_roots=resolution_roots(state, workspace),
-        prompt_roots=prompt_roots(state),
+        asset_library=resolution_library(state, workspace),
+        prompt_library=prompt_library(state),
         **request,
     )
 

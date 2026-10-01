@@ -54,7 +54,7 @@ from ..job_record import (
     RUNNING,
     TERMINAL_STATES,
 )
-from ..outputs import absolute_served_url, asset_roots_for_job, served_url
+from ..outputs import absolute_served_url, asset_library_for_job, served_url
 
 logger = logging.getLogger("dw")
 
@@ -362,7 +362,7 @@ def export_job_route(
             manager,
             job_id,
             ws.root,
-            asset_roots_for_job(state, job_id, ws),
+            asset_library_for_job(state, job_id, ws),
             overwrite=overwrite,
         )
     except FileExistsError as e:

@@ -26,14 +26,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...assets import is_asset_reference
 from ...runs import MANIFEST_FILE_NAME
-from ...security import SecurityError, validate_path
+from ...security import SecurityError
 from ...workspace import Workspace
 from ..deps import selected_workspace
 from ..exports import export_directory
 from ..http_security import ACTIVE_DOCUMENT_TYPES
 from ..outputs import (
     asset_file,
-    asset_roots,
+    asset_library,
     static_files_for,
     strip_output_prefix,
     zip_download,
@@ -100,22 +100,16 @@ async def input_file(
     an uploaded or chosen asset - the workspace's own library first,
     then any read-only examples library, so an example workflow's media
     previews the way an upload does."""
-    roots = asset_roots(request.app.state, ws)
-    if not roots:
+    library = asset_library(request.app.state, ws)
+    if not library.roots():
         raise HTTPException(status_code=404, detail="no asset library")
-    for root in roots:
-        try:
-            candidate = validate_path(os.path.join(root, name), root)
-        except SecurityError:
-            continue
-        if os.path.isfile(candidate):
-            files = static_files_for(request.app.state, root)
-            return _sandbox_active_content(
-                await files.get_response(name, request.scope)
-            )
+    found = library.find(name)
+    if found:
+        files = static_files_for(request.app.state, found[1].root)
+        return _sandbox_active_content(await files.get_response(name, request.scope))
     # Nothing has it: let the workspace's own library answer, so the
     # 404 (and its headers) come from StaticFiles as they always did
-    files = static_files_for(request.app.state, roots[0])
+    files = static_files_for(request.app.state, library.roots()[0].root)
     return await files.get_response(name, request.scope)
 
 
