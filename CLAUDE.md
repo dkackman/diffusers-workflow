@@ -92,8 +92,7 @@ before a 403 explains it.
 
 ### Workflow sources
 
-`dw/library.py` holds `LibraryPath`, an ordered search path of `LibraryRoot`s, and
-`library_path("workflows", ...)` builds the server's workflow one: the writable
+`dw/library.py`'s `LibraryPath` (`library_path("workflows", ...)`) is the server's workflow search path: the writable
 directory first (the workspace's `workflows/`), then any `--examples-dir`, each
 read-only. Reads (`LibraryPath.entries`, `find`) span every root front-to-back so an
 earlier name shadows a later one; `PUT /api/workflows` always resolves through
