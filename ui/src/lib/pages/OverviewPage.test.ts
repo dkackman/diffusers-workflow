@@ -35,7 +35,10 @@ vi.mock('../api', () => ({
     },
     listWorkflows: () =>
       Promise.resolve({
-        workflow_dir: '/ws/workflows',
+        libraries: [
+          { origin: 'workspace', root: '/ws/workflows', writable: true },
+        ],
+        shadowed: [],
         workflows: data.workflows,
         details: {},
       }),
@@ -45,8 +48,7 @@ vi.mock('../api', () => ({
         libraries: [],
         shadowed: [],
         folders: [],
-        asset_dir: null,
-        asset_dirs: [],
+        workspace: 'default',
       }),
     galleryThumbnailUrl: (n: string) => `/thumb/${n}`,
     listWorkspaces: () =>

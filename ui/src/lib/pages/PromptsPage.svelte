@@ -6,11 +6,11 @@
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
+  import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
 
   let prompts = $state<string[]>([])
   let details = $state<Record<string, PromptDetail>>({})
-  let origins = $state<Record<string, string>>({})
   let promptDir = $state('')
   let filter = $state('')
   let error = $state('')
@@ -22,8 +22,7 @@
       .then((result) => {
         prompts = result.prompts
         details = result.details ?? {}
-        origins = result.origins ?? {}
-        promptDir = result.prompt_dir
+        promptDir = writableRoot(result.libraries)
         loaded = true
       })
       .catch((e) => (error = e.message))
@@ -84,12 +83,12 @@
       ></a>
       <span class="cardtop">
         <span class="cardname">{leafOf(name)}</span>
-        {#if origins[name] && origins[name] !== 'workspace'}
+        {#if details[name]?.origin && details[name].origin !== 'workspace'}
           <span
             class="origin muted"
-            title="read-only: from the {origins[name]} library"
+            title="read-only: from the {details[name].origin} library"
           >
-            {origins[name]}
+            {details[name].origin}
           </span>
         {/if}
         {#if detail?.intended_model}

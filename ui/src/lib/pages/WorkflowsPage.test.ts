@@ -26,7 +26,14 @@ const listWorkflows = vi.hoisted(() =>
         setTimeout(
           () =>
             resolve({
-              workflow_dir: '/workspace/workflows',
+              libraries: [
+                {
+                  origin: 'workspace',
+                  root: '/workspace/workflows',
+                  writable: true,
+                },
+              ],
+              shadowed: [],
               workflows: listing.workflows,
               details: listing.details,
             }),

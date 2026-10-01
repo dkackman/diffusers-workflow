@@ -17,9 +17,11 @@ vi.mock('../api', () => ({
       image_processors: [],
       video_processors: [],
     }),
-    listWorkflows: vi
-      .fn()
-      .mockResolvedValue({ workflows: [], workflow_dir: 'workflows' }),
+    listWorkflows: vi.fn().mockResolvedValue({
+      workflows: [],
+      libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
+      shadowed: [],
+    }),
     getWorkflow: vi.fn().mockResolvedValue({
       definition: { id: 'ZImage', steps: [{ name: 'generate', pipeline: {} }] },
       origin: 'workspace',

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Film, Image, Layers, Music, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import { writableRoot } from '../libraries'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
@@ -62,7 +63,7 @@
       .then((result) => {
         workflows = result.workflows
         details = result.details ?? {}
-        workflowDir = result.workflow_dir
+        workflowDir = writableRoot(result.libraries)
         loaded = true
       })
       .catch((e) => (error = e.message))
