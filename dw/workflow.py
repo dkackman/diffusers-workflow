@@ -1,14 +1,12 @@
 # Core functionality for loading and executing workflows
 import os
 import json
-import torch
 import copy
 import logging
 from . import references
 from .arguments import realize_constants, fetch_constant, is_constant_reference
 from .events import (
     RunContext,
-    emit_phase,
     WorkflowCancelled,
     get_context,
     current_context,
@@ -38,7 +36,9 @@ from .pipeline_ownership import (
     allocated_mb,
     evict_superseded,
     finish_release,
+    load_fresh,
     reclaim_after_step,
+    wrap_resident,
 )
 from .security import (
     validate_path,
@@ -843,12 +843,15 @@ class Workflow:
 
         # Check if pipeline already loaded in cache (GPU persistence)
         if cache_key in previous_pipelines:
-            return self._reuse_resident(
+            logger.debug(f"Reusing cached pipeline for step: {step_name}")
+            return wrap_resident(
                 previous_pipelines[cache_key],
                 step_definition,
                 shared_components,
                 default_seed,
                 device,
+                self.step_output_dir(step_definition),
+                self.step_file_prefix(step_name),
             )
 
         # Not in cache - a redefined step frees its previous model first,
@@ -858,63 +861,16 @@ class Workflow:
             evict_superseded(previous_pipelines, step_name, prior_key)
 
         logger.debug(f"Creating pipeline for step: {step_name}")
-        pipeline = Pipeline(
-            step_definition["pipeline"],
+        pipeline = load_fresh(
+            step_definition,
+            shared_components,
             default_seed,
             device,
-            output_dir=self.step_output_dir(step_definition),
-            file_prefix=self.step_file_prefix(step_name),
+            self.step_output_dir(step_definition),
+            self.step_file_prefix(step_name),
         )
-        # Before the marker, not after it: a definition refused by the
-        # trust gate must not have announced a load it never began, or a
-        # consumer reading job events cannot tell 'refused before load'
-        # from 'loaded, then refused' (#137)
-        pipeline.check_trusted()
-        # Loading is the longest silence in a run: weights, quantization,
-        # adapters and placement all happen inside this call
-        emit_phase("loading", detail=pipeline.name)
-        pipeline.load(shared_components)
         previous_pipelines[cache_key] = pipeline
         return pipeline
-
-    def _reuse_resident(
-        self, cached_pipeline, step_definition, shared_components, default_seed, device
-    ):
-        """A new Pipeline wrapper for this step around a model already
-        resident under its key."""
-        step_name = step_definition["name"]
-        logger.debug(f"Reusing cached pipeline for step: {step_name}")
-        # The shared_components dict is fresh every run and only load()
-        # fills it - a cache hit must republish or a later step's
-        # reused_components finds nothing (impossible under the old
-        # whole-file cache, the normal case under identity keys)
-        cached_pipeline.publish_shared_components(shared_components)
-        # Create new Pipeline wrapper with updated step definition
-        # but reuse the loaded model from cache
-        new_pipeline_wrapper = Pipeline(
-            step_definition["pipeline"],
-            default_seed,
-            device,
-            cached_pipeline.pipeline,  # Reuse the actual loaded model
-            output_dir=self.step_output_dir(step_definition),
-            file_prefix=self.step_file_prefix(step_name),
-        )
-        # Set up generator with potentially new seed. no_generator is a
-        # boolean - only an explicit true disables the generator - and the
-        # generator lives on the pipeline's own device, which may override
-        # the workflow default (the fresh-load path resolves it the same way)
-        if not new_pipeline_wrapper.configuration.get("no_generator", False):
-            logger.debug("Setting up generator for cached pipeline with new arguments")
-            new_pipeline_wrapper.argument_template["generator"] = torch.Generator(
-                new_pipeline_wrapper.device
-            ).manual_seed(
-                new_pipeline_wrapper.pipeline_definition.get("seed", default_seed)
-            )
-
-        # A cache hit and a cold load look identical from the outside -
-        # same step, same dot - and they differ by minutes
-        emit_phase("cached", detail=new_pipeline_wrapper.name)
-        return new_pipeline_wrapper
 
     def _reference_action(
         self, step_definition, previous_pipelines, default_seed, device, cache_hit

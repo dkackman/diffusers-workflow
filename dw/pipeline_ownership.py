@@ -10,7 +10,9 @@ dict and the run's shared components - stay with the caller.
 The module functions are every memory-reclaim lookup a run makes: the
 release a step asks for, the eviction of a superseded variant, and the
 cleanup between steps. They live in one module so `empty_device_cache` and
-`release_host_caches` are each looked up in exactly one place.
+`release_host_caches` are each looked up in exactly one place. Beside them,
+the two ways a pipeline step comes to own a pipeline: `wrap_resident` around
+a model already loaded, and `load_fresh`.
 
 This module does not import `dw.workflow`.
 """
@@ -19,9 +21,12 @@ import gc
 import logging
 from dataclasses import dataclass
 
+import torch
+
 from . import device_memory_stats, empty_device_cache
-from .events import get_context
+from .events import emit_phase, get_context
 from .host_memory import release_host_caches
+from .pipeline_processors.pipeline import Pipeline
 from .step_cache import pipeline_cache_key, step_pipeline_keys
 from .tasks.model_cache import clear_model_cache
 
@@ -242,3 +247,71 @@ def reclaim_after_step(step_data, step_name):
     # shaped allocations use them
     gc.collect()
     empty_device_cache()
+
+
+def wrap_resident(
+    cached_pipeline,
+    step_definition,
+    shared_components,
+    default_seed,
+    device,
+    output_dir,
+    file_prefix,
+):
+    """A new Pipeline wrapper for a step around a model already resident
+    under its key. `output_dir` and `file_prefix` are where the step writes
+    and what it names its files."""
+    # The shared_components dict is fresh every run and only load()
+    # fills it - a cache hit must republish or a later step's
+    # reused_components finds nothing (impossible under the old
+    # whole-file cache, the normal case under identity keys)
+    cached_pipeline.publish_shared_components(shared_components)
+    # Create new Pipeline wrapper with updated step definition
+    # but reuse the loaded model from cache
+    new_pipeline_wrapper = Pipeline(
+        step_definition["pipeline"],
+        default_seed,
+        device,
+        cached_pipeline.pipeline,  # Reuse the actual loaded model
+        output_dir=output_dir,
+        file_prefix=file_prefix,
+    )
+    # Set up generator with potentially new seed. no_generator is a
+    # boolean - only an explicit true disables the generator - and the
+    # generator lives on the pipeline's own device, which may override
+    # the workflow default (the fresh-load path resolves it the same way)
+    if not new_pipeline_wrapper.configuration.get("no_generator", False):
+        logger.debug("Setting up generator for cached pipeline with new arguments")
+        new_pipeline_wrapper.argument_template["generator"] = torch.Generator(
+            new_pipeline_wrapper.device
+        ).manual_seed(
+            new_pipeline_wrapper.pipeline_definition.get("seed", default_seed)
+        )
+
+    # A cache hit and a cold load look identical from the outside -
+    # same step, same dot - and they differ by minutes
+    emit_phase("cached", detail=new_pipeline_wrapper.name)
+    return new_pipeline_wrapper
+
+
+def load_fresh(
+    step_definition, shared_components, default_seed, device, output_dir, file_prefix
+):
+    """A step's pipeline loaded from scratch, behind the trust gate."""
+    pipeline = Pipeline(
+        step_definition["pipeline"],
+        default_seed,
+        device,
+        output_dir=output_dir,
+        file_prefix=file_prefix,
+    )
+    # Before the marker, not after it: a definition refused by the
+    # trust gate must not have announced a load it never began, or a
+    # consumer reading job events cannot tell 'refused before load'
+    # from 'loaded, then refused' (#137)
+    pipeline.check_trusted()
+    # Loading is the longest silence in a run: weights, quantization,
+    # adapters and placement all happen inside this call
+    emit_phase("loading", detail=pipeline.name)
+    pipeline.load(shared_components)
+    return pipeline
