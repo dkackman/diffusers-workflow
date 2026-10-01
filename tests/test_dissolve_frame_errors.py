@@ -9,7 +9,6 @@ have failed on.
 """
 
 import os
-import tempfile
 
 import numpy
 
@@ -36,12 +35,12 @@ def write_mp4(path, frames=12, fps=6, width=32, height=16):
     container.close()
 
 
-def workflow_dir_with_asset(monkeypatch, *names_and_frames):
+def workflow_dir_with_asset(monkeypatch, tmp_path, *names_and_frames):
     """A base_dir whose assets/ subfolder holds the given fixtures, pinned
     via DW_ASSET_DIR so it is found ahead of this checkout's own assets/
     (discover_library's './assets' in the working directory would otherwise
     shadow it)."""
-    base_dir = tempfile.mkdtemp()
+    base_dir = str(tmp_path)
     asset_dir = os.path.join(base_dir, "assets")
     os.makedirs(asset_dir)
     for name, frames in names_and_frames:
@@ -67,8 +66,12 @@ def dissolve_workflow(videos, dissolve_frames=12):
 
 
 class TestTheCheck:
-    def test_an_asset_too_short_for_its_dissolve_is_refused(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+    def test_an_asset_too_short_for_its_dissolve_is_refused(
+        self, monkeypatch, tmp_path
+    ):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 124), ("b.mp4", 124)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
         )
@@ -80,10 +83,14 @@ class TestTheCheck:
         assert "124 frames" in problems[0]["message"]
         assert "130 frames" in problems[0]["message"]
 
-    def test_a_location_dict_too_short_for_its_dissolve_is_refused(self, monkeypatch):
+    def test_a_location_dict_too_short_for_its_dissolve_is_refused(
+        self, monkeypatch, tmp_path
+    ):
         # dissolve_videos accepts a {"location": ...} entry (#510), so the
         # check must probe what it wraps rather than skip it
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12), ("b.mp4", 4))
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 12), ("b.mp4", 4)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", {"location": "asset:b.mp4"}], dissolve_frames=10
         )
@@ -93,10 +100,10 @@ class TestTheCheck:
         assert len(problems) == 1
         assert "video 1 has 4 frames" in problems[0]["message"]
 
-    def test_a_location_dict_is_confined_like_a_plain_path(self, monkeypatch):
+    def test_a_location_dict_is_confined_like_a_plain_path(self, monkeypatch, tmp_path):
         from dw.probe_paths import resolve_probe_path
 
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 12))
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("a.mp4", 12))
         outside = os.path.join(os.path.dirname(base_dir), "outside.mp4")
         for value in (
             "asset:a.mp4",
@@ -112,8 +119,10 @@ class TestTheCheck:
         assert resolve_probe_path({"location": {"location": "a"}}, base_dir) is None
         assert resolve_probe_path({"path": "asset:a.mp4"}, base_dir) is None
 
-    def test_enough_frames_validates_clean(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+    def test_enough_frames_validates_clean(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 124), ("b.mp4", 124)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=12
         )
@@ -128,8 +137,8 @@ class TestTheCheck:
 
         assert dissolve_frame_errors(definition) == []
 
-    def test_an_output_reference_too_short_for_its_dissolve_is_refused(self):
-        output_root = tempfile.mkdtemp()
+    def test_an_output_reference_too_short_for_its_dissolve_is_refused(self, tmp_path):
+        output_root = str(tmp_path)
         run_dir = os.path.join(output_root, "clip", "20260101-000000-abc")
         os.makedirs(run_dir)
         write_mp4(os.path.join(run_dir, "a.mp4"), frames=124)
@@ -154,14 +163,18 @@ class TestTheCheck:
     def test_nothing_is_reported_for_a_definition_with_no_dissolve_step(self):
         assert dissolve_frame_errors({"steps": [{"name": "a", "task": {}}]}) == []
 
-    def test_a_single_video_needs_no_dissolve(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 5))
+    def test_a_single_video_needs_no_dissolve(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("a.mp4", 5))
         definition = dissolve_workflow(["asset:a.mp4"], dissolve_frames=130)
 
         assert dissolve_frame_errors(definition, base_dir=base_dir) == []
 
-    def test_a_caller_supplied_probe_is_used_instead_of_the_default(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+    def test_a_caller_supplied_probe_is_used_instead_of_the_default(
+        self, monkeypatch, tmp_path
+    ):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 124), ("b.mp4", 124)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
         )
@@ -176,12 +189,16 @@ class TestTheCheck:
 
         assert problems == []
 
-    def test_a_shared_cache_probes_each_file_once_across_two_calls(self, monkeypatch):
+    def test_a_shared_cache_probes_each_file_once_across_two_calls(
+        self, monkeypatch, tmp_path
+    ):
         # B9: a memoizing `probe` passed in by the caller (a per-validation
         # cache in a later task) must be genuinely consulted - two calls to
         # the check sharing one cache probe each distinct file only once,
         # not once per call.
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 124), ("b.mp4", 124)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
         )
@@ -201,8 +218,10 @@ class TestTheCheck:
 
 
 class TestTheValidationPass:
-    def test_wired_into_validation_errors(self, monkeypatch):
-        base_dir = workflow_dir_with_asset(monkeypatch, ("a.mp4", 124), ("b.mp4", 124))
+    def test_wired_into_validation_errors(self, monkeypatch, tmp_path):
+        base_dir = workflow_dir_with_asset(
+            monkeypatch, tmp_path, ("a.mp4", 124), ("b.mp4", 124)
+        )
         definition = dissolve_workflow(
             ["asset:a.mp4", "asset:b.mp4"], dissolve_frames=130
         )
