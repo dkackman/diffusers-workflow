@@ -3,7 +3,6 @@ import os
 import json
 import torch
 import copy
-import gc
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -53,7 +52,6 @@ from .step_cache import (
     reference_resolves_to,
     normalized_downstream,
     borrowed_pipeline_keys,
-    pipeline_cache_key,
     step_pipeline_keys,
     copy_containers,
 )
@@ -83,16 +81,19 @@ from .variables import (
     VariableNotFoundError,
 )
 from .pipeline_processors.pipeline import Pipeline
-from .tasks.model_cache import clear_model_cache
 from .tasks.task import Task
 from . import (
     get_device,
     get_device_type,
-    empty_device_cache,
     device_capacity_gb,
-    device_memory_stats,
 )
-from .host_memory import release_host_caches
+from .pipeline_ownership import (
+    PipelineOwnership,
+    _allocated_mb,
+    evict_superseded,
+    finish_release,
+    reclaim_after_step,
+)
 from .security import (
     validate_path,
     validate_workflow_path,
@@ -249,32 +250,6 @@ def catalog_root_dir(file_spec):
     return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
 
-def _allocated_mb():
-    """Device memory in use right now, for the pipeline_released event -
-    None where the backend cannot say, so a reading is never confused with
-    a genuine zero."""
-    try:
-        stats = device_memory_stats()
-    except Exception:  # a progress figure is never worth failing a run over
-        return None
-    return stats["allocated_mb"] if stats["available"] else None
-
-
-def _release_host_caches(step_name):
-    """Hand the host memory a release freed back to the OS, not at job end.
-
-    `release_host_caches` only touches blocks nothing is using, so anything
-    still loaded is undisturbed. A cleanup is never worth failing a run for.
-    """
-    try:
-        released = release_host_caches()
-    except Exception as e:
-        logger.debug(f"Could not release host caches after {step_name}: {e}")
-        return
-    if released:
-        logger.info(f"Release after {step_name} returned {released:.0f} MB to the OS")
-
-
 def _relative_shots(entry, run_dir):
     """A manifest entry's `shots`, each `file` made relative as `files` is."""
     shots = entry.get("shots")
@@ -391,6 +366,9 @@ class Workflow:
         self.workflow_dir = workflow_dir
         # expanded_definition's memo, keyed by the caller's arguments
         self._expansions = {}
+        # Which pipeline each step owns. run() replaces it per run; this one
+        # serves a step action created outside run()
+        self.pipeline_ownership = PipelineOwnership()
 
     @property
     def name(self):
@@ -1228,20 +1206,12 @@ class Workflow:
         # told to write to - the root, not this run's own subdirectory, since
         # what they name is what an earlier run left there
         output_root_token = activate_output_root(self.output_dir)
-        # Step name -> cache key for this run, so release_pipeline and
-        # pipeline_reference still address pipelines by the step that made them
-        self._pipeline_keys_by_step = {}
-        # This run's key table, set before the first step (below); cleared
-        # here so a reused Workflow never serves _load_key last run's table
-        self._running_pipeline_keys = None
-        # Step name -> {step_data, seed, released} for each cache hit whose
-        # pipeline was not resident and so was not loaded. Per run: a persistent worker
-        # reuses this Workflow across jobs, and what one run deferred says
-        # nothing about what the next has resident
-        self._deferred_pipelines = {}
-        # Last run's step->key map: a redefined step's old model is evicted
-        # BEFORE its replacement loads, or the transition holds both at once
-        self._prior_step_keys = prior_step_keys or {}
+        # This run's step->pipeline tables, fresh per run: a persistent
+        # worker reuses this Workflow across jobs, and what one run recorded
+        # or deferred says nothing about what the next has resident. Its key
+        # table is set before the first step (below), so a reused Workflow
+        # never serves load_key last run's table
+        self.pipeline_ownership = PipelineOwnership(prior_step_keys)
         self.manifest = []
         # What elision dropped this run, filled by _prepare_definition and
         # read by the warning pass and the manifest (#122)
@@ -1425,9 +1395,9 @@ class Workflow:
             # last run (every step sharing a changed model variable has the
             # old key as its prior key and none has it as its current one),
             # and not a key some step of a past, unrelated workflow left in
-            # the cross-job _prior_step_keys map. Taken before any load edits a
+            # the cross-job prior-keys map. Taken before any load edits a
             # definition, it is also the table every borrowed-key lookup reads
-            self._running_pipeline_keys = step_pipeline_keys(steps)
+            self.pipeline_ownership.begin(steps)
 
             run_context.emit(
                 "workflow_start",
@@ -1476,7 +1446,7 @@ class Workflow:
                         step_seed,
                         hits_this_run,
                         cache_enabled_this_run,
-                        self._running_pipeline_keys,
+                        self.pipeline_ownership.running,
                     )
                 )
                 is_cacheable = step_data_snapshot is not None
@@ -1558,15 +1528,12 @@ class Workflow:
                 # both models would be in memory at once
                 release = step_data.get("release_pipeline", False)
                 released = (
-                    pipelines.pop(self._pipeline_keys_by_step.get(step.name), None)
+                    pipelines.pop(self.pipeline_ownership.key_for(step.name), None)
                     if release
                     else None
                 )
-                if release and step.name in self._deferred_pipelines:
-                    # Release frees the pipeline but keeps what it published:
-                    # a later reuser still gets the components, and the
-                    # lazy load drops the pipeline again straight after
-                    self._deferred_pipelines[step.name]["released"] = True
+                if release:
+                    self.pipeline_ownership.mark_released(step.name)
                 # A hit that loaded nothing holds nothing: announcing a
                 # release would report a drop that never happened. Not gated
                 # on the pop alone - a sub-workflow step has no pipeline key,
@@ -1576,7 +1543,7 @@ class Workflow:
                     before = _allocated_mb()
                     released = None
                     step_action = None
-                    self._finish_release(workflow_id, step.name, i, before)
+                    finish_release(workflow_id, step.name, i, before)
 
                 if not reused:
                     if parent_saves_this:
@@ -1714,22 +1681,9 @@ class Workflow:
                 step_action = None
                 result = None
 
-                # Task models are cached for the life of the process - the cache
-                # exists so a step's cartesian product loads its model once, and
-                # nothing else evicts it. A prompt-expanding language model
-                # feeding a generation step would otherwise hold its weights on
-                # the device for the whole run
-                if step_data.get("release_models", False):
-                    logger.info(f"Releasing task models for step: {step.name}")
-                    clear_model_cache()
-                    gc.collect()
-                    _release_host_caches(step.name)
-
-                # Cleanup between steps (but keep pipelines loaded). Returning
-                # cached blocks to the device lets the next step's differently
-                # shaped allocations use them
-                gc.collect()
-                empty_device_cache()
+                # Task models the step asked to release, then the cleanup
+                # between steps (pipelines stay loaded)
+                reclaim_after_step(step_data, step.name)
 
             logger.debug(f"Workflow {workflow_id} completed successfully")
             run_context.emit(
@@ -1845,41 +1799,6 @@ class Workflow:
             },
         )
 
-    def _step_pipeline_key(self, step_name, cache_key):
-        """Record which cache key a step's pipeline lives under this run."""
-        if not hasattr(self, "_pipeline_keys_by_step"):
-            self._pipeline_keys_by_step = {}
-        self._pipeline_keys_by_step[step_name] = cache_key
-
-    def _finish_release(self, workflow_id, step_name, index, before):
-        """Free what a popped pipeline held and announce the release.
-
-        `before` is measured by the caller ahead of dropping its own
-        references, which may free the pipeline on the spot.
-        """
-        gc.collect()
-        empty_device_cache()
-        # The device cache is not the only one the release fills: the
-        # pinned-host staging buffers the pipeline offloaded through and the
-        # heap arenas its weights were read into stay in this process's RSS
-        # until they are handed back, which otherwise waits for the end of
-        # the job - ~10 GB held through every step after the release (#368)
-        _release_host_caches(step_name)
-        # Say so on the event stream. The release is otherwise invisible to
-        # a consumer: it sits inside the sub-second window between a step's
-        # generation and its files appearing, which is too narrow to catch
-        # by polling get_memory, and it is exactly the ordering this event
-        # exists to make readable (it precedes the step's step_end, and on a
-        # released card the figures show the drop rather than implying it)
-        get_context().emit(
-            "pipeline_released",
-            workflow=workflow_id,
-            step=step_name,
-            index=index,
-            gpu_memory_allocated_mb=_allocated_mb(),
-            gpu_memory_allocated_before_mb=before,
-        )
-
     def _load_deferred_borrows(
         self, workflow_id, steps, index, shared_components, pipelines
     ):
@@ -1894,13 +1813,14 @@ class Workflow:
         load followed by its release leaves behind.
         """
         step = steps[index]
-        running_keys = getattr(self, "_running_pipeline_keys", None) or {}
+        ownership = self.pipeline_ownership
+        running_keys = ownership.running or {}
         own_key = running_keys.get(step["name"])
         if own_key is not None and own_key in pipelines:
             # Reused components are resolved only inside load(), and a
             # resident pipeline does not load
             return
-        deferred = getattr(self, "_deferred_pipelines", {})
+        deferred = ownership.deferred
         borrowed = borrowed_pipeline_keys(steps, index, running_keys)
         reference = step.get("pipeline_reference")
         referenced_name = (
@@ -1912,7 +1832,7 @@ class Workflow:
             name = source.get("name")
             if name not in borrowed or name not in deferred:
                 continue
-            if name == referenced_name and deferred[name]["released"]:
+            if name == referenced_name and deferred[name].released:
                 # A released pipeline cannot be referenced; loading it only
                 # to drop it would delay the error the reference raises
                 continue
@@ -1921,42 +1841,19 @@ class Workflow:
             )
             entry = deferred.pop(name)
             self.create_step_action(
-                entry["step_data"],
+                entry.step_data,
                 shared_components,
                 pipelines,
-                entry["seed"],
+                entry.seed,
                 get_device(),
             )
-            if entry["released"]:
+            if entry.released:
                 # The release the step asked for, happening now: freed and
                 # announced as its own release would have been, so the
                 # borrower does not load on top of it
                 before = _allocated_mb()
-                pipelines.pop(self._pipeline_keys_by_step.get(name), None)
-                self._finish_release(workflow_id, name, source_index, before)
-
-    def _load_key(self, step_definition):
-        """The pipeline cache key a pipeline step loads under.
-
-        Read from the run's table (step_pipeline_keys, taken by run() before
-        anything loaded) - a load edits the definition it is handed, so a
-        key re-hashed from it could disagree with the one the table, a
-        deferred hit and the cache_hits probe use. The table also holds the
-        effective key - a step that reuses components folds in its sources'
-        keys - which the step's own definition cannot give. Hashed here only
-        for a step driven outside run(), which has no table; a table that
-        lacks the step is an internal error, never a silent re-hash.
-        """
-        running_keys = getattr(self, "_running_pipeline_keys", None)
-        if running_keys is None:
-            return pipeline_cache_key(step_definition["pipeline"])
-        step_name = step_definition["name"]
-        if step_name not in running_keys:
-            raise RuntimeError(
-                f"Internal error: pipeline step '{step_name}' is not in this "
-                "run's pipeline key table"
-            )
-        return running_keys[step_name]
+                pipelines.pop(ownership.key_for(name), None)
+                finish_release(workflow_id, name, source_index, before)
 
     def create_step_action(
         self,
@@ -1984,8 +1881,9 @@ class Workflow:
             step_name = step_definition["name"]
 
             # Pipelines are cached by what they load, not what step loads them
-            cache_key = self._load_key(step_definition)
-            self._step_pipeline_key(step_name, cache_key)
+            ownership = self.pipeline_ownership
+            cache_key = ownership.load_key(step_definition)
+            ownership.record(step_name, cache_key)
             get_context().touch_pipeline(cache_key)
 
             if cache_hit and cache_key not in previous_pipelines:
@@ -1993,13 +1891,7 @@ class Workflow:
                 # pipeline_reference address it by name), not the weights:
                 # nothing calls the pipeline unless a step that runs borrows
                 # it, and that step loads it then
-                if not hasattr(self, "_deferred_pipelines"):
-                    self._deferred_pipelines = {}
-                self._deferred_pipelines[step_name] = {
-                    "step_data": step_definition,
-                    "seed": default_seed,
-                    "released": False,
-                }
+                ownership.defer(step_name, step_definition, default_seed)
                 return None
 
             # Check if pipeline already loaded in cache (GPU persistence)
@@ -2044,53 +1936,11 @@ class Workflow:
 
             # Not in cache - a redefined step frees its previous model first,
             # so the swap never holds old and new stacks simultaneously
-            prior_keys = getattr(self, "_prior_step_keys", {})
-            prior_key = prior_keys.get(step_name)
-            # Only this step's own variant: a key another step of THIS run
-            # loads under NOW is that step's warm model, and releasing it
-            # here would reload it cold a moment later while holding both
-            # stacks. Judged on the other steps' current keys
-            # (_running_pipeline_keys, recorded by run), not their prior
-            # ones: when every step sharing one model variable changes at
-            # once, each still has the old key as its prior key, and
-            # nobody will load it again - holding it would be the two-stack
-            # transition #150 fixed. _prior_step_keys is merged across every
-            # job the worker has run, never pruned, so a name from an
-            # earlier, unrelated workflow does not count either - it is not
-            # among the running steps. If nothing touches the key this run,
-            # the end-of-run sweep drops it.
-            running_keys = getattr(self, "_running_pipeline_keys", None) or {}
-            still_shared = any(
-                other != step_name and key == prior_key
-                for other, key in running_keys.items()
+            prior_key = ownership.superseded_key(
+                step_name, cache_key, previous_pipelines
             )
-            if (
-                prior_key
-                and prior_key != cache_key
-                and prior_key in previous_pipelines
-                and not still_shared
-            ):
-                logger.info(
-                    f"Step '{step_name}' was redefined - releasing its previous "
-                    "pipeline before loading the new one"
-                )
-                before = _allocated_mb()
-                previous_pipelines.pop(prior_key, None)
-                gc.collect()
-                empty_device_cache()
-                _release_host_caches(step_name)
-                # Say so on the event stream, for the same reason the explicit
-                # release does: without it a reload-on-top-of-a-resident-model
-                # is indistinguishable from a cold load, and the difference is
-                # whether the next thing that happens is an OOM kill (#150).
-                # 'reason' separates it from the release a step asked for
-                get_context().emit(
-                    "pipeline_released",
-                    step=step_name,
-                    reason="superseded",
-                    gpu_memory_allocated_mb=_allocated_mb(),
-                    gpu_memory_allocated_before_mb=before,
-                )
+            if prior_key is not None:
+                evict_superseded(previous_pipelines, step_name, prior_key)
 
             logger.debug(f"Creating pipeline for step: {step_name}")
             pipeline = Pipeline(
@@ -2119,8 +1969,8 @@ class Workflow:
             )
             pipeline_reference = step_definition["pipeline_reference"]
             reference_name = pipeline_reference["reference_name"]
-            referenced_key = self._pipeline_keys_by_step.get(reference_name)
-            if cache_hit and reference_name in getattr(self, "_deferred_pipelines", {}):
+            referenced_key = self.pipeline_ownership.key_for(reference_name)
+            if cache_hit and reference_name in self.pipeline_ownership.deferred:
                 # The referenced step was a hit that deferred its load, and
                 # this step's result is cached too: nothing will call it
                 return None

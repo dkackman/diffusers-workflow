@@ -2672,7 +2672,7 @@ def test_embed_metadata_carries_the_workflow_definition(tmp_path):
 
     workflow = Workflow(workflow_def, str(tmp_path), "test.json")
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.workflow.empty_device_cache"):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
             workflow.run({}, previous_pipelines={})
 
     saved = workflow.manifest[0]["files"][0]

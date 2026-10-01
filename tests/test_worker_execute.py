@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from dw.events import WorkflowCancelled
+from dw.pipeline_ownership import PipelineOwnership
 
 
 def _make_worker():
@@ -359,7 +360,8 @@ def test_the_worker_records_what_each_run_loaded_even_when_it_fails():
 
     class Dying(StubWorkflow):
         def run(self, *args, **kwargs):
-            self._pipeline_keys_by_step = {"gen": "key-a"}
+            self.pipeline_ownership = PipelineOwnership()
+            self.pipeline_ownership.record("gen", "key-a")
             raise RuntimeError("boom")
 
     _execute(worker, Dying())
