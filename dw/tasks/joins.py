@@ -67,7 +67,9 @@ def load_named_inputs(videos):
     return names, [load_audio_video(v) if is_video_location(v) else v for v in videos]
 
 
-def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
+def reconcile_sample_rates(
+    command, videos, names, waveforms, sample_rate=None, skip_unrated=True
+):
     """One rate for every track about to be joined: (waveforms, sample_rate).
 
     `videos` and `waveforms` run in step, and a None waveform is an input
@@ -76,13 +78,18 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
     converted rather than refused, which is what made an agent invent a
     resample_audio step by hand (#108, #287). The highest rate among the
     inputs is the default target; the caller's `sample_rate` pins another.
+
+    A track whose rate is unknown (a pipeline that reported none) is passed
+    over when `skip_unrated` (concat_videos' long-standing rule). Otherwise
+    its missing rate takes part like any other, so it cannot be mistaken for
+    the target: dissolve_videos fails on it rather than joining it unscaled.
     """
     rates = [
         video.sample_rate
         for video, waveform in zip(videos, waveforms)
-        if waveform is not None and video.sample_rate
+        if waveform is not None and (video.sample_rate or not skip_unrated)
     ]
-    sample_rate = sample_rate or (max(rates) if rates else None)
+    sample_rate = sample_rate or (max(set(rates)) if rates else None)
     if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
         # The inputs agree and the caller pinned another rate: converting
         # to what was asked for is not a decision made on its behalf (#453)
@@ -118,7 +125,7 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
         (
             waveform
             if waveform is None
-            or not video.sample_rate
+            or (skip_unrated and not video.sample_rate)
             or video.sample_rate == sample_rate
             else resample_waveform(waveform, video.sample_rate, sample_rate)
         )

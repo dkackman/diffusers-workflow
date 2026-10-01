@@ -9,7 +9,6 @@ would have failed on.
 """
 
 import os
-import tempfile
 
 from tests.test_dissolve_frame_errors import write_mp4, workflow_dir_with_asset
 
@@ -95,8 +94,8 @@ class TestTheCheck:
 
         assert video_size_errors(definition, base_dir=base_dir) == []
 
-    def test_an_output_reference_mismatch_is_refused(self):
-        output_root = tempfile.mkdtemp()
+    def test_an_output_reference_mismatch_is_refused(self, tmp_path):
+        output_root = str(tmp_path)
         run_dir = os.path.join(output_root, "clip", "20260101-000000-abc")
         os.makedirs(run_dir)
         write_mp4(os.path.join(run_dir, "a.mp4"), frames=12, width=32, height=16)

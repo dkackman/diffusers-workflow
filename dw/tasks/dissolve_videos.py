@@ -300,6 +300,7 @@ def _dissolve_audio(
         track_names,
         [as_channels_samples(v.audio) for v in tracks],
         sample_rate,
+        skip_unrated=False,
     )
     crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     waveforms = level_waveforms(

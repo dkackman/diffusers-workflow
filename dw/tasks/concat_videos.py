@@ -122,8 +122,7 @@ def concat_videos(
         videos, match_levels, match_levels_dbfs, sample_rate
     )
 
-    frames = []
-    audio, audio_native_rate = None, None
+    frames, audio, audio_native_rate = [], None, None
     # Where each video landed, measured on the joined picture and track as
     # they grow - never derived from the frame count, so a track that runs
     # long shows up here as the samples it actually took (#378)
@@ -293,15 +292,16 @@ def _input_waveform(waveform, video, clip, name, fps, sample_rate, silence_chann
                 "concat_videos needs 'fps' to fill silence for a video "
                 "with no audio track of its own"
             )
+        silence = numpy.zeros(
+            (silence_channels, frames_to_samples(len(clip), fps, sample_rate)),
+            dtype=numpy.float32,
+        )
         emit_log(
             f"concat_videos: {name} carries no audio - filled with silence",
             command="concat_videos",
             video=name,
         )
-        return numpy.zeros(
-            (silence_channels, frames_to_samples(len(clip), fps, sample_rate)),
-            dtype=numpy.float32,
-        )
+        return silence
     input_fps = fps or getattr(video, "fps", None)
     if not input_fps:
         return waveform
