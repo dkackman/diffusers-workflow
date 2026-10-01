@@ -89,7 +89,7 @@ from . import (
 )
 from .pipeline_ownership import (
     PipelineOwnership,
-    _allocated_mb,
+    allocated_mb,
     evict_superseded,
     finish_release,
     reclaim_after_step,
@@ -1549,7 +1549,7 @@ class Workflow:
                 # and clearing step_action is what frees its child Workflow
                 if release and (released is not None or step_action is not None):
                     logger.info(f"Releasing pipeline for step: {step.name}")
-                    before = _allocated_mb()
+                    before = allocated_mb()
                     released = None
                     step_action = None
                     finish_release(workflow_id, step.name, i, before)
@@ -1860,7 +1860,7 @@ class Workflow:
                 # The release the step asked for, happening now: freed and
                 # announced as its own release would have been, so the
                 # borrower does not load on top of it
-                before = _allocated_mb()
+                before = allocated_mb()
                 pipelines.pop(ownership.key_for(name), None)
                 finish_release(workflow_id, name, source_index, before)
 

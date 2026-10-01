@@ -141,7 +141,7 @@ class PipelineOwnership:
         return None
 
 
-def _allocated_mb():
+def allocated_mb():
     """Device memory in use right now, for the pipeline_released event -
     None where the backend cannot say, so a reading is never confused with
     a genuine zero."""
@@ -192,7 +192,7 @@ def finish_release(workflow_id, step_name, index, before):
         workflow=workflow_id,
         step=step_name,
         index=index,
-        gpu_memory_allocated_mb=_allocated_mb(),
+        gpu_memory_allocated_mb=allocated_mb(),
         gpu_memory_allocated_before_mb=before,
     )
 
@@ -204,7 +204,7 @@ def evict_superseded(pipelines, step_name, prior_key):
         f"Step '{step_name}' was redefined - releasing its previous "
         "pipeline before loading the new one"
     )
-    before = _allocated_mb()
+    before = allocated_mb()
     pipelines.pop(prior_key, None)
     gc.collect()
     empty_device_cache()
@@ -218,7 +218,7 @@ def evict_superseded(pipelines, step_name, prior_key):
         "pipeline_released",
         step=step_name,
         reason="superseded",
-        gpu_memory_allocated_mb=_allocated_mb(),
+        gpu_memory_allocated_mb=allocated_mb(),
         gpu_memory_allocated_before_mb=before,
     )
 
