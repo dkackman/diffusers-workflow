@@ -120,11 +120,13 @@ class LibraryRoot:
 class ReadOnlyLibraryError(Exception):
     """A write was aimed at an entry of a read-only root."""
 
-    def __init__(self, name, root):
+    def __init__(self, name, root, kind=None):
         self.name = name
         self.root = root
+        self.kind = kind
         super().__init__(
-            f"'{name}' comes from the read-only {root.origin} directory {root.root}"
+            f"'{name}' is in the read-only {root.origin} library ({root.root}); "
+            f"only the workspace's own {kind or 'entries'} can be deleted"
         )
 
 
@@ -259,6 +261,11 @@ class LibraryPath:
                     winners[name] = root
         return dict(sorted(winners.items())), shadowed
 
+    def describe(self):
+        """The path as a listing reports it: `[{origin, root, writable}]`, in
+        search order - the one `libraries` field of every library listing."""
+        return [root.to_dict() for root in self._roots]
+
     def writable_root(self, shared=False):
         """The root saves go to: the front of the path. `shared` asks for the
         shared (common) root instead, for the libraries that have one."""
@@ -270,8 +277,18 @@ class LibraryPath:
     def require_writable(self, root, name=None):
         """The root itself, or `ReadOnlyLibraryError` when it is read-only."""
         if not root.writable:
-            raise ReadOnlyLibraryError(name, root)
+            raise ReadOnlyLibraryError(name, root, self.kind)
         return root
+
+
+def shadowed_listing(hidden):
+    """`LibraryPath.entries`' shadowed list as a listing reports it:
+    `[{name, origin, shadowed_by}]`, the origin being the hidden copy's and
+    `shadowed_by` the origin of the root whose copy won."""
+    return [
+        {"name": name, "origin": root.origin, "shadowed_by": winner.origin}
+        for name, root, winner in hidden
+    ]
 
 
 def workflow_names(root):

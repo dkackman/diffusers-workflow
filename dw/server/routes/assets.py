@@ -81,9 +81,8 @@ async def upload_media(
     among generated output, and the reference handed back is
     'asset:uploads/<name>' - portable, and meaningful in a workflow that
     is saved and rerun later. A server with no asset library configured
-    keeps the old behavior, writing to the output directory's uploads/
-    and returning an absolute path. The body is the raw file bytes: no
-    multipart parser dependency needed for a single-file upload.
+    answers 409. The body is the raw file bytes: no multipart parser
+    dependency needed for a single-file upload.
 
     `asset_name` stores it under a name of the caller's choosing -
     'cast/priya-voice.wav' rather than the random one a browser upload
@@ -121,7 +120,9 @@ async def upload_media(
             detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
         )
 
-    library = ws.assets or ws.outputs
+    # An upload is input and goes to an asset library; with none there is
+    # nowhere for it to be, the same 409 keep and delete answer (it used to
+    # land among the outputs)
     if shared:
         library = common_assets(ws)
         if not library:
@@ -130,6 +131,12 @@ async def upload_media(
                 detail="This server has no shared asset library - it was "
                 "configured from loose directories rather than a workspace "
                 "root, so there is nothing for an asset to be common to",
+            )
+    else:
+        library = ws.assets
+        if not library:
+            raise HTTPException(
+                status_code=409, detail="This workspace has no asset library"
             )
     uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
     name = f"{uuid.uuid4().hex}{extension}"
@@ -160,22 +167,12 @@ async def upload_media(
     # stream and poll for its duration
     await run_in_threadpool(_write_bytes, dest, body)
     logger.info(f"Saved upload {filename!r} -> {dest}")
-    if shared or ws.assets:
-        path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
-        result = {
-            "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
-            "workspace": ws.name,
-            "url": served_url(path, ws),
-            "shared": shared,
-        }
-        absolute_url = absolute_served_url(path, ws)
-        if absolute_url is not None:
-            result["absolute_url"] = absolute_url
-        return result
-    path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
+    path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
     result = {
+        "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
         "workspace": ws.name,
         "url": served_url(path, ws),
+        "shared": shared,
     }
     absolute_url = absolute_served_url(path, ws)
     if absolute_url is not None:
@@ -194,22 +191,15 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
     library configured: nothing is wrong, there is just nowhere for an
     asset to be.
     """
-    own = ws.assets
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
         return {
-            "asset_dir": own,
-            "asset_dirs": [],
+            "workspace": ws.name,
+            "libraries": [],
             "assets": [],
             "folders": [],
-            "libraries": [],
             "shadowed": [],
         }
-
-    libraries = [
-        {"origin": root.origin, "dir": root.root, "writable": root.writable}
-        for root in library.roots()
-    ]
 
     # What the media walk found under each root, kept beside the names it
     # hands to `entries` - which decides the winner of each name and what it
@@ -243,6 +233,7 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
             "size": stat.st_size,
             "mtime": stat.st_mtime,
             "origin": root.origin,
+            "writable": root.writable,
         }
 
     assets = []
@@ -261,12 +252,10 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
         for name, root, winner in hidden
     ]
     return {
-        # The workspace's own library, unchanged: where an upload lands
-        "asset_dir": own,
-        "asset_dirs": [lib["dir"] for lib in libraries],
+        "workspace": ws.name,
+        "libraries": library.describe(),
         "assets": assets,
         "folders": sorted({entry["folder"] for entry in assets} | {""}),
-        "libraries": libraries,
         "shadowed": shadowed,
     }
 
@@ -456,12 +445,8 @@ def delete_asset(
         path, root = found
         try:
             library.require_writable(root, relative)
-        except ReadOnlyLibraryError:
-            raise HTTPException(
-                status_code=403,
-                detail=f"{make_ref(ASSET, relative)} is read-only: it comes "
-                f"from an examples library, not a library this server writes",
-            )
+        except ReadOnlyLibraryError as refusal:
+            raise HTTPException(status_code=403, detail=str(refusal))
         os.remove(path)
         logger.info(f"Deleted asset:{relative} ({path})")
         forget_workspace_usage()

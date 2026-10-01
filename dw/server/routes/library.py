@@ -18,13 +18,12 @@ from pydantic import BaseModel, Field
 
 from ...introspection import workflow_argument_warnings
 from ...prompts import RESERVED_TEXT_PREFIXES
-from ...schema import load_schema, validate_data
+from ...schema import format_validation_errors, load_schema, validate_data
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
 from ...library import (
-    EXAMPLES_ORIGIN,
-    WORKSPACE_ORIGIN,
     ReadOnlyLibraryError,
+    shadowed_listing,
     workflow_names,
 )
 from ...workspace import (
@@ -60,6 +59,7 @@ from ..deps import (
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
 from ..job_record import TERMINAL_STATES
+from .jobs import internal_error
 
 logger = logging.getLogger("dw")
 
@@ -197,8 +197,9 @@ def list_workflows(
     view: Optional[str] = None,
 ):
     """Every workflow the search path offers, each detail saying which
-    source it came from and whether it can be written to. 'workflow_dir'
-    stays the writable one - what a save targets.
+    library it came from and whether it can be written to. 'libraries' is
+    the search path in order, the writable one being what a save targets;
+    'shadowed' names the later copies an earlier library hides.
 
     `shape`, `traits` (comma-separated, all must match) and `configures`
     narrow the listing; `view=compact` is the agent's view - summaries
@@ -208,7 +209,7 @@ def list_workflows(
     """
     state = request.app.state
     library = sources_for(state, ws)
-    found, _shadowed = library.entries()
+    found, hidden = library.entries()
     try:
         details = project_listing(
             attach_observed(
@@ -226,10 +227,12 @@ def list_workflows(
         raise HTTPException(status_code=400, detail=str(e))
     return {
         "workspace": ws.name,
-        "workflow_dir": ws.workflows,
-        "sources": [root.to_dict() for root in library.roots()],
+        "libraries": library.describe(),
         "workflows": sorted(details),
         "details": details,
+        "shadowed": [
+            entry for entry in shadowed_listing(hidden) if entry["name"] in details
+        ],
         # What a `cost` is, and so what a null one means. Curated:
         # figures a maintainer measured once on the devices named and
         # wrote into the workflow - nothing derives them from this
@@ -271,10 +274,15 @@ def save_workflow(
         path,
         ws.workflows,
     )
+    # A definition that fails validation is a refusal (400); validation
+    # itself failing is the server's (500), and its message may carry
+    # internals the log keeps
     try:
-        candidate.validate()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        errors = candidate.validation_errors()
+    except Exception:
+        raise internal_error("Workflow validation failed outright on save")
+    if errors:
+        raise HTTPException(status_code=400, detail=format_validation_errors(errors))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
         json.dump(request.workflow, file, indent=2)
@@ -321,11 +329,7 @@ def delete_workflow(
     try:
         library.require_writable(source, name)
     except ReadOnlyLibraryError as refusal:
-        raise HTTPException(
-            status_code=403,
-            detail=f"'{name}' comes from the read-only {refusal.root.origin} "
-            f"directory {refusal.root.root} and cannot be deleted",
-        )
+        raise HTTPException(status_code=403, detail=str(refusal))
     os.remove(path)
     logger.info(f"Deleted workflow {name} ({path})")
     forget_workspace_usage()
@@ -474,7 +478,7 @@ def referenceable(name):
 
 
 def _find_prompt(state, name):
-    """(path, writable) for the first root on the search path that holds
+    """(path, root) for the first root on the search path that holds
     this name. 404s when no root does, the way resolve_prompt_name does
     for a name that cannot be referenced at all."""
     # a name no workflow could reference is a miss, not the 400 a save
@@ -486,8 +490,7 @@ def _find_prompt(state, name):
     found = server_prompt_library(state).find(name.removesuffix(".json"))
     if found is None:
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
-    path, root = found
-    return path, root.writable
+    return found
 
 
 @router.get("/api/prompts")
@@ -501,13 +504,12 @@ def list_prompts(
     # A stray file too deep or oddly named can sit in the directory, but
     # no workflow could reference it - listing it would only invite that
     library = server_prompt_library(state)
-    winners, _shadowed = library.entries(
+    winners, hidden = library.entries(
         lambda root: [name for name in workflow_names(root) if referenceable(name)]
     )
     paths = {
         name: os.path.join(root.root, f"{name}.json") for name, root in winners.items()
     }
-    origins = {name: root.origin for name, root in winners.items()}
     details = prompt_details(paths)
 
     # Narrowing happens after the details are read, since that is where a
@@ -517,11 +519,20 @@ def list_prompts(
     wanted = matching_prompts(details, tag, intended_model)
     if wanted is not None:
         details = {name: detail for name, detail in details.items() if name in wanted}
-    # The three parallel keys agree by construction, filter or no filter.
+    # `prompts` and `details` agree by construction, filter or no filter.
     # `prompt_details` drops a path whose mtime it cannot read - the file
     # went away between the walk and the read - and listing a name that
-    # carries no detail only tells a caller to go and get a 404.
-    origins = {name: origin for name, origin in origins.items() if name in details}
+    # carries no detail only tells a caller to go and get a 404. Each detail
+    # says which library it came from and whether a save can reach it, as a
+    # workflow's does (a copy: the detail itself is cached)
+    details = {
+        name: {
+            **detail,
+            "origin": winners[name].origin,
+            "writable": winners[name].writable,
+        }
+        for name, detail in details.items()
+    }
 
     # The MCP listing cannot carry 44 prompt bodies - it exceeds a client's
     # result cap and the listing becomes uncallable - but the editors read
@@ -537,13 +548,12 @@ def list_prompts(
         }
 
     return {
-        # The writable library, unchanged: what a save is written to,
-        # and what a client that predates the search path expects
-        "prompt_dir": state.prompt_dir,
-        "prompt_dirs": [root.root for root in library.roots()],
+        "libraries": library.describe(),
         "prompts": sorted(details),
-        "origins": origins,
         "details": details,
+        "shadowed": [
+            entry for entry in shadowed_listing(hidden) if entry["name"] in details
+        ],
     }
 
 
@@ -576,13 +586,12 @@ def delete_prompt(request: Request, name: str):
     came from a read-only examples library is not this server's to
     delete - the same 403 a read-only workflow answers with."""
     state = request.app.state
-    path, writable = _find_prompt(state, name)
-    if not writable:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Prompt {name} is read-only: it comes from an examples "
-            f"library, not this workspace's prompt directory",
-        )
+    library = server_prompt_library(state)
+    path, root = _find_prompt(state, name)
+    try:
+        library.require_writable(root, name)
+    except ReadOnlyLibraryError as refusal:
+        raise HTTPException(status_code=403, detail=str(refusal))
     os.remove(path)
     logger.info(f"Deleted prompt {name} ({path})")
     forget_workspace_usage()
@@ -594,7 +603,7 @@ def delete_prompt(request: Request, name: str):
 def download_prompt(request: Request, name: str):
     """Serve a stored prompt as a forced download."""
     state = request.app.state
-    path, _ = _find_prompt(state, name)
+    path, _root = _find_prompt(state, name)
     return FileResponse(
         path, filename=os.path.basename(path), media_type="application/json"
     )
@@ -603,7 +612,7 @@ def download_prompt(request: Request, name: str):
 @router.get("/api/prompts/{name:path}")
 def get_prompt(request: Request, name: str):
     state = request.app.state
-    path, writable = _find_prompt(state, name)
+    path, root = _find_prompt(state, name)
     try:
         with open(path, "r") as file:
             # Which library it came from, the way a workflow carries its
@@ -612,10 +621,8 @@ def get_prompt(request: Request, name: str):
             return JSONResponse(
                 json.load(file),
                 headers={
-                    "X-Prompt-Origin": (
-                        WORKSPACE_ORIGIN if writable else EXAMPLES_ORIGIN
-                    ),
-                    "X-Prompt-Writable": "true" if writable else "false",
+                    "X-Prompt-Origin": root.origin,
+                    "X-Prompt-Writable": "true" if root.writable else "false",
                 },
             )
     except (OSError, json.JSONDecodeError) as e:
@@ -674,6 +681,13 @@ def enhance(
         )
         if not admission.ok:
             raise ValueError(admission.message())
+    except Exception as e:
+        # Everything up to here is the request being refused: a preset
+        # that does not exist, a definition admission will not take
+        raise HTTPException(status_code=400, detail=str(e))
+    # Admitted: a failure from here is the server's, and its message may
+    # carry internals - the log keeps it
+    try:
         job = manager.submit(
             admitted=admission.workflow,
             workflow=definition,
@@ -684,6 +698,6 @@ def enhance(
             workspace=ws.name,
             warnings=admission.warnings,
         )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return manager.describe(job)
+        return manager.describe(job)
+    except Exception:
+        raise internal_error("Enhance job submission failed after admission")

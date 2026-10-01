@@ -143,7 +143,9 @@ class TestPromptRootsDropAMissingExampleDir:
         gone = tmp_path / "repo" / "prompts"
         gone.rmdir()
         body = server.client.get("/api/prompts").json()
-        assert body["prompt_dirs"] == [server.workspace.prompts]
+        assert [library["root"] for library in body["libraries"]] == [
+            server.workspace.prompts
+        ]
 
 
 def described(path):
@@ -306,3 +308,193 @@ class TestAPromptLinkOutOfItsRoot:
         library = server_prompt_library(linked.state)
         with pytest.raises(SecurityError):
             resolve_prompt_reference("prompt:escape", library=library)
+
+
+REMOVED_LISTING_FIELDS = (
+    "workflow_dir",
+    "prompt_dir",
+    "asset_dir",
+    "sources",
+    "prompt_dirs",
+    "asset_dirs",
+    "origins",
+)
+
+
+class TestOneListingEnvelope:
+    """The three listings share one envelope: `libraries` (the search path in
+    order), `origin` and `writable` on every entry, `shadowed` for all three."""
+
+    @pytest.fixture
+    def server(self, make_server):
+        server = make_server()
+        definition = valid_workflow("dup")
+        for directory in (
+            server.workspace.workflows,
+            str(server.checkout / "workflows"),
+        ):
+            with open(os.path.join(directory, "dup.json"), "w") as file:
+                json.dump(definition, file)
+        with open(
+            os.path.join(str(server.checkout / "workflows"), "example-only.json"), "w"
+        ) as file:
+            json.dump(valid_workflow("example-only"), file)
+        write_prompt(server.workspace.prompts, "dup", "the workspace's")
+        write_prompt(str(server.checkout / "prompts"), "dup", "the example's")
+        write_prompt(str(server.checkout / "prompts"), "example-only", "only here")
+        for directory, content in (
+            (server.workspace.assets, b"workspace-copy"),
+            (str(server.checkout / "assets"), b"example-copy"),
+        ):
+            with open(os.path.join(directory, "dup.png"), "wb") as file:
+                file.write(content)
+        return server
+
+    @pytest.mark.parametrize("route", ["workflows", "prompts", "assets"])
+    def test_libraries_are_the_search_path_in_order(self, server, route):
+        body = server.client.get(f"/api/{route}").json()
+        for removed in REMOVED_LISTING_FIELDS:
+            assert removed not in body
+        libraries = body["libraries"]
+        assert all(
+            sorted(entry) == ["origin", "root", "writable"] for entry in libraries
+        )
+        origins = [entry["origin"] for entry in libraries]
+        if route == "assets":
+            assert origins == [WORKSPACE_ORIGIN, COMMON_ORIGIN, EXAMPLES_ORIGIN]
+        else:
+            assert origins == [WORKSPACE_ORIGIN, EXAMPLES_ORIGIN]
+        # The writable root a save targets is the workspace entry
+        own = [
+            e for e in libraries if e["writable"] and e["origin"] == WORKSPACE_ORIGIN
+        ]
+        assert len(own) == 1
+        assert os.path.isabs(own[0]["root"])
+
+    def test_the_workspace_is_echoed_by_workflows_and_assets_only(self, server):
+        assert server.client.get("/api/workflows").json()["workspace"] == "default"
+        assert server.client.get("/api/assets").json()["workspace"] == "default"
+        assert "workspace" not in server.client.get("/api/prompts").json()
+
+    def test_every_entry_carries_origin_and_writable(self, server):
+        workflows = server.client.get("/api/workflows").json()["details"]
+        prompts = server.client.get("/api/prompts").json()["details"]
+        assets = server.client.get("/api/assets").json()["assets"]
+        pairs = lambda items: {  # noqa: E731
+            name: (d["origin"], d["writable"]) for name, d in items.items()
+        }
+        assert pairs(workflows)["dup"] == (WORKSPACE_ORIGIN, True)
+        assert pairs(workflows)["example-only"] == (EXAMPLES_ORIGIN, False)
+        assert pairs(prompts)["dup"] == (WORKSPACE_ORIGIN, True)
+        assert pairs(prompts)["example-only"] == (EXAMPLES_ORIGIN, False)
+        by_name = {a["name"]: (a["origin"], a["writable"]) for a in assets}
+        assert by_name["dup.png"] == (WORKSPACE_ORIGIN, True)
+
+    @pytest.mark.parametrize(
+        "route,name", [("workflows", "dup"), ("prompts", "dup"), ("assets", "dup.png")]
+    )
+    def test_the_hidden_copy_is_listed_as_shadowed(self, server, route, name):
+        hidden = [
+            entry
+            for entry in server.client.get(f"/api/{route}").json()["shadowed"]
+            if entry["name"] == name
+        ]
+        assert [(e["origin"], e["shadowed_by"]) for e in hidden] == [
+            (EXAMPLES_ORIGIN, WORKSPACE_ORIGIN)
+        ]
+
+    @pytest.mark.parametrize(
+        "route,name,kind",
+        [
+            ("workflows", "example-only", "workflows"),
+            ("prompts", "example-only", "prompts"),
+        ],
+    )
+    def test_deleting_a_read_only_entry_gives_one_message(
+        self, server, route, name, kind
+    ):
+        response = server.client.delete(f"/api/{route}/{name}")
+        assert response.status_code == 403
+        examples = str(
+            server.checkout / ("workflows" if route == "workflows" else "prompts")
+        )
+        assert response.json()["detail"] == (
+            f"'{name}' is in the read-only examples library ({examples}); "
+            f"only the workspace's own {kind} can be deleted"
+        )
+
+    def test_deleting_a_read_only_asset_gives_the_same_message(self, server):
+        with open(str(server.checkout / "assets" / "example-only.png"), "wb") as file:
+            file.write(b"x")
+        response = server.client.delete("/api/assets/example-only.png")
+        assert response.status_code == 403
+        assert response.json()["detail"] == (
+            "'example-only.png' is in the read-only examples library "
+            f"({server.checkout / 'assets'}); only the workspace's own assets "
+            "can be deleted"
+        )
+
+
+class TestAnUploadWithNoAssetLibrary:
+    def test_it_is_a_409_rather_than_a_write_into_outputs(self, tmp_path):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(tmp_path / "workflows"),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.post(
+                "/api/uploads", params={"filename": "a.png"}, content=b"bytes"
+            )
+        assert response.status_code == 409
+        assert not (tmp_path / "outputs" / "uploads").exists()
+
+
+class TestLibraryRouteStatuses:
+    """B10: a refusal is 400, a failure after the request was understood is 500."""
+
+    def test_an_invalid_workflow_save_is_a_400(self, make_server):
+        server = make_server()
+        response = server.client.put(
+            "/api/workflows/bad", json={"workflow": {"id": "bad", "steps": "no"}}
+        )
+        assert response.status_code == 400
+
+    def test_a_crash_while_validating_a_save_is_a_500(self, make_server, monkeypatch):
+        from dw.workflow import Workflow
+
+        server = make_server()
+
+        def crash(self, *args, **kwargs):
+            raise RuntimeError("internals: /secret/path")
+
+        monkeypatch.setattr(Workflow, "validation_errors", crash)
+        response = server.client.put(
+            "/api/workflows/ok", json={"workflow": valid_workflow("ok")}
+        )
+        assert response.status_code == 500
+        assert "/secret/path" not in response.text
+
+    def test_a_failed_enhance_submit_is_a_500(self, make_server, monkeypatch):
+        server = make_server()
+        manager = server.state.job_manager
+
+        def crash(*args, **kwargs):
+            raise RuntimeError("internals: /secret/path")
+
+        monkeypatch.setattr(manager, "submit", crash)
+        response = server.client.post("/api/enhance", json={"idea": "a cat"})
+        assert response.status_code == 500
+        assert "/secret/path" not in response.text
+
+    def test_an_unknown_enhance_preset_is_a_400(self, make_server):
+        server = make_server()
+        response = server.client.post(
+            "/api/enhance", json={"idea": "a cat", "preset": "nope"}
+        )
+        assert response.status_code == 400

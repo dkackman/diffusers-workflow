@@ -51,7 +51,6 @@ class TestListing:
             return httpx.Response(
                 200,
                 json={
-                    "asset_dir": "/studio/assets",
                     "assets": [
                         {
                             "name": "uploads/iris.png",
@@ -75,7 +74,7 @@ class TestListing:
         def handler(request):
             seen["params"] = dict(request.url.params)
             return httpx.Response(
-                200, json={"asset_dir": "/w/A/assets", "assets": [], "folders": []}
+                200, json={"workspace": "A", "assets": [], "folders": []}
             )
 
         list_assets(client_over(handler), workspace="A")
@@ -474,23 +473,22 @@ class TestUploadContainmentOverAMountedEndpoint:
                 return httpx.Response(
                     200,
                     json={
-                        "asset_dir": str(workspace / "assets"),
                         "assets": [],
                         "folders": [],
                         "libraries": [
                             {
                                 "origin": "workspace",
-                                "dir": str(workspace / "assets"),
+                                "root": str(workspace / "assets"),
                                 "writable": True,
                             },
                             {
                                 "origin": "common",
-                                "dir": str(common),
+                                "root": str(common),
                                 "writable": True,
                             },
                             {
                                 "origin": "examples",
-                                "dir": str(tmp_path / "examples" / "assets"),
+                                "root": str(tmp_path / "examples" / "assets"),
                                 "writable": False,
                             },
                         ],

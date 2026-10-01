@@ -177,10 +177,12 @@ class TestServer:
         api, workspace, checkout = client
         body = api.get("/api/prompts").json()
         assert set(body["prompts"]) == {"mine", "flux/daffodil", "shared"}
-        assert body["origins"]["mine"] == WORKSPACE_ORIGIN
-        assert body["origins"]["flux/daffodil"] == EXAMPLES_ORIGIN
-        assert body["prompt_dir"] == workspace.prompts
-        assert body["prompt_dirs"] == [workspace.prompts, str(checkout / "prompts")]
+        assert body["details"]["mine"]["origin"] == WORKSPACE_ORIGIN
+        assert body["details"]["flux/daffodil"]["origin"] == EXAMPLES_ORIGIN
+        assert [library["root"] for library in body["libraries"]] == [
+            workspace.prompts,
+            str(checkout / "prompts"),
+        ]
         assert body["details"]["flux/daffodil"]["text"] == "a biomechanical daffodil"
 
     def test_an_example_prompt_reads(self, client):
@@ -222,8 +224,7 @@ class TestServer:
             "iris.png": EXAMPLES_ORIGIN,
             "shared.png": EXAMPLES_ORIGIN,
         }
-        assert body["asset_dir"] == workspace.assets
-        assert body["asset_dirs"] == [
+        assert [library["root"] for library in body["libraries"]] == [
             os.path.abspath(workspace.assets),
             str(checkout / "assets"),
         ]
