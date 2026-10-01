@@ -82,10 +82,12 @@ def media_roots(base_dir=None):
     if base_dir:
         candidates.append(base_dir)
 
-    from .assets import asset_search_path
+    from .assets import asset_library
 
     try:
-        candidates.extend(asset_search_path(base_dir=base_dir))
+        candidates.extend(
+            root.root for root in asset_library(base_dir=base_dir).roots()
+        )
     except Exception:
         logger.debug("Could not resolve the asset search path", exc_info=True)
 

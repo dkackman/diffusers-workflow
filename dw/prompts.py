@@ -9,12 +9,19 @@ than copied into every workflow that uses it.
 
 import json
 import logging
-import os
 
 from . import references
 from .schema import load_schema, validate_data
-from .security import validate_prompt_path, validate_prompt_reference
-from .workspace import PROMPTS_SUBDIR, discover_library, library_fallbacks
+from .library import (
+    PROMPT_DIR_ENV_VAR,
+    PROMPTS_KIND,
+    LibraryPath,
+    LibraryRoot,
+    WORKSPACE_ORIGIN,
+    library_path_from_env,
+)
+from .security import validate_prompt_reference
+from .workspace import PROMPTS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
@@ -51,28 +58,34 @@ def get_prompt_dir(base_dir=None):
     Args:
         base_dir: The workflow file's directory, when one anchors the search
     """
-    return discover_library(PROMPTS_SUBDIR, "DW_PROMPT_DIR", base_dir)
+    return discover_library(PROMPTS_SUBDIR, PROMPT_DIR_ENV_VAR, base_dir)
 
 
-def prompt_search_path(prompt_dir=None, base_dir=None):
-    """Every directory a 'prompt:' reference is looked for in, in order.
-
-    The library a save would write to comes first, then the read-only ones
-    an entry point put on the path (workspace.library_fallbacks - the
+def prompt_library(prompt_dir=None, base_dir=None, exact=False):
+    """The prompt library as a `LibraryPath`: the library a save would write
+    to first, then the read-only ones an entry point put on the path (the
     prompts a --examples-dir tree brings with it). A name found earlier
-    shadows the same name later, the way it does on the workflow search
-    path.
+    shadows the same name later, the way it does on the workflow search path.
 
     Args:
         prompt_dir: The first directory; defaults to get_prompt_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             prompt directory is configured
+        exact: Search `prompt_dir` alone, ignoring the pinned path - for a
+            caller asking whether one root holds a name
     """
     primary = prompt_dir or get_prompt_dir(base_dir)
-    return [primary] + library_fallbacks(PROMPTS_SUBDIR, primary)
+    if exact:
+        return LibraryPath(PROMPTS_KIND, [LibraryRoot(primary, WORKSPACE_ORIGIN, True)])
+    return library_path_from_env(PROMPTS_KIND, primary)
 
 
-def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None):
+def prompt_search_path(prompt_dir=None, base_dir=None):
+    """Every directory a 'prompt:' reference is looked for in, in order."""
+    return [root.root for root in prompt_library(prompt_dir, base_dir).roots()]
+
+
+def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, exact=False):
     """Resolve a 'prompt:' reference to the file it names.
 
     Args:
@@ -80,6 +93,8 @@ def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None):
         prompt_dir: Directory the name is rooted at; defaults to get_prompt_dir()
         base_dir: The workflow file's directory, anchoring discovery when no
             prompt directory is configured
+        exact: Resolve against `prompt_dir` alone rather than the whole
+            search path (see prompt_library)
 
     Returns:
         The validated absolute path of the prompt file
@@ -90,12 +105,11 @@ def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None):
             on the search path
     """
     name = validate_prompt_reference(reference.removeprefix(PROMPT_PREFIX).strip())
-    roots = prompt_search_path(prompt_dir, base_dir)
-    for root in roots:
-        path = os.path.join(root, name + ".json")
-        if os.path.isfile(path):
-            return validate_prompt_path(path, root)
-    searched = ", ".join(roots)
+    library = prompt_library(prompt_dir, base_dir, exact)
+    found = library.find(name, refuse=True)
+    if found:
+        return found[0]
+    searched = ", ".join(root.root for root in library.roots())
     raise ValueError(
         f"No prompt named '{name}' in {searched} - a prompt reference names "
         f"a .json file under the prompt directory, without the extension"

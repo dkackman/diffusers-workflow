@@ -33,7 +33,12 @@ from .security import (
     SecurityError,
     contained,
     validate_path,
+    validate_prompt_path,
     validate_workflow_path,
+)
+from .workspace import (
+    example_libraries,
+    resolve_workspace,
 )
 
 logger = logging.getLogger("dw")
@@ -46,6 +51,21 @@ BUILTIN_ORIGIN = "builtin"
 # one root reports itself this way, so a client can tell a shared asset from
 # one of its own
 COMMON_ORIGIN = "common"
+
+
+# The environment is how the worker subprocess learns the libraries: spawn
+# inherits it, it does not inherit the argument parser. The primary (the
+# directory a save lands in) is named by one variable per library; the
+# read-only roots after it are an os.pathsep list in another. About thirty
+# test sites set these, so the names and the format are a pinned interface.
+ASSET_DIR_ENV_VAR = "DW_ASSET_DIR"
+PROMPT_DIR_ENV_VAR = "DW_PROMPT_DIR"
+PROMPT_PATH_ENV_VAR = "DW_PROMPT_PATH"
+ASSET_PATH_ENV_VAR = "DW_ASSET_PATH"
+# The same idea for workflows, which a sub-workflow step names: a stored
+# template lives in an examples tree the workspace's own workflows/ cannot
+# reach, so composing one used to mean copying it in (#90)
+WORKFLOW_PATH_ENV_VAR = "DW_WORKFLOW_PATH"
 
 
 def builtin_root():
@@ -115,6 +135,11 @@ PROMPTS_KIND = "prompts"
 ASSETS_KIND = "assets"
 _JSON_KINDS = {WORKFLOWS_KIND, PROMPTS_KIND}
 LIBRARY_KINDS = (WORKFLOWS_KIND, PROMPTS_KIND, ASSETS_KIND)
+LIBRARY_PATH_ENV_VARS = {
+    PROMPTS_KIND: PROMPT_PATH_ENV_VAR,
+    ASSETS_KIND: ASSET_PATH_ENV_VAR,
+    WORKFLOWS_KIND: WORKFLOW_PATH_ENV_VAR,
+}
 
 
 class LibraryPath:
@@ -154,21 +179,36 @@ class LibraryPath:
         candidate = os.path.join(root.root, self.file_name(name))
         try:
             if self.kind == WORKFLOWS_KIND and not allow_create:
-                # The named validator CodeQL models for py/path-injection;
-                # it also enforces the .json extension
+                # The named validators CodeQL models for py/path-injection;
+                # each also enforces the .json extension
                 return validate_workflow_path(candidate, root.root)
+            if self.kind == PROMPTS_KIND and not allow_create:
+                return validate_prompt_path(candidate, root.root)
+            # Assets: containment alone, with a non-None base
             return validate_path(candidate, root.root, allow_create=allow_create)
         except SecurityError:
             return None
 
-    def find(self, name):
+    def find(self, name, refuse=False):
         """The first root that has this name, as (path, root), or None.
 
         Front to back, so a workspace copy shadows the example it was copied
         from. Each candidate is confined to its own root, so a symlink that
-        points outside it is a miss rather than a leak.
+        points outside it is a miss rather than a leak. A resolver that owes
+        its caller a refusal rather than a "not found" - an `asset:` or
+        `prompt:` reference naming a link out of the library - passes
+        `refuse=True`, and the security layer's error propagates instead.
         """
         for root in self._roots:
+            if refuse:
+                path = validate_path(
+                    os.path.join(root.root, self.file_name(name)), root.root
+                )
+                if not os.path.isfile(path):
+                    continue
+                if self.kind == PROMPTS_KIND:
+                    path = validate_prompt_path(path, root.root)
+                return path, root
             path = self.path_in(root, name)
             if path and os.path.isfile(path):
                 return path, root
@@ -241,6 +281,25 @@ def workflow_names(root):
     return sorted(names)
 
 
+def _assemble(kind, primary, candidates):
+    """A path from its writable front and the roots behind it.
+
+    `candidates` is `[(directory, origin, writable)]`. A candidate that is
+    the front, or that an earlier candidate already named, is dropped, and so
+    is one that is not a directory - the same for every library. The front is
+    kept whether or not it exists yet: a save creates it.
+    """
+    roots = [primary]
+    seen = {primary.root}
+    for directory, origin, writable in candidates:
+        root = LibraryRoot(directory, origin, writable)
+        if root.root in seen or not os.path.isdir(root.root):
+            continue
+        seen.add(root.root)
+        roots.append(root)
+    return LibraryPath(kind, roots)
+
+
 def library_path(
     kind, workspace, examples_dirs=None, primary=None, include_builtin=False
 ):
@@ -248,14 +307,23 @@ def library_path(
 
     Workflows: the workspace's `workflows/` (writable), then each examples
     directory (read-only), then - when `include_builtin` asks - the packaged
-    workflows. `primary` replaces the writable root, which is how a job's own
-    directory names its path.
+    workflows.
 
-    A read-only root that is the writable one - a checkout whose workflows/ is
-    both the workspace library and the examples - appears once, writable,
-    rather than twice with two different answers about whether it can be
-    saved to. A read-only root that is not a directory is dropped. The
-    writable root is kept whether or not it exists yet: a save creates it.
+    Prompts: the prompt directory (writable), then the `prompts/` each
+    examples directory brings (read-only).
+
+    Assets: the workspace's `assets/` (writable), then the library every
+    workspace under the root shares (`common`; writable, but only a write
+    that says it is shared goes there - `writable_root()` still answers the
+    workspace's), then the examples' `assets/` (read-only).
+
+    `primary` replaces the writable front, which is how a job's own
+    directory names its path. A read-only root that is the writable one - a
+    checkout whose workflows/ is both the workspace library and the examples
+    - appears once, writable, rather than twice with two different answers
+    about whether it can be saved to. A root that is not a directory is
+    dropped, for every kind; the writable front is kept whether or not it
+    exists yet.
 
     The packaged workflows are off the path by default. They are the pieces
     a 'builtin:' sub-workflow step names, resolved by the engine where that
@@ -263,21 +331,99 @@ def library_path(
     their own, and listing them would put a handful of fragments in front of
     every user who never asked for them.
     """
-    if kind != WORKFLOWS_KIND:
-        raise ValueError(f"No search path is built for {kind} libraries yet")
-    roots = [LibraryRoot(primary or workspace.workflows, WORKSPACE_ORIGIN, True)]
-    candidates = [(directory, EXAMPLES_ORIGIN) for directory in examples_dirs or []]
-    if include_builtin:
-        candidates.append((builtin_root(), BUILTIN_ORIGIN))
+    if kind not in LIBRARY_KINDS:
+        raise ValueError(f"Unknown library kind: {kind}")
+    if include_builtin and kind != WORKFLOWS_KIND:
+        raise ValueError("Only the workflows library has builtin entries")
 
-    seen = {roots[0].root}
-    for directory, origin in candidates:
-        root = LibraryRoot(directory, origin, False)
-        if root.root in seen or not os.path.isdir(root.root):
+    candidates = []
+    if kind == WORKFLOWS_KIND:
+        front = primary or workspace.workflows
+        candidates += [(d, EXAMPLES_ORIGIN, False) for d in examples_dirs or []]
+        if include_builtin:
+            candidates.append((builtin_root(), BUILTIN_ORIGIN, False))
+    else:
+        libraries = example_libraries(examples_dirs)
+        if kind == PROMPTS_KIND:
+            front = primary or workspace.prompts
+        else:
+            front = primary or workspace.assets
+            common = getattr(workspace, "common_assets", None)
+            if common:
+                candidates.append((common, COMMON_ORIGIN, True))
+        candidates += [(d, EXAMPLES_ORIGIN, False) for d in libraries[kind]]
+    return _assemble(kind, LibraryRoot(front, WORKSPACE_ORIGIN, True), candidates)
+
+
+def _pinned_roots(kind):
+    """The read-only roots the entry point pinned in the environment: absolute,
+    existing directories, each once, in order."""
+    roots = []
+    for entry in os.environ.get(LIBRARY_PATH_ENV_VARS[kind], "").split(os.pathsep):
+        if not entry.strip():
             continue
-        seen.add(root.root)
-        roots.append(root)
-    return LibraryPath(kind, roots)
+        root = os.path.abspath(os.path.expanduser(entry))
+        if root not in roots and os.path.isdir(root):
+            roots.append(root)
+    return roots
+
+
+def library_path_from_env(kind, primary=None):
+    """The search path the worker (or any engine caller) resolves against:
+    `primary` first, then the roots the entry point pinned with
+    `pin_library_path`.
+
+    Origins are re-derived rather than carried, so the worker's tags match
+    the API's: a root equal to the workspace's `common/assets` is `common`
+    (writable, as the constructor builds it), any other pinned root is
+    `examples` (read-only).
+
+    `primary` may be None - an unconfined workflow run has no front. A
+    workflow `primary` that is itself a pinned read-only root is a run
+    confined to an examples directory, so it is tagged `examples` and read-only
+    rather than `workspace`; for prompts and assets the primary is always the
+    workspace's own.
+    """
+    common = None
+    if kind == ASSETS_KIND:
+        try:
+            common = os.path.abspath(resolve_workspace().common_assets)
+        except Exception:
+            logger.debug("Could not resolve the common asset library", exc_info=True)
+
+    def tagged(directory):
+        if directory == common:
+            return directory, COMMON_ORIGIN, True
+        return directory, EXAMPLES_ORIGIN, False
+
+    pinned = _pinned_roots(kind)
+    if primary is None:
+        roots = []
+        for directory in pinned:
+            roots.append(LibraryRoot(*tagged(directory)))
+        return LibraryPath(kind, roots)
+
+    front = LibraryRoot(primary, WORKSPACE_ORIGIN, True)
+    if kind == WORKFLOWS_KIND and front.root in pinned:
+        front = LibraryRoot(*tagged(front.root))
+    return _assemble(kind, front, [tagged(directory) for directory in pinned])
+
+
+def pin_library_path(library):
+    """Pin a library's read-only roots in the environment, so the worker
+    subprocess resolves a reference exactly as the entry point would.
+
+    Everything after the first root - the writable front is named by its own
+    `DW_*_DIR` variable - as an os.pathsep list. An empty tail removes the
+    variable. Returns the value written.
+    """
+    name = LIBRARY_PATH_ENV_VARS[library.kind]
+    joined = os.pathsep.join(root.root for root in library.roots()[1:])
+    if joined:
+        os.environ[name] = joined
+    else:
+        os.environ.pop(name, None)
+    return joined
 
 
 def suggest_workflow_names(library, name, limit=3):
@@ -322,19 +468,6 @@ def suggest_workflow_names(library, name, limit=3):
             if candidate not in matches:
                 matches.append(candidate)
     return matches[:limit]
-
-
-def fallback_roots(primary=None):
-    """The read-only workflow roots a sub-workflow name is resolved against
-    after the directory the run is confined to.
-
-    Pinned in DW_WORKFLOW_PATH by dw.serve, the same way the prompt and
-    asset libraries are, so the worker resolves a composed template exactly
-    as the API would.
-    """
-    from .workspace import WORKFLOWS_SUBDIR, library_fallbacks
-
-    return library_fallbacks(WORKFLOWS_SUBDIR, primary)
 
 
 def _candidate_names(name):
@@ -395,21 +528,12 @@ def resolve_sub_workflow(path, base_dir, confine_to):
     name that was absent. Otherwise raises SubWorkflowNotFound, naming every
     candidate it looked at.
     """
-    primary = None
-    if confine_to:
-        primary = LibraryRoot(confine_to, WORKSPACE_ORIGIN, True)
-    # The run's own root is the writable front of the path; every other root
-    # is a read-only fallback. Each is tagged for what it is, so the root a
-    # caller gets back says whether it is the workspace's own
-    library = LibraryPath(
-        WORKFLOWS_KIND,
-        ([primary] if primary else [])
-        + [
-            LibraryRoot(root, EXAMPLES_ORIGIN, False)
-            for root in fallback_roots(primary.root if primary else None)
-            if not primary or root != primary.root
-        ],
-    )
+    # The run's own root is the writable front of the path unless it is one
+    # of the pinned read-only roots; every other root is a read-only
+    # fallback. Each is tagged for what it is, so the root a caller gets back
+    # says whether it is the workspace's own
+    library = library_path_from_env(WORKFLOWS_KIND, confine_to or None)
+    primary = library.roots()[0] if confine_to else None
     roots = [root.root for root in library.roots()]
 
     tried = []

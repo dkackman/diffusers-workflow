@@ -981,7 +981,7 @@ class TestSubWorkflowNameResolution:
         without copying the template into the workspace."""
         import json
 
-        from dw.workspace import WORKFLOW_PATH_ENV_VAR
+        from dw.library import WORKFLOW_PATH_ENV_VAR
 
         examples = tmp_path / "examples"
         (examples / "templates").mkdir(parents=True)

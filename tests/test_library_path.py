@@ -371,3 +371,219 @@ class TestSubWorkflowOrigin:
         assert candidate == str(examples / "ltx2" / "Gyre.json")
         assert root.origin == EXAMPLES_ORIGIN
         assert not root.writable
+
+
+class TestTaggedByWhatItIs:
+    """D8, finished: a run confined to an examples directory is confined to a
+    read-only root, and the root it hands back says so."""
+
+    def test_a_run_confined_to_an_examples_dir_is_tagged_examples(
+        self, roots, monkeypatch
+    ):
+        _workspace, examples = roots
+        monkeypatch.setenv("DW_WORKFLOW_PATH", str(examples))
+        candidate, root = resolve_sub_workflow("Shared", str(examples), str(examples))
+        assert candidate == str(examples / "Shared.json")
+        assert root.origin == EXAMPLES_ORIGIN
+        assert not root.writable
+
+    def test_a_confinement_that_is_not_pinned_stays_the_workspace(
+        self, roots, monkeypatch
+    ):
+        workspace, examples = roots
+        monkeypatch.setenv("DW_WORKFLOW_PATH", str(examples))
+        _candidate, root = resolve_sub_workflow(
+            "Shared", str(workspace), str(workspace)
+        )
+        assert root.origin == WORKSPACE_ORIGIN
+        assert root.writable
+
+
+class TestPromptsAndAssetsConstruction:
+    @pytest.fixture
+    def workspace(self, tmp_path):
+        from dw.workspace import Workspace
+
+        root = tmp_path / "ws"
+        for sub in ("assets", "prompts", "common/assets"):
+            (root / sub).mkdir(parents=True)
+        return Workspace(root, "flag")
+
+    @pytest.fixture
+    def examples(self, tmp_path):
+        tree = tmp_path / "repo"
+        for sub in ("workflows", "assets", "prompts"):
+            (tree / sub).mkdir(parents=True)
+        return str(tree / "workflows")
+
+    def test_assets_are_workspace_then_common_then_examples(
+        self, workspace, examples, tmp_path
+    ):
+        path = library_path("assets", workspace, [examples])
+        assert [(r.root, r.origin) for r in path.roots()] == [
+            (workspace.assets, WORKSPACE_ORIGIN),
+            (workspace.common_assets, "common"),
+            (str(tmp_path / "repo" / "assets"), EXAMPLES_ORIGIN),
+        ]
+
+    def test_the_common_root_is_writable_only_for_a_shared_write(
+        self, workspace, examples
+    ):
+        path = library_path("assets", workspace, [examples])
+        common = path.roots()[1]
+        assert common.writable
+        assert path.writable_root().root == workspace.assets
+        assert path.writable_root(shared=True) is common
+
+    def test_a_primary_names_the_front_and_the_workspaces_own_is_not_added(
+        self, workspace, tmp_path
+    ):
+        job_assets = tmp_path / "job-assets"
+        path = library_path("assets", workspace, [], primary=str(job_assets))
+        assert path.roots()[0].root == str(job_assets)
+        assert workspace.assets not in [r.root for r in path.roots()]
+        assert path.roots()[0].writable
+
+    def test_prompts_are_the_front_then_the_examples(
+        self, workspace, examples, tmp_path
+    ):
+        path = library_path("prompts", workspace, [examples])
+        assert [(r.root, r.origin) for r in path.roots()] == [
+            (workspace.prompts, WORKSPACE_ORIGIN),
+            (str(tmp_path / "repo" / "prompts"), EXAMPLES_ORIGIN),
+        ]
+
+    @pytest.mark.parametrize("kind", ["prompts", "assets", "workflows"])
+    def test_a_missing_examples_directory_is_dropped_for_every_kind(
+        self, kind, workspace, tmp_path
+    ):
+        gone = tmp_path / "gone" / "workflows"
+        path = library_path(kind, workspace, [str(gone)])
+        assert len(path.roots()) == (2 if kind == "assets" else 1)
+        assert all(os.path.isdir(r.root) for r in path.roots()[1:])
+
+    def test_a_missing_common_root_is_dropped(self, workspace, examples):
+        os.rmdir(workspace.common_assets)
+        path = library_path("assets", workspace, [examples])
+        assert "common" not in [r.origin for r in path.roots()]
+
+    def test_the_front_is_kept_before_it_exists(self, workspace, tmp_path):
+        path = library_path("prompts", workspace, [], primary=str(tmp_path / "not-yet"))
+        assert [r.root for r in path.roots()] == [str(tmp_path / "not-yet")]
+
+
+class TestEnvironmentSerializer:
+    @pytest.fixture
+    def trees(self, tmp_path, monkeypatch):
+        from dw.workspace import Workspace
+
+        monkeypatch.delenv("DW_ASSET_PATH", raising=False)
+        monkeypatch.delenv("DW_PROMPT_PATH", raising=False)
+        monkeypatch.setenv("DW_WORKSPACE", str(tmp_path / "ws"))
+        monkeypatch.setenv("DW_WORKSPACE_SOURCE", "environment")
+        workspace = Workspace(tmp_path / "ws", "environment")
+        for sub in ("assets", "prompts", "common/assets"):
+            (tmp_path / "ws" / sub).mkdir(parents=True)
+        for sub in ("workflows", "assets", "prompts"):
+            (tmp_path / "repo" / sub).mkdir(parents=True)
+        return workspace, str(tmp_path / "repo" / "workflows")
+
+    def test_the_worker_rebuilds_the_path_the_api_builds(self, trees):
+        from dw.library import library_path_from_env, pin_library_path
+
+        workspace, examples = trees
+        for kind in ("assets", "prompts", "workflows"):
+            api = library_path(kind, workspace, [examples])
+            pin_library_path(api)
+            worker = library_path_from_env(kind, api.roots()[0].root)
+            assert [(r.root, r.origin) for r in worker.roots()] == [
+                (r.root, r.origin) for r in api.roots()
+            ], kind
+
+    def test_the_env_format_is_the_pathsep_tail(self, trees):
+        from dw.library import ASSET_PATH_ENV_VAR, pin_library_path
+
+        workspace, examples = trees
+        written = pin_library_path(library_path("assets", workspace, [examples]))
+        assert written == os.environ[ASSET_PATH_ENV_VAR]
+        assert written.split(os.pathsep) == [
+            workspace.common_assets,
+            os.path.join(os.path.dirname(examples), "assets"),
+        ]
+
+    def test_an_empty_tail_clears_the_variable(self, trees, monkeypatch):
+        from dw.library import PROMPT_PATH_ENV_VAR, pin_library_path
+
+        workspace, _examples = trees
+        monkeypatch.setenv(PROMPT_PATH_ENV_VAR, "/stale")
+        pin_library_path(library_path("prompts", workspace, []))
+        assert PROMPT_PATH_ENV_VAR not in os.environ
+
+    def test_fallbacks_are_deduplicated_against_each_other(self, trees, monkeypatch):
+        from dw.library import library_path_from_env
+
+        workspace, examples = trees
+        shared = os.path.join(os.path.dirname(examples), "assets")
+        monkeypatch.setenv(
+            "DW_ASSET_PATH", os.pathsep.join([shared, shared, workspace.assets])
+        )
+        roots = library_path_from_env("assets", workspace.assets).roots()
+        assert [r.root for r in roots] == [workspace.assets, shared]
+
+    def test_common_is_recognized_by_the_workspace_it_lives_in(self, trees):
+        from dw.library import library_path_from_env, pin_library_path
+
+        workspace, examples = trees
+        pin_library_path(library_path("assets", workspace, [examples]))
+        origins = [
+            r.origin for r in library_path_from_env("assets", workspace.assets).roots()
+        ]
+        assert origins == [WORKSPACE_ORIGIN, "common", EXAMPLES_ORIGIN]
+
+
+class TestResolveAgainstOneRoot:
+    """D7: `asset_dir=root` used to resolve against that root *and* the
+    pinned environment tail, so "does this root hold the name" answered for
+    several roots."""
+
+    @pytest.fixture
+    def libraries(self, tmp_path, monkeypatch):
+        pinned = tmp_path / "pinned"
+        other = tmp_path / "other"
+        for directory in (pinned, other):
+            directory.mkdir()
+        (pinned / "x.png").write_bytes(b"x")
+        (pinned / "p.json").write_text('{"text": "pinned"}')
+        monkeypatch.setenv("DW_ASSET_PATH", str(pinned))
+        monkeypatch.setenv("DW_PROMPT_PATH", str(pinned))
+        return pinned, other
+
+    def test_the_pinned_tail_is_still_searched_by_default(self, libraries):
+        from dw.assets import resolve_asset_reference
+
+        pinned, other = libraries
+        found = resolve_asset_reference("asset:x.png", asset_dir=str(other))
+        assert found == os.path.realpath(pinned / "x.png")
+
+    def test_an_exact_asset_resolution_does_not_find_it(self, libraries):
+        from dw.assets import resolve_asset_reference
+
+        _pinned, other = libraries
+        with pytest.raises(ValueError):
+            resolve_asset_reference("asset:x.png", asset_dir=str(other), exact=True)
+
+    def test_an_exact_prompt_resolution_does_not_find_it(self, libraries):
+        from dw.prompts import resolve_prompt_reference
+
+        _pinned, other = libraries
+        with pytest.raises(ValueError):
+            resolve_prompt_reference("prompt:p", prompt_dir=str(other), exact=True)
+
+    def test_an_exact_resolution_finds_what_the_root_holds(self, libraries):
+        from dw.assets import resolve_asset_reference
+
+        _pinned, other = libraries
+        (other / "y.png").write_bytes(b"y")
+        assert resolve_asset_reference(
+            "asset:y.png", asset_dir=str(other), exact=True
+        ) == os.path.realpath(other / "y.png")
