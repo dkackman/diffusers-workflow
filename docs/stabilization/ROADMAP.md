@@ -27,6 +27,8 @@ Two kinds, kept small on purpose.
   - **Cyclomatic complexity:** functions above 15, by ruff's C901 (already a dev dependency). Baseline 21.
   - **Import cycles:** strongly connected components of more than one module in grimp's graph of `dw` + `dw_mcp`, lazy imports included, TYPE_CHECKING imports excluded. Baseline 6.
   - **Modules inside import cycles:** the sum of those components' sizes. Baseline 26, because one of the six is a 16-module knot (`arguments`, `result`, `pipeline`, `runs`, `step_cache`, `tasks`, ...) that could grow without the cycle count moving. It grew from 22 to 26 in Phase 0 (the `step_cache` → `pipeline` import). The target is 0 for both cycle ratchets, reached by Phases 2-3. Each ratchet only forbids getting worse.
+  - **Prefix handling (Phase 4a):** hand-written reference-prefix handling outside `references.py`, per AST node: `startswith`-style calls, `[len(PREFIX):]` slices, `+` and f-string building, module-level alias assignments, and strings that start or end with a prefix. Counting rules are in the `scripts/arch_metrics.py` docstring. Baseline 82; Phase 4a drives it to 0.
+  - `prefix_literals` stays beside it (exact bare prefix strings, baseline 0).
 
 **Gate reports.** These are produced at each phase gate by `scripts/arch_report.py`, which lands in Phase 1. They are written into the Gate reports section below. They are reports, never gates.
 
