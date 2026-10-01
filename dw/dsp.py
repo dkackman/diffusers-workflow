@@ -23,6 +23,7 @@ up past 0 dBFS even when every decoded sample was under it.
 
 import logging
 import math
+import numbers
 from fractions import Fraction
 
 import numpy
@@ -196,7 +197,7 @@ def apply_biquad(channel, b, a):
 def layout_name(channels, layout=None):
     """The PyAV layout name for a channel count: mono, stereo, else the
     stream's own layout (`layout.name`) when one is given, else `<n>c`.
-    The one spelling `dw.media` and `resample_samples` share."""
+    The one spelling `dw.media` and `resample_waveform` share."""
     if channels == 1:
         return "mono"
     if channels == 2:
@@ -204,14 +205,37 @@ def layout_name(channels, layout=None):
     return layout.name if layout is not None else f"{channels}c"
 
 
-def resample_samples(waveform, sample_rate, target_sample_rate):
+def _rate_or_none(value):
+    """A rate as a float if it is a number (or a numeric string), else None.
+    Booleans are not rates. dsp imports nothing from dw, so this is the
+    task_domains.as_number rule written out."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, numbers.Real):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def resample_waveform(waveform, sample_rate, target_sample_rate):
     """A waveform at a different rate, as a plain (channels, samples) array.
 
-    The conversion `resample_audio` performs, without the task's argument
-    handling or its AudioTrack return. Both rates must already be above
-    zero: the task-side `audio_utils.resample_waveform` refuses a rate that
-    cannot be one before calling this.
+    The conversion resample_audio performs, without the task's argument
+    handling or its AudioTrack return, so a task that has waveforms in hand
+    already can reach the rate conversion directly.
     """
+    # PyAV's resampler accepts a zero rate and answers with the samples
+    # unchanged, which is indistinguishable from a conversion that happened
+    # (#140) - so neither rate is allowed to be one that cannot be a rate
+    for name, rate in (("sample_rate", sample_rate), ("target", target_sample_rate)):
+        if _rate_or_none(rate) is None or _rate_or_none(rate) <= 0:
+            raise ValueError(
+                f"resample_waveform needs a {name} above zero, got {rate!r}"
+            )
     if sample_rate == target_sample_rate:
         return waveform
 

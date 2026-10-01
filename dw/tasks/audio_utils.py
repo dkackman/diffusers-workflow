@@ -13,12 +13,12 @@ from fractions import Fraction
 import numpy
 import soundfile
 
-from .. import dsp
 from ..dsp import (
     as_channels_samples,
     fade_curve,
     level_dbfs,
     matched_channels,
+    resample_waveform,
     slice_samples,
 )
 from ..events import emit_log, emit_warning
@@ -454,24 +454,6 @@ def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
         dropped_peak_dbfs=round(peak_dbfs, 1),
         sample_rate=sample_rate,
     )
-
-
-def resample_waveform(waveform, sample_rate, target_sample_rate):
-    """A waveform at a different rate, as a plain (channels, samples) array.
-
-    The conversion resample_audio performs, without the task's argument
-    handling or its AudioTrack return, so a task that has waveforms in hand
-    already can reach the rate conversion directly.
-    """
-    # PyAV's resampler accepts a zero rate and answers with the samples
-    # unchanged, which is indistinguishable from a conversion that happened
-    # (#140) - so neither rate is allowed to be one that cannot be a rate
-    for name, rate in (("sample_rate", sample_rate), ("target", target_sample_rate)):
-        if as_number(rate) is None or as_number(rate) <= 0:
-            raise ValueError(
-                f"resample_waveform needs a {name} above zero, got {rate!r}"
-            )
-    return dsp.resample_samples(waveform, sample_rate, target_sample_rate)
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):

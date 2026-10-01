@@ -17,7 +17,7 @@ from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from ..dsp import as_channels_samples
 from ..task_domains import frames_to_samples
-from .audio_utils import resample_waveform
+from ..dsp import resample_waveform
 from .joins import (
     bleed_join,
     equal_power_crossfade_join,

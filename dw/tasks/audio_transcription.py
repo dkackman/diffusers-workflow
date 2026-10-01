@@ -20,7 +20,8 @@ from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
 from .model_cache import cached_model, hf_pipeline_placement
-from .audio_utils import waveform_and_rate, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
 

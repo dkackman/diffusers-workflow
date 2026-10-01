@@ -23,7 +23,7 @@ from ..shots import measured_num_samples, nested_shots, shot_record
 from ..dsp import as_channels_samples
 from ..task_domains import dissolve_shortfalls
 from ..task_domains import frames_to_samples
-from .audio_utils import resample_waveform
+from ..dsp import resample_waveform
 from .joins import (
     crossfade_concat,
     fit_audio_to_frames,

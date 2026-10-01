@@ -35,7 +35,8 @@ from ..for_each import MEMBER_SEPARATOR, render_path
 from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
-from .audio_utils import waveform_and_rate, load_audio, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import waveform_and_rate, load_audio
 from .model_cache import cached_model
 
 logger = logging.getLogger("dw")

@@ -24,7 +24,8 @@ from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
 from ..dsp import as_channels_samples
 from ..media_types import AudioTrack
-from .audio_utils import load_audio, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import load_audio
 from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")

@@ -8,7 +8,8 @@ import pytest
 import torch
 
 from dw.dsp import as_channels_samples, slice_samples
-from dw.tasks.audio_utils import load_audio, resample_audio, resample_waveform
+from dw.dsp import resample_waveform
+from dw.tasks.audio_utils import load_audio, resample_audio
 from dw.tasks.joins import bleed_join, crossfade_concat, equal_power_crossfade_join
 from dw.task_domains import frames_to_samples
 

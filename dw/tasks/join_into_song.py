@@ -34,7 +34,8 @@ from ..media_types import AudioVideo
 from ..shots import measured_num_samples, shot_record
 from ..task_domains import check_arguments
 from ..task_domains import frames_to_samples
-from .audio_utils import load_audio, resample_waveform
+from ..dsp import resample_waveform
+from .audio_utils import load_audio
 from .joins import video_names
 from .video_utils import (
     check_same_frame_size,
