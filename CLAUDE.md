@@ -39,9 +39,7 @@ python -m dw.test
 
 `docs/ARCHITECTURE.md` is the map: concept, owning module, the rule that holds across
 the seam, and the test or check that enforces it. Open it before grepping - it names the
-module, and that module's docstring holds the detail. Its sections are engine core,
-references and libraries, runs and outputs, validation/plan/cost, execution and caching,
-media and DSP, security, server, MCP and UI.
+module, and that module's docstring holds the detail.
 
 - `dw.serve` runs every job in one persistent spawned worker (`dw/worker.py`, managed by
   `dw/worker_manager.py`) that keeps models cached between runs, so a change to engine

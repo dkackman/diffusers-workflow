@@ -205,8 +205,9 @@
       Read-only data-flow view: boxes are steps, arrows are
       <code>previous_result</code> references labeled with the argument they
       feed. A step with more than one incoming arrow multiplies its inputs
-      together (CLAUDE.md's cartesian-product gotcha) - its border is
-      highlighted and the multiplier is noted. A step carrying
+      together (docs/WORKFLOW_GUIDE.md, "Several previous_result references
+      multiply") - its border is highlighted and the multiplier is noted. A step
+      carrying
       <code>for_each</code> shows the entries it runs inset.{#if showsRun}
         A finished step is outlined in green, the one running now in amber
         colour.{/if}{#if onselect}

@@ -410,8 +410,8 @@ def library_path(
     folder by folder, with no asset directory) has no front at all.
 
     The packaged workflows are off the path by default. They are the pieces
-    a 'builtin:' sub-workflow step names, resolved by the engine where that
-    step is read (dw/workflow.py) - not workflows anyone browses or runs on
+    a 'builtin:' sub-workflow step names, resolved by
+    resolve_sub_workflow_reference (below) - not workflows anyone browses or runs on
     their own, and listing them would put a handful of fragments in front of
     every user who never asked for them.
     """
