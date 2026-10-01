@@ -181,3 +181,81 @@ def test_the_prefix_owner_may_spell_a_prefix(tmp_path):
         )
     )
     assert metrics["prefix_literals"] == 1
+
+
+_REFERENCES = 'ASSET = "asset:"\nVARIABLE = "variable:"\nSUBSTITUTED = (VARIABLE,)\n'
+
+
+def test_each_form_of_prefix_handling_is_counted_once_and_prose_is_not(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/references.py": _REFERENCES
+                + "def f(x):\n    return x.startswith(ASSET) and x[len(ASSET):]\n",
+                "dw/a.py": (
+                    "from . import references\n"
+                    "def a(x):\n    return x.startswith(references.ASSET)\n"  # (a)
+                    "def b(x):\n    return x[len(references.ASSET) :]\n"  # (b)
+                    "def c(x):\n    return references.ASSET + x\n"  # (c)
+                    "ALIAS = references.VARIABLE\n"  # (d)
+                    'LITERAL = "builtin:h3.json"\n'  # not a prefix here: ignored
+                    'def e():\n    return "asset:cat.png"\n'  # (e)
+                    "def prose():\n    return \"'asset:' reads a file\"\n"
+                ),
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 5
+
+
+def test_a_name_bound_to_the_references_module_resolves_in_every_import_form(
+    tmp_path,
+):
+    forms = {
+        "dw/a.py": "from . import references\nx.startswith(references.ASSET)\n",
+        "dw/b.py": "from . import references as refs\nx.startswith(refs.ASSET)\n",
+        "dw/c.py": "from dw import references\nx.startswith(references.ASSET)\n",
+        "dw/d.py": "import dw.references as r\nx.startswith(r.ASSET)\n",
+        "dw/e.py": "import dw.references\nx.startswith(dw.references.ASSET)\n",
+        "dw/server/f.py": "from .. import references as p\nx.startswith(p.ASSET)\n",
+        "dw/g.py": "from .references import ASSET\nx.startswith(ASSET)\n",
+        "dw/h.py": "from .references import ASSET as A\nx.startswith(A)\n",
+        "dw/i.py": "from . import references\nK = references.ASSET\nx.startswith(K)\n",
+        "dw/j.py": "from .assets import ASSET_PREFIX\nx.startswith(ASSET_PREFIX)\n",
+        "dw/k.py": "from . import references\nx.startswith((references.ASSET, 'z'))\n",
+    }
+    load = _load()
+    for name, text in forms.items():
+        root = _tree(tmp_path / name.replace("/", "_"), {name: text})
+        _tree(root, {"dw/references.py": _REFERENCES})
+        count = 2 if name == "dw/i.py" else 1  # the alias assignment and its use
+        assert load.measure(root)["prefix_handling"] == count, name
+
+
+def test_an_fstring_fragment_ending_in_a_prefix_is_counted(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/references.py": _REFERENCES,
+                "dw/a.py": 'def f(n):\n    return f"Kept {n} as asset:{n}"\n',
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 1
+
+
+def test_a_fragment_ending_in_a_word_that_merely_ends_like_a_prefix_is_not_counted(
+    tmp_path,
+):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/a.py": 'M = f"{x}_output:{y}"\nN = f"{x} audio_item:{y}"\n'
+                'K = f"kept as asset:{y}"\n'
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 1

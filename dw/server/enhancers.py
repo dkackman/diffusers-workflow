@@ -9,6 +9,8 @@ back: as the single file in the job's manifest.
 
 import uuid
 
+from .. import references
+
 # A generic system prompt for expanding an idea into an image-generation
 # prompt - the counterpart of the H3 preset's Context-IR spec, which lives
 # in the builtin workflow rather than here
@@ -26,7 +28,7 @@ _T2I_SYSTEM_PROMPT = (
 PRESETS = {
     "h3": {
         "label": "MiniMax-H3 Context-IR",
-        "workflow": "builtin:h3_context_ir.json",
+        "workflow": references.make_ref(references.BUILTIN, "h3_context_ir.json"),
         "default_model": "Qwen/Qwen3-4B-Instruct-2507",
         "models": [
             "Qwen/Qwen3-4B-Instruct-2507",

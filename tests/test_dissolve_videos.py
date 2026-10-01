@@ -89,17 +89,21 @@ class TestDissolveVideos:
 
     def test_a_track_with_no_sample_rate_is_not_joined_silently(self):
         """A pipeline that reports no rate leaves AudioVideo.sample_rate None.
-        Dissolve has never guessed one: unpinned, the target cannot be chosen
-        (TypeError from max); pinned, the mismatch is warned and the resample
-        refuses the unrated track."""
+        Neither join guesses one: the track is refused by name, with the
+        remedy the generation-time warning gives."""
         videos = [
             unrated_video(),
             audio_video(8, 0, 1.0, sample_rate=32000),
         ]
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError) as raised:
             dissolve_videos(videos, 2, fps=4)
 
-    def test_a_pinned_rate_warns_and_then_refuses_an_unrated_track(self):
+        assert str(raised.value).startswith(
+            "dissolve_videos: 'video 1' has audio with no sample rate"
+        )
+        assert "through an output: reference" in str(raised.value)
+
+    def test_a_pinned_rate_still_refuses_an_unrated_track(self):
         from dw.events import RunContext, activate_context, deactivate_context
 
         videos = [
@@ -109,14 +113,12 @@ class TestDissolveVideos:
         events = []
         token = activate_context(RunContext(on_event=events.append))
         try:
-            with pytest.raises(ValueError, match="sample_rate above zero"):
+            with pytest.raises(ValueError, match="has audio with no sample rate"):
                 dissolve_videos(videos, 2, fps=4, sample_rate=48000)
         finally:
             deactivate_context(token)
 
-        assert [e.get("kind") for e in events if e.get("event") == "warning"] == [
-            "sample_rate_mismatch"
-        ]
+        assert [e for e in events if e.get("event") == "warning"] == []
 
     def test_negative_counts_are_refused(self):
         with pytest.raises(ValueError, match="negative"):

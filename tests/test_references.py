@@ -1,6 +1,7 @@
 """dw/references.py - the one place a reference prefix is spelled."""
 
 import ast
+import json
 import pathlib
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from dw import references
 from dw.references import (
     ASSET,
+    CONSTRAINT,
     DEFERRED,
     GATHER,
     ITEM,
@@ -88,3 +90,31 @@ def test_references_imports_nothing_from_dw():
 def test_render_path_writes_a_json_path_the_way_schema_errors_do():
     path = ["steps", 3, "task", "arguments", "videos", 1]
     assert render_path(path) == "steps[3].task.arguments.videos[1]"
+
+
+def test_the_schema_patterns_spell_the_prefixes_references_owns():
+    """Characterization: the JSON schema is data and keeps its own regexes, so
+    this fails only when a `^variable:` or `^constraint:` pattern drifts from
+    the constant it stands for (or one is added that begins another way)."""
+    schema = pathlib.Path(references.__file__).with_name("workflow_schema.json")
+    patterns = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "pattern" and isinstance(value, str):
+                    patterns.append(value)
+                else:
+                    collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(json.loads(schema.read_text(encoding="utf-8")))
+    spelled = 0
+    for pattern in patterns:
+        for kind in (VARIABLE, CONSTRAINT):
+            if pattern.startswith("^" + kind.rstrip(":")):
+                spelled += 1
+                assert pattern.startswith("^" + kind), pattern
+    assert spelled, "no schema pattern names a reference prefix any more"

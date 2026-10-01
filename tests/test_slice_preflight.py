@@ -12,6 +12,7 @@ import wave
 
 import numpy
 
+from dw import validation
 from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.slice_preflight import slice_past_end_warnings
@@ -183,7 +184,9 @@ class TestWiredIntoTheWorkflow:
             definition, os.path.join(base_dir, "workflow.json")
         )
 
-        warnings = workflow.slice_past_end_warnings()
+        warnings = validation.run_warning_check(
+            workflow, "slice_past_end_warnings", None
+        )
 
         assert len(warnings) == 1
         assert "score.wav" in warnings[0]

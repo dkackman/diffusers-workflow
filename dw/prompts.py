@@ -22,23 +22,6 @@ from .workspace import PROMPTS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
-# The prefix marking a value as a reference to a stored prompt. The name after it
-# is rooted at the prompt directory, not the workflow file - prompts are a shared
-# library, and the same reference means the same text from every workflow
-PROMPT_PREFIX = references.PROMPT
-
-# The prefixes a stored prompt's text may not begin with. Resolved text is
-# substituted where the reference stood, so text that itself looks like a
-# reference would be resolved again - or worse, expand a step's iterations
-RESERVED_TEXT_PREFIXES = (
-    references.PREVIOUS_RESULT,
-    references.VARIABLE,
-    references.CONSTANT,
-    references.ASSET,
-    references.OUTPUT,
-    PROMPT_PREFIX,
-)
-
 
 def get_prompt_dir(base_dir=None):
     """The directory stored prompts are rooted at.
@@ -94,7 +77,12 @@ def resolve_prompt_reference(reference, prompt_dir=None, base_dir=None, library=
         ValueError: If no prompt file exists under that name in any directory
             on the search path
     """
-    name = validate_prompt_reference(reference.removeprefix(PROMPT_PREFIX).strip())
+    name = references.ref_name(references.PROMPT, reference)
+    if name is None:
+        # A bare name resolves as written: callers guard with is_prompt_reference,
+        # a direct caller need not
+        name = reference
+    name = validate_prompt_reference(name.strip())
     library = library or prompt_library(prompt_dir, base_dir)
     found = library.find(name, refuse=True)
     if found:
@@ -153,10 +141,12 @@ def fetch_prompt(reference, prompt_dir=None, base_dir=None):
     # Arguments are realized more than once, and iteration expansion scans the
     # realized template - text that begins like a reference would be treated
     # as one on the next pass, so it is data that may not masquerade as syntax
-    if text.startswith(RESERVED_TEXT_PREFIXES):
+    # (resolved text is substituted where the reference stood, so text that
+    # itself looks like one would be resolved again)
+    if references.is_ref(references.RESERVED_TEXT, text):
         raise ValueError(
             f"Prompt '{reference}' has text beginning with a reference prefix "
-            f"({', '.join(RESERVED_TEXT_PREFIXES)}) - a prompt's text may not "
+            f"({', '.join(references.RESERVED_TEXT)}) - a prompt's text may not "
             f"itself be a reference"
         )
 

@@ -653,7 +653,10 @@ def test_the_probe_after_a_load_that_edits_its_definition_names_every_step(
         patch.object(Pipeline, "load", _editing_loader([])),
     ):
         workflow.run({"prompt_b": "first"})
-        assert workflow.cache_hits({"prompt_b": "first"}) == ["A", "B"]
+        assert workflow_run_module.cache_hits(workflow, {"prompt_b": "first"}) == [
+            "A",
+            "B",
+        ]
 
 
 def test_a_released_deferred_hit_still_shares_its_components(tmp_path):
@@ -1006,7 +1009,7 @@ class TestCacheHits:
         step_cache.clear()
         workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
-            assert workflow.cache_hits({}) == []
+            assert workflow_run_module.cache_hits(workflow, {}) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
@@ -1016,7 +1019,7 @@ class TestCacheHits:
         workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({})
-            probe = workflow.cache_hits({})
+            probe = workflow_run_module.cache_hits(workflow, {})
             workflow.run({})
             reused = [
                 entry["step"] for entry in workflow.manifest if entry.get("reused")
@@ -1033,7 +1036,7 @@ class TestCacheHits:
         workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
             workflow.run({"prompt": "a cat"})
-            assert workflow.cache_hits({"prompt": "a dog"}) == []
+            assert workflow_run_module.cache_hits(workflow, {"prompt": "a dog"}) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
@@ -1044,7 +1047,7 @@ class TestCacheHits:
         del workflow.workflow_definition["seed"]
         try:
             workflow.run({})
-            assert workflow.cache_hits({}) == []
+            assert workflow_run_module.cache_hits(workflow, {}) == []
         finally:
             for p in workflow._test_patcher:
                 p.stop()
@@ -1053,7 +1056,7 @@ class TestCacheHits:
         step_cache.clear()
         workflow, _ = build_test_workflow_and_call_count_spy(str(tmp_path))
         try:
-            workflow.cache_hits({})
+            workflow_run_module.cache_hits(workflow, {})
             assert list(tmp_path.iterdir()) == []
         finally:
             for p in workflow._test_patcher:

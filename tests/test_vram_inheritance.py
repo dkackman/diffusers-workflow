@@ -122,8 +122,11 @@ def _inline(*steps, **extra):
 def _warnings(definition, index=None, arguments=None):
     with cuda_24gb():
         workflow = workflow_from_definition(definition, tempfile.mkdtemp())
-        return workflow.inherited_vram_warnings(
-            arguments, build_index(_catalog()) if index is None else index
+        return dw.validation.run_warning_check(
+            workflow,
+            "inherited_vram_warnings",
+            arguments,
+            ceiling_index=build_index(_catalog()) if index is None else index,
         )
 
 

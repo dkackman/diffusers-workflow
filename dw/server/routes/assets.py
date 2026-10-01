@@ -360,7 +360,7 @@ def keep_output_as_asset(
         provenance,
     )
 
-    logger.info(f"Kept output {body.name} as asset:{asset_name}")
+    logger.info(f"Kept output {body.name} as {make_ref(ASSET, asset_name)}")
     return {
         "reference": make_ref(ASSET, asset_name),
         "name": asset_name,
@@ -430,7 +430,7 @@ def delete_asset(
         except ReadOnlyLibraryError as refusal:
             raise HTTPException(status_code=403, detail=str(refusal))
         os.remove(path)
-        logger.info(f"Deleted asset:{relative} ({path})")
+        logger.info(f"Deleted {make_ref(ASSET, relative)} ({path})")
         forget_workspace_usage()
         return {
             "name": relative,

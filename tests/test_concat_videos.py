@@ -111,6 +111,22 @@ class TestConcatVideos:
         assert "video 2: 200 Hz" in caplog.text
         assert "resample_audio" in caplog.text
 
+    def test_a_track_with_no_sample_rate_is_refused_by_name(self):
+        """Joined unscaled it would play at the wrong speed and pitch; the
+        refusal names the input and the remedy the generation warning gives."""
+        unrated = audio_video(8, 1)
+        unrated.sample_rate = None
+        videos = [unrated, audio_video(8, 2, sample_rate=200)]
+
+        with pytest.raises(ValueError) as raised:
+            concat_videos(videos)
+
+        message = str(raised.value)
+        assert message.startswith(
+            "concat_videos: 'video 1' has audio with no sample rate"
+        )
+        assert "join the saved file through an output: reference" in message
+
     def test_an_explicit_sample_rate_pins_the_target(self):
         videos = [audio_video(8, 1), audio_video(8, 2, sample_rate=200)]
 

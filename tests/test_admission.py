@@ -496,7 +496,7 @@ def _raise_with_a_path(*_args, **_kwargs):
 
 @pytest.mark.parametrize(
     "target, name",
-    [(Workflow, "validation_context"), (admission_module, "argument_errors")],
+    [(validation, "workflow_context"), (admission_module, "argument_errors")],
     ids=["context", "argument_errors"],
 )
 def test_a_failing_gate_names_only_its_exception_type(

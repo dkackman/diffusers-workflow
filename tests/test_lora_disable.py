@@ -15,6 +15,7 @@ import os
 
 import pytest
 
+from dw import validation
 from dw.adapter_compatibility import adapter_warnings, warn_adapters
 from dw.pipeline_processors.adapters import active_loras, load_loras
 from dw.workflow import Workflow
@@ -121,14 +122,18 @@ class TestValidation:
         assert h3_workflow(tmp_path).validation_errors(arguments=arguments) == []
 
     def test_the_caller_is_told_where_they_switched_it_off(self, tmp_path):
-        warnings = h3_workflow(tmp_path).adapter_warnings({"lora_model_name": None})
+        warnings = validation.run_warning_check(
+            h3_workflow(tmp_path), "adapter_warnings", {"lora_model_name": None}
+        )
         disabled = [w for w in warnings if "not loaded" in w]
         assert len(disabled) == 1
         assert disabled[0].startswith("arguments.lora_model_name: ")
         assert "num_inference_steps" in disabled[0]
 
     def test_nothing_is_said_when_the_lora_is_on(self, tmp_path):
-        warnings = h3_workflow(tmp_path).adapter_warnings()
+        warnings = validation.run_warning_check(
+            h3_workflow(tmp_path), "adapter_warnings", None
+        )
         assert not [w for w in warnings if "not loaded" in w]
 
     def test_a_literal_null_is_reported_at_its_step(self):

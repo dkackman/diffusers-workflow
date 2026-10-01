@@ -17,10 +17,11 @@ dw.workflow - and memoizes the media metadata probe for the one validation
 it was built for (B9). It is never stored on the Workflow, so a replaced
 asset is probed afresh by the next request.
 
-The Workflow's validation methods are one-line calls into the functions at the
-end of this module (`workflow_errors`, `workflow_context`,
-`run_warning_check`, `undeclared_variable_errors`, `sub_workflow_errors`,
-`sub_workflow_argument_warnings`). The three step-value checkers the error
+Callers use the functions at the end of this module directly
+(`workflow_errors`, `workflow_context`, `run_warning_check`,
+`undeclared_variable_errors`, `sub_workflow_errors`,
+`sub_workflow_argument_warnings`); only `Workflow.validation_errors` and
+`Workflow.validate` remain as methods. The three step-value checkers the error
 registry runs (`fps_errors`, `null_media_errors`, `select_errors`) are in
 dw/step_value_checks.py.
 """
@@ -480,8 +481,8 @@ def _is_seeded(definition, arguments):
 # Every warning source admit() reports that does not need the plan, in the
 # order admit() listed them - the response's order. Each returns today's
 # "path: message" strings. A source that raises is one internal warning and
-# never refuses (B10); the six the Workflow also answers as methods run the
-# same entry, so a direct call and a request agree.
+# never refuses (B10); `run_warning_check` runs the same entry, so a direct
+# call and a request agree.
 #
 # Four read the definition as written, with the caller's arguments over its
 # defaults; the rest read the request's one expansion. `arguments` may be
@@ -591,14 +592,14 @@ WARNING_CHECKS = [
 
 def warning_check(name):
     """The warning registry's entry called `name`, looked up at call time so
-    a Workflow method runs whatever the registry currently holds."""
+    a direct call runs whatever the registry currently holds."""
     check = next((check for check in WARNING_CHECKS if check.name == name), None)
     if check is None:
         raise KeyError(name)
     return check
 
 
-# --- What Workflow's validation methods call ---------------------------------
+# --- Entry points over one Workflow -------------------------------------------
 #
 # `workflow` is a Workflow handed in as a value: this module never imports
 # dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`.
@@ -659,7 +660,7 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
     internal error rather than a lost verdict (B10).
     """
     if context is None:
-        context = workflow.validation_context(arguments, composing)
+        context = workflow_context(workflow, arguments, composing)
     elif (arguments is not None and arguments != context.arguments) or (
         composing is not None and tuple(composing) != context.composing
     ):
@@ -706,10 +707,10 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
 
 def run_warning_check(workflow, name, arguments, **context_fields):
     """The registry's warning check `name` over a context of this
-    call's own - how the Workflow's warning methods answer when called
-    directly rather than through admit(). An expansion that fails
+    call's own - how one check answers when called directly rather
+    than through admit(). An expansion that fails
     raises inside the check, which makes it one internal warning."""
-    context = workflow.validation_context(arguments, **context_fields)
+    context = workflow_context(workflow, arguments, **context_fields)
     check = warning_check(name)
     return to_warnings(run_checks(context, [check], WARNING))
 
@@ -773,7 +774,7 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
         where = f"steps[{source}].workflow.path"
         path = reference["path"]
         try:
-            resolved, _ = workflow.resolve_sub_workflow_path(path)
+            resolved, root = workflow.resolve_sub_workflow_path(path)
         except (SubWorkflowNotFound, SecurityError, InvalidInputError) as e:
             errors.append({"path": where, "message": str(e)})
             continue
@@ -790,7 +791,7 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
             )
             continue
         try:
-            child, _ = workflow.open_sub_workflow(path)
+            child, _ = workflow.open_sub_workflow(path, (resolved, root))
         except Exception as e:
             errors.append({"path": where, "message": f"Sub-workflow '{path}': {e}"})
             continue

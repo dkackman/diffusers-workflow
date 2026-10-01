@@ -67,11 +67,6 @@ LOSSY_AUDIO_CONTENT_TYPES = {
 # The only container encode_video writes - it always encodes h264 video
 MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
-# Reference prefixes substitution resolves before this pass runs. One still
-# spelled out here is one nothing resolved, and that is the undeclared-
-# variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
-
 # Result types a browser would run as a document on the UI origin
 REFUSED_ACTIVE_CONTENT_TYPES = frozenset({"text/html", "text/xml"})
 
@@ -143,7 +138,9 @@ def content_type_errors(workflow_definition, source_indices=None):
         if not isinstance(result, dict) or CONTENT_TYPE_KEY not in result:
             continue
         value = result[CONTENT_TYPE_KEY]
-        if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
+        # A prefix substitution resolves before this pass: one still spelled
+        # out is the undeclared-variable pass's complaint, not a shape error
+        if references.is_ref(references.SUBSTITUTED, value):
             continue
         source = references.author_index(source_indices, index)
         name = step.get("name")

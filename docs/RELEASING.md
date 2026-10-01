@@ -7,6 +7,18 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.7.0
+
+- A sub-workflow path is resolved by one function (`library.resolve_sub_workflow_reference`) at every site, so a path a run can open is one validation, the realized workflow's digest and the observed-cost lookup can open too.
+  - `builtin:builtin:x.json` no longer loads `x.json`: only the leading prefix is stripped, so the name `builtin:x.json` is looked up and reported as `SubWorkflowNotFound`.
+  - At run time a missing `builtin:` workflow now raises `SubWorkflowNotFound` (naming the packaged root) instead of `validate_workflow_path`'s missing-file error.
+  - The realized workflow's sub-workflow digest and a composed child's observed cost now fall back to the same catalog root, so a catalog sub-workflow a run could open is also digested and costed.
+- A run that fails before it opens its run directory no longer rewrites the previous run's `manifest.json` when the same workflow instance is reused: `Workflow.run` resets the directory and version it carried.
+- The per-variant lines of a kernels "Cannot find a build variant" error are sorted by dw (`kernel_availability.stable_message`), so the message no longer varies by process.
+- The `argument_template` schema description now says what the code does: handed arguments are held on the child at run time, never written into the definition, and an authored value is the fallback.
+- `gain_audio` rounds a frame-addressed region's end once, as `slice_audio` does, so a region's end can no longer be one sample off the matching slice's.
+- `concat_videos` refuses a track with no sample rate (`concat_videos: '<name>' has audio with no sample rate`) instead of joining it unresampled at the wrong speed and pitch; `dissolve_videos` gives the same message in place of the resample error. Save that step with `audio_sample_rate` in its result and join the saved file through an `output:` reference. An unpinned `dissolve_videos` with such a track now raises this `ValueError` rather than a `TypeError`.
+
 ### 0.6.0
 
 <!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.5.0..54f8a3c9 (stabilization/gate-3). -->

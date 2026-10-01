@@ -14,7 +14,7 @@ phase works on is what the earlier phases leave behind.
 | 1 | Metrics v2 first (see below); remove the REPL; one prepare pipeline; one admission service; `dw.run` becomes a thin client of `dw.serve` | Validation sees the definition the run sees; the server admits a request once (one `Workflow`, one expansion); every entry point reaches the worker through the server; ratchets re-baselined | [phase-1.md](phase-1.md) | done 2026-09-28 (`stabilization-gate-1`) |
 | 2 | Seams in place: `references.py`, validation context + check registry, shared task rules, step cache, typed worker protocol | `validation_errors` is a registry loop; no prefix literals outside `references.py` | [phase-2.md](phase-2.md) (staged: 2a-2d) | done 2026-09-30 (`stabilization-gate-2`) |
 | 3 | Structural moves: `app.py` routers + services, `LibraryPath`, split `result.py` / `pipeline.py`, one media + dsp module | No module over 1,000 lines, no function over 150; suite and lem smoke green | [phase-3.md](phase-3.md) (staged: 3a-3e) | done 2026-10-01 (`stabilization-gate-3`) |
-| 4 | Carried fixes; guardrails installed; context diet (root CLAUDE.md <= 150 lines, every CLAUDE.md triaged; was "<= 250 total", Don 2026-10-01) | Guardrails live in dw CI and the harness; freeze lifted | [phase-4.md](phase-4.md) (staged: 4a-4d) | 4a in progress |
+| 4 | Carried fixes; guardrails installed; context diet (root CLAUDE.md <= 150 lines, every CLAUDE.md triaged; was "<= 250 total", Don 2026-10-01) | Guardrails live in dw CI and the harness; freeze lifted | [phase-4.md](phase-4.md) (staged: 4a-4d) | 4a merged 2026-10-01 |
 
 ## Metrics
 
@@ -27,6 +27,8 @@ Two kinds, kept small on purpose.
   - **Cyclomatic complexity:** functions above 15, by ruff's C901 (already a dev dependency). Baseline 21.
   - **Import cycles:** strongly connected components of more than one module in grimp's graph of `dw` + `dw_mcp`, lazy imports included, TYPE_CHECKING imports excluded. Baseline 6.
   - **Modules inside import cycles:** the sum of those components' sizes. Baseline 26, because one of the six is a 16-module knot (`arguments`, `result`, `pipeline`, `runs`, `step_cache`, `tasks`, ...) that could grow without the cycle count moving. It grew from 22 to 26 in Phase 0 (the `step_cache` → `pipeline` import). The target is 0 for both cycle ratchets, reached by Phases 2-3. Each ratchet only forbids getting worse.
+  - **Prefix handling (Phase 4a):** hand-written reference-prefix handling outside `references.py`, per AST node: `startswith`-style calls, `[len(PREFIX):]` slices, `+` and f-string building, module-level alias assignments, and strings that start or end with a prefix. Counting rules are in the `scripts/arch_metrics.py` docstring. Baseline 82; Phase 4a drives it to 0.
+  - `prefix_literals` stays beside it (exact bare prefix strings, baseline 0).
 
 **Gate reports.** These are produced at each phase gate by `scripts/arch_report.py`, which lands in Phase 1. They are written into the Gate reports section below. They are reports, never gates.
 

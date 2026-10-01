@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from .. import settings
-from ..assets import ASSET_PREFIX
+from .. import references
 from ..library import (
     ASSETS_KIND,
     WORKSPACE_ORIGIN,
@@ -28,7 +28,7 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
-from ..runs import OUTPUT_PREFIX, is_output_reference, run_versions, split_run_path
+from ..runs import is_output_reference, run_versions, split_run_path
 from ..security import (
     ALLOWED_AUDIO_EXTENSIONS,
     ALLOWED_IMAGE_EXTENSIONS,
@@ -170,7 +170,7 @@ def strip_output_prefix(name):
     lookup keyed on the untouched string quietly misses.
     """
     if is_output_reference(name):
-        return name.removeprefix(OUTPUT_PREFIX).strip()
+        return references.ref_name(references.OUTPUT, name).strip()
     return name
 
 
@@ -242,7 +242,7 @@ def asset_file(state, reference, ws):
     (often an examples directory they never wrote to).
     """
     return asset_in(
-        reference.removeprefix(ASSET_PREFIX).strip(),
+        references.ref_name(references.ASSET, reference).strip(),
         resolution_library(state, ws),
     )
 

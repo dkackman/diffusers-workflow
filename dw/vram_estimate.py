@@ -46,8 +46,7 @@ is an estimate of an estimate.
 
 import numbers
 
-from . import references as ref_prefixes
-from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY
+from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, VARIABLE, ref_name
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 
 KEY = "vram_estimate"
@@ -58,8 +57,9 @@ _SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY)
 def _resolved(value, variables):
     """A `variable:` reference resolved against a template's own defaults -
     the index reads templates as written, not substituted."""
-    if isinstance(value, str) and value.startswith(ref_prefixes.VARIABLE):
-        return variables.get(value[len(ref_prefixes.VARIABLE) :])
+    name = ref_name(VARIABLE, value)
+    if name is not None:
+        return variables.get(name)
     return value
 
 
@@ -253,8 +253,9 @@ def _projections(definition, estimate, arguments):
 def _variable_names(value):
     """Every name a `variable:` reference inside `value` spells."""
     if isinstance(value, str):
-        if value.startswith(ref_prefixes.VARIABLE):
-            yield value[len(ref_prefixes.VARIABLE) :]
+        name = ref_name(VARIABLE, value)
+        if name is not None:
+            yield name
     elif isinstance(value, dict):
         for item in value.values():
             yield from _variable_names(item)
@@ -295,8 +296,8 @@ def _where(estimate, index, step, supplied, source_indices, written):
             _entry_position(source_indices, index) if source_indices is not None else 0
         )
         entries = written_step[FOR_EACH_KEY]
-        if isinstance(entries, str) and entries.startswith(ref_prefixes.VARIABLE):
-            name = entries[len(ref_prefixes.VARIABLE) :]
+        name = ref_name(VARIABLE, entries)
+        if name is not None:
             root = "arguments" if name in supplied else "variables"
             return f"{root}.{name}[{position}]"
         return render_path(("steps", source, FOR_EACH_KEY, position))

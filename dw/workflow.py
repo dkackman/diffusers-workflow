@@ -3,7 +3,6 @@ import os
 import json
 import copy
 import logging
-from . import references
 from .arguments import realize_constants, fetch_constant, is_constant_reference
 from .events import (
     RunContext,
@@ -51,11 +50,8 @@ from .security import (
     UntrustedWorkflowError,
 )
 from .library import (
-    builtin_root,
-    catalog_root_dir,
-    resolve_sub_workflow,
+    resolve_sub_workflow_reference,
     workflow_output_subfolder,
-    SubWorkflowNotFound,
 )
 
 logger = logging.getLogger("dw")
@@ -445,61 +441,20 @@ class Workflow:
         Raises SubWorkflowNotFound, SecurityError or InvalidInputError,
         each carrying the message the run would have failed with.
         """
-        confine_to = self.workflow_dir
-        if references.is_ref(references.BUILTIN, path):
-            builtin_name = path.replace(references.BUILTIN, "")
-            if (
-                not builtin_name.endswith(".json")
-                or "/" in builtin_name
-                or "\\" in builtin_name
-            ):
-                raise InvalidInputError(
-                    f"Invalid builtin workflow name: {builtin_name}. It must "
-                    "be a bare '<name>.json' filename with no path segments - "
-                    f"'builtin:' only looks in the packaged workflows root: "
-                    f"{builtin_root()}"
-                )
-            confine_to = builtin_root()
-            resolved = os.path.join(confine_to, builtin_name)
-            if not os.path.isfile(resolved):
-                raise SubWorkflowNotFound(path, [resolved])
-            return validate_workflow_path(resolved, confine_to), confine_to
-        if confine_to is None and not os.path.isabs(path):
-            confine_to = catalog_root_dir(self.file_spec)
-        resolved, resolved_root = resolve_sub_workflow(
-            path, os.path.dirname(self.file_spec), confine_to
+        return resolve_sub_workflow_reference(
+            path, os.path.dirname(self.file_spec), self.workflow_dir
         )
-        confine_to = resolved_root.root if resolved_root else None
-        return validate_workflow_path(resolved, confine_to), confine_to
 
-    def open_sub_workflow(self, path):
+    def open_sub_workflow(self, path, resolved=None):
         """The workflow one sub-workflow step's `path` names, opened as
         (child, resolved) - resolved is its path, which is what a
         composition chain records. How dw.validation builds a composed child
-        without importing this module. Raises what resolution or the load
-        raises."""
-        resolved, root = self.resolve_sub_workflow_path(path)
+        without importing this module. `resolved` is what
+        `resolve_sub_workflow_path` already answered for `path`, as
+        (path, root); given, it is opened without resolving again. Raises
+        what resolution or the load raises."""
+        resolved, root = resolved or self.resolve_sub_workflow_path(path)
         return workflow_from_file(resolved, self.output_dir, root), resolved
-
-    def sub_workflow_warnings(self, arguments=None):
-        """An argument a sub-workflow step passes down that the workflow it
-        composes declares no variable for - dropped in silence at run time,
-        and composition is exactly where a name drifts (#89).
-
-        `arguments` are the caller's, folded in the same way every other
-        warning source uses them. Each entry is a string, `"path: message"`,
-        matching every other warnings source - and the path names the step
-        index the *author* wrote, not the index the step lands at after
-        `for_each` expansion. Runs the registry's `sub_workflow_warnings`
-        check; one that raises is an internal warning (B10).
-        """
-        return validation.run_warning_check(self, "sub_workflow_warnings", arguments)
-
-    def validation_context(self, arguments=None, composing=(), *, ceiling_index=None):
-        """One validation request's ValidationContext (dw.validation's
-        `workflow_context`): built per request, never stored on the
-        Workflow, and it expands nothing until a check reads it."""
-        return validation.workflow_context(self, arguments, composing, ceiling_index)
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
@@ -516,71 +471,6 @@ class Workflow:
         (dw.validation's `workflow_errors`).
         """
         return validation.workflow_errors(self, arguments, composing, context)
-
-    def adapter_warnings(self, arguments=None):
-        """Every adapter whose file name says nothing about which checkpoint
-        partition it was trained for - valid, and worth saying, since
-        nothing at run time will (#155).
-
-        Runs the registry's check: a definition the expander refuses is one
-        internal warning, since its own errors are validation_errors' to
-        report.
-        """
-        return validation.run_warning_check(self, "adapter_warnings", arguments)
-
-    def inherited_vram_warnings(self, arguments=None, index=None):
-        """Every catalog VRAM ceiling this workflow's expanded steps project
-        past, matched by pipeline identity (`dw/vram_inheritance.py`) - for a
-        workflow that declares no `vram_estimate` of its own. A warning, not
-        an error: the catalog's numbers were measured on the catalog's
-        offload and quantization config (#479).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        if not index:
-            return []
-        return validation.run_warning_check(
-            self, "inherited_vram_warnings", arguments, ceiling_index=index
-        )
-
-    def slice_past_end_warnings(self, arguments=None):
-        """Every `slice_audio` step whose source's real duration is already
-        knowable and whose requested slice reaches past it - valid, padded
-        with silence rather than refused, but worth saying before the run
-        rather than only after it (#402).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(self, "slice_past_end_warnings", arguments)
-
-    def shot_span_warnings(self, arguments=None):
-        """Every assessment-probe step (`analyze_shots`, `analyze_seams`,
-        `analyze_sync_drift`) whose `shots` argument already reaches past a
-        statically-knowable video's real frame count - valid, silently
-        clipped to the file rather than refused, but worth saying before the
-        run rather than only after it (#425).
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(self, "shot_span_warnings", arguments)
-
-    def null_variable_argument_warnings(self, arguments=None):
-        """Every required task argument fed by `variable:name` where name's
-        value is null - downgraded out of `validation_errors` when
-        `arguments` is None (#364), surfaced here so a caller checking the
-        document without arguments of its own (save_workflow,
-        validate_workflow with no `arguments`) still sees it, just not as a
-        reason the document is invalid.
-
-        Empty once `arguments` is given: at that point the same condition is
-        a hard error in `validation_errors`, since a real run or a validate
-        call naming its own arguments needed the variable to hold something.
-
-        Runs the registry's check, like `adapter_warnings`.
-        """
-        return validation.run_warning_check(
-            self, "null_variable_argument_warnings", arguments
-        )
 
     def validate(self, arguments=None):
         """Validates workflow definition against JSON schema.
@@ -600,11 +490,6 @@ class Workflow:
             logger.error(message)
             raise Exception(message)
         logger.debug(f"Workflow {self.name} validated successfully")
-
-    def cache_hits(self, arguments):
-        """The steps the step cache would serve for a run with `arguments`,
-        in step order, executing nothing (dw.workflow_run's `cache_hits`)."""
-        return workflow_run.cache_hits(self, arguments)
 
     def _owned_arguments(self, arguments):
         """The composed child's own copy of what its parent handed it
@@ -657,6 +542,13 @@ class Workflow:
         # What elision dropped this run, filled by prepare_definition and
         # read by the warning pass and the manifest (#122)
         self._elided_steps = []
+        # A reused Workflow (the persistent worker's) still holds the last
+        # run's directory: a run that fails before open_run would otherwise
+        # rewrite that run's manifest. A composed child's values were set by
+        # its parent just before this call, so they stay
+        if not self._run_dir_inherited:
+            self._run_dir = None
+            self._run_version = None
         record = workflow_run.RunRecord(arguments)
         try:
             prepared = workflow_run.prepare_run(self, record)
@@ -914,58 +806,10 @@ class Workflow:
 
         try:
             # Sub-workflow steps are confined to the same directory this
-            # workflow is (workflow_dir for a server-submitted run)
-            confine_to = self.workflow_dir
-            # Handle built-in workflows
-            if references.is_ref(references.BUILTIN, path):
-                builtin_name = path.replace(references.BUILTIN, "")
-                # Validate builtin workflow name
-                if (
-                    not builtin_name.endswith(".json")
-                    or "/" in builtin_name
-                    or "\\" in builtin_name
-                ):
-                    raise InvalidInputError(
-                        f"Invalid builtin workflow name: {builtin_name}. "
-                        "It must be a bare '<name>.json' filename with no "
-                        "path segments - 'builtin:' only looks in the "
-                        f"packaged workflows root: {builtin_root()}"
-                    )
-                # Builtins ship inside the package, outside any
-                # workflow_dir - confine them to their own directory
-                # instead (the name check above already forbids escaping it)
-                confine_to = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "workflows"
-                )
-                path = os.path.join(confine_to, builtin_name)
-            # Everything else - a relative path, or a catalog name as
-            # list_workflows reports it - goes through the search path.
-            # A template under templates/ names a model config as
-            # '../models/x.json', so a path relative to the referencing
-            # file still resolves first and the '..' is collapsed here,
-            # which is what lets the validator judge where the path
-            # actually lands rather than refusing the spelling;
-            # containment is still checked on the resolved path below.
-            # An unconfined run (no workflow_dir - a bare CLI
-            # invocation) used to rely on the '..' regex alone to stop a
-            # relative reference from leaving the file's own directory;
-            # normalizing the path removes that guard, so confine it to
-            # the catalog root instead - the referencing file's nearest
-            # ancestor literally named 'workflows', which still lets it
-            # climb to a sibling folder like models/ but not out of the
-            # catalog
-            else:
-                if confine_to is None and not os.path.isabs(path):
-                    confine_to = catalog_root_dir(self.file_spec)
-                path, resolved_root = resolve_sub_workflow(
-                    path, os.path.dirname(self.file_spec), confine_to
-                )
-                confine_to = resolved_root.root if resolved_root else None
-
-            # Validate the resolved path - confined when this workflow
-            # itself is (an inline/server-submitted run), so a
-            # sub-workflow step cannot escape that boundary
-            validated_path = validate_workflow_path(path, confine_to)
+            # workflow is (workflow_dir for a server-submitted run); the
+            # resolver confines a builtin to the packaged root instead and
+            # validates the path it hands back
+            validated_path, confine_to = self.resolve_sub_workflow_path(path)
             workflow = workflow_from_file(validated_path, self.output_dir, confine_to)
 
         except SecurityError as e:

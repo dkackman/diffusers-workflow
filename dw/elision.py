@@ -207,7 +207,7 @@ def overriding_variables(written, substituted_steps):
 
 def _reads_variable(tree, name):
     """Whether anything in `tree` references 'variable:<name>'."""
-    reference = references.VARIABLE + name
+    reference = references.make_ref(references.VARIABLE, name)
     if isinstance(tree, str):
         return tree == reference
     if isinstance(tree, dict):

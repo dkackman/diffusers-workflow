@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from dw import workflow_run
 from dw.realize import realize_workflow, strings_with_prefix
 from dw.runs import new_run_id
 from dw.schema import load_schema, validate_data
@@ -448,7 +449,7 @@ class TestRecordedVariablesShareTheirLeaves:
         source["seed"] = 3
         wf = Workflow(source, str(tmp_path), None)
 
-        assert wf.cache_hits({"image": media, "frames": [media]}) == []
+        assert workflow_run.cache_hits(wf, {"image": media, "frames": [media]}) == []
 
 
 class CountingMedia:

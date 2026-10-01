@@ -51,11 +51,6 @@ MANIFEST_FILE_NAME = "manifest.json"
 # inside it is the whole reproduction story
 REALIZED_FILE_NAME = "workflow.json"
 
-# The prefix marking a value as a reference to a file an earlier run wrote.
-# Like 'asset:', it stands for a path - what a previous run made is an input
-# like any other, and multi-stage work is what a workflow engine is for
-OUTPUT_PREFIX = references.OUTPUT
-
 # The segment that means "the newest run of this workflow that has the
 # file", so a workflow can name the stage before it without being edited
 # after every run - see _resolve_segments for why it is not simply the
@@ -233,7 +228,12 @@ def resolve_output_reference(reference, root=None):
     """
     from .security import validate_output_reference, validate_path
 
-    name = validate_output_reference(reference.removeprefix(OUTPUT_PREFIX).strip())
+    name = references.ref_name(references.OUTPUT, reference)
+    if name is None:
+        # A bare name resolves as written: callers guard with is_output_reference,
+        # a direct caller need not
+        name = reference
+    name = validate_output_reference(name.strip())
     root = root or output_root()
 
     resolved = _resolve_segments(root, name.split("/"), reference, root)

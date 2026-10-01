@@ -341,7 +341,7 @@ same reason - default setup cannot load a pack.
   with the current plan when the fingerprint or the required downloads
   changed; `minutes` never compared), and the job records `acknowledged:
   none | boolean | bound`. `cached_steps` is the worker's answer to a
-  `probe_cache` command (`Workflow.cache_hits`, which shares
+  `probe_cache` command (`workflow_run.cache_hits`, which shares
   `prepare_definition` / `cache_lookup` (`dw/workflow_run.py`) with `run` so the two cannot drift).
   The web UI reads the fields only: the editor lists the plan under a valid
   verdict (`describePlan`, `ui/src/lib/plan.ts`), and a job queued `bound`
