@@ -2,6 +2,50 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 3e merged (2026-10-01); Phase 3 complete pending gate 3.
+# Stage 4a (carried code) live from 2026-10-01; plan: docs/stabilization/phase-4.md
+dw/workflow.py
+dw/workflow_run.py
+dw/validation.py
+dw/library.py
+dw/realize.py
+dw/worker.py
+dw/kernel_availability.py
+dw/workflow_schema.json
+dw/references.py
+dw/tasks/audio_utils.py
+dw/tasks/joins.py
+dw/tasks/concat_videos.py
+dw/tasks/dissolve_videos.py
+dw/server/admission.py
+dw/server/routes/library.py
+dw/server/routes/jobs.py
+dw/server/routes/assets.py
+dw/server/catalog.py
+dw/server/enhancers.py
+dw/server/exports.py
+dw/server/jobs.py
+dw/server/outputs.py
+dw/adapter_compatibility.py
+dw/argument_media.py
+dw/arguments.py
+dw/assets.py
+dw/content_types.py
+dw/elision.py
+dw/for_each.py
+dw/locations.py
+dw/plan.py
+dw/probe_paths.py
+dw/prompts.py
+dw/reference_limits.py
+dw/reference_names.py
+dw/runs.py
+dw/shots.py
+dw/step_value_checks.py
+dw/subfolders.py
+dw/variable_constraints.py
+dw/video_extensions.py
+dw/vram_estimate.py
+dw/server/catalog_shape.py
 scripts/arch_metrics.py
+scripts/surface_snapshot.py
 docs/stabilization/
