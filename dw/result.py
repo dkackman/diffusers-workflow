@@ -191,7 +191,7 @@ _UNPROBED = object()
 def _probe_written_media(output_path):
     """Decode the just-written file once. `None` on any failure to probe."""
     try:
-        from .media_info import probe_media
+        from .media import probe_media
 
         return probe_media(output_path) or {}
     except Exception:

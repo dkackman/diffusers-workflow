@@ -83,7 +83,7 @@ def _round(value, places=2):
 
 def _read_source(audio):
     """(waveform, rate, fps, carried shots, file path) for the `audio`
-    argument. A local video file is read audio-only through media_audio -
+    argument. A local video file is read audio-only through media -
     load_audio would decode every frame of a cut to reach its soundtrack -
     and its frame rate comes off the container's headers. `fps` and the
     carried shots are an in-memory video's own; `path` is the validated file
@@ -100,7 +100,7 @@ def _read_source(audio):
         path = validate_media_path(audio, None, "an audio argument")
         extension = os.path.splitext(audio)[1].lower()
         if extension in ALLOWED_VIDEO_EXTENSIONS:
-            from ..media_audio import NoSoundtrack, container_fps, decode_soundtrack
+            from ..media import NoSoundtrack, container_fps, decode_soundtrack
 
             try:
                 waveform, rate = decode_soundtrack(path)

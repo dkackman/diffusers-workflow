@@ -15,7 +15,7 @@ import pytest
 import torch
 
 from dw.introspection import list_tasks
-from dw.media_audio import decode_soundtrack
+from dw.media import decode_soundtrack
 from dw.media_types import AudioTrack
 from dw.scalar_result_validation import scalar_result_errors
 from dw.task_domains import task_argument_errors

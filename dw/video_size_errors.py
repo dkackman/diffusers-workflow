@@ -28,7 +28,7 @@ size is not known until the step that produces it runs.
 """
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_metadata
+from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
 from .task_domains import frame_size_mismatches

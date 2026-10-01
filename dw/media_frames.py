@@ -9,9 +9,10 @@ fitted to its tile where a caller asked for many (#193).
 import logging
 import math
 
-import av
 import numpy
 from PIL import Image
+
+from . import media
 
 logger = logging.getLogger("dw")
 
@@ -21,25 +22,6 @@ logger = logging.getLogger("dw")
 # (MAX_FRAME_MOMENTS). Both are ValueErrors, so the route answers 400.
 MAX_CONTACT_SHEET_FRAMES = 64
 MAX_SEAMS = 32
-
-
-def video_shape(path):
-    """Frame count, fps and size, from the container's own headers where
-    they are written and by counting otherwise."""
-    with av.open(path) as container:
-        if not container.streams.video:
-            raise ValueError(f"{path} has no video stream")
-        stream = container.streams.video[0]
-        fps = float(stream.average_rate) if stream.average_rate else None
-        count = int(stream.frames) if stream.frames else None
-        if count is None:
-            count = sum(1 for _ in container.decode(stream))
-        return {
-            "frame_count": count,
-            "fps": fps,
-            "width": int(stream.width),
-            "height": int(stream.height),
-        }
 
 
 def resolve_crop_box(crop, width, height):
@@ -76,10 +58,10 @@ def frames_at(path, moments, shape=None, crop_box=None):
     `crop_box` (`resolve_crop_box`'s Pillow box) is cut from each frame
     right after decode, before it is returned - full source resolution,
     not whatever a caller's `max_dimension` later downscales it to."""
-    shape = shape if shape is not None else video_shape(path)
+    shape = shape if shape is not None else media.video_shape(path)
     indexes = [_moment_to_index(moment, shape) for moment in moments]
     fit = (lambda image, index: image.crop(crop_box)) if crop_box else None
-    images = _read_frames(path, indexes, fit=fit)
+    images = media.read_frames(path, indexes, fit=fit)
     return [_tile(index, images[index], shape) for index in indexes]
 
 
@@ -94,7 +76,7 @@ def contact_sheet(path, count, tile_width=320, shape=None, crop_box=None):
     source-pixel region whatever the sheet's own `tile_width` ends up."""
     if int(count) < 1:
         raise ValueError("count must be at least 1")
-    shape = shape if shape is not None else video_shape(path)
+    shape = shape if shape is not None else media.video_shape(path)
     # Clamp to the clip's own length before checking the cap: a count that
     # would only ever produce a handful of cells (a short clip) should not
     # be refused for the raw number the caller asked for.
@@ -111,7 +93,7 @@ def contact_sheet(path, count, tile_width=320, shape=None, crop_box=None):
             image = image.crop(crop_box)
         return _stamped_tile(image, index, shape["fps"], tile_width)
 
-    images = _read_frames(path, indexes, fit=fit)
+    images = media.read_frames(path, indexes, fit=fit)
     tiles = [images[index] for index in indexes]
     grid = compose_grid(tiles, default_columns(len(tiles)))
     return {
@@ -142,7 +124,7 @@ def seam_tiles(
     `crop_box`, as in `frames_at`, is cut from each source frame before it
     is fit to `tile_width` and paired into a seam - the pair is built from
     cropped frames rather than cropped after pairing."""
-    shape = shape if shape is not None else video_shape(path)
+    shape = shape if shape is not None else media.video_shape(path)
     total = shape["frame_count"]
     for boundary in boundaries:
         if not 1 <= int(boundary) <= total - 1:
@@ -180,7 +162,7 @@ def seam_tiles(
             image = image.crop(crop_box)
         return _fit_width(image, tile_width)
 
-    images = _read_frames(path, frame_indexes, fit=fit)
+    images = media.read_frames(path, frame_indexes, fit=fit)
     tiles = []
     for seam, boundary in chosen:
         before = images[boundary - 1]
@@ -278,85 +260,6 @@ def _fit_width(image, tile_width):
     tile_width = min(int(tile_width), image.width)
     height = max(1, round(image.height * tile_width / image.width))
     return image.resize((tile_width, height), Image.LANCZOS).convert("RGB")
-
-
-def _read_frames(path, indexes, fit=None):
-    """The frames at these indexes, as {index: PIL image}, in one forward
-    pass that seeks to the keyframe before each wanted frame rather than
-    decoding from the top. Decodes are dropped as soon as they are past.
-
-    `fit(image, index)`, when given, is applied to each frame as it is
-    decoded, so a caller tiling many frames never holds one at source size.
-
-    This assumes a constant frame rate, which every file this engine writes
-    has (`encode_video` / `export_to_video` write a fixed `fps`): a
-    `backward=True` seek lands on the keyframe at or before the target
-    timestamp, and `frame.pts * stream.time_base` converts that keyframe's
-    own presentation time back to an exact frame index (`round(seconds *
-    fps)`) - verified against PyAV 18.1's actual seek landings (a
-    single-keyframe short clip, where every seek lands on frame 0; a `g=10`
-    multi-keyframe clip, where a seek to frame 95 lands exactly on frame 90;
-    and a clip whose packets carry a 5-frame pts offset - an edit list or a
-    non-zero start, which real muxers write - where the raw pts arithmetic
-    landed 5 frames off until it was anchored on `stream.start_time`).
-    `start_pts` is that anchor: pts is a timestamp against the *container's*
-    clock, not a frame count from this stream's first frame, so it has to be
-    zeroed against wherever this stream actually starts before it means a
-    frame index. `position` is then a plain frame counter from that
-    landing, decoding forward to the target and dropping what is skipped
-    past.
-    """
-    wanted = sorted(set(int(i) for i in indexes))
-    found = {}
-    with av.open(path) as container:
-        stream = container.streams.video[0]
-        fps = float(stream.average_rate) if stream.average_rate else None
-        start_pts = stream.start_time if stream.start_time is not None else 0
-        position = 0  # index of the next frame decode() will yield
-        for target in wanted:
-            if target < position or target - position > 2 * (int(fps) if fps else 24):
-                # seek back or a long way forward: land on the keyframe at
-                # or before the target, then read up to it. The seek target
-                # is a container timestamp too, so it needs the same anchor.
-                seconds = target / fps if fps else 0.0
-                container.seek(
-                    int(seconds / stream.time_base) + start_pts,
-                    stream=stream,
-                    backward=True,
-                )
-                position = None
-            recovered = False
-            for frame in container.decode(stream):
-                if position is None:
-                    # first frame after a seek says where we landed
-                    position = (
-                        int(
-                            round(
-                                float((frame.pts - start_pts) * stream.time_base) * fps
-                            )
-                        )
-                        if fps and frame.pts is not None
-                        else 0
-                    )
-                    if position > target and not recovered:
-                        # Landed past the target: the keyframe estimate was
-                        # wrong for this file (off-rate or VFR). Reading on
-                        # would scan to EOF and blame the caller; read from
-                        # the top once instead, which is always correct.
-                        container.seek(start_pts, stream=stream, backward=True)
-                        position = None
-                        recovered = True
-                        continue
-                if position == target:
-                    image = frame.to_image()
-                    found[target] = fit(image, target) if fit is not None else image
-                    position += 1
-                    break
-                position += 1
-        missing = [i for i in wanted if i not in found]
-        if missing:
-            raise ValueError(f"could not decode frame(s) {missing} of {path}")
-    return found
 
 
 def evenly_spaced_indices(total, count):

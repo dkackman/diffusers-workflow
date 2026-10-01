@@ -14,7 +14,7 @@ import tempfile
 import numpy
 
 from dw.dissolve_frame_errors import dissolve_frame_errors
-from dw.media_info import probe_metadata
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.workflow import workflow_from_definition
 

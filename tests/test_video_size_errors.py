@@ -13,7 +13,7 @@ import tempfile
 
 from tests.test_dissolve_frame_errors import write_mp4, workflow_dir_with_asset
 
-from dw.media_info import probe_metadata
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.video_size_errors import video_size_errors
 from dw.workflow import workflow_from_definition

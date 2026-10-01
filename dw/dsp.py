@@ -193,6 +193,17 @@ def apply_biquad(channel, b, a):
     )
 
 
+def layout_name(channels, layout=None):
+    """The PyAV layout name for a channel count: mono, stereo, else the
+    stream's own layout (`layout.name`) when one is given, else `<n>c`.
+    The one spelling `dw.media` and `resample_samples` share."""
+    if channels == 1:
+        return "mono"
+    if channels == 2:
+        return "stereo"
+    return layout.name if layout is not None else f"{channels}c"
+
+
 def resample_samples(waveform, sample_rate, target_sample_rate):
     """A waveform at a different rate, as a plain (channels, samples) array.
 
@@ -208,7 +219,7 @@ def resample_samples(waveform, sample_rate, target_sample_rate):
     from av.audio.resampler import AudioResampler
 
     channels = waveform.shape[0]
-    layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
+    layout = layout_name(channels)
     frame = av.AudioFrame.from_ndarray(
         numpy.ascontiguousarray(waveform, dtype=numpy.float32),
         format="fltp",

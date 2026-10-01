@@ -41,7 +41,7 @@ from .introspection import (
 )
 from .kernel_availability import kernel_availability_errors
 from .locations import location_errors
-from .media_info import probe_metadata
+from .media import probe_metadata
 from .previous_results import previous_result_reference_errors
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors

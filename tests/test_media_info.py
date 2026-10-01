@@ -7,7 +7,7 @@ import math
 import numpy
 import pytest
 
-from dw.media_info import probe_media, probe_metadata
+from dw.media import probe_media, probe_metadata
 
 
 def write_wav(path, seconds=2.0, sample_rate=8000, amplitude=0.5):
@@ -436,7 +436,7 @@ class TestProbeMetadata:
         # (review round 1, B9). `_video_codec_name` is its own function
         # precisely so this can be exercised without a fixture encoded
         # with a genuinely unlisted codec.
-        import dw.media_info as media_info_module
+        import dw.media as media_info_module
 
         path = tmp_path / "shot.mkv"
         write_mp4(path, frames=12, fps=6, width=32, height=16)

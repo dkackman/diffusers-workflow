@@ -9,7 +9,7 @@ rather than a mock of it, mirroring tests/test_slice_preflight.py (#402).
 import os
 import tempfile
 
-from dw.media_info import probe_metadata
+from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.shot_span_preflight import shot_span_warnings
 from dw.workflow import workflow_from_definition

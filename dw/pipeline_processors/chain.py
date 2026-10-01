@@ -274,13 +274,9 @@ class SegmentSpill:
 
 def _decode_segment(path):
     """Read a segment file back as a uint8 (frames, height, width, 3) tensor."""
-    import av
+    from ..media import decode_rgb_frames
 
-    with av.open(path) as container:
-        frames = [
-            frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)
-        ]
-    return torch.from_numpy(numpy.stack(frames, axis=0))
+    return torch.from_numpy(numpy.stack(decode_rgb_frames(path), axis=0))
 
 
 def run_chain(pipeline, chain_definition, arguments):

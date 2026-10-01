@@ -16,22 +16,22 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ...assets import is_asset_reference
-from ...media_audio import (
+from ...media import (
     MAX_INLINE_AUDIO_BYTES,
     NoSoundtrack,
     audio_shape,
     extract_audio,
     media_duration,
+    probe_media,
     projected_wav_base64_size,
+    video_shape,
 )
 from ...media_frames import (
     contact_sheet,
     frames_at,
     resolve_crop_box,
     seam_tiles,
-    video_shape,
 )
-from ...media_info import probe_media
 from ...result import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
 from ...security import MAX_DECODE_PIXELS

@@ -31,7 +31,7 @@ end rounding), so the two agree on the same padding for the same arguments.
 from fractions import Fraction
 
 from .for_each import MEMBER_SEPARATOR, render_path
-from .media_info import probe_metadata
+from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
 from .task_domains import frames_to_samples, slice_padding

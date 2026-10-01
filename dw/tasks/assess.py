@@ -37,6 +37,7 @@ from ..assessment_rules import (
     sort_findings,
 )
 from .. import dsp
+from ..media import read_thumbnails_and_track
 from ..events import emit_warning
 
 logger = logging.getLogger("dw")
@@ -105,22 +106,6 @@ class Media:
         return 0 if self.thumbs is None else int(self.thumbs.shape[0])
 
 
-def _stream_seconds(stream):
-    if stream is None or stream.duration is None or stream.time_base is None:
-        return None
-    return float(stream.duration * stream.time_base)
-
-
-def _as_float_samples(samples):
-    if samples.dtype.kind == "u":
-        iinfo = numpy.iinfo(samples.dtype)
-        half = (iinfo.max + 1) / 2
-        return (samples.astype(numpy.float32) - half) / half
-    if samples.dtype.kind == "i":
-        return samples.astype(numpy.float32) / numpy.iinfo(samples.dtype).max
-    return samples.astype(numpy.float32)
-
-
 def read_media(path):
     """Stream a video file once into a Media.
 
@@ -129,33 +114,9 @@ def read_media(path):
     kept whole (the probes cut windows out of it anywhere) and trimmed to
     the audio stream's reported duration.
     """
-    import av
-
-    from ..media_info import _as_frame_samples
-
-    thumbs = []
-    chunks = []
-    with av.open(path) as container:
-        video = container.streams.video[0] if container.streams.video else None
-        audio = container.streams.audio[0] if container.streams.audio else None
-        if video is None and audio is None:
-            raise ValueError(f"{path} has neither a video nor an audio stream")
-        fps = float(video.average_rate) if video and video.average_rate else None
-        video_seconds = _stream_seconds(video)
-        audio_seconds = _stream_seconds(audio)
-        channels = int(audio.channels) if audio is not None else 0
-        streams = [s for s in (video, audio) if s is not None]
-        for frame in container.decode(*streams):
-            if isinstance(frame, av.VideoFrame):
-                thumbs.append(
-                    frame.reformat(
-                        width=THUMB_WIDTH, height=THUMB_HEIGHT, format="gray"
-                    ).to_ndarray()[:THUMB_HEIGHT, :THUMB_WIDTH]
-                )
-            elif isinstance(frame, av.AudioFrame):
-                samples = _as_float_samples(frame.to_ndarray())
-                chunks.append(_as_frame_samples(samples, channels))
-        sample_rate = int(audio.rate) if audio is not None else None
+    thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate = (
+        read_thumbnails_and_track(path, THUMB_WIDTH, THUMB_HEIGHT)
+    )
 
     waveform = None
     if chunks:
