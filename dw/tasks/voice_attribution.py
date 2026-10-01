@@ -35,7 +35,7 @@ from ..for_each import MEMBER_SEPARATOR, render_path
 from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
-from .audio_utils import _waveform_and_rate, load_audio, resample_waveform
+from .audio_utils import waveform_and_rate, load_audio, resample_waveform
 from .model_cache import cached_model
 
 logger = logging.getLogger("dw")
@@ -655,7 +655,7 @@ def attribute_voices(
         window_seconds=window_seconds,
         min_reference_seconds=min_reference_seconds,
     )
-    waveform, sample_rate = _waveform_and_rate(audio, None, COMMAND)
+    waveform, sample_rate = waveform_and_rate(audio, None, COMMAND)
     duration = waveform.shape[1] / sample_rate
 
     clips = {}

@@ -18,7 +18,6 @@ import wave
 import numpy
 import pytest
 
-from dw import task_domains
 from dw.dissolve_frame_errors import dissolve_frame_errors
 from dw.validation import select_errors
 from dw.slice_preflight import slice_past_end_warnings
@@ -31,7 +30,6 @@ from dw.task_domains import (
     select_rule_problems,
     slice_padding,
 )
-from dw.tasks import audio_utils
 from dw.tasks.audio_utils import slice_audio
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.select import select
@@ -236,10 +234,6 @@ class TestSlicePadding:
         assert slice_padding(self.SAMPLES + 1, 0, self.SAMPLES + pad, self.RATE) is None
         assert slice_padding(100, 0, 50, 8000) is None
         assert slice_padding(100, 0, 500, 0) is None
-
-    def test_frames_to_samples_has_one_home(self):
-        assert audio_utils.frames_to_samples is task_domains.frames_to_samples
-        assert audio_utils.SLICE_PAD_WARN_MS == task_domains.SLICE_PAD_WARN_MS
 
 
 class TestSelectRules:

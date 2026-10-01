@@ -9,7 +9,6 @@ outgoing tail ring on across the seam - see `audio_bleed_ms`.
 """
 
 import logging
-import os
 
 import numpy
 
@@ -17,13 +16,14 @@ from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from ..dsp import as_channels_samples
-from .audio_utils import (
+from ..task_domains import frames_to_samples
+from .audio_utils import resample_waveform
+from .joins import (
     bleed_join,
     equal_power_crossfade_join,
     fit_audio_to_frames,
-    frames_to_samples,
     match_levels as match_track_levels,
-    resample_waveform,
+    video_names,
     warn_on_level_spread,
 )
 from .video_utils import (
@@ -34,26 +34,6 @@ from .video_utils import (
 )
 
 logger = logging.getLogger("dw")
-
-
-def video_names(videos):
-    """A name per video, for an error or a warning that has to say which one.
-
-    A caller passes a path, or a previous step's result; only the path says
-    anything by itself, so the rest are named by position - which is what a
-    six-entry `shots` list needs to be actionable ("24000 then 32000" does
-    not say which entry to fix). By the time this runs, an `asset:`/`output:`
-    reference has already been resolved to its absolute path on this server
-    (#390) - naming a shot by that path leaked server layout onto a consumer
-    surface, so a path is trimmed to its file name, the one part that means
-    anything off this box.
-    """
-    return [
-        os.path.basename(original)
-        if isinstance(original, str)
-        else f"video {index + 1}"
-        for index, original in enumerate(videos)
-    ]
 
 
 def concat_videos(

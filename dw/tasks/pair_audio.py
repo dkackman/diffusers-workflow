@@ -124,7 +124,7 @@ def _fit_to_video(waveform, rate, frames, fps, fit):
     `fit: "video"` derives the length from the frames instead, and with no
     `fit` the mismatch is at least said out loud.
     """
-    from .audio_utils import frames_to_samples
+    from ..task_domains import frames_to_samples
 
     if fit not in (None, "video"):
         # Refused rather than ignored: a misspelled 'fit' that quietly did

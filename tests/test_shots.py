@@ -38,7 +38,8 @@ from dw.shots import (
     shots_for_file,
     step_shots,
 )
-from dw.tasks.audio_utils import frames_to_samples, slice_audio
+from dw.tasks.audio_utils import slice_audio
+from dw.task_domains import frames_to_samples
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.pair_audio import pair_audio

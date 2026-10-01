@@ -67,7 +67,7 @@ def _artifact_size(artifact):
 # encode of it decodes above 0 dBFS and clips, which is why a track measured
 # at +1.3 dBFS in the gallery can have been written from samples that never
 # exceeded 1.0. Same ceiling `match_levels` holds a gain to
-# (MATCH_CEILING_DBFS in dw/tasks/audio_utils.py)
+# (MATCH_CEILING_DBFS in dw/tasks/joins.py)
 HEADROOM_WARN_DBFS = -0.5
 
 

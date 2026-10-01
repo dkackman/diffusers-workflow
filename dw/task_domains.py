@@ -201,7 +201,7 @@ def as_number(value):
 
     A workflow variable declared null carries no type, so a number supplied
     for it on the command line arrives as a string - the tasks coerce those
-    (`_as_number` in audio_utils), so this reads them too. Booleans are not
+    (`coerce_number` in audio_utils), so this reads them too. Booleans are not
     numbers here whatever Python thinks, and a `variable:`/`item:`/
     `previous_result:` string is somebody else's complaint.
     """

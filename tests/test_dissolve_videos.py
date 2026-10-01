@@ -212,7 +212,7 @@ class TestJoinedAudioFitsTheFrameGrid:
     remedy on pair_audio's single-track case."""
 
     def test_a_short_input_is_padded_to_the_frame_grid(self, caplog):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(8, 0), numpy.full((2, 170), 0.5, dtype=numpy.float32), 100
@@ -227,7 +227,7 @@ class TestJoinedAudioFitsTheFrameGrid:
         assert "padded" in caplog.text
 
     def test_the_shot_map_lands_exactly_on_the_frame_grid_after_padding(self):
-        from dw.tasks.audio_utils import frames_to_samples
+        from dw.task_domains import frames_to_samples
 
         short = AudioVideo(
             frames(8, 0), numpy.full((2, 190), 0.5, dtype=numpy.float32), 100

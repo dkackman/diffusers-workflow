@@ -174,6 +174,7 @@ minutes; it runs in a few seconds.
 ## Sources
 
 `workflows/templates/assemble-and-score.json`, `dw/tasks/audio_utils.py`
-(`loop_audio`, `match_levels`, `normalize_audio`), `dw/tasks/pair_audio.py`,
+(`loop_audio`), `dw/tasks/joins.py` (`match_levels`),
+`dw/tasks/audio_dynamics.py` (`normalize_audio`), `dw/tasks/pair_audio.py`,
 `docs/WORKSPACES.md` (the shared asset library), the `minimax-h3` skill
 this composes into.

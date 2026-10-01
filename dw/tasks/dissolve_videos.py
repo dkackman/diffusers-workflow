@@ -22,15 +22,15 @@ from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record
 from ..dsp import as_channels_samples
 from ..task_domains import dissolve_shortfalls
-from .audio_utils import (
+from ..task_domains import frames_to_samples
+from .audio_utils import resample_waveform
+from .joins import (
     crossfade_concat,
     fit_audio_to_frames,
-    frames_to_samples,
     match_levels as match_track_levels,
-    resample_waveform,
+    video_names,
     warn_on_level_spread,
 )
-from .concat_videos import video_names
 from .video_utils import (
     check_same_frame_size,
     frames_as_array,

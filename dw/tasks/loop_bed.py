@@ -29,11 +29,10 @@ import numpy
 
 from .. import dsp
 from ..task_domains import check_arguments
-from .audio_utils import (
+from .audio_utils import coerce_number, waveform_and_rate
+from .joins import (
     HARMONICITY_THRESHOLD,
     TONAL_FLATNESS_THRESHOLD,
-    _as_number,
-    _waveform_and_rate,
     crossfade_concat,
 )
 
@@ -110,9 +109,9 @@ def _read_source(audio):
                     "found in a soundtrack"
                 ) from None
             return waveform, rate, container_fps(path), None, path
-        waveform, rate = _waveform_and_rate(audio, None, COMMAND)
+        waveform, rate = waveform_and_rate(audio, None, COMMAND)
         return waveform, rate, None, None, path
-    waveform, rate = _waveform_and_rate(audio, None, COMMAND)
+    waveform, rate = waveform_and_rate(audio, None, COMMAND)
     return (
         waveform,
         rate,
@@ -462,18 +461,18 @@ def find_loop_bed(
     Returns:
         A JSON-safe dict: source, criteria, candidates, rejected, findings
     """
-    start_seconds = _as_number(start_seconds, float, "start_seconds", COMMAND)
-    end_seconds = _as_number(end_seconds, float, "end_seconds", COMMAND)
-    min_seconds = _as_number(min_seconds, float, "min_seconds", COMMAND)
-    max_seconds = _as_number(max_seconds, float, "max_seconds", COMMAND)
-    max_bin_dbfs = _as_number(max_bin_dbfs, float, "max_bin_dbfs", COMMAND)
-    max_mean_dbfs = _as_number(max_mean_dbfs, float, "max_mean_dbfs", COMMAND)
-    max_spike_db = _as_number(max_spike_db, float, "max_spike_db", COMMAND)
-    crossfade_ms = _as_number(crossfade_ms, float, "crossfade_ms", COMMAND)
-    loop_seconds = _as_number(loop_seconds, float, "loop_seconds", COMMAND)
-    target_bed_dbfs = _as_number(target_bed_dbfs, float, "target_bed_dbfs", COMMAND)
-    max_candidates = _as_number(max_candidates, int, "max_candidates", COMMAND)
-    fps = _as_number(fps, float, "fps", COMMAND)
+    start_seconds = coerce_number(start_seconds, float, "start_seconds", COMMAND)
+    end_seconds = coerce_number(end_seconds, float, "end_seconds", COMMAND)
+    min_seconds = coerce_number(min_seconds, float, "min_seconds", COMMAND)
+    max_seconds = coerce_number(max_seconds, float, "max_seconds", COMMAND)
+    max_bin_dbfs = coerce_number(max_bin_dbfs, float, "max_bin_dbfs", COMMAND)
+    max_mean_dbfs = coerce_number(max_mean_dbfs, float, "max_mean_dbfs", COMMAND)
+    max_spike_db = coerce_number(max_spike_db, float, "max_spike_db", COMMAND)
+    crossfade_ms = coerce_number(crossfade_ms, float, "crossfade_ms", COMMAND)
+    loop_seconds = coerce_number(loop_seconds, float, "loop_seconds", COMMAND)
+    target_bed_dbfs = coerce_number(target_bed_dbfs, float, "target_bed_dbfs", COMMAND)
+    max_candidates = coerce_number(max_candidates, int, "max_candidates", COMMAND)
+    fps = coerce_number(fps, float, "fps", COMMAND)
     if shots is not None:
         _check_shots(shots)
     check_arguments(

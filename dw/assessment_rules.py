@@ -32,7 +32,7 @@ The thresholds were settled against real runs on the server in stage D
 `tests/test_assessment_rules.py` pins those quotes to this table.
 """
 
-from .tasks.audio_utils import LEVEL_SPREAD_WARN_DB
+from .tasks.joins import LEVEL_SPREAD_WARN_DB
 
 SEVERITIES = ("info", "warn")
 

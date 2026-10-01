@@ -285,10 +285,10 @@ class TestAtRunTime:
             resample_waveform(tone(), 0, 32000)
 
     def test_a_track_is_never_relabelled_at_a_rate_it_is_not_at(self):
-        from dw.tasks.audio_utils import _as_track
+        from dw.tasks.audio_utils import as_track
 
         with pytest.raises(ValueError, match="not a rate"):
-            _as_track(tone(), 0, "slice_audio")
+            as_track(tone(), 0, "slice_audio")
 
 
 class TestTheDomainIsVisibleOverTheApi:

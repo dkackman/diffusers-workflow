@@ -33,8 +33,9 @@ from ..dsp import MIN_LUFS_SECONDS, as_channels_samples, integrated_lufs, slice_
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, shot_record
 from ..task_domains import check_arguments
-from .audio_utils import frames_to_samples, load_audio, resample_waveform
-from .concat_videos import video_names
+from ..task_domains import frames_to_samples
+from .audio_utils import load_audio, resample_waveform
+from .joins import video_names
 from .video_utils import (
     check_same_frame_size,
     frames_as_pil_list,
