@@ -59,7 +59,7 @@ from ..deps import (
 )
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
-from ..jobs import TERMINAL_STATES
+from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
 

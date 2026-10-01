@@ -42,7 +42,7 @@ from ..security import (
     validate_path,
 )
 from ..workspace import EXPORTS_SUBDIR
-from .jobs import TERMINAL_STATES
+from .job_record import TERMINAL_STATES
 
 # A job id is one path segment of the manager's making - hex today, but any
 # name without a separator or a leading dot is accepted so history stays

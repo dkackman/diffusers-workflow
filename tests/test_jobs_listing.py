@@ -12,7 +12,7 @@ import pytest
 
 from dw_mcp import catalog
 from dw_mcp.client import DwClient
-from dw.server.jobs import JobHistory
+from dw.server.job_history import JobHistory
 
 from .test_server import (  # noqa: F401 - `server` is a fixture
     server,

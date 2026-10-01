@@ -12,7 +12,9 @@ import time
 import pytest
 
 from dw.runs import REALIZED_FILE_NAME, new_run_id
-from dw.server.jobs import TERMINAL_STATES, JobHistory, JobManager
+from dw.server.jobs import JobManager
+from dw.server.job_history import JobHistory
+from dw.server.job_record import TERMINAL_STATES
 
 from .test_server import (
     DyingWorkerManager,

@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from dw.server.jobs import JobHistory
+from dw.server.job_history import JobHistory
 from dw.server.observed_cost import (
     ObservedCosts,
     declared_drivers,

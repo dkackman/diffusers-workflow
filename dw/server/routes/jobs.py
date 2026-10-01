@@ -47,7 +47,13 @@ from ..deps import (
 )
 from ..exports import export_job
 from ..http_security import query_token_ok
-from ..jobs import ACK_BOUND, MAX_PERSISTED_EVENTS, QUEUED, RUNNING, TERMINAL_STATES
+from ..job_record import (
+    ACK_BOUND,
+    MAX_PERSISTED_EVENTS,
+    QUEUED,
+    RUNNING,
+    TERMINAL_STATES,
+)
 from ..outputs import absolute_served_url, asset_roots_for_job, served_url
 
 logger = logging.getLogger("dw")

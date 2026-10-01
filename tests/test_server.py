@@ -11,7 +11,8 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.server.jobs import JobManager, TERMINAL_STATES
+from dw.server.jobs import JobManager
+from dw.server.job_record import TERMINAL_STATES
 from dw.worker_manager import WorkerManager
 from dw.server.app import create_app
 
@@ -3438,7 +3439,8 @@ def test_inline_base_dir_is_validated(server, tmp_path):
 def test_job_for_file_escapes_like_wildcards(tmp_path):
     """'_' in a file name must not act as a single-character wildcard and
     attribute the file to a similarly named later job."""
-    from dw.server.jobs import JobHistory, Job
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import Job
 
     history = JobHistory(str(tmp_path / "jobs.sqlite"))
 
@@ -4160,7 +4162,7 @@ class TestEnhance:
 
 
 def test_history_persists_a_finished_jobs_event_tail(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     job = _finished_job_with_events(
@@ -4177,7 +4179,8 @@ def test_history_persists_a_finished_jobs_event_tail(tmp_path):
 def test_history_keeps_only_the_last_events(tmp_path):
     """A long run emits thousands of progress events. The tail is what
     explains an outcome; the head is step-by-step noise."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log", "message": f"line {i}"} for i in range(500)]
@@ -4194,7 +4197,7 @@ def test_get_reports_event_count_matching_events_for(tmp_path):
     get_job_events (events_for) still serves the persisted tail in full -
     the mismatch read as 'events lost with the process' when they were not
     (#289). event_count must equal what events_for actually returns."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(5)]
@@ -4209,7 +4212,8 @@ def test_get_reports_event_count_for_a_truncated_tail(tmp_path):
     """When a run's events were capped at MAX_PERSISTED_EVENTS, event_count
     must match the capped tail events_for serves - not the run's true,
     larger total (#289)."""
-    from dw.server.jobs import JobHistory, MAX_PERSISTED_EVENTS
+    from dw.server.job_history import JobHistory
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     events = [{"seq": i, "event": "log"} for i in range(500)]
@@ -4226,7 +4230,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
     value. They must read as 'nothing stored', not crash."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     history = JobHistory(db)
@@ -4238,7 +4242,7 @@ def test_events_for_is_empty_for_a_job_recorded_before_this_change(tmp_path):
 
 
 def test_events_for_is_none_for_an_unknown_job(tmp_path):
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     assert JobHistory(tmp_path / "jobs.sqlite").events_for("ghost") is None
 
@@ -4248,7 +4252,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
     lose the rows already in it."""
     import sqlite3
 
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     db = tmp_path / "jobs.sqlite"
     with sqlite3.connect(db) as connection:
@@ -4272,7 +4276,7 @@ def test_an_existing_database_without_the_events_column_migrates(tmp_path):
 def test_recording_still_writes_every_other_column(tmp_path):
     """The insert names its columns, so widening the table cannot shift a
     value into the wrong one. This pins the columns that would have moved."""
-    from dw.server.jobs import JobHistory
+    from dw.server.job_history import JobHistory
 
     history = JobHistory(tmp_path / "jobs.sqlite")
     history.record(_finished_job_with_events("job-1", [{"seq": 0}]))
@@ -4456,7 +4460,7 @@ def test_event_log_says_so_when_a_historical_jobs_log_was_truncated(server):
 def test_event_log_does_not_claim_truncation_for_a_complete_historical_log(server):
     """A job that genuinely emitted exactly MAX_PERSISTED_EVENTS lost nothing.
     The signal is the first stored seq, not the length of the tail."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -4501,7 +4505,7 @@ def test_a_recorded_job_reads_back_through_the_event_log_route(server):
 def test_a_recorded_job_whose_log_was_dropped_says_so_through_the_route(server):
     """The Finding-4 case with no stand-ins: a long run really recorded, read
     back through the route. The head is gone and the answer has to admit it."""
-    from dw.server.jobs import MAX_PERSISTED_EVENTS
+    from dw.server.job_record import MAX_PERSISTED_EVENTS
 
     with server(success_script) as client:
         manager = client.app.state.job_manager
@@ -5292,7 +5296,7 @@ class TestAcknowledgementRecord:
     def test_a_database_without_the_column_is_migrated(self, tmp_path):
         import sqlite3
 
-        from dw.server.jobs import JobHistory
+        from dw.server.job_history import JobHistory
 
         path = tmp_path / "old.sqlite"
         with sqlite3.connect(path) as connection:
