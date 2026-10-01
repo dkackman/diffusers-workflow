@@ -15,7 +15,7 @@ import pathlib
 
 import pytest
 
-from dw.elision import elide_definition, elide_unreferenced_steps
+from dw.elision import _carry_release, elide_definition, elide_unreferenced_steps
 from dw.workflow import Workflow
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -560,3 +560,26 @@ class TestExtendClip:
         # shared it") if 'extended' still depended on a component only
         # 'opening' ever populated
         assert extended.resolve_reused_components({}) == {}
+
+
+class TestCarryReleaseOnMalformedPipelines:
+    @pytest.mark.parametrize("kept_pipeline", ["not-a-dict", ["a"], 7])
+    def test_a_kept_step_whose_pipeline_is_not_a_dict_is_left_alone(
+        self, kept_pipeline
+    ):
+        kept = [{"name": "a", "pipeline": kept_pipeline}]
+        elided = {"name": "b", "release_pipeline": True, "pipeline": {"x": 1}}
+        assert _carry_release(elided, kept) is False
+        assert "release_pipeline" not in kept[0]
+
+    def test_an_elided_step_whose_pipeline_is_not_a_dict_is_left_alone(self):
+        kept = [{"name": "a", "pipeline": {"x": 1}}]
+        elided = {"name": "b", "release_pipeline": True, "pipeline": "oops"}
+        assert _carry_release(elided, kept) is False
+        assert "release_pipeline" not in kept[0]
+
+    def test_release_models_still_carries_past_a_malformed_pipeline(self):
+        kept = [{"name": "a", "pipeline": "oops"}]
+        elided = {"name": "b", "release_models": True}
+        assert _carry_release(elided, kept) is True
+        assert kept[0]["release_models"] is True
