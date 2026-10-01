@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Local pre-merge checks: ruff (format + fix), pytest (unit, then the
-# real-model integration tests, which skip without an accelerator), and the UI's own
+# Local pre-merge checks: ruff (format + fix, scoped to the Python packages so
+# docs/*.md code blocks are left alone), pytest (unit, then the
+# real-model integration tests, which skip without an accelerator), the
+# architecture ratchet (scripts/arch_metrics.py --check against
+# docs/stabilization/baseline.json), and the UI's own
 # preflight (check, lint, format, build, unit and e2e tests). Runs every step
 # and lists the ones that failed. Run it from anywhere:
 #
@@ -22,10 +25,11 @@ run_step() {
     fi
 }
 
-run_step "ruff format" ruff format .
-run_step "ruff check" ruff check . --fix
+run_step "ruff format" ruff format dw dw_mcp tests scripts
+run_step "ruff check" ruff check dw dw_mcp tests scripts --fix
 run_step "pytest" python -m pytest
 run_step "pytest integration" python -m pytest -m integration -n0
+run_step "architecture ratchet" python scripts/arch_metrics.py --check docs/stabilization/baseline.json
 # e2e starts the fixture server on the same interpreter pytest just used,
 # wherever its venv lives (a worktree, .venv) - see ui/playwright.config.ts
 export DW_E2E_PYTHON="${DW_E2E_PYTHON:-$(command -v python)}"
