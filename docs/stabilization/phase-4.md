@@ -491,15 +491,44 @@ The harness implementer often adds a CLAUDE.md line with a field fix. While 4c r
 
 ## Stage 4d: gate 4
 
-Detailed when 4c merges.
+The gate, in this order. The first step waits on Don.
 
-The stage C prompt (`harness/stage-c-guardrails.md`, same format as A and B) covers the six guardrails stage B deferred to it, split by where each runs:
-- **dw-side, already done by 4b/4c, which the prompt points at:** the CI ratchet (4b) and the seam map (`docs/ARCHITECTURE.md`, 4c).
-- **Harness-side, which the prompt asks for:**
-  - an architecture reviewer that reads the seam map and refuses a hand-off that adds a second owner for a concept;
-  - new-module approval: stage A's new-file refusal under `dw/`, `dw_mcp/` and so on outlives `FREEZE`, still waived by `arch-approved`;
-  - build-vs-buy: a new hand-rolled implementation of something a dependency already covers is refused, with the reviewer as the check;
-  - the consolidation cadence: a periodic pass, run by the curator, that reads the gate report's change-coupling pairs and files consolidation issues for Don.
-- **Also:** agents may not edit `baseline.json` upward without `arch-approved` (the re-baseline rule).
+### Task 1: Stage C in the harness (Don)
 
-`FREEZE`'s own text says the freeze lifts "at the Phase 4 gate"; this ordering is what that means. Its first criterion: Don confirms the harness stage C prompt is committed and its tests pass in `/Users/don/testing/harnest`. Then, on `develop`: `FREEZE` deleted, `hot-zone.txt` emptied, `arch_report.py` with a Gate 4 column into ROADMAP.md, re-baseline, tag `stabilization-gate-4`, lem deploy and smoke, ROADMAP row 4 status, ASSESSMENT refreshed, the Claude Doc's metrics table, and memory.
+- [ ] **Step 1:** Don reviews [harness/stage-c-guardrails.md](harness/stage-c-guardrails.md), pastes it into a session in `/Users/don/testing/harnest`, and confirms it is committed and its tests pass. It covers:
+  - the harness-side guardrails: new-module approval through `arch-approved` plus a matching baseline raise, the architecture review against `docs/ARCHITECTURE.md`, and the consolidation cadence;
+  - which stage A/B gates outlive FREEZE.
+
+  The dw-side pair, the CI ratchet (4b) and the seam map (4c), are already on `develop`.
+- [ ] **Step 2:** Nothing below starts until Don confirms Step 1. `FREEZE`'s own text says the freeze lifts "at the Phase 4 gate"; this ordering is what that means.
+
+### Task 2: Lift the freeze
+
+- [ ] **Step 1:** On `develop`, delete `docs/stabilization/FREEZE`, empty `hot-zone.txt` to its header comment (the file stays: stage C reads it for later refactors), and push. Then confirm in one harness session that `features_pass` runs.
+
+### Task 3: The gate report and tag
+
+- [ ] **Step 1:** `scripts/arch_report.py` with a Gate 4 column into ROADMAP.md, "Gate 4". The section also records:
+  - each stage's merge;
+  - the release notes collected under `### 0.7.0`;
+  - LCOM4 (`Workflow` now 1);
+  - the CLAUDE.md numbers per file;
+  - the candidate checks Task 4 of 4c listed for the kept gotchas;
+  - the six seam-map rules marked "—" (nothing enforces them), as follow-ups.
+- [ ] **Step 2:** Re-baseline (`--write`); the diff against 4c's is nothing, or only decreases.
+- [ ] **Step 3:** Tag `stabilization-gate-4` on `develop`, and push the tag.
+
+### Task 4: lem deploy and smoke
+
+- [ ] **Step 1:** `scripts/deploy.sh develop`, then health and version.
+- [ ] **Step 2:** Run the same smoke as gate 3:
+  - `templates/ltx2/two-stage`, cold, plus the B2 cached rerun;
+  - the inline `for_each` workflow over a `prompt:` and an `asset:`.
+
+  It also runs one catalog template that uses `concat_videos` (4a changed its rule; `dialogue-short` or `assemble-and-score`), and measures the `for_each` run's memory against gate 3. That measurement is where the ruled-out leaf sharing would show its cost (Decisions (4a)).
+
+### Task 5: Close Phase 4
+
+- [ ] **Step 1:** ROADMAP Phase 4 row: done, with the tag. ASSESSMENT.md refreshed with the gate-4 numbers ("CLAUDE.md files total 964 lines" gets its answer). The Claude Doc's metrics table gets a Gate 4 column.
+- [ ] **Step 2:** The release. Ask Don whether gate 4 ships 0.7.0 (frame Decisions). If yes: the develop-to-master PR, then `scripts/release.sh 0.7.0 --next 0.8.0-alpha.1`, then the notes pasted from RELEASING.md's `### 0.7.0`.
+- [ ] **Step 3:** Memory and the ledger: the stabilization is complete. Save the standing rules that outlive it (the CLAUDE.md-only-shrinks rule, `arch-approved` for a ratchet rise, the seam map as the first stop) where later sessions read them.
