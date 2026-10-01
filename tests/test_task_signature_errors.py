@@ -20,8 +20,8 @@ from dw.introspection import (
     missing_task_arguments,
     task_signature_errors,
     unknown_task_arguments,
-    workflow_argument_warnings,
 )
+from dw.argument_warnings import workflow_argument_warnings
 from dw.step import Step
 from dw.tasks.task import Task
 

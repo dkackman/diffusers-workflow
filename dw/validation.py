@@ -30,15 +30,11 @@ from typing import Callable
 from . import references
 from .arguments import names_no_media
 from .adapter_compatibility import adapter_errors, adapter_warnings
+from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import MEMBER_SEPARATOR, entry_field_warnings, render_path
-from .introspection import (
-    component_name_errors,
-    component_type_errors,
-    task_signature_errors,
-    workflow_argument_warnings,
-)
+from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
 from .locations import location_errors
 from .media import probe_metadata
@@ -62,6 +58,7 @@ from .task_domains import (
     task_argument_errors,
 )
 from .tasks.voice_attribution import voices_errors
+from .type_references import component_name_errors, component_type_errors
 from .variable_constraints import constraint_errors, constraint_warnings
 from .video_extensions import video_extension_errors
 from .video_size_errors import video_size_errors

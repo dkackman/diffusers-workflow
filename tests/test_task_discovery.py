@@ -10,8 +10,8 @@ import pytest
 from dw.introspection import (
     describe_task,
     unknown_task_arguments,
-    workflow_argument_warnings,
 )
+from dw.argument_warnings import workflow_argument_warnings
 from dw.tasks.task import _COMMAND_INFO, _VIDEO_PROCESSOR_INFO
 
 

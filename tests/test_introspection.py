@@ -4,9 +4,9 @@ from dw.introspection import (
     describe_pipeline,
     describe_task,
     unknown_call_arguments,
-    workflow_argument_warnings,
     load_pipeline_class,
 )
+from dw.argument_warnings import workflow_argument_warnings
 
 import pytest
 

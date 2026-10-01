@@ -608,7 +608,7 @@ class TestAReExportIsNotAnAllowedClass:
             _realize({"component_type": REEXPORTED})
 
     def test_validation_reports_the_refusal(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", REEXPORTED, "steps[0]")
         assert error is not None and "dw_outside_probe" in error["message"]
@@ -699,7 +699,7 @@ class TestOnlyConstructibleClassesUntrusted:
         assert fake_module.constructed == []
 
     def test_validation_reports_it(self, untrusted, fake_module):
-        from dw.introspection import _type_reference_error
+        from dw.type_references import _type_reference_error
 
         error = _type_reference_error("component_type", SIDE_EFFECT, "steps[0]")
         assert error is not None and "--trust-workflows" in error["message"]

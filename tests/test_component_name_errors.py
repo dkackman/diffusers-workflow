@@ -12,7 +12,8 @@ resolver the run itself uses, so the rule can never refuse a name that
 would in fact have worked.
 """
 
-from dw.introspection import component_name_errors, unknown_pipeline_components
+from dw.introspection import unknown_pipeline_components
+from dw.type_references import component_name_errors
 
 
 def pipeline_step(component_type, components, name="a", reused=None):
