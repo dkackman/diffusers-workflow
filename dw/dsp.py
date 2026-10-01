@@ -29,7 +29,6 @@ import numpy
 import pyloudnorm
 import scipy.ndimage
 import scipy.signal
-import torch
 
 logger = logging.getLogger("dw")
 
@@ -194,7 +193,7 @@ def apply_biquad(channel, b, a):
     )
 
 
-def resample_waveform(waveform, sample_rate, target_sample_rate):
+def resample_samples(waveform, sample_rate, target_sample_rate):
     """A waveform at a different rate, as a plain (channels, samples) array.
 
     The conversion `resample_audio` performs, without the task's argument
@@ -237,7 +236,7 @@ def as_channels_samples(audio):
     position is decided the way normalize_audio in result.py decides it: there
     are always more samples than channels.
     """
-    if torch.is_tensor(audio):
+    if hasattr(audio, "detach"):  # a torch tensor, without importing torch
         audio = audio.detach().cpu().float().numpy()
     audio = numpy.asarray(audio, dtype=numpy.float32)
 

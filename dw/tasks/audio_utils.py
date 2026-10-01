@@ -760,7 +760,7 @@ def resample_waveform(waveform, sample_rate, target_sample_rate):
             raise ValueError(
                 f"resample_waveform needs a {name} above zero, got {rate!r}"
             )
-    return dsp.resample_waveform(waveform, sample_rate, target_sample_rate)
+    return dsp.resample_samples(waveform, sample_rate, target_sample_rate)
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):
