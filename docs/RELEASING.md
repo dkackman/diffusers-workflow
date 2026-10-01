@@ -11,7 +11,7 @@ when a release ships.
 
 - A sub-workflow path is resolved by one function (`library.resolve_sub_workflow_reference`) at every site, so a path a run can open is one validation, the realized workflow's digest and the observed-cost lookup can open too.
   - `builtin:builtin:x.json` no longer loads `x.json`: only the leading prefix is stripped, so the name `builtin:x.json` is looked up and reported as `SubWorkflowNotFound`.
-  - A run with no `workflow_dir` now resolves a catalog name (`models/x`) in a sub-workflow step through the catalog root, as validation already did, and a missing builtin fails with `SubWorkflowNotFound` naming the packaged root.
+  - At run time a missing `builtin:` workflow now raises `SubWorkflowNotFound` (naming the packaged root) instead of `validate_workflow_path`'s missing-file error.
   - The realized workflow's sub-workflow digest and a composed child's observed cost now fall back to the same catalog root, so a catalog sub-workflow a run could open is also digested and costed.
 
 ### 0.6.0

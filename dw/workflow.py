@@ -441,7 +441,9 @@ class Workflow:
         Raises SubWorkflowNotFound, SecurityError or InvalidInputError,
         each carrying the message the run would have failed with.
         """
-        return resolve_sub_workflow_reference(path, self.file_spec, self.workflow_dir)
+        return resolve_sub_workflow_reference(
+            path, os.path.dirname(self.file_spec), self.workflow_dir
+        )
 
     def open_sub_workflow(self, path, resolved=None):
         """The workflow one sub-workflow step's `path` names, opened as

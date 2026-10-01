@@ -548,12 +548,14 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
             *that* value rather than always the child's stored
             defaults, which silently answered the default bucket's
             history for every override."""
-            file_spec = os.path.abspath(
-                candidate.file_spec or os.path.join(".", "workflow.json")
+            base_dir = (
+                os.path.dirname(os.path.abspath(candidate.file_spec))
+                if candidate.file_spec
+                else "."
             )
             try:
                 child_path, child_root = resolve_sub_workflow_reference(
-                    path, file_spec, candidate.workflow_dir
+                    path, base_dir, candidate.workflow_dir
                 )
             except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
                 return None

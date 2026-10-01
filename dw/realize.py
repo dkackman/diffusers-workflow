@@ -243,10 +243,8 @@ def read_sub_workflow(path, base_dir, workflow_dir):
     catalog root above it.
     """
     try:
-        # Only the directory of the referencing file is known here; the
-        # resolver wants the file, and takes its directory back off
         validated, _ = resolve_sub_workflow_reference(
-            path, os.path.join(base_dir or ".", "workflow.json"), workflow_dir
+            path, base_dir or ".", workflow_dir
         )
         with open(validated, "rb") as file:
             return file.read()
