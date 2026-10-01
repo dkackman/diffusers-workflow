@@ -39,6 +39,14 @@ def outputs(tmp_path):
 
 
 class TestReferences:
+    def test_a_bare_name_resolves_as_written(self, outputs):
+        """The prefix is stripped when present and a bare name is left alone:
+        callers guard with is_output_reference, a direct caller need not."""
+        name = "ltx2/Gyre/20260905-101500-aaaaaaaa/still.png"
+        assert resolve_output_reference(name) == resolve_output_reference(
+            "output:" + name
+        )
+
     def test_a_run_and_file_resolve(self, outputs):
         assert resolve_output_reference(
             "output:ltx2/Gyre/20260905-101500-aaaaaaaa/still.png"

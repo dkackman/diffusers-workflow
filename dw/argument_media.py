@@ -135,7 +135,7 @@ def fetch_image(img_spec, base_dir=None):
         raise ValueError(f"Image specification must be a string, got {type(img_spec)}")
 
     # Skip cross-step and variable references — these are resolved later during execution
-    if references.is_ref((references.PREVIOUS_RESULT, references.VARIABLE), img_spec):
+    if references.is_ref(references.LAZY_MEDIA, img_spec):
         logger.debug(f"Skipping deferred reference: {img_spec}")
         return img_spec
 
@@ -291,7 +291,7 @@ def fetch_video(video_spec, base_dir=None):
         )
 
     # Skip cross-step and variable references — these are resolved later during execution
-    if references.is_ref((references.PREVIOUS_RESULT, references.VARIABLE), video_spec):
+    if references.is_ref(references.LAZY_MEDIA, video_spec):
         logger.debug(f"Skipping deferred reference: {video_spec}")
         return video_spec
 

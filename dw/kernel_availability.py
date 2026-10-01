@@ -33,7 +33,6 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .type_helpers import load_type_from_name
 
 ATTN_PROCESSOR_KEY = "attn_processor_type"
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 KERNEL_FAULT_MARKER = "cannot be used on this machine"
 
 
@@ -159,7 +158,7 @@ def kernel_availability_fault(value):
     A fault is not memoized, and so is re-probed on every call - see
     `_fault_for_name`.
     """
-    if not isinstance(value, str) or value.startswith(_UNRESOLVED_PREFIXES):
+    if not isinstance(value, str) or references.is_ref(references.SUBSTITUTED, value):
         return None
     try:
         return _fault_for_name(value)

@@ -200,8 +200,9 @@ def _rewrite(value, path, groups, member):
             return _item(value, path, member)
         if references.is_ref(references.PREVIOUS_RESULT, value):
             reference = references.ref_name(references.PREVIOUS_RESULT, value)
-            return references.PREVIOUS_RESULT + _rewrite_reference(
-                reference, path, groups, member
+            return references.make_ref(
+                references.PREVIOUS_RESULT,
+                _rewrite_reference(reference, path, groups, member),
             )
         return value
     # A leaf is only copied where the copy is needed: inside a member, where
@@ -260,7 +261,7 @@ def _gather(value, path, groups):
             f"for_each steps available here: {sorted(groups)}",
         )
     return [
-        references.PREVIOUS_RESULT + member_name(group, key)
+        references.make_ref(references.PREVIOUS_RESULT, member_name(group, key))
         for key in groups[group]["keys"]
     ]
 
@@ -289,7 +290,8 @@ def _rewrite_reference(reference, path, groups, member):
     raise ForEachError(
         render_path(path),
         f"'{reference}' names the for_each step '{group}' {where}. Use "
-        f"'{references.GATHER}{group}' for every member's result, or a reference "
+        f"'{references.make_ref(references.GATHER, group)}' for every member's "
+        f"result, or a reference "
         f"from a for_each step over the same list for the same-keyed member",
     )
 

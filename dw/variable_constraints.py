@@ -420,10 +420,9 @@ def resolve_constraint_references(definition):
         if not isinstance(node, dict):
             return
         reference = node.get("frame_snap")
-        if isinstance(reference, str) and reference.startswith(references.CONSTRAINT):
-            node["frame_snap"] = snap_block(
-                constraints[reference[len(references.CONSTRAINT) :]]
-            )
+        name = references.ref_name(references.CONSTRAINT, reference)
+        if name is not None:
+            node["frame_snap"] = snap_block(constraints[name])
         for value in node.values():
             walk(value)
 
@@ -447,12 +446,12 @@ def constraint_reference_errors(definition):
             return
         for key, value in node.items():
             where = f"{path}.{key}" if path else key
-            if (
-                key == "frame_snap"
-                and isinstance(value, str)
-                and value.startswith(references.CONSTRAINT)
-                and value[len(references.CONSTRAINT) :] not in constraints
-            ):
+            name = (
+                references.ref_name(references.CONSTRAINT, value)
+                if key == "frame_snap"
+                else None
+            )
+            if name is not None and name not in constraints:
                 errors.append(
                     {
                         "path": where,

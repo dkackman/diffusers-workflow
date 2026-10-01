@@ -14,7 +14,7 @@ from .type_helpers import (
     load_constant_from_name,
     has_method,
 )
-from .prompts import PROMPT_PREFIX, fetch_prompt
+from .prompts import fetch_prompt
 from .assets import fetch_asset, is_asset_reference
 from .runs import fetch_output, is_output_reference
 from .argument_media import (
@@ -286,7 +286,7 @@ def is_constant_reference(value):
 
 def is_prompt_reference(value):
     """Whether a value references a stored prompt in the prompt library."""
-    return references.is_ref(PROMPT_PREFIX, value)
+    return references.is_ref(references.PROMPT, value)
 
 
 def fetch_constant(reference):
@@ -312,7 +312,12 @@ def fetch_constant(reference):
         ValueError: If the name resolves to nothing, or to something callable
         InvalidInputError: If the name is not a dotted python name
     """
-    name = validate_constant_name(reference.removeprefix(references.CONSTANT).strip())
+    name = references.ref_name(references.CONSTANT, reference)
+    if name is None:
+        # A bare name reads as written: callers guard with is_constant_reference,
+        # a direct caller need not
+        name = reference
+    name = validate_constant_name(name.strip())
 
     try:
         value = load_constant_from_name(name)
@@ -325,8 +330,8 @@ def fetch_constant(reference):
     if callable(value):
         raise ValueError(
             f"'{name}' is a {type(value).__name__}, not a constant - "
-            f"'{references.CONSTANT}' reads a value, and a type is named with a "
-            f"'_type' argument instead"
+            f"'{references.make_ref(references.CONSTANT, '')}' reads a value, "
+            f"and a type is named with a '_type' argument instead"
         )
 
     logger.info(f"Reading constant {name}")
@@ -931,9 +936,7 @@ def _realize_lazy_frame_arguments(arguments, base_dir):
         video = arguments["video"]
         if is_path_reference(video) or isinstance(video, (list, dict)):
             video = resolve_path_references(video, base_dir)
-        deferred = references.is_ref(
-            (references.PREVIOUS_RESULT, references.VARIABLE), video
-        )
+        deferred = references.is_ref(references.LAZY_MEDIA, video)
         url = isinstance(video, str) and (
             video.startswith("http://") or video.startswith("https://")
         )

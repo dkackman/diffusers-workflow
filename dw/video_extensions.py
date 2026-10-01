@@ -25,10 +25,6 @@ from .argument_media import is_media_reference
 from .for_each import MEMBER_SEPARATOR, render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
-# Left to the run-time check: not yet resolved to anything an extension can
-# be read off, at the point validation walks the expanded definition
-_UNRESOLVED_PREFIXES = references.UNRESOLVED
-
 
 def _is_video_key(key):
     return isinstance(key, str) and (key == "video" or key.endswith("_video"))
@@ -41,7 +37,9 @@ def _extension_problem(value):
         return None
     if value.startswith(("http://", "https://")):
         return None
-    if value.startswith(_UNRESOLVED_PREFIXES):
+    # Left to the run-time check: not yet resolved to anything an extension
+    # can be read off, at the point validation walks the expanded definition
+    if references.is_ref(references.UNRESOLVED, value):
         return None
     if references.is_ref((references.CONSTANT, references.PROMPT), value):
         return None
@@ -56,7 +54,8 @@ def _extension_problem(value):
             f"'{value}' is a still image, and a video argument loads video "
             f"files - pass it as "
             f'{{"media_type": "image", "location": "{value}"}} to load it as '
-            f"a still, or reference a prior image step with previous_result:"
+            f"a still, or reference a prior image step with "
+            f"{references.make_ref(references.PREVIOUS_RESULT, '')}"
         )
     return f"Video file extension not allowed: {ext}"
 

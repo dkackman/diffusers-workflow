@@ -530,7 +530,7 @@ def _is_media_key(key):
 
 def _deferred(value):
     """Whether a location is resolved later rather than being one now."""
-    return value.startswith(references.DEFERRED)
+    return references.is_ref(references.DEFERRED, value)
 
 
 def _check(value, base_dir, what):

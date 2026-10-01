@@ -20,15 +20,14 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ..assets import (
-    ASSET_PREFIX,
     activate_asset_dir,
     deactivate_asset_dir,
     is_asset_reference,
     resolve_asset_reference,
 )
-from .. import validation
+from .. import references, validation
 from ..plan import build_plan
-from ..prompts import PROMPT_PREFIX, resolve_prompt_reference
+from ..prompts import resolve_prompt_reference
 from ..runs import is_output_reference, resolve_output_reference
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
@@ -267,7 +266,7 @@ def argument_reference_errors(
                         # A server configured with no asset library has
                         # no root to fail against: the resolver would
                         # name no directory it searched
-                        name = leaf.removeprefix(ASSET_PREFIX).strip()
+                        name = references.ref_name(references.ASSET, leaf).strip()
                         raise ValueError(
                             f"Unknown asset {name!r}: "
                             "this workspace has no asset library"
@@ -276,7 +275,7 @@ def argument_reference_errors(
                     # a miss names every root it looked in, the workspace's
                     # own first
                     resolve_asset_reference(leaf, library=asset_library)
-                elif leaf.startswith(PROMPT_PREFIX):
+                elif references.is_ref(references.PROMPT, leaf):
                     resolve_prompt_reference(leaf, library=prompt_library)
                 elif is_output_reference(leaf):
                     resolve_output_reference(leaf, root=outputs)

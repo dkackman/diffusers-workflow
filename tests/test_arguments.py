@@ -1261,6 +1261,14 @@ class TestConstantReferences:
         with pytest.raises(ValueError, match="not a constant"):
             fetch_constant("constant:os.system")
 
+    def test_a_bare_name_reads_as_written(self):
+        """`fetch_constant` strips a `constant:` prefix and leaves a bare
+        dotted name alone; the guard (is_constant_reference) is the caller's,
+        so a direct caller reaches the strip unprefixed."""
+        import os
+
+        assert fetch_constant("os.sep") == os.sep == fetch_constant("constant:os.sep")
+
     def test_an_unknown_constant_names_itself(self):
         with pytest.raises(ValueError, match="no_such_module.NAME"):
             fetch_constant("constant:no_such_module.NAME")

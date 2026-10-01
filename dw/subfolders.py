@@ -25,11 +25,6 @@ from .security import (
 SUBFOLDER_KEY = "subfolder"
 FILE_BASE_NAME_KEY = "file_base_name"
 
-# Reference prefixes substitution resolves before this pass runs. One still
-# spelled out here is one nothing resolved, and that is the undeclared-
-# variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
-
 
 def step_subfolder(step_definition):
     """The validated subfolder a step's result names, or '' when it names
@@ -86,7 +81,10 @@ def subfolder_errors(workflow_definition, source_indices=None):
             if key not in result:
                 continue
             value = result[key]
-            if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
+            # A prefix substitution resolves before this pass: one still
+            # spelled out is the undeclared-variable pass's complaint, not a
+            # shape error
+            if references.is_ref(references.SUBSTITUTED, value):
                 continue
             try:
                 if not isinstance(value, str):

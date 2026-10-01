@@ -24,10 +24,9 @@ import logging
 import os
 
 from . import references
-from .prompts import PROMPT_PREFIX, fetch_prompt
+from .prompts import fetch_prompt
 from .runs import (
     LATEST,
-    OUTPUT_PREFIX,
     is_output_reference,
     output_root as default_output_root,
     resolve_output_reference,
@@ -38,9 +37,6 @@ from .step_cache import copy_containers
 from .library import resolve_sub_workflow_reference, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
-
-BUILTIN_PREFIX = references.BUILTIN
-VARIABLE_PREFIX = references.VARIABLE
 
 
 def realize_workflow(
@@ -101,8 +97,8 @@ def realize_workflow(
     # of this realized copy with no seed argument would put that null
     # default back over the pinned integer everywhere but the top level.
     definition_seed = definition.get("seed")
-    if isinstance(definition_seed, str) and definition_seed.startswith(VARIABLE_PREFIX):
-        seed_variable = definition_seed.removeprefix(VARIABLE_PREFIX)
+    seed_variable = references.ref_name(references.VARIABLE, definition_seed)
+    if seed_variable is not None:
         if isinstance(variables, dict) and seed_variable in variables:
             variables[seed_variable] = seed
     realized = _pin(
@@ -118,7 +114,7 @@ def strings_with_prefix(tree, prefix):
     found = []
 
     def collect(value):
-        if value.startswith(prefix) and value not in found:
+        if references.is_ref(prefix, value) and value not in found:
             found.append(value)
         return value
 
@@ -149,7 +145,7 @@ def _pin(value, annotations, base_dir, prompt_dir, output_root, pin_outputs=True
     `pin_outputs`, output references pinned."""
 
     def transform(string):
-        if string.startswith(PROMPT_PREFIX):
+        if references.is_ref(references.PROMPT, string):
             return _inline_prompt(string, annotations, prompt_dir, base_dir)
         if pin_outputs and is_output_reference(string):
             return _pin_output(string, output_root)
@@ -170,7 +166,7 @@ def _inline_prompt(reference, annotations, prompt_dir, base_dir):
     except (SecurityError, OSError, ValueError) as e:
         logger.warning(f"Realization kept {reference} as written: {e}")
         return reference
-    name = reference.removeprefix(PROMPT_PREFIX).strip()
+    name = references.ref_name(references.PROMPT, reference).strip()
     if name not in annotations["prompts"]:
         annotations["prompts"].append(name)
     return text
@@ -186,7 +182,7 @@ def _pin_output(reference, output_root):
     disk - realizing must not fail on a reference the run has not reached
     yet.
     """
-    name = reference.removeprefix(OUTPUT_PREFIX).strip()
+    name = references.ref_name(references.OUTPUT, reference).strip()
     if not any(
         part == LATEST or version_selector(part) is not None for part in name.split("/")
     ):
@@ -198,7 +194,7 @@ def _pin_output(reference, output_root):
     except (SecurityError, OSError, ValueError) as e:
         logger.warning(f"Realization kept {reference} as written: {e}")
         return reference
-    return f"{OUTPUT_PREFIX}{relative}"
+    return references.make_ref(references.OUTPUT, relative)
 
 
 def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
@@ -215,7 +211,9 @@ def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
             reference = value.get("workflow")
             if isinstance(reference, dict):
                 path = reference.get("path")
-                if isinstance(path, str) and not path.startswith(BUILTIN_PREFIX):
+                if isinstance(path, str) and not references.is_ref(
+                    references.BUILTIN, path
+                ):
                     annotations["sub_workflows"][path] = _digest(
                         path, base_dir, workflow_dir
                     )

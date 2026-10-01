@@ -44,10 +44,6 @@ AUDIO_NEEDS_A_PICTURE = frozenset(REFERENCE_LIMIT_BLOCKS)
 
 REFERENCE_TYPE_KEY = "reference_type"
 
-# Values substitution resolves before this pass runs; one still spelled out
-# is another pass's complaint, not this one's
-_UNRESOLVED_PREFIXES = references.UNRESOLVED
-
 
 def _family(module_name):
     """The REFERENCE_LIMIT_BLOCKS key a class's module belongs to, or None."""
@@ -99,7 +95,9 @@ def _reference_class(value):
     if not isinstance(value, dict):
         return None
     name = value.get(REFERENCE_TYPE_KEY)
-    if not isinstance(name, str) or name.startswith(_UNRESOLVED_PREFIXES):
+    # A value substitution resolves before this pass, still spelled out, is
+    # another pass's complaint
+    if not isinstance(name, str) or references.is_ref(references.UNRESOLVED, name):
         return None
     if "." not in name:
         return None

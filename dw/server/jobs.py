@@ -43,7 +43,7 @@ from ..security import (
     validate_path,
     validate_workflow_path,
 )
-from ..realize import VARIABLE_PREFIX
+from .. import references
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
@@ -307,9 +307,9 @@ class JobManager:
         """
         definition = self.definition(job_id)
         seed = (definition or {}).get("seed")
-        if not isinstance(seed, str) or not seed.startswith(VARIABLE_PREFIX):
+        name = references.ref_name(references.VARIABLE, seed)
+        if name is None:
             return None
-        name = seed.removeprefix(VARIABLE_PREFIX)
         return name if name in (definition.get("variables") or {}) else None
 
     def rerun_spec(self, job_id, new_seed=False):
