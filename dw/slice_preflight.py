@@ -24,8 +24,8 @@ reference (or the run cannot start at all), so what is left unresolved is
 only a reference that genuinely cannot resolve yet. The padding rule
 (`slice_padding`, with its `SLICE_PAD_WARN_MS` threshold) is the one
 `slice_audio` itself calls, in dw/task_domains.py, and the region is worked
-out in samples with the run's own arithmetic (`frames_to_samples`, #557's
-end rounding), so the two agree on the same padding for the same arguments.
+out in samples by the run's own helper (`slice_region`, #557's end
+rounding), so the two agree on the same padding for the same arguments.
 """
 
 from fractions import Fraction
@@ -34,7 +34,7 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
-from .task_domains import frames_to_samples, slice_padding
+from .task_domains import slice_padding, slice_region
 
 
 def _source(path, probe):
@@ -70,34 +70,27 @@ def _as_number(value, kind):
 
 def _requested_region(task_args, sample_rate):
     """The (start, length) in samples `slice_audio` would compute for these
-    arguments, or None when the shape given cannot be resolved to a length
-    without running anything - `slice_audio`'s own branch order and
-    arithmetic in `dw/tasks/audio_utils.py`, including #557's rounding of a
-    frame-addressed end directly rather than as two rounded halves."""
+    arguments (`slice_region`, shared with the run, including #557's rounding
+    of a frame-addressed end), or None when the shape given cannot be
+    resolved to a length without running anything - one that runs to the
+    source's own end cannot overrun it."""
+    start_seconds = _as_number(task_args.get("start_seconds"), float)
+    duration_seconds = _as_number(task_args.get("duration_seconds"), float)
     if (
         task_args.get("start_seconds") is not None
         or task_args.get("duration_seconds") is not None
-    ):
-        duration_seconds = _as_number(task_args.get("duration_seconds"), float)
-        if duration_seconds is None:
-            # Runs to the source's own end - cannot overrun it
-            return None
-        start_seconds = _as_number(task_args.get("start_seconds"), float)
-        start = int(round((start_seconds or 0) * sample_rate))
-        return start, int(round(duration_seconds * sample_rate))
-    if (
-        task_args.get("start_frame") is not None
-        or task_args.get("num_frames") is not None
-    ):
-        num_frames = _as_number(task_args.get("num_frames"), int)
-        fps = _as_number(task_args.get("fps"), Fraction)
-        if num_frames is None or not fps:
-            return None
-        start_frame = _as_number(task_args.get("start_frame"), int) or 0
-        start = frames_to_samples(start_frame, fps, sample_rate)
-        end = frames_to_samples(start_frame + num_frames, fps, sample_rate)
-        return start, end - start
-    return None
+    ) and (start_seconds is None and duration_seconds is None):
+        # Addressed in seconds by something that is not a number yet: not a
+        # reason to fall through to the frames
+        return None
+    return slice_region(
+        sample_rate,
+        start_seconds=start_seconds,
+        duration_seconds=duration_seconds,
+        start_frame=_as_number(task_args.get("start_frame"), int),
+        num_frames=_as_number(task_args.get("num_frames"), int),
+        fps=_as_number(task_args.get("fps"), Fraction),
+    )
 
 
 def slice_past_end_warnings(

@@ -28,6 +28,7 @@ from ..task_domains import (
     check_arguments,
     frames_to_samples,
     slice_padding,
+    slice_region,
 )
 from .joins import crossfade_concat
 from ..security import (
@@ -204,31 +205,24 @@ def slice_audio(
     waveform, sample_rate = waveform_and_rate(audio, sample_rate, "slice_audio")
     total = waveform.shape[1]
 
-    if start_seconds is not None or duration_seconds is not None:
-        start = int(round((start_seconds or 0) * sample_rate))
-        length = (
-            max(total - start, 0)
-            if duration_seconds is None
-            else int(round(duration_seconds * sample_rate))
-        )
-    elif start_frame is not None or num_frames is not None:
-        if fps is None:
+    region = slice_region(
+        sample_rate,
+        start_seconds=start_seconds,
+        duration_seconds=duration_seconds,
+        start_frame=start_frame,
+        num_frames=num_frames,
+        fps=fps,
+        total=total,
+    )
+    if region is None:
+        in_seconds = start_seconds is not None or duration_seconds is not None
+        if not in_seconds and (start_frame is not None or num_frames is not None):
             raise ValueError("slice_audio needs 'fps' to address a slice in frames")
-        start = frames_to_samples(start_frame or 0, fps, sample_rate)
-        if num_frames is None:
-            length = max(total - start, 0)
-        else:
-            # Round the end frame directly rather than adding two separately
-            # rounded halves - start's and num_frames' - which can each round
-            # down half a sample and together land one sample short of a
-            # slice meant to reach the source's exact end (#557)
-            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
-            length = end - start
-    else:
         raise ValueError(
             "slice_audio needs either 'start_seconds'/'duration_seconds' or "
             "'start_frame'/'num_frames'/'fps'"
         )
+    start, length = region
 
     _warn_on_slice_past_end(total, start, length, sample_rate)
     _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)

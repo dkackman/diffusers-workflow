@@ -31,7 +31,7 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
-from .task_domains import frame_size_mismatches
+from .task_domains import frame_size_error
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
@@ -88,8 +88,8 @@ def video_size_errors(
             if size is None:
                 continue
             sizes[video_index] = size
-        mismatches = frame_size_mismatches(sizes)
-        if mismatches is None:
+        sentence = frame_size_error(command, sizes)
+        if sentence is None:
             continue
 
         source = author_index(source_indices, index)
@@ -103,8 +103,7 @@ def video_size_errors(
         errors.append(
             {
                 "path": render_path(("steps", source, "task", "arguments", "videos")),
-                "message": f"{command} needs every video at one size: "
-                f"{mismatches}{where} - fit the odd one with "
+                "message": f"{sentence}{where} - fit the odd one with "
                 f"video_frames → resize_rescale(width={fit_width}, "
                 f'height={fit_height}) → pair_audio(fit="video")',
             }

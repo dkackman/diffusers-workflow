@@ -360,9 +360,13 @@ def dissolve_shortfalls(frame_counts, dissolve_frames):
     return shortfalls
 
 
-def frame_size_mismatches(sizes):
-    """The sentence naming every video whose frame size disagrees with the
-    first known one, or None when they all agree.
+def frame_size_error(command, sizes):
+    """The refusal sentence for videos of different frame sizes, or None when
+    they all agree: `"{command} needs every video at one size: ..."`, naming
+    every video whose size disagrees with the first known one.
+
+    The one producer - `check_same_frame_size` raises it at run time and
+    `video_size_errors` leads its validation message with it.
 
     `sizes` maps a video's index in the join to its (width, height); a video
     whose size is not known is absent. The reference is named by its real
@@ -370,6 +374,14 @@ def frame_size_mismatches(sizes):
     has to make - a report stopping at the first sends them back for the
     next.
     """
+    mismatches = _frame_size_mismatches(sizes)
+    if mismatches is None:
+        return None
+    return f"{command} needs every video at one size: {mismatches}"
+
+
+def _frame_size_mismatches(sizes):
+    """The mismatches half of `frame_size_error`'s sentence, or None."""
     if not sizes:
         return None
     first_index = next(iter(sizes))
@@ -389,6 +401,44 @@ SLICE_PAD_WARN_MS = 10.0
 def frames_to_samples(frames, fps, sample_rate):
     """The number of audio samples spanning a run of video frames."""
     return int(round(frames / fps * sample_rate))
+
+
+def slice_region(
+    sample_rate,
+    start_seconds=None,
+    duration_seconds=None,
+    start_frame=None,
+    num_frames=None,
+    fps=None,
+    total=None,
+):
+    """The region a `slice_audio` call asks for, as `(start, length)` in
+    samples, or None when it cannot be worked out.
+
+    Seconds win over frames, as in the run. A frame-addressed end is rounded
+    once, not as two rounded halves (#557), so a slice meant to reach the
+    source's exact end does. A slice with no duration (or no `num_frames`)
+    runs to the source's end, which takes `total`, the source's length in
+    samples: validation does not know it and gets None, the run does. None
+    is also an unusable shape - frames with no `fps`, or nothing addressed.
+    Arguments are already numbers (the caller coerces them).
+    """
+    if start_seconds is not None or duration_seconds is not None:
+        start = int(round((start_seconds or 0) * sample_rate))
+        if duration_seconds is not None:
+            return start, int(round(duration_seconds * sample_rate))
+    elif start_frame is not None or num_frames is not None:
+        if not fps:
+            return None
+        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        if num_frames is not None:
+            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            return start, end - start
+    else:
+        return None
+    if total is None:
+        return None
+    return start, max(total - start, 0)
 
 
 def slice_padding(total_samples, start, length, sample_rate):

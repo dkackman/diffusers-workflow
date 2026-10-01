@@ -23,7 +23,7 @@ from ..media_frames import (
     grid_tile,
 )
 from ..media_types import AudioVideo, fit_codec_padding
-from ..task_domains import frame_size_mismatches
+from ..task_domains import frame_size_error
 
 logger = logging.getLogger("dw")
 
@@ -121,9 +121,9 @@ def check_same_frame_size(clips, task_name):
             sizes[index] = (int(clip.shape[2]), int(clip.shape[1]))
         elif len(clip):
             sizes[index] = tuple(clip[0].size)
-    mismatches = frame_size_mismatches(sizes)
-    if mismatches is not None:
-        raise ValueError(f"{task_name} needs every video at one size: {mismatches}")
+    error = frame_size_error(task_name, sizes)
+    if error is not None:
+        raise ValueError(error)
 
 
 def frames_as_pil_list(video):
