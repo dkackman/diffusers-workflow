@@ -7,6 +7,7 @@ This test demonstrates GPU model persistence in the worker process.
 import os
 import sys
 import logging
+import weakref
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -17,7 +18,7 @@ from dw.workflow import Workflow
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.step import Step
 from dw.tasks.model_cache import _cache as _model_cache, cached_model, clear_model_cache
-from dw import get_device
+from dw import get_device, pipeline_ownership
 
 # Setup logging
 logging.basicConfig(
@@ -308,6 +309,46 @@ def test_release_pipeline_happens_before_the_result_is_written(tmp_path):
                 workflow.run({}, previous_pipelines=pipeline_cache)
 
     assert cached_at_save == {"generate": False, "keep": True}
+
+
+def test_a_released_pipeline_is_freed_before_the_result_is_written(tmp_path):
+    """A released pipeline is not only out of the cache by the time the
+    step writes its files - nothing in the run still holds it.
+
+    The release pops the pipeline and then collects: a frame that still
+    held the step's action (or the popped pipeline) through that collect
+    would keep the weights resident through the save, and the cache-key
+    check above would still pass. A weakref sees the difference.
+    """
+    workflow = Workflow(_release_workflow_def(), str(tmp_path), "test.json")
+    loaded = {}
+    alive_at_save = {}
+
+    def mock_pipeline_load(self, shared_components):
+        self.pipeline = MagicMock()
+        loaded[self.pipeline_definition["from_pretrained_arguments"]["model_name"]] = (
+            weakref.ref(self)
+        )
+
+    def mock_run(self, results, pipelines, step_action):
+        result = MagicMock(result_list=[])
+        model_name = f"model-{self.name}"
+
+        def save(*save_args, **save_kwargs):
+            alive_at_save[self.name] = loaded[model_name]() is not None
+            return []
+
+        result.save.side_effect = save
+        return result
+
+    with patch.object(Pipeline, "load", mock_pipeline_load):
+        with patch.object(Step, "run", mock_run):
+            with patch.object(pipeline_ownership, "empty_device_cache"):
+                workflow.run({}, previous_pipelines={})
+
+    # The kept step's pipeline is alive at its save, so a dead reference on
+    # the released one is the release's doing, not the weakref's
+    assert alive_at_save == {"generate": False, "keep": True}
 
 
 def _release_models_workflow_def(release):
