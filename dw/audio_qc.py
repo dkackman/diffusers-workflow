@@ -2,8 +2,9 @@
 and, from one decode of the file just written, clipping and near-silence.
 
 Each speaks through `emit_warning` and decides nothing - what level a
-deliverable should sit at is the workflow's to decide. `Result.save_artifact`
-runs them in a fixed order (see its post-write block).
+deliverable should sit at is the workflow's to decide. `check_written_media`
+runs the post-write ones in a fixed order; `Result.save_artifact` calls it
+once a write succeeds.
 """
 
 import logging
@@ -349,6 +350,8 @@ def written_peak_already_warned(content_type, consumed_by_normalizer, headroom_w
 
 
 def warn_held_prediction(output_path, predicted_peak_dbfs):
+    """Speak the pre-encode headroom prediction for a muxed soundtrack the
+    probe could not measure, so the warning it was held for is not lost."""
     emit_warning(
         f"The soundtrack written to {os.path.basename(output_path)} "
         f"was predicted to peak at {predicted_peak_dbfs:+.1f} "
