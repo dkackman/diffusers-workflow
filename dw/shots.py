@@ -35,11 +35,7 @@ track (`pair_audio`), or builds a video with no shots at all.
 
 import copy
 
-from .references import MEMBER_SEPARATOR, PREVIOUS_RESULT, is_ref, make_ref, ref_name
-
-# The step names a for_each member as `<group>@<entry>`; only a member of the
-# group conventionally called `shot` names a shot
-SHOT_REFERENCE_PREFIX = make_ref(PREVIOUS_RESULT, "shot" + MEMBER_SEPARATOR)
+from .references import PREVIOUS_RESULT, ref_name
 
 
 def shot_record(
@@ -253,11 +249,9 @@ def shot_reference_names(references):
     names = []
     for reference in references:
         step = ref_name(PREVIOUS_RESULT, reference)
-        if is_ref(SHOT_REFERENCE_PREFIX, reference):
-            # `previous_result:shot@x.field` names the member, not the field
-            names.append(step.split(".", 1)[0])
-        elif step is not None:
-            # `previous_result:step.field` names the step, not the field
+        if step is not None:
+            # `previous_result:step.field` and `previous_result:shot@x.field`
+            # name the step or member, not the field
             names.append(step.split(".", 1)[0])
         else:
             names.append(None)

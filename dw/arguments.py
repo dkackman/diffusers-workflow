@@ -330,8 +330,8 @@ def fetch_constant(reference):
     if callable(value):
         raise ValueError(
             f"'{name}' is a {type(value).__name__}, not a constant - "
-            f"'{references.make_ref(references.CONSTANT, '')}' reads a value, "
-            f"and a type is named with a '_type' argument instead"
+            f"'constant:' reads a value, and a type is named with a "
+            f"'_type' argument instead"
         )
 
     logger.info(f"Reading constant {name}")

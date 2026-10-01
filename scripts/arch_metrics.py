@@ -27,7 +27,9 @@ Counting rules, fixed so any commit measures the same way:
   with one as an operand, or an f-string splicing one in; (d) a module-level
   assignment of one (or a tuple holding one); (e) a non-docstring string that
   starts with a prefix and is longer than it, or an f-string fragment that
-  ends with a prefix. Prose naming a bare prefix is not counted.
+  ends with a prefix. Prose naming a bare prefix is not counted. A table keyed by reference
+  kinds (e.g. reference_names._KINDS, a dict) is not an alias and is deliberately
+  not counted under form (d).
 """
 
 import argparse

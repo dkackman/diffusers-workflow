@@ -54,8 +54,7 @@ def _extension_problem(value):
             f"'{value}' is a still image, and a video argument loads video "
             f"files - pass it as "
             f'{{"media_type": "image", "location": "{value}"}} to load it as '
-            f"a still, or reference a prior image step with "
-            f"{references.make_ref(references.PREVIOUS_RESULT, '')}"
+            f"a still, or reference a prior image step with 'previous_result:'"
         )
     return f"Video file extension not allowed: {ext}"
 
