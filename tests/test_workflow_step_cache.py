@@ -15,7 +15,7 @@ from dw.step_cache import step_cache
 from dw.step import Step
 from dw.pipeline_processors.config_objects import get_group_offload_configuration
 from dw.pipeline_processors.pipeline import Pipeline
-from dw import workflow as workflow_module
+from dw import workflow_run as workflow_run_module
 from dw.workflow import Workflow
 
 
@@ -149,7 +149,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
         def __deepcopy__(self, memo):
             raise TypeError("this object cannot be copied")
 
-    original_realize_args = workflow_module.realize_args
+    original_realize_args = workflow_run_module.realize_args
 
     def realize_and_poison(target, base_dir, apply_key_conventions=True):
         original_realize_args(
@@ -162,7 +162,7 @@ def test_uncopyable_step_argument_degrades_to_no_caching_rather_than_crashing(
     workflow, call_count = build_test_workflow_and_call_count_spy(str(tmp_path))
 
     try:
-        with patch.object(workflow_module, "realize_args", realize_and_poison):
+        with patch.object(workflow_run_module, "realize_args", realize_and_poison):
             workflow.run({})
             workflow.run({})
 

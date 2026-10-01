@@ -35,6 +35,7 @@ from dw.variable_constraints import (
     violations,
 )
 from dw.workflow import workflow_from_definition
+from dw.workflow_run import prepare_definition
 from tests.test_examples import REPO_ROOT
 
 H3 = {
@@ -349,8 +350,8 @@ class TestAConstraintReachesAListEntry:
         definition["variables"]["tail_len"] = 130  # off the 17n+5 grid; snaps up to 141
         workflow = Workflow(definition, str(tmp_path), "listed.json")
 
-        prepared, _seed, _recorded = workflow._prepare_definition(
-            copy.deepcopy(definition), {}, str(tmp_path)
+        prepared, _seed, _recorded = prepare_definition(
+            workflow, copy.deepcopy(definition), {}, str(tmp_path)
         )
 
         (shot,) = prepared["steps"]
