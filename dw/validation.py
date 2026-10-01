@@ -601,8 +601,7 @@ def warning_check(name):
 # --- What Workflow's validation methods call ---------------------------------
 #
 # `workflow` is a Workflow handed in as a value: this module never imports
-# dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`
-# and recognized by `type(workflow)`.
+# dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`.
 
 
 def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None):
