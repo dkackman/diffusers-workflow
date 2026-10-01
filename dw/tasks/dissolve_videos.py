@@ -106,7 +106,7 @@ def dissolve_videos(
     # (dw/dissolve_frame_errors.py), here for the frames actually decoded
     shortfalls = dissolve_shortfalls([len(clip) for clip in clips], dissolve_frames)
     if shortfalls:
-        raise ValueError(shortfalls[0])
+        raise ValueError("; ".join(shortfalls))
 
     joined = clips[0]
     # Where each clip's first frame landed - the start of its dissolve

@@ -62,6 +62,25 @@ class TestDissolveVideos:
         with pytest.raises(ValueError, match="too few"):
             dissolve_videos([frames(10, 0), frames(5, 0), frames(10, 0)], 3)
 
+    def test_every_shortfall_is_named_in_the_one_error(self):
+        """Validation reports every short video; the run used to raise only
+        the first, so a second short one surfaced on the next attempt."""
+        with pytest.raises(ValueError) as raised:
+            dissolve_videos([frames(2, 0), frames(10, 0), frames(1, 0)], 3)
+
+        message = str(raised.value)
+        assert "video 0 has 2 frames" in message
+        assert "video 2 has 1 frames" in message
+        assert "; " in message
+
+    def test_a_single_shortfall_keeps_its_message(self):
+        with pytest.raises(ValueError) as raised:
+            dissolve_videos([frames(10, 0), frames(5, 0), frames(10, 0)], 3)
+
+        assert str(raised.value) == (
+            "video 1 has 5 frames, too few for its 2 dissolve(s) of 3 frames"
+        )
+
     def test_negative_counts_are_refused(self):
         with pytest.raises(ValueError, match="negative"):
             dissolve_videos([frames(4, 0)], dissolve_frames=-1)
