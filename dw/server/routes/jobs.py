@@ -177,6 +177,8 @@ def submit_job(
             warnings=admission.warnings,
         )
         return manager.describe(job)
+    except HTTPException:
+        raise
     except Exception:
         raise internal_error("Job submission failed after admission")
 
