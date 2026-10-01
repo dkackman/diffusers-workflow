@@ -369,7 +369,125 @@ docs/stabilization/
 
 ## Stage 4c: seam map, then the context diet
 
-Detailed when 4b merges.
+Work on branch `stabilization/phase-4c` in the worktree, from `develop` at `edb6e443` (the 4b merge) or later.
+
+**What exists (at `edb6e443`).**
+- Four CLAUDE.md files, 957 lines (`claude_md_lines`, ratcheted):
+  - root, 674 lines and 51 KB, loaded by every session. "Critical Gotchas" is 395 of those lines, and "Type System" 69.
+  - `ui/CLAUDE.md` 154 (design system, assets);
+  - `dw_mcp/CLAUDE.md` 95;
+  - `dw/server/CLAUDE.md` 34.
+- `.github/copilot-instructions.md`, 114 lines. It is a parallel description of the architecture, partly stale (it still describes a 5-minute execution timeout and memory warnings), and the metric does not count it.
+- What reads a CLAUDE.md mechanically:
+  - `tests/test_plugin_skills.py::test_a_skill_is_enumerated_where_the_plugin_describes_itself`, which needs every plugin skill's name in backticks in the root file;
+  - `arch_metrics.py` and `arch_report.py`, for counting.
+- Docs that point into CLAUDE.md: `docs/AGENT_LOOP.md`, `docs/WORKFLOW_GUIDE.md` (its authoring section and the root's Type System say "change both when one changes") and `.claude/skills/model-family-onboarding/references/cold-drill-example.md`.
+- No architecture map exists. An agent learns which module owns a concept from CLAUDE.md prose or by grepping.
+
+### Decisions (4c)
+
+- **The triage comes first, and it is a committed table:** `phase-4-surveys/claude-md-triage.md`. It has one row per paragraph or bullet of each CLAUDE.md and of `copilot-instructions.md`, with four columns:
+  - where the paragraph is;
+  - its first words;
+  - the verdict: **delete**, **docstring**, **map** or **keep**;
+  - the evidence.
+  - Evidence by verdict:
+    - delete: the file:line that already says it (a doc, a docstring, or a test whose name or docstring states the rule);
+    - docstring: the module it moves to;
+    - map: the seam-map row it becomes;
+    - keep: why an agent needs it before it knows which module to open.
+
+  A paragraph the triage can't place stays as **keep**, with that said. The diet then argues from the table, and the review checks the table, not 700 lines of prose.
+- **What stays in the root CLAUDE.md (<= 150 lines):**
+  - the project in two sentences, and the common commands;
+  - a "where things are" block that points at the seam map;
+  - the security rules, which an agent must know before it opens any file;
+  - the plugin-skill names (pinned by the test);
+  - the few gotchas that bite at the moment of editing and that no test or check catches. Each is one or two lines, and each ends with a pointer to its owner.
+  - Everything that describes how a subsystem works goes to its module's docstring, or to a seam-map row.
+- **The seam map is `docs/ARCHITECTURE.md`:** a table of concept, owning module(s), the rule in one sentence, and the test or check that enforces it, if any. It covers the concepts the triage sends there, plus every owner the stabilization created: `references`, `library`, the validation registry, `workflow_run`, `step_cache`, `worker_protocol`, `media`/`dsp`, `trust`/`security`, `plan`/`observed_cost`, `runs` versions, the server routers and the MCP tools.
+  - It is not loaded into every session, so its length is not context cost. It must still stay a map, a sentence per row; a row that needs a paragraph links to the docstring that holds it.
+  - A test (`tests/test_architecture_map.py`) checks that every backticked `dw/...` / `dw_mcp/...` / `ui/...` path in it exists. A map that names a deleted module is worse than none, and this is the drift that would happen silently. It fails first, against a fixture map naming a missing file.
+- **A docstring move never changes what agents are served.** Destinations are module docstrings and internal-function docstrings only. Never an MCP tool's docstring, a `register_command` task description, or the schema: those are the served surface, and `scripts/surface_snapshot.py` pins them byte for byte. The snapshot does not cover the served guides, so anything touching `docs/WORKFLOW_GUIDE.md` or another `docs/*.md` is a pointer added, never content moved and never a heading changed. Tasks 3-5 each end with the snapshot byte-identical.
+- **Delete needs evidence an agent reads before editing:** a doc or a docstring. A rule stated only by a test, in its name or docstring, becomes a **map** row with that test in the "enforced by" column. Nobody opens `tests/` first, so the map has to send them there.
+- **Docstring moves keep the code's line budget in view.** A module receiving a moved rule must stay under the size warning (1,000 lines). If one would cross it, the rule goes to the map row instead, and the triage says so.
+- **`copilot-instructions.md` becomes a pointer of 10 lines or fewer:** read `CLAUDE.md` and `docs/ARCHITECTURE.md`. Its stale facts go, and it is not counted by the metric either way.
+- **"Change both when one changes" pairs are resolved, not kept.** Where the root CLAUDE.md and `docs/WORKFLOW_GUIDE.md` both describe the reference conventions, the guide is the owner (agents read it over MCP); CLAUDE.md points at it.
+- **Sub-files get the same triage, with no quota** (frame Decisions). `ui/CLAUDE.md`'s design-system rules are read only by UI work and stay where that work reads them, unless the triage finds them already said in code or a test.
+
+### Review Focus (4c)
+
+1. **A "delete" whose evidence does not say it.** The reviewer samples at least 15 delete rows, weighted to Critical Gotchas, and reads each cited file:line. A row whose evidence is weaker than the paragraph (it names the module but not the rule) is a finding, and the paragraph is re-triaged.
+2. **A rule that vanished.** Every paragraph of the old files appears in the triage table (counted against `git show <base>:CLAUDE.md`), and every docstring and map row the table promises exists after Task 3.
+3. **The map names things that exist,** by the map test, and its owners are the real ones: the reviewer spot-checks 10 rows against the code.
+4. **The mechanical readers still pass:** `test_plugin_skills` without loosening, `arch_metrics --check` after re-baselining `claude_md_lines`, and the docs that point into CLAUDE.md (AGENT_LOOP, WORKFLOW_GUIDE, the onboarding skill's drill) still point at text that exists.
+5. **A cold agent can still find its way.** After Task 4, one fresh subagent with no session context gets only the new root CLAUDE.md and is asked three questions a harness implementer meets:
+   - where `asset:` references are resolved, and what confines them;
+   - what to change to add a validation check;
+   - why a seeded rerun generates nothing.
+
+   It records the files it opened, in order. It passes only when the chain is CLAUDE.md, then `docs/ARCHITECTURE.md` (or a named docstring), then the module, with no grep before the map. A right answer reached by grep is still a finding against the pointers.
+
+### Before Task 1: the hot zone goes live
+
+Commit the 4c list below into `hot-zone.txt` on `develop` with this section, push, and branch `stabilization/phase-4c`. Task 1's table names the modules that will receive docstrings; those are added to the hot zone in Task 1's commit.
+
+### Task 1: The triage
+
+- [ ] **Step 1:** Build the table in two dispatches on the most capable model: one for the root's "Critical Gotchas" (395 lines), one for the rest of the root plus the three sub-files and `copilot-instructions.md`. It is judgement work, and its mistakes are what the diet ships; its reviewer is on the same model. Cheap evidence sources: the long descriptive test names and docstrings, and the `docs/*.md` list.
+- [ ] **Step 2:** For every delete row, open the cited evidence and confirm it states the rule, not just the topic. Downgrade to docstring or map where it doesn't.
+- [ ] **Step 3:** Summarise the table at its top: rows per verdict per file; the projected root line count; the modules that will receive docstrings, with their current line counts against 1,000; the seam-map rows to be written.
+- [ ] **Step 4:** Commit the table. Put the hot-zone additions (the docstring destinations) on `develop` too, pushed as a docs-only commit as the 4a and 4b lists were. The harness reads `hot-zone.txt` from `develop`, not from this branch.
+- [ ] **Step 5:** Send Don the table's summary (counts per verdict per file, the keep rows, the projected root count) with "say if a delete should stay". Don't wait for an answer, but make it visible before Task 4 rewrites the file he works in.
+
+### Task 2: The seam map
+
+- [ ] **Step 1:** The map test, against a fixture map naming one missing path; it fails, since the test file does not exist yet.
+- [ ] **Step 2:** Write `docs/ARCHITECTURE.md` from the table's map rows plus the owners listed in Decisions (4c). Each row's module path is checked by the test, and each rule sentence by reading the code.
+- [ ] **Step 3:** Run the map test on the real file. Commit.
+
+### Task 3: The docstring moves
+
+- [ ] **Step 1:** For each docstring row, put the rule in the module's docstring (or the owning function's), rewritten to the module's voice, not pasted. Keep each module under 1,000 lines; `arch_metrics` prints a warning otherwise.
+- [ ] **Step 2:** The suite, ruff and `arch_metrics --check` pass, with no new warnings, and the surface snapshot is byte-identical. Commit.
+
+### Task 4: The root CLAUDE.md
+
+- [ ] **Step 1:** Rewrite it to the Decisions (4c) shape from the keep rows, <= 150 lines, on the most capable model. Match the existing voice: short and specific, every claim naming a file. Don reads and edits this file himself. Point `docs/WORKFLOW_GUIDE.md`'s "change both" note, `docs/AGENT_LOOP.md` and `.claude/skills/model-family-onboarding/references/cold-drill-example.md` at whatever they referred to.
+- [ ] **Step 2:** `test_plugin_skills` and the map test pass, and the surface snapshot is byte-identical. List each kept gotcha as a candidate check: ASSESSMENT's principle is mechanical over prose, so these become 4d / stage C follow-ups, not the end state.
+- [ ] **Step 3:** Review Focus 5, the cold-agent check. Record its answers in the report, then fix the map or the root file for any miss.
+- [ ] **Step 4:** Commit.
+
+### Task 5: The sub-files and copilot-instructions
+
+- [ ] **Step 1:** Apply the triage to `ui/CLAUDE.md`, `dw_mcp/CLAUDE.md` and `dw/server/CLAUDE.md`. Turn `copilot-instructions.md` into a pointer.
+- [ ] **Step 2:** The UI preflight is unaffected (docs only); spot-check that `ui/CLAUDE.md`'s kept design rules still name real files. The surface snapshot is byte-identical. Commit.
+
+### Task 6: Stage 4c merge
+
+- [ ] **Step 1:** Re-baseline. `claude_md_lines` falls from 957 to the new total; nothing else moves.
+- [ ] **Step 2:** ROADMAP Phase 4 row: record the final line counts per file. ASSESSMENT's "CLAUDE.md files total 964 lines" finding gets its gate-4 number at the gate, not here.
+- [ ] **Step 3:** Hot zone back to the standing entries. Merge with `--no-ff`, push, and check CI. Report to Don with the per-file counts and the cold-agent answers.
+- [ ] **Step 4:** Detail stage 4d. It includes writing the harness stage C prompt, which goes to Don before anything else in 4d.
+
+### Hot zone (4c)
+
+```
+CLAUDE.md
+ui/CLAUDE.md
+dw_mcp/CLAUDE.md
+dw/server/CLAUDE.md
+.github/copilot-instructions.md
+docs/ARCHITECTURE.md
+docs/WORKFLOW_GUIDE.md
+docs/AGENT_LOOP.md
+.claude/skills/model-family-onboarding/references/cold-drill-example.md
+tests/test_architecture_map.py
+scripts/arch_metrics.py
+docs/stabilization/
+```
+
+The harness implementer often adds a CLAUDE.md line with a field fix. While 4c runs, a fix that needs one is labelled `stabilization` and handed to Don, and its note goes into the triage instead.
 
 ## Stage 4d: gate 4
 

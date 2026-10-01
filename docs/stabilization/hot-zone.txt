@@ -2,6 +2,16 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 4b merged (2026-10-01); stage 4c's list goes live when it is detailed.
+# Stage 4c (seam map + context diet) live from 2026-10-01; plan: docs/stabilization/phase-4.md
+CLAUDE.md
+ui/CLAUDE.md
+dw_mcp/CLAUDE.md
+dw/server/CLAUDE.md
+.github/copilot-instructions.md
+docs/ARCHITECTURE.md
+docs/WORKFLOW_GUIDE.md
+docs/AGENT_LOOP.md
+.claude/skills/model-family-onboarding/references/cold-drill-example.md
+tests/test_architecture_map.py
 scripts/arch_metrics.py
 docs/stabilization/
