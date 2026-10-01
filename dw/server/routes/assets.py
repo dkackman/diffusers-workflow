@@ -27,7 +27,7 @@ from ...security import (
     validate_output_path,
     validate_path,
 )
-from ...workflow_sources import COMMON_ORIGIN, EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
+from ...library import COMMON_ORIGIN, EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
 from ...workspace import Workspace, forget_workspace_usage
 from ..deps import selected_workspace
 from ..outputs import (

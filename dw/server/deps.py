@@ -13,7 +13,7 @@ from fastapi import HTTPException, Request
 
 from ..security import SecurityError
 from ..vram_inheritance import build_index
-from ..workflow_sources import listing, workflow_sources
+from ..library import library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
     Workspace,
@@ -67,7 +67,7 @@ def selected_workspace(request: Request, workspace: Optional[str] = None) -> Wor
 def sources_for(state, ws):
     """The workflow search path of one workspace: its own workflows
     first, then the same read-only roots every workspace shares."""
-    return workflow_sources(ws.workflows, state.examples_dirs)
+    return library_path("workflows", ws, state.examples_dirs)
 
 
 def ceiling_index(state, ws):
@@ -79,7 +79,7 @@ def ceiling_index(state, ws):
     - keyed by every file's path and mtime, so an edited, added or removed
     template rebuilds it and nothing else does."""
     paths = []
-    for name, source in sorted(listing(sources_for(state, ws)).items()):
+    for name, source in sources_for(state, ws).entries()[0].items():
         path = os.path.join(source.root, f"{name}.json")
         try:
             paths.append((name, path, os.path.getmtime(path)))

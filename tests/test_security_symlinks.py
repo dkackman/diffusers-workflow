@@ -639,7 +639,7 @@ class TestContained:
 
     def test_a_root_that_is_itself_a_link_contains_its_files(self, tree, tmp_path):
         from dw.security import contained
-        from dw.workflow_sources import workflow_names
+        from dw.library import workflow_names
 
         (tree["workflows"] / "flux").mkdir()
         (tree["workflows"] / "flux" / "dev.json").write_text("{}")

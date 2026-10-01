@@ -103,7 +103,7 @@ from .security import (
     InvalidInputError,
     UntrustedWorkflowError,
 )
-from .workflow_sources import (
+from .library import (
     builtin_root,
     catalog_root,
     resolve_sub_workflow,
@@ -244,7 +244,7 @@ def catalog_root_dir(file_spec):
     'workflows' segment" rule workflow_output_subfolder uses for output
     naming, but returning the directory itself rather than what sits under
     it. It is `catalog_root` asked for a file rather than a directory, so
-    the resolver (dw/workflow_sources.py) confines to exactly this root.
+    the resolver (dw/library.py) confines to exactly this root.
     """
     return catalog_root(os.path.dirname(os.path.abspath(file_spec)))
 
@@ -634,9 +634,10 @@ class Workflow:
             return validate_workflow_path(resolved, confine_to), confine_to
         if confine_to is None and not os.path.isabs(path):
             confine_to = catalog_root_dir(self.file_spec)
-        resolved, confine_to = resolve_sub_workflow(
+        resolved, resolved_root = resolve_sub_workflow(
             path, os.path.dirname(self.file_spec), confine_to
         )
+        confine_to = resolved_root.root if resolved_root else None
         return validate_workflow_path(resolved, confine_to), confine_to
 
     def sub_workflow_errors(self, expanded, source_indices=None, composing=None):
@@ -2189,9 +2190,10 @@ class Workflow:
                 else:
                     if confine_to is None and not os.path.isabs(path):
                         confine_to = catalog_root_dir(self.file_spec)
-                    path, confine_to = resolve_sub_workflow(
+                    path, resolved_root = resolve_sub_workflow(
                         path, os.path.dirname(self.file_spec), confine_to
                     )
+                    confine_to = resolved_root.root if resolved_root else None
 
                 # Validate the resolved path - confined when this workflow
                 # itself is (an inline/server-submitted run), so a

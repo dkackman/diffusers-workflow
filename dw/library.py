@@ -1,9 +1,10 @@
-"""Where workflows are read from, and the one place they are written to.
+"""The content libraries' search paths: which roots, in which order, who may write.
 
-A workflow directory used to be a single directory that was both the library
-and the place saves landed. With the repository's own workflows/ as that
-directory - the default when a checkout is the workspace - every save from
-the editor or an MCP client wrote into the example corpus.
+A library (workflows today; prompts and assets next) used to be a single
+directory that was both the library and the place saves landed. With the
+repository's own workflows/ as that directory - the default when a checkout is
+the workspace - every save from the editor or an MCP client wrote into the
+example corpus.
 
 A search path separates the two. Reads resolve front to back; writes only
 ever go to the front:
@@ -11,16 +12,29 @@ ever go to the front:
     <workspace>/workflows/   the user's own, writable
     <examples dirs>          read-only, --examples-dir
 
-A name found in an earlier source shadows the same name in a later one, so a
+A name found in an earlier root shadows the same name in a later one, so a
 workspace copy of an example is the one that runs. Saving over a read-only
 workflow is not an error and not an overwrite: it writes a copy into the
-writable source, which is what "open an example, change it, save" should do.
+writable root, which is what "open an example, change it, save" should do.
+
+`LibraryPath` is the one implementation of those rules - `find`, `entries`,
+`writable_root`, `require_writable`. What differs between libraries is three
+small strategies chosen by `kind`: how a name maps to a file, which named
+validator confines it, and how a root is listed. This module imports nothing
+from `dw.server`; a lister that lives there (the asset media walk) is passed
+in.
 """
 
 import logging
 import os
 
-from .security import PathTraversalError, SecurityError, contained, validate_path
+from .security import (
+    PathTraversalError,
+    SecurityError,
+    contained,
+    validate_path,
+    validate_workflow_path,
+)
 
 logger = logging.getLogger("dw")
 
@@ -58,8 +72,8 @@ def catalog_root(directory):
     return os.sep.join(parts[: index + 1])
 
 
-class WorkflowSource:
-    """One root on the search path."""
+class LibraryRoot:
+    """One root on a library's search path."""
 
     def __init__(self, root, origin, writable):
         self.root = os.path.abspath(os.path.expanduser(str(root)))
@@ -76,15 +90,136 @@ class WorkflowSource:
         except SecurityError:
             return False
 
-    def names(self):
-        """Workflow names under this root, as relative paths without .json."""
-        return workflow_names(self.root)
-
     def to_dict(self):
         return {"root": self.root, "origin": self.origin, "writable": self.writable}
 
     def __repr__(self):
-        return f"WorkflowSource({self.root!r}, {self.origin}, writable={self.writable})"
+        return f"LibraryRoot({self.root!r}, {self.origin}, writable={self.writable})"
+
+
+class ReadOnlyLibraryError(Exception):
+    """A write was aimed at an entry of a read-only root."""
+
+    def __init__(self, name, root):
+        self.name = name
+        self.root = root
+        super().__init__(
+            f"'{name}' comes from the read-only {root.origin} directory {root.root}"
+        )
+
+
+# kind -> how a name becomes a file name under a root. Workflows and prompts
+# are JSON documents; an asset's name is its relative path, literally
+WORKFLOWS_KIND = "workflows"
+PROMPTS_KIND = "prompts"
+ASSETS_KIND = "assets"
+_JSON_KINDS = {WORKFLOWS_KIND, PROMPTS_KIND}
+LIBRARY_KINDS = (WORKFLOWS_KIND, PROMPTS_KIND, ASSETS_KIND)
+
+
+class LibraryPath:
+    """An ordered search path of `LibraryRoot`s for one kind of library.
+
+    The rules every library shares, written once: a name resolves front to
+    back and only inside its root (a symlink that leaves it is a miss); a
+    listing offers each name once, from the earliest root, and reports the
+    later copies as shadowed; saves go to the writable root.
+    """
+
+    def __init__(self, kind, roots):
+        if kind not in LIBRARY_KINDS:
+            raise ValueError(f"Unknown library kind: {kind}")
+        self.kind = kind
+        self._roots = tuple(roots)
+
+    def roots(self):
+        """The roots, in search order."""
+        return list(self._roots)
+
+    def __repr__(self):
+        return f"LibraryPath({self.kind!r}, {list(self._roots)!r})"
+
+    def file_name(self, name):
+        """The file a name has under a root: JSON libraries take `.json`
+        appended when the name has no extension - the catalog reports names
+        without it, and run_workflow's workflow_path takes either (#90)."""
+        if self.kind in _JSON_KINDS and not name.endswith(".json"):
+            return f"{name}.json"
+        return name
+
+    def path_in(self, root, name, allow_create=False):
+        """The on-disk path a name has in one root, or None when the name
+        does not resolve inside it. Containment is the security layer's, so a
+        name that tries to traverse simply does not resolve."""
+        candidate = os.path.join(root.root, self.file_name(name))
+        try:
+            if self.kind == WORKFLOWS_KIND and not allow_create:
+                # The named validator CodeQL models for py/path-injection;
+                # it also enforces the .json extension
+                return validate_workflow_path(candidate, root.root)
+            return validate_path(candidate, root.root, allow_create=allow_create)
+        except SecurityError:
+            return None
+
+    def find(self, name):
+        """The first root that has this name, as (path, root), or None.
+
+        Front to back, so a workspace copy shadows the example it was copied
+        from. Each candidate is confined to its own root, so a symlink that
+        points outside it is a miss rather than a leak.
+        """
+        for root in self._roots:
+            path = self.path_in(root, name)
+            if path and os.path.isfile(path):
+                return path, root
+        return None
+
+    def root_for_path(self, path):
+        """Which root a resolved path belongs to, or None if it is outside
+        every root - which is what makes a path a library entry rather than
+        an arbitrary file."""
+        for root in self._roots:
+            if root.contains(path):
+                return root
+        return None
+
+    def entries(self, lister=None):
+        """(winners, shadowed): every name the path offers with the root it
+        comes from, sorted by name, and the later copies a name hid.
+
+        `lister(root_dir)` yields the names under one root. Workflows and
+        prompts list by walking for JSON files; an asset library is listed by
+        the server's media walk, which lives above this module, so it is
+        passed in rather than imported. `shadowed` is a list of
+        `(name, root, shadowed_by)`, `shadowed_by` being the winning root.
+        """
+        if lister is None:
+            if self.kind not in _JSON_KINDS:
+                raise ValueError(f"A {self.kind} library needs a lister")
+            lister = workflow_names
+        winners = {}
+        shadowed = []
+        for root in self._roots:
+            for name in lister(root.root):
+                if name in winners:
+                    shadowed.append((name, root, winners[name]))
+                else:
+                    winners[name] = root
+        return dict(sorted(winners.items())), shadowed
+
+    def writable_root(self, shared=False):
+        """The root saves go to: the front of the path. `shared` asks for the
+        shared (common) root instead, for the libraries that have one."""
+        for root in self._roots:
+            if root.writable and (root.origin == COMMON_ORIGIN) == shared:
+                return root
+        return None
+
+    def require_writable(self, root, name=None):
+        """The root itself, or `ReadOnlyLibraryError` when it is read-only."""
+        if not root.writable:
+            raise ReadOnlyLibraryError(name, root)
+        return root
 
 
 def workflow_names(root):
@@ -106,13 +241,21 @@ def workflow_names(root):
     return sorted(names)
 
 
-def workflow_sources(workflow_dir, examples_dirs=None, include_builtin=False):
-    """The search path: the writable directory first, then read-only roots.
+def library_path(
+    kind, workspace, examples_dirs=None, primary=None, include_builtin=False
+):
+    """The search path of one library for a workspace.
 
-    A read-only root that is the writable one - a checkout whose workflows/
-    is both the workspace library and the examples - appears once, writable,
+    Workflows: the workspace's `workflows/` (writable), then each examples
+    directory (read-only), then - when `include_builtin` asks - the packaged
+    workflows. `primary` replaces the writable root, which is how a job's own
+    directory names its path.
+
+    A read-only root that is the writable one - a checkout whose workflows/ is
+    both the workspace library and the examples - appears once, writable,
     rather than twice with two different answers about whether it can be
-    saved to.
+    saved to. A read-only root that is not a directory is dropped. The
+    writable root is kept whether or not it exists yet: a save creates it.
 
     The packaged workflows are off the path by default. They are the pieces
     a 'builtin:' sub-workflow step names, resolved by the engine where that
@@ -120,67 +263,24 @@ def workflow_sources(workflow_dir, examples_dirs=None, include_builtin=False):
     their own, and listing them would put a handful of fragments in front of
     every user who never asked for them.
     """
-    sources = [WorkflowSource(workflow_dir, WORKSPACE_ORIGIN, True)]
+    if kind != WORKFLOWS_KIND:
+        raise ValueError(f"No search path is built for {kind} libraries yet")
+    roots = [LibraryRoot(primary or workspace.workflows, WORKSPACE_ORIGIN, True)]
     candidates = [(directory, EXAMPLES_ORIGIN) for directory in examples_dirs or []]
     if include_builtin:
         candidates.append((builtin_root(), BUILTIN_ORIGIN))
 
-    seen = {sources[0].root}
-    for root, origin in candidates:
-        source = WorkflowSource(root, origin, False)
-        if source.root in seen:
+    seen = {roots[0].root}
+    for directory, origin in candidates:
+        root = LibraryRoot(directory, origin, False)
+        if root.root in seen or not os.path.isdir(root.root):
             continue
-        seen.add(source.root)
-        sources.append(source)
-    return sources
+        seen.add(root.root)
+        roots.append(root)
+    return LibraryPath(kind, roots)
 
 
-def writable_source(sources):
-    """The source saves go to: the front of the path."""
-    for source in sources:
-        if source.writable:
-            return source
-    return None
-
-
-def source_for_path(sources, path):
-    """Which source a resolved path belongs to, or None if it is outside
-    every root - which is what makes a path a workflow rather than an
-    arbitrary file."""
-    for source in sources:
-        if source.contains(path):
-            return source
-    return None
-
-
-def resolve_in_source(source, name, allow_create=False):
-    """The on-disk path a name has in one source, or None when the name does
-    not resolve inside it. Containment is the security layer's, so a name
-    that tries to traverse simply does not resolve."""
-    if not name.endswith(".json"):
-        name = f"{name}.json"
-    try:
-        return validate_path(
-            os.path.join(source.root, name), source.root, allow_create=allow_create
-        )
-    except SecurityError:
-        return None
-
-
-def find_workflow(sources, name):
-    """The first source that has this name, as (path, source).
-
-    Front to back, so a workspace copy shadows the example it was copied
-    from. (None, None) when no source has it.
-    """
-    for source in sources:
-        path = resolve_in_source(source, name)
-        if path and os.path.isfile(path):
-            return path, source
-    return None, None
-
-
-def suggest_workflow_names(sources, name, limit=3):
+def suggest_workflow_names(library, name, limit=3):
     """Catalog names an unresolved `name` might have meant, for an error
     message rather than a second round trip.
 
@@ -194,7 +294,7 @@ def suggest_workflow_names(sources, name, limit=3):
     import difflib
 
     stripped = name[: -len(".json")] if name.endswith(".json") else name
-    catalog_names = list(listing(sources).keys())
+    catalog_names = list(library.entries()[0])
     suffix_matches = [
         candidate
         for candidate in catalog_names
@@ -222,16 +322,6 @@ def suggest_workflow_names(sources, name, limit=3):
             if candidate not in matches:
                 matches.append(candidate)
     return matches[:limit]
-
-
-def listing(sources):
-    """Every name the search path offers, each with the source it comes
-    from - a name in an earlier source shadowing the same name later."""
-    found = {}
-    for source in sources:
-        for name in source.names():
-            found.setdefault(name, source)
-    return dict(sorted(found.items()))
 
 
 def fallback_roots(primary=None):
@@ -282,7 +372,9 @@ def _describe_roots(roots):
 
 def resolve_sub_workflow(path, base_dir, confine_to):
     """Where a sub-workflow step's `path` resolves to, and the root the
-    child is confined to, as (path, root).
+    child is confined to, as (path, root). `root` is a `LibraryRoot` tagged
+    for what it is - `workspace` for the run's own root, `examples` for a
+    fallback - or None when the run is unconfined.
 
     Order, first hit wins:
 
@@ -303,21 +395,30 @@ def resolve_sub_workflow(path, base_dir, confine_to):
     name that was absent. Otherwise raises SubWorkflowNotFound, naming every
     candidate it looked at.
     """
-    roots = []
+    primary = None
     if confine_to:
-        roots.append(os.path.abspath(os.path.expanduser(str(confine_to))))
-    for root in fallback_roots(roots[0] if roots else None):
-        if root not in roots:
-            roots.append(root)
+        primary = LibraryRoot(confine_to, WORKSPACE_ORIGIN, True)
+    # The run's own root is the writable front of the path; every other root
+    # is a read-only fallback. Each is tagged for what it is, so the root a
+    # caller gets back says whether it is the workspace's own
+    library = LibraryPath(
+        WORKFLOWS_KIND,
+        ([primary] if primary else [])
+        + [
+            LibraryRoot(root, EXAMPLES_ORIGIN, False)
+            for root in fallback_roots(primary.root if primary else None)
+            if not primary or root != primary.root
+        ],
+    )
+    roots = [root.root for root in library.roots()]
 
     tried = []
     if os.path.isabs(path):
         candidate = os.path.normpath(path)
         tried.append(candidate)
-        for root in roots:
-            source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
-            if source.contains(candidate) and os.path.isfile(candidate):
-                return candidate, root
+        holder = library.root_for_path(candidate)
+        if holder is not None and os.path.isfile(candidate):
+            return candidate, holder
         if confine_to:
             # A real confinement boundary was named and nothing on the
             # search path holds this candidate - refuse here, naming every
@@ -332,7 +433,7 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         # Unconfined (a bare CLI run naming no workflow_dir) - hand it back
         # as before and let validate_workflow_path's base=None passthrough
         # decide, since there is no boundary to report roots for
-        return candidate, confine_to
+        return candidate, None
 
     if base_dir:
         # The root this candidate would be handed back with: the caller's
@@ -365,16 +466,15 @@ def resolve_sub_workflow(path, base_dir, confine_to):
                 ) from e
             tried.append(candidate)
             if os.path.isfile(candidate):
-                return candidate, confine_to
+                return candidate, primary
 
-    for root in roots:
-        source = WorkflowSource(root, EXAMPLES_ORIGIN, False)
+    for root in library.roots():
         # allow_create, because what is being asked is where the name would
         # land rather than whether something is there - None means the name
         # traverses out of the root, and the file check is the next line
-        candidate = resolve_in_source(source, path, allow_create=True)
+        candidate = library.path_in(root, path, allow_create=True)
         if candidate is None:
-            tried.append(f"{os.path.join(root, path)} (outside the root)")
+            tried.append(f"{os.path.join(root.root, path)} (outside the root)")
             continue
         tried.append(candidate)
         if os.path.isfile(candidate):

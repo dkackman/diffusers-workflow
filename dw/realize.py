@@ -35,7 +35,7 @@ from .runs import (
 )
 from .security import SecurityError, validate_workflow_path
 from .step_cache import copy_containers
-from .workflow_sources import resolve_sub_workflow, SubWorkflowNotFound
+from .library import resolve_sub_workflow, SubWorkflowNotFound
 
 logger = logging.getLogger("dw")
 
@@ -242,7 +242,7 @@ def read_sub_workflow(path, base_dir, workflow_dir):
     """
     try:
         candidate, root = resolve_sub_workflow(path, base_dir or ".", workflow_dir)
-        validated = validate_workflow_path(candidate, root)
+        validated = validate_workflow_path(candidate, root.root if root else None)
         with open(validated, "rb") as file:
             return file.read()
     except (SecurityError, OSError, ValueError, SubWorkflowNotFound) as e:

@@ -92,11 +92,12 @@ before a 403 explains it.
 
 ### Workflow sources
 
-`dw/workflow_sources.py` is the server's workflow search path: the writable
+`dw/library.py` holds `LibraryPath`, an ordered search path of `LibraryRoot`s, and
+`library_path("workflows", ...)` builds the server's workflow one: the writable
 directory first (the workspace's `workflows/`), then any `--examples-dir`, each
-read-only. Reads (`listing`, `find_workflow`) span every root front-to-back so an
+read-only. Reads (`LibraryPath.entries`, `find`) span every root front-to-back so an
 earlier name shadows a later one; `PUT /api/workflows` always resolves through
-`writable_source`, so saving something opened from a read-only root writes a copy
+`writable_root`, so saving something opened from a read-only root writes a copy
 rather than overwriting it, and `DELETE` on a read-only root answers 403. A job
 carries the root it is confined to (`JobManager.submit(workflow_dir=...)`), so an
 examples workflow runs confined to the examples directory rather than to the

@@ -1,5 +1,5 @@
-"""The workflow search path: reads span every root, writes reach only the
-front, and a read-only source cannot be written to or deleted from."""
+"""The library search path: reads span every root, writes reach only the
+front, and a read-only root cannot be written to or deleted from."""
 
 import json
 import os
@@ -7,21 +7,27 @@ import os
 import pytest
 
 from dw.security import SecurityError
-from dw.workflow_sources import (
+from dw.library import (
     BUILTIN_ORIGIN,
+    COMMON_ORIGIN,
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
+    LibraryPath,
+    LibraryRoot,
+    ReadOnlyLibraryError,
     builtin_root,
-    find_workflow,
-    listing,
-    resolve_in_source,
+    library_path,
     resolve_sub_workflow,
-    source_for_path,
     suggest_workflow_names,
     workflow_names,
-    workflow_sources,
-    writable_source,
 )
+
+
+def workflows_path(workspace, examples=(), **options):
+    """The workflow search path for a workspace directory and examples."""
+    return library_path(
+        "workflows", None, [str(e) for e in examples], primary=str(workspace), **options
+    )
 
 
 @pytest.fixture
@@ -40,76 +46,81 @@ def roots(tmp_path):
     return workspace, examples
 
 
-class TestSources:
+class TestConstruction:
     def test_the_writable_root_comes_first(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
-        assert [s.origin for s in sources] == [WORKSPACE_ORIGIN, EXAMPLES_ORIGIN]
-        assert [s.writable for s in sources] == [True, False]
-        assert writable_source(sources).root == str(workspace)
+        sources = workflows_path(workspace, [examples])
+        assert [s.origin for s in sources.roots()] == [
+            WORKSPACE_ORIGIN,
+            EXAMPLES_ORIGIN,
+        ]
+        assert [s.writable for s in sources.roots()] == [True, False]
+        assert sources.writable_root().root == str(workspace)
 
     def test_a_repeated_root_is_writable_once(self, roots):
         # The checkout-as-workspace case: the same directory named as both
         # the library and the examples must not answer two ways
         workspace, _examples = roots
-        sources = workflow_sources(str(workspace), [str(workspace)])
+        sources = workflows_path(workspace, [workspace]).roots()
         assert len(sources) == 1
         assert sources[0].writable
 
     def test_the_packaged_workflows_are_off_the_path_by_default(self, roots):
         workspace, _examples = roots
-        assert builtin_root() not in [s.root for s in workflow_sources(str(workspace))]
-        with_builtins = workflow_sources(str(workspace), include_builtin=True)
-        assert [s.origin for s in with_builtins][-1] == BUILTIN_ORIGIN
+        assert builtin_root() not in [s.root for s in workflows_path(workspace).roots()]
+        with_builtins = workflows_path(workspace, include_builtin=True)
+        assert [s.origin for s in with_builtins.roots()][-1] == BUILTIN_ORIGIN
 
     def test_a_missing_root_is_simply_empty(self, tmp_path):
-        sources = workflow_sources(str(tmp_path / "nothing-here"))
-        assert workflow_names(sources[0].root) == []
+        sources = workflows_path(tmp_path / "nothing-here")
+        assert workflow_names(sources.roots()[0].root) == []
+
+    def test_a_missing_read_only_root_is_dropped(self, roots, tmp_path):
+        workspace, examples = roots
+        sources = workflows_path(workspace, [examples, tmp_path / "nothing-here"])
+        assert [s.root for s in sources.roots()] == [str(workspace), str(examples)]
 
 
 class TestResolution:
     def test_reads_span_every_root(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
-        path, source = find_workflow(sources, "ltx2/Gyre")
+        sources = workflows_path(workspace, [examples])
+        path, source = sources.find("ltx2/Gyre")
         assert source.origin == EXAMPLES_ORIGIN
         assert path == str(examples / "ltx2" / "Gyre.json")
 
     def test_the_front_of_the_path_shadows_the_rest(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
-        path, source = find_workflow(sources, "Shared")
+        sources = workflows_path(workspace, [examples])
+        path, source = sources.find("Shared")
         assert source.origin == WORKSPACE_ORIGIN
         assert json.loads(open(path).read())["id"] == "mine-shared"
 
     def test_a_listing_names_each_workflow_once(self, roots):
         workspace, examples = roots
-        found = listing(workflow_sources(str(workspace), [str(examples)]))
+        found, _shadowed = workflows_path(workspace, [examples]).entries()
         assert sorted(found) == ["Shared", "ltx2/Gyre", "mine/Solo"]
         assert found["Shared"].origin == WORKSPACE_ORIGIN
         assert found["ltx2/Gyre"].origin == EXAMPLES_ORIGIN
 
     def test_an_unknown_name_resolves_nowhere(self, roots):
         workspace, examples = roots
-        assert (
-            find_workflow(workflow_sources(str(workspace), [str(examples)]), "Nope")[0]
-            is None
-        )
+        assert workflows_path(workspace, [examples]).find("Nope") is None
 
     @pytest.mark.parametrize("name", ["../outside", "/etc/passwd", "a/../../escape"])
     def test_a_name_cannot_traverse_out_of_a_source(self, roots, name):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
-        assert find_workflow(sources, name) == (None, None)
-        assert resolve_in_source(sources[0], name, allow_create=True) is None
+        sources = workflows_path(workspace, [examples])
+        assert sources.find(name) is None
+        assert sources.path_in(sources.roots()[0], name, allow_create=True) is None
 
     def test_a_path_knows_which_source_it_belongs_to(self, roots, tmp_path):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
-        assert source_for_path(
-            sources, str(examples / "ltx2" / "Gyre.json")
-        ).origin == (EXAMPLES_ORIGIN)
-        assert source_for_path(sources, str(tmp_path / "elsewhere.json")) is None
+        sources = workflows_path(workspace, [examples])
+        assert sources.root_for_path(str(examples / "ltx2" / "Gyre.json")).origin == (
+            EXAMPLES_ORIGIN
+        )
+        assert sources.root_for_path(str(tmp_path / "elsewhere.json")) is None
 
 
 class TestSuggestions:
@@ -118,24 +129,24 @@ class TestSuggestions:
 
     def test_a_unique_path_suffix_is_suggested(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
+        sources = workflows_path(workspace, [examples])
         assert suggest_workflow_names(sources, "Gyre") == ["ltx2/Gyre"]
 
     def test_a_typo_falls_back_to_a_close_spelling_match(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
+        sources = workflows_path(workspace, [examples])
         assert suggest_workflow_names(sources, "Shered") == ["Shared"]
 
     def test_nothing_close_suggests_nothing(self, roots):
         workspace, examples = roots
-        sources = workflow_sources(str(workspace), [str(examples)])
+        sources = workflows_path(workspace, [examples])
         assert suggest_workflow_names(sources, "zzz-completely-unrelated") == []
 
     def test_the_real_catalog_suggests_the_full_template_path(self):
         # #397's own repro: a skill or an earlier turn names a template by
         # its short id, not its catalog path
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sources = workflow_sources(
+        sources = workflows_path(
             os.path.join(repo_root, "workflows"), include_builtin=True
         )
         assert suggest_workflow_names(sources, "dialogue-short") == [
@@ -147,7 +158,7 @@ class TestSuggestions:
         # entry's own name but 0.55 against the full path, so comparing
         # full paths missed a real typo entirely
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sources = workflow_sources(
+        sources = workflows_path(
             os.path.join(repo_root, "workflows"), include_builtin=True
         )
         assert suggest_workflow_names(sources, "dialog-short") == [
@@ -180,7 +191,7 @@ class TestSubWorkflowResolution:
             "../models/Child.json", str(root / "templates"), str(root)
         )
         assert os.path.basename(candidate) == "Child.json"
-        assert confine_to == str(root)
+        assert confine_to.root == str(root)
 
     def test_a_climb_out_of_the_confinement_is_refused_not_resolved(self, catalog):
         root, outside = catalog
@@ -239,3 +250,124 @@ class TestNames:
         (examples / "notes.txt").write_text("hello")
         assert "notes" not in workflow_names(str(examples))
         assert os.path.isfile(examples / "notes.txt")
+
+
+class TestLibraryPath:
+    """The rules every library shares, over temp roots: order, confinement,
+    shadowing, and who may write."""
+
+    @pytest.fixture
+    def path(self, roots):
+        workspace, examples = roots
+        return workflows_path(workspace, [examples])
+
+    def test_find_walks_the_roots_front_to_back(self, path, roots):
+        workspace, examples = roots
+        found, root = path.find("Shared")
+        assert found == str(workspace / "Shared.json")
+        assert root is path.roots()[0]
+        # A name only a later root holds still resolves, against that root
+        found, root = path.find("ltx2/Gyre")
+        assert found == str(examples / "ltx2" / "Gyre.json")
+        assert root is path.roots()[1]
+
+    def test_find_takes_a_name_with_or_without_its_extension(self, path):
+        assert path.find("Shared.json") == path.find("Shared")
+
+    def test_a_symlink_leaving_its_root_is_a_miss(self, roots, tmp_path):
+        # The decoy sits outside both roots; a link to it from inside the
+        # workspace must not resolve, nor be listed
+        workspace, examples = roots
+        decoy = tmp_path / "decoy.json"
+        decoy.write_text(json.dumps({"id": "decoy"}))
+        os.symlink(decoy, workspace / "escape.json")
+        path = workflows_path(workspace, [examples])
+        assert path.find("escape") is None
+        assert "escape" not in path.entries()[0]
+
+    def test_entries_name_each_winner_once_and_report_what_it_hid(self, path):
+        winners, shadowed = path.entries()
+        assert list(winners) == ["Shared", "ltx2/Gyre", "mine/Solo"]
+        assert winners["Shared"] is path.roots()[0]
+        assert winners["ltx2/Gyre"] is path.roots()[1]
+        assert [(name, root.origin, by.origin) for name, root, by in shadowed] == [
+            ("Shared", EXAMPLES_ORIGIN, WORKSPACE_ORIGIN)
+        ]
+
+    def test_entries_take_the_lister_a_library_brings(self, tmp_path):
+        # An asset library is listed by server code the engine cannot
+        # import, so the lister is a parameter
+        front = LibraryRoot(tmp_path / "a", WORKSPACE_ORIGIN, True)
+        back = LibraryRoot(tmp_path / "b", EXAMPLES_ORIGIN, False)
+        listed = {front.root: ["x.png", "y.png"], back.root: ["y.png", "z.png"]}
+        path = LibraryPath("assets", [front, back])
+        winners, shadowed = path.entries(lambda root: listed[root])
+        assert winners == {"x.png": front, "y.png": front, "z.png": back}
+        assert shadowed == [("y.png", back, front)]
+
+    def test_an_asset_library_cannot_be_listed_without_a_lister(self, tmp_path):
+        path = LibraryPath("assets", [LibraryRoot(tmp_path, WORKSPACE_ORIGIN, True)])
+        with pytest.raises(ValueError):
+            path.entries()
+
+    def test_an_asset_name_is_taken_literally(self, tmp_path):
+        root = LibraryRoot(tmp_path, WORKSPACE_ORIGIN, True)
+        (tmp_path / "iris.png").write_bytes(b"png")
+        path = LibraryPath("assets", [root])
+        assert path.find("iris.png") == (str(tmp_path / "iris.png"), root)
+        assert path.find("iris") is None
+
+    def test_the_writable_root_is_the_front_of_the_path(self, path, roots):
+        workspace, _examples = roots
+        assert path.writable_root().root == str(workspace)
+
+    def test_the_shared_root_is_asked_for_by_name(self, tmp_path):
+        own = LibraryRoot(tmp_path / "own", WORKSPACE_ORIGIN, True)
+        common = LibraryRoot(tmp_path / "common", COMMON_ORIGIN, True)
+        path = LibraryPath("assets", [own, common])
+        assert path.writable_root() is own
+        assert path.writable_root(shared=True) is common
+        assert LibraryPath("assets", [own]).writable_root(shared=True) is None
+
+    def test_a_path_with_nothing_writable_has_no_writable_root(self, tmp_path):
+        path = LibraryPath("workflows", [LibraryRoot(tmp_path, EXAMPLES_ORIGIN, False)])
+        assert path.writable_root() is None
+
+    def test_require_writable_refuses_a_read_only_root(self, path):
+        own, example = path.roots()
+        assert path.require_writable(own, "Shared") is own
+        with pytest.raises(ReadOnlyLibraryError) as refusal:
+            path.require_writable(example, "ltx2/Gyre")
+        assert refusal.value.name == "ltx2/Gyre"
+        assert refusal.value.root is example
+
+    def test_an_unknown_kind_is_refused(self, tmp_path):
+        with pytest.raises(ValueError):
+            LibraryPath("sounds", [])
+
+
+class TestSubWorkflowOrigin:
+    """D8: resolve_sub_workflow used to build a throwaway `examples`
+    container for every root, the run's own writable one included, and hand
+    back a bare string. The root it returns says what it is."""
+
+    def test_a_sub_workflow_from_the_writable_root_is_tagged_workspace(self, roots):
+        workspace, _examples = roots
+        _candidate, root = resolve_sub_workflow(
+            "Shared", str(workspace), str(workspace)
+        )
+        assert root.origin == WORKSPACE_ORIGIN
+        assert root.writable
+        assert root.root == str(workspace)
+
+    def test_a_sub_workflow_from_a_fallback_is_tagged_examples(
+        self, roots, monkeypatch
+    ):
+        workspace, examples = roots
+        monkeypatch.setenv("DW_WORKFLOW_PATH", str(examples))
+        candidate, root = resolve_sub_workflow(
+            "ltx2/Gyre", str(workspace), str(workspace)
+        )
+        assert candidate == str(examples / "ltx2" / "Gyre.json")
+        assert root.origin == EXAMPLES_ORIGIN
+        assert not root.writable

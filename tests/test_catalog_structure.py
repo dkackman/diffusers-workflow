@@ -19,7 +19,7 @@ from dw.server.catalog_shape import (
     derive_catalog_metadata,
     project_listing,
 )
-from dw.workflow_sources import WorkflowSource, listing
+from dw.library import library_path
 from tests.test_examples import BUILTIN_DIR, REPO_ROOT, get_example_files
 
 TEMPLATES = [f for f in get_example_files() if f.startswith("workflows/templates/")]
@@ -449,9 +449,9 @@ class _every_workflow_observed:
 
 
 def test_the_compact_listing_fits_the_budget():
-    found = listing(
-        [WorkflowSource(os.path.join(REPO_ROOT, "workflows"), "workspace", True)]
-    )
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
     details = workflow_details(found)
     # As the server answers it: every workflow carrying the observed figures
     # it would carry on a box that had run them all

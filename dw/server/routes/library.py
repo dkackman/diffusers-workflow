@@ -21,10 +21,10 @@ from ...prompts import RESERVED_TEXT_PREFIXES
 from ...schema import load_schema, validate_data
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
-from ...workflow_sources import (
+from ...library import (
     EXAMPLES_ORIGIN,
     WORKSPACE_ORIGIN,
-    listing,
+    ReadOnlyLibraryError,
     workflow_names,
 )
 from ...workspace import (
@@ -205,8 +205,8 @@ def list_workflows(
     exactly the entries `details` holds.
     """
     state = request.app.state
-    sources = sources_for(state, ws)
-    found = listing(sources)
+    library = sources_for(state, ws)
+    found, _shadowed = library.entries()
     try:
         details = project_listing(
             attach_observed(
@@ -225,7 +225,7 @@ def list_workflows(
     return {
         "workspace": ws.name,
         "workflow_dir": ws.workflows,
-        "sources": [source.to_dict() for source in sources],
+        "sources": [root.to_dict() for root in library.roots()],
         "workflows": sorted(details),
         "details": details,
         # What a `cost` is, and so what a null one means. Curated:
@@ -314,12 +314,15 @@ def delete_workflow(
     """
     state = request.app.state
     manager = request.app.state.job_manager
-    path, source = resolve_readable_workflow(sources_for(state, ws), name)
-    if not source.writable:
+    library = sources_for(state, ws)
+    path, source = resolve_readable_workflow(library, name)
+    try:
+        library.require_writable(source, name)
+    except ReadOnlyLibraryError as refusal:
         raise HTTPException(
             status_code=403,
-            detail=f"'{name}' comes from the read-only {source.origin} "
-            f"directory {source.root} and cannot be deleted",
+            detail=f"'{name}' comes from the read-only {refusal.root.origin} "
+            f"directory {refusal.root.root} and cannot be deleted",
         )
     os.remove(path)
     logger.info(f"Deleted workflow {name} ({path})")

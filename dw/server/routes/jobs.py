@@ -22,7 +22,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError
-from ...workflow_sources import SubWorkflowNotFound, resolve_sub_workflow
+from ...library import SubWorkflowNotFound, resolve_sub_workflow
 from ...workspace import Workspace
 from ..admission import (
     ACKNOWLEDGED_COST_FIELD,
@@ -563,18 +563,19 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                 else None
             )
             try:
-                child_path, child_root = resolve_sub_workflow(
+                child_path, child_library_root = resolve_sub_workflow(
                     path, base_dir or ".", candidate.workflow_dir
                 )
             except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
                 return None
+            child_root = child_library_root.root if child_library_root else None
             child_name = catalog_name_from_root(child_path, child_root)
             if not child_name:
                 return None
-            # resolve_sub_workflow hands back a bare root string, not a
-            # Source, so writability is inferred the way that root was
-            # built: the workspace's own workflows/ is the writable one
-            # (#274)
+            # The workspace's own workflows/ is the writable one (#274). The
+            # tag alone is not enough: a run confined to an examples
+            # directory tags its confinement `workspace` too, being the
+            # run's own root
             child_workspace = (
                 workspace.name if child_root == workspace.workflows else None
             )

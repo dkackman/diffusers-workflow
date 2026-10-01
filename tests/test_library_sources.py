@@ -12,7 +12,7 @@ from dw.assets import asset_search_path, resolve_asset_reference
 from dw.prompts import fetch_prompt, prompt_search_path, resolve_prompt_reference
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
-from dw.workflow_sources import EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
+from dw.library import EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
 from dw.workspace import (
     ASSETS_SUBDIR,
     PROMPTS_SUBDIR,
