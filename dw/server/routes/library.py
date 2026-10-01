@@ -50,6 +50,7 @@ from ..catalog import (
 )
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
+    internal_error,
     observed_for_name,
     server_prompt_library,
     selected_workspace,
@@ -59,7 +60,6 @@ from ..deps import (
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
 from ..job_record import TERMINAL_STATES
-from .jobs import internal_error
 
 logger = logging.getLogger("dw")
 

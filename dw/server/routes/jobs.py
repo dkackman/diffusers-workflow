@@ -40,6 +40,7 @@ from ..catalog import (
     resolve_workflow_reference,
 )
 from ..deps import (
+    internal_error,
     observed_for_name,
     selected_workspace,
     sources_for,
@@ -82,16 +83,6 @@ def _historical_log_note(stored):
             "when the job was recorded."
         )
     return None
-
-
-def internal_error(message):
-    """Log the exception being handled with its traceback and return the
-    500 that answers it: the detail is the category, never the message,
-    which can carry a path or a value. Raised from inside an except block."""
-    logger.exception(message)
-    return HTTPException(
-        status_code=500, detail="internal error - the server log has the detail"
-    )
 
 
 @router.post("/api/jobs", status_code=201)

@@ -27,9 +27,9 @@ from ...security import (
     validate_output_path,
     validate_path,
 )
-from ...library import ReadOnlyLibraryError
+from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
-from ..deps import selected_workspace
+from ..deps import asset_library_missing, selected_workspace
 from ..outputs import (
     ArchiveRequest,
     absolute_served_url,
@@ -126,18 +126,11 @@ async def upload_media(
     if shared:
         library = common_assets(ws)
         if not library:
-            raise HTTPException(
-                status_code=409,
-                detail="This server has no shared asset library - it was "
-                "configured from loose directories rather than a workspace "
-                "root, so there is nothing for an asset to be common to",
-            )
+            raise asset_library_missing(shared=True)
     else:
         library = ws.assets
         if not library:
-            raise HTTPException(
-                status_code=409, detail="This workspace has no asset library"
-            )
+            raise asset_library_missing()
     uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
     name = f"{uuid.uuid4().hex}{extension}"
     if asset_name:
@@ -247,9 +240,11 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
             asset_entry["absolute_url"] = absolute_url
         assets.append(asset_entry)
     assets.sort(key=lambda entry: entry["mtime"], reverse=True)
+    # The one producer of the field's name/origin/shadowed_by, plus the
+    # media facts an asset entry carries
     shadowed = [
-        {**summary(name, root), "shadowed_by": winner.origin}
-        for name, root, winner in hidden
+        {**summary(entry["name"], root), "shadowed_by": entry["shadowed_by"]}
+        for entry, (_name, root, _winner) in zip(shadowed_listing(hidden), hidden)
     ]
     return {
         "workspace": ws.name,
@@ -298,14 +293,7 @@ def keep_output_as_asset(
     """
     library = common_assets(ws) if body.shared else ws.assets
     if not library:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "This server has no shared asset library"
-                if body.shared
-                else "This workspace has no asset library"
-            ),
-        )
+        raise asset_library_missing(shared=body.shared)
 
     kept_name = strip_output_prefix(body.name)
     source = resolve_output_file(request.app.state, kept_name, ws.outputs)
@@ -434,7 +422,7 @@ def delete_asset(
     """
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
-        raise HTTPException(status_code=409, detail="This server has no asset library")
+        raise asset_library_missing()
     try:
         relative = validate_asset_reference(name)
     except SecurityError as e:

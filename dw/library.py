@@ -120,13 +120,13 @@ class LibraryRoot:
 class ReadOnlyLibraryError(Exception):
     """A write was aimed at an entry of a read-only root."""
 
-    def __init__(self, name, root, kind=None):
+    def __init__(self, name, root, kind):
         self.name = name
         self.root = root
         self.kind = kind
         super().__init__(
             f"'{name}' is in the read-only {root.origin} library ({root.root}); "
-            f"only the workspace's own {kind or 'entries'} can be deleted"
+            f"only the workspace's own {kind} can be deleted"
         )
 
 
@@ -274,7 +274,7 @@ class LibraryPath:
                 return root
         return None
 
-    def require_writable(self, root, name=None):
+    def require_writable(self, root, name):
         """The root itself, or `ReadOnlyLibraryError` when it is read-only."""
         if not root.writable:
             raise ReadOnlyLibraryError(name, root, self.kind)

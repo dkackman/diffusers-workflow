@@ -6,6 +6,7 @@ process each resolve their own workspaces, search paths and ceiling index.
 """
 
 import json
+import logging
 import os
 from typing import Optional
 
@@ -20,6 +21,31 @@ from ..workspace import (
     _holds_a_workspace,
     named_workspace,
 )
+
+logger = logging.getLogger("dw")
+
+
+def internal_error(message):
+    """Log the exception being handled with its traceback and return the
+    500 that answers it: the detail is the category, never the message,
+    which can carry a path or a value. Raised from inside an except block."""
+    logger.exception(message)
+    return HTTPException(
+        status_code=500, detail="internal error - the server log has the detail"
+    )
+
+
+def asset_library_missing(shared=False):
+    """The 409 every asset route answers when there is no library to write
+    to or read from - one wording, so upload, keep and delete cannot drift."""
+    if shared:
+        return HTTPException(
+            status_code=409,
+            detail="This server has no shared asset library - it was "
+            "configured from loose directories rather than a workspace "
+            "root, so there is nothing for an asset to be common to",
+        )
+    return HTTPException(status_code=409, detail="This workspace has no asset library")
 
 
 def workspace_root(state):

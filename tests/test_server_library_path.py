@@ -498,3 +498,25 @@ class TestLibraryRouteStatuses:
             "/api/enhance", json={"idea": "a cat", "preset": "nope"}
         )
         assert response.status_code == 400
+
+
+class TestNoAssetLibraryHasOneWording:
+    def test_upload_keep_and_delete_answer_the_same_409(self, tmp_path):
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        app = create_app(
+            workflow_dir=str(tmp_path / "workflows"),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            upload = client.post(
+                "/api/uploads", params={"filename": "a.png"}, content=b"bytes"
+            )
+            keep = client.post("/api/assets/keep", json={"name": "x.png"})
+            delete = client.delete("/api/assets/x.png")
+        assert {r.status_code for r in (upload, keep, delete)} == {409}
+        assert len({r.json()["detail"] for r in (upload, keep, delete)}) == 1

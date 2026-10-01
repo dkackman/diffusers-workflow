@@ -72,8 +72,8 @@ def _store_directories(
     state.workflow_dir = workflow_dir
     state.prompt_dir = prompt_dir
     # Where uploads land and 'asset:' references resolve. None when the
-    # caller configured no asset library: uploads then fall back to the
-    # output directory's uploads/ subfolder, as they did before there was one
+    # caller configured no asset library: uploads, keep and delete then
+    # answer 409, since there is nowhere for an asset to be
     state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
     # The workspace the three directories above default to folders of, for a
     # client that wants to name the root rather than reason about the parts.
