@@ -22,6 +22,12 @@ own (CLAUDE.md). One shape, not two: a `variable_constraints` entry takes
 `"constraint:<variable>"` so a template states `17n + 5` once rather than
 twice in one file.
 
+`snap` is chosen per model, by what its pipeline does with an off-grid value.
+H3 rounds up, so its templates say `snap: "up"`. LTX-2.5's templates declare
+the `8 * n + 1` grid with no `snap`, because those pipelines floor an off-grid
+count rather than raising: rounding up here would be a second silent change
+to the length, so the value is refused instead.
+
 A constraint key is a plain variable name, matched wherever a value by that
 name sits: a top-level variable, or a field of an entry of a `for_each` list
 where some step hands that field to a pipeline (#145). `dialogue-short` has

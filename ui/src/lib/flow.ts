@@ -191,8 +191,8 @@ function forEachMembers(
 /** The read-only data-flow view's graph: one node per step, one edge per
  * `previous_result:<step>` reference (labeled with the attribute that
  * carries it), entry points flagged, and fan-in points - steps combining
- * more than one upstream producer, where CLAUDE.md's cartesian-product
- * gotcha (4 images x 3 masks = 12) applies - called out explicitly since
+ * more than one upstream producer, where the cartesian product
+ * (docs/WORKFLOW_GUIDE.md; 4 images x 3 masks = 12) applies - called out explicitly since
  * that multiplication is invisible reading the JSON step by step. */
 export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   const steps: Array<Record<string, any>> = workflow.steps ?? []

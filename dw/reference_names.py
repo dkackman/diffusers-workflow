@@ -15,6 +15,13 @@ depends on the workspace and on what pruning has taken, and the definition's
 own references (a template's `prompt:ltx2/hummingbird_garden`) are not the
 caller's to answer for; the caller's `arguments` are separately resolved
 against the workspace by the validate route.
+
+An `output:` or `asset:` name accepts `@`, because the engine writes it: a
+`for_each` member is `<group>@<entry>` and its files carry that in their base
+name, so every file the server names can be named back to it. `@` is not a
+separator and not `..`, and containment is still `validate_path`'s; a name
+(and each segment of it) may not *start* with one. `_name_fault`, in
+`dw/security.py`, is what names the offending character and its position.
 """
 
 from . import references

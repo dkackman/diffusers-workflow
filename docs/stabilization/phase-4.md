@@ -377,7 +377,7 @@ Work on branch `stabilization/phase-4c` in the worktree, from `develop` at `edb6
   - `ui/CLAUDE.md` 154 (design system, assets);
   - `dw_mcp/CLAUDE.md` 95;
   - `dw/server/CLAUDE.md` 34.
-- `.github/copilot-instructions.md`, 114 lines. It is a parallel description of the architecture, partly stale (it still describes a 5-minute execution timeout and memory warnings), and the metric does not count it.
+- `.github/copilot-instructions.md`, 114 lines. It is a parallel description of the architecture, partly stale (it still describes a 5-minute execution timeout and SHA-256 change detection), and the metric does not count it.
 - What reads a CLAUDE.md mechanically:
   - `tests/test_plugin_skills.py::test_a_skill_is_enumerated_where_the_plugin_describes_itself`, which needs every plugin skill's name in backticks in the root file;
   - `arch_metrics.py` and `arch_report.py`, for counting.
