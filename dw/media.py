@@ -271,7 +271,7 @@ def decode_soundtrack(path):
         if pieces
         else numpy.zeros((0, channels), numpy.float32)
     )
-    return numpy.ascontiguousarray(samples.T, dtype=numpy.float32), rate
+    return numpy.ascontiguousarray(to_float32(samples).T), rate
 
 
 def to_float32(samples):
@@ -450,7 +450,7 @@ def decode_audio_video(handle):
         if sample_rate is not None:
             chunks.extend(f.to_ndarray() for f in resampler.resample(None))
 
-    audio = numpy.concatenate(chunks, axis=1).astype(numpy.float32) if chunks else None
+    audio = to_float32(numpy.concatenate(chunks, axis=1)) if chunks else None
     return frames, audio, sample_rate, frame_rate
 
 
