@@ -22,7 +22,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError
-from ...workflow_sources import SubWorkflowNotFound, resolve_sub_workflow
+from ...library import SubWorkflowNotFound, resolve_sub_workflow
 from ...workspace import Workspace
 from ..admission import (
     ACKNOWLEDGED_COST_FIELD,
@@ -40,6 +40,7 @@ from ..catalog import (
     resolve_workflow_reference,
 )
 from ..deps import (
+    internal_error,
     observed_for_name,
     selected_workspace,
     sources_for,
@@ -54,7 +55,7 @@ from ..job_record import (
     RUNNING,
     TERMINAL_STATES,
 )
-from ..outputs import absolute_served_url, asset_roots_for_job, served_url
+from ..outputs import absolute_served_url, asset_library_for_job, served_url
 
 logger = logging.getLogger("dw")
 
@@ -82,16 +83,6 @@ def _historical_log_note(stored):
             "when the job was recorded."
         )
     return None
-
-
-def internal_error(message):
-    """Log the exception being handled with its traceback and return the
-    500 that answers it: the detail is the category, never the message,
-    which can carry a path or a value. Raised from inside an except block."""
-    logger.exception(message)
-    return HTTPException(
-        status_code=500, detail="internal error - the server log has the detail"
-    )
 
 
 @router.post("/api/jobs", status_code=201)
@@ -362,7 +353,7 @@ def export_job_route(
             manager,
             job_id,
             ws.root,
-            asset_roots_for_job(state, job_id, ws),
+            asset_library_for_job(state, job_id, ws),
             overwrite=overwrite,
         )
     except FileExistsError as e:
@@ -563,18 +554,19 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                 else None
             )
             try:
-                child_path, child_root = resolve_sub_workflow(
+                child_path, child_library_root = resolve_sub_workflow(
                     path, base_dir or ".", candidate.workflow_dir
                 )
             except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
                 return None
+            child_root = child_library_root.root if child_library_root else None
             child_name = catalog_name_from_root(child_path, child_root)
             if not child_name:
                 return None
-            # resolve_sub_workflow hands back a bare root string, not a
-            # Source, so writability is inferred the way that root was
-            # built: the workspace's own workflows/ is the writable one
-            # (#274)
+            # The workspace's own workflows/ is the writable one (#274). The
+            # root's `writable` tag is not enough: the run's own confinement
+            # is tagged writable whatever directory it is, so equality with
+            # the workspace's workflows/ stays the test
             child_workspace = (
                 workspace.name if child_root == workspace.workflows else None
             )

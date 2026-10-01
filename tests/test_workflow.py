@@ -340,7 +340,7 @@ class TestSubWorkflowConfinement:
         # #422: the refusal named only the rejected name, not where
         # 'builtin:' looks
         from dw.security import InvalidInputError
-        from dw.workflow_sources import builtin_root
+        from dw.library import builtin_root
 
         workflow_dir = tmp_path / "workflows"
         workflow_dir.mkdir()
@@ -981,7 +981,7 @@ class TestSubWorkflowNameResolution:
         without copying the template into the workspace."""
         import json
 
-        from dw.workspace import WORKFLOW_PATH_ENV_VAR
+        from dw.library import WORKFLOW_PATH_ENV_VAR
 
         examples = tmp_path / "examples"
         (examples / "templates").mkdir(parents=True)
@@ -1034,7 +1034,7 @@ class TestSubWorkflowNameResolution:
         assert action.workflow_dir == str(examples)
 
     def test_a_name_that_resolves_nowhere_says_where_it_looked(self, tmp_path):
-        from dw.workflow_sources import SubWorkflowNotFound
+        from dw.library import SubWorkflowNotFound
 
         with pytest.raises(SubWorkflowNotFound) as exc_info:
             self._resolve(tmp_path, "minimax/does-not-exist")

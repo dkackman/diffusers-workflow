@@ -426,10 +426,14 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
   they default to, without the definition around them. Long string defaults are
   cut to 200 characters and named in `truncated`, including strings inside a
-  list default, named like `shots[0].prompt`; `full=true` returns them whole
+  list default, named like `shots[0].prompt`; `full=true` returns them whole. Each entry also carries `origin` and `writable`,
+  and the body carries `libraries`, `shadowed` and the `workspace` it lists. Saving
+  one whose validation gate itself crashes answers 500; an invalid one is 400
 - `GET /api/prompts`, `GET/PUT/DELETE /api/prompts/{name}` — the prompt
   library (confined to `--prompt-dir`, names held to what a `prompt:`
-  reference can load); saves are validated against the prompt schema,
+  reference can load); the listing carries `libraries`, `shadowed` and an
+  `origin`/`writable` per entry in `details`; deleting a read-only entry is a
+  403; saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
 - `GET /api/prompts/{name:path}/download` — download a prompt file as text
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
@@ -472,11 +476,15 @@ The editor's forms come from these; they are just as usable from scripts:
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
   error when no library is configured. `libraries` lists the roots searched,
-  in order, each `{origin, dir, writable}` — what `asset_dirs` names without
-  saying which of them an upload or delete can actually reach. `shadowed`
+  in order, each `{origin, root, writable}` — which of them an upload or
+  delete can actually reach is the one with `writable: true`. `shadowed`
   lists the entries a nearer library hides: same shape as an `assets` entry
   but without `url` (that URL would serve the shadowing file, not this one),
-  plus `shadowed_by` naming the origin that won
+  plus `shadowed_by` naming the origin that won. The workflow and prompt
+  listings carry the same `libraries` and `shadowed` (`[{name, origin,
+  shadowed_by}]`); a filter narrows `shadowed` with the entries. Upload, keep
+  and delete answer 409 `This workspace has no asset library` when there is
+  none
 - `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
   its `asset:` reference. A run's files are named by the run that made them,

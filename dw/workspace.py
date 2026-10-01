@@ -285,64 +285,6 @@ def set_workspace(workspace):
     return workspace
 
 
-# Read-only libraries searched after the one a run writes to. A tree named
-# by --examples-dir brings the prompts and assets its workflows reference
-# along with it, and neither is reachable from the workspace's own library -
-# the search path is what closes that. Carried in the environment, joined by
-# os.pathsep, so a spawned worker inherits it the way it inherits
-# DW_PROMPT_DIR and DW_ASSET_DIR
-PROMPT_PATH_ENV_VAR = "DW_PROMPT_PATH"
-ASSET_PATH_ENV_VAR = "DW_ASSET_PATH"
-# The same idea for workflows, which a sub-workflow step names: a stored
-# template lives in an examples tree the workspace's own workflows/ cannot
-# reach, so composing one used to mean copying it in (#90)
-WORKFLOW_PATH_ENV_VAR = "DW_WORKFLOW_PATH"
-
-LIBRARY_PATH_ENV_VARS = {
-    PROMPTS_SUBDIR: PROMPT_PATH_ENV_VAR,
-    ASSETS_SUBDIR: ASSET_PATH_ENV_VAR,
-    WORKFLOWS_SUBDIR: WORKFLOW_PATH_ENV_VAR,
-}
-
-
-def library_fallbacks(subdir, primary=None):
-    """The read-only roots a library is searched in after its own, in order.
-
-    Args:
-        subdir: 'prompts' or 'assets'
-        primary: The library that is searched first, dropped from the result
-            when it also appears here - a checkout serving as both the
-            workspace and the examples tree has one library, not two
-
-    Returns:
-        A list of absolute paths, each an existing directory
-    """
-    raw = os.environ.get(LIBRARY_PATH_ENV_VARS[subdir], "")
-    first = os.path.abspath(os.path.expanduser(str(primary))) if primary else None
-    roots = []
-    for entry in raw.split(os.pathsep):
-        if not entry.strip():
-            continue
-        root = os.path.abspath(os.path.expanduser(entry))
-        if root == first or root in roots or not os.path.isdir(root):
-            continue
-        roots.append(root)
-    return roots
-
-
-def set_library_fallbacks(subdir, roots):
-    """Pin a library's read-only roots in the environment, so the worker
-    subprocess resolves a reference exactly as the entry point would."""
-    joined = os.pathsep.join(
-        os.path.abspath(os.path.expanduser(str(root))) for root in roots or []
-    )
-    if joined:
-        os.environ[LIBRARY_PATH_ENV_VARS[subdir]] = joined
-    else:
-        os.environ.pop(LIBRARY_PATH_ENV_VARS[subdir], None)
-    return joined
-
-
 def example_libraries(examples_dirs):
     """The prompt and asset libraries the trees named by --examples-dir
     bring with them.
@@ -456,12 +398,14 @@ def workspace_names(workspace):
     return [DEFAULT_WORKSPACE_NAME] + names
 
 
-def named_workspace(workspace, name):
+def named_workspace(workspace, name, prompts_root=None):
     """One workspace under this root, by name.
 
     The default name resolves to the root's own workspace; any other name
-    resolves to '<root>/<name>', sharing the root's prompt library. The name
-    is validated before it is joined, so nothing here can leave the root.
+    resolves to '<root>/<name>', sharing the prompt library - the root's
+    `prompts/`, or `prompts_root` when a server was started with a
+    --prompt-dir of its own. The name is validated before it is joined, so
+    nothing here can leave the root.
     """
 
     if name is None or name == DEFAULT_WORKSPACE_NAME:
@@ -471,12 +415,12 @@ def named_workspace(workspace, name):
         os.path.join(workspace.root, name),
         workspace.source,
         name=name,
-        prompts_root=os.path.join(workspace.root, PROMPTS_SUBDIR),
+        prompts_root=prompts_root or os.path.join(workspace.root, PROMPTS_SUBDIR),
         common_root=os.path.join(workspace.root, COMMON_SUBDIR),
     )
 
 
-def create_workspace(workspace, name):
+def create_workspace(workspace, name, prompts_root=None):
     """Make a new named workspace under this root.
 
     Raises:
@@ -487,7 +431,7 @@ def create_workspace(workspace, name):
     name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
     if name in workspace_names(workspace):
         raise FileExistsError(f"Workspace '{name}' already exists")
-    return named_workspace(workspace, name).ensure()
+    return named_workspace(workspace, name, prompts_root=prompts_root).ensure()
 
 
 def _tree_usage(directory):

@@ -19,6 +19,8 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi.testclient import TestClient  # noqa: E402
+
 from dw.server.app import create_app  # noqa: E402
 from dw.server.jobs import JobManager  # noqa: E402
 from dw_mcp.client import DwClient  # noqa: E402
@@ -98,8 +100,88 @@ def mcp_tools(server):
     ]
 
 
+SNAPSHOT_WORKFLOW = {
+    "id": "snapshot",
+    "variables": {"prompt": "d"},
+    "steps": [
+        {
+            "name": "gen",
+            "pipeline": {
+                "configuration": {"component_type": "{Fake}", "no_generator": True},
+                "from_pretrained_arguments": {"model_name": "m"},
+                "arguments": {"prompt": "variable:prompt"},
+            },
+        }
+    ],
+}
+
+
+def write_json(path, body):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body))
+
+
+def build_library_fixture(root):
+    """A workspace and an examples tree that exercise every rule the library
+    listings apply: a workspace workflow shadowing an example one, a prompt in
+    each, and an asset in the workspace, in common/assets and in the example
+    (one name in two of them, so `shadowed` has an entry).
+
+    Returns the examples directory (the workflows/ tree) to hand create_app.
+    """
+    examples = root / "examples"
+    write_json(root / "workflows" / "shared-name.json", SNAPSHOT_WORKFLOW)
+    write_json(examples / "workflows" / "shared-name.json", SNAPSHOT_WORKFLOW)
+    write_json(examples / "workflows" / "example-only.json", SNAPSHOT_WORKFLOW)
+    write_json(root / "prompts" / "own.json", {"text": "the workspace's prompt"})
+    write_json(examples / "prompts" / "example.json", {"text": "the example's prompt"})
+    for path, body in (
+        (root / "assets" / "own.png", b"own"),
+        (root / "assets" / "shared.png", b"workspace copy"),
+        (root / "common" / "assets" / "common.png", b"common"),
+        (examples / "assets" / "example.png", b"example"),
+        (examples / "assets" / "shared.png", b"example copy"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+    return str(examples / "workflows")
+
+
+def first_entry_keys(items):
+    """Sorted keys of one entry of a listing (a list's first, a dict's first
+    value), or None when the listing holds none."""
+    if isinstance(items, dict):
+        items = list(items.values())
+    return sorted(items[0]) if items else None
+
+
+def listing_keys(client):
+    """The shape of the three library listings: the sorted key set of each
+    body and of one entry per listing. Keys only - no paths, no times - so
+    the snapshot is the same on every run and every machine."""
+    workflows = client.get("/api/workflows").json()
+    prompts = client.get("/api/prompts").json()
+    assets = client.get("/api/assets").json()
+    return {
+        "workflows": {
+            "body": sorted(workflows),
+            "details_entry": first_entry_keys(workflows["details"]),
+        },
+        "prompts": {
+            "body": sorted(prompts),
+            "details_entry": first_entry_keys(prompts["details"]),
+        },
+        "assets": {
+            "body": sorted(assets),
+            "assets_entry": first_entry_keys(assets["assets"]),
+            "shadowed_entry": first_entry_keys(assets["shadowed"]),
+        },
+    }
+
+
 def snapshot(root):
     root = Path(root)
+    examples_dir = build_library_fixture(root)
     server = mcp_server()
     ui_dir = root / "ui"
     ui_dir.mkdir()
@@ -119,6 +201,7 @@ def snapshot(root):
         prompt_dir=str(root / "prompts"),
         asset_dir=str(root / "assets"),
         workspace=str(root),
+        examples_dirs=[examples_dir],
         mcp=True,
     )
     routes = list(app.router.routes)
@@ -132,6 +215,7 @@ def snapshot(root):
         "openapi": app.openapi(),
         "mcp_instructions": server.instructions,
         "mcp_tools": mcp_tools(server),
+        "library_listings": listing_keys(TestClient(app, base_url="http://localhost")),
     }
 
 

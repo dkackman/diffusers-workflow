@@ -141,9 +141,12 @@ the repository's workflows at `--examples-dir`:
 python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
 ```
 
-`GET /api/workflows` reports the path as `sources` and tags every entry with
-its `origin` and `writable`, which is how the UI knows to hide delete and how
-an MCP client can tell what it may change.
+`GET /api/workflows` reports the path as `libraries` (`[{origin, root,
+writable}]`, in search order) and tags every entry in `details` with its
+`origin` and `writable`, which is how the UI knows to hide delete and how an
+MCP client can tell what it may change. The writable root is the `libraries`
+entry with `writable: true` and `origin: "workspace"`; a copy an example's
+name hides is listed under `shadowed`.
 
 ### The prompts and assets an examples tree brings with it
 
@@ -166,10 +169,11 @@ ever reach your own:
 So the command above makes `workflows/models/flux-dev.json`'s
 `"prompt:flux/biomechanical_daffodil"` resolve out of the checkout, without
 copying the prompt library into the workspace. `GET /api/prompts` and
-`GET /api/assets` report the roots as `prompt_dirs` / `asset_dirs` and tag
-each entry with its `origin`; deleting a prompt that came from a read-only
-library is refused with a 403, and saving one writes a copy into your
-workspace the way saving an example workflow does.
+`GET /api/assets` report the roots as `libraries`, the same envelope as the
+workflow listing, and tag each entry with its `origin` and `writable`;
+deleting a prompt that came from a read-only library is refused with a 403,
+and saving one writes a copy into your workspace the way saving an example
+workflow does.
 
 The packaged workflows in `dw/workflows/` are deliberately *not* on the path.
 They are the pieces a `builtin:` sub-workflow step names, resolved by the

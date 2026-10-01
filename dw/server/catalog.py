@@ -17,13 +17,7 @@ from ..security import (
     validate_path,
     validate_prompt_reference,
 )
-from ..workflow_sources import (
-    find_workflow,
-    resolve_in_source,
-    source_for_path,
-    suggest_workflow_names,
-    writable_source,
-)
+from ..library import suggest_workflow_names
 from .catalog_shape import derive_catalog_metadata
 from .observed_cost import declared_drivers
 
@@ -251,14 +245,14 @@ def workflow_details(sources_by_name):
     return details
 
 
-def _unknown_workflow_detail(sources, name):
+def _unknown_workflow_detail(library, name):
     """'Unknown workflow: x', with a '- did you mean ...?' pointer when the
     catalog holds something `name` could be short for or a typo of (#397) -
     otherwise a caller has to spend a list_workflows call and guess the
     right shape/traits to find the entry it already knows by its short
     name."""
     detail = f"Unknown workflow: {name}"
-    suggestions = suggest_workflow_names(sources, name)
+    suggestions = suggest_workflow_names(library, name)
     if len(suggestions) == 1:
         detail += f" - did you mean {suggestions[0]}?"
     elif suggestions:
@@ -266,22 +260,22 @@ def _unknown_workflow_detail(sources, name):
     return detail
 
 
-def resolve_readable_workflow(sources, name):
-    """The path a name has anywhere on the search path, and its source.
+def resolve_readable_workflow(library, name):
+    """The path a name has anywhere on the search path, and its root.
 
     Reads span every root - the workspace's own workflows, any examples
     directory, and the packaged builtins - front to back, so a workspace
     copy shadows the example it came from.
     """
-    path, source = find_workflow(sources, name)
-    if path is None:
+    found = library.find(name)
+    if found is None:
         raise HTTPException(
-            status_code=404, detail=_unknown_workflow_detail(sources, name)
+            status_code=404, detail=_unknown_workflow_detail(library, name)
         )
-    return path, source
+    return found
 
 
-def resolve_writable_workflow(sources, name):
+def resolve_writable_workflow(library, name):
     """Where a save goes: always the writable source, whatever the name
     currently resolves to.
 
@@ -289,18 +283,18 @@ def resolve_writable_workflow(sources, name):
     example - it is a copy into the user's own library, which is what makes
     the read-only roots safe to browse and edit from.
     """
-    source = writable_source(sources)
+    source = library.writable_root()
     if source is None:
         raise HTTPException(
             status_code=409, detail="This server has no writable workflow directory"
         )
-    path = resolve_in_source(source, name, allow_create=True)
+    path = library.path_in(source, name, allow_create=True)
     if path is None:
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {name}")
     return path, source
 
 
-def resolve_workflow_reference(workflow_path, sources):
+def resolve_workflow_reference(workflow_path, library):
     """A submitted workflow_path, resolved to a file on disk, and the source
     it lives in - the same search path the /api/workflows CRUD routes read
     from, spanning every root rather than confining to one, since a run of
@@ -311,7 +305,7 @@ def resolve_workflow_reference(workflow_path, sources):
     agent can run what a listing gave it. A relative or absolute path that
     already names a file under one of the sources resolves the same way:
     os.path.abspath handles a path relative to the server's cwd, and
-    source_for_path holds it to that source's containment check.
+    `root_for_path` holds it to that root's containment check.
 
     Anything that resolves under no source - an unknown name, a traversal
     attempt, or a real file elsewhere on disk - is rejected with 400,
@@ -323,14 +317,14 @@ def resolve_workflow_reference(workflow_path, sources):
     """
     if workflow_path is None:
         return None, None
-    path, source = find_workflow(sources, workflow_path)
-    if path is not None:
-        return path, source
+    found = library.find(workflow_path)
+    if found is not None:
+        return found
     candidate = os.path.abspath(workflow_path)
-    source = source_for_path(sources, candidate)
+    source = library.root_for_path(candidate)
     if source is not None:
         # The containment check re-applied to the path this returns, rather
-        # than trusted from source_for_path's answer about it - and applied
+        # than trusted from root_for_path's answer about it - and applied
         # before anything asks the filesystem about the path, so a
         # workflow_path outside every source cannot be used to find out
         # whether a file exists there
@@ -341,7 +335,7 @@ def resolve_workflow_reference(workflow_path, sources):
         if confined is not None and os.path.isfile(confined):
             return confined, source
     detail = f"workflow_path must name a workflow the server can reach: {workflow_path}"
-    suggestions = suggest_workflow_names(sources, workflow_path)
+    suggestions = suggest_workflow_names(library, workflow_path)
     if len(suggestions) == 1:
         detail += f" - did you mean {suggestions[0]}?"
     elif suggestions:

@@ -16,13 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
 from ..hub_cache import DownloadManager
-from ..workspace import (
-    ASSETS_SUBDIR,
-    PROMPTS_SUBDIR,
-    ConfiguredWorkspace,
-    Workspace,
-    example_libraries,
-)
+from ..workspace import ConfiguredWorkspace, Workspace
 from .http_security import install_middleware
 from .jobs import JobManager
 from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
@@ -77,17 +71,9 @@ def _store_directories(
     state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     state.workflow_dir = workflow_dir
     state.prompt_dir = prompt_dir
-    # The read-only libraries the --examples-dir trees bring with them: an
-    # example workflow references the prompts and assets that live beside
-    # its tree, not the ones in this workspace. They are searched after the
-    # workspace's own and never written to - a save of an example prompt
-    # lands in the workspace, the way saving an example workflow does
-    libraries = example_libraries(examples_dirs)
-    state.example_prompt_dirs = libraries[PROMPTS_SUBDIR]
-    state.example_asset_dirs = libraries[ASSETS_SUBDIR]
     # Where uploads land and 'asset:' references resolve. None when the
-    # caller configured no asset library: uploads then fall back to the
-    # output directory's uploads/ subfolder, as they did before there was one
+    # caller configured no asset library: uploads, keep and delete then
+    # answer 409, since there is nowhere for an asset to be
     state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
     # The workspace the three directories above default to folders of, for a
     # client that wants to name the root rather than reason about the parts.

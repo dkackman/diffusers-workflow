@@ -27,19 +27,22 @@ from ...security import (
     validate_output_path,
     validate_path,
 )
-from ...workflow_sources import COMMON_ORIGIN, EXAMPLES_ORIGIN, WORKSPACE_ORIGIN
+from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
-from ..deps import selected_workspace
+from ..deps import (
+    asset_library_missing,
+    selected_workspace,
+    writable_asset_directory,
+)
 from ..outputs import (
     ArchiveRequest,
     absolute_served_url,
     archive_selection,
     asset_in,
-    asset_roots,
-    common_assets,
+    workspace_asset_library,
     iter_gallery_files,
     job_provenance,
-    resolution_roots,
+    resolution_library,
     resolve_output_file,
     served_url,
     strip_output_prefix,
@@ -81,9 +84,8 @@ async def upload_media(
     among generated output, and the reference handed back is
     'asset:uploads/<name>' - portable, and meaningful in a workflow that
     is saved and rerun later. A server with no asset library configured
-    keeps the old behavior, writing to the output directory's uploads/
-    and returning an absolute path. The body is the raw file bytes: no
-    multipart parser dependency needed for a single-file upload.
+    answers 409. The body is the raw file bytes: no multipart parser
+    dependency needed for a single-file upload.
 
     `asset_name` stores it under a name of the caller's choosing -
     'cast/priya-voice.wav' rather than the random one a browser upload
@@ -121,16 +123,10 @@ async def upload_media(
             detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
         )
 
-    library = ws.assets or ws.outputs
-    if shared:
-        library = common_assets(ws)
-        if not library:
-            raise HTTPException(
-                status_code=409,
-                detail="This server has no shared asset library - it was "
-                "configured from loose directories rather than a workspace "
-                "root, so there is nothing for an asset to be common to",
-            )
+    # An upload is input and goes to an asset library; with none there is
+    # nowhere for it to be, the same 409 keep and delete answer (it used to
+    # land among the outputs)
+    library = writable_asset_directory(request.app.state, ws, shared)
     uploads_dir = os.path.join(library, UPLOADS_SUBDIR)
     name = f"{uuid.uuid4().hex}{extension}"
     if asset_name:
@@ -160,45 +156,17 @@ async def upload_media(
     # stream and poll for its duration
     await run_in_threadpool(_write_bytes, dest, body)
     logger.info(f"Saved upload {filename!r} -> {dest}")
-    if shared or ws.assets:
-        path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
-        result = {
-            "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
-            "workspace": ws.name,
-            "url": served_url(path, ws),
-            "shared": shared,
-        }
-        absolute_url = absolute_served_url(path, ws)
-        if absolute_url is not None:
-            result["absolute_url"] = absolute_url
-        return result
-    path = f"/outputs/{UPLOADS_SUBDIR}/{quote(name)}"
+    path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
     result = {
+        "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
         "workspace": ws.name,
         "url": served_url(path, ws),
+        "shared": shared,
     }
     absolute_url = absolute_served_url(path, ws)
     if absolute_url is not None:
         result["absolute_url"] = absolute_url
     return result
-
-
-def _asset_origin(ws, root):
-    """Which library an asset came from: this workspace's own, the one
-    shared by every workspace under the root, or a read-only examples
-    tree. A client that cannot tell them apart cannot say why deleting
-    one answers 403.
-
-    By directory, never by position in the search path: the workspace's
-    own library drops out of `asset_roots` until it exists, and the
-    examples tree that then sits first is still nobody's to write."""
-    own = ws.assets
-    if own and os.path.abspath(own) == root:
-        return WORKSPACE_ORIGIN
-    common = common_assets(ws)
-    if common and os.path.abspath(common) == root:
-        return COMMON_ORIGIN
-    return EXAMPLES_ORIGIN
 
 
 @router.get("/api/assets")
@@ -212,85 +180,73 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
     library configured: nothing is wrong, there is just nowhere for an
     asset to be.
     """
-    library = ws.assets
-    roots = asset_roots(request.app.state, ws)
-    if not roots:
+    library = workspace_asset_library(request.app.state, ws)
+    if not library.roots():
         return {
-            "asset_dir": library,
-            "asset_dirs": [],
+            "workspace": ws.name,
+            "libraries": [],
             "assets": [],
             "folders": [],
-            "libraries": [],
             "shadowed": [],
         }
 
-    libraries = [
-        {
-            "origin": (origin := _asset_origin(ws, root)),
-            "dir": root,
-            "writable": origin != EXAMPLES_ORIGIN,
-        }
-        for root in roots
-    ]
+    # What the media walk found under each root, kept beside the names it
+    # hands to `entries` - which decides the winner of each name and what it
+    # hid, exactly as 'asset:' resolution does
+    found = {}
 
-    assets = []
-    shadowed = []
-    # Which origin first claimed a name, so a later root's same name can
-    # be reported as shadowed rather than silently dropped
-    seen = {}
-    for root in roots:
+    def media_names(root):
         try:
             files = list(iter_gallery_files(root, group_runs=False))
         except OSError:
-            files = []
-        origin = _asset_origin(ws, root)
+            return []
+        names = []
         for relative, folder, _subfolder, _run_id, kind, path in files:
             try:
                 stat = os.stat(path)
             except OSError:
                 continue
-            # A name in the workspace shadows the same name in an
-            # examples library, exactly as 'asset:' resolution does
-            if relative in seen:
-                shadowed.append(
-                    {
-                        "name": relative,
-                        "reference": make_ref(ASSET, relative),
-                        "folder": folder,
-                        "kind": kind,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                        "origin": origin,
-                        "shadowed_by": seen[relative],
-                    }
-                )
-                continue
-            seen[relative] = origin
-            asset_path = f"/inputs/{quote(relative)}"
-            asset_entry = {
-                "name": relative,
-                "reference": make_ref(ASSET, relative),
-                "folder": folder,
-                "kind": kind,
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "origin": origin,
-                # For the editor's own preview - fetchable the same
-                # way an upload's URL is
-                "url": served_url(asset_path, ws),
-            }
-            absolute_url = absolute_served_url(asset_path, ws)
-            if absolute_url is not None:
-                asset_entry["absolute_url"] = absolute_url
-            assets.append(asset_entry)
+            found[(root, relative)] = (folder, kind, stat)
+            names.append(relative)
+        return names
+
+    winners, hidden = library.entries(media_names)
+
+    def summary(name, root):
+        folder, kind, stat = found[(root.root, name)]
+        return {
+            "name": name,
+            "reference": make_ref(ASSET, name),
+            "folder": folder,
+            "kind": kind,
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "origin": root.origin,
+            "writable": root.writable,
+        }
+
+    assets = []
+    for name, root in winners.items():
+        asset_path = f"/inputs/{quote(name)}"
+        # `url` is for the editor's own preview - fetchable the same way
+        # an upload's URL is
+        asset_entry = {**summary(name, root), "url": served_url(asset_path, ws)}
+        absolute_url = absolute_served_url(asset_path, ws)
+        if absolute_url is not None:
+            asset_entry["absolute_url"] = absolute_url
+        assets.append(asset_entry)
     assets.sort(key=lambda entry: entry["mtime"], reverse=True)
+    # The one producer of the field's name/origin/shadowed_by, plus the
+    # media facts an asset entry carries
+    shadowed = [
+        {**summary(entry["name"], root), "shadowed_by": entry["shadowed_by"]}
+        for entry, (_name, root, _winner) in zip(shadowed_listing(hidden), hidden)
+    ]
     return {
-        # The workspace's own library, unchanged: where an upload lands
-        "asset_dir": library,
-        "asset_dirs": [lib["dir"] for lib in libraries],
+        "workspace": ws.name,
+        "libraries": library.describe(),
         "assets": assets,
         "folders": sorted({entry["folder"] for entry in assets} | {""}),
-        "libraries": libraries,
         "shadowed": shadowed,
     }
 
@@ -331,16 +287,7 @@ def keep_output_as_asset(
     multi-gigabyte video to reuse one frame would be paying for the
     round trip twice.
     """
-    library = common_assets(ws) if body.shared else ws.assets
-    if not library:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "This server has no shared asset library"
-                if body.shared
-                else "This workspace has no asset library"
-            ),
-        )
+    library = writable_asset_directory(request.app.state, ws, body.shared)
 
     kept_name = strip_output_prefix(body.name)
     source = resolve_output_file(request.app.state, kept_name, ws.outputs)
@@ -438,14 +385,14 @@ def archive_assets(
     # The search path depends on the workspace, not on the name, so it is
     # built once rather than per name - each root's isdir check would
     # otherwise repeat once per name in the selection for no reason
-    roots = resolution_roots(request.app.state, ws)
+    library = resolution_library(request.app.state, ws)
     # Stripped and deduped before resolving, so "iris.png" and
     # "iris.png " (or a name repeated by an eager client) become the one
     # zip entry rather than a collision on write
     names = list(dict.fromkeys(n.strip() for n in body.names))
     # Resolved before anything is written, so a bad name in the
     # selection fails the request instead of yielding a partial zip
-    paths = [(name, asset_in(name, roots)) for name in names]
+    paths = [(name, asset_in(name, library)) for name in names]
 
     return archive_selection(paths, "asset")
 
@@ -467,28 +414,21 @@ def delete_asset(
     the library (uploads, keep) had no counterpart and a mistake could
     only be cleaned up on the box (T014).
     """
-    roots = asset_roots(request.app.state, ws)
-    if not roots:
-        raise HTTPException(status_code=409, detail="This server has no asset library")
+    library = workspace_asset_library(request.app.state, ws)
+    if not library.roots():
+        raise asset_library_missing()
     try:
         relative = validate_asset_reference(name)
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    for root in roots:
+    found = library.find(relative)
+    if found:
+        path, root = found
         try:
-            path = validate_path(os.path.join(root, relative), root)
-        except SecurityError:
-            continue
-        if not os.path.isfile(path):
-            continue
-        origin = _asset_origin(ws, root)
-        if origin == EXAMPLES_ORIGIN:
-            raise HTTPException(
-                status_code=403,
-                detail=f"{make_ref(ASSET, relative)} is read-only: it comes "
-                f"from an examples library, not a library this server writes",
-            )
+            library.require_writable(root, relative)
+        except ReadOnlyLibraryError as refusal:
+            raise HTTPException(status_code=403, detail=str(refusal))
         os.remove(path)
         logger.info(f"Deleted asset:{relative} ({path})")
         forget_workspace_usage()
@@ -497,7 +437,7 @@ def delete_asset(
             "workspace": ws.name,
             "reference": make_ref(ASSET, relative),
             "deleted": True,
-            "origin": origin,
+            "origin": root.origin,
         }
 
     raise HTTPException(status_code=404, detail=f"No such asset: {relative}")

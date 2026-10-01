@@ -183,16 +183,15 @@ def export_directory(workspace_root, job_id):
     return validate_path(os.path.join(root, job_id), root)
 
 
-def export_job(manager, job_id, workspace_root, asset_roots, overwrite=False):
+def export_job(manager, job_id, workspace_root, asset_library, overwrite=False):
     """Gather one finished job into '<workspace_root>/exports/<job id>/'.
 
     Args:
         manager: The JobManager holding the job (live or historical).
         job_id: The job to export.
         workspace_root: The workspace the export lands in.
-        asset_roots: The workspace's asset search path, in order - the same
-            order 'asset:' resolves in, so what is copied is what the run
-            loaded.
+        asset_library: The workspace's asset `LibraryPath` - the same order
+            'asset:' resolves in, so what is copied is what the run loaded.
         overwrite: Replace an existing export rather than refusing.
 
     Returns:
@@ -250,7 +249,7 @@ def export_job(manager, job_id, workspace_root, asset_roots, overwrite=False):
     record["realized"] = realized is not None
     _write_json(summary, target, JOB_FILE_NAME, record)
 
-    _copy_assets(summary, workflow, target, asset_roots)
+    _copy_assets(summary, workflow, target, asset_library)
     _copy_inputs(summary, workflow, target, output_root)
     _copy_outputs(summary, manifest, target, output_root, run_dir)
 
@@ -277,7 +276,7 @@ def _run_manifest(output_root, run_dir):
         return None
 
 
-def _copy_assets(summary, workflow, target, asset_roots):
+def _copy_assets(summary, workflow, target, asset_library):
     """Every 'asset:' the workflow names, under its own name in assets/."""
     for reference in strings_with_prefix(workflow, ASSET_PREFIX):
         try:
@@ -287,18 +286,11 @@ def _copy_assets(summary, workflow, target, asset_roots):
         except SecurityError:
             summary.missing.append(reference)
             continue
-        source = None
-        for root in asset_roots:
-            try:
-                candidate = validate_path(os.path.join(root, name), root)
-            except SecurityError:
-                continue
-            if os.path.isfile(candidate):
-                source = candidate
-                break
-        if source is None:
+        found = asset_library.find(name)
+        if found is None:
             summary.missing.append(reference)
             continue
+        source = found[0]
         _copy(
             summary, source, target, os.path.join("assets", *name.split("/")), reference
         )

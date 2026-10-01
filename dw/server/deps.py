@@ -6,6 +6,7 @@ process each resolve their own workspaces, search paths and ceiling index.
 """
 
 import json
+import logging
 import os
 from typing import Optional
 
@@ -13,13 +14,66 @@ from fastapi import HTTPException, Request
 
 from ..security import SecurityError
 from ..vram_inheritance import build_index
-from ..workflow_sources import listing, workflow_sources
+from ..library import ASSETS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
     Workspace,
     _holds_a_workspace,
     named_workspace,
 )
+
+logger = logging.getLogger("dw")
+
+
+def internal_error(message):
+    """Log the exception being handled with its traceback and return the
+    500 that answers it: the detail is the category, never the message,
+    which can carry a path or a value. Raised from inside an except block."""
+    logger.exception(message)
+    return HTTPException(
+        status_code=500, detail="internal error - the server log has the detail"
+    )
+
+
+def asset_library_missing(shared=False):
+    """The 409 every asset route answers when there is no library to write
+    to or read from - one wording, so upload, keep and delete cannot drift."""
+    if shared:
+        return HTTPException(
+            status_code=409,
+            detail="This server has no shared asset library - it was "
+            "configured from loose directories rather than a workspace "
+            "root, so there is nothing for an asset to be common to",
+        )
+    return HTTPException(status_code=409, detail="This workspace has no asset library")
+
+
+def prompt_library_missing():
+    """The 409 a prompt save answers when the server has no prompt library."""
+    return HTTPException(status_code=409, detail="This server has no prompt library")
+
+
+def writable_asset_directory(state, ws, shared=False):
+    """The directory an asset write lands in: the writable root of the
+    workspace's asset path (`LibraryPath.writable_root`), or the shared one
+    when `shared`. A shared root that is not a directory yet is off the path
+    but is still the workspace's to create, so it is read off the workspace.
+    Raises the one 409 when there is nowhere to write."""
+    root = library_path(ASSETS_KIND, ws, state.examples_dirs).writable_root(shared)
+    directory = root.root if root else None
+    if directory is None and shared:
+        directory = getattr(ws, "common_assets", None)
+    if not directory:
+        raise asset_library_missing(shared=shared)
+    return directory
+
+
+def writable_prompt_directory(state):
+    """The directory a prompt save lands in, or the one 409."""
+    root = server_prompt_library(state).writable_root()
+    if root is None:
+        raise prompt_library_missing()
+    return root.root
 
 
 def workspace_root(state):
@@ -49,7 +103,9 @@ def workspace_for(state, name):
         return state.default_workspace
     root = workspace_root(state)
     try:
-        selected = named_workspace(root, name)
+        # Prompts are shared by reference: a named workspace reads the one
+        # library this server was started with, wherever --prompt-dir put it
+        selected = named_workspace(root, name, prompts_root=state.prompt_dir)
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not _holds_a_workspace(selected.root):
@@ -67,7 +123,7 @@ def selected_workspace(request: Request, workspace: Optional[str] = None) -> Wor
 def sources_for(state, ws):
     """The workflow search path of one workspace: its own workflows
     first, then the same read-only roots every workspace shares."""
-    return workflow_sources(ws.workflows, state.examples_dirs)
+    return library_path("workflows", ws, state.examples_dirs)
 
 
 def ceiling_index(state, ws):
@@ -79,7 +135,7 @@ def ceiling_index(state, ws):
     - keyed by every file's path and mtime, so an edited, added or removed
     template rebuilds it and nothing else does."""
     paths = []
-    for name, source in sorted(listing(sources_for(state, ws)).items()):
+    for name, source in sources_for(state, ws).entries()[0].items():
         path = os.path.join(source.root, f"{name}.json")
         try:
             paths.append((name, path, os.path.getmtime(path)))
@@ -101,17 +157,19 @@ def ceiling_index(state, ws):
     return index
 
 
-def prompt_roots(state):
+def server_prompt_library(state):
     """The prompt search path: the library this server writes to, then
     the read-only ones an --examples-dir tree brought with it. A name in
     an earlier root shadows the same name later, as on the workflow
-    search path."""
-    roots = [state.prompt_dir]
-    primary = os.path.abspath(state.prompt_dir)
-    for root in state.example_prompt_dirs:
-        if os.path.abspath(root) != primary:
-            roots.append(root)
-    return roots
+    search path. Shared by every workspace, so it names none. The server's
+    own library stays on the path before it exists - a save creates it -
+    while an examples tree's that is not a directory is dropped."""
+    return library_path(
+        PROMPTS_KIND,
+        state.default_workspace,
+        state.examples_dirs,
+        primary=state.prompt_dir,
+    )
 
 
 def observed_for_name(state, name, definition, arguments=None, *, workspace=None):

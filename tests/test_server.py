@@ -2769,8 +2769,8 @@ def test_gallery_delete_accepts_an_output_reference(server, tmp_path):
         assert not (outputs / "victim.png").exists()
 
 
-def test_upload_media_saves_file_and_returns_no_server_path(server, tmp_path):
-    with server(success_script) as client:
+def test_upload_media_saves_file_and_returns_no_server_path(asset_server, tmp_path):
+    with asset_server(success_script) as client:
         response = client.post(
             "/api/uploads",
             params={"filename": "source-image.png"},
@@ -2779,13 +2779,13 @@ def test_upload_media_saves_file_and_returns_no_server_path(server, tmp_path):
         assert response.status_code == 201
         body = response.json()
 
-        saved = tmp_path / "outputs" / "uploads"
+        saved = tmp_path / "assets" / "uploads"
         assert saved.is_dir()
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].read_bytes() == b"not-really-png-bytes"
         assert "path" not in body
-        assert body["url"] == f"/outputs/uploads/{files[0].name}"
+        assert body["url"] == f"/inputs/uploads/{files[0].name}"
 
         # served back through the same static mount the gallery uses
         fetched = client.get(body["url"])
@@ -2794,13 +2794,13 @@ def test_upload_media_saves_file_and_returns_no_server_path(server, tmp_path):
 
 
 def test_upload_media_adds_an_absolute_url_when_a_public_url_is_configured(
-    server, monkeypatch
+    asset_server, monkeypatch
 ):
     # #353: a client with no way to learn this server's origin otherwise -
     # an MCP-only agent - gets an absolute_url only when an operator
     # configured one; nothing derives an origin from request headers.
     monkeypatch.setenv("DW_PUBLIC_URL", "https://dw.example.com")
-    with server(success_script) as client:
+    with asset_server(success_script) as client:
         body = client.post(
             "/api/uploads",
             params={"filename": "source-image.png"},
@@ -2962,7 +2962,7 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
 
 
 def test_the_asset_listing_names_its_libraries(tmp_path):
-    """'libraries' is 'asset_dirs' with the origin and writability a client
+    """'libraries' is the search path with the origin and writability a client
     needs to explain why one entry can be deleted and another can't - the
     workspace's own root first, an examples root writable: false."""
     workflows = tmp_path / "workflows"
@@ -2991,15 +2991,15 @@ def test_the_asset_listing_names_its_libraries(tmp_path):
     libraries = body["libraries"]
     assert libraries[0] == {
         "origin": "workspace",
-        "dir": str(assets),
+        "root": str(assets),
         "writable": True,
     }
     assert libraries[1] == {
         "origin": "examples",
-        "dir": str(examples / "assets"),
+        "root": str(examples / "assets"),
         "writable": False,
     }
-    assert body["asset_dirs"] == [lib["dir"] for lib in libraries]
+    assert len(libraries) == 2
 
 
 def test_a_shadowed_asset_is_reported_without_a_url(tmp_path):
@@ -3047,7 +3047,6 @@ def test_listing_assets_without_a_library_is_empty_not_an_error(server):
     with server(success_script) as client:
         body = client.get("/api/assets").json()
     assert body["assets"] == []
-    assert body["asset_dir"] is None
     assert body["libraries"] == []
     assert body["shadowed"] == []
 
@@ -3078,17 +3077,17 @@ def test_upload_media_rejects_empty_body(server):
         assert response.status_code == 400
 
 
-def test_upload_media_ignores_path_parts_in_filename(server, tmp_path):
+def test_upload_media_ignores_path_parts_in_filename(asset_server, tmp_path):
     """A crafted filename with directory components must not escape the
     uploads folder - only the extension is used, the name is generated."""
-    with server(success_script) as client:
+    with asset_server(success_script) as client:
         response = client.post(
             "/api/uploads",
             params={"filename": "../../evil.png"},
             content=b"data",
         )
         assert response.status_code == 201
-        saved = tmp_path / "outputs" / "uploads"
+        saved = tmp_path / "assets" / "uploads"
         files = list(saved.iterdir())
         assert len(files) == 1
         assert files[0].parent == saved
@@ -3207,8 +3206,8 @@ def test_examples_are_listed_read_only(examples_server):
         assert listing["details"]["ltx2/Gyre"]["origin"] == "examples"
         assert listing["details"]["ltx2/Gyre"]["writable"] is False
         # the writable root is still what a save targets, and is named first
-        assert listing["sources"][0]["writable"] is True
-        assert listing["sources"][1]["origin"] == "examples"
+        assert listing["libraries"][0]["writable"] is True
+        assert listing["libraries"][1]["origin"] == "examples"
 
         # a second listing is answered from the detail cache, which holds no
         # placement of its own - the origin and writability must be merged
@@ -4050,11 +4049,11 @@ class TestPromptLibrary:
             assert entry["text_chars"] == len("a red fox at dawn")
             assert entry["description"] == "a fox"
 
-            # A filter narrows the names, the origins and the details together
+            # A filter narrows the names and the details together
             by_model = client.get("/api/prompts?intended_model=MINIMAX-MUSIC3").json()
             assert by_model["prompts"] == ["minimax/Song"]
             assert list(by_model["details"]) == ["minimax/Song"]
-            assert list(by_model["origins"]) == ["minimax/Song"]
+            assert by_model["details"]["minimax/Song"]["origin"] == "workspace"
 
             by_tag = client.get("/api/prompts?tag=Wildlife").json()
             assert by_tag["prompts"] == ["minimax/Fox"]
@@ -4067,8 +4066,8 @@ class TestPromptLibrary:
                 == []
             )
 
-            # The writable directory is reported whatever the filter
-            assert client.get("/api/prompts?tag=music").json()["prompt_dir"]
+            # The search path is reported whatever the filter
+            assert client.get("/api/prompts?tag=music").json()["libraries"]
 
     def test_unreferenceable_names_are_refused(self, server, tmp_path):
         # A save the API accepted but no 'prompt:' reference could ever
@@ -5911,7 +5910,7 @@ def test_an_examples_library_is_read_only_even_when_it_is_the_only_root(tmp_path
     with TestClient(app, base_url="http://localhost") as client:
         body = client.get("/api/assets").json()
         assert body["libraries"] == [
-            {"origin": "examples", "dir": str(examples / "assets"), "writable": False}
+            {"origin": "examples", "root": str(examples / "assets"), "writable": False}
         ]
         (asset,) = body["assets"]
         assert asset["origin"] == "examples"

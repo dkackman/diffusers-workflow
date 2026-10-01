@@ -11,6 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api, fetchOutputText, streamJobEvents } from '../api'
+  import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go } from '../router.svelte'
   import { sharedHref } from '../routes'
@@ -249,7 +250,7 @@
       .listPrompts()
       .then((r) => {
         promptFiles = r.prompts
-        promptDir = r.prompt_dir
+        promptDir = writableRoot(r.libraries)
         promptDetails = r.details ?? {}
       })
       .catch((e) => notify.error(e.message))

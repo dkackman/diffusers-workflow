@@ -90,7 +90,7 @@ def _remote_roots(client):
     for library in libraries:
         if not isinstance(library, dict) or not library.get("writable"):
             continue
-        value = library.get("dir")
+        value = library.get("root")
         if not value:
             continue
         resolved = os.path.normpath(
@@ -382,9 +382,9 @@ def upload_asset(
     if shared:
         params["shared"] = "true"
     result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
-    # A server with no asset library gives no reference at all - there is
-    # nothing an `asset:` argument could name - only a URL to fetch the file
-    # back from. One with a library gives the reference straight.
+    # A server with no asset library refuses the upload (409) - there is
+    # nothing an `asset:` argument could name. One with a library gives the
+    # reference straight.
     return {
         "reference": result.get("reference"),
         "workspace": result.get("workspace"),

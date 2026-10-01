@@ -179,9 +179,12 @@ class TestScopedRoutes:
             assert client.get("/api/assets").json()["assets"] == []
             scoped = client.get("/api/assets?workspace=shots").json()
             assert len(scoped["assets"]) == 1
-            assert scoped["asset_dir"] == os.path.join(
-                workspace_root.root, "shots", "assets"
-            )
+            assert scoped["workspace"] == "shots"
+            assert scoped["libraries"][0] == {
+                "origin": "workspace",
+                "root": os.path.join(workspace_root.root, "shots", "assets"),
+                "writable": True,
+            }
 
     def test_an_unknown_workspace_is_refused_rather_than_created(
         self, server, workspace_root

@@ -28,7 +28,7 @@ from dw.vram_inheritance import (
     inherited_vram_warnings,
 )
 from dw.workflow import workflow_from_definition
-from dw.workflow_sources import listing, workflow_sources
+from dw.library import library_path
 from dw.workspace import Workspace
 
 from .test_server import ScriptedWorkerManager, success_script
@@ -312,7 +312,9 @@ def test_the_pure_function_skips_a_declared_estimate():
 
 def _real_catalog():
     catalog = []
-    for name, source in listing(workflow_sources(WORKFLOWS_DIR, [])).items():
+    for name, source in (
+        library_path("workflows", None, primary=WORKFLOWS_DIR).entries()[0].items()
+    ):
         with open(os.path.join(source.root, f"{name}.json")) as file:
             catalog.append((name, json.load(file)))
     return catalog

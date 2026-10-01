@@ -164,7 +164,15 @@ def configure_environment(args):
     # Resolved and pinned before anything derives a directory from it - the
     # spawned worker inherits the environment variable, the way it inherits
     # the prompt directory and the trust flag below
-    from .workspace import PROMPTS_SUBDIR, resolve_workspace, set_workspace
+    from .library import (
+        ASSET_DIR_ENV_VAR,
+        ASSETS_KIND,
+        PROMPT_DIR_ENV_VAR,
+        PROMPTS_KIND,
+        WORKFLOWS_KIND,
+        pin_library_path,
+    )
+    from .workspace import resolve_workspace, set_workspace
 
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
@@ -185,7 +193,7 @@ def configure_environment(args):
 
     # Pinned like the prompt directory, so 'asset:' resolves to the same
     # library in the worker that the upload route writes into
-    os.environ["DW_ASSET_DIR"] = asset_dir
+    os.environ[ASSET_DIR_ENV_VAR] = asset_dir
 
     if args.output_layout:
         from .runs import set_output_layout
@@ -212,7 +220,7 @@ def configure_environment(args):
     prompt_dir = os.path.abspath(
         args.prompt_dir or get_prompt_dir(base_dir=os.path.abspath(workflow_dir))
     )
-    os.environ["DW_PROMPT_DIR"] = prompt_dir
+    os.environ[PROMPT_DIR_ENV_VAR] = prompt_dir
 
     # An --examples-dir tree brings the prompts and assets its workflows
     # reference along with it, and those live beside the tree rather than in
@@ -220,19 +228,11 @@ def configure_environment(args):
     # search path is what lets an example run as it shipped: the workspace's
     # own library is still searched first and is still the only one written
     # to. Pinned in the environment, so the worker resolves as the API does
-    from .workspace import (
-        ASSETS_SUBDIR,
-        WORKFLOWS_SUBDIR,
-        example_libraries,
-        set_library_fallbacks,
-    )
-
-    example_dirs = example_libraries(args.examples_dirs)
-    set_library_fallbacks(PROMPTS_SUBDIR, example_dirs[PROMPTS_SUBDIR])
+    pin_library_path(PROMPTS_KIND, workspace, args.examples_dirs)
     # The workflow trees themselves, so a sub-workflow step can compose a
     # stored template by the name list_workflows reports rather than a copy
     # of it in this workspace (#90)
-    set_library_fallbacks(WORKFLOWS_SUBDIR, args.examples_dirs)
+    pin_library_path(WORKFLOWS_KIND, workspace, args.examples_dirs)
     # The shared library goes ahead of the examples and behind the
     # workspace's own, which is the order 'asset:' resolves in: a workspace
     # name shadows a shared one, and a shared one shadows an example's.
@@ -241,10 +241,7 @@ def configure_environment(args):
     common_assets = workspace.common_assets
     if common_assets:
         os.makedirs(common_assets, exist_ok=True)
-    set_library_fallbacks(
-        ASSETS_SUBDIR,
-        ([common_assets] if common_assets else []) + example_dirs[ASSETS_SUBDIR],
-    )
+    pin_library_path(ASSETS_KIND, workspace, args.examples_dirs)
 
     return ServeConfig(
         host=args.host,

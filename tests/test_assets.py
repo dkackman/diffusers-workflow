@@ -8,11 +8,11 @@ from PIL import Image
 
 from dw.arguments import realize_args
 from dw.assets import (
-    ASSET_DIR_ENV_VAR,
     get_asset_dir,
     is_asset_reference,
     resolve_asset_reference,
 )
+from dw.library import ASSET_DIR_ENV_VAR
 from dw.security import InvalidInputError, SecurityError
 from dw.workspace import WORKSPACE_ENV_VAR, WORKSPACE_SOURCE_ENV_VAR
 
