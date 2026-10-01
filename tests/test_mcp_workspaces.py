@@ -116,7 +116,7 @@ class TestLifecycle:
 
     def test_refusal_names_only_the_mcp_acknowledgement_param(self):
         # The server's own 409 names its HTTP query param (`acknowledged=true`,
-        # dw/server/app.py); an MCP caller has no such parameter and must not
+        # dw/server/routes/library.py); an MCP caller has no such parameter and must not
         # be told to use it - only `acknowledged_cost=True` should appear (#437)
         client, seen = recording(
             {
