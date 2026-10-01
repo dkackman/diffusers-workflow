@@ -2,6 +2,55 @@
 # The harness implementer must not change these; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 3d merged (2026-09-30); stage 3e's hot zone goes live when 3e is detailed.
+# Stage 3e (engine splits), live 2026-10-01; test files follow their modules.
 scripts/arch_metrics.py
 docs/stabilization/
+scripts/surface_snapshot.py
+dw/result.py
+dw/writers.py
+dw/audio_qc.py
+dw/output_extraction.py
+dw/content_types.py
+dw/media_types.py
+dw/tasks/select.py
+dw/pipeline_processors/chain.py
+dw/plan.py
+dw/arguments.py
+dw/argument_media.py
+dw/argument_objects.py
+dw/type_helpers.py
+dw/tasks/gather.py
+dw/tasks/task.py
+dw/video_extensions.py
+dw/introspection.py
+dw/type_references.py
+dw/argument_warnings.py
+dw/security.py
+dw/trust.py
+dw/locations.py
+dw/serve.py
+dw/validate.py
+dw/pipeline_processors/pipeline.py
+dw/pipeline_processors/placement.py
+dw/pipeline_processors/components.py
+dw/pipeline_processors/adapters.py
+dw/pipeline_processors/progress.py
+dw/pipeline_processors/remote.py
+dw/kernel_availability.py
+dw/workflow.py
+dw/workflow_run.py
+dw/pipeline_ownership.py
+dw/validation.py
+dw/step_value_checks.py
+dw/variables.py
+dw/references.py
+dw/elision.py
+dw/step_cache.py
+dw/previous_results.py
+dw/for_each.py
+dw/library.py
+dw/step.py
+dw/worker.py
+dw/server/routes/media.py
+dw/server/routes/library.py
+dw/server/routes/system.py

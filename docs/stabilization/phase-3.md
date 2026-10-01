@@ -1200,3 +1200,497 @@ docs/ACCELERATION.md
 ```
 
 The image and text task modules stay open to the harness. `pipeline.py`, `result.py` and `arguments.py` are listed for the few lines 3d changes in each, which keeps a harness edit from colliding with them.
+
+## Stage 3e: engine splits
+
+Work on branch `stabilization/phase-3e` in the worktree, from `develop` at `b9c2096e` or later.
+
+**What exists (three surveys at `b9c2096e`, in `.superpowers/sdd/phase-3/3e-survey-*.md`; the facts below were checked there).**
+
+- **Sizes.** Six modules are over 1,000 lines and all of them are in 3e:
+
+  | Module | Lines | Long or complex functions |
+  | --- | --- | --- |
+  | `dw/pipeline_processors/pipeline.py` | 2,394 | `load_component` 147 lines, complexity 14 |
+  | `dw/workflow.py` | 2,239 | `Workflow.run` 574 lines, complexity 35; `create_step_action` 279, complexity 15 |
+  | `dw/result.py` | 1,740 | `Result.save_artifact` 344 lines, complexity 26 |
+  | `dw/introspection.py` | 1,242 | `_parse_docstring_args` complexity 16 |
+  | `dw/arguments.py` | 1,233 | `realize_args` 132 lines, complexity 27 |
+  | `dw/security.py` | 1,040 | none |
+
+  `dw/plan.py` (886) holds the fourth long function, `estimate` (201 lines, complexity 16). The 3e files hold 5 of the 12 `complex_functions`.
+- **`result.py` has four concerns besides `Result`:**
+  - audio QC: `warn_without_headroom`, `warn_if_written_above_full_scale`, `warn_if_written_near_silent` and their constants and probe helper (66-338), plus `save_artifact`'s post-write block (927-1062);
+  - byte-level writers: naming (`output_file_path`, `_dedupe_existing_path`), `flatten_alpha_for`, `frames_for_encoding`, `write_audio`, the waveform `normalize_audio` (not the task command), `as_audio_track`, `_as_stereo`, and the image metadata pair `_save_image_with_metadata` / `read_embedded_metadata`;
+  - output extraction: `get_artifact_list`, `modular_artifacts` and their helpers (1378-1593), which import only `media_types`, numpy and torch;
+  - `guess_extension`, a content-type fact that reads `content_types.AUDIO_FORMATS`.
+- **`result.py`'s patch targets:**
+  - 39 of its 41 string targets name `encode_video`, `export_to_video` and `is_av_available`. They are looked up by the video writes (`video_fps`, `conform_artifact(s)`, `save_audio_video`, and the `video`/`gif` dispatch), which stay in `Result`.
+  - The other 2 name `warn_if_written_above_full_scale`, looked up at `result.py:1009`.
+  - 17 `patch("dw.media.probe_media")` lines work only because `_probe_written_media` imports `probe_media` lazily (`result.py:194`).
+  - 3 `monkeypatch.setattr(result_module, "emit_warning")` lines (`tests/test_result.py:571`, `:1788`, `:1809`) follow the dict-tensor skip, `_as_stereo` and `flatten_alpha_for`.
+- **`Selected`** is used in `result.py` only by `Result.add_result` (502-506), through a lazy import from `dw.tasks.select`. It is lazy by habit, not for a cycle. `tests/test_result.py:52` is its only other importer.
+- **`tests/test_shots.py:83`** pins `("dw/result.py", "pair_audio_with_frames")` in its constructor-site list.
+- **`plan.py:37-38`** re-exports `unseeded_cache_warnings` from `dw.validation` ("so `from dw.plan import ...` keeps working"). That is a shim, and `tests/test_plan.py` is its only user.
+- **`arguments.py`** is three groups: the core (`realize_args`, path, constant and prompt references, lazy frame commands; 371 lines), object construction (562) and media fetching (300).
+  - 7 of its 8 string patch targets name media names (`safe_get` ×2, `_fetch_remote_video` ×4, `load_video` ×1). `load_type_from_name` stays.
+  - Two `monkeypatch.setattr(arguments_module, "load_video")` lines (`tests/test_video_utils.py:608`, `tests/test_assess.py:803`) also follow `load_video`.
+  - `dw/validation.py:31` imports the private `_names_no_media`.
+  - `_with_frame_rate`'s `http(s)` branch (1045-1049) is dead: its one caller (1171) passes `validate_media_path`'s absolute, resolved path.
+  - Two lazy imports are redundant: `shots_beside` from `.runs` (1039) and `PIL.Image` (806), both already imported at the top.
+- **`introspection.py`:**
+  - The type-reference checks (779-959) and `component_name_errors` (962-1037) are one group of 257 lines. The inert-argument warnings with `workflow_argument_warnings` (1040-1242) are another, of 203.
+  - Both groups are imported by `dw/validation.py:36`, and `workflow_argument_warnings` also by `dw/server/routes/library.py:19`.
+  - `_NAME_PATTERN` (23) is used by both groups.
+  - The type-reference block imports `NON_TYPE_KEYS`, `fetch_constant`, `is_constant_reference` and `is_media_reference` lazily from `arguments`.
+- **`security.py`:**
+  - It imports nothing from `dw`, and every module that depends on it relies on that.
+  - The trust gate (76-344, 269 lines) is its own concern. Its importers are `type_helpers`, `pipeline_processors/pipeline.py`, `pipeline_processors/remote.py`, `locations`, `serve`, `validate` and `server/routes/system.py`. `UntrustedWorkflowError` belongs to the exception family.
+  - The name and reference validators are 413 lines (554-966).
+- **CodeQL models validators in two places:**
+  - `.github/codeql/dw-security/DwPathSanitizers.qll` matches by function name, except `ValidatorParameter`, which requires `getRelativePath() = "dw/security.py"` (line 135).
+  - `.github/codeql/extensions/dw-models/models/dw-security.model.yml` matches by module `dw.security` (9 rows).
+  - The trust gate defines no validator either model names.
+- **`pipeline.py`** has the `Pipeline` core (757 lines) and output checks (86), plus five concerns:
+
+  | Concern | Lines |
+  | --- | --- |
+  | placement | 353 |
+  | components | 693 |
+  | adapters | 158 |
+  | progress reporting | 228 |
+  | denoiser cache hooks | 91 |
+
+  - Its patch targets are `patch("dw.pipeline_processors.pipeline.load_component")` ×2 (`test_modular_pipeline.py:198,217`) and 5 string `monkeypatch.setattr("dw.pipeline_processors.pipeline.<name>")` lines for `load_component`, `load_loras` and `empty_device_cache` (`test_pipeline_components.py:716-753`). They are looked up by `Pipeline.load`, `load_optional_component` and `_discard_failed_load`, which stay.
+  - `tests/test_configuration_schema.py:21-24` scans `pipeline.py` and `config_objects.py` (`SOURCES`) for `configuration.get(...)` keys and asserts at `:111` that it finds `offload`, which only `loading_device` and `place_component` read.
+  - `test_offload_placement.py:45-47` monkeypatches `get_device_type` for `place_component`.
+  - `_MISSING` is shared by `_resolve_submodule` and `get_component`.
+- **`workflow.py`** has four per-run ownership tables on `self`:
+  - `_pipeline_keys_by_step`, also read by `dw/worker.py:540`;
+  - `_running_pipeline_keys`;
+  - `_deferred_pipelines`;
+  - `_prior_step_keys`.
+
+  Five `hasattr`/`getattr` guards exist because tests call `create_step_action` without `run`. `create_step_action` is called directly about 30 times in tests and spied with `patch.object`.
+- **`workflow.py`'s memory reclaim:**
+  - 19 string patch targets name `dw.workflow.empty_device_cache` and `dw.workflow.release_host_caches`. They are looked up at `run` 1732 (between steps), `_finish_release` 1861 and the superseded eviction (2080-2081).
+  - `tests/test_pipeline_caching.py:263-275` asserts `call_count == steps + 1` across two of those sites.
+- **`workflow.py`'s validation block** (607-966) is about 360 lines.
+  - `dw/validation.py` (879) already calls `sub_workflow_errors` and `sub_workflow_argument_warnings` duck-typed, and promises never to import `dw.workflow`.
+  - `validation_errors` has 105 test call sites in 29 files.
+  - 14 `patch.object(dw.workflow, "get_device_type" / "device_capacity_gb")` lines serve `validation_context`: `test_vram_estimate.py` 278-331 ×10, `test_vram_inheritance.py:61-62`, `test_h3_vram_ceiling.py:27-28`.
+- **`Workflow.run`** has eight phases:
+
+  | Phase | Lines | What |
+  | --- | --- | --- |
+  | A | 1220-1264 | context |
+  | B | 1266-1315 | prepare; `_owned_arguments` rebinds `arguments` for a composed child |
+  | C | 1317-1391 | run directory; resets `started_at` and `run_id` |
+  | D | 1393-1443 | step setup, with an early return for no steps |
+  | E | 1446-1732 | the per-step loop |
+  | F | 1734-1740 | `workflow_end` |
+  | G | 1742-1761 | the three `except` clauses |
+  | H | 1762-1777 | the manifest write and teardown |
+
+  - **Event order:** the prepare warnings, `run_start` (only when the run owns its directory), `workflow_start`, then per step `step_start`, deferred loads, the action's `cached`/`loading` phases, the step's own events, `pipeline_released`, the save logs and warnings, `shot_name_collision`, `step_end`; finally `workflow_end`.
+  - **The release frame:** the release drops `step_action` and the popped pipeline in the frame that then calls `_finish_release` (1576-1579), so `gc` and `empty_device_cache` can free it. No test pins this.
+  - **`_run_dir` is never reset at the top of `run`.** A reused `Workflow` that fails in prepare writes a failed manifest into its previous run's directory. The server builds a fresh `Workflow` per job.
+- **The carried items, as found:**
+  - `workflow.py:747` is stale: the `author_index` idiom is at 660 and 732.
+  - The elision carry is `elision._carry_release` (125-161), which hands `step_pipeline_keys` steps whose `pipeline` is only checked for truthiness.
+  - A composed child's `argument_template` is written into its `workflow_definition` (`create_step_action` 2212-2214) and deep-copied again by `validate()` and `run()`.
+  - The three `previous_result:` scanners are `step_cache.referenced_result_names`, `previous_results._collect_refs` and `previous_results._collect_reference_paths`:
+    - The first recurses into a `from_previous_result` value, so `"previous_result:x"` written there yields both `"previous_result:x"` and `"x"`.
+    - The other two record the value bare and do not recurse.
+    - The third also skips a `from_previous_result` that is a `variable:` reference.
+  - `for_each._copy_leaf` and the step-cache snapshot (`copy.deepcopy(step_data)`, `workflow.py:1102`) still copy media leaves.
+  - Prefix spellings: 39 helper uses, about 55 `startswith`/`removeprefix` lines and 17 slicing lines across about 30 modules. Four f-strings build a prefix the metric cannot see: `introspection.py:1202`, `workflow.py:942`, `routes/assets.py:363` and `:433`.
+
+### Decisions (3e)
+
+- **Modules: 151 → 165 (+14), against the phase's projection of about +10 for 3e (about 158 overall, accepted 2026-09-30).**
+
+  | Task | New modules | Count |
+  | --- | --- | --- |
+  | Task 1 | `dw/writers.py`, `dw/audio_qc.py`, `dw/output_extraction.py` | +3 → 154 |
+  | Task 4 | `dw/argument_media.py` | +1 → 155 |
+  | Task 5 | `dw/type_references.py`, `dw/argument_warnings.py` | +2 → 157 |
+  | Task 6 | `dw/trust.py` | +1 → 158 |
+  | Task 7 | `dw/pipeline_processors/placement.py`, `components.py`, `adapters.py`, `progress.py` | +4 → 162 |
+  | Task 8 | `dw/pipeline_ownership.py` | +1 → 163 |
+  | Task 9 | `dw/step_value_checks.py` | +1 → 164 |
+  | Task 10 | `dw/workflow_run.py` | +1 → 165 |
+
+  - **Why +4 over:** `pipeline.py` and `workflow.py` alone need +7, because no smaller set gets them under 1,000. The survey checked each merge:
+    - adapters into components would be about 970 lines;
+    - progress kept in `pipeline.py` would be about 1,085;
+    - the ownership functions in `workflow_run.py` would be about 950.
+  - **Already trimmed:** the optional `argument_objects.py` and `task_signatures.py` splits are not taken, and `security.py` loses one module's worth, not two.
+  - **Ratchet:** each task's commit re-baselines `modules` to its row, so the ratchet holds after every task.
+  - **Cost if wrong:** the phase ends at about 165, not 158. Phase 4 re-sets the ratchet either way.
+  - **This is the first line of the 3e report to Don.**
+- **Deviations from the stages table (line 71), recorded here and not edited there** (the precedent is 3d's `_load_tracks_matching_rate` note):
+  - **`security.py` sheds only the trust gate (→ about 771 lines). The name validators stay, so neither CodeQL model changes.**
+    - Why: moving the name validators would re-point five `.model.yml` rows and `ValidatorParameter`, and only a CodeQL run in CI can check that. The trust gate holds no modelled validator. Paths, names and references stay as one input-validation module, and trust is a separate concern.
+    - Cost if wrong: `security.py` keeps two validator families. It is under the limit either way.
+  - **Prefix spellings: 3e converts the spellings in the code it moves.** That covers `arguments`, `introspection` (including the f-string at 1202), `workflow` (including 942), `plan`, `previous_results`, `step_cache` and `for_each` where Task 11 touches them.
+    - Phase 4 (guardrails) takes the other modules, together with a metric that counts `startswith`/`removeprefix` on a prefix and f-string prefix parts. The spelling only holds once a ratchet holds it.
+    - Cost if wrong: the item lingers one more phase.
+  - **Not done, because each changes behaviour under the freeze.** Each stays in the carried list for after Phase 3:
+    - **`for_each._copy_leaf` sharing leaves:** siblings would see each other's in-place edits.
+    - **The step-cache snapshot via `copy_containers`:** the "not copyable, so uncacheable" branch would go dead, and such a step would become cacheable.
+    - **Sharing `resolve_sub_workflow_path` with `create_step_action`:** a missing builtin would raise `SubWorkflowNotFound` instead of a security error.
+    - **`_run_dir`'s reset:** preserved exactly (Task 10).
+- **Validation, Option B:**
+  - The public validation methods stay on `Workflow` with one-line bodies that call `dw.validation`: `validation_context`, `validation_errors`, `validate`, `adapter_warnings`, `inherited_vram_warnings`, `slice_past_end_warnings`, `shot_span_warnings`, `null_variable_argument_warnings` and `sub_workflow_warnings`. The same goes for `cache_hits` (Task 10).
+  - **A method that delegates without moving a name is not a shim.** No name has two import paths, and nothing patches a name that is not looked up.
+  - The private bodies move, and their tests retarget.
+  - `validation_errors` keeps two lines: building a context when none is given, and the `ValueError` for a `context` passed with conflicting `arguments`/`composing` (`workflow.py:777-800`). Both go into `validation.workflow_errors(workflow, arguments, composing, context)`, and the method becomes one call to it.
+  - **Callers in `dw/` keep calling the `Workflow` methods.** Nothing in `dw/` imports `workflow_errors` or the other moved bodies directly. `tests/test_server.py:738,6156` monkeypatch `Workflow.validation_errors`, and a caller switched to the module function would leave them passing vacuously.
+  - Cost if wrong: about 150 call sites would later move to module functions, mechanically.
+- **`step_value_checks.py` reverses 2b's folding of `fps_errors`, `null_media_errors` and `select_errors`.**
+  - 2b folded them to pay for creating `dw/validation.py` (Decisions (2b): "It pays for itself"), not on a one-module principle. Its invariant, one registry and one runner, stays in `validation.py`.
+  - Moving the block in adds about 225 lines to `validation.py`, 1,105 without this move. The checker bodies (about 292 lines) are the seam that keeps the registry whole.
+- **`ConstantError` moves to `dw/variables.py`,** below both `workflow` and `validation`.
+- **A composed child is opened through `Workflow.open_sub_workflow(path)`**, which returns `(child, resolved)` using `resolve_sub_workflow_path` + `workflow_from_file`. This is how `validation` and `workflow_run` construct children without importing `dw.workflow`. They test a child with `isinstance(x, type(workflow))`; `dw/` and `tests/` define no `Workflow` subclass.
+- **Patch targets move only with their lookup site, in the same commit, and `test_dw_patch_targets` stays 284:**
+  - the 2 `warn_if_written_above_full_scale` targets go to `dw.audio_qc` (Task 2);
+  - the 7 media targets go to `dw.argument_media` (Task 4);
+  - the 19 memory targets go to `dw.pipeline_ownership` (Task 8). All three `empty_device_cache` sites and `_release_host_caches` must land in that one module, or `steps + 1` needs two patches.
+  - The uncounted ones move too:
+    - the 3 `emit_warning` monkeypatches (Tasks 1 and 2);
+    - the 2 `load_video` monkeypatches (Task 4);
+    - the `get_device_type` monkeypatch (Task 7);
+    - the 14 `patch.object(dw.workflow, "get_device_type" / "device_capacity_gb")` (Task 9);
+    - `workflow_module.realize_args` (`test_workflow_step_cache.py:152,165`; Task 10).
+  - **A `patch.object` on a name the module still imports but no longer looks up passes vacuously.** The metric does not count these. The reviewer checks each one still intercepts, by breaking the patched function once and watching the test fail.
+- **The 17 `dw.media.probe_media` patches need the lazy import kept verbatim** in `audio_qc._probe_written_media`. Hoisting it binds the original name, and those tests then probe real files.
+- **The 39 encoder targets stay valid because the video writes stay in `Result`.** If any part of the video dispatch moves to `writers.py`, those patches silently stop intercepting and real encoders run.
+- **`Selected` moves to `dw/media_types.py`,** beside `AudioVideo` and `AudioTrack`. `result.py` imports it at the top, so it has no upward import left.
+- **One `previous_result:` walker, with exact parity per caller.**
+  - `references.iter_previous_result_references(value, *, descend_into_from)` yields `(path, name, via)`.
+  - `step_cache` calls it with `descend_into_from=True`, so `"previous_result:x"` written as a `from_previous_result` value still yields both spellings.
+  - `previous_results` calls it with `False`, and its reference-error caller drops `variable:` values.
+  - It lives in `references.py` because `previous_results` imports `step_cache`. `tests/test_references.py:78-86` asserts `references.py` has no import statements at all, so the walker uses no `typing`, `collections` or `dataclasses`.
+  - Parity tests are written against the three old functions first and pass before the switch. The extra spelling is kept, not argued away: the freeze settles it.
+- **The surface snapshot gains `catalog_validation`:** for every JSON under `workflows/` and `dw/workflows/`, `validation_errors()` and the warning checks that need no server state (no `ceiling_index`, no observed costs).
+  - It is a same-machine comparison, because `validation_context` reads the device.
+  - Task 1 runs it twice on the base and diffs the two before relying on it.
+  - Across 3e the whole snapshot (routes, OpenAPI, MCP, tasks, schema, catalog validation) is byte-identical.
+- **Sanctioned size fallbacks** (use one only if a module lands over 1,000, and say so in the report):
+  - `arguments.py`: the object-construction group to `dw/argument_objects.py`, with `NON_TYPE_KEYS` to `type_helpers`. That adds +1 module.
+  - `workflow.py`:
+    - `workflow_output_subfolder` and `catalog_root_dir` to `dw/library.py`;
+    - then the resident-reuse and fresh-load wrappers to `pipeline_ownership.py` (survey §2d).
+
+    Neither adds a module.
+
+### Review Focus (3e)
+
+1. **Event order.** The `save_artifact` order is:
+   1. `writing`;
+   2. the rate-override warning;
+   3. the pre-write `audio_no_headroom` warning;
+   4. the flatten-alpha warning;
+   5. `fps_mismatch` (up to three `video_fps` calls; keep them all);
+   6. probe, then `joined_audio_short_after_mux`;
+   7. `audio_clipped`;
+   8. the held `audio_no_headroom`;
+   9. `audio_near_silent`;
+   10. `wrote`.
+
+   The `run` order is the one in What exists. `test_events`, `test_phase_events`, `test_result`, `test_runs` and `test_shots` pass unchanged.
+2. **The release frees before the save.** A new characterization test (Task 10, written on the base first) holds a `weakref` to a released pipeline and asserts it is dead when the step's `Result.save` runs. No helper may keep `step_action` or the popped pipeline alive across `finish_release`.
+3. **Every moved patch still intercepts:**
+   - the 19 memory targets, with `steps + 1`;
+   - the 7 media targets and the 2 `load_video` monkeypatches;
+   - the 2 `audio_qc` targets and the 17 `probe_media` patches;
+   - the 14 `patch.object` device lines;
+   - the `get_device_type` placement monkeypatch.
+
+   A vacuous patch is a defect even when the suite is green.
+4. **Composed runs.**
+   - A child's rebound `arguments` reach `new_run_id` and every manifest write (`RunRecord.arguments`).
+   - A child reads its handed arguments without a copy in its definition.
+   - A parent-saved child conforms and does not save.
+   - `test_sub_workflow*`, `test_runs` and `test_for_each` pass unchanged.
+5. **Validation verdicts are byte-identical.** The `catalog_validation` snapshot does not move. Each `author_index` swap and the elision guard are neutral on valid input. A definition with a non-dict `pipeline` beside an elided step no longer raises `AttributeError` from the carry.
+
+### Task 1: The catalog-validation snapshot, and `result.py`'s helpers out
+
+- **Snapshot:** add `catalog_validation` to `scripts/surface_snapshot.py` (Decisions).
+  - Run it twice on the base. The two must be identical before anything else; if they are not, stop and report what varies.
+  - Then snapshot to `.superpowers/sdd/phase-3/3e-base.json`.
+- **Create `dw/writers.py`:**
+  - Contents: `_artifact_size`, `_file_size_mb`, `ALPHA_CONTENT_TYPES`, `flatten_alpha_for`, `frames_for_encoding`, `output_file_path`, `_dedupe_existing_path`, `AUDIO_WRITE_CHUNK_FRAMES`, `write_audio`, `normalize_audio` (the waveform one), `as_audio_track`, `_as_stereo`, `read_embedded_metadata`, and `embed_image_metadata(image, path, content_type, metadata)` (was the method `Result._save_image_with_metadata`).
+  - `AUDIO_WRITE_ARGUMENTS` stays in `result.py` beside `get_audio_write_arguments`.
+  - PIL and piexif stay lazy.
+- **Create `dw/output_extraction.py`:** `MODULAR_*_KEYS`, `_frames_from_attributes`, `_audios_from_attribute`, `OUTPUT_FIELD_EXTRACTORS`, `get_artifact_list`, `output_field_names`, `modular_artifacts`, `first_item`, `frames_with_audio`, `pair_audio_with_frames`, `as_waveform_array`.
+- **Create `dw/audio_qc.py`:** `HEADROOM_WARN_DBFS`, `_peak_dbfs`, `warn_without_headroom`, `CLIPPED_WARN_DBFS`, `_UNPROBED`, `_probe_written_media` (its lazy `from .media import probe_media` verbatim), `warn_if_written_above_full_scale`, `NEAR_SILENT_*`, `warn_if_written_near_silent`.
+- **Other moves:** `guess_extension` to `dw/content_types.py`, and `Selected` to `dw/media_types.py` (Decisions).
+- **None of the new modules imports `result`, `step`, `workflow`, `tasks.*` or `pipeline_processors.*`.**
+- **Repoint every importer:**
+  - `chain.py:39` (it then no longer imports `result`), `routes/media.py:35`, `tasks/select.py`;
+  - the tests: `test_result.py:21-27`, `:52`, `:1123`, `:1670-1703`, `:2036-2266`; `test_result_output_naming.py:1`; `test_concat_videos.py:15`; `test_gather.py:176`; `test_server.py:1460`, `:1475`, `:1504`, `:2661`;
+  - `test_shots.py:83`'s key, which becomes `"dw/output_extraction.py"`;
+  - the `emit_warning` monkeypatches at `test_result.py:1788` and `:1809`, which go to `dw.writers`.
+- **Comments that name a moved home:** `step_cache.py:265`, `tasks/joins.py:466`, `media.py:689`, `routes/gallery.py:102`, `tasks/audio_utils.py:113`, `tests/test_modular_output_properties.py:6`.
+- **Modules 154.** The snapshot diff is empty.
+
+### Task 2: `save_artifact` cut
+
+- **Cut `Result.save_artifact` to about 60-80 lines and complexity about 8, in the shape of survey §3:**
+  - module-level `_refuse_scalar_artifact`;
+  - `_save_mapping_artifact`;
+  - `_write_artifact_file`, dispatching to:
+    - `_write_video_file` (stays in `Result`; the encoder lookups stay here);
+    - `_write_audio_file`;
+    - `writers.write_json_file`;
+    - `writers.write_text_file` (the `ValueError` text unchanged);
+    - `_write_saveable`.
+  - The post-write block becomes `audio_qc.check_written_media(output_path, artifact, content_type, *, video_fps, consumed_by_normalizer, headroom_warned, predicted_peak_dbfs)` with `remeasure_shots_after_mux`, `written_peak_already_warned` and `warn_held_prediction`.
+- **Preserve exactly:**
+  - every early return. The batched-audio recursion returns from inside the `try` (check `is not None`, not truthiness), so a nested failure is still logged twice;
+  - the flag reset after `writing` and before the `try`;
+  - `warn_without_headroom`'s short-circuit on `_consumed_by_normalizer`;
+  - `artifact` rebinding only inside `_write_saveable`, which returns nothing;
+  - every `video_fps` call;
+  - the order in Review Focus 1.
+- **Retarget in this commit:** the 2 `patch("dw.result.warn_if_written_above_full_scale")` to `dw.audio_qc`, and the `test_result.py:571` monkeypatch if the dict branch's lookup moved.
+- The existing suite is the proof. `result.py` lands under 1,000 lines, about 850.
+
+### Task 3: `plan.estimate` cut
+
+- **Cut `estimate` to about 60 lines and complexity about 8,** per survey §5:
+  - `_own_price`, which runs before the observed early return;
+  - `_read_child`, keeping the `(ValueError, AttributeError)` catch;
+  - `_child_observed`, keeping its precondition and its `except Exception`;
+  - `_child_catalog_price`, using the `_list_entries` alias;
+  - a `_ChildTotals` accumulator;
+  - `_rolled_up_estimate`.
+- Keep the docstring whole.
+- `cached_minutes` is computed from the rounded minutes before tempering.
+- **Drop the `unseeded_cache_warnings` re-export (`plan.py:37-38`).** `tests/test_plan.py` imports it from `dw.validation`.
+- `tests/test_plan.py` is the proof. Sonnet.
+
+### Task 4: `arguments.py`'s media half
+
+- **First, the removals (tests unchanged):**
+  - `_with_frame_rate`'s conditional becomes `shots = shots_beside(location)`, and the "so a URL carries none" sentence goes;
+  - the redundant lazy `shots_beside` and `PIL.Image` imports go.
+- **Create `dw/argument_media.py`:**
+  - Contents: `is_media_reference`, `fetch_media`, `fetch_image`, `fetch_video`, `_describe_value_source`, `fetch_image_with_context` and `fetch_video_with_context` (public now, since `realize_args` calls them), `_with_frame_rate`, `_declared_fps`, `_fetch_remote_video`.
+  - Lazy imports stay lazy.
+- **Repoint:**
+  - `tasks/gather.py:6`, `tasks/task.py:574`, `video_extensions.py:24`, and `introspection`'s lazy `is_media_reference`;
+  - `video_extensions.py:24-26`'s `PROMPT_PREFIX`, which it re-imports through `arguments`: repoint it to `references.PROMPT`;
+  - the tests;
+  - the 7 string patch targets and the 2 `load_video` monkeypatches.
+- **`_names_no_media` becomes `names_no_media`** (`validation.py:31` imports it).
+- **Move `NON_TYPE_KEYS` to `dw/type_helpers.py`** (importers `introspection.py:835`, `tests/test_examples.py:19`, `tests/test_workflow_trust.py:494`).
+- **Cut `realize_args` to complexity 15 or less**, per survey §1.6:
+  - `_realize_explicit_reference(value, base_dir) -> (value, handled)`, shared by the dict and list branches. When only the path resolution fired, it returns the resolved value for the later conventions.
+  - `_realize_type_reference`;
+  - `_realize_nested`, with its `ValueError` text unchanged;
+  - `_realize_list`, keeping the `(step 'name')` re-raise and the `OMITTED` filter.
+- **Prefix spellings in the code that stays** (`:287`, `:666`): use `references.ref_name` / `is_ref`.
+- **Size:** `arguments.py` under 1,000 (about 933 before the cut adds helper lines). If it crosses, take the `argument_objects` fallback (Decisions) and say so.
+
+### Task 5: `introspection.py`'s two check groups
+
+- **`_NAME_PATTERN` becomes `CLASS_NAME_PATTERN`.**
+- **Create `dw/type_references.py`:**
+  - Contents: the type-reference block (779-959) and `component_name_errors`.
+  - Its lazy imports become top-level: `type_helpers`, `security`, `arguments`, `argument_media`, `for_each`. Each was checked to be cycle-free.
+  - `_is_type_key` reads `NON_TYPE_KEYS` from `type_helpers`.
+- **Create `dw/argument_warnings.py`:** `_resolved_value`, the five `_inert_*`, `workflow_argument_warnings`. The f-string at 1202 builds its reference with `references.make_ref`.
+- **Repoint:** `validation.py:36`, `routes/library.py:19`, `test_component_type_errors`, `test_component_name_errors`, `test_introspection`, `test_task_discovery`, `test_task_signature_errors`, `test_security_trust_gate:611,702`.
+- **Cut `_parse_docstring_args` under complexity 16:** `_args_block_start` and `_open_entry`.
+- Convert the moved code's prefix spellings (`:644`, `:1051-1052`, `:1141-1142`).
+- `introspection.py` lands at about 782.
+
+### Task 6: `dw/trust.py`
+
+- **Move the trust gate (76-344) into `dw/trust.py`,** which imports only `security`. `UntrustedWorkflowError` stays in `security.py`.
+- **Repoint:** `type_helpers.py:5`, `pipeline_processors/pipeline.py`, `pipeline_processors/remote.py`, `locations.py:45`, `serve.py`, `validate.py`, `routes/system.py:27`, and the tests (`test_security_trust_gate`, `test_workflow_trust`, and every test importing `TRUST_WORKFLOWS_ENV_VAR`).
+- **No validator moves, so no CodeQL file changes.** Check that with `grep` over `.github/codeql/` for each moved name, and record the result in the report.
+- **Docs:**
+  - CLAUDE.md:253: entry points use `dw/security.py`'s validators, and the trust gate is `dw/trust.py`;
+  - `docs/SECURITY.md` where it names the trust gate's home;
+  - `docs/SECURITY_QUICKREF.md:15`'s import block;
+  - `.github/copilot-instructions.md:94`.
+
+  Replace text, don't add it.
+- `security.py` lands at about 771. Cheap model.
+
+### Task 7: `pipeline.py` split
+
+- **Create four modules under `dw/pipeline_processors/`:**
+  - `placement.py` (about 370): the placement group;
+  - `components.py` (about 800): the components group plus the denoiser cache hooks, with `_MISSING` beside both users;
+  - `adapters.py` (about 170);
+  - `progress.py` (about 240).
+- **Imports:**
+  - `components` → `placement` is the only edge between them. `pipeline.py` keeps `Pipeline`, the component-name helpers and the output checks, about 845 lines.
+  - Lazy imports stay lazy: `apply_group_offloading`, peft, `ComponentsManager`, sdnq, `SequentialPipelineBlocks`.
+- **Patch targets:**
+  - The 6 string patch targets and the `load_component` monkeypatch do not move.
+  - The `get_device_type` monkeypatch (`test_offload_placement.py:45-47`) retargets to `placement`.
+- **`reported_blocks` and `reported_progress_bars` move unchanged,** including their `finally` restores.
+- **Add the four new modules to `tests/test_configuration_schema.py`'s `SOURCES`** in the same commit. `offload` is read only by `placement.py` after the move, so the scan fails loudly at `:111` without this, and its per-key checks go partly vacuous.
+- **Repoint the tests** (survey §7's importer list).
+- **Docs:** the CLAUDE.md bullets naming `apply_on_demand_placement`, `place_component` and `active_loras` by module, and `kernel_availability.py:14,59`'s comment.
+
+### Task 8: `PipelineOwnership`, and `create_step_action` cut
+
+- **Create `dw/pipeline_ownership.py`:**
+  - `PipelineOwnership` (survey §2c): `prior`, `running`, `keys_by_step`, `deferred` (a `_Deferred` dataclass), and the methods `begin`, `load_key`, `record`, `key_for`, `defer`, `mark_released` and `superseded_key`. The `RuntimeError` text of `_load_key` stays byte-for-byte.
+  - Module functions: `finish_release`, `evict_superseded`, `reclaim_after_step`, `_allocated_mb`, `_release_host_caches`.
+  - It does not import `workflow`.
+- **Wire it into `Workflow`:**
+  - `Workflow.__init__` creates one, and `run` replaces it with `PipelineOwnership(prior_step_keys)`. Keep `running=None` until `begin`, and `prior_step_keys or {}`.
+  - The `hasattr`/`getattr` guards go.
+  - `dw/worker.py:540` and its docstring read `workflow.pipeline_ownership.keys_by_step`, keeping a `getattr` chain for the bare `StubWorkflow`.
+  - About 31 test lines retarget.
+- **Retarget the 19 memory patch targets to `dw.pipeline_ownership` in this commit.** `steps + 1` still holds.
+- **Cut `create_step_action` under 150 lines.** It stays a `Workflow` method with its signature, as a dispatcher. The branches are:
+  - `_pipeline_action`;
+  - `_reuse_resident`;
+  - `_reference_action`;
+  - `_sub_workflow_action`, which keeps its own resolution (Decisions);
+  - the task branch.
+
+  The trust gate stays before `loading`.
+- **`argument_template`:** the child keeps handed arguments on `_handed_arguments`. The property returns them when set, else the definition's `argument_template`. The child's one intended copy is still `_owned_arguments`. Do not edit `workflow_schema.json`.
+- Opus.
+
+### Task 9: The validation block joins `dw/validation.py`
+
+- **Create `dw/step_value_checks.py`** with `fps_errors` (and `FPS_KEY`), `null_media_errors` and `select_errors`, plus their helpers.
+  - Repoint `test_result_fps`, `test_select_validation`, `test_null_media`, `test_rule_parity`, `test_validation`, `test_workflow`, and `test_reference_sets` if it pins a moved name.
+  - `validation.py:20`'s docstring follows.
+- **Move into `validation.py`** (Option B; the public methods on `Workflow` keep one-line bodies):
+  - `workflow_errors(workflow, arguments, composing, context)` (the body of `validation_errors`, including the context build and the conflict `ValueError`);
+  - `workflow_context(workflow, arguments, composing, ceiling_index)`;
+  - `run_warning_check`;
+  - `undeclared_variable_errors`;
+  - the `sub_workflow_errors` and `sub_workflow_argument_warnings` bodies, through `open_sub_workflow`.
+- **`admission.py:158-159` and `routes/library.py:282,298` keep calling the `Workflow` methods** (Decisions, Option B).
+- **`ConstantError` moves to `dw/variables.py`** (`tests/test_prepare_pipeline.py:9`).
+- **Retarget the 14 `patch.object(dw.workflow, "get_device_type" / "device_capacity_gb")` lines to `dw.validation`.** Confirm each still intercepts: `workflow.py` keeps importing both for `_prepare_definition`, so a stale patch would pass.
+- **`author_index`:** sites 660 and 732 become `references.author_index(source_indices, index)`, and 714 goes.
+- The f-string at `workflow.py:942` builds its reference with `references.make_ref`.
+- **Size:** `validation.py` lands at about 815. The catalog snapshot is the proof.
+
+### Task 10: `Workflow.run` cut into `dw/workflow_run.py`
+
+- **Characterization test first, on the base:** Review Focus 2's weakref test. It must pass before and after. If it fails on the base, report it and keep the current ordering exactly; do not fix it under the freeze.
+- **Create `dw/workflow_run.py`** with:
+  - `RunRecord` (status, run_id, started_at, arguments, seed, realized_name, annotations). `_write_run_manifest` takes it, and its lazy `__version__` import becomes top-level;
+  - a `StepLoop`;
+  - the phases `prepare_run`, `open_run`, `begin_steps`, `run_step`, `wire_child`, `release_step_pipeline`, `save_step`, `record_step`;
+  - `prepare_definition`, `cache_lookup`, the `cache_hits` loop;
+  - `selected_field`, `_relative_shots`, `release_unreferenced_results`.
+
+  It does not import `workflow`.
+- **What stays on `Workflow`:**
+  - `run` stays a method, about 90 lines and complexity about 8, in the shape of survey §4. `cache_hits` stays a one-line method.
+  - The `Workflow` attributes others read are still written on the instance: `manifest`, `_run_dir`, `_run_version`, `_elided_steps`, `_cache_enabled_this_run`.
+- **Preserve:**
+  - **`RunRecord.arguments` is updated when `_owned_arguments` rebinds them,** not only a local.
+  - **`started_at` and `run_id` are set twice,** and a pre-open failure writes the first values.
+  - **The release ordering:** measure `before`, drop `step_action` and the popped pipeline in `run_step`'s frame, then `finish_release`.
+  - **`_run_dir` is not reset at the top of `run`.** This is a known quirk, preserved under the freeze; do not fix it.
+  - Every `except` clause and the `finally`.
+- **Retarget the tests:**
+  - `_prepare_definition`'s 6 test calls;
+  - `workflow_module.realize_args` (`test_workflow_step_cache.py:152,165`);
+  - `release_unreferenced_results` (`test_workflow.py:10`, `test_previous_results.py:14`).
+- **Size:** `workflow.py` under 1,000. Expect about 950-990 once Task 8's dispatcher and branch methods are counted, so plan the first fallback (`workflow_output_subfolder` and `catalog_root_dir` to `dw/library.py`, about 38 lines) from the start. Take the second only if still over (Decisions).
+- Opus.
+
+### Task 11: The elision guard and one `previous_result:` walker
+
+- **Elision:**
+  - **Failing test first:** `_carry_release` with a kept step whose `pipeline` is not a dict raises `AttributeError` today.
+  - Fix: return early unless the predecessor and both pipelines are dicts, and hand `step_pipeline_keys` only dict pipelines.
+- **The walker:**
+  - **Parity tests first, against the three old functions:** bare and prefixed `from_previous_result`, a `variable:` `from_` value, nested lists, and other keys beside `from_`. They must pass on the base.
+  - Then add `references.iter_previous_result_references` (Decisions), with no import statement (`test_references.py:78-86`), and switch the three callers. The parity tests keep passing, now against the callers.
+  - Convert the `startswith`/slice spellings in the code the switch touches: `previous_results.py:39,42,197,251,252,406,407` and `for_each.py:190-202,235,255,323,325` where they read `previous_result:`.
+- The catalog snapshot is unchanged.
+
+### Task 12: Stage 3e merge
+
+- **Metrics:**
+  - `modules` 165 (the list is in Decisions);
+  - `modules_over_1000_lines` 6 → 0;
+  - `functions_over_150_lines` 4 → 0;
+  - `complex_functions` 12 → 7 or fewer;
+  - re-baseline everything that fell.
+- **Docs:** CLAUDE.md wherever it names a moved home:
+  - the two audio QC bullets: `dw/result.py` → `dw/audio_qc.py`;
+  - `Workflow.cache_hits` / `_prepare_definition` / `_cache_lookup`;
+  - `release_unreferenced_results`;
+  - `_name_fault` (stays in `security.py`; check);
+  - the `pipeline.py` homes.
+
+  Also: `docs/SECURITY.md:204-208`'s table rows, `.github/copilot-instructions.md:25,27`, `dw/server/CLAUDE.md` if it names a moved home, `docs/stabilization/ROADMAP.md`'s function table, and the comments listed in survey §11. Replace text, don't add it.
+- **Release notes:** no user-visible change. Internally, the new homes. Add the carried items moved to Phase 4 or to after Phase 3 (Decisions) to the carried list.
+- **Finish:** hot zone back to the standing entries. Merge `--no-ff` and push. Gate 3 follows.
+
+### Hot zone (3e)
+
+```
+scripts/surface_snapshot.py
+dw/result.py
+dw/writers.py
+dw/audio_qc.py
+dw/output_extraction.py
+dw/content_types.py
+dw/media_types.py
+dw/tasks/select.py
+dw/pipeline_processors/chain.py
+dw/plan.py
+dw/arguments.py
+dw/argument_media.py
+dw/argument_objects.py
+dw/type_helpers.py
+dw/tasks/gather.py
+dw/tasks/task.py
+dw/video_extensions.py
+dw/introspection.py
+dw/type_references.py
+dw/argument_warnings.py
+dw/security.py
+dw/trust.py
+dw/locations.py
+dw/serve.py
+dw/validate.py
+dw/pipeline_processors/pipeline.py
+dw/pipeline_processors/placement.py
+dw/pipeline_processors/components.py
+dw/pipeline_processors/adapters.py
+dw/pipeline_processors/progress.py
+dw/pipeline_processors/remote.py
+dw/kernel_availability.py
+dw/workflow.py
+dw/workflow_run.py
+dw/pipeline_ownership.py
+dw/validation.py
+dw/step_value_checks.py
+dw/variables.py
+dw/references.py
+dw/elision.py
+dw/step_cache.py
+dw/previous_results.py
+dw/for_each.py
+dw/library.py
+dw/step.py
+dw/worker.py
+dw/server/routes/media.py
+dw/server/routes/library.py
+dw/server/routes/system.py
+```
+
+The test files follow their modules. `dw/library.py` and `dw/argument_objects.py` are listed only for the sanctioned fallbacks.
