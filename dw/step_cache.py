@@ -93,23 +93,11 @@ def referenced_result_names(steps):
     the 'previous_result:' prefix.
     """
     names = set()
-
-    def scan(value):
-        name = references.ref_name(references.PREVIOUS_RESULT, value)
-        if name is not None:
-            names.add(name)
-        elif isinstance(value, dict):
-            reference = value.get("from_previous_result")
-            if isinstance(reference, str):
-                names.add(reference)
-            for item in value.values():
-                scan(item)
-        elif isinstance(value, list):
-            for item in value:
-                scan(item)
-
     for step in steps:
-        scan(step)
+        for _, name, _ in references.iter_previous_result_references(
+            step, descend_into_from=True
+        ):
+            names.add(name)
     return names
 
 
