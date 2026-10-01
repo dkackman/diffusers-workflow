@@ -70,16 +70,6 @@ class ArchiveRequest(BaseModel):
     names: list[str] = Field(min_length=1, max_length=MAX_ARCHIVE_FILES)
 
 
-def common_assets(ws):
-    """The library every workspace under this root shares, or None.
-
-    A recurring cast is not the property of the workspace that first
-    uploaded it, and a fresh workspace could not see it at all - the
-    prompt library has been shared from the start for the same reason.
-    """
-    return getattr(ws, "common_assets", None)
-
-
 def workspace_asset_library(state, ws, primary=None):
     """The asset search path of one workspace: its own library, then the
     one shared by every workspace under this root, then the read-only

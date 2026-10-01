@@ -425,8 +425,11 @@ def library_path_from_env(kind, primary=None):
     rather than `workspace`; for prompts and assets the primary is always the
     workspace's own. The exception is the resolved workspace's own `workflows/`
     (a checkout that is its own examples directory), which stays `workspace`.
-    Accepted limit: a server whose `--workflow-dir` override equals an examples
-    directory is still tagged `examples` here.
+    Accepted limits: a server whose `--workflow-dir` override equals an
+    examples directory is still tagged `examples` here; and in a checkout, a
+    named workspace's job confined to that same `workflows/` is tagged
+    `workspace`, where the API says `examples` for that workspace - the worker
+    knows the server's root, not the job's workspace. Nothing reads the tag.
     """
     common = None
     if kind == ASSETS_KIND:
