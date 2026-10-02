@@ -1,6 +1,10 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
+  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
+  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import FolderPicker from '../editor/FolderPicker.svelte'
+  import EditorBody from '../editor/EditorBody.svelte'
   import { PROMPT, reference } from '../references'
   import {
     Braces,
@@ -31,7 +35,6 @@
     presetForIntendedModel,
     workflowsReferencing,
   } from '../prompts'
-  import JsonEditor from '../editor/JsonEditor.svelte'
   import CopyButton from '../CopyButton.svelte'
   import type {
     EnhancerPreset,
@@ -42,60 +45,44 @@
 
   let { name = '' }: { name?: string } = $props()
 
-  let doc = $state<Record<string, any>>(emptyPrompt())
+  const shell = new DocumentEditor({
+    viewKey: 'dw-prompt-editor-view',
+    views: ['form', 'split', 'json'],
+  })
+  shell.doc = emptyPrompt()
   let promptDir = $state('')
   let promptFiles = $state<string[]>([])
   let promptDetails = $state<Record<string, PromptDetail>>({})
-  let saveName = $state('')
-  let folder = $state('')
-  let newFolder = $state('')
-  let busy = $state(false)
   // A prompt from a read-only examples library: it can be edited and saved
   // (the save lands in this workspace's library, shadowing it) but not
   // deleted, the way a read-only workflow behaves
   let readOnly = $state(false)
-  let baseline = $state('')
 
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
     [...new Set(promptFiles.map(groupOf).filter(Boolean))].sort(),
   )
 
-  type EditorView = 'form' | 'split' | 'json'
-  let view = $state<EditorView>(
-    (() => {
-      try {
-        const stored = localStorage.getItem('dw-prompt-editor-view')
-        return stored === 'form' || stored === 'split' || stored === 'json'
-          ? stored
-          : 'form'
-      } catch {
-        return 'form'
-      }
-    })(),
-  )
-
-  function setView(next: EditorView) {
-    view = next
-    try {
-      localStorage.setItem('dw-prompt-editor-view', next)
-    } catch {
-      /* session only */
-    }
-  }
-
-  let jsonDraft = $state('')
-  let jsonParseFailed = $state(false)
-
-  // Mirror the prompt into the JSON surfaces; a failed parse pins the raw
-  // text so a broken edit isn't regenerated out from under the user
-  $effect(() => {
-    const pretty = JSON.stringify($state.snapshot(doc), null, 2)
-    if (!jsonParseFailed) jsonDraft = pretty
-  })
-
-  const serialized = $derived(JSON.stringify($state.snapshot(doc)))
-  const dirty = $derived(baseline !== '' && serialized !== baseline)
+  const VIEWS = [
+    {
+      view: 'form',
+      label: 'form',
+      title: 'edit with a form',
+      icon: LayoutList,
+    },
+    {
+      view: 'split',
+      label: 'split',
+      title: 'form beside the JSON - both editable, blur applies',
+      icon: Columns2,
+    },
+    {
+      view: 'json',
+      label: 'JSON',
+      title: 'edit the raw JSON, schema-aware',
+      icon: Braces,
+    },
+  ] as const
 
   // ------------------------------------------------------------- enhancer
 
@@ -241,8 +228,8 @@
   }
 
   function useResult() {
-    doc.text = enhanceResult
-    doc.enhanced = { model: enhanceModel, idea }
+    shell.doc.text = enhanceResult
+    shell.doc.enhanced = { model: enhanceModel, idea }
     enhanceResult = ''
   }
 
@@ -259,8 +246,8 @@
       .catch((e) => notify.error(e.message))
     refreshModels()
     if (name) {
-      saveName = leafOf(name)
-      folder = groupOf(name)
+      shell.saveName = leafOf(name)
+      shell.folder = groupOf(name)
       api
         .getPrompt(name)
         // the definition comes back beside where it was found: a prompt
@@ -268,29 +255,19 @@
         // copy lands here) but not deleted
         .then(({ prompt, writable }) => {
           readOnly = !writable
-          doc = prompt
-          baseline = JSON.stringify(prompt)
+          shell.load(prompt)
           idea = prompt.enhanced?.idea ?? ''
           preselect()
         })
         .catch((e) => notify.error(e.message))
     } else {
-      folder = sessionStorage.getItem('dw-prompt-editor-folder') ?? ''
-      sessionStorage.removeItem('dw-prompt-editor-folder')
-      const imported = sessionStorage.getItem('dw-prompt-editor-import')
-      let fresh = emptyPrompt() as Record<string, any>
-      if (imported) {
-        sessionStorage.removeItem('dw-prompt-editor-import')
-        try {
-          fresh = JSON.parse(imported)
-          notify.success('Duplicated - save under a new name')
-        } catch {
-          /* unreadable hand-off - stay with the blank slate */
-        }
-      }
-      doc = fresh
-      baseline = JSON.stringify(fresh)
-      saveName = ''
+      const imported = shell.takeImport(
+        'dw-prompt-editor-import',
+        'dw-prompt-editor-folder',
+      )
+      if (imported) notify.success('Duplicated - save under a new name')
+      shell.load(imported ?? emptyPrompt())
+      shell.saveName = ''
     }
     api
       .listEnhancers()
@@ -315,20 +292,10 @@
     if (!presets.length) return
     // A matching intended model picks its preset; with no match the current
     // selection stands, so an ltx-2 prompt doesn't get the H3 enhancer
-    const picked = presetForIntendedModel(presets, doc.intended_model)
+    const picked = presetForIntendedModel(presets, shell.doc.intended_model)
     if (picked) pickPreset(picked.key)
     else if (!presetKey) pickPreset(presets[0].key)
   }
-
-  $effect(() => {
-    const guard = (event: BeforeUnloadEvent) => {
-      if (dirty) event.preventDefault()
-    }
-    window.addEventListener('beforeunload', guard)
-    return () => {
-      window.removeEventListener('beforeunload', guard)
-    }
-  })
 
   function onKeydown(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
@@ -340,47 +307,27 @@
   // ---------------------------------------------------------------- editing
 
   function setField(key: string, value: string) {
-    if (value) doc[key] = value
-    else delete doc[key]
+    if (value) shell.doc[key] = value
+    else delete shell.doc[key]
   }
 
   function setTags(raw: string) {
     const tags = parseTags(raw)
-    if (tags.length) doc.tags = tags
-    else delete doc.tags
-  }
-
-  function applyJson(raw: string) {
-    jsonDraft = raw
-    try {
-      doc = JSON.parse(raw)
-      jsonParseFailed = false
-      notify.dismiss('json-parse')
-    } catch (e) {
-      jsonParseFailed = true
-      notify.error(`JSON: ${e instanceof Error ? e.message : e}`, 'json-parse')
-    }
-  }
-
-  // Pure - it renders in the save bar, so it must not touch status/error
-  function savePath(): string | null {
-    if (!saveName) return null
-    const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__' && !isNameSegment(directory)) return null
-    return directory ? `${directory}/${saveName}` : saveName
+    if (tags.length) shell.doc.tags = tags
+    else delete shell.doc.tags
   }
 
   // Validation failures are errors (red), not statuses (green checkmark)
   function saveBlocker(): string | null {
-    if (!saveName) return 'Give the prompt a file name first'
-    if (!isNameSegment(saveName))
+    if (!shell.saveName) return 'Give the prompt a file name first'
+    if (!isNameSegment(shell.saveName))
       return 'Prompt names: letters, numbers, dot, dash, underscore'
-    if (folder === '__new__') {
-      if (!newFolder.trim()) return 'Name the new folder first'
-      if (!isNameSegment(newFolder.trim()))
+    if (shell.folder === NEW_FOLDER) {
+      if (!shell.directory()) return 'Name the new folder first'
+      if (!isNameSegment(shell.directory()))
         return 'Folder names: letters, numbers, dot, dash, underscore'
     }
-    if (!String(doc.text ?? '').trim())
+    if (!String(shell.doc.text ?? '').trim())
       return 'The prompt needs text before it can be saved'
     return null
   }
@@ -391,24 +338,21 @@
       notify.error(blocker)
       return
     }
-    const path = savePath()!
-    busy = true
+    const path = shell.savePath()!
+    shell.busy = true
     try {
-      await api.savePrompt(path, $state.snapshot(doc) as PromptDefinition)
-      if (folder === '__new__') {
-        folder = newFolder.trim()
-        newFolder = ''
-      }
+      await api.savePrompt(path, $state.snapshot(shell.doc) as PromptDefinition)
+      shell.commitNewFolder()
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
-      baseline = JSON.stringify($state.snapshot(doc))
+      shell.markSaved()
       notify.success(`Saved to ${path}`)
       loadPromptLibrary()
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
-      busy = false
+      shell.busy = false
     }
   }
 
@@ -450,10 +394,10 @@
   function duplicate() {
     sessionStorage.setItem(
       'dw-prompt-editor-import',
-      JSON.stringify($state.snapshot(doc)),
+      JSON.stringify($state.snapshot(shell.doc)),
     )
-    if (folder && folder !== '__new__')
-      sessionStorage.setItem('dw-prompt-editor-folder', folder)
+    if (shell.folder && shell.folder !== NEW_FOLDER)
+      sessionStorage.setItem('dw-prompt-editor-folder', shell.folder)
     go('shared', 'prompt-edit')
   }
 </script>
@@ -464,32 +408,11 @@
   <a href={sharedHref('prompts')} class="muted">← prompts</a>
   <h1>{name || 'New prompt'}</h1>
   <span class="flex"></span>
-  <div class="viewswitch" role="group" aria-label="editor view">
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'form'}
-      onclick={() => setView('form')}
-      title="edit with a form"
-    >
-      <LayoutList size={14} />form
-    </button>
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'split'}
-      onclick={() => setView('split')}
-      title="form beside the JSON - both editable, blur applies"
-    >
-      <Columns2 size={14} />split
-    </button>
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'json'}
-      onclick={() => setView('json')}
-      title="edit the raw JSON, schema-aware"
-    >
-      <Braces size={14} />JSON
-    </button>
-  </div>
+  <ViewSwitch
+    view={shell.view}
+    options={[...VIEWS]}
+    onselect={(view) => shell.setView(view)}
+  />
   {#if name}
     <button
       class="quiet withicon"
@@ -511,61 +434,51 @@
   {/if}
   <button
     class="withicon"
-    class:dirtybtn={dirty}
+    class:dirtybtn={shell.dirty}
     onclick={save}
-    disabled={busy}
+    disabled={shell.busy}
     title="write to the prompt directory under the name below (Ctrl+S)"
   >
-    <Save size={14} />Save{#if dirty}<span class="dirtydot"></span>{/if}
+    <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
   </button>
 </div>
 
 <div class="savebar muted">
   saving as
-  <select class="folderpick" bind:value={folder} title="folder to save into">
-    <option value="">(root)</option>
-    {#each folders as existing (existing)}<option value={existing}
-        >{existing}/</option
-      >{/each}
-    <option value="__new__">new folder…</option>
-  </select>
-  {#if folder === '__new__'}
-    <input
-      class="newfolder"
-      bind:value={newFolder}
-      placeholder="folder name"
-      title="name for the new folder at the root of the prompt directory"
-    />
-    <span>/</span>
-  {/if}
-  <input class="savename" bind:value={saveName} placeholder="MyPrompt" />
+  <FolderPicker
+    bind:folder={shell.folder}
+    bind:newFolder={shell.newFolder}
+    {folders}
+    newFolderTitle="name for the new folder at the root of the prompt directory"
+  />
+  {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
+  <input class="savename" bind:value={shell.saveName} placeholder="MyPrompt" />
   <span class="dirhint">.json in {promptDir}</span>
   <span class="flex"></span>
-  {#if savePath()}
+  {#if shell.savePath()}
     <code class="refhint" title="use the stored prompt from any workflow"
-      >prompt:{savePath()}</code
+      >prompt:{shell.savePath()}</code
     >
     <CopyButton
-      text={reference(PROMPT, savePath() ?? '')}
+      text={reference(PROMPT, shell.savePath() ?? '')}
       title="copy reference to clipboard"
     />
   {/if}
 </div>
 
-{#if view === 'json'}
-  <JsonEditor
-    value={jsonDraft}
-    onchange={applyJson}
-    height="560px"
-    schema="prompt"
-  />
-  <p class="muted hint">
-    Schema-aware: completion, hover docs and validation come from the prompt
-    schema. Changes apply when the editor loses focus.
-  </p>
-{:else}
-  <div class="editwrap" class:splitcols={view === 'split'}>
-    <div class="formcol">
+<EditorBody
+  view={shell.view}
+  jsonDraft={shell.jsonDraft}
+  onjson={(raw) => shell.applyJson(raw)}
+  schema="prompt"
+  hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply when the editor loses focus."
+  stickyTop="66px"
+>
+  {#snippet form()}
+    <!-- Queried by .panelgrid below, so the panels stack on their own
+         column's width - the split view narrows the form well before the
+         viewport -->
+    <div class="promptform">
       <div class="panelgrid">
         <div class="panel">
           <h2>Prompt</h2>
@@ -575,17 +488,18 @@
             class="prompttext"
             rows="8"
             spellcheck="true"
-            value={doc.text ?? ''}
-            placeholder="the prompt itself - what prompt:{savePath() ??
+            value={shell.doc.text ?? ''}
+            placeholder="the prompt itself - what prompt:{shell.savePath() ??
               'name'} resolves to"
-            onchange={(e) => (doc.text = e.currentTarget.value)}></textarea>
+            onchange={(e) => (shell.doc.text = e.currentTarget.value)}
+          ></textarea>
           <label class="fieldlabel" for="prompt-negative">negative prompt</label
           >
           <textarea
             id="prompt-negative"
             rows="2"
             spellcheck="true"
-            value={doc.negative_prompt ?? ''}
+            value={shell.doc.negative_prompt ?? ''}
             placeholder="optional - for models that take one"
             onchange={(e) => setField('negative_prompt', e.currentTarget.value)}
           ></textarea>
@@ -594,7 +508,7 @@
             <input
               id="prompt-desc"
               spellcheck="true"
-              value={doc.description ?? ''}
+              value={shell.doc.description ?? ''}
               placeholder="shown on the prompt's library card"
               onchange={(e) => setField('description', e.currentTarget.value)}
             />
@@ -602,7 +516,7 @@
             <Suggest
               id="prompt-model"
               suggestions={intendedModels}
-              value={doc.intended_model ?? ''}
+              value={shell.doc.intended_model ?? ''}
               placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
               onchange={(value) => {
                 setField('intended_model', value)
@@ -612,14 +526,14 @@
             <label for="prompt-tags">tags</label>
             <input
               id="prompt-tags"
-              value={(doc.tags ?? []).join(', ')}
+              value={(shell.doc.tags ?? []).join(', ')}
               placeholder="comma-separated, for filtering the library"
               onchange={(e) => setTags(e.currentTarget.value)}
             />
           </div>
-          {#if doc.enhanced?.model}
-            <p class="muted provenance" title={doc.enhanced.idea}>
-              <Sparkles size={13} /> enhanced by {doc.enhanced.model}
+          {#if shell.doc.enhanced?.model}
+            <p class="muted provenance" title={shell.doc.enhanced.idea}>
+              <Sparkles size={13} /> enhanced by {shell.doc.enhanced.model}
             </p>
           {/if}
         </div>
@@ -735,18 +649,8 @@
         </div>
       </div>
     </div>
-    {#if view === 'split'}
-      <div class="jsoncol">
-        <JsonEditor
-          value={jsonDraft}
-          onchange={applyJson}
-          height="calc(100vh - 200px)"
-          schema="prompt"
-        />
-      </div>
-    {/if}
-  </div>
-{/if}
+  {/snippet}
+</EditorBody>
 
 <style>
   .head {
@@ -760,11 +664,6 @@
     font-size: 1.1rem;
     margin: 0;
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
   .savebar {
     display: flex;
     flex-wrap: wrap;
@@ -776,12 +675,6 @@
   .savename {
     max-width: 200px;
   }
-  .folderpick {
-    max-width: 160px;
-  }
-  .newfolder {
-    max-width: 140px;
-  }
   /* a directory is one unbroken token, so let it wrap anywhere rather than
      push the bar past a phone-width viewport */
   .dirhint {
@@ -792,9 +685,7 @@
     font-size: 0.8rem;
     color: var(--accent);
   }
-  /* Queried by .panelgrid below, so the panels stack on their own column's
-     width - the split view narrows the form column well before the viewport */
-  .formcol {
+  .promptform {
     container-type: inline-size;
   }
   .panelgrid {
@@ -889,45 +780,6 @@
   .resultbox {
     margin-top: 0.7rem;
     font-size: 0.9rem;
-  }
-  .editwrap.splitcols {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
-    gap: 1.1rem;
-    align-items: start;
-  }
-  .jsoncol {
-    position: sticky;
-    top: 66px;
-  }
-  @media (max-width: 1100px) {
-    .editwrap.splitcols {
-      grid-template-columns: 1fr;
-    }
-    .jsoncol {
-      position: static;
-    }
-  }
-  .viewswitch {
-    display: inline-flex;
-  }
-  .viewswitch button {
-    border-radius: 0;
-  }
-  .viewswitch button:first-child {
-    border-radius: 6px 0 0 6px;
-  }
-  .viewswitch button:last-child {
-    border-radius: 0 6px 6px 0;
-  }
-  .viewswitch button + button {
-    margin-left: -1px;
-  }
-  .activebtn {
-    border-color: var(--accent);
-    color: var(--accent);
-    position: relative;
-    z-index: 1;
   }
   .dirtydot {
     display: inline-block;
