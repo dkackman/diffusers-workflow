@@ -39,6 +39,7 @@ from ...workspace import Workspace
 from ..assess import assess, level_findings, unknown_probe
 from ..deps import selected_workspace
 from ..http_security import query_token_ok
+from ..inline_media import fit_longest, png_bytes
 from ..outputs import (
     MEDIA_KINDS,
     asset_file,
@@ -469,31 +470,22 @@ def gallery_frames(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    images = [fit_longest(tile["image"], limit) for tile in tiles]
     return {
         "name": name,
         **shape,
-        "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+        "tiles": [_encoded_tile(tile, image) for tile, image in zip(tiles, images)],
         "crop": _crop_rectangle(crop_box),
     }
 
 
-def _encoded_tile(tile, limit):
-    image = tile["image"]
-    longest = max(image.width, image.height)
-    if longest > limit:
-        scale = limit / longest
-        image = image.resize(
-            (
-                max(1, round(image.width * scale)),
-                max(1, round(image.height * scale)),
-            )
-        )
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+def _encoded_tile(tile, image):
+    """A tile as the frames answer carries it: PNG, base64, and the size
+    `image` - the tile's picture, already fitted - came out at."""
     encoded = {key: value for key, value in tile.items() if key != "image"}
     encoded.update(
         {
-            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "data": base64.b64encode(png_bytes(image)).decode("ascii"),
             "mime_type": "image/png",
             "width": image.width,
             "height": image.height,
