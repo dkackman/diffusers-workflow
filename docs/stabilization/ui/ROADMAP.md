@@ -17,7 +17,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 | 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server takes over what `dw_mcp` computes client-side (its stage 2), then `dw_mcp` consolidates (stage 3) | `prefix_literals` 0; every UI and `dw_mcp` copy of an engine rule is either gone or pinned by a test, and has a seam-map row | [phase-1.md](phase-1.md) (staged: 1a-1c) | done 2026-10-01 (`ui-stabilization-gate-1`) |
 | 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | [phase-2.md](phase-2.md) | done 2026-10-02 (`ui-stabilization-gate-2`); freeze lifted |
 | 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | [phase-3.md](phase-3.md) | done 2026-10-02 (`ui-stabilization-gate-3`) |
-| 4 | Contract and guardrails: response models on the routes the UI reads, generated TS types, e2e on PRs into develop, the harness ratchets the UI, `ui/CLAUDE.md` triaged | A server response change that breaks the UI fails CI; the harness refuses a UI ratchet rise without `arch-approved` | [phase-4.md](phase-4.md) (staged: 4a-4d) | planned |
+| 4 | Contract and guardrails: response models on the routes the UI reads, generated TS types, e2e on PRs into develop, the harness ratchets the UI, `ui/CLAUDE.md` triaged | A server response change that breaks the UI fails CI; the harness refuses a UI ratchet rise without `arch-approved` | [phase-4.md](phase-4.md) (staged: 4a-4d) | done 2026-10-02 (`ui-stabilization-gate-4`) |
 
 ## Decisions
 
@@ -344,6 +344,65 @@ lem smoke, `329b7d0a` deployed, headless Chromium:
 | `modules_in_import_cycles` | 2 | 2 | 2 | 2 | 0 |
 | `prefix_literals` | 29 | 15 | 0 | 0 | 0 |
 | `a11y_suppressions` | 7 | 7 | 7 | 3 | 3 |
+
+### Gate 4 (2026-10-02, develop e578d7e4)
+
+Gate criteria:
+- **A server response change that breaks the UI fails CI:** met.
+  - 46 routes - every JSON route `api.ts` calls - declare Pydantic response models in `dw/server/api_models.py` (70 models, 824 lines).
+  - `types.ts` re-exports the types `openapi-typescript` generates from the OpenAPI document, which `scripts/dump_openapi.py` commits at `ui/src/lib/generated/`. No response type is hand-written any more.
+  - The chain: `tests/test_api_contract.py` fails when the committed document is stale; CI's "Response contract" step fails when the generated types are; `npm run check` fails wherever the UI reads a field the server stopped sending. `tests/test_ui_twins.py` fails when `api.ts` calls a JSON route with no declared model.
+  - Demonstrated on a scratch worktree: renaming `HealthInfo.worker_alive` on the server failed the freshness test, then - regenerated - failed svelte-check in `StatusPopover.svelte` and `ServerPage.svelte`, the two places that read it.
+- **The harness refuses a UI ratchet rise without `arch-approved`:** met (harnest `fd527d2`, `2be80d8`, pushed).
+  - `check_ui` measures `ui/` at the merge base and the work's HEAD with develop's `ui/scripts/arch-metrics.mjs` and asks its `--compare` which metrics rose; the waiver is the engine's, against `docs/stabilization/ui/baseline.json`. It fails closed on every failure it can meet (no node, no `ui/node_modules`, a crashing compare, an unreadable cached measurement, any exception).
+  - Demonstrated on dw: a 12-branch function in `ui/src/lib/format.ts` reports `complex_functions: 12 -> 13` - with an inline `eslint-disable complexity` above it too, since the metrics script no longer honours inline directives or a branch's own ignore patterns.
+- **e2e before develop moves:** e2e runs on PRs into develop or master and on every push to develop (the agent loop pushes develop directly). The merge's own push ran it: GitHub CI run 37036348274 on `e578d7e4` - backend, ui (with the new "Response contract" step) and e2e all passed.
+
+The contract's rules, beside the seam map's new "The UI's response contract" row:
+- The payload does not change: an absent key stays absent (`response_model_exclude_unset`), a key sent only in some states is `sometimes()` (generated as `key?: T`), an int stays an int.
+- Runtime is lenient: an undeclared key passes through, and a response its model rejects is logged and sent as built rather than turned into a 500 (on `POST /api/jobs` the job is queued by then). Tests, the e2e fixture server and the dump run strict (`DW_STRICT_RESPONSES=1`). lem's journal held no "does not match its model" line across the four deploys.
+- Outside the contract, by design: the agent-only `view=compact` and `only_orphans` listings, the verbatim workflow/prompt GETs, the event stream, JSON Schema documents, files and zips.
+
+What declaring the models found:
+- `/api/validate` would have answered 500 for any uncached gated model (`gated` is `"auto"`/`"manual"`, not a bool) - caught by the 4b review before it shipped.
+- A history job with a null manifest, and the Jobs page's name filter on a job with no workflow name (it threw) - fixed test-first.
+- Keys `types.ts` never declared (`/api/server`'s `trust_workflows` and `runtime`; memory's `stale`/`reason`/`age_seconds`; a gallery or asset file's `text` kind; a plan estimate's `observed` basis).
+- A scheduler whose `-inf` default answered 500 now names it.
+
+`ui/CLAUDE.md` is 11 lines (12 before): the engine-derived-fields rule is the contract's seam row, `--live` placement is `ui/scripts/design-rules.test.ts`, and WCAG AA stays guidance (Don: a nice-to-have, not a guardrail). Engine ratchet: `modules` 167 -> 168 (`api_models.py`), `claude_md_lines` 129 -> 128.
+
+Suite results (develop `e578d7e4`):
+- pytest: 7,854 passed (`DW_DEVICE=cpu`); integration 5 passed on MPS.
+- vitest: 474 passed. Playwright e2e: 109 passed against the strict fixture server.
+- harnest: every test file passes (`test-ui-ratchet.sh` 31).
+- Both ratchets: clean.
+
+Each stage had a fresh whole-branch review. Findings fixed test-first: the dump script touching `~/.diffusers_helper` and reading another checkout's `dw` (4a); the gated-model 500 and runtime leniency for a rejected response (4b); the `-inf` default (4c); the UI ratchet's fail-open paths, the inline-directive bypass and stale UI tools (4d).
+
+Deferred minors (detail in each stage's review):
+- Response key order changed in places: declared fields first, then extras (`/api/memory`'s `info`, a history job's `historical`/`spec`, a manifest entry's `parent_step`, a workflow card's `configures_missing`, a prompt card's `text_chars`). Keys and values are unchanged - a release-note line.
+- The freshness test follows whatever FastAPI/Pydantic CI resolves; a release that changes OpenAPI output would fail unrelated PRs.
+- The coverage pin is path-level, not method-level; some 4c state pins are looser than planned.
+- A `.txt` gallery or asset file renders in the audio branch (predates Phase 4; the type is now honest about `text`) - a UI follow-up.
+- The UI ratchet's refusal hints are Python-flavoured; its message before develop had `--compare` named no way out; no test runs both ratchets at once.
+- e2e runs twice per develop push while a release PR is open.
+
+lem smoke, `e578d7e4` deployed, headless Chromium and MCP:
+- Every converted route the UI reads answers 200, including the agent views; the DPM scheduler's default reads `-inf`.
+- The status popover, Server, Models, Jobs, a job page, the editor (validate, pipeline suggestions, a step's parameters), Prompts, Gallery and Assets render with no page errors.
+- `get_health`, `get_memory`, `get_job`, `validate_workflow`, `list_workflows`, `list_assets`, `get_prompt` answer as before.
+
+#### Ratchets
+
+| Ratchet | Before Phase 0 | Gate 0 | Gate 1 | Gate 2 | Gate 3 | Gate 4 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `files_over_size_ceiling` | 7 | 7 | 7 | 7 | 0 | 0 |
+| `complex_functions` | 14 | 14 | 14 | 13 | 12 | 12 |
+| `long_functions` | 2 | 2 | 2 | 2 | 0 | 0 |
+| `import_cycles` | 1 | 1 | 1 | 1 | 0 | 0 |
+| `modules_in_import_cycles` | 2 | 2 | 2 | 2 | 0 | 0 |
+| `prefix_literals` | 29 | 15 | 0 | 0 | 0 | 0 |
+| `a11y_suppressions` | 7 | 7 | 7 | 3 | 3 | 3 |
 
 ## Working rules for the duration
 
