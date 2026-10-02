@@ -102,6 +102,22 @@ def test_the_probe_reports_an_unreachable_server(capsys):
     assert "http://192.168.1.50:8765" in capsys.readouterr().err
 
 
+def test_an_unreachable_server_is_not_reported_as_a_token_problem(capsys):
+    """The 401 branch reads the status, not the message text: a URL on port
+    4010 put '401' in every connection error."""
+
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    code = cli.main(
+        ["--url", "http://192.168.1.50:4010", "--token", "t"],
+        transport=httpx.MockTransport(handler),
+    )
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "could not reach" in err and "bearer token" not in err
+
+
 def test_a_successful_probe_prints_the_server_identity(no_stdio, capsys):
     seen = []
 

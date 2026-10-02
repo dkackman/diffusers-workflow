@@ -785,3 +785,16 @@ def test_a_409_without_a_measured_estimate_says_so():
     message = str(caught.value)
     assert "None minutes" not in message
     assert "no measured estimate" in message
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-5", "nan", "inf"])
+def test_a_bad_wait_cap_keeps_the_default(raw, caplog):
+    """Parsed at import: a bad value must not fail the import, which would
+    take dw.serve's --mcp mount down with it."""
+    assert diagnose._max_wait_seconds(raw) == diagnose.DEFAULT_MAX_WAIT_SECONDS
+    assert "DW_MCP_MAX_WAIT_SECONDS" in caplog.text
+
+
+def test_a_wait_cap_is_read_from_the_environment():
+    assert diagnose._max_wait_seconds(None) == diagnose.DEFAULT_MAX_WAIT_SECONDS
+    assert diagnose._max_wait_seconds("120") == 120.0

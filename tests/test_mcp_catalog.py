@@ -250,6 +250,17 @@ def test_gallery_metadata_passes_the_media_block_through_and_says_how_to_read_it
     assert "audio_duration" in result["next"]
 
 
+def test_gallery_metadata_tolerates_a_job_without_an_id():
+    """The job-workflow hint names the job's id; a job block without one
+    drops the hint instead of failing the whole call."""
+    body = {"name": "a.png", "metadata": None, "job": {"status": "succeeded"}}
+    client, _ = scripted({("GET", "/api/gallery/a.png/metadata"): (200, body)})
+
+    result = catalog.get_gallery_metadata(client, "a.png")
+
+    assert "get_job_workflow" not in str(result)
+
+
 def test_gallery_metadata_keeps_the_music_3_ceiling_text_off_a_video():
     """#441: the Music 3 ceiling and mp3-overshoot guidance fired for any
     audio or video output, so a video cut's 'next' hint carried advice

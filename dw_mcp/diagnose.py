@@ -7,15 +7,19 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
+import logging
+import math
 import os
 import time
 
 from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
+logger = logging.getLogger(__name__)
+
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
 # How often wait_for_job re-polls /api/jobs/{id} - matches SSE_POLL_SECONDS,
-# the interval the SSE stream itself re-checks a job at (dw/server/app.py).
+# the interval the SSE stream itself re-checks a job at (dw/server/routes/jobs.py).
 WAIT_POLL_SECONDS = 1.0
 
 # A generation can run for minutes, far longer than an MCP client holds a
@@ -24,7 +28,31 @@ WAIT_POLL_SECONDS = 1.0
 # longer than the 55s this was tuned against (#248), so a deployment that
 # knows its own harness's tool-call budget can raise the cap with
 # DW_MCP_MAX_WAIT_SECONDS - unset, it stays 55.
-MAX_WAIT_SECONDS = float(os.environ.get("DW_MCP_MAX_WAIT_SECONDS", 55))
+DEFAULT_MAX_WAIT_SECONDS = 55.0
+
+
+def _max_wait_seconds(raw):
+    """The cap from DW_MCP_MAX_WAIT_SECONDS. Read at import, so a value
+    that is not a positive number keeps the default with a warning rather
+    than failing the import - which would take dw.serve's --mcp mount down
+    with it."""
+    if raw is None:
+        return DEFAULT_MAX_WAIT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if math.isfinite(value) and value > 0:
+        return value
+    logger.warning(
+        "DW_MCP_MAX_WAIT_SECONDS=%r is not a positive number of seconds; using %s",
+        raw,
+        DEFAULT_MAX_WAIT_SECONDS,
+    )
+    return DEFAULT_MAX_WAIT_SECONDS
+
+
+MAX_WAIT_SECONDS = _max_wait_seconds(os.environ.get("DW_MCP_MAX_WAIT_SECONDS"))
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "

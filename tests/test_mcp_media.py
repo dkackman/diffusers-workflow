@@ -1245,22 +1245,21 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     three of them together are not under the response's overall budget:
     fetching must stop rather than blow the aggregate, and the tiles it
     stopped on say so rather than silently losing their audio (#193 review,
-    finding 1)."""
-    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 20)
+    finding 1). The tiles spend the same budget first, so 20 bytes are
+    left for the excerpts."""
+    tiles = [
+        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
+        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
+    ]
+    tile_bytes = sum(len(tile["data"]) for tile in tiles)
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", tile_bytes + 20)
 
     def handler(request):
         if request.url.path.endswith("/frames"):
             return httpx.Response(
                 200,
-                json={
-                    "frame_count": 72,
-                    "fps": 24.0,
-                    "tiles": [
-                        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
-                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
-                        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
-                    ],
-                },
+                json={"frame_count": 72, "fps": 24.0, "tiles": tiles},
             )
         return httpx.Response(
             200,
@@ -1285,6 +1284,32 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     assert result["audio_truncated"] is True
 
 
+def test_hear_counts_the_tiles_against_the_response_budget(monkeypatch):
+    """The tiles and the excerpts are one reply: excerpts that fit a budget
+    of their own would still double what reaches the conversation."""
+    tiles = [tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0)]
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", len(tiles[0]["data"]) + 4)
+
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200, json={"frame_count": 24, "fps": 24.0, "tiles": tiles}
+            )
+        return httpx.Response(
+            200,
+            content=b"x" * 3,  # base64-encodes to 4 bytes: exactly what is left
+            headers={"content-type": "audio/wav", "x-dw-duration": "1.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_frames(client, "x.mp4", at=[0.0], hear=1.0)
+    assert "audio" in result["tiles"][0]
+
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", len(tiles[0]["data"]) + 3)
+    result = get_output_frames(client, "x.mp4", at=[0.0], hear=1.0)
+    assert result["audio_truncated"] is True
+
+
 def _assess_client(body=None):
     seen = []
 
@@ -1295,16 +1320,22 @@ def _assess_client(body=None):
     return DwClient(transport=httpx.MockTransport(handler)), seen
 
 
-def test_assess_output_refuses_an_unknown_probe_before_any_request():
-    """#388: the probe is whitelisted before anything else is read - no
-    request leaves for a name outside it."""
-    client, seen = _assess_client()
+def test_assess_output_surfaces_the_servers_unknown_probe_refusal():
+    """#388: the probe is whitelisted before anything else is read. The
+    server owns the whitelist (tests/test_server_assess.py); a copy here
+    would be a second owner, so its 400 reaches the caller as is."""
+    from dw.server.assess import PROBES, unknown_probe
 
+    detail = unknown_probe("analyze_vibes")
+
+    def handler(request):
+        return httpx.Response(400, json={"detail": detail})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
     with pytest.raises(DwApiError) as refused:
         media.assess_output(client, "cut.mp4", probe="analyze_vibes")
 
-    assert seen == []
-    for probe in ("analyze_shots", "analyze_seams", "analyze_sync_drift"):
+    for probe in PROBES:
         assert probe in str(refused.value)
 
 

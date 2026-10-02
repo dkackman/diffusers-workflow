@@ -56,6 +56,14 @@ new tooling.
 1. **Fixes and pins.** M1, M9; the twin-constant test and word-list pin
    (M5, M6); stale comments; the M2 map row; widen the consent row (M8).
    No server change.
+   Done 2026-10-01. M1 fixed. M9 fixed except `_upload_inline`'s decode
+   order, left as it is: the base64 text is already in memory as the tool
+   call's argument, so checking first saves nothing. `ASSESSMENT_PROBES`
+   deleted; the server's 400 reaches the caller. `tests/test_mcp_twins.py`
+   pins every M5 constant (and `dw.run`'s copies) and every M6 word list
+   to its owner, and checks every tool that takes `acknowledged_cost`
+   refuses without it. The map has rows for the copies, for `dw.run` as a
+   client, and the consent rule over all seven gated tools.
 2. **Move logic to the server.** M3, M4, M7: new or widened routes, then
    `dw_mcp` calls them. The UI is the second consumer, so this stage is
    shared with the UI pass.

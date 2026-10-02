@@ -305,7 +305,7 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     job = body.get("job")
     hints = []
     if body.get("metadata") is None:
-        if job:
+        if job and job.get("id"):
             hints.append(
                 "metadata is null because only an image (PNG/JPEG/WebP) "
                 "carries it embedded - this file's job is known, and "

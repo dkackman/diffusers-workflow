@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from dw_mcp.client import DwApiError, api_path
 
-# Twin of the server's own limit (dw/server/app.py). Checked here as well so
+# Twin of the server's own limit (dw/server/routes/assets.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
@@ -26,7 +26,7 @@ MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_INLINE_UPLOAD_BYTES = 4 * 1024 * 1024
 
 # What the library holds, and what the upload route accepts. Duplicated from
-# dw/security.py rather than imported: importing anything under dw/ pulls in
+# dw/server/routes/assets.py rather than imported: importing anything under dw/ pulls in
 # torch, which this pure HTTP client must not do
 ALLOWED_UPLOAD_EXTENSIONS = frozenset(
     {
@@ -49,7 +49,7 @@ ALLOWED_UPLOAD_EXTENSIONS = frozenset(
 )
 
 
-def _remote_roots(client):
+def _remote_roots(client, workspace=None):
     """The directories a remote read is confined to, or None when local.
 
     The mirror of media.py's `_remote_root` (#113), for the other direction.
@@ -67,11 +67,16 @@ def _remote_roots(client):
     (#448). A writable library there (the workspace's own, already covered
     above, and the shared one) is as legal a source as the four directories;
     a read-only examples library is not, so it is left out.
+
+    `workspace` is upload_asset's per-call override: the roots are the
+    workspace the asset goes to, not the session's pin (#389).
     """
     if not getattr(client, "mounted", False):
         return None
 
-    directories = (client.get_json("/api/server").get("directories")) or {}
+    directories = (
+        client.get_json("/api/server", workspace=workspace).get("directories")
+    ) or {}
     roots = []
     for key in ("workspace", "workflows", "assets", "outputs", "prompts"):
         value = directories.get(key)
@@ -84,7 +89,9 @@ def _remote_roots(client):
             roots.append(resolved)
 
     try:
-        libraries = client.get_json("/api/assets").get("libraries") or []
+        libraries = (
+            client.get_json("/api/assets", workspace=workspace).get("libraries") or []
+        )
     except DwApiError:
         libraries = []
     for library in libraries:
@@ -350,7 +357,7 @@ def upload_asset(
         )
 
     path = os.path.abspath(os.path.expanduser(str(file_path)))
-    roots = _remote_roots(client)
+    roots = _remote_roots(client, workspace)
     if roots is not None:
         _confine_source(path, roots, file_path, client, workspace)
     if not os.path.isfile(path):

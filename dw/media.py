@@ -35,10 +35,10 @@ logger = logging.getLogger("dw")
 
 # The most a soundtrack may be as base64 before the gallery route refuses to
 # extract it whole - the twin of dw_mcp/media.py's MAX_RETURNED_BYTES (the
-# MCP package's cap on any inline payload). Two constants because the two
-# packages do not import each other; a whole track over this is cut off at
-# the header, before a frame is decoded, rather than decoded, shipped and
-# then refused by the client.
+# MCP package's cap on any inline payload). Two constants because dw_mcp
+# cannot import dw (tests/test_mcp_twins.py pins them equal); a whole track
+# over this is cut off at the header, before a frame is decoded, rather than
+# decoded, shipped and then refused by the client.
 MAX_INLINE_AUDIO_BYTES = 4 * 1024 * 1024
 
 

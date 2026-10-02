@@ -380,7 +380,7 @@ class DwClient:
         if response.status_code < 400:
             return
         # 5xx is always a server-side failure, even when the body happens to
-        # carry a `detail` (dw/server/app.py raises 500s with one) - the
+        # carry a `detail` (dw/server/deps.py raises 500s with one) - the
         # status has to survive so it reads as distinct from a validation
         # message.
         if response.status_code < 500:
