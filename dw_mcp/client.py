@@ -16,6 +16,24 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8765"
 # this pure HTTP client must not do (tests/test_mcp_server.py guards that).
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
+# Hosts a URL cannot be handed to another machine with: each one names
+# whichever machine reads it - loopback, plus the wildcard binds (a URL
+# naming 127.* is caught by prefix where this set is read). A different
+# question from LOOPBACK_HOSTS's "is unauthenticated safe", so a second set
+UNSHAREABLE_HOSTS = LOOPBACK_HOSTS | {"0.0.0.0", "::"}
+
+
+def base64_size(n):
+    """How long `n` bytes are once base64-encoded - what an inline payload
+    costs. dw.media.base64_size's formula; tests/test_mcp_twins.py pins it."""
+    return 4 * math.ceil(n / 3)
+
+
+def project(entry, fields):
+    """`entry` cut to the named fields it has - how a compact listing keeps
+    enough to choose an entry and nothing that only reading one needs."""
+    return {key: entry.get(key) for key in fields if key in entry}
+
 
 def is_loopback_url(url):
     """True when `url` names this machine's loopback interface - the case
@@ -48,6 +66,27 @@ def coerce_json_object(value, param_name):
             f"`{param_name}` must be a JSON object, not {type(parsed).__name__}."
         )
     return parsed
+
+
+def workflow_source(name=None, workflow_path=None, workflow=None, inline_workflow=None):
+    """(stored name, inline definition) from the tools' two spellings of
+    each - `name`/`workflow_path` and `workflow`/`inline_workflow` - either
+    of which may be None. Giving both spellings of one is refused; whether
+    exactly one of the two answers was given is the caller's to check,
+    after any refusal of its own."""
+    workflow = coerce_json_object(workflow, "workflow")
+    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
+    if workflow is not None and inline_workflow is not None:
+        raise DwApiError(
+            "`workflow` and `inline_workflow` are the same thing - provide only one."
+        )
+    if name is not None and workflow_path is not None:
+        raise DwApiError(
+            "`name` and `workflow_path` are the same thing - provide only one."
+        )
+    stored = name if name is not None else workflow_path
+    inline = workflow if workflow is not None else inline_workflow
+    return stored, inline
 
 
 def path_segment(name):
@@ -249,17 +288,10 @@ class DwClient:
             path,
         )
 
-    def get_bytes(self, path, workspace=None):
-        """Raw body plus content type - for the output media served from the
-        /outputs static mount rather than an /api route."""
-        response = self._request("GET", path, workspace=workspace)
-        self._raise_for_status(response, path)
-        return response.content, response.headers.get("content-type", "")
-
     def get_media_if(
         self, path, accept_content_type, workspace=None, params=None, max_bytes=None
     ):
-        """Like `get_bytes`, but the body is only downloaded when
+        """A body plus its content type, downloaded only when
         `accept_content_type(content_type)` is true, and the response
         headers come back with it - a media route says what it cut in
         them.
@@ -283,7 +315,7 @@ class DwClient:
                 return None, content_type, response.headers
             if response.status_code < 400 and max_bytes is not None:
                 declared = _declared_length(response.headers)
-                if declared is not None and 4 * math.ceil(declared / 3) > max_bytes:
+                if declared is not None and base64_size(declared) > max_bytes:
                     return None, content_type, response.headers
             self._call_httpx(response.read, path)
             self._raise_for_status(response, path)
@@ -302,7 +334,7 @@ class DwClient:
     def stream_to_file(self, path, destination, workspace=None):
         """Stream `path`'s body straight to `destination` on disk, in
         chunks, rather than buffering it whole - for a body too large to
-        hold in memory (the videos `get_bytes` can't return). Returns
+        hold in memory (the videos the inline tools cannot return). Returns
         `(content_type, bytes_written)`.
 
         Written atomically: chunks land in a temp file next to

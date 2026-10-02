@@ -215,3 +215,10 @@ def test_every_tool_that_takes_acknowledged_cost_refuses_without_it():
         }
         with pytest.raises(DwApiError, match="acknowledged_cost"):
             fn(**required)
+
+
+def test_dw_mcps_base64_size_is_the_engines():
+    from dw.media import base64_size as engine
+    from dw_mcp.client import base64_size as copy
+
+    assert [copy(n) for n in range(0, 50)] == [engine(n) for n in range(0, 50)]

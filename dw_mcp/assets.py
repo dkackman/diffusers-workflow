@@ -14,7 +14,7 @@ import os
 from urllib.parse import urlsplit
 
 from dw_mcp import confine
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import UNSHAREABLE_HOSTS, DwApiError, api_path, project
 
 # Twin of the server's own limit (dw/server/routes/assets.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
@@ -61,13 +61,6 @@ NO_ROOTS_REFUSAL = (
     "a generated file with keep_output."
 )
 
-# Hosts a URL cannot be handed to another machine with: each one names
-# whichever machine reads it. A `dw.serve --mcp` endpoint reaches its own
-# server at 127.0.0.1 (dw/server/mcp_mount.py's client_base_url), which is
-# exactly the address that is wrong for the remote caller an upload refusal
-# is written for (#481)
-LOCAL_ONLY_HOSTS = frozenset(("localhost", "::1", "0.0.0.0", "::"))
-
 
 def _upload_origin(client):
     """The origin to print in a curl command meant for the caller's machine:
@@ -75,7 +68,7 @@ def _upload_origin(client):
     same URL with `<host>` in place of the loopback address."""
     parsed = urlsplit(client.base_url)
     host = (parsed.hostname or "").lower()
-    if host and host not in LOCAL_ONLY_HOSTS and not host.startswith("127."):
+    if host and host not in UNSHAREABLE_HOSTS and not host.startswith("127."):
         return client.base_url.rstrip("/")
     port = f":{parsed.port}" if parsed.port else ""
     return f"{parsed.scheme or 'http'}://<host>{port}"
@@ -142,7 +135,7 @@ ASSET_SUMMARY_FIELDS = ("name", "reference", "kind", "size", "origin")
 
 def _summarised_asset_entries(entries):
     return [
-        {key: entry.get(key) for key in ASSET_SUMMARY_FIELDS if key in entry}
+        project(entry, ASSET_SUMMARY_FIELDS)
         for entry in entries
         if isinstance(entry, dict)
     ]

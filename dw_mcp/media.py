@@ -11,12 +11,11 @@ to support.
 """
 
 import base64
-import math
 import os
 import pathlib
 
 from dw_mcp import confine
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp.client import DwApiError, api_path, base64_size
 
 # Roughly 4MB. The cap is on the returned payload's base64 size - the bytes
 # actually sent over MCP - not the raw encoded image, which is smaller by a
@@ -109,10 +108,10 @@ def get_output_audio(client, name, start=None, duration=None, workspace=None):
     # from the file's headers with a 413 before either, and the client
     # surfaces that detail as is; this is the same advice for the rest.
     raw_size = len(body) if body is not None else int(headers["content-length"])
-    base64_size = 4 * math.ceil(raw_size / 3)
-    if base64_size > MAX_RETURNED_BYTES:
+    encoded_size = base64_size(raw_size)
+    if encoded_size > MAX_RETURNED_BYTES:
         raise DwApiError(
-            f"{name} is {raw_size} bytes, which would be {base64_size} "
+            f"{name} is {raw_size} bytes, which would be {encoded_size} "
             f"bytes base64-encoded - over the {MAX_RETURNED_BYTES} byte "
             "limit for an inline clip. Ask for an excerpt with `start` and "
             "`duration` (seconds) - get_gallery_metadata's envelope says "

@@ -10,7 +10,7 @@ where it mattered.
 
 import logging
 
-from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path
+from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, project
 from dw_mcp import catalog
 
 logger = logging.getLogger(__name__)
@@ -74,11 +74,7 @@ def list_workspaces(client, detail=False):
             result = {
                 **result,
                 "workspaces": [
-                    {
-                        key: entry.get(key)
-                        for key in WORKSPACE_SUMMARY_FIELDS
-                        if key in entry
-                    }
+                    project(entry, WORKSPACE_SUMMARY_FIELDS)
                     for entry in entries
                     if isinstance(entry, dict)
                 ],

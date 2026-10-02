@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import api_path
+from dw_mcp.client import api_path, project
 
 
 def list_workflows(
@@ -70,7 +70,7 @@ def _summarised(answer):
     if not isinstance(details, dict):
         return answer
     summarised = {
-        name: {key: detail.get(key) for key in SUMMARY_FIELDS if key in detail}
+        name: project(detail, SUMMARY_FIELDS)
         for name, detail in details.items()
         if isinstance(detail, dict)
     }

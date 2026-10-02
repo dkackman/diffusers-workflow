@@ -79,7 +79,7 @@ class TestSelection:
         workspace-scoped like everything else."""
         client, seen = recording(listing("default", "shots"))
         use_workspace(client, "shots")
-        client.get_bytes("/outputs/still.png")
+        client.get_bytes_if("/outputs/still.png", lambda _type: True)
         assert "workspace=shots" in str(seen[-1].url)
 
 

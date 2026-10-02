@@ -67,7 +67,9 @@ def test_get_bytes_returns_the_body_and_content_type():
             200, content=b"\x89PNG", headers={"content-type": "image/png"}
         )
 
-    body, content_type = client_with(handler).get_bytes("/outputs/a.png")
+    body, content_type = client_with(handler).get_bytes_if(
+        "/outputs/a.png", lambda _type: True
+    )
 
     assert body == b"\x89PNG"
     assert content_type == "image/png"
@@ -531,3 +533,39 @@ def test_get_media_if_reads_a_body_within_budget():
     )
 
     assert body == payload
+
+
+class TestSharedHelpers:
+    """One home each for what three or more dw_mcp modules wrote inline."""
+
+    def test_base64_size(self):
+        from dw_mcp.client import base64_size
+
+        assert [base64_size(n) for n in (0, 1, 3, 4)] == [0, 4, 4, 8]
+
+    def test_project_keeps_only_the_named_fields_present(self):
+        from dw_mcp.client import project
+
+        assert project({"a": 1, "b": 2, "c": 3}, ("a", "c", "z")) == {"a": 1, "c": 3}
+
+    def test_workflow_source_reads_each_spelling(self):
+        from dw_mcp.client import workflow_source
+
+        assert workflow_source(name="n") == ("n", None)
+        assert workflow_source(workflow_path="p") == ("p", None)
+        assert workflow_source(workflow={"id": "w"}) == (None, {"id": "w"})
+        assert workflow_source(inline_workflow='{"id": "w"}') == (None, {"id": "w"})
+        assert workflow_source() == (None, None)
+
+    def test_workflow_source_refuses_both_spellings_of_one_thing(self):
+        from dw_mcp.client import workflow_source
+
+        with pytest.raises(DwApiError, match="same thing"):
+            workflow_source(name="n", workflow_path="p")
+        with pytest.raises(DwApiError, match="same thing"):
+            workflow_source(workflow={}, inline_workflow={})
+
+    def test_unshareable_hosts_are_loopback_plus_the_wildcards(self):
+        from dw_mcp.client import LOOPBACK_HOSTS, UNSHAREABLE_HOSTS
+
+        assert UNSHAREABLE_HOSTS == LOOPBACK_HOSTS | {"0.0.0.0", "::"}

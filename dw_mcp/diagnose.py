@@ -12,7 +12,7 @@ import math
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path, coerce_json_object
+from dw_mcp.client import DwApiError, api_path, workflow_source
 
 logger = logging.getLogger(__name__)
 
@@ -121,18 +121,7 @@ def run_workflow(
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
     shape changed since the quote and the message carries the new plan."""
-    if workflow_path is not None and name is not None:
-        raise DwApiError(
-            "`workflow_path` and `name` are the same thing - provide only one."
-        )
-    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
-    workflow = coerce_json_object(workflow, "workflow")
-    if inline_workflow is not None and workflow is not None:
-        raise DwApiError(
-            "`inline_workflow` and `workflow` are the same thing - provide only one."
-        )
-    path = workflow_path if workflow_path is not None else name
-    inline = inline_workflow if inline_workflow is not None else workflow
+    path, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (path is None) == (inline is None):

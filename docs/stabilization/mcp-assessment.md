@@ -67,5 +67,25 @@ new tooling.
 2. **Move logic to the server.** M3, M4, M7: new or widened routes, then
    `dw_mcp` calls them. The UI is the second consumer, so this stage is
    shared with the UI pass.
+   Done 2026-10-02, as UI Phase 1 stage 1b (`docs/stabilization/ui/phase-1.md`).
+   M3: `GET /api/gallery/{name}/image` and `/frames?max_total_bytes` fit
+   and budget on the server (`dw/server/inline_media.py`); `dw_mcp` no
+   longer imports Pillow. The `hear` excerpt budget stays client-side, since
+   the server never sees `hear`. M4: gallery metadata carries `findings` from
+   `dw/audio_qc.py`'s thresholds; the client restates none, and the Music 3
+   sentence is left to its skill. M7: `PATCH /api/workflows/{name}` under the
+   save lock; `DELETE /api/jobs/{id}/run` (which also refuses a running job,
+   a check the client never made); null downloads tolerated and a ready
+   `acknowledge` in the 409; `get_server_info` reads `/api/server` alone.
+   The UI uses none of the new routes - it shares the server helper code,
+   not the routes.
 3. **Consolidate inside `dw_mcp`.** M8's pairs, once stage 2 has removed the
    code some of them guard.
+   Done 2026-10-02, as stage 1c. `dw_mcp/confine.py` is the one
+   confinement rule for reads and writes (the pair M1 came from);
+   `client.py` holds `base64_size` (pinned to `dw.media`'s), `project`,
+   `workflow_source` and `UNSHAREABLE_HOSTS`; `DwClient.get_bytes` is gone.
+   Not done, deliberately: a `consent.py` for the seven acknowledgement
+   gates (each is two lines with its own refusal, and
+   `tests/test_mcp_twins.py` checks all seven) and a split of `diagnose.py`
+   (it would churn test imports for no rule gained).
