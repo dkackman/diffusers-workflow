@@ -3,6 +3,7 @@ models, and the OpenAPI document generated from them is committed where the
 UI generates its types from (ui/src/lib/generated/). See docs/ARCHITECTURE.md,
 "The UI's response contract"."""
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -90,7 +91,51 @@ def test_the_document_carries_no_release_version():
     assert json.loads(_dump({}))["info"]["version"] == "0"
 
 
+def _dump_module():
+    spec = importlib.util.spec_from_file_location("dump_openapi", DUMP)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_pins_name_fastapi_and_pydantic():
+    # The two packages whose upgrade can change the generated document
+    assert set(_dump_module().pins()) == {"fastapi", "pydantic"}
+
+
+def test_the_dump_refuses_to_write_under_versions_it_is_not_pinned_to(
+    tmp_path, monkeypatch, capsys
+):
+    dump = _dump_module()
+    target = tmp_path / "openapi.json"
+    monkeypatch.setattr(dump, "OPENAPI_PATH", target)
+    monkeypatch.setattr(dump, "installed", lambda: {**dump.pins(), "fastapi": "9.9.9"})
+    assert dump.main([]) == 2
+    assert not target.exists()
+    said = capsys.readouterr().out
+    assert "fastapi 9.9.9" in said and "constraints-openapi.txt" in said
+
+
+def test_ci_installs_the_pinned_versions():
+    # Every CI job that builds the app strict - the backend's freshness test,
+    # e2e's fixture server - must resolve the pins, or a FastAPI release
+    # fails PRs that did not touch the contract
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    installs = [
+        line
+        for line in ci.splitlines()
+        if "pip install" in line and "-r requirements.txt" in line
+    ]
+    assert installs and all("-c constraints-openapi.txt" in line for line in installs)
+
+
 def test_the_committed_document_is_current():
+    stray = _dump_module().unpinned()
+    if stray:
+        # CI installs the pins, so there a mismatch is a broken install, not
+        # a reason to skip; elsewhere the dump would differ for that reason alone
+        assert not os.environ.get("CI"), f"CI is not on the pinned versions: {stray}"
+        pytest.skip(f"not on the versions the document is pinned to: {stray}")
     committed = (REPO / "ui" / "src" / "lib" / "generated" / "openapi.json").read_text()
     assert committed == _dump({}), (
         "the server's response contract changed: run `python scripts/dump_openapi.py`, "

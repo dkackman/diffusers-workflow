@@ -42,7 +42,7 @@ jobs:
         # goes on afterwards so the resolver doesn't replace it with a
         # release
         run: |
-          pip install -r requirements.txt -r requirements-test.txt
+          pip install -c constraints-openapi.txt -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
       - name: Format check
         run: ruff format --check dw dw_mcp tests scripts
@@ -113,7 +113,7 @@ jobs:
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r requirements-test.txt
+          pip install -c constraints-openapi.txt -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
       - uses: actions/setup-node@v7
         with:
