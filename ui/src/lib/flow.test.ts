@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { danglingReferenceDetails, dataFlowGraph, flowGraph } from './flow'
+// Read by tests/test_ui_twins.py too, where the engine decides each case
+import referenceCases from '../../../tests/fixtures/reference_cases.json'
 
 const step = (name: string, args: Record<string, unknown>) => ({
   name,
@@ -337,7 +339,7 @@ describe('for_each references', () => {
     expect(danglingReferenceDetails(wf)).toEqual([
       {
         stepIndex: 0,
-        message: "Step 'edit': gather:nope - no earlier step has that name",
+        message: "Step 'edit': gather:nope - names no earlier for_each step",
       },
     ])
   })
@@ -426,5 +428,14 @@ describe('the graph resolves references as the dangling check does', () => {
     const graph = dataFlowGraph(wf)
     expect(graph.edges.map((e) => e.from).sort()).toEqual(['g', 'x.y'])
     expect(graph.nodes[2].isEntryPoint).toBe(false)
+  })
+})
+
+describe('the shared reference cases', () => {
+  it.each(referenceCases)('$name', ({ workflow, flagged }) => {
+    const messages = danglingReferenceDetails(workflow).map((d) => d.message)
+    for (const fragment of flagged)
+      expect(messages.some((m) => m.includes(fragment))).toBe(true)
+    if (flagged.length === 0) expect(messages).toEqual([])
   })
 })

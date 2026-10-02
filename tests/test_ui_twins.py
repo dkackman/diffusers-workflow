@@ -16,6 +16,7 @@ from dw import references
 from dw.content_types import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE, content_type_fault
 from dw.security import InvalidInputError, SecurityError, validate_workspace_name
 from dw.server.job_record import TERMINAL_STATES
+from dw.workflow import workflow_from_definition
 from dw.workspace import DEFAULT_WORKSPACE_NAME, RESERVED_WORKSPACE_NAMES
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -143,3 +144,20 @@ def test_the_ui_cache_types_are_the_schemas():
     assert set(ts_string_array(UI_LIB / "editor.ts", "CACHE_TYPES")) == set(
         _cache_type_enum()
     )
+
+
+REFERENCE_CASES = json.loads(
+    (REPO / "tests" / "fixtures" / "reference_cases.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", REFERENCE_CASES, ids=lambda c: c["name"])
+def test_the_engine_decides_each_shared_reference_case(case, tmp_path):
+    workflow = workflow_from_definition(case["workflow"], str(tmp_path))
+    problems = " | ".join(
+        str(e.get("message", e)) for e in workflow.validation_errors()
+    )
+    for fragment in case["flagged"]:
+        assert fragment in problems, problems
+    if not case["flagged"]:
+        assert problems == "", problems
