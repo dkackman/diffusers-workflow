@@ -5,43 +5,30 @@
   import ViewSwitch from '../editor/ViewSwitch.svelte'
   import FolderPicker from '../editor/FolderPicker.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
+  import EnhancePanel from '../editor/EnhancePanel.svelte'
+  import { Enhancer } from '../enhancer.svelte'
   import { PROMPT, reference } from '../references'
   import {
     Braces,
-    CircleCheck,
     Columns2,
     Copy,
-    Download,
     LayoutList,
     Save,
     Sparkles,
     Trash2,
   } from '@lucide/svelte'
-  import { api, fetchOutputText, streamJobEvents } from '../api'
+  import { api } from '../api'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go } from '../router.svelte'
   import { sharedHref } from '../routes'
-  import { phaseLabel } from '../progress'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { groupOf, leafOf } from '../grouping'
-  import {
-    emptyPrompt,
-    knownIntendedModels,
-    manifestTextFile,
-    parseTags,
-    presetForIntendedModel,
-    workflowsReferencing,
-  } from '../prompts'
+  import { emptyPrompt, parseTags, workflowsReferencing } from '../prompts'
   import CopyButton from '../CopyButton.svelte'
-  import type {
-    EnhancerPreset,
-    ModelRepo,
-    PromptDefinition,
-    PromptDetail,
-  } from '../types'
+  import type { PromptDefinition, PromptDetail } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
@@ -86,151 +73,13 @@
 
   // ------------------------------------------------------------- enhancer
 
-  let presets = $state<EnhancerPreset[]>([])
-  let presetKey = $state('')
-  let enhanceModel = $state('')
-  let idea = $state('')
-  let device = $state('')
-  let models = $state<ModelRepo[]>([])
-  let downloading = $state(false)
-  let enhanceBusy = $state(false)
-  let enhanceStatus = $state('')
-  let enhanceError = $state('')
-  let enhanceResult = $state('')
-  let enhanceJobId = $state('')
-  let enhancersDown = $state(false)
-  let stopStream: (() => void) | null = null
-
-  const preset = $derived(presets.find((p) => p.key === presetKey))
-  const modelCached = $derived(
-    models.some((repo) => repo.repo_id === enhanceModel),
-  )
-  const intendedModels = $derived(
-    knownIntendedModels(
-      presets,
-      Object.values(promptDetails).map((detail) => detail.intended_model),
-    ),
-  )
-
-  // Switching preset resets the model to that preset's default; re-picking
-  // the current one leaves a hand-typed model alone
-  function pickPreset(key: string) {
-    const picked = presets.find((p) => p.key === key)
-    if (!picked || key === presetKey) return
-    presetKey = key
-    enhanceModel = picked.default_model
-  }
-
-  async function refreshModels() {
-    try {
-      models = (await api.listModels()).repos
-    } catch {
-      /* cache indicator stays pessimistic */
-    }
-  }
-
-  async function downloadModel() {
-    if (!enhanceModel) return
-    downloading = true
-    enhanceError = ''
-    try {
-      await api.startDownload(enhanceModel)
-      // Poll until this repo's download leaves the active list
-      while (downloading) {
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        const { downloads } = await api.listDownloads()
-        const mine = downloads.find((d) => d.repo_id === enhanceModel)
-        if (!mine || mine.status !== 'downloading') {
-          if (mine?.status === 'failed')
-            enhanceError = mine.error ?? 'download failed'
-          break
-        }
-      }
-    } catch (e) {
-      enhanceError = e instanceof Error ? e.message : String(e)
-    } finally {
-      downloading = false
-      refreshModels()
-    }
-  }
-
-  async function generate() {
-    if (!idea.trim()) {
-      enhanceError = 'Describe the idea to expand first'
-      return
-    }
-    enhanceBusy = true
-    enhanceError = ''
-    enhanceResult = ''
-    enhanceStatus = 'queueing…'
-    try {
-      const job = await api.enhance({
-        idea,
-        preset: presetKey,
-        model_name: enhanceModel || undefined,
-        device: device || undefined,
-      })
-      enhanceJobId = job.id
-      if (job.queue_position !== undefined) {
-        enhanceStatus = `queued · #${job.queue_position + 1} in line`
-      }
-      stopStream = streamJobEvents(
-        job.id,
-        -1,
-        (event) => {
-          if (event.event === 'log') enhanceStatus = String(event.message)
-          // The enhancer is one task step - its phase is the whole story,
-          // and 'loading' is most of the wait on a cold model
-          else if (event.event === 'phase')
-            enhanceStatus = phaseLabel(event) + '…'
-          else if (event.event === 'job_status')
-            enhanceStatus = String(event.status)
-        },
-        () => finishEnhance(job.id),
-      )
-    } catch (e) {
-      enhanceError = e instanceof Error ? e.message : String(e)
-      enhanceBusy = false
-      enhanceStatus = ''
-    }
-  }
-
-  async function finishEnhance(jobId: string) {
-    stopStream = null
-    try {
-      const detail = await api.getJob(jobId)
-      if (detail.status !== 'succeeded') {
-        enhanceError = detail.error ?? `enhancement ${detail.status}`
-        return
-      }
-      const file = manifestTextFile(detail.manifest)
-      if (!file) {
-        enhanceError = 'The enhancement produced no text'
-        return
-      }
-      enhanceResult = (await fetchOutputText(file, detail.workspace)).trim()
-    } catch (e) {
-      enhanceError = e instanceof Error ? e.message : String(e)
-    } finally {
-      enhanceBusy = false
-      enhanceStatus = ''
-      enhanceJobId = ''
-    }
-  }
-
-  async function cancelEnhance() {
-    if (!enhanceJobId) return
-    try {
-      await api.cancelJob(enhanceJobId)
-    } catch {
-      /* already finished */
-    }
-  }
+  const enhancer = new Enhancer()
+  const intendedModels = $derived(enhancer.intendedModels(promptDetails))
 
   function useResult() {
-    shell.doc.text = enhanceResult
-    shell.doc.enhanced = { model: enhanceModel, idea }
-    enhanceResult = ''
+    const { text, enhanced } = enhancer.takeResult()
+    shell.doc.text = text
+    shell.doc.enhanced = enhanced
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -244,7 +93,7 @@
         promptDetails = r.details ?? {}
       })
       .catch((e) => notify.error(e.message))
-    refreshModels()
+    enhancer.refreshModels()
     if (name) {
       shell.saveName = leafOf(name)
       shell.folder = groupOf(name)
@@ -256,8 +105,8 @@
         .then(({ prompt, writable }) => {
           readOnly = !writable
           shell.load(prompt)
-          idea = prompt.enhanced?.idea ?? ''
-          preselect()
+          enhancer.idea = prompt.enhanced?.idea ?? ''
+          enhancer.preselect(shell.doc.intended_model)
         })
         .catch((e) => notify.error(e.message))
     } else {
@@ -269,33 +118,9 @@
       shell.load(imported ?? emptyPrompt())
       shell.saveName = ''
     }
-    api
-      .listEnhancers()
-      .then((r) => {
-        presets = r.presets
-        enhancersDown = presets.length === 0
-        preselect()
-      })
-      .catch(() => {
-        // Editing still works without the enhancer - but say so, rather
-        // than leaving a permanently disabled Generate button unexplained
-        enhancersDown = true
-      })
-    return () => {
-      stopStream?.()
-      stopStream = null
-      downloading = false
-    }
+    enhancer.load().then(() => enhancer.preselect(shell.doc.intended_model))
+    return () => enhancer.stop()
   })
-
-  function preselect() {
-    if (!presets.length) return
-    // A matching intended model picks its preset; with no match the current
-    // selection stands, so an ltx-2 prompt doesn't get the H3 enhancer
-    const picked = presetForIntendedModel(presets, shell.doc.intended_model)
-    if (picked) pickPreset(picked.key)
-    else if (!presetKey) pickPreset(presets[0].key)
-  }
 
   function onKeydown(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
@@ -520,7 +345,7 @@
               placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
               onchange={(value) => {
                 setField('intended_model', value)
-                preselect()
+                enhancer.preselect(shell.doc.intended_model)
               }}
             />
             <label for="prompt-tags">tags</label>
@@ -538,115 +363,7 @@
           {/if}
         </div>
 
-        <div class="panel">
-          <h2><Sparkles size={15} /> Enhance with AI</h2>
-          <p class="muted hint">
-            Expand an idea into a full prompt with a local language model. Runs
-            as an ordinary job - it waits its turn behind anything generating.
-          </p>
-          {#if enhancersDown}
-            <p class="muted hint">
-              Enhancement is unavailable - the server reported no enhancer
-              presets. Editing and saving still work.
-            </p>
-          {/if}
-          <div class="metagrid">
-            <label for="enhance-preset">preset</label>
-            <select
-              id="enhance-preset"
-              value={presetKey}
-              onchange={(e) => pickPreset(e.currentTarget.value)}
-            >
-              {#each presets as p (p.key)}
-                <option value={p.key}>{p.label}</option>
-              {/each}
-            </select>
-            <label for="enhance-model">model</label>
-            <span class="modelrow">
-              <Suggest
-                id="enhance-model"
-                suggestions={preset?.models ?? []}
-                bind:value={enhanceModel}
-                placeholder="Hugging Face repo id"
-              />
-              {#if enhanceModel}
-                {#if modelCached}
-                  <span
-                    class="chip good"
-                    title="already in the local model cache">cached</span
-                  >
-                {:else if downloading}
-                  <span
-                    class="chip"
-                    title="downloading to the local model cache"
-                    >downloading…</span
-                  >
-                {:else}
-                  <button
-                    class="quiet withicon"
-                    onclick={downloadModel}
-                    title="download this model to the local cache now - otherwise the first enhancement downloads it"
-                  >
-                    <Download size={13} />get
-                  </button>
-                {/if}
-              {/if}
-            </span>
-            <label for="enhance-device">device</label>
-            <select
-              id="enhance-device"
-              bind:value={device}
-              title="where the language model runs - cpu keeps VRAM free for generation"
-            >
-              <option value="">preset default (cpu)</option>
-              <option value="cuda">cuda</option>
-              <option value="mps">mps</option>
-              <option value="cpu">cpu</option>
-            </select>
-            <label for="enhance-idea">idea</label>
-            <textarea
-              id="enhance-idea"
-              rows="3"
-              spellcheck="true"
-              bind:value={idea}
-              placeholder={preset?.placeholder ?? 'describe what to generate'}
-            ></textarea>
-          </div>
-          <div class="enhanceactions">
-            <button
-              class="withicon"
-              onclick={generate}
-              disabled={enhanceBusy || !presets.length}
-              title="expand the idea with the selected model"
-            >
-              <Sparkles size={14} />Generate
-            </button>
-            {#if enhanceBusy && enhanceJobId}
-              <button class="quiet" onclick={cancelEnhance}>cancel</button>
-              <a class="muted joblink" href={'#/jobs/' + enhanceJobId}
-                >watch job</a
-              >
-            {/if}
-            {#if enhanceStatus}
-              <span class="muted enhancestatus"
-                ><span class="pulse-dot"></span>{enhanceStatus}</span
-              >
-            {/if}
-          </div>
-          {#if enhanceError}<p class="error">{enhanceError}</p>{/if}
-          {#if enhanceResult}
-            <textarea class="resultbox" rows="8" readonly value={enhanceResult}
-            ></textarea>
-            <div class="enhanceactions">
-              <button class="withicon" onclick={useResult}>
-                <CircleCheck size={14} />Use as prompt text
-              </button>
-              <button class="quiet" onclick={() => (enhanceResult = '')}>
-                discard
-              </button>
-            </div>
-          {/if}
-        </div>
+        <EnhancePanel {enhancer} onuse={useResult} />
       </div>
     </div>
   {/snippet}
@@ -743,43 +460,12 @@
   .metagrid textarea {
     align-self: stretch;
   }
-  .modelrow {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .modelrow :global(input) {
-    flex: 1;
-  }
-  .chip.good {
-    color: var(--good);
-    border-color: var(--good);
-  }
   .provenance {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     font-size: 0.8rem;
     margin: 0.6rem 0 0;
-  }
-  .enhanceactions {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    margin-top: 0.7rem;
-  }
-  .enhancestatus {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 0.85rem;
-  }
-  .joblink {
-    font-size: 0.85rem;
-  }
-  .resultbox {
-    margin-top: 0.7rem;
-    font-size: 0.9rem;
   }
   .dirtydot {
     display: inline-block;
@@ -788,11 +474,5 @@
     border-radius: 50%;
     background: var(--warn);
     margin-left: 0.15rem;
-  }
-  .error {
-    color: var(--bad);
-  }
-  .hint {
-    font-size: 0.8rem;
   }
 </style>
