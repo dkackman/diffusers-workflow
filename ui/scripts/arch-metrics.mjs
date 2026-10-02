@@ -44,8 +44,10 @@ export function sourceFiles(root = SRC) {
   const found = []
   for (const name of readdirSync(root)) {
     const path = join(root, name)
-    if (statSync(path).isDirectory()) found.push(...sourceFiles(path))
-    else if (SOURCE_SUFFIXES.has(extname(name)) && !/\.test\.ts$/.test(name))
+    if (statSync(path).isDirectory()) {
+      // Generated from the server's OpenAPI document - measured on the server side
+      if (name !== 'generated') found.push(...sourceFiles(path))
+    } else if (SOURCE_SUFFIXES.has(extname(name)) && !/\.test\.ts$/.test(name))
       found.push(path)
   }
   return found.sort()

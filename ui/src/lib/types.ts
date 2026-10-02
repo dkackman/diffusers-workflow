@@ -1,3 +1,20 @@
+import type { components } from './generated/api-schema'
+
+type Schemas = components['schemas']
+
+// Server responses: generated from the server's response models
+// (dw/server/api_models.py), so a field the server stops sending fails the
+// type check rather than reading undefined at runtime
+export type HealthInfo = Schemas['HealthInfo']
+export type ServerAddress = Schemas['ServerAddress']
+export type ServerInfo = Schemas['ServerInfo']
+export type MemoryInfo = Schemas['MemoryInfo']
+export type ModelRevision = Schemas['ModelRevision']
+export type ModelRepo = Schemas['ModelRepo']
+export type ModelCache = Schemas['ModelCache']
+export type ModelDownload = Schemas['ModelDownload']
+export type DiffusersStatus = Schemas['DiffusersStatus']
+
 export interface JobSummary {
   id: string
   workflow: string
@@ -67,56 +84,6 @@ export interface StepEndEvent extends JobEvent {
   files?: string[]
   subfolder?: string
   reused?: boolean
-}
-
-export interface HealthInfo {
-  status: string
-  version?: string
-  hostname?: string
-  device?: string
-  mcp?: boolean
-  worker_alive: boolean
-  current_job: string | null
-  queued?: number
-}
-
-export interface ServerAddress {
-  address: string
-  family: string
-  interface: string | null
-}
-
-export interface ServerInfo {
-  hostname: string
-  version: string
-  device: string
-  bind_host: string
-  port: number
-  wildcard_bind: boolean
-  auth_required: boolean
-  mcp: { mounted: boolean; path: string }
-  addresses: ServerAddress[]
-  directories: {
-    /** The workspace the folders below are folders of, when the server
-     * resolved one; an individually overridden folder still reports its
-     * own path. */
-    workspace: string | null
-    workflows: string
-    outputs: string
-    prompts: string | null
-    assets: string | null
-  }
-}
-
-export interface MemoryInfo {
-  live: boolean
-  info: {
-    gpu_available?: boolean
-    gpu_device_name?: string
-    gpu_memory_allocated_mb?: number
-    gpu_memory_total_mb?: number
-    run_count?: number
-  } | null
 }
 
 /** What a workflow makes. The server derives it from the definition
@@ -332,51 +299,4 @@ export interface ShadowedEntry {
  * `shadowed_by` names the origin that won. */
 export type ShadowedAsset = Omit<AssetFile, 'url'> & {
   shadowed_by: AssetFile['origin']
-}
-
-export interface ModelRevision {
-  commit_hash: string
-  size_on_disk: number
-  refs: string[]
-  last_modified: number | null
-}
-
-export interface ModelRepo {
-  repo_id: string
-  repo_type: string
-  size_on_disk: number
-  nb_files: number
-  last_accessed: number | null
-  last_modified: number | null
-  revisions: ModelRevision[]
-}
-
-export interface ModelCache {
-  cache_dir: string
-  size_on_disk: number
-  repos: ModelRepo[]
-  warnings: string[]
-  disk_free: number | null
-  disk_total: number | null
-}
-
-export interface ModelDownload {
-  id: string
-  repo_id: string
-  status: 'downloading' | 'completed' | 'cancelled' | 'failed'
-  downloaded: number
-  total: number | null
-  error: string | null
-  started_at: number
-  finished_at: number | null
-}
-
-export interface DiffusersStatus {
-  status: 'idle' | 'running' | 'succeeded' | 'failed'
-  error: string | null
-  log: string | null
-  started_at: number | null
-  finished_at: number | null
-  version: string | null
-  commit: string | null
 }

@@ -15,6 +15,14 @@ const base: ServerInfo = {
   port: 8765,
   wildcard_bind: true,
   auth_required: true,
+  trust_workflows: false,
+  runtime: {
+    python_version: '3.12.0',
+    torch_version: '2.9.0',
+    cuda_version: '12.8',
+    driver_version: null,
+    packages: { diffusers: '0.36.0' },
+  },
   mcp: { mounted: true, path: '/mcp' },
   addresses: [{ address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' }],
   directories: {

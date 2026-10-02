@@ -68,6 +68,13 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: npm ci
+      # The UI's response types are generated from the server's OpenAPI
+      # document (scripts/dump_openapi.py writes it; the backend job's
+      # tests/test_api_contract.py fails when it is stale). A stale
+      # api-schema.ts fails here; a field the UI reads that the server no
+      # longer sends fails the type check below
+      - name: Response contract
+        run: npm run gen:api && git diff --exit-code src/lib/generated
       - name: Format check
         run: npx prettier --check src e2e scripts *.ts *.js
       - name: Lint

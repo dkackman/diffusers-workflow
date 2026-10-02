@@ -5,6 +5,8 @@ import prettier from 'eslint-config-prettier'
 import globals from 'globals'
 
 export default ts.config(
+  // Generated from the server's OpenAPI document (npm run gen:api)
+  { ignores: ['src/lib/generated/**'] },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs['flat/recommended'],

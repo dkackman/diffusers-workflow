@@ -168,6 +168,7 @@ ignore = ["E501"]
 # These import a pytest fixture by name and reuse that name as a test
 # function's parameter (the idiomatic way to share a fixture across
 # modules) - pyflakes/ruff can't tell that from a genuine redefinition.
+"tests/test_api_contract.py" = ["F811"]
 "tests/test_cli.py" = ["F811"]
 "tests/test_jobs_listing.py" = ["F811"]
 "tests/test_server_downloads.py" = ["F811"]
