@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // itself hoisted - sees an initialized mock. Importing the component inside
 // the test instead would charge its (multi-second) compile to the test timeout
 import GalleryPage from './GalleryPage.svelte'
-import ConfirmDialog from '../ConfirmDialog.svelte'
+import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 
@@ -94,6 +94,14 @@ async function renderGallery(first = 'a.png') {
 /** Answers the confirm dialog opened by a delete/replace action - scoped to
  * the dialog itself, since its "Delete" button shares a name with whatever
  * trigger button opened it. */
+// A key press starts at the focused element and bubbles to the document
+// and the window - where an overlay and the page each listen
+function pressEscape() {
+  ;(document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  )
+}
+
 async function answerConfirm(accept: boolean) {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   within(dialog)
@@ -379,7 +387,7 @@ it('leaves the detail open when Escape answers a confirm dialog', async () => {
   screen.getByLabelText('delete this file from the output directory').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  pressEscape()
 
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(

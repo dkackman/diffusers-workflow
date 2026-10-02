@@ -5,5 +5,5 @@
   "import_cycles": 1,
   "modules_in_import_cycles": 2,
   "prefix_literals": 0,
-  "a11y_suppressions": 7
+  "a11y_suppressions": 6
 }

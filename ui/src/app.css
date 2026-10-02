@@ -474,3 +474,40 @@ button.frame:hover {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
 }
+
+/* One stacking scale for everything above the page. Bits renders overlays
+   in a portal on <body>, where a component's scoped styles cannot reach,
+   so their look lives here. */
+:root {
+  --layer-sticky: 10;
+  --layer-drawer: 20;
+  --layer-popover: 30;
+  --layer-modal: 60;
+}
+.ui-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  z-index: var(--layer-modal);
+}
+.ui-sheet {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: min(360px, 92vw);
+  max-width: 440px;
+  z-index: var(--layer-modal);
+}
+.ui-message {
+  margin: 0 0 var(--space-4);
+  white-space: pre-line;
+}
+.ui-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.ui-popover {
+  z-index: var(--layer-popover);
+}

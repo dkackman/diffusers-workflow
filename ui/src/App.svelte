@@ -18,7 +18,7 @@
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
-  import ConfirmDialog from './lib/ConfirmDialog.svelte'
+  import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
