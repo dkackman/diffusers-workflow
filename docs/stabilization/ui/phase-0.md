@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Freeze, if Don confirms it (ROADMAP *Decisions*): no new UI features. Change only what a task names.
+- Freeze (ROADMAP *Decisions*, Don 2026-10-01): no new UI features. Change only what a task names.
 - The only new modules are `ui/scripts/arch-metrics.mjs`, `ui/src/lib/references.ts`, test files and `tests/fixtures/*.json`.
 - Every new test fails on the code before its fix. Run it and see the failure before writing the fix.
 - No count-pinning assertions. Baseline numbers live in `docs/stabilization/ui/baseline.json`, never in a test.
