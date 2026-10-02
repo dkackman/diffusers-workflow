@@ -8,7 +8,11 @@ import type {
   ModelCache,
   ModelDownload,
   JobEvent,
-  JobSummary,
+  JobCancelled,
+  JobExport,
+  JobList,
+  JobMoved,
+  JobWorkflow,
   GalleryFile,
   HealthInfo,
   MemoryInfo,
@@ -183,11 +187,9 @@ export const api = {
     if (status) query.set('status', status)
     if (limit) query.set('limit', String(limit))
     const qs = query.toString()
-    return request<{ jobs: JobSummary[]; total?: number }>(
-      qs ? `/api/jobs?${qs}` : '/api/jobs',
-      undefined,
-      { scope: false },
-    )
+    return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
+      scope: false,
+    })
   },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
@@ -196,14 +198,7 @@ export const api = {
    * submitted. 404s when the job named a workflow file that is no longer
    * readable. */
   getJobWorkflow: (id: string) =>
-    request<{
-      id: string
-      definition: Record<string, any>
-      realized: boolean
-      /** The variable a new-seed rerun would draw into, null when the
-       * workflow has none - the cue for whether to offer that at all. */
-      seed_variable: string | null
-    }>(`/api/jobs/${id}/workflow`),
+    request<JobWorkflow>(`/api/jobs/${id}/workflow`),
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
    * seed variable; without it the arguments repeat exactly, which the step
    * cache serves from the earlier run rather than generating anything. */
@@ -223,7 +218,7 @@ export const api = {
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
-    request<{ id: string; queue: string[] }>(`/api/jobs/${id}/move`, {
+    request<JobMoved>(`/api/jobs/${id}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ direction }),
@@ -236,13 +231,7 @@ export const api = {
    * navigated. 409 (an `ApiError`) when the export exists and `overwrite`
    * was not asked for. */
   exportJob: (id: string, workspace: string, overwrite = false) =>
-    request<{
-      directory: string
-      zip_url: string
-      files: { path: string; bytes: number }[]
-      total_bytes: number
-      missing: string[]
-    }>(
+    request<JobExport>(
       appendQuery(
         scopeTo(`/api/jobs/${id}/export`, workspace),
         'overwrite',
@@ -256,7 +245,7 @@ export const api = {
    * token is added - `withToken` would scope it a second time. */
   exportZipUrl: (zipUrl: string) => addToken(zipUrl),
   cancelJob: (id: string) =>
-    request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
+    request<JobCancelled>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
     }),
   submitJob: (body: {

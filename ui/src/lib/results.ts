@@ -15,7 +15,7 @@ export interface StepGroup {
  * at the end - merged here so the grouping never flattens (the old
  * behavior pooled every file into one bag). */
 export function groupResultFiles(
-  manifest: ManifestEntry[] | undefined,
+  manifest: ManifestEntry[] | null | undefined,
   events: JobEvent[],
 ): StepGroup[] {
   const order: string[] = []
@@ -140,7 +140,7 @@ export function unsavedReason(step: Record<string, any>): UnsavedReason | null {
  * never lists a step it has not reached yet, and a historical job, which
  * has no events at all, reads correctly off the manifest alone. */
 export function unsavedSteps(
-  manifest: ManifestEntry[] | undefined,
+  manifest: ManifestEntry[] | null | undefined,
   events: JobEvent[],
   definition: Record<string, any> | null,
 ): UnsavedStep[] {

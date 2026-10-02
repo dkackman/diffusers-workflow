@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from tests.test_server import (  # noqa: F401
     server,
     success_script,
+    hanging_script,
     valid_workflow,
     wait_for_status,
 )
@@ -109,6 +110,16 @@ UI_READ_ROUTES = [
     ("delete", "/api/models"),
     ("get", "/api/system/diffusers"),
     ("post", "/api/system/diffusers/update"),
+    ("get", "/api/jobs"),
+    ("post", "/api/jobs"),
+    ("get", "/api/jobs/{job_id}"),
+    ("delete", "/api/jobs/{job_id}/run"),
+    ("get", "/api/jobs/{job_id}/workflow"),
+    ("post", "/api/jobs/{job_id}/rerun"),
+    ("post", "/api/jobs/{job_id}/export"),
+    ("post", "/api/jobs/{job_id}/move"),
+    ("post", "/api/jobs/{job_id}/cancel"),
+    ("post", "/api/enhance"),
 ]
 
 
@@ -219,3 +230,62 @@ def test_a_key_the_worker_did_not_report_stays_absent(server):
         wait_for_status(client, job["id"], ["succeeded"])
         body = client.get("/api/memory").json()
     assert body["info"] == {"gpu_available": True}
+
+
+def test_a_job_recorded_before_run_tracking_still_lists_and_opens(tmp_path):
+    # A history row from an older server: only id and status were written,
+    # so workflow and created_at are null and the newer columns are absent
+    import sqlite3
+
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from tests.test_server import ScriptedWorkerManager
+
+    path = str(tmp_path / "old.sqlite")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+            " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+            " spec TEXT, manifest TEXT, warnings TEXT, error TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, status) VALUES ('old-1', 'succeeded')"
+        )
+    (tmp_path / "workflows").mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=path,
+    )
+    app = create_app(
+        workflow_dir=str(tmp_path / "workflows"),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        listing = client.get("/api/jobs")
+        detail = client.get("/api/jobs/old-1")
+    assert listing.status_code == 200, listing.text
+    [row] = listing.json()["jobs"]
+    assert row["workflow"] is None and row["historical"] is True
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["run_id"] is None and body["manifest"] == []
+    assert "progress" not in body and "queue_position" not in body
+
+
+def test_live_and_historical_jobs_keep_their_own_keys(server):
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, running["id"], ["running"])
+        queued = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        live = client.get(f"/api/jobs/{running['id']}").json()
+        listed = {job["id"]: job for job in client.get("/api/jobs").json()["jobs"]}
+        client.post(f"/api/jobs/{queued['id']}/cancel")
+        client.post(f"/api/jobs/{running['id']}/cancel")
+    assert type(queued["queue_position"]) is int
+    assert type(listed[queued["id"]]["queue_position"]) is int
+    # a live job has progress and no history-only keys
+    assert "progress" in live
+    assert "spec" not in live and "historical" not in live
+    assert "queue_position" not in live

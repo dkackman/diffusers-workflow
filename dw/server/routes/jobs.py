@@ -17,6 +17,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    JobCancelled,
+    JobDetail,
+    JobExport,
+    JobList,
+    JobMoved,
+    JobWorkflow,
+    RunDeleted,
+)
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
@@ -91,7 +100,12 @@ def _historical_log_note(stored):
     return None
 
 
-@router.post("/api/jobs", status_code=201)
+@router.post(
+    "/api/jobs",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def submit_job(
     http_request: Request,
     request: JobRequest,
@@ -180,7 +194,7 @@ def submit_job(
         raise internal_error("Job submission failed after admission")
 
 
-@router.get("/api/jobs")
+@router.get("/api/jobs", response_model=JobList, response_model_exclude_unset=True)
 def list_jobs(
     request: Request,
     workspace: Optional[str] = None,
@@ -225,7 +239,9 @@ def list_jobs(
     return {"jobs": jobs, "total": total}
 
 
-@router.get("/api/jobs/{job_id}")
+@router.get(
+    "/api/jobs/{job_id}", response_model=JobDetail, response_model_exclude_unset=True
+)
 def get_job(request: Request, job_id: str):
     manager = request.app.state.job_manager
     job = manager.get(job_id)
@@ -236,7 +252,11 @@ def get_job(request: Request, job_id: str):
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
-@router.delete("/api/jobs/{job_id}/run")
+@router.delete(
+    "/api/jobs/{job_id}/run",
+    response_model=RunDeleted,
+    response_model_exclude_unset=True,
+)
 def delete_job_run(request: Request, job_id: str):
     """Delete the run directory a job wrote, whole - the run a job id
     names, without the caller listing the gallery to find it. The job
@@ -280,7 +300,11 @@ def delete_job_run(request: Request, job_id: str):
     }
 
 
-@router.get("/api/jobs/{job_id}/workflow")
+@router.get(
+    "/api/jobs/{job_id}/workflow",
+    response_model=JobWorkflow,
+    response_model_exclude_unset=True,
+)
 def get_job_workflow(request: Request, job_id: str):
     """The workflow this job ran, for the read-only graph on the job page
     and for `get_job_workflow` over MCP.
@@ -320,7 +344,12 @@ class RerunRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
-@router.post("/api/jobs/{job_id}/rerun", status_code=201)
+@router.post(
+    "/api/jobs/{job_id}/rerun",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()):
     """Queue a fresh job from a previous job's stored spec, admitted as
     a new submission would be - a reference that resolved when the
@@ -381,7 +410,12 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         raise internal_error("Job rerun failed after admission")
 
 
-@router.post("/api/jobs/{job_id}/export", status_code=201)
+@router.post(
+    "/api/jobs/{job_id}/export",
+    status_code=201,
+    response_model=JobExport,
+    response_model_exclude_unset=True,
+)
 def export_job_route(
     request: Request,
     job_id: str,
@@ -442,7 +476,11 @@ class MoveRequest(BaseModel):
     direction: str = Field(description="up, down, front, or back")
 
 
-@router.post("/api/jobs/{job_id}/move")
+@router.post(
+    "/api/jobs/{job_id}/move",
+    response_model=JobMoved,
+    response_model_exclude_unset=True,
+)
 def move_job(request: Request, job_id: str, body: MoveRequest):
     """Reorder a queued job. 409 once it is running or finished -
     only the waiting portion of the queue can be rearranged."""
@@ -460,7 +498,11 @@ def move_job(request: Request, job_id: str, body: MoveRequest):
     return {"id": job_id, "queue": order}
 
 
-@router.post("/api/jobs/{job_id}/cancel")
+@router.post(
+    "/api/jobs/{job_id}/cancel",
+    response_model=JobCancelled,
+    response_model_exclude_unset=True,
+)
 def cancel_job(request: Request, job_id: str):
     manager = request.app.state.job_manager
     status = manager.cancel(job_id)

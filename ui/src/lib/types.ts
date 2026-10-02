@@ -14,61 +14,17 @@ export type ModelRepo = Schemas['ModelRepo']
 export type ModelCache = Schemas['ModelCache']
 export type ModelDownload = Schemas['ModelDownload']
 export type DiffusersStatus = Schemas['DiffusersStatus']
-
-export interface JobSummary {
-  id: string
-  workflow: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-  created_at: number
-  started_at: number | null
-  finished_at: number | null
-  historical?: boolean
-  queue_position?: number
-  /** The workspace this job ran in - 'default' for the default one. */
-  workspace: string
-  /** Which form of cost acknowledgement queued the job: none (the web UI
-   * and any caller that sent nothing), a bare boolean, or one bound to the
-   * plan a validate answered with. Absent on rows from older servers. */
-  acknowledged?: 'none' | 'boolean' | 'bound'
-  /** The run this job opened - null until it opens one, and for a job
-   * recorded before runs were tracked. */
-  run_id?: string | null
-  /** That run's ordinal among the workflow's runs - the `v4` the gallery
-   * shows for its files. Null until the run opens, and for older rows. */
-  run_version?: number | null
-}
-
-export interface ManifestEntry {
-  step: string
-  files: string[]
-  /** The step was served from the step cache: these files are an earlier
-   * run's, republished, and nothing was generated for them this time. */
-  reused?: boolean
-  /** The in-run subfolder the step's `result.subfolder` chose - `final`,
-   * `intermediate`, any relative path - `''` when it chose none. Absent
-   * only on a job recorded before the field existed. */
-  subfolder?: string
-}
-
-export interface JobDetail extends JobSummary {
-  arguments: Record<string, unknown>
-  warnings: string[]
-  manifest: ManifestEntry[]
-  /** Each output file's kind, from the server's MEDIA_KINDS; null for a
-   * kind the gallery does not show. */
-  output_kinds?: Record<string, 'image' | 'video' | 'audio' | 'text' | null>
-  error: string | null
-  traceback: string | null
-  event_count: number
-  /** The plan the caller bound its acknowledgement to, when it did. */
-  acknowledged_cost?: AcknowledgedCost | null
-}
-
-export interface AcknowledgedCost {
-  fingerprint: string
-  minutes?: number | null
-  downloads?: string[]
-}
+export type JobSummary = Schemas['JobSummary']
+export type ManifestEntry = Schemas['ManifestEntry']
+export type JobDetail = Schemas['JobDetail']
+export type AcknowledgedCost = Schemas['AcknowledgedCost']
+export type JobProgress = Schemas['JobProgress']
+export type JobList = Schemas['JobList']
+export type JobWorkflow = Schemas['JobWorkflow']
+export type JobExport = Schemas['JobExport']
+export type JobMoved = Schemas['JobMoved']
+export type JobCancelled = Schemas['JobCancelled']
+export type RunDeleted = Schemas['RunDeleted']
 
 export interface JobEvent {
   seq: number

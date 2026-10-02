@@ -15,15 +15,25 @@ not emit stays absent rather than arriving as null.
 
 import os
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .admission import AcknowledgedCost
 
 STRICT = os.environ.get("DW_STRICT_RESPONSES") == "1"
 
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid" if STRICT else "allow")
+
+
+def sometimes(description: str | None = None) -> Any:
+    """A key the handler emits only in some states, and never as null when
+    it does: typed as its value, defaulting to an unvalidated None that
+    `response_model_exclude_unset` keeps out of the payload. The generated
+    type is then `key?: T`, not `key?: T | null`."""
+    return Field(default=None, description=description)
 
 
 # ----------------------------------------------------------------- system
@@ -102,13 +112,13 @@ class MemoryDetail(ApiModel):
 
     model_config = ConfigDict(extra="allow")
 
-    run_count: int | None = None
-    gpu_available: bool | None = None
+    run_count: int = sometimes()
+    gpu_available: bool = sometimes()
     gpu_device_name: str | None = None
-    gpu_memory_allocated_mb: int | float | None = None
-    gpu_memory_reserved_mb: int | float | None = None
-    gpu_memory_free_mb: int | float | None = None
-    gpu_memory_total_mb: int | float | None = None
+    gpu_memory_allocated_mb: int | float = sometimes()
+    gpu_memory_reserved_mb: int | float = sometimes()
+    gpu_memory_free_mb: int | float = sometimes()
+    gpu_memory_total_mb: int | float = sometimes()
 
 
 class MemoryInfo(ApiModel):
@@ -191,3 +201,156 @@ class DiffusersStatus(ApiModel):
     )
     version: str | None
     commit: str | None
+
+
+# ------------------------------------------------------------------- jobs
+
+JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+OutputKind = Literal["image", "video", "audio", "text"]
+
+
+class JobSummary(ApiModel):
+    id: str
+    workflow: str | None = Field(
+        description="Null only on a row recorded before the workflow was stored."
+    )
+    workflow_name: str | None = Field(description="The catalog name it was run by.")
+    status: JobStatus
+    created_at: int | float | None
+    started_at: int | float | None
+    finished_at: int | float | None
+    workspace: str = Field(
+        description="The workspace this job ran in - 'default' for the default one."
+    )
+    run_id: str | None = Field(
+        description="The run this job opened - null until it opens one, and for a "
+        "job recorded before runs were tracked."
+    )
+    run_version: int | None = Field(
+        description="That run's ordinal among the workflow's runs - the `v4` the "
+        "gallery shows for its files. Null until the run opens, and for older rows."
+    )
+    acknowledged: Literal["none", "boolean", "bound"] = Field(
+        description="Which form of cost acknowledgement queued the job: none (the "
+        "web UI and any caller that sent nothing), a bare boolean, or one bound to "
+        "the plan a validate answered with."
+    )
+    historical: bool = sometimes("Read from job history rather than a live job.")
+    queue_position: int = sometimes("Index in the waiting queue; only while queued.")
+
+
+class ManifestEntry(ApiModel):
+    """One step's saved files. Open even in strict mode: the worker adds
+    per-step detail (`selected`, `shots`, ...) the UI does not read."""
+
+    model_config = ConfigDict(extra="allow")
+
+    step: str
+    files: list[str]
+    subfolder: str = sometimes(
+        "The in-run subfolder the step's `result.subfolder` chose - "
+        "`final`, `intermediate`, any relative path - `''` when it chose none. "
+        "Absent only on a job recorded before the field existed."
+    )
+    reused: bool = sometimes(
+        "The step was served from the step cache: these files are an "
+        "earlier run's, republished, and nothing was generated for them this time."
+    )
+    parent_step: str = sometimes("The composing step a rolled-up entry came from.")
+
+
+class JobProgress(ApiModel):
+    step: str | None
+    parent_step: str | None = Field(
+        description="The step of the queued workflow the one above is running "
+        "inside, for a composed run; null when they are the same thing."
+    )
+    step_index: int | None
+    total_steps: int | None
+    phase: str | None
+    phase_detail: Any
+    seconds_in_phase: int | float | None
+    seconds_since_event: int | float
+    denoise_step: int | None = Field(
+        description="Null until the denoise loop starts; a number that stops moving "
+        "is a stuck one."
+    )
+    denoise_total_steps: int | None
+
+
+class JobDetail(JobSummary):
+    arguments: dict[str, Any]
+    warnings: list[str]
+    manifest: list[ManifestEntry] | None = Field(
+        description="Null on a history row recorded before manifests, or by a run "
+        "that wrote none."
+    )
+    error: str | None
+    traceback: str | None
+    event_count: int
+    run_dir: str | None
+    acknowledged_cost: AcknowledgedCost | None = Field(
+        description="The plan the caller bound its acknowledgement to, when it did."
+    )
+    progress: JobProgress | None = Field(
+        default=None,
+        description="Where a running (or failed) job had got to; live jobs only.",
+    )
+    spec: dict[str, Any] = sometimes("The submitted spec; history rows only.")
+    output_kinds: dict[str, OutputKind | None] = sometimes(
+        "Each output file's kind; null for a kind the gallery does not "
+        "show. On GET /api/jobs/{id} only."
+    )
+
+
+class JobList(ApiModel):
+    jobs: list[JobSummary] = Field(description="Oldest first.")
+    total: int = Field(description="How many matched before `limit` cut the list.")
+
+
+class RunDeleted(ApiModel):
+    job_id: str
+    run_dir: str
+    deleted: bool
+    run_swept: str = Field(description="The deleted run's directory name.")
+
+
+class JobWorkflow(ApiModel):
+    id: str
+    definition: dict[str, Any]
+    realized: bool = Field(
+        description="Every mutable input is pinned - the copy the run itself wrote."
+    )
+    seed_variable: str | None = Field(
+        description="The variable a new-seed rerun would draw into, null when the "
+        "workflow has none - the cue for whether to offer that at all."
+    )
+
+
+class ExportedFile(ApiModel):
+    path: str
+    bytes: int
+
+
+class JobExport(ApiModel):
+    job_id: str
+    directory: str
+    files: list[ExportedFile]
+    total_bytes: int
+    missing: list[str]
+    zip_url: str
+    absolute_zip_url: str = sometimes()
+    auth_required: bool
+    workflow: Any = Field(description="workflow.json as exported; null if unreadable.")
+    manifest: Any = Field(description="manifest.json as exported; null if unreadable.")
+    job: Any = Field(description="job.json as exported; null if unreadable.")
+
+
+class JobMoved(ApiModel):
+    id: str
+    queue: list[str]
+
+
+class JobCancelled(ApiModel):
+    id: str
+    status: JobStatus
