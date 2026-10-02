@@ -5,16 +5,8 @@
   // meant guessing a name - and nothing showed which names a `common` or an
   // examples library was shadowing. The UX is the gallery's on purpose:
   // folder groups, a contact-sheet grid, a detail popout.
-  import {
-    ChevronDown,
-    ChevronRight,
-    FolderOpen,
-    Trash2,
-    Upload,
-    X,
-  } from '@lucide/svelte'
+  import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import CopyButton from '../CopyButton.svelte'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import HintBar from '../HintBar.svelte'
@@ -26,8 +18,9 @@
   import { storageGet, storageSet } from '../storage'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { formatBytes, formatMtime } from '../format'
   import { leafName } from '../names'
+  import AssetDetail from '../assets/AssetDetail.svelte'
+  import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'
 
   type Origin = AssetFile['origin']
@@ -307,46 +300,14 @@
 />
 
 {#each sections as section (section.origin)}
-  <div class="libraryrow">
-    <button
-      class="library"
-      onclick={() => toggleLibrary(section.origin)}
-      title={isOpen(section.origin)
-        ? 'collapse this library'
-        : 'expand this library'}
-    >
-      {#if isOpen(section.origin)}<ChevronDown size={15} />{:else}<ChevronRight
-          size={15}
-        />{/if}
-      {section.label}
-      <span class="muted">({section.assets.length})</span>
-    </button>
-    <span class="path muted">{section.root}</span>
-    <span class="flex"></span>
-    {#if !section.writable}
-      <span class="muted" title="read-only: this server cannot write to it"
-        >read-only</span
-      >
-    {:else if section.origin === 'common'}
-      <button
-        class="withicon"
-        class:quiet={!shared}
-        onclick={() => startUpload('shared')}
-        disabled={busy}
-        title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"
-      >
-        <Upload size={14} />Upload to shared
-      </button>
-    {:else if section.origin === 'workspace'}
-      <button
-        class="withicon"
-        onclick={() => startUpload('workspace')}
-        disabled={busy}
-      >
-        <Upload size={14} />Upload
-      </button>
-    {/if}
-  </div>
+  <LibraryRow
+    {section}
+    open={isOpen(section.origin)}
+    {shared}
+    {busy}
+    ontoggle={() => toggleLibrary(section.origin)}
+    onupload={startUpload}
+  />
 
   {#if isOpen(section.origin)}
     <FolderGroups
@@ -405,96 +366,18 @@
 {/if}
 
 {#if selected}
-  <div class="detail panel">
-    <div class="bar">
-      <strong class="selname">{selected.reference}</strong>
-      <CopyButton
-        text={selected.reference}
-        title="copy the reference a workflow argument carries"
-      />
-      <span class="flex"></span>
-      <a
-        href={selected.url}
-        target="_blank"
-        class="muted"
-        title="open the file itself in a new tab">open file</a
-      >
-      <span class="num muted"
-        >{selected.kind} · {formatBytes(selected.size)} · {formatMtime(
-          selected.mtime,
-        )}</span
-      >
-      {#if selected.origin === 'examples'}
-        <span class="muted" title="read-only: an examples library brought it"
-          >read-only</span
-        >
-      {:else}
-        <button
-          class="quiet icon danger"
-          onclick={() => selected && remove(selected)}
-          disabled={busy}
-          title="delete this asset from the library"
-          aria-label="delete this asset from the library"
-        >
-          <Trash2 size={14} />
-        </button>
-      {/if}
-      <span class="flex"></span>
-      <button
-        class="quiet icon"
-        onclick={() => (selected = null)}
-        title="close details"
-        aria-label="close details"><X size={14} /></button
-      >
-    </div>
-    <div class="body">
-      {#if selected.kind === 'image'}
-        <img src={selected.url} alt={selected.name} />
-      {:else if selected.kind === 'video'}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video src={selected.url} controls loop></video>
-      {:else}
-        <audio src={selected.url} controls></audio>
-      {/if}
-    </div>
-  </div>
+  <AssetDetail
+    asset={selected}
+    {busy}
+    onremove={remove}
+    onclose={() => (selected = null)}
+  />
 {/if}
 
 <style>
   .pagehead .filter {
     max-width: 220px;
     margin-left: auto;
-  }
-  /* A library section header: the label, the count, the root it reads,
-     and the one action that library offers */
-  .libraryrow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin: 1.6rem 0 var(--space-2);
-    padding-bottom: 0.3rem;
-    border-bottom: 1px solid var(--line);
-  }
-  /* A library is a heavier folder heading: the same mono name the engine
-     resolves, ink rather than muted, because it is the page's top level */
-  .library {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-md);
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .library:hover {
-    filter: none;
-    color: var(--accent);
   }
   .hiddenfile {
     display: none;
@@ -555,44 +438,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  /* The gallery's popout: it rides the bottom of the viewport while the
-     grid scrolls behind it. Sitting at the end of the document instead
-     would put it off screen for any click above the fold */
-  .detail {
-    position: sticky;
-    bottom: 1rem;
-    z-index: 2;
-    margin-top: var(--space-4);
-    padding: 0.6rem 0.8rem;
-    box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
-  }
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .selname {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    word-break: break-all;
-  }
-  .body {
-    margin-top: 0.6rem;
-  }
-  .body img,
-  .body video {
-    max-width: 100%;
-    max-height: 60vh;
-    border-radius: var(--radius-frame);
-    background: var(--sunk);
-  }
-  .body audio {
-    width: 100%;
-  }
-  .path {
-    font-family: var(--font-mono);
-    word-break: break-all;
   }
 </style>
