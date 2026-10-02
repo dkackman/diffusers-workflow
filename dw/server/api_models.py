@@ -13,6 +13,7 @@ Routes declare `response_model_exclude_unset=True`: a key the handler did
 not emit stays absent rather than arriving as null.
 """
 
+import logging
 import os
 
 from typing import Any, Literal
@@ -23,9 +24,37 @@ from .admission import AcknowledgedCost
 
 STRICT = os.environ.get("DW_STRICT_RESPONSES") == "1"
 
+logger = logging.getLogger(__name__)
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid" if STRICT else "allow")
+
+
+def send_rejected_responses(app) -> None:
+    """Make runtime leniency cover a declared field of the wrong type too,
+    not just an undeclared key: the response is logged and sent as the
+    handler built it, with the route's own status. Some routes have acted
+    by then - POST /api/jobs has queued the job - and a 500 would invite a
+    retry that does it twice. Installed by create_app outside strict mode."""
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.exceptions import ResponseValidationError
+    from fastapi.responses import JSONResponse
+
+    async def send_as_built(request, exc: ResponseValidationError):
+        route = request.scope.get("route")
+        logger.error(
+            "Response for %s %s does not match its model: %s",
+            request.method,
+            request.url.path,
+            exc.errors(),
+        )
+        return JSONResponse(
+            jsonable_encoder(exc.body),
+            status_code=getattr(route, "status_code", None) or 200,
+        )
+
+    app.add_exception_handler(ResponseValidationError, send_as_built)
 
 
 def sometimes(description: str | None = None) -> Any:
@@ -379,7 +408,9 @@ class RequiredDownload(ApiModel):
     repo: str | None
     url: str = sometimes("A from_single_file URL, which has no repo.")
     gb: int | float | None
-    gated: bool | None
+    gated: bool | Literal["auto", "manual"] | None = Field(
+        description="The hub's own `gated` field: false, or how access is granted."
+    )
     access_blocked: bool | None
 
 

@@ -2004,9 +2004,17 @@
                 "type": "boolean"
               },
               {
+                "enum": [
+                  "auto",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
+            "description": "The hub's own `gated` field: false, or how access is granted.",
             "title": "Gated"
           },
           "gb": {

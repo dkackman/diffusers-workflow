@@ -2289,8 +2289,11 @@ export interface components {
         RequiredDownload: {
             /** Access Blocked */
             access_blocked: boolean | null;
-            /** Gated */
-            gated: boolean | null;
+            /**
+             * Gated
+             * @description The hub's own `gated` field: false, or how access is granted.
+             */
+            gated: boolean | ("auto" | "manual") | null;
             /** Gb */
             gb: number | null;
             /** Repo */

@@ -308,3 +308,69 @@ def test_validation_answers_keep_their_keys(server):
     assert {"minutes", "basis", "device", "partial", "unpriced"} <= set(
         valid["plan"]["estimate"]
     )
+
+
+def test_validate_answers_for_an_uncached_gated_model(server, monkeypatch):
+    # model_info's own `gated` is False, "auto" or "manual" - a gated repo
+    # the cache does not hold must still get a plan, not a 500
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(dw.plan, "_model_info", lambda name: (31.4, "manual", False))
+    with server(success_script) as client:
+        response = client.post("/api/validate", json={"workflow": valid_workflow()})
+    assert response.status_code == 200, response.text
+    downloads = response.json()["plan"]["downloads_required"]
+    assert downloads and downloads[0]["gated"] == "manual"
+
+
+def test_runtime_sends_a_response_its_model_rejects_rather_than_a_500():
+    # Lenient means lenient: a declared field holding a type the model does
+    # not expect is logged and sent as the handler built it - on POST
+    # /api/jobs the job is already queued by then, and a 500 would invite a
+    # retry that queues it twice
+    from dw.server.api_models import ApiModel, send_rejected_responses
+
+    class Probe(ApiModel):
+        x: int
+
+    app = FastAPI()
+    send_rejected_responses(app)
+
+    @app.post(
+        "/p", status_code=201, response_model=Probe, response_model_exclude_unset=True
+    )
+    def p():
+        return {"x": "not an int"}
+
+    response = TestClient(app).post("/p")
+    assert response.status_code == 201
+    assert response.json() == {"x": "not an int"}
+
+
+def test_the_app_is_lenient_only_outside_strict_mode():
+    code = (
+        "from fastapi.exceptions import ResponseValidationError\n"
+        "import tempfile, os\n"
+        "t = tempfile.mkdtemp(); os.environ['DIFFUSERS_HELPER_ROOT'] = t\n"
+        "from dw.server.app import create_app\n"
+        "app = create_app(workflow_dir=t + '/w', output_dir=t + '/o', prompt_dir=t + '/p')\n"
+        "print(ResponseValidationError in app.exception_handlers)\n"
+        "app.state.job_manager.shutdown()\n"
+    )
+
+    def handled(strict):
+        env = {k: v for k, v in os.environ.items() if k != "DW_STRICT_RESPONSES"}
+        if strict:
+            env["DW_STRICT_RESPONSES"] = "1"
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert handled(strict=False) == "True"
+    assert handled(strict=True) == "False"

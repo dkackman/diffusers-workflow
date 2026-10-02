@@ -17,6 +17,7 @@ from starlette.routing import Route
 
 from ..hub_cache import DownloadManager
 from ..workspace import ConfiguredWorkspace, Workspace
+from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
 from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
@@ -204,6 +205,8 @@ def create_app(
         "stream its progress, fetch what it saved.",
         lifespan=_lifespan(manager, mcp_server, mcp_client),
     )
+    if not api_models.STRICT:
+        api_models.send_rejected_responses(app)
     _store_directories(
         app.state,
         manager,
