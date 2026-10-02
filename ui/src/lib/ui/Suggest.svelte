@@ -31,6 +31,12 @@
 
   let open = $state(false)
   const shown = $derived(matching(value ?? ''))
+  // Bits is a select: it keeps the row it last took, so taking that row
+  // again would deselect it, and it takes its highlighted row on Enter.
+  // Here a suggestion is an offer - each pick is fresh, and Enter takes a
+  // row only when the user arrowed to it; otherwise the typed text stands
+  let picked = $state('')
+  let navigated = false
 </script>
 
 <!-- Free text with suggestions, as a <datalist> offered: what is typed is
@@ -39,9 +45,11 @@
 <Combobox.Root
   type="single"
   bind:open
+  bind:value={picked}
   inputValue={value ?? ''}
   onValueChange={(chosen) => {
     if (!chosen) return
+    picked = ''
     value = chosen
     onchange?.(chosen)
   }}
@@ -51,8 +59,19 @@
     autocomplete="off"
     oninput={(e) => {
       value = e.currentTarget.value
+      navigated = false
       oninput?.(value)
       open = matching(value).length > 0
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') navigated = true
+      else if (e.key === 'Enter' && (!navigated || e.ctrlKey || e.metaKey)) {
+        // Prevented here, Bits' own Enter handling is skipped; Ctrl/Cmd+Enter
+        // (validate & run) still reaches the page, with the typed text
+        e.preventDefault()
+        open = false
+        onchange?.(e.currentTarget.value)
+      }
     }}
     onchange={(e) => onchange?.(e.currentTarget.value)}
   />

@@ -71,3 +71,57 @@ it('keeps its id, so a label names it', () => {
     'FluxPipeline',
   )
 })
+
+it('keeps typed text that a suggestion contains when Enter is pressed', async () => {
+  const onchange = vi.fn()
+  render(Suggest, {
+    props: { id: 'cls', value: '', suggestions: ['variable:prompt'], onchange },
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'prompt' } })
+  await fireEvent.keyDown(input, { key: 'Enter' })
+  expect(input.value).toBe('prompt')
+  expect(onchange).not.toHaveBeenCalledWith('variable:prompt')
+})
+
+it('keeps typed text on Ctrl+Enter (validate & run), even after arrowing', async () => {
+  render(Suggest, {
+    props: { id: 'cls', value: '', suggestions: ['variable:prompt'] },
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'prompt' } })
+  await fireEvent.keyDown(input, { key: 'ArrowDown' })
+  await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+  expect(input.value).toBe('prompt')
+})
+
+it('takes the suggestion arrowed to on Enter', async () => {
+  const onchange = vi.fn()
+  render(Suggest, { props: { id: 'cls', value: '', suggestions, onchange } })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'Pipeline' } })
+  await fireEvent.keyDown(input, { key: 'ArrowDown' })
+  await fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(suggestions).toContain(input.value))
+  expect(onchange).toHaveBeenLastCalledWith(input.value)
+})
+
+it('takes the same suggestion again after the text was edited', async () => {
+  const onchange = vi.fn()
+  render(Suggest, { props: { id: 'cls', value: '', suggestions, onchange } })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  const pick = async () => {
+    const option = await waitFor(() =>
+      screen.getByRole('option', { name: 'FluxPipeline', hidden: true }),
+    )
+    await fireEvent.pointerUp(option)
+    await fireEvent.click(option)
+  }
+  await fireEvent.input(input, { target: { value: 'Flux' } })
+  await pick()
+  await waitFor(() => expect(input.value).toBe('FluxPipeline'))
+  await fireEvent.input(input, { target: { value: 'Flu' } })
+  await pick()
+  await waitFor(() => expect(input.value).toBe('FluxPipeline'))
+  expect(onchange).toHaveBeenCalledTimes(2)
+})
