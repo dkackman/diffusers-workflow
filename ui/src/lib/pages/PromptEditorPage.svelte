@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
   import { PROMPT, reference } from '../references'
   import {
@@ -459,14 +460,6 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<datalist id="intended-models">
-  {#each intendedModels as model (model)}<option value={model}></option>{/each}
-</datalist>
-<datalist id="enhancer-models">
-  {#each preset?.models ?? [] as model (model)}<option value={model}
-    ></option>{/each}
-</datalist>
-
 <div class="head">
   <a href={sharedHref('prompts')} class="muted">← prompts</a>
   <h1>{name || 'New prompt'}</h1>
@@ -606,13 +599,13 @@
               onchange={(e) => setField('description', e.currentTarget.value)}
             />
             <label for="prompt-model">intended model</label>
-            <input
+            <Suggest
               id="prompt-model"
-              list="intended-models"
+              suggestions={intendedModels}
               value={doc.intended_model ?? ''}
               placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
-              onchange={(e) => {
-                setField('intended_model', e.currentTarget.value)
+              onchange={(value) => {
+                setField('intended_model', value)
                 preselect()
               }}
             />
@@ -656,9 +649,9 @@
             </select>
             <label for="enhance-model">model</label>
             <span class="modelrow">
-              <input
+              <Suggest
                 id="enhance-model"
-                list="enhancer-models"
+                suggestions={preset?.models ?? []}
                 bind:value={enhanceModel}
                 placeholder="Hugging Face repo id"
               />
@@ -867,7 +860,7 @@
     align-items: center;
     gap: 0.4rem;
   }
-  .modelrow input {
+  .modelrow :global(input) {
     flex: 1;
   }
   .chip.good {

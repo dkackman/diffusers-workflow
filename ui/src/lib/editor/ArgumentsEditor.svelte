@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
   import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
@@ -22,13 +23,13 @@
     componentType,
     target = 'call',
     hide = [],
-    listId = undefined,
+    suggestions = [],
   }: {
     args: Record<string, unknown>
     componentType: string
     target?: 'call' | 'init' | 'load' | 'task'
     hide?: string[]
-    listId?: string
+    suggestions?: readonly string[]
   } = $props()
 
   // Element ids are per instance: two steps both taking 'prompt' would
@@ -126,7 +127,7 @@
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else if widget === 'textarea'}
           <!-- A reference is never a textarea: widgetFor routes it to the
-               input branch below, which carries the datalist and tooltip.
+               input branch below, which carries the suggestions and tooltip.
                Prose fields collapse to one line until asked to be a
                document; the picker can swap in a stored prompt. -->
           <ExpandingText
@@ -139,14 +140,13 @@
             }}
           />
         {:else}
-          <input
+          <Suggest
             id={`${uid}-${key}`}
-            class:ref={isReference(args[key])}
-            list={listId}
-            autocomplete="off"
+            class={isReference(args[key]) ? 'ref' : ''}
+            {suggestions}
             title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key])}
-            onchange={(e) => update(key, e.currentTarget.value)}
+            onchange={(value) => update(key, value)}
           />
         {/if}
         {#if parameter?.description}

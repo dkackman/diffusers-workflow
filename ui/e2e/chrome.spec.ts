@@ -68,7 +68,7 @@ test('the shortcuts overlay traps focus and returns it to the trigger', async ({
   await expect(trigger).toBeFocused()
 })
 
-test('the status popover traps focus and returns it to its trigger button', async ({
+test('the status popover takes focus and returns it to its trigger button', async ({
   page,
 }) => {
   await page.goto('/')
@@ -76,16 +76,11 @@ test('the status popover traps focus and returns it to its trigger button', asyn
   await trigger.click()
   const pop = page.getByRole('dialog', { name: 'server status' })
   await expect(pop).toBeVisible()
-  // focus moved into the popover, not left on the trigger button - the
-  // idle fixture has no current job, so the popover has no focusable
-  // content of its own and the dialog panel itself takes focus
+  // A non-modal popover: focus moves into it (the idle fixture has nothing
+  // focusable inside, so the panel itself takes it), it claims no
+  // aria-modal, and the page behind it stays reachable
   await expect(pop).toBeFocused()
-  // Tab has nothing to cycle to inside the popover, so it must not escape
-  // to the page behind it - focus stays trapped on the dialog panel
-  await page.keyboard.press('Tab')
-  await expect(pop).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(pop).toBeFocused()
+  await expect(pop).not.toHaveAttribute('aria-modal', 'true')
   await page.keyboard.press('Escape')
   await expect(pop).toHaveCount(0)
   // closing returns focus to the button that opened it
@@ -142,4 +137,33 @@ test('the status area opens a detail popover', async ({ page }) => {
   await expect(pop).toBeVisible()
   await page.locator('main').click()
   await expect(pop).toHaveCount(0)
+  // the trigger toggles: a second click closes it rather than reopening it
+  const trigger = page.getByRole('button', { name: 'server & worker status' })
+  await trigger.click()
+  await expect(pop).toBeVisible()
+  await trigger.click()
+  await expect(pop).toHaveCount(0)
+})
+
+test('a class field suggests as you type, and keeps text it does not list', async ({
+  page,
+}) => {
+  await page.goto('/#/edit')
+  const field = page.getByLabel('pipeline').first()
+  await field.fill('')
+  await field.pressSequentially('Pipeline')
+  const list = page.getByRole('listbox')
+  await expect(list).toBeVisible()
+  const first = list.getByRole('option').first()
+  const chosen = (await first.textContent())?.trim() ?? ''
+  await first.click()
+  await expect(field).toHaveValue(chosen)
+  await expect(list).toHaveCount(0)
+
+  // a class the server does not list is still a value
+  await field.fill('')
+  await field.pressSequentially('MyOwnPipelineXyz')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await field.press('Tab')
+  await expect(field).toHaveValue('MyOwnPipelineXyz')
 })

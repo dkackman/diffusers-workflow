@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { Picks, actOnEach, dialogOpen } from './picks.svelte'
+import { Picks, actOnEach } from './picks.svelte'
 
 const picksOver = (...names: string[]) => new Picks(() => names)
 
@@ -131,20 +131,6 @@ it('runs one act per name in order and collects the failures', async () => {
 
   expect(seen).toEqual(['a', 'b', 'c'])
   expect(failed).toEqual(['b'])
-})
-
-it('sees the confirm dialog Escape belongs to', () => {
-  expect(dialogOpen()).toBe(false)
-
-  // ConfirmDialog renders alertdialog, not dialog - the distinction the two
-  // copies of this check had already drifted over
-  const sheet = document.createElement('div')
-  sheet.setAttribute('role', 'alertdialog')
-  document.body.append(sheet)
-  expect(dialogOpen()).toBe(true)
-
-  sheet.remove()
-  expect(dialogOpen()).toBe(false)
 })
 
 it('does not hold the grid order it was built with', () => {

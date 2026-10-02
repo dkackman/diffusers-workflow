@@ -1,11 +1,14 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
+  import { editorLists } from '../editorLists.svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import { QUANT_PRESETS } from '../editor'
 
   let {
     component = $bindable(),
-    listId = undefined,
-  }: { component: Record<string, any>; listId?: string } = $props()
+    suggestions = [],
+  }: { component: Record<string, any>; suggestions?: readonly string[] } =
+    $props()
 
   const current = $derived(component.quantization_config ?? null)
   const configType = $derived(current?.configuration?.config_type ?? '')
@@ -47,9 +50,9 @@
   </select>
 
   {#if current}
-    <input
+    <Suggest
       class="ctype"
-      list="quantization-classes"
+      suggestions={editorLists.quantizationClasses}
       bind:value={current.configuration.config_type}
       title="config_type - any importable quantization config class"
     />
@@ -57,7 +60,7 @@
       bind:args={current.arguments}
       componentType={current.configuration.config_type ?? ''}
       target="init"
-      {listId}
+      {suggestions}
     />
   {/if}
 </div>
@@ -68,7 +71,7 @@
     flex-direction: column;
     gap: 0.4rem;
   }
-  .ctype {
+  :global(input.ctype) {
     font-family: var(--font-mono);
     font-size: 0.8rem;
   }

@@ -29,6 +29,24 @@ export default ts.config(
     },
   },
   {
+    files: ['src/**/*.{ts,svelte}'],
+    ignores: ['src/lib/ui/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bits-ui',
+              message:
+                'Import a wrapper from src/lib/ui/ - Bits UI stays behind it.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', 'playwright-report/', 'test-results/'],
   },
 )

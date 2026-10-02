@@ -110,13 +110,3 @@ export async function actOnEach(
   }
   return failed
 }
-
-/** Whether something modal is open, so Escape belongs to it.
- *
- * A dialog answers Escape itself - the delete confirm, the token popover,
- * the keyboard help - and a page must not take its own selection or detail
- * away underneath it. `alertdialog` is in the list because that is what
- * `ConfirmDialog` actually renders. */
-export function dialogOpen(): boolean {
-  return !!document.querySelector('[role="dialog"], [role="alertdialog"]')
-}

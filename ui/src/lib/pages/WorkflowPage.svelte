@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { PROMPT, reference } from '../references'
   import { Copy, Play, SquarePen, Trash2 } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
@@ -8,8 +7,7 @@
   import { goWs, route } from '../router.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
-  import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { PROMPT_LIST_ID } from '../prompts'
+  import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
@@ -168,12 +166,6 @@
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
   </button>
 </div>
-
-<datalist id={PROMPT_LIST_ID}>
-  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={reference(PROMPT, promptName)}
-    ></option>{/each}
-</datalist>
 
 {#if error}<p class="error">{error}</p>{/if}
 

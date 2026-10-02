@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { editorLists, loadEditorLists } from '../editorLists.svelte'
   import { isNameSegment } from '../names'
-  import { PROMPT, reference } from '../references'
   import {
     ChevronUp,
     CircleCheck,
@@ -32,7 +32,6 @@
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { PROMPT_LIST_ID } from '../prompts'
   import { storageGet, storageSet } from '../storage'
   import { describePlan } from '../plan'
   import StepEditor from '../editor/StepEditor.svelte'
@@ -46,12 +45,6 @@
   let workflow = $state<Record<string, any>>(emptyWorkflow())
   let saveName = $state('')
   let workflowDir = $state('')
-  let pipelines = $state<string[]>([])
-  let modelClasses = $state<string[]>([])
-  let schedulerClasses = $state<string[]>([])
-  let quantizationClasses = $state<string[]>([])
-  let taskCommands = $state<string[]>([])
-  let workflowFiles = $state<string[]>([])
   let folder = $state('')
   let newFolder = $state('')
   // The file fields collapse behind the path chip once the workflow has a
@@ -78,7 +71,7 @@
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
   const folders = $derived(
-    [...new Set(workflowFiles.map(groupOf).filter(Boolean))].sort(),
+    [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
   type EditorView = 'form' | 'split' | 'json' | 'flow'
@@ -188,24 +181,9 @@
   })
 
   $effect(() => {
-    api.listPipelines().then((r) => (pipelines = r.pipelines))
-    api.listClasses('models').then((r) => (modelClasses = r.classes))
-    api.listClasses('schedulers').then((r) => (schedulerClasses = r.classes))
-    api
-      .listClasses('quantization')
-      .then((r) => (quantizationClasses = r.classes))
-    api
-      .listTasks()
-      .then(
-        (r) =>
-          (taskCommands = [
-            ...r.commands,
-            ...r.image_processors,
-            ...r.video_processors,
-          ].sort()),
-      )
+    loadEditorLists()
     api.listWorkflows().then((r) => {
-      workflowFiles = r.workflows.map((file) => `${file}.json`)
+      editorLists.workflowFiles = r.workflows.map((file) => `${file}.json`)
       workflowDir = writableRoot(r.libraries)
     })
     loadPromptLibrary()
@@ -355,8 +333,11 @@
       // The folder picker's options come from the listing - a folder this
       // save just created must appear there, or the select falls back to
       // "(root)" while the state still names the folder
-      if (!workflowFiles.includes(`${path}.json`)) {
-        workflowFiles = [...workflowFiles, `${path}.json`]
+      if (!editorLists.workflowFiles.includes(`${path}.json`)) {
+        editorLists.workflowFiles = [
+          ...editorLists.workflowFiles,
+          `${path}.json`,
+        ]
       }
       baseline = JSON.stringify($state.snapshot(workflow))
       notify.success(`Saved to ${path}`)
@@ -416,37 +397,7 @@
   }
 </script>
 
-<datalist id="pipeline-classes">
-  {#each pipelines as pipeline (pipeline)}<option value={pipeline}
-    ></option>{/each}
-</datalist>
-<datalist id="model-classes">
-  {#each modelClasses as model (model)}<option value={model}></option>{/each}
-</datalist>
-<datalist id="scheduler-classes">
-  {#each schedulerClasses as scheduler (scheduler)}<option value={scheduler}
-    ></option>{/each}
-</datalist>
-<datalist id="quantization-classes">
-  {#each quantizationClasses as quantization (quantization)}<option
-      value={quantization}
-    ></option>{/each}
-</datalist>
-<datalist id="task-commands">
-  {#each taskCommands as command (command)}<option value={command}
-    ></option>{/each}
-</datalist>
 <svelte:window onkeydown={onKeydown} />
-
-<datalist id="workflow-files">
-  {#each workflowFiles as file (file)}<option value={file}></option>{/each}
-</datalist>
-
-<datalist id={PROMPT_LIST_ID}>
-  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={reference(PROMPT, promptName)}
-    ></option>{/each}
-</datalist>
 
 <div class="head">
   <nav class="crumbs muted" aria-label="breadcrumb">

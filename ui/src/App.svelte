@@ -18,7 +18,7 @@
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
-  import ConfirmDialog from './lib/ConfirmDialog.svelte'
+  import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
@@ -38,6 +38,10 @@
   let helpOpen = $state(false)
   let statusOpen = $state(false)
   let tokenOpen = $state(false)
+  // The popovers sit against their triggers, and leave a press on them to
+  // the trigger's own toggle
+  let statusTrigger = $state<HTMLElement | null>(null)
+  let tokenTrigger = $state<HTMLElement | null>(null)
   const currentJob = $derived(health?.current_job ?? null)
 
   function isEditable(target: EventTarget | null): boolean {
@@ -54,15 +58,6 @@
     if (event.key === '?' && !isEditable(event.target)) {
       event.preventDefault()
       helpOpen = true
-    } else if (event.key === 'Escape' && helpOpen) {
-      event.preventDefault()
-      helpOpen = false
-    } else if (event.key === 'Escape' && statusOpen) {
-      event.preventDefault()
-      statusOpen = false
-    } else if (event.key === 'Escape' && tokenOpen) {
-      event.preventDefault()
-      tokenOpen = false
     } else if (event.key === 'Escape' && drawerOpen) {
       event.preventDefault()
       drawerOpen = false
@@ -198,10 +193,8 @@
           {#if vramPct !== null}
             <button
               class="bare vram"
-              onclick={(e) => {
-                e.stopPropagation()
-                statusOpen = !statusOpen
-              }}
+              bind:this={statusTrigger}
+              onclick={() => (statusOpen = !statusOpen)}
               title={memory?.info?.gpu_device_name
                 ? `${memory.info.gpu_device_name} - ${gb(memory.info.gpu_memory_allocated_mb ?? 0)} of ${gb(memory.info.gpu_memory_total_mb ?? 0)} GB allocated`
                 : 'VRAM allocated'}
@@ -226,10 +219,8 @@
             <button
               class="bare"
               class:muted={currentJob === null}
-              onclick={(e) => {
-                e.stopPropagation()
-                statusOpen = !statusOpen
-              }}
+              bind:this={statusTrigger}
+              onclick={() => (statusOpen = !statusOpen)}
               title="server & worker status"
               aria-label="server & worker status"
               aria-expanded={statusOpen}
@@ -237,20 +228,23 @@
               {currentJob ? 'status' : 'idle'}
             </button>
           {/if}
-          <StatusPopover bind:open={statusOpen} {health} {memory} />
+          <StatusPopover
+            bind:open={statusOpen}
+            anchor={statusTrigger}
+            {health}
+            {memory}
+          />
           <button
             class="bare icon"
-            onclick={(e) => {
-              e.stopPropagation()
-              tokenOpen = !tokenOpen
-            }}
+            bind:this={tokenTrigger}
+            onclick={() => (tokenOpen = !tokenOpen)}
             title="API token"
             aria-label="API token"
             aria-expanded={tokenOpen}
           >
             <KeyRound size={15} />
           </button>
-          <TokenPopover bind:open={tokenOpen} />
+          <TokenPopover bind:open={tokenOpen} anchor={tokenTrigger} />
           <button
             class="bare icon"
             onclick={cycleTheme}
