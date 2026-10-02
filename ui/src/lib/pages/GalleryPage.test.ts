@@ -395,6 +395,21 @@ it('leaves the detail open when Escape answers a confirm dialog', async () => {
   ).toBeTruthy()
 })
 
+it('an Escape that closes a confirm leaves the selection; the next clears it', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
+
+  pressEscape()
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(screen.getByText('1 selected')).toBeTruthy()
+
+  pressEscape()
+  await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
+})
+
 it('marks each file with the version of the run that wrote it', async () => {
   // Two runs of one workflow write the same basename - the case where the
   // label alone tells a person nothing about which is which

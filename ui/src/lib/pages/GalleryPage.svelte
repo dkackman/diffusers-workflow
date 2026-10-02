@@ -6,7 +6,8 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { goWs } from '../router.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach, dialogOpen } from '../picks.svelte'
+  import { Picks, actOnEach } from '../picks.svelte'
+  import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile } from '../types'
@@ -236,7 +237,7 @@
     // Escape closes the thing on top, and a dialog answers it itself. The
     // selection is the more recent, more surprising state to be stuck in,
     // so it clears first and the detail panel on a second press
-    if (e.key !== 'Escape' || dialogOpen()) return
+    if (e.key !== 'Escape' || overlayOpen()) return
     if (picks.size) picks.clear()
     else selected = null
   }}
