@@ -89,10 +89,14 @@ jobs:
         run: npm run build
 
   e2e:
-    # Playwright against a real dw.serve, on PRs into master only - the
-    # release PR is where a stale spec has to be caught, and the job carries
-    # the backend install as well as the browser
-    if: github.event_name == 'pull_request' && github.base_ref == 'master'
+    # Playwright against a real dw.serve before develop moves - on PRs into
+    # develop or master, and on pushes to develop, since the agent loop
+    # pushes develop directly with no PR. The job carries the backend
+    # install as well as the browser
+    if: >-
+      (github.event_name == 'pull_request' &&
+       (github.base_ref == 'develop' || github.base_ref == 'master')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

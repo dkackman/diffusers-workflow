@@ -18,7 +18,9 @@ import type {
   Kept,
   MemoryInfo,
   ModelCache,
+  ModelDeleted,
   ModelDownload,
+  ModelDownloads,
   OutputDeleted,
   PipelineDescription,
   PipelineNames,
@@ -233,17 +235,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo_id: repoId }),
     }),
-  listDownloads: () =>
-    request<{ downloads: ModelDownload[] }>('/api/models/downloads'),
+  listDownloads: () => request<ModelDownloads>('/api/models/downloads'),
   cancelDownload: (id: string) =>
     request<ModelDownload>(`/api/models/downloads/${id}/cancel`, {
       method: 'POST',
     }),
   deleteModel: (repo: string) =>
-    request<{ repo_id: string; deleted: boolean; freed: number }>(
-      `/api/models?repo=${encodeURIComponent(repo)}`,
-      { method: 'DELETE' },
-    ),
+    request<ModelDeleted>(`/api/models?repo=${encodeURIComponent(repo)}`, {
+      method: 'DELETE',
+    }),
   diffusersStatus: () => request<DiffusersStatus>('/api/system/diffusers'),
   updateDiffusers: () =>
     request<DiffusersStatus>('/api/system/diffusers/update', {

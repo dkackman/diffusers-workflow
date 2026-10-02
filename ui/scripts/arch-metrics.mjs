@@ -6,6 +6,8 @@
 //   node scripts/arch-metrics.mjs                  print the metrics as JSON
 //   node scripts/arch-metrics.mjs --write PATH     record a baseline
 //   node scripts/arch-metrics.mjs --check PATH     exit 1 on any regression
+//   node scripts/arch-metrics.mjs --compare CUR BASE   the regressions
+//                                                  between two measurements
 //
 // Counting rules, fixed so any commit measures the same way:
 // - Sources are ui/src's .ts, .svelte and .css files, tests excluded
@@ -152,6 +154,11 @@ export async function measure(
   }
   const eslint = new ESLint({
     cwd: UI,
+    // A branch's own comments and ignore patterns must not hide what is
+    // measured: an inline `eslint-disable complexity` or a new `ignores`
+    // entry would otherwise drop a function or a file from the count
+    allowInlineConfig: false,
+    ignore: false,
     overrideConfig: [
       {
         plugins: { arch: collector },
@@ -173,6 +180,13 @@ export async function measure(
   })
   const scripts = files.filter((f) => !f.endsWith('.css'))
   const results = await eslint.lintFiles(scripts)
+  // A file that does not parse reports no rule at all; counted as zero it
+  // would read as an improvement
+  const unparsed = results.filter((r) => r.messages.some((m) => m.fatal))
+  if (unparsed.length)
+    throw new Error(
+      `could not parse: ${unparsed.map((r) => relative(UI, r.filePath)).join(', ')}`,
+    )
   const count = (rule) =>
     results.reduce(
       (n, r) => n + r.messages.filter((m) => m.ruleId === rule).length,
@@ -211,10 +225,28 @@ export async function measure(
 export function regressions(current, baseline) {
   return Object.entries(current)
     .filter(([key, value]) => key in baseline && value > baseline[key])
-    .map(([key, value]) => `${key}: ${value} > baseline ${baseline[key]}`)
+    .map(([key, value]) => `${key}: ${baseline[key]} -> ${value}`)
 }
 
 async function main(argv) {
+  // Two measurements already taken (harnest measures a merge base and a
+  // branch, then asks this script's rule which metrics rose)
+  // Exit 1 means "rose" and nothing else: input it cannot read is 2, so a
+  // caller never mistakes a failure for a regression or a pass
+  if (argv[0] === '--compare') {
+    let current, baseline
+    try {
+      ;[current, baseline] = argv
+        .slice(1, 3)
+        .map((path) => JSON.parse(readFileSync(path, 'utf8')))
+    } catch (e) {
+      console.error(`--compare: ${e instanceof Error ? e.message : e}`)
+      return 2
+    }
+    const problems = regressions(current, baseline)
+    for (const line of problems) console.log(line)
+    return problems.length ? 1 : 0
+  }
   const { metrics, detail } = await measure()
   const flag = argv[0]
   if (flag === '--write') {
