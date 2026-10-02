@@ -4842,6 +4842,35 @@ def test_a_step_end_event_carries_its_files_media_kinds(server, tmp_path):
         assert step_end["output_kinds"] == {"a.png": "image", "b.flac": "audio"}
 
 
+def test_a_historical_job_with_no_manifest_reports_no_output_kinds(server, tmp_path):
+    """A row recorded before manifests, or by a run that wrote none, stores
+    null; the job detail still answers, with nothing to classify."""
+    from dw.server.job_history import JobHistory
+
+    class Row:
+        id = "old"
+        workflow_name = "w"
+        catalog_name = None
+        status = "succeeded"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = None
+        warnings = []
+        error = None
+        events = []
+        run_id = None
+        run_dir = None
+        acknowledged = "none"
+        spec = {"workspace": "default"}
+
+    JobHistory(str(tmp_path / "jobs.sqlite")).record(Row())
+    with server(success_script) as client:
+        detail = client.get("/api/jobs/old")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["output_kinds"] == {}
+
+
 def test_output_kinds_tolerates_a_job_with_no_manifest():
     from dw.server.outputs import output_kinds
 

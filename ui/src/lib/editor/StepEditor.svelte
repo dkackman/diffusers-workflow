@@ -20,6 +20,7 @@
     ATTENTION_BACKENDS,
     CACHE_TYPES,
     contentTypeOptions,
+    OFFLOAD_MODES,
     optionsWith,
     COMPONENT_SLOTS,
     TORCH_DTYPES,
@@ -354,8 +355,9 @@
           }}
         >
           <option value="">none (resident)</option>
-          <option value="model">model</option>
-          <option value="sequential">sequential</option>
+          {#each OFFLOAD_MODES as mode (mode)}<option value={mode}
+              >{mode}</option
+            >{/each}
         </select>
 
         <label for={'result-' + index}>save as</label>

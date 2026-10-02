@@ -278,6 +278,9 @@ export const COMPONENT_SLOTS = [
   'model',
 ]
 
+/** A pipeline's offload modes, the schema's `offload` enum. */
+export const OFFLOAD_MODES = ['model', 'sequential']
+
 export const CACHE_TYPES = [
   'first_block',
   'faster',
