@@ -328,27 +328,13 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "cut is padded with digital silence rather than refused, so "
             "make a longer bed with the 'loop_audio' task instead."
         )
-    elif media and media.get("kind") == "audio":
+    if body.get("findings"):
+        # The server measured the levels against dw/audio_qc.py's thresholds;
+        # each finding says what crossed and what to do, so no number is
+        # restated here
         hints.append(
-            "Check duration_seconds against what was asked for: a Music 3 "
-            "track that lands within 0.2 s of its audio_duration ceiling was "
-            "cut off, one well short of it finished naturally. peak_dbfs is "
-            "the level normalize_audio would be given, and the range has two "
-            "ends: mean_dbfs below -40 on a track that should be full is a "
-            "near-silent render, and peak_dbfs at or above 0 is a deliverable "
-            "at or over full scale - a decoded lossy file overshoots by up to "
-            "a couple dB legitimately (0.59-1.56 dB measured on Music 3 "
-            "mp3s), but a figure of +1 or more is a mix with no headroom, and "
-            "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
-            "fixes it."
-        )
-    elif media and media.get("kind") == "video":
-        hints.append(
-            "peak_dbfs is the level normalize_audio would be given, and the "
-            "range has two ends: mean_dbfs below -40 on a track that should "
-            "be full is a near-silent render, and peak_dbfs at or above 0 is "
-            "a deliverable at or over full scale - 'normalize_audio' "
-            "(peak_dbfs: -3) before the saving step is what fixes it."
+            "`findings` names each level problem the server measured, with "
+            "its threshold and the fix."
         )
     if media and media.get("shots"):
         hints.append(

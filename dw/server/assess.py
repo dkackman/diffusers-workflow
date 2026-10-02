@@ -17,7 +17,8 @@ finding (`dw/assessment_rules.py`).
 
 import json
 
-from ..assessment_rules import sort_findings
+from .. import audio_qc
+from ..assessment_rules import finding, sort_findings
 from ..tasks.assess import (
     read_media,
     seams_answer,
@@ -133,3 +134,42 @@ def assess(path, kind, shots, probe=None, detail=False):
 
 
 __all__ = ["PROBES", "assess", "unknown_probe"]
+
+
+def level_findings(media):
+    """The level problems a probed file's soundtrack shows, as findings:
+    a peak at full scale (an encode may clip it) and a near-silent mean
+    (info when real peaks say quiet-not-empty, as an ambience-only shot
+    reads). The thresholds are dw/audio_qc.py's, read at call time, so
+    the gallery and the write-time warnings cannot disagree."""
+    if not media:
+        return []
+    found = []
+    peak, mean = media.get("peak_dbfs"), media.get("mean_dbfs")
+    if peak is not None and peak >= audio_qc.CLIPPED_WARN_DBFS:
+        rule = {
+            "name": "full_scale",
+            "severity": "warn",
+            "threshold": audio_qc.CLIPPED_WARN_DBFS,
+            "says": "peaks at full scale - an encode may clip it; "
+            "normalize_audio with a peak_dbfs below 0 leaves headroom",
+        }
+        found.append(finding(rule, peak, None))
+    if mean is not None and mean < audio_qc.NEAR_SILENT_WARN_DBFS:
+        quiet_not_empty = (
+            peak is not None and peak >= audio_qc.NEAR_SILENT_QUIET_NOT_EMPTY_DBFS
+        )
+        rule = {
+            "name": "near_silent",
+            "severity": "info" if quiet_not_empty else "warn",
+            "threshold": audio_qc.NEAR_SILENT_WARN_DBFS,
+            "says": (
+                "quiet overall but with real peaks - expected for an "
+                "ambience-only track"
+                if quiet_not_empty
+                else "near-silent for a track meant to be heard; check the "
+                "step that made it, or raise it with normalize_audio"
+            ),
+        }
+        found.append(finding(rule, mean, None))
+    return sort_findings(found)

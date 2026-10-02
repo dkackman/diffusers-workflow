@@ -36,7 +36,7 @@ from ...writers import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
 from ...security import MAX_DECODE_PIXELS
 from ...workspace import Workspace
-from ..assess import assess, unknown_probe
+from ..assess import assess, level_findings, unknown_probe
 from ..deps import selected_workspace
 from ..http_security import query_token_ok
 from ..outputs import (
@@ -135,6 +135,7 @@ def gallery_metadata(
         "run_id": run_id,
         "version": version,
         "media": media,
+        "findings": level_findings(media),
     }
 
 

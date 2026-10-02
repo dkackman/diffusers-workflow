@@ -335,10 +335,8 @@ class CatalogTools:
         score goes quiet. Leave it off unless it's about position - a long
         track is a long list.
 
-        `media.peak_dbfs` is what the job's `audio_no_headroom` (-0.5 dBFS,
-        pre-encode) and `audio_clipped` (0.0 dBFS, post-encode) warnings
-        read - see `normalize_audio` under "Video Processing" in the tasks
-        guide. A mux emits only the second.
+        `findings` lists each level problem the server measured - full
+        scale, near silence - with its threshold and the fix.
 
         `name` may be an `asset:` reference instead of a gallery name, and
         then it describes that input asset - how many frames a shot is,
