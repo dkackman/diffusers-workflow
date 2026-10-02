@@ -15,6 +15,7 @@ import math
 import os
 import pathlib
 
+from dw_mcp import confine
 from dw_mcp.client import DwApiError, api_path
 
 # Roughly 4MB. The cap is on the returned payload's base64 size - the bytes
@@ -354,62 +355,25 @@ def delete_output(client, name=None, workspace=None, job_id=None):
     return client.delete_json(api_path("api", "jobs", job_id, "run"))
 
 
-def _remote_root(client, workspace=None):
-    """The workspace a remote write is confined to, or None when local.
-
-    Only the mounted MCP surface is remote: there the tool runs inside
-    dw.serve, so the path a caller names is a path on the operator's box
-    rather than on its own machine. A stdio `dw-mcp` returns None and keeps
-    writing wherever the user can.
-
-    `workspace` is an explicit per-call override (download_output's own
-    `workspace` argument); when omitted, `client.get_json`'s `_scoped`
-    already falls back to the session's own pin (#389).
-    """
-    if not getattr(client, "mounted", False):
-        return None
-
-    directories = (
-        client.get_json("/api/server", workspace=workspace).get("directories")
-    ) or {}
-    root = directories.get("workspace")
-    if not root:
-        raise DwApiError(
-            "This server cannot say where its workspace is, so it will not "
-            "write a file for you. Use the url list_gallery reports, "
-            "get_output_image / get_output_audio / get_output_text, or "
-            "keep_output."
-        )
-    return os.path.realpath(os.path.abspath(os.path.expanduser(str(root))))
+# What a mounted surface says when its server names no workspace to
+# confine a write to
+NO_WORKSPACE_REFUSAL = (
+    "This server cannot say where its workspace is, so it will not write a "
+    "file for you. Use the url list_gallery reports, get_output_image / "
+    "get_output_audio / get_output_text, or keep_output."
+)
 
 
-def _confine(destination, root):
-    """Refuse a destination outside `root`, on the resolved real path.
-
-    Containment is on realpath, not on a substring: an absolute path or a
-    '~' needs no '..' to reach anywhere the server process can write (#113),
-    and a symlink inside the workspace would otherwise carry the write out.
-    """
-    # realpath of the nearest existing ancestor: the file itself usually does
-    # not exist yet, and realpath of a missing path leaves symlinks in its
-    # existing prefix unresolved on some platforms
-    probe = destination
-    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
-        probe = os.path.dirname(probe)
-    resolved = os.path.join(
-        os.path.realpath(probe), os.path.relpath(destination, probe)
+def _write_refusal(destination, root):
+    return DwApiError(
+        f"Refusing to write {destination} - this MCP endpoint is served "
+        f"by dw.serve, so the file would land on the server, where a "
+        f"destination is confined to the workspace ({root}). Pass a "
+        f"relative destination, or - to see the file where you are - use "
+        f"the url list_gallery reports, get_output_image / "
+        f"get_output_audio / get_output_text for inline content, or "
+        f"keep_output to make it an asset for a later workflow."
     )
-    resolved = os.path.normpath(resolved)
-    if resolved != root and not resolved.startswith(root + os.sep):
-        raise DwApiError(
-            f"Refusing to write {destination} - this MCP endpoint is served "
-            f"by dw.serve, so the file would land on the server, where a "
-            f"destination is confined to the workspace ({root}). Pass a "
-            f"relative destination, or - to see the file where you are - use "
-            f"the url list_gallery reports, get_output_image / "
-            f"get_output_audio / get_output_text for inline content, or "
-            f"keep_output to make it an asset for a later workflow."
-        )
 
 
 def download_output(client, name, destination=None, overwrite=False, workspace=None):
@@ -442,7 +406,11 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
     omitted `destination` keeps defaulting to the current working directory,
     because there "local disk" is genuinely their own.
     """
-    root = _remote_root(client, workspace=workspace)
+    # The workspace a mounted surface's write is confined to; None for stdio
+    roots = confine.remote_roots(
+        client, workspace, ("workspace",), refusal=NO_WORKSPACE_REFUSAL
+    )
+    root = roots[0] if roots else None
     if destination is None:
         if root:
             raise DwApiError(
@@ -472,8 +440,8 @@ def download_output(client, name, destination=None, overwrite=False, workspace=N
         if root and not os.path.isabs(destination)
         else os.path.abspath(destination)
     )
-    if root:
-        _confine(destination, root)
+    if root and not confine.contains(destination, roots):
+        raise _write_refusal(destination, root)
 
     if os.path.exists(destination) and not overwrite:
         raise DwApiError(
