@@ -54,9 +54,6 @@
     if (event.key === '?' && !isEditable(event.target)) {
       event.preventDefault()
       helpOpen = true
-    } else if (event.key === 'Escape' && helpOpen) {
-      event.preventDefault()
-      helpOpen = false
     } else if (event.key === 'Escape' && statusOpen) {
       event.preventDefault()
       statusOpen = false

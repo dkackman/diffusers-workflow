@@ -499,6 +499,10 @@ button.frame:hover {
   max-width: 440px;
   z-index: var(--layer-modal);
 }
+.ui-sheet-wide {
+  min-width: min(420px, 92vw);
+  max-width: 480px;
+}
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;
