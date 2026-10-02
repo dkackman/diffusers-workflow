@@ -387,6 +387,8 @@ Deferred minors (detail in each stage's review):
 - The UI ratchet's refusal hints are Python-flavoured; its message before develop had `--compare` named no way out; no test runs both ratchets at once.
 - e2e runs twice per develop push while a release PR is open.
 
+After the gate (branch `ui-stabilization/minors`, harnest 9893924): FastAPI and Pydantic are pinned in `constraints-openapi.txt` for CI and the dump; the coverage pin compares method and path; the 4c entries pin exact keys; e2e skips the release PR's own run; the UI ratchet gives UI hints, parks on a broken `--compare`, and refuses both rises at once. The `.txt` rendering is #573. The key-order note waits for the release.
+
 lem smoke, `e578d7e4` deployed, headless Chromium and MCP:
 - Every converted route the UI reads answers 200, including the agent views; the DPM scheduler's default reads `-inf`.
 - The status popover, Server, Models, Jobs, a job page, the editor (validate, pipeline suggestions, a step's parameters), Prompts, Gallery and Assets render with no page errors.
