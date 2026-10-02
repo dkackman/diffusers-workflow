@@ -137,3 +137,9 @@ describe('emptyPrompt', () => {
     expect(emptyPrompt()).toEqual({ text: '' })
   })
 })
+
+it('finds the text of a foldered prompt picked from the picker', () => {
+  expect(
+    promptTooltip('prompt:cast/priya', { 'cast/priya': 'a portrait' }),
+  ).toBe('a portrait')
+})

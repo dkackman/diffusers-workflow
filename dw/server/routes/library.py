@@ -10,9 +10,10 @@ import copy
 import json
 import logging
 import os
+import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,7 @@ from ...security import InvalidInputError, SecurityError, validate_prompt_refere
 from ...workflow import Workflow
 from ...library import (
     ReadOnlyLibraryError,
+    merge_patch,
     shadowed_listing,
     workflow_names,
 )
@@ -247,30 +249,19 @@ def list_workflows(
     }
 
 
-@router.put("/api/workflows/{name:path}")
-def save_workflow(
-    http_request: Request,
-    name: str,
-    request: JobRequest,
-    ws: Workspace = Depends(selected_workspace),
-):
-    """Write a workflow into the writable workflow directory. The
-    definition must be schema-valid - the editor validates before saving,
-    and a save that silently wrote a broken file would betray both.
+# A save reads nothing, but a patch reads the stored version, merges and
+# writes it back: one lock across both, so a save landing between a
+# patch's read and its write is not silently overwritten
+_WORKFLOW_WRITE_LOCK = threading.Lock()
 
-    A name that currently resolves to a read-only source (an example, a
-    builtin) is not overwritten: the copy lands in the writable source
-    and shadows it from then on.
-    """
-    state = http_request.app.state
-    if request.workflow is None:
-        raise HTTPException(
-            status_code=400,
-            detail='Provide the definition as {"workflow": {...}}',
-        )
+
+def _write_validated(state, ws, name, definition):
+    """Validate `definition` and write it to the writable workflow source,
+    answering what a save answers. A read-only source's name gets a copy
+    in the writable one, which shadows it from then on."""
     path, source = resolve_writable_workflow(sources_for(state, ws), name)
     candidate = Workflow(
-        copy.deepcopy(request.workflow),
+        copy.deepcopy(definition),
         ws.outputs,
         path,
         ws.workflows,
@@ -286,15 +277,15 @@ def save_workflow(
         raise HTTPException(status_code=400, detail=format_validation_errors(errors))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
-        json.dump(request.workflow, file, indent=2)
+        json.dump(definition, file, indent=2)
         file.write("\n")
     logger.info(f"Saved workflow {name} to {path}")
     # What the catalog will say about it, so the author sees the match
     # it just created. An empty summary is a warning, never a refusal:
     # a workflow with no description still runs, it is just invisible
     # to shape-first discovery
-    metadata = derive_catalog_metadata(request.workflow)
-    warnings = list(workflow_argument_warnings(request.workflow))
+    metadata = derive_catalog_metadata(definition)
+    warnings = list(workflow_argument_warnings(definition))
     warnings += validation.run_warning_check(
         candidate, "null_variable_argument_warnings", None
     )
@@ -313,6 +304,53 @@ def save_workflow(
         "traits": metadata["traits"],
         "summary": metadata["summary"],
     }
+
+
+@router.put("/api/workflows/{name:path}")
+def save_workflow(
+    http_request: Request,
+    name: str,
+    request: JobRequest,
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Write a workflow into the writable workflow directory. The
+    definition must be schema-valid - the editor validates before saving,
+    and a save that silently wrote a broken file would betray both.
+
+    A name that currently resolves to a read-only source (an example, a
+    builtin) is not overwritten: the copy lands in the writable source
+    and shadows it from then on.
+    """
+    if request.workflow is None:
+        raise HTTPException(
+            status_code=400,
+            detail='Provide the definition as {"workflow": {...}}',
+        )
+    with _WORKFLOW_WRITE_LOCK:
+        return _write_validated(http_request.app.state, ws, name, request.workflow)
+
+
+@router.patch("/api/workflows/{name:path}")
+def patch_workflow(
+    http_request: Request,
+    name: str,
+    patch: Dict[str, Any] = Body(...),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Apply a JSON merge patch (RFC 7396) to a stored workflow: a key set
+    to null is removed, an object merges, anything else replaces. The
+    result is validated and saved as a save would be - a patch of an
+    example writes a copy into the writable source. The read, merge and
+    write happen under the lock saves take."""
+    state = http_request.app.state
+    with _WORKFLOW_WRITE_LOCK:
+        path, _source = resolve_readable_workflow(sources_for(state, ws), name)
+        try:
+            with open(path, "r") as file:
+                current = json.load(file)
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+        return _write_validated(state, ws, name, merge_patch(current, patch))
 
 
 @router.delete("/api/workflows/{name:path}")

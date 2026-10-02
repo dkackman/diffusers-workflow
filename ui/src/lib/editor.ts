@@ -1,7 +1,13 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
 import { danglingReferenceDetails } from './flow'
-import { isReference } from './references'
+import {
+  PREVIOUS_RESULT,
+  PROMPT,
+  VARIABLE,
+  isReference,
+  reference,
+} from './references'
 
 export { isReference }
 
@@ -154,13 +160,20 @@ export const CONTENT_TYPES = [
   'text/plain',
 ]
 
-/** The select's options: a value the list does not hold (an alias like
- * audio/x-flac, written by hand) is kept as the last option rather than
- * shown as a blank select. */
+/** A select's options: a value the list does not hold (written by hand, or
+ * an alias) is kept as the last option rather than shown as a blank. */
+export function optionsWith(
+  listed: readonly string[],
+  current?: string | null,
+): string[] {
+  return current && !listed.includes(current)
+    ? [...listed, current]
+    : [...listed]
+}
+
+/** The result select's options; see optionsWith. */
 export function contentTypeOptions(current?: string): string[] {
-  return current && !CONTENT_TYPES.includes(current)
-    ? [...CONTENT_TYPES, current]
-    : [...CONTENT_TYPES]
+  return optionsWith(CONTENT_TYPES, current)
 }
 
 /** Text that deserves a document-scale editing surface: long enough to
@@ -208,7 +221,7 @@ export function emptyStep() {
         model_name: '',
         torch_dtype: 'torch.bfloat16',
       },
-      arguments: { prompt: 'variable:prompt' },
+      arguments: { prompt: reference(VARIABLE, 'prompt') },
     },
     result: { content_type: 'image/png' },
   }
@@ -265,6 +278,9 @@ export const COMPONENT_SLOTS = [
   'model',
 ]
 
+/** A pipeline's offload modes, the schema's `offload` enum. */
+export const OFFLOAD_MODES = ['model', 'sequential']
+
 export const CACHE_TYPES = [
   'first_block',
   'faster',
@@ -314,20 +330,20 @@ export function referenceSuggestions(
 ): string[] {
   const suggestions: string[] = []
   for (const name of Object.keys(workflow.variables ?? {})) {
-    suggestions.push(`variable:${name}`)
+    suggestions.push(reference(VARIABLE, name))
   }
   for (const name of promptNames) {
-    suggestions.push(`prompt:${name}`)
+    suggestions.push(reference(PROMPT, name))
   }
   const steps: Array<Record<string, any>> = workflow.steps ?? []
   for (const step of steps.slice(0, Math.max(0, stepIndex))) {
     if (!step.name) continue
-    suggestions.push(`previous_result:${step.name}`)
+    suggestions.push(reference(PREVIOUS_RESULT, step.name))
     const contentType = step.result?.content_type ?? ''
     if (contentType.startsWith('video')) {
       suggestions.push(
-        `previous_result:${step.name}.frames`,
-        `previous_result:${step.name}.audio`,
+        reference(PREVIOUS_RESULT, `${step.name}.frames`),
+        reference(PREVIOUS_RESULT, `${step.name}.audio`),
       )
     }
   }

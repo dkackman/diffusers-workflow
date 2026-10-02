@@ -38,3 +38,18 @@ export const FROM_PREVIOUS_RESULT_KEY = 'from_previous_result'
 export function isReference(value: unknown): value is string {
   return typeof value === 'string' && PREFIXES.some((p) => value.startsWith(p))
 }
+
+export type Prefix = (typeof PREFIXES)[number]
+
+/** A reference to `name` under `prefix`: how every module writes one. */
+export function reference(prefix: Prefix, name: string): string {
+  return prefix + name
+}
+
+/** The name a reference names under `prefix`, trimmed as the engine trims
+ * it, or null when the value is not that kind of reference. */
+export function referenceName(value: unknown, prefix: Prefix): string | null {
+  return typeof value === 'string' && value.startsWith(prefix)
+    ? value.slice(prefix.length).trim()
+    : null
+}

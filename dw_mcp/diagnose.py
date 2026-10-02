@@ -12,7 +12,7 @@ import math
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path, coerce_json_object
+from dw_mcp.client import DwApiError, api_path, workflow_source
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +82,6 @@ def _acknowledgement_body(acknowledged_cost):
                 "plan.fingerprint the validate answer carried. Validate again "
                 "and pass {fingerprint, minutes, downloads} from its plan."
             )
-        # A from_single_file URL sits in downloads_required with repo: null;
-        # an agent copying the list verbatim should not earn a 422 for it
-        downloads = acknowledged_cost.get("downloads")
-        if isinstance(downloads, list):
-            acknowledged_cost = {
-                **acknowledged_cost,
-                "downloads": [repo for repo in downloads if repo],
-            }
         return {"acknowledged_cost": acknowledged_cost}
     return {"acknowledged_cost": bool(acknowledged_cost)}
 
@@ -129,18 +121,7 @@ def run_workflow(
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
     shape changed since the quote and the message carries the new plan."""
-    if workflow_path is not None and name is not None:
-        raise DwApiError(
-            "`workflow_path` and `name` are the same thing - provide only one."
-        )
-    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
-    workflow = coerce_json_object(workflow, "workflow")
-    if inline_workflow is not None and workflow is not None:
-        raise DwApiError(
-            "`inline_workflow` and `workflow` are the same thing - provide only one."
-        )
-    path = workflow_path if workflow_path is not None else name
-    inline = inline_workflow if inline_workflow is not None else workflow
+    path, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (path is None) == (inline is None):

@@ -12,6 +12,7 @@ import {
   PROMPT,
   VARIABLE,
   isReference,
+  referenceName,
 } from './references'
 
 export interface StepFlow {
@@ -30,29 +31,101 @@ interface EarlierStep {
   name: string
   index: number
   forEach: boolean
+  /** The entries its for_each iterates, a `variable:` resolved */
+  forEachSource: unknown
+  /** Its members' entry names, or null when the list is not known here */
+  members: string[] | null
 }
 
 /** The named steps before `index`: the only producers a step can read,
  * since the engine resolves in order. */
 function earlierSteps(
+  workflow: Record<string, any>,
   steps: Array<Record<string, any>>,
   index: number,
 ): EarlierStep[] {
   return steps
     .slice(0, index)
-    .map((s, i) => ({ name: s.name, index: i, forEach: FOR_EACH_KEY in s }))
+    .map((s, i) => ({
+      name: s.name,
+      index: i,
+      forEach: FOR_EACH_KEY in s,
+      forEachSource: forEachEntries(workflow, s[FOR_EACH_KEY]),
+      members: FOR_EACH_KEY in s ? forEachMembers(workflow, s) : null,
+    }))
     .filter((s) => typeof s.name === 'string' && s.name !== '')
 }
 
-/** Whether a previous_result reference resolves to an earlier step: the
- * name itself or the name plus a property (`seg.mask`), as the engine's
- * reference_resolves_to decides - or, for a for_each step, one of the
- * `<step>@<entry>` members the engine expands it into, which the editor
- * cannot list because it holds the step unexpanded. */
+/** Whether a previous_result reference names an earlier step: the name
+ * itself, the name plus a property (`seg.mask`), or for a for_each step a
+ * `<step>@<entry>` member. Which step it points at, not whether the engine
+ * allows it there - memberRefusal answers that. */
 function resolvesTo(reference: string, step: EarlierStep): boolean {
   if (reference === step.name || reference.startsWith(step.name + '.'))
     return true
   return step.forEach && reference.startsWith(step.name + MEMBER_SEPARATOR)
+}
+
+/** The earlier step a reference points at: an exact name wins over a
+ * shorter one it extends (`x.y` over `x`). */
+function resolveName(earlier: EarlierStep[], reference: string) {
+  return (
+    earlier.find((e) => e.name === reference) ??
+    earlier.find((e) => resolvesTo(reference, e)) ??
+    null
+  )
+}
+
+/** The entries a for_each value iterates: a `variable:` reference is
+ * read through the declared variables, as the engine substitutes it before
+ * comparing; anything else is the entries themselves. */
+function forEachEntries(
+  workflow: Record<string, any>,
+  value: unknown,
+): unknown {
+  const name = referenceName(value, VARIABLE)
+  return name !== null && name in (workflow.variables ?? {})
+    ? workflow.variables[name]
+    : value
+}
+
+/** JSON with object keys sorted, so two lists equal as Python compares them
+ * (dict equality ignores key order) serialize the same. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, v[k]]),
+        )
+      : v,
+  )
+}
+
+const sameList = (a: unknown, b: unknown) => canonical(a) === canonical(b)
+
+/** Why the engine refuses a reference to a for_each step, or null. Its
+ * plain name is rewritten to the same-keyed member only inside a for_each
+ * over the same list; anywhere else the author meant gather:. A member must
+ * be one the list holds, when the list is spelled out where the editor can
+ * read it. */
+function memberRefusal(
+  reference: string,
+  producer: EarlierStep,
+  consumerEntries: unknown,
+): string | null {
+  if (!producer.forEach) return null
+  const prefix = producer.name + MEMBER_SEPARATOR
+  if (!reference.startsWith(prefix))
+    return consumerEntries !== undefined &&
+      sameList(consumerEntries, producer.forEachSource)
+      ? null
+      : `names the for_each step '${producer.name}' from outside a for_each step over the same list - use ${GATHER}${producer.name}`
+  const entry = reference.slice(prefix.length).split('.')[0]
+  return producer.members === null || producer.members.includes(entry)
+    ? null
+    : `names no member '${entry}' of '${producer.name}'`
 }
 
 /** The earlier step a value refers to, or null: `previous_result:<ref>`,
@@ -74,13 +147,7 @@ function refTarget(
     reference = s
   else if (s.startsWith(PREVIOUS_RESULT))
     reference = s.slice(PREVIOUS_RESULT.length)
-  if (reference === null) return null
-  const ref = reference
-  return (
-    earlier.find((e) => e.name === ref) ??
-    earlier.find((e) => resolvesTo(ref, e)) ??
-    null
-  )
+  return reference === null ? null : resolveName(earlier, reference)
 }
 
 export function flowGraph(workflow: Record<string, any>): StepFlow[] {
@@ -93,7 +160,7 @@ export function flowGraph(workflow: Record<string, any>): StepFlow[] {
   }))
 
   steps.forEach((step, index) => {
-    const earlier = earlierSteps(steps, index)
+    const earlier = earlierSteps(workflow, steps, index)
     scanStringsWithPath(step, [], (s, path) => {
       const producer = refTarget(s, path, earlier)
       if (producer === null) return
@@ -202,7 +269,6 @@ function producedCount(step: Record<string, any>): number | null {
 }
 
 const FOR_EACH_KEY = 'for_each'
-const VARIABLE_PREFIX = 'variable:'
 
 /** A for_each step's entry keys, when the list can be read statically: a
  * literal list written on the step, or a `variable:` naming a declared
@@ -218,8 +284,10 @@ function forEachMembers(
   let entries: unknown[] | null = null
   if (Array.isArray(value)) {
     entries = value
-  } else if (typeof value === 'string' && value.startsWith(VARIABLE_PREFIX)) {
-    const declared = workflow.variables?.[value.slice(VARIABLE_PREFIX.length)]
+  } else {
+    const declaredName = referenceName(value, VARIABLE)
+    const declared =
+      declaredName === null ? undefined : workflow.variables?.[declaredName]
     if (Array.isArray(declared)) entries = declared
   }
   if (!entries?.length) return null
@@ -257,7 +325,7 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   const incomingProducers = new Map<string, Set<string>>()
 
   steps.forEach((step, index) => {
-    const earlier = earlierSteps(steps, index)
+    const earlier = earlierSteps(workflow, steps, index)
     const seen = new Set<string>() // producer|attribute - dedupe repeats
     scanStringsWithPath(step, [], (value, path) => {
       const target = refTarget(value, path, earlier)?.name ?? null
@@ -302,9 +370,20 @@ interface ReferenceScope {
   earlier: EarlierStep[]
   variables: Set<string>
   prompts: Set<string> | null
+  /** The step holding the reference */
+  /** The entries the referencing step's own for_each iterates, if any */
+  consumerEntries: unknown
 }
 
 const UNNAMED = 'no earlier step has that name'
+
+/** What is wrong with a reference to an earlier step's result, or null. */
+function resultRefusal(reference: string, scope: ReferenceScope) {
+  const producer = resolveName(scope.earlier, reference)
+  return producer === null
+    ? UNNAMED
+    : memberRefusal(reference, producer, scope.consumerEntries)
+}
 
 /** Per prefix, what is wrong with the name after it, or null. */
 const PREFIX_CHECKS: Array<
@@ -319,17 +398,17 @@ const PREFIX_CHECKS: Array<
   ],
   [
     PREVIOUS_RESULT,
-    (name, scope) =>
-      scope.earlier.some((s) => resolvesTo(name, s))
-        ? null
-        : `${PREVIOUS_RESULT}${name} - ${UNNAMED}`,
+    (name, scope) => {
+      const refusal = resultRefusal(name, scope)
+      return refusal === null ? null : `${PREVIOUS_RESULT}${name} - ${refusal}`
+    },
   ],
   [
     GATHER,
     (name, scope) =>
-      scope.earlier.some((s) => s.name === name)
+      scope.earlier.some((s) => s.name === name && s.forEach)
         ? null
-        : `${GATHER}${name} - ${UNNAMED}`,
+        : `${GATHER}${name} - names no earlier for_each step`,
   ],
   [
     PROMPT,
@@ -349,10 +428,15 @@ function referenceProblem(
 ): string | null {
   // A reference spelled under the key (variable:source) is checked as that
   // reference: the engine leaves it to the resolution its prefix names
-  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY && !isReference(value))
-    return scope.earlier.some((s) => resolvesTo(value, s))
+  if (
+    path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY &&
+    !isReference(value)
+  ) {
+    const refusal = resultRefusal(value, scope)
+    return refusal === null
       ? null
-      : `${FROM_PREVIOUS_RESULT_KEY} '${value}' - ${UNNAMED}`
+      : `${FROM_PREVIOUS_RESULT_KEY} '${value}' - ${refusal}`
+  }
   const check = PREFIX_CHECKS.find(([prefix]) => value.startsWith(prefix))
   return check ? check[1](value.slice(check[0].length), scope) : null
 }
@@ -367,8 +451,16 @@ export function danglingReferenceDetails(
   const steps: Array<Record<string, any>> = workflow.steps ?? []
 
   steps.forEach((step, index) => {
-    const earlier = earlierSteps(steps, index)
-    const scope = { earlier, variables, prompts }
+    const earlier = earlierSteps(workflow, steps, index)
+    const scope = {
+      earlier,
+      variables,
+      prompts,
+      consumerEntries:
+        FOR_EACH_KEY in step
+          ? forEachEntries(workflow, step[FOR_EACH_KEY])
+          : undefined,
+    }
     scanStringsWithPath(step, [], (value, path) => {
       const problem = referenceProblem(value, path, scope)
       if (problem)

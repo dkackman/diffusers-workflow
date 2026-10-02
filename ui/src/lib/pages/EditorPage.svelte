@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isNameSegment } from '../names'
+  import { PROMPT, reference } from '../references'
   import {
     ChevronUp,
     CircleCheck,
@@ -325,7 +327,7 @@
   function savePath(): string | null {
     if (!saveName) return null
     const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__' && !/^[\w][\w.-]*$/.test(directory)) return null
+    if (folder === '__new__' && !isNameSegment(directory)) return null
     return directory ? `${directory}/${saveName}` : saveName
   }
 
@@ -442,7 +444,7 @@
 
 <datalist id={PROMPT_LIST_ID}>
   {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={'prompt:' + promptName}
+      value={reference(PROMPT, promptName)}
     ></option>{/each}
 </datalist>
 

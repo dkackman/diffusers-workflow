@@ -24,8 +24,7 @@ from PIL import Image, ImageFile
 
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
-from dw_mcp.client import DwApiError, DwClient
-from dw_mcp.media import get_output_image
+from dw_mcp.client import DwClient
 
 from .test_server import ScriptedWorkerManager, success_script
 
@@ -74,7 +73,6 @@ def decodes(monkeypatch):
 def test_the_probe_png_parses_to_the_size_it_claims():
     """The header is honest enough for Pillow to believe it - otherwise the
     tests below would pass on a parse error rather than a clamp."""
-    import io
     import warnings
 
     with warnings.catch_warnings():
@@ -95,29 +93,6 @@ def _serving(body):
         return httpx.Response(200, content=body, headers={"content-type": "image/png"})
 
     return DwClient(transport=httpx.MockTransport(handler))
-
-
-class TestGetOutputImage:
-    def test_a_bomb_over_pillows_limit_is_refused_before_decode(self, decodes):
-        with pytest.raises((DwApiError, Image.DecompressionBombError)):
-            get_output_image(_serving(bomb_png(*OVER_PILLOWS_ERROR)), "bomb.png")
-        assert decodes == []
-
-    def test_a_bomb_under_pillows_limit_is_refused_before_decode(self, decodes):
-        try:
-            get_output_image(_serving(bomb_png(*UNDER_PILLOWS_ERROR)), "bomb.png")
-        except DwApiError:
-            pass
-        assert decodes == []
-
-    def test_a_crop_does_not_decode_the_whole_bomb(self, decodes):
-        try:
-            get_output_image(
-                _serving(bomb_png(*UNDER_PILLOWS_ERROR)), "bomb.png", crop=[0, 0, 8, 8]
-            )
-        except DwApiError:
-            pass
-        assert decodes == []
 
 
 @pytest.fixture
@@ -175,20 +150,6 @@ class TestGalleryThumbnail:
         assert decodes == []
 
 
-def test_the_mcp_limit_is_the_engines():
-    """dw_mcp cannot import dw (the torch boundary), so it keeps its own copy
-    of the limit; the two may not drift."""
-    from dw.security import MAX_DECODE_PIXELS as engine
-    from dw_mcp.media import MAX_DECODE_PIXELS as mcp
-
-    assert mcp == engine == DECODE_LIMIT
-
-
-def test_the_refusal_names_the_size_and_the_limit(decodes):
-    with pytest.raises(DwApiError, match=r"12000x12000.*50,000,000 pixels"):
-        get_output_image(_serving(bomb_png(*UNDER_PILLOWS_ERROR)), "bomb.png")
-
-
 def test_the_thumbnail_route_answers_413(gallery, decodes):
     client, outputs = gallery
     (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
@@ -198,12 +159,43 @@ def test_the_thumbnail_route_answers_413(gallery, decodes):
         assert client.get("/api/gallery/bigger.png/thumbnail").status_code == 413
 
 
-def test_an_image_under_the_limit_is_still_served(tmp_path):
+def test_an_image_under_the_limit_is_still_served(gallery):
     """The limit is on pixels decoded, not a new ceiling on ordinary work: an
     image under it still decodes, crops and thumbnails."""
-    image = Image.new("RGB", (640, 480), (200, 40, 40))
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    result = get_output_image(_serving(buffer.getvalue()), "ok.png", crop=[0, 0, 8, 8])
-    assert result["original_size"] == [640, 480]
-    assert result["crop"] == [0, 0, 8, 8]
+    client, outputs = gallery
+    Image.new("RGB", (640, 480), (200, 40, 40)).save(outputs / "ok.png")
+    with client:
+        answer = client.get("/api/gallery/ok.png/image", params={"crop": "0,0,8,8"})
+    assert answer.status_code == 200
+    assert answer.headers["x-dw-original-size"] == "640,480"
+    assert answer.headers["x-dw-crop"] == "0,0,8,8"
+
+
+class TestGalleryImage:
+    """The gallery's image route decodes a whole image a caller names, so
+    it refuses a bomb before the pixels, as the thumbnail does."""
+
+    def test_a_bomb_over_pillows_limit_is_refused_before_decode(self, gallery, decodes):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*OVER_PILLOWS_ERROR))
+        with client:
+            assert client.get("/api/gallery/bomb.png/image").status_code == 413
+        assert decodes == []
+
+    def test_a_bomb_under_pillows_limit_is_refused_before_decode(
+        self, gallery, decodes
+    ):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
+        with client:
+            answer = client.get("/api/gallery/bomb.png/image")
+        assert answer.status_code == 413
+        assert "12000x12000" in answer.text
+        assert decodes == []
+
+    def test_a_crop_does_not_decode_the_whole_bomb(self, gallery, decodes):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
+        with client:
+            client.get("/api/gallery/bomb.png/image", params={"crop": "0,0,8,8"})
+        assert decodes == []

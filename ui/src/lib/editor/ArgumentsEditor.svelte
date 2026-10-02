@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
   import MediaArgumentInput from './MediaArgumentInput.svelte'
@@ -134,7 +135,7 @@
             alwaysExpandable
             onchange={(raw) => update(key, raw)}
             onpromptpick={(name) => {
-              args[key] = 'prompt:' + name
+              args[key] = reference(PROMPT, name)
             }}
           />
         {:else}

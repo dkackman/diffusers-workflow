@@ -21,7 +21,7 @@ from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
-from ...security import SecurityError
+from ...security import SecurityError, validate_path
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -58,6 +58,7 @@ from ..job_record import (
 from ..outputs import (
     absolute_served_url,
     asset_library_for_job,
+    delete_run_directory,
     output_kinds,
     served_url,
 )
@@ -233,6 +234,48 @@ def get_job(request: Request, job_id: str):
     # a historical job is already a detail dict; a live one renders itself
     detail = job if isinstance(job, dict) else manager.describe(job)
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
+
+
+@router.delete("/api/jobs/{job_id}/run")
+def delete_job_run(request: Request, job_id: str):
+    """Delete the run directory a job wrote, whole - the run a job id
+    names, without the caller listing the gallery to find it. The job
+    carries its own output root, so no workspace selector applies. A job
+    still queued or running has a run in use, and is refused (409)."""
+    manager = request.app.state.job_manager
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    status = job["status"] if isinstance(job, dict) else job.status
+    if status not in TERMINAL_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job {job_id} is {status}; cancel it before deleting its run",
+        )
+    location = manager.run_location(job_id)
+    if location is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Job {job_id} ({status}) has no run directory to delete - it "
+                "never started a run, or predates run tracking"
+            ),
+        )
+    root, run_dir = location
+    try:
+        path = validate_path(os.path.join(root, run_dir), root, allow_create=False)
+    except SecurityError:
+        raise HTTPException(status_code=400, detail="Invalid run directory")
+    if not os.path.isdir(path):
+        raise HTTPException(
+            status_code=404, detail=f"Job {job_id}'s run directory is already gone"
+        )
+    return {
+        "job_id": job_id,
+        "run_dir": run_dir,
+        "deleted": True,
+        "run_swept": delete_run_directory(path, root),
+    }
 
 
 @router.get("/api/jobs/{job_id}/workflow")

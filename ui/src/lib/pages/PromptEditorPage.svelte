@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isNameSegment } from '../names'
+  import { PROMPT, reference } from '../references'
   import {
     Braces,
     CircleCheck,
@@ -363,18 +365,18 @@
   function savePath(): string | null {
     if (!saveName) return null
     const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__' && !/^[\w][\w.-]*$/.test(directory)) return null
+    if (folder === '__new__' && !isNameSegment(directory)) return null
     return directory ? `${directory}/${saveName}` : saveName
   }
 
   // Validation failures are errors (red), not statuses (green checkmark)
   function saveBlocker(): string | null {
     if (!saveName) return 'Give the prompt a file name first'
-    if (!/^[\w][\w.-]*$/.test(saveName))
+    if (!isNameSegment(saveName))
       return 'Prompt names: letters, numbers, dot, dash, underscore'
     if (folder === '__new__') {
       if (!newFolder.trim()) return 'Name the new folder first'
-      if (!/^[\w][\w.-]*$/.test(newFolder.trim()))
+      if (!isNameSegment(newFolder.trim()))
         return 'Folder names: letters, numbers, dot, dash, underscore'
     }
     if (!String(doc.text ?? '').trim())
@@ -551,7 +553,7 @@
       >prompt:{savePath()}</code
     >
     <CopyButton
-      text={`prompt:${savePath()}`}
+      text={reference(PROMPT, savePath() ?? '')}
       title="copy reference to clipboard"
     />
   {/if}

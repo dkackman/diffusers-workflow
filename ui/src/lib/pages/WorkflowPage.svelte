@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PROMPT, reference } from '../references'
   import { Copy, Play, SquarePen, Trash2 } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
@@ -170,7 +171,7 @@
 
 <datalist id={PROMPT_LIST_ID}>
   {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={'prompt:' + promptName}
+      value={reference(PROMPT, promptName)}
     ></option>{/each}
 </datalist>
 

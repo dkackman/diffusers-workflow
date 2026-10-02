@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PROMPT, reference } from '../references'
   import { Plus } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
@@ -78,7 +79,7 @@
       title={promptTooltip(effective(key), promptLibrary.texts)}
       oninput={(raw) => draft(key, raw)}
       onchange={(raw) => commit(key, raw)}
-      onpromptpick={(name) => commit(key, 'prompt:' + name)}
+      onpromptpick={(name) => commit(key, reference(PROMPT, name))}
     />
     {#if mode === 'define'}
       <button

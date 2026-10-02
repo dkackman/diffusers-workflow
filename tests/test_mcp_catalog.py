@@ -235,55 +235,44 @@ def test_get_workflow_sends_the_name_percent_encoded_on_the_wire():
     assert seen["raw_path"] == b"/api/workflows/..%2Fescape"
 
 
-def test_gallery_metadata_passes_the_media_block_through_and_says_how_to_read_it():
+def test_gallery_metadata_passes_the_media_block_through():
     body = {
         "name": "score.mp3",
         "metadata": None,
         "job": {"id": "job-1", "status": "succeeded"},
         "media": {"kind": "audio", "duration_seconds": 45.05, "peak_dbfs": -1.0},
+        "findings": [],
     }
     client, _ = scripted({("GET", "/api/gallery/score.mp3/metadata"): (200, body)})
 
     result = catalog.get_gallery_metadata(client, "score.mp3")
 
     assert result["media"]["duration_seconds"] == 45.05
-    assert "audio_duration" in result["next"]
+    assert "get_job_workflow" in result["next"]
 
 
-def test_gallery_metadata_tolerates_a_job_without_an_id():
-    """The job-workflow hint names the job's id; a job block without one
-    drops the hint instead of failing the whole call."""
-    body = {"name": "a.png", "metadata": None, "job": {"status": "succeeded"}}
-    client, _ = scripted({("GET", "/api/gallery/a.png/metadata"): (200, body)})
+def test_gallery_metadata_points_at_the_servers_findings_and_restates_no_threshold():
+    """The level rules are dw/audio_qc.py's and the route reports them as
+    findings; the client's hint points there and states no number, and the
+    Music 3 ceiling rule stays in its skill (#441)."""
+    finding = {"rule": "full_scale", "severity": "warn", "says": "peaks at full scale"}
+    for kind in ("audio", "video"):
+        body = {
+            "name": "x",
+            "source": "output",
+            "metadata": None,
+            "job": None,
+            "media": {"kind": kind, "peak_dbfs": 0.2, "mean_dbfs": -12.0},
+            "findings": [finding],
+        }
+        client, _ = scripted({("GET", "/api/gallery/x/metadata"): (200, body)})
 
-    result = catalog.get_gallery_metadata(client, "a.png")
+        result = catalog.get_gallery_metadata(client, "x")
 
-    assert "get_job_workflow" not in str(result)
-
-
-def test_gallery_metadata_keeps_the_music_3_ceiling_text_off_a_video():
-    """#441: the Music 3 ceiling and mp3-overshoot guidance fired for any
-    audio or video output, so a video cut's 'next' hint carried advice
-    about an audio_duration ceiling that never applied to it. Video keeps
-    the generic peak/mean level guidance, but not the Music 3-specific
-    part."""
-    body = {
-        "name": "templates/assemble-and-score/20260925-094123-6db9e283/final/x.mp4",
-        "source": "output",
-        "metadata": None,
-        "job": {"id": "a18c3d548cce", "status": "succeeded"},
-        "media": {"kind": "video", "duration_seconds": 12.5, "peak_dbfs": -3.0},
-    }
-    client, _ = scripted(
-        {("GET", "/api/gallery/" + body["name"] + "/metadata"): (200, body)}
-    )
-
-    result = catalog.get_gallery_metadata(client, body["name"])
-
-    assert "Music 3" not in result["next"]
-    assert "audio_duration" not in result["next"]
-    assert "peak_dbfs" in result["next"]
-    assert "normalize_audio" in result["next"]
+        assert "findings" in result["next"]
+        assert "audio_duration" not in result["next"]
+        assert "Music 3" not in result["next"]
+        assert "-40" not in result["next"] and "dBFS" not in result["next"]
 
 
 def test_gallery_metadata_reads_an_asset_and_says_the_numbers_are_inputs():

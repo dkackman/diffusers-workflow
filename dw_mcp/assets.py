@@ -13,7 +13,8 @@ import base64
 import os
 from urllib.parse import urlsplit
 
-from dw_mcp.client import DwApiError, api_path
+from dw_mcp import confine
+from dw_mcp.client import UNSHAREABLE_HOSTS, DwApiError, api_path, project
 
 # Twin of the server's own limit (dw/server/routes/assets.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
@@ -49,80 +50,16 @@ ALLOWED_UPLOAD_EXTENSIONS = frozenset(
 )
 
 
-def _remote_roots(client, workspace=None):
-    """The directories a remote read is confined to, or None when local.
-
-    The mirror of media.py's `_remote_root` (#113), for the other direction.
-    Only the mounted MCP surface is remote: there `upload_asset` runs inside
-    dw.serve, so `file_path` names a file on the operator's box rather than
-    on the calling agent's machine, and an unconfined read is an arbitrary
-    file read plus a path-existence oracle (#138). A stdio `dw-mcp` returns
-    None and keeps reading whatever the user can, because there "local file"
-    is genuinely their own.
-
-    `/api/server`'s `directories` names only the four workspace-scoped
-    folders plus the shared prompt library, not the shared asset library
-    ('common/assets') every workspace's own asset search path already
-    includes - that one is only visible via `/api/assets`'s `libraries`
-    (#448). A writable library there (the workspace's own, already covered
-    above, and the shared one) is as legal a source as the four directories;
-    a read-only examples library is not, so it is left out.
-
-    `workspace` is upload_asset's per-call override: the roots are the
-    workspace the asset goes to, not the session's pin (#389).
-    """
-    if not getattr(client, "mounted", False):
-        return None
-
-    directories = (
-        client.get_json("/api/server", workspace=workspace).get("directories")
-    ) or {}
-    roots = []
-    for key in ("workspace", "workflows", "assets", "outputs", "prompts"):
-        value = directories.get(key)
-        if not value:
-            continue
-        resolved = os.path.normpath(
-            os.path.realpath(os.path.abspath(os.path.expanduser(str(value))))
-        )
-        if resolved not in roots:
-            roots.append(resolved)
-
-    try:
-        libraries = (
-            client.get_json("/api/assets", workspace=workspace).get("libraries") or []
-        )
-    except DwApiError:
-        libraries = []
-    for library in libraries:
-        if not isinstance(library, dict) or not library.get("writable"):
-            continue
-        value = library.get("root")
-        if not value:
-            continue
-        resolved = os.path.normpath(
-            os.path.realpath(os.path.abspath(os.path.expanduser(str(value))))
-        )
-        if resolved not in roots:
-            roots.append(resolved)
-
-    if not roots:
-        raise DwApiError(
-            "This server cannot say which directories it works in, so it "
-            "will not read a file off its own disk for you. Upload the "
-            "bytes through the web UI's file picker, pass them inline to "
-            "upload_asset as content=, or keep a generated file with "
-            "keep_output."
-        )
-    return roots
-
-
-# Hosts a URL cannot be handed to another machine with: each one names
-# whichever machine reads it. A `dw.serve --mcp` endpoint reaches its own
-# server at 127.0.0.1 (dw/server/mcp_mount.py's client_base_url), which is
-# exactly the address that is wrong for the remote caller an upload refusal
-# is written for (#481)
-LOCAL_ONLY_HOSTS = frozenset(("localhost", "::1", "0.0.0.0", "::"))
+# The /api/server directories a mounted upload may read from; every
+# writable library /api/assets lists counts too (the shared asset library is
+# only visible there, #448), a read-only examples library does not
+SOURCE_DIRECTORIES = ("workspace", "workflows", "assets", "outputs", "prompts")
+NO_ROOTS_REFUSAL = (
+    "This server cannot say which directories it works in, so it will not "
+    "read a file off its own disk for you. Upload the bytes through the web "
+    "UI's file picker, pass them inline to upload_asset as content=, or keep "
+    "a generated file with keep_output."
+)
 
 
 def _upload_origin(client):
@@ -131,7 +68,7 @@ def _upload_origin(client):
     same URL with `<host>` in place of the loopback address."""
     parsed = urlsplit(client.base_url)
     host = (parsed.hostname or "").lower()
-    if host and host not in LOCAL_ONLY_HOSTS and not host.startswith("127."):
+    if host and host not in UNSHAREABLE_HOSTS and not host.startswith("127."):
         return client.base_url.rstrip("/")
     port = f":{parsed.port}" if parsed.port else ""
     return f"{parsed.scheme or 'http'}://<host>{port}"
@@ -174,16 +111,9 @@ def _confine_source(path, roots, named, client, workspace=None):
     Ordered ahead of the existence and extension checks on purpose: a
     refusal that depends on whether the file is there turns the tool into a
     path-existence oracle for the whole box, which is the condition this
-    closes as much as the read itself (#138). Containment is on the resolved
-    real path, so a symlink cannot carry the read out.
+    closes as much as the read itself (#138).
     """
-    probe = path
-    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
-        probe = os.path.dirname(probe)
-    resolved = os.path.normpath(
-        os.path.join(os.path.realpath(probe), os.path.relpath(path, probe))
-    )
-    if any(resolved == root or resolved.startswith(root + os.sep) for root in roots):
+    if confine.contains(path, roots):
         return
     raise DwApiError(
         f"Refusing to read {named} - this MCP endpoint is served by "
@@ -205,7 +135,7 @@ ASSET_SUMMARY_FIELDS = ("name", "reference", "kind", "size", "origin")
 
 def _summarised_asset_entries(entries):
     return [
-        {key: entry.get(key) for key in ASSET_SUMMARY_FIELDS if key in entry}
+        project(entry, ASSET_SUMMARY_FIELDS)
         for entry in entries
         if isinstance(entry, dict)
     ]
@@ -357,7 +287,13 @@ def upload_asset(
         )
 
     path = os.path.abspath(os.path.expanduser(str(file_path)))
-    roots = _remote_roots(client, workspace)
+    roots = confine.remote_roots(
+        client,
+        workspace,
+        SOURCE_DIRECTORIES,
+        writable_libraries=True,
+        refusal=NO_ROOTS_REFUSAL,
+    )
     if roots is not None:
         _confine_source(path, roots, file_path, client, workspace)
     if not os.path.isfile(path):

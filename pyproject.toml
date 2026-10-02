@@ -172,6 +172,7 @@ ignore = ["E501"]
 "tests/test_jobs_listing.py" = ["F811"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]
+"tests/test_server_jobs.py" = ["F811"]
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

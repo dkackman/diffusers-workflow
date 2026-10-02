@@ -14,7 +14,6 @@ from dw import media as dw_media
 from dw import plan, references, run as dw_run, workspace
 from dw.server import assess, job_record, netinfo
 from dw.server.routes import assets as asset_routes
-from dw.server.routes import media as media_routes
 from dw_mcp import assets, client, diagnose, media
 from dw_mcp.server import INSTRUCTIONS
 from dw_mcp.tools_authoring import AuthoringTools, PromptTools, WorkspaceTools
@@ -33,7 +32,6 @@ from dw_mcp.tools_media import MediaTools
         (set(diagnose.TERMINAL_STATUSES), set(job_record.TERMINAL_STATES)),
         (set(dw_run.TERMINAL_STATUSES), set(job_record.TERMINAL_STATES)),
         (media.MAX_RETURNED_BYTES, dw_media.MAX_INLINE_AUDIO_BYTES),
-        (media.MIN_DIMENSION, media_routes.FRAME_MIN_DIMENSION),
     ],
     ids=[
         "upload extensions",
@@ -43,7 +41,6 @@ from dw_mcp.tools_media import MediaTools
         "terminal job states (dw_mcp)",
         "terminal job states (dw.run)",
         "inline payload cap",
-        "frame minimum dimension",
     ],
 )
 def test_a_copied_constant_equals_its_owner(copy, owner):
@@ -218,3 +215,10 @@ def test_every_tool_that_takes_acknowledged_cost_refuses_without_it():
         }
         with pytest.raises(DwApiError, match="acknowledged_cost"):
             fn(**required)
+
+
+def test_dw_mcps_base64_size_is_the_engines():
+    from dw.media import base64_size as engine
+    from dw_mcp.client import base64_size as copy
+
+    assert [copy(n) for n in range(0, 50)] == [engine(n) for n in range(0, 50)]

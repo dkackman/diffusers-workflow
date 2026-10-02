@@ -3,6 +3,7 @@ import {
   CONTENT_TYPES,
   coerce,
   contentTypeOptions,
+  optionsWith,
   danglingReferences,
   isLongText,
   isReference,
@@ -284,5 +285,15 @@ describe('contentTypeOptions', () => {
   it('adds nothing for a listed value or none', () => {
     expect(contentTypeOptions('image/png')).toEqual([...CONTENT_TYPES])
     expect(contentTypeOptions(undefined)).toEqual([...CONTENT_TYPES])
+  })
+})
+
+describe('optionsWith', () => {
+  it('appends a current value the list lacks', () => {
+    expect(optionsWith(['a', 'b'], 'c')).toEqual(['a', 'b', 'c'])
+  })
+  it('leaves the list alone for a listed or empty value', () => {
+    expect(optionsWith(['a', 'b'], 'a')).toEqual(['a', 'b'])
+    expect(optionsWith(['a', 'b'], null)).toEqual(['a', 'b'])
   })
 })

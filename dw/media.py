@@ -93,6 +93,12 @@ def audio_shape(path):
         }
 
 
+def base64_size(n):
+    """How long `n` bytes are once base64-encoded - what an inline payload
+    costs the conversation it is sent into."""
+    return 4 * math.ceil(n / 3)
+
+
 def projected_wav_base64_size(shape):
     """How many bytes the whole track would be as base64 16-bit PCM WAV -
     `extract_audio`'s output for the same file, sized from `audio_shape`
@@ -100,7 +106,7 @@ def projected_wav_base64_size(shape):
     if shape is None or shape["duration_seconds"] is None:
         return None
     pcm = int(shape["duration_seconds"] * shape["sample_rate"] * shape["channels"] * 2)
-    return 4 * math.ceil(pcm / 3)
+    return base64_size(pcm)
 
 
 def extract_audio(path, start=None, duration=None):

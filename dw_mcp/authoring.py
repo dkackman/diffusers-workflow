@@ -6,7 +6,7 @@ traversal and anything outside the workflow directory). Nothing here
 re-implements it - a second, subtly different check is how the two drift.
 """
 
-from dw_mcp.client import DwApiError, api_path, coerce_json_object
+from dw_mcp.client import DwApiError, api_path, coerce_json_object, workflow_source
 
 
 def validate_workflow(
@@ -36,18 +36,7 @@ def validate_workflow(
     `outputs/` - a run sitting in a different workspace, however identical
     its arguments and seed, does not count as a hit. Pin `workspace` to the
     one an earlier run actually used if you want to see it credited."""
-    workflow = coerce_json_object(workflow, "workflow")
-    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
-    if workflow is not None and inline_workflow is not None:
-        raise DwApiError(
-            "`workflow` and `inline_workflow` are the same thing - provide only one."
-        )
-    if name is not None and workflow_path is not None:
-        raise DwApiError(
-            "`name` and `workflow_path` are the same thing - provide only one."
-        )
-    inline = workflow if workflow is not None else inline_workflow
-    stored = name if name is not None else workflow_path
+    stored, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if (inline is None) == (stored is None):
         raise DwApiError(
             "Provide exactly one of `workflow`/`inline_workflow` (an inline "
@@ -94,28 +83,13 @@ def save_workflow(client, name, workflow=None, patch=None, workspace=None):
     workflow = coerce_json_object(workflow, "workflow")
     patch = coerce_json_object(patch, "patch")
     if patch is not None:
-        current = client.get_json(
-            api_path("api", "workflows", name), workspace=workspace
+        # The server merges under its save lock (RFC 7396)
+        return client.patch_json(
+            api_path("api", "workflows", name), patch, workspace=workspace
         )
-        workflow = _merge_patch(current, patch)
     return client.put_json(
         api_path("api", "workflows", name), {"workflow": workflow}, workspace=workspace
     )
-
-
-def _merge_patch(target, patch):
-    """RFC 7396 JSON Merge Patch: each dict key in `patch` merges
-    recursively into `target`; any other value replaces `target` outright;
-    `None` deletes the key from the result."""
-    if not isinstance(patch, dict):
-        return patch
-    result = dict(target) if isinstance(target, dict) else {}
-    for key, value in patch.items():
-        if value is None:
-            result.pop(key, None)
-        else:
-            result[key] = _merge_patch(result.get(key), value)
-    return result
 
 
 def delete_workflow(client, name, workspace=None):
