@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gbFromMb } from './lib/format'
   import {
     BookOpen,
     Braces,
@@ -80,7 +81,7 @@
     return () => clearInterval(timer)
   })
 
-  const gb = (mb: number) => (mb / 1024).toFixed(1)
+  const gb = gbFromMb
 
   type Theme = 'system' | 'light' | 'dark'
   let theme = $state<Theme>(

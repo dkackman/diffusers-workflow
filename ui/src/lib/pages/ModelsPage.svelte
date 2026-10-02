@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gbFromBytes } from '../format'
   import {
     ChevronDown,
     ChevronRight,
@@ -141,7 +142,7 @@
     }
   }
 
-  const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
+  const gb = gbFromBytes
   const day = (stamp: number | null) =>
     stamp ? new Date(stamp * 1000).toLocaleDateString() : '—'
   const hubUrl = (repo: ModelRepo) =>

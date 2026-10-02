@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { describeOutputMeta } from '../outputMeta'
   import { Bookmark, ImageOff, FolderOpen, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
@@ -201,25 +202,10 @@
     (metadata?.workflow as Record<string, unknown> | undefined) ?? null,
   )
 
-  // The step's realized arguments, so the prompt shown is the text the
-  // pipeline actually saw rather than the 'variable:' reference in the JSON
-  const args = $derived(
-    (metadata?.arguments as Record<string, unknown> | undefined) ?? null,
-  )
-
-  /** A prompt argument as displayable text - pipelines accept a list too. */
-  function promptText(value: unknown): string {
-    if (typeof value === 'string') return value
-    if (Array.isArray(value))
-      return value.filter((v) => typeof v === 'string').join('\n')
-    return ''
-  }
-
-  const prompt = $derived(promptText(args?.prompt))
-  const negativePrompt = $derived(promptText(args?.negative_prompt))
-  const seed = $derived(
-    typeof metadata?.seed === 'number' ? metadata.seed : args?.seed,
-  )
+  const described = $derived(describeOutputMeta(metadata))
+  const prompt = $derived(described.prompt)
+  const negativePrompt = $derived(described.negativePrompt)
+  const seed = $derived(described.seed)
 
   function openAsWorkflow() {
     if (!embeddedWorkflow) return

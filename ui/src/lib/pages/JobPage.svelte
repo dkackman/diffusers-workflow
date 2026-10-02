@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { describeOutputMeta } from '../outputMeta'
   import {
     Dices,
     PackageOpen,
@@ -240,14 +241,6 @@
     groupResultFiles(job?.manifest, events as JobEvent[]),
   )
 
-  /** A prompt argument as displayable text - pipelines accept a list too. */
-  function promptText(value: unknown): string {
-    if (typeof value === 'string') return value
-    if (Array.isArray(value))
-      return value.filter((v) => typeof v === 'string').join('\n')
-    return ''
-  }
-
   // The generation metadata embedded in each image, keyed by file - per
   // file rather than per step, since each image of a batch carries its own
   // seed. Images only: the metadata route decodes an audio or video file
@@ -277,16 +270,7 @@
   })
 
   /** The gallery detail's fields for one output's embedded metadata. */
-  function describe(meta: Record<string, unknown> | null | undefined) {
-    const args =
-      (meta?.arguments as Record<string, unknown> | undefined) ?? null
-    return {
-      model: typeof meta?.model_name === 'string' ? meta.model_name : '',
-      seed: typeof meta?.seed === 'number' ? meta.seed : args?.seed,
-      prompt: promptText(args?.prompt),
-      negativePrompt: promptText(args?.negative_prompt),
-    }
-  }
+  const describe = describeOutputMeta
   // Nothing at all was generated: every step the manifest lists was served
   // from the step cache. Worth saying outright - the page otherwise shows a
   // succeeded job full of images that are not this run's

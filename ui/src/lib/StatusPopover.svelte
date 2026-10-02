@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gbFromMb } from './format'
   import type { HealthInfo, MemoryInfo } from './types'
   import Popover from './ui/Popover.svelte'
 
@@ -14,7 +15,7 @@
     memory: MemoryInfo | null
   } = $props()
 
-  const gb = (mb: number) => (mb / 1024).toFixed(1)
+  const gb = gbFromMb
   const info = $derived(memory?.info ?? null)
 </script>
 
