@@ -58,3 +58,8 @@ describe('the real tree', () => {
       expect(Number.isInteger(value)).toBe(true)
   }, 60_000)
 })
+
+it('does not measure generated code', () => {
+  const files = sourceFiles().map((f) => f.replaceAll('\\', '/'))
+  expect(files.some((f) => f.includes('/src/lib/generated/'))).toBe(false)
+})
