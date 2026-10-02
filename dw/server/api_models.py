@@ -473,6 +473,8 @@ class ValidationResult(ApiModel):
 # ---------------------------------------------------------------- library
 
 Origin = Literal["workspace", "common", "examples", "builtin"]
+# Assets have no packaged (builtin) library
+AssetOrigin = Literal["workspace", "common", "examples"]
 Shape = Literal[SHAPES]
 Trait = Literal[TRAITS]
 
@@ -636,3 +638,150 @@ class EnhancerPreset(ApiModel):
 
 class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
+
+
+# --------------------------------------------------------- gallery, assets
+
+
+class GalleryFile(ApiModel):
+    name: str
+    folder: str
+    subfolder: str = Field(
+        description="What followed the run id in the file's path - the `final` / "
+        "`intermediate` a step's `result.subfolder` chose, `''` for none."
+    )
+    run_id: str = Field(
+        description="The run that wrote the file, `''` under the flat layout."
+    )
+    version: int | None = Field(
+        description="That run's ordinal among the workflow's runs - what the grid "
+        "shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null "
+        "when there is no run."
+    )
+    url: str
+    absolute_url: str = sometimes()
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    label: str
+    duration_seconds: int | float | None = sometimes(
+        "An audio or video file's length, with `media=true`."
+    )
+
+
+class GalleryList(ApiModel):
+    files: list[GalleryFile] = Field(description="Newest first.")
+    total: int
+    offset: int
+    limit: int
+    folders: list[str]
+    subfolders: list[str]
+    workspace: str
+
+
+class OutputDeleted(ApiModel):
+    name: str
+    deleted: bool
+    run_swept: str | None = Field(
+        description="The run directory the delete emptied and removed, if any."
+    )
+
+
+class JobRef(ApiModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    status: str
+
+
+class LevelFinding(ApiModel):
+    """A probe threshold crossing (dw/assessment_rules.finding)."""
+
+    rule: str
+    severity: str
+    at: Any
+    value: Any
+    threshold: Any
+    says: str
+
+
+class GalleryMetadata(ApiModel):
+    name: str
+    source: Literal["output", "asset"]
+    metadata: dict[str, Any] | None = Field(
+        description="What the file embeds: the workflow and arguments that made it."
+    )
+    job: JobRef | None
+    run_id: str
+    version: int | None
+    media: dict[str, Any] | None = Field(
+        description="The probe of an audio or video file; null for an image."
+    )
+    findings: list[LevelFinding]
+
+
+class AssetLibraryRoot(ApiModel):
+    root: str
+    origin: AssetOrigin
+    writable: bool
+
+
+class AssetFile(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin = Field(
+        description="Which library it came from: this workspace's own, the `common` "
+        "one every workspace shares, or a read-only examples tree - why a delete "
+        "can answer 403."
+    )
+    writable: bool
+    url: str
+    absolute_url: str = sometimes()
+
+
+class ShadowedAsset(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin
+    writable: bool
+    shadowed_by: AssetOrigin
+
+
+class AssetList(ApiModel):
+    workspace: str
+    libraries: list[AssetLibraryRoot]
+    assets: list[AssetFile]
+    folders: list[str]
+    shadowed: list[ShadowedAsset]
+
+
+class Uploaded(ApiModel):
+    reference: str
+    workspace: str
+    url: str
+    absolute_url: str = sometimes()
+    shared: bool
+
+
+class Kept(ApiModel):
+    reference: str
+    name: str
+    workspace: str
+    linked: bool
+    shared: bool
+
+
+class AssetDeleted(ApiModel):
+    name: str
+    workspace: str
+    reference: str
+    deleted: bool
+    origin: AssetOrigin

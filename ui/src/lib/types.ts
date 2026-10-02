@@ -46,6 +46,17 @@ export type Deleted = Schemas['Deleted']
 export type WorkflowDeleted = Schemas['WorkflowDeleted']
 export type PromptSaved = Schemas['PromptSaved']
 export type EnhancerPresets = Schemas['EnhancerPresets']
+export type GalleryFile = Schemas['GalleryFile']
+export type GalleryList = Schemas['GalleryList']
+export type GalleryMetadata = Schemas['GalleryMetadata']
+export type OutputDeleted = Schemas['OutputDeleted']
+export type AssetFile = Schemas['AssetFile']
+export type AssetLibrary = Schemas['AssetLibraryRoot']
+export type ShadowedAsset = Schemas['ShadowedAsset']
+export type AssetList = Schemas['AssetList']
+export type Uploaded = Schemas['Uploaded']
+export type Kept = Schemas['Kept']
+export type AssetDeleted = Schemas['AssetDeleted']
 
 export interface JobEvent {
   seq: number
@@ -146,50 +157,6 @@ export interface PipelineDescription {
   compatibles?: string[]
 }
 
-export interface GalleryFile {
-  name: string
-  folder: string
-  /** What followed the run id in the file's path - the `final` /
-   * `intermediate` a step's `result.subfolder` chose, `''` for none. */
-  subfolder: string
-  /** The run that wrote the file, `''` under the flat layout. */
-  run_id: string
-  /** That run's ordinal among the workflow's runs - what the grid shows as
-   * `v4`. Two runs write the same `label`, so this is what tells them
-   * apart at a glance. Assigned when the run opens and never renumbered,
-   * so a deleted sibling leaves a gap. Null when there is no run. */
-  version: number | null
-  url: string
-  kind: 'image' | 'video' | 'audio'
-  size: number
-  mtime: number
-  label: string
-}
-
-/** One file in the asset library - the input media an `asset:` reference
- * names. Reported by reference rather than by path, so a client never has
- * to build one. */
-export interface AssetFile {
-  name: string
-  reference: string
-  folder: string
-  kind: 'image' | 'video' | 'audio'
-  size: number
-  mtime: number
-  /** Which library it came from: this workspace's own, the `common` one
-   * every workspace shares, or a read-only examples tree. The last is why
-   * a delete can answer 403. */
-  origin: 'workspace' | 'common' | 'examples'
-  url: string
-}
-
-export interface AssetLibrary extends LibraryRoot {
-  origin: AssetFile['origin']
-}
-
 /** An asset a nearer library hides: same shape as `AssetFile` except there
  * is no `url` - that URL would serve the shadowing file, not this one - and
  * `shadowed_by` names the origin that won. */
-export type ShadowedAsset = Omit<AssetFile, 'url'> & {
-  shadowed_by: AssetFile['origin']
-}

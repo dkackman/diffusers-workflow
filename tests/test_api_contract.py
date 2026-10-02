@@ -132,6 +132,13 @@ UI_READ_ROUTES = [
     ("put", "/api/prompts/{name}"),
     ("delete", "/api/prompts/{name}"),
     ("get", "/api/enhancers"),
+    ("get", "/api/gallery"),
+    ("delete", "/api/gallery/{name}"),
+    ("get", "/api/gallery/{name}/metadata"),
+    ("get", "/api/assets"),
+    ("post", "/api/uploads"),
+    ("post", "/api/assets/keep"),
+    ("delete", "/api/assets/{name}"),
 ]
 
 
@@ -413,3 +420,43 @@ def test_library_listings_keep_their_keys(server, tmp_path):
     assert set(prompts) == {"libraries", "prompts", "details", "shadowed"}
     # the raw GET is the file itself, verbatim (docs/ARCHITECTURE.md)
     assert raw.json() == json.loads((tmp_path / "workflows" / "Basic.json").read_text())
+
+
+def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
+    from PIL import Image
+
+    outputs = tmp_path / "outputs"
+    outputs.mkdir(exist_ok=True)
+    Image.new("RGB", (4, 4)).save(outputs / "flat.png")
+    with server(success_script) as client:
+        listing = client.get("/api/gallery").json()
+        orphans = client.get("/api/gallery", params={"only_orphans": True})
+        metadata = client.get("/api/gallery/flat.png/metadata").json()
+        assets = client.get("/api/assets").json()
+    assert set(listing) == {
+        "files",
+        "total",
+        "offset",
+        "limit",
+        "folders",
+        "subfolders",
+        "workspace",
+    }
+    [entry] = listing["files"]
+    # the flat layout has no run: run_id is '' and version null
+    assert entry["run_id"] == "" and entry["version"] is None
+    assert type(entry["size"]) is int and "duration_seconds" not in entry
+    # the orphan view is a different answer, outside the model
+    assert orphans.status_code == 200 and "runs" in orphans.json()
+    assert set(metadata) == {
+        "name",
+        "source",
+        "metadata",
+        "job",
+        "run_id",
+        "version",
+        "media",
+        "findings",
+    }
+    assert metadata["job"] is None
+    assert {"workspace", "libraries", "assets", "folders", "shadowed"} <= set(assets)

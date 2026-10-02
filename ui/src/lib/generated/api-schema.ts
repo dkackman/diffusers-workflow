@@ -1594,6 +1594,77 @@ export interface components {
             /** Names */
             names: string[];
         };
+        /** AssetDeleted */
+        AssetDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples";
+            /** Reference */
+            reference: string;
+            /** Workspace */
+            workspace: string;
+        };
+        /** AssetFile */
+        AssetFile: {
+            /** Absolute Url */
+            absolute_url?: string;
+            /** Folder */
+            folder: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /** Mtime */
+            mtime: number;
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @description Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples";
+            /** Reference */
+            reference: string;
+            /** Size */
+            size: number;
+            /** Url */
+            url: string;
+            /** Writable */
+            writable: boolean;
+        };
+        /** AssetLibraryRoot */
+        AssetLibraryRoot: {
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples";
+            /** Root */
+            root: string;
+            /** Writable */
+            writable: boolean;
+        };
+        /** AssetList */
+        AssetList: {
+            /** Assets */
+            assets: components["schemas"]["AssetFile"][];
+            /** Folders */
+            folders: string[];
+            /** Libraries */
+            libraries: components["schemas"]["AssetLibraryRoot"][];
+            /** Shadowed */
+            shadowed: components["schemas"]["ShadowedAsset"][];
+            /** Workspace */
+            workspace: string;
+        };
         /** Deleted */
         Deleted: {
             /** Deleted */
@@ -1714,6 +1785,99 @@ export interface components {
             bytes: number;
             /** Path */
             path: string;
+        };
+        /** GalleryFile */
+        GalleryFile: {
+            /** Absolute Url */
+            absolute_url?: string;
+            /**
+             * Duration Seconds
+             * @description An audio or video file's length, with `media=true`.
+             */
+            duration_seconds?: number | null;
+            /** Folder */
+            folder: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /** Label */
+            label: string;
+            /** Mtime */
+            mtime: number;
+            /** Name */
+            name: string;
+            /**
+             * Run Id
+             * @description The run that wrote the file, `''` under the flat layout.
+             */
+            run_id: string;
+            /** Size */
+            size: number;
+            /**
+             * Subfolder
+             * @description What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.
+             */
+            subfolder: string;
+            /** Url */
+            url: string;
+            /**
+             * Version
+             * @description That run's ordinal among the workflow's runs - what the grid shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null when there is no run.
+             */
+            version: number | null;
+        };
+        /** GalleryList */
+        GalleryList: {
+            /**
+             * Files
+             * @description Newest first.
+             */
+            files: components["schemas"]["GalleryFile"][];
+            /** Folders */
+            folders: string[];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Subfolders */
+            subfolders: string[];
+            /** Total */
+            total: number;
+            /** Workspace */
+            workspace: string;
+        };
+        /** GalleryMetadata */
+        GalleryMetadata: {
+            /** Findings */
+            findings: components["schemas"]["LevelFinding"][];
+            job: components["schemas"]["JobRef"] | null;
+            /**
+             * Media
+             * @description The probe of an audio or video file; null for an image.
+             */
+            media: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Metadata
+             * @description What the file embeds: the workflow and arguments that made it.
+             */
+            metadata: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "output" | "asset";
+            /** Version */
+            version: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1932,6 +2096,15 @@ export interface components {
             /** Total Steps */
             total_steps: number | null;
         };
+        /** JobRef */
+        JobRef: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** JobRequest */
         JobRequest: {
             /**
@@ -2069,6 +2242,37 @@ export interface components {
              * @default false
              */
             shared: boolean;
+        };
+        /** Kept */
+        Kept: {
+            /** Linked */
+            linked: boolean;
+            /** Name */
+            name: string;
+            /** Reference */
+            reference: string;
+            /** Shared */
+            shared: boolean;
+            /** Workspace */
+            workspace: string;
+        };
+        /**
+         * LevelFinding
+         * @description A probe threshold crossing (dw/assessment_rules.finding).
+         */
+        LevelFinding: {
+            /** At */
+            at: unknown;
+            /** Rule */
+            rule: string;
+            /** Says */
+            says: string;
+            /** Severity */
+            severity: string;
+            /** Threshold */
+            threshold: unknown;
+            /** Value */
+            value: unknown;
         };
         /** LibraryRoot */
         LibraryRoot: {
@@ -2259,6 +2463,18 @@ export interface components {
              * @description up, down, front, or back
              */
             direction: string;
+        };
+        /** OutputDeleted */
+        OutputDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Run Swept
+             * @description The run directory the delete emptied and removed, if any.
+             */
+            run_swept: string | null;
         };
         /** Plan */
         Plan: {
@@ -2493,6 +2709,36 @@ export interface components {
             /** Torch Version */
             torch_version: string | null;
         };
+        /** ShadowedAsset */
+        ShadowedAsset: {
+            /** Folder */
+            folder: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /** Mtime */
+            mtime: number;
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples";
+            /** Reference */
+            reference: string;
+            /**
+             * Shadowed By
+             * @enum {string}
+             */
+            shadowed_by: "workspace" | "common" | "examples";
+            /** Size */
+            size: number;
+            /** Writable */
+            writable: boolean;
+        };
         /** ShadowedEntry */
         ShadowedEntry: {
             /** Name */
@@ -2521,6 +2767,19 @@ export interface components {
              * @default false
              */
             revert: boolean;
+        };
+        /** Uploaded */
+        Uploaded: {
+            /** Absolute Url */
+            absolute_url?: string;
+            /** Reference */
+            reference: string;
+            /** Shared */
+            shared: boolean;
+            /** Url */
+            url: string;
+            /** Workspace */
+            workspace: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2797,7 +3056,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssetList"];
                 };
             };
             /** @description Validation Error */
@@ -2867,7 +3126,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Kept"];
                 };
             };
             /** @description Validation Error */
@@ -2900,7 +3159,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssetDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -3057,7 +3316,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["GalleryList"];
                 };
             };
             /** @description Validation Error */
@@ -3125,7 +3384,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["OutputDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -3340,7 +3599,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["GalleryMetadata"];
                 };
             };
             /** @description Validation Error */
@@ -4417,7 +4676,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Uploaded"];
                 };
             };
             /** @description Validation Error */

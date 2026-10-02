@@ -1,10 +1,11 @@
 import type {
-  AssetFile,
-  AssetLibrary,
+  AssetDeleted,
+  AssetList,
   Deleted,
   DiffusersStatus,
   EnhancerPresets,
-  GalleryFile,
+  GalleryList,
+  GalleryMetadata,
   HealthInfo,
   JobCancelled,
   JobDetail,
@@ -13,16 +14,18 @@ import type {
   JobList,
   JobMoved,
   JobWorkflow,
+  Kept,
   MemoryInfo,
   ModelCache,
   ModelDownload,
+  OutputDeleted,
   PipelineDescription,
   PromptDefinition,
   PromptList,
   PromptSaved,
   ServerInfo,
-  ShadowedAsset,
   StoredPrompt,
+  Uploaded,
   ValidationResult,
   WorkflowDefinition,
   WorkflowDeleted,
@@ -253,16 +256,12 @@ export const api = {
   server: () => request<ServerInfo>('/api/server'),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
-  gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),
+  gallery: () => request<GalleryList>('/api/gallery?limit=100000'),
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
   // a job page must read its own files from where they were written
   galleryMetadata: (name: string, workspace?: string) =>
-    request<{
-      name: string
-      metadata: Record<string, unknown> | null
-      job: { id: string; status: string } | null
-    }>(
+    request<GalleryMetadata>(
       workspace === undefined
         ? `/api/gallery/${encodePath(name)}/metadata`
         : scopeTo(`/api/gallery/${encodePath(name)}/metadata`, workspace),
@@ -272,10 +271,9 @@ export const api = {
   galleryThumbnailUrl: (name: string) =>
     withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
   deleteOutput: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/gallery/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   outputDownloadUrl: (name: string, workspace?: string) =>
     withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
   /** Download a multi-file gallery selection as one zip. The browser
@@ -290,7 +288,7 @@ export const api = {
    * than the random one a browser upload gets, and `shared` puts it in the
    * library every workspace under this root shares. */
   uploadMedia: (file: File, assetName?: string, shared = false) =>
-    request<{ url: string; reference?: string }>(
+    request<Uploaded>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
@@ -298,14 +296,7 @@ export const api = {
     ),
   /** The asset library, spanning the workspace's own, the shared `common`
    * one and any example library - each entry tagged with which. */
-  listAssets: () =>
-    request<{
-      workspace: string
-      assets: AssetFile[]
-      folders: string[]
-      libraries: AssetLibrary[]
-      shadowed: ShadowedAsset[]
-    }>('/api/assets'),
+  listAssets: () => request<AssetList>('/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */
@@ -313,10 +304,9 @@ export const api = {
   /** Permanently remove one asset. Answers 403 for one an examples tree
    * brought with it, which is not this server's to delete. */
   deleteAsset: (name: string) =>
-    request<{ name: string; deleted: boolean; origin: string }>(
-      `/api/assets/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<AssetDeleted>(`/api/assets/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
@@ -336,18 +326,15 @@ export const api = {
    * happens on the server, inside the workspace - nothing is downloaded and
    * re-uploaded to reuse a render. */
   keepOutput: (name: string, assetName?: string, overwrite = false) =>
-    request<{ reference: string; name: string; linked: boolean }>(
-      '/api/assets/keep',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          asset_name: assetName ?? null,
-          overwrite,
-        }),
-      },
-    ),
+    request<Kept>('/api/assets/keep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        asset_name: assetName ?? null,
+        overwrite,
+      }),
+    }),
   listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
