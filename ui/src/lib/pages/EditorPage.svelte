@@ -2,21 +2,18 @@
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
   import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
   import ViewSwitch from '../editor/ViewSwitch.svelte'
-  import FolderPicker from '../editor/FolderPicker.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
+  import ValidationPanel from '../editor/ValidationPanel.svelte'
+  import WorkflowFileBar from '../editor/WorkflowFileBar.svelte'
   import {
-    ChevronUp,
     CircleCheck,
     Columns2,
     Braces,
-    FileCog,
     LayoutList,
     Play,
     Plus,
     Save,
-    TriangleAlert,
     Workflow,
-    X,
   } from '@lucide/svelte'
   import { api } from '../api'
   import { writableRoot } from '../libraries'
@@ -36,7 +33,6 @@
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import { storageGet, storageSet } from '../storage'
-  import { describePlan } from '../plan'
   import StepEditor from '../editor/StepEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
@@ -131,11 +127,6 @@
     }
   }
 
-  const savePreview = $derived.by(() => {
-    const directory = ed.directory()
-    const file = ed.saveName || 'unnamed'
-    return `${workflowDir}/${directory ? directory + '/' : ''}${file}.json`
-  })
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays
   // undefined until the listing lands, so a missing library must not flag
@@ -407,117 +398,10 @@
   </button>
 </div>
 
-{#if fileOpen}
-  <div class="filebar panel">
-    <div class="filegrid">
-      <label for="wf-folder">folder</label>
-      <div class="folderrow">
-        <FolderPicker
-          id="wf-folder"
-          bind:folder={ed.folder}
-          bind:newFolder={ed.newFolder}
-          {folders}
-          newFolderTitle="name for the new folder at the root of the workflow directory"
-        />
-      </div>
-
-      <label for="wf-savename">file name</label>
-      <div class="namerow">
-        <input
-          id="wf-savename"
-          class="savename"
-          bind:value={ed.saveName}
-          placeholder="MyWorkflow"
-        />
-        <span class="muted">.json</span>
-      </div>
-
-      <label for="wf-description">description</label>
-      <input
-        id="wf-description"
-        spellcheck="true"
-        value={ed.doc.description ?? ''}
-        placeholder="shown on the workflow card"
-        title="a short description of what this workflow does"
-        onchange={(e) => {
-          const v = e.currentTarget.value
-          if (v) ed.doc.description = v
-          else delete ed.doc.description
-        }}
-      />
-    </div>
-    <div class="filefoot">
-      <span class="muted path">{savePreview}</span>
-      <button
-        class="quiet withicon"
-        onclick={() => (fileOpen = false)}
-        disabled={!ed.saveName}
-        title="collapse the file settings"
-      >
-        <ChevronUp size={14} />done
-      </button>
-    </div>
-  </div>
-{:else}
-  <div class="savebar">
-    <button
-      class="quiet withicon pathchip"
-      onclick={() => (fileOpen = true)}
-      title="change the folder, file name or description"
-    >
-      <FileCog size={14} /><span class="path">{savePreview}</span>
-    </button>
-    {#if ed.doc.description}
-      <span class="muted desc">{ed.doc.description}</span>
-    {/if}
-  </div>
-{/if}
+<WorkflowFileBar {ed} {workflowDir} {folders} bind:fileOpen />
 
 {#if validation}
-  <div
-    class="panel validation"
-    class:error-edge={!validation.valid}
-    class:warn-edge={validation.valid && validation.warnings.length > 0}
-    class:good-edge={validation.valid && validation.warnings.length === 0}
-  >
-    <button
-      class="quiet icon dismiss"
-      onclick={() => (validation = null)}
-      title="dismiss"
-      aria-label="dismiss validation results"
-    >
-      <X size={13} />
-    </button>
-    {#if validation.valid && !validation.warnings.length}
-      <span class="ok"
-        ><CircleCheck size={14} /> schema-valid, no argument warnings</span
-      >
-    {:else if validation.valid}
-      {#each validation.warnings as warning, i (i)}
-        <div class="warn"><TriangleAlert size={14} /> {warning}</div>
-      {/each}
-    {:else if validation.errors && validation.errors.length}
-      {#each validation.errors as e, i (i)}
-        <div class="error">{e.path ?? 'root'}: {e.message}</div>
-      {/each}
-    {:else}
-      <div class="error">{validation.error}</div>
-    {/if}
-    {#if validation.valid && validation.plan}
-      <!-- What a run of this definition, with these defaults, will do -
-           the figure to expect before pressing Run, and the weights it
-           would pull first, which the cost block never counts -->
-      <ul
-        class="plan"
-        aria-label="what a run will do"
-        title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
-      >
-        {#each describePlan(validation.plan) as line, i (i)}
-          <li class:warn={line.tone === 'warn'}>{line.text}</li>
-        {/each}
-      </ul>
-    {/if}
-  </div>
+  <ValidationPanel {validation} ondismiss={() => (validation = null)} />
 {/if}
 
 {#if ed.view === 'flow'}
@@ -675,80 +559,6 @@
     background: color-mix(in srgb, var(--warn) 22%, transparent);
     color: var(--warn);
   }
-  .savebar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: 1rem;
-    font-size: 0.85rem;
-    min-width: 0;
-  }
-  .pathchip {
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    padding: 0.25rem 0.6rem;
-    max-width: 100%;
-  }
-  .pathchip:hover {
-    color: var(--ink);
-    border-color: var(--accent);
-  }
-  .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .savebar .desc {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .filebar {
-    margin-bottom: 1rem;
-  }
-  .filegrid {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
-  }
-  .filegrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-  @container (max-width: 400px) {
-    .filegrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem 0.5rem;
-    }
-  }
-  .folderrow,
-  .namerow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .filefoot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.4rem 0.8rem;
-    margin-top: 0.8rem;
-  }
-  .filefoot .path {
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    min-width: 0;
-  }
-  .savename {
-    max-width: 200px;
-  }
   .panel {
     margin-bottom: 1rem;
   }
@@ -766,17 +576,6 @@
   .densityrow button {
     font-size: 0.75rem;
     padding: 0.2rem 0.55rem;
-  }
-  .validation {
-    position: relative;
-    padding-right: 2.2rem;
-  }
-  .dismiss {
-    position: absolute;
-    top: var(--space-2);
-    right: var(--space-2);
-    border: 0;
-    padding: 0.2rem 0.3rem;
   }
   /* Unsaved work makes Save the thing to do next, so it stops looking
      like the two quiet buttons beside it */
@@ -825,36 +624,5 @@
   }
   .steprow.flowlit :global(.panel.step) {
     border-color: var(--accent);
-  }
-  .ok {
-    color: var(--good);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .warn {
-    color: var(--warn);
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .error {
-    color: var(--bad);
-  }
-  /* The plan under the verdict: figures the engine resolves, so mono, and
-     quiet - a warn line is the one that changes the number to expect */
-  .plan {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    display: inline;
   }
 </style>
