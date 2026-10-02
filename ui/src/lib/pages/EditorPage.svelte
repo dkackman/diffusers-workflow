@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isNameSegment } from '../names'
   import { PROMPT, reference } from '../references'
   import {
     ChevronUp,
@@ -326,7 +327,7 @@
   function savePath(): string | null {
     if (!saveName) return null
     const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__' && !/^[\w][\w.-]*$/.test(directory)) return null
+    if (folder === '__new__' && !isNameSegment(directory)) return null
     return directory ? `${directory}/${saveName}` : saveName
   }
 
