@@ -15,7 +15,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 | --- | --- | --- | --- | --- |
 | 0 | UI ratchet and baseline; the gate reports count `.svelte`; fix the five rules the UI and the engine disagree on today (U1-U5) | `ui/scripts/arch-metrics.mjs --check` runs in CI and preflight against a committed baseline; U1-U5 fixed, each with a test that failed first; tagged `ui-stabilization-gate-0` | [phase-0.md](phase-0.md) | done 2026-10-01 (`ui-stabilization-gate-0`) |
 | 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server takes over what `dw_mcp` computes client-side (its stage 2), then `dw_mcp` consolidates (stage 3) | `prefix_literals` 0; every UI and `dw_mcp` copy of an engine rule is either gone or pinned by a test, and has a seam-map row | [phase-1.md](phase-1.md) (staged: 1a-1c) | done 2026-10-01 (`ui-stabilization-gate-1`) |
-| 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | [phase-2.md](phase-2.md) | not started |
+| 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | [phase-2.md](phase-2.md) | done 2026-10-02 (`ui-stabilization-gate-2`); freeze lifted |
 | 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | written at gate 2 | |
 | 4 | Contract and guardrails: response models on the routes the UI reads, generated TS types, e2e on PRs into develop, the harness ratchets the UI, `ui/CLAUDE.md` triaged | A server response change that breaks the UI fails CI; the harness refuses a UI ratchet rise without `arch-approved` | written at gate 3 | |
 
@@ -23,7 +23,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 
 Recorded 2026-10-01; Don ruled on both open questions the same day.
 
-- **Freeze (yes, Don 2026-10-01).** The engine pass froze features until its guardrails
+- **Freeze (yes, Don 2026-10-01; lifted at gate 2, 2026-10-02).** The engine pass froze features until its guardrails
   existed. The UI equivalent: no new pages, components or UI features until
   gate 2; the implementer fixes tester bugs in `ui/` through existing code,
   and a fix that needs a new component waits or is labelled `stabilization`.
@@ -237,6 +237,64 @@ In the browser:
 The largest files and most complex functions are unchanged from gate 0 apart
 from a few lines: `EditorPage` is 1,077 lines and `widgetFor` sits at
 `editor.ts:106`. Phase 3 is where they move.
+
+
+### Gate 2 (2026-10-02, develop c3c0cd57)
+
+Gate criteria:
+- **No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs:** met.
+  - `focusTrap.ts` is deleted.
+  - `App.svelte` keeps one Escape branch, for the mobile drawer. The drawer is a layout region, not an overlay.
+  - `dialogOpen()` is replaced by the layer count (`ui/src/lib/ui/layers.svelte.ts`).
+- **No false `aria-modal`:** met. The status and token popovers are non-modal dialogs anchored to their trigger.
+- **`<datalist>` gone:** met. All 13 are replaced by `Suggest`.
+- **e2e green:** met.
+
+Bits UI 2.19 is imported only under `ui/src/lib/ui/` (ESLint `no-restricted-imports`), behind `ConfirmDialog`, `Modal`, `Popover` and `Suggest`. Overlay styles and one stacking scale (`--layer-*`) are in `app.css`.
+
+Suite results:
+- pytest: 7,783 passed (`DW_DEVICE=cpu`).
+- Integration: 5 passed, on the GPU.
+- vitest: 424 passed.
+- Playwright e2e: 109 passed. One new e2e opens a suggestion list in a real browser.
+- Both ratchets: clean.
+
+Three real-browser bugs jsdom could not show were found by that e2e, fixed in `app.css` before review:
+- The list sat behind the page (a z-index on a non-positioned element).
+- The list was 2px wide.
+- Its rows had shrunk to 8px.
+
+The final whole-branch review found two `Suggest` defects that silently changed workflow values, fixed in `9b233c7b`:
+- Enter took the first matching suggestion instead of the typed text, and so did Ctrl/Cmd+Enter (validate & run).
+- Picking the same suggestion twice did nothing, because Bits treated it as a deselect.
+
+Minor findings are deferred:
+- One Escape closes both an overlay and the open mobile drawer.
+- Home and End move the list highlight while a suggestion list is open.
+- `aria-expanded` can read true with no list showing.
+- A pick may fire `onchange` twice; every caller is idempotent.
+- Focus return after the confirm is not asserted.
+- A misplaced test helper comment.
+
+lem smoke, `c3c0cd57` deployed, headless Chromium:
+- `?` opens the help, and Escape closes it.
+- The status popover opens; its trigger closes it again; an outside click closes it.
+- The token popover opens.
+- A delete confirm on a scratch asset opens, and Cancel keeps the asset. The asset was removed through the API afterwards.
+- The editor's pipeline field offers 22 suggestions for `Flux`, and Enter keeps `Flux`.
+- No page errors.
+
+#### Ratchets
+
+| Ratchet | Before Phase 0 | Gate 0 | Gate 1 | Gate 2 |
+| --- | --- | --- | --- | --- |
+| `files_over_size_ceiling` | 7 | 7 | 7 | 7 |
+| `complex_functions` | 14 | 14 | 14 | 13 |
+| `long_functions` | 2 | 2 | 2 | 2 |
+| `import_cycles` | 1 | 1 | 1 | 1 |
+| `modules_in_import_cycles` | 2 | 2 | 2 | 2 |
+| `prefix_literals` | 29 | 15 | 0 | 0 |
+| `a11y_suppressions` | 7 | 7 | 7 | 3 |
 
 ## Working rules for the duration
 
