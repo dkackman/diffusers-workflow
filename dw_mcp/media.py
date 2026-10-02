@@ -11,12 +11,9 @@ to support.
 """
 
 import base64
-import io
 import math
 import os
 import pathlib
-
-from PIL import Image
 
 from dw_mcp.client import DwApiError, api_path
 
@@ -25,126 +22,48 @@ from dw_mcp.client import DwApiError, api_path
 # factor of 3/4. Past this the payload crowds out the conversation it is
 # supposed to inform.
 MAX_RETURNED_BYTES = 4 * 1024 * 1024
-MIN_DIMENSION = 64
 
 # Text is cheap next to an image, but an unbounded output file is not:
 # a job that logged its way to a megabyte would otherwise arrive whole.
 MAX_RETURNED_CHARACTERS = 20000
 
-# The most pixels an image is decoded at, checked before the decode - a PNG
-# header can claim any size. dw.security.MAX_DECODE_PIXELS's value, kept here
-# because dw_mcp cannot import dw; a test pins the two equal.
-MAX_DECODE_PIXELS = 50_000_000
-
 
 def get_output_image(client, name, max_dimension=768, workspace=None, crop=None):
-    """One image from the output directory, downscaled, as base64 plus the
-    sizes it went in and came out at.
+    """One image from the output directory, or an `asset:`, downscaled, as
+    base64 plus the sizes it went in and came out at.
 
     `crop` is `[x, y, width, height]` in the original's pixels, cut before
     the downscale, so a region of a 2K still comes back at 100% where the
     whole would be shrunk past what a seam or a small element can be read
-    at. Clamped to the image; the box actually cut is reported."""
-
-    def is_image(content_type):
-        return not content_type or content_type.startswith("image/")
-
-    body, content_type = client.get_bytes_if(
-        api_path("outputs", name), is_image, workspace=workspace
-    )
-    if body is None:
-        raise DwApiError(
-            f"{name} is {content_type}, not an image - this tool returns "
-            "images only. Use get_gallery_metadata to inspect other media."
-        )
-    try:
-        image = Image.open(io.BytesIO(body))
-    except Exception:
-        raise DwApiError(f"{name} could not be decoded as an image.")
-    if image.width * image.height > MAX_DECODE_PIXELS:
-        raise DwApiError(
-            f"{name} is {image.width}x{image.height}, more than the "
-            f"{MAX_DECODE_PIXELS:,} pixels this tool decodes."
-        )
-    try:
-        image.load()
-    except Exception:
-        raise DwApiError(f"{name} could not be decoded as an image.")
-
-    original_size = [image.width, image.height]
+    at. Clamped to the image; the box actually cut is reported. The server
+    crops, fits and keeps the answer under MAX_RETURNED_BYTES
+    (GET /api/gallery/<name>/image), so nothing is decoded here."""
+    params = {
+        "max_dimension": str(int(max_dimension)),
+        "max_bytes": str(MAX_RETURNED_BYTES),
+    }
     if crop is not None:
-        box = _crop_box(crop, image.width, image.height)
-        crop = [box[0], box[1], box[2] - box[0], box[3] - box[1]]
-        image = image.crop(box)
-    fmt = "JPEG" if (image.format or "").upper() == "JPEG" else "PNG"
-    if image.mode not in ("RGB", "L") and fmt == "JPEG":
-        image = image.convert("RGB")
+        params["crop"] = ",".join(str(value) for value in crop)
+    body, content_type, headers = client.get_media_if(
+        api_path("api", "gallery", name, "image"),
+        lambda _content_type: True,
+        workspace=workspace,
+        params=params,
+    )
 
-    limit = max(MIN_DIMENSION, int(max_dimension))
-    encoded, sized = _encode_within_budget(image, limit, fmt)
+    def size(header):
+        value = headers.get(header)
+        return [int(part) for part in value.split(",")] if value else None
+
     return {
         "name": name,
-        "data": base64.b64encode(encoded).decode("ascii"),
-        "mime_type": "image/jpeg" if fmt == "JPEG" else "image/png",
-        "original_size": original_size,
-        "crop": crop,
-        "returned_size": [sized.width, sized.height],
-        "bytes": len(encoded),
+        "data": base64.b64encode(body).decode("ascii"),
+        "mime_type": content_type.split(";")[0].strip(),
+        "original_size": size("x-dw-original-size"),
+        "crop": size("x-dw-crop"),
+        "returned_size": size("x-dw-returned-size"),
+        "bytes": len(body),
     }
-
-
-def _crop_box(crop, width, height):
-    """`[x, y, w, h]` as Pillow's `(left, upper, right, lower)`, clamped to
-    the image. Refused when it is not four non-negative integers, starts
-    outside the image, or has nothing in it."""
-    try:
-        x, y, w, h = (int(v) for v in crop)
-    except (TypeError, ValueError):
-        raise DwApiError(f"crop must be [x, y, width, height] in pixels, got {crop!r}.")
-    if x < 0 or y < 0 or w <= 0 or h <= 0:
-        raise DwApiError(
-            f"crop must have a non-negative origin and a positive size, got {crop!r}."
-        )
-    if x >= width or y >= height:
-        raise DwApiError(
-            f"crop origin ({x}, {y}) lies outside the {width}x{height} image."
-        )
-    return (x, y, min(x + w, width), min(y + h, height))
-
-
-def _encode_within_budget(image, limit, fmt):
-    """Shrink until the base64-encoded bytes fit the ceiling. Two loops
-    rather than one calculation because compressed size does not follow
-    from pixel count - noise and flat colour differ by an order of
-    magnitude. After the first pass, each resize starts from the previous
-    pass's already-shrunk result rather than the full-resolution original -
-    LANCZOS-from-LANCZOS at half size is fine, and it is never an upscale
-    since the limit only ever shrinks."""
-    source = image
-    while True:
-        sized = _fit(source, limit)
-        buffer = io.BytesIO()
-        sized.save(buffer, format=fmt)
-        encoded = buffer.getvalue()
-        base64_size = 4 * math.ceil(len(encoded) / 3)
-        if base64_size <= MAX_RETURNED_BYTES or limit <= MIN_DIMENSION:
-            return encoded, sized
-        limit = max(MIN_DIMENSION, limit // 2)
-        source = sized
-
-
-def _fit(image, limit):
-    """A copy no larger than `limit` on its longest side, aspect preserved.
-    An image already inside the limit is returned as-is - upscaling would
-    invent detail the model would then reason about."""
-    longest = max(image.width, image.height)
-    if longest <= limit:
-        return image
-    scale = limit / longest
-    return image.resize(
-        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-        Image.LANCZOS,
-    )
 
 
 def get_output_audio(client, name, start=None, duration=None, workspace=None):
@@ -271,14 +190,6 @@ def get_output_frames(
     MAX_RETURNED_BYTES, so fetching stops once the tiles plus the excerpts
     so far would push past it - the remaining tiles keep their frame but
     carry an `audio_error` saying so, and `audio_truncated` is true."""
-    chosen = [
-        key for key, value in (("at", at), ("count", count), ("seams", seams)) if value
-    ]
-    if len(chosen) != 1:
-        raise DwApiError(
-            "Pass exactly one of `at`, `count` or `seams`"
-            + (f" - got {', '.join(chosen)}" if chosen else "")
-        )
     if (boundaries or names) and not seams:
         modifiers = [n for n, v in (("boundaries", boundaries), ("names", names)) if v]
         raise DwApiError(
@@ -293,20 +204,25 @@ def get_output_frames(
             )
         if float(hear) <= 0:
             raise DwApiError("`hear` is a positive number of seconds")
-    params = [("max_dimension", str(max(MIN_DIMENSION, int(max_dimension))))]
-    # a list of pairs, turned into a dict by the client - so no key repeats
+    # Every selector given is sent: the server refuses anything but exactly
+    # one, and its 400 reaches the caller. A list of pairs, turned into a
+    # dict by the client - so no key repeats
+    params = [
+        ("max_dimension", str(int(max_dimension))),
+        ("max_total_bytes", str(MAX_RETURNED_BYTES)),
+    ]
     if at:
         params.append(("at", ",".join(str(moment) for moment in at)))
-    elif count:
+    if count:
         params.append(("count", str(int(count))))
-    else:
+    if seams:
         params.append(
             ("seams", "true" if seams is True else ",".join(str(s) for s in seams))
         )
-        if boundaries:
-            params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
-        if names:
-            params.append(("names", ",".join(names)))
+    if boundaries:
+        params.append(("boundaries", ",".join(str(int(b)) for b in boundaries)))
+    if names:
+        params.append(("names", ",".join(names)))
     if crop is not None:
         params.append(("crop", ",".join(str(v) for v in crop)))
 
@@ -314,7 +230,7 @@ def get_output_frames(
         api_path("api", "gallery", name, "frames"), params=params, workspace=workspace
     )
     tiles = body.get("tiles", [])
-    tiles, downscaled_to = _fit_tiles_within_budget(tiles)
+    downscaled_to = body.get("downscaled_to")
     audio_truncated = False
     if hear is not None:
         span = float(hear)
@@ -358,36 +274,6 @@ def get_output_frames(
         "audio_truncated": audio_truncated,
         "crop": body.get("crop"),
     }
-
-
-def _fit_tiles_within_budget(tiles):
-    """Shrink every tile by the same factor until their base64 sizes sum
-    to MAX_RETURNED_BYTES or less. Returns (tiles, downscaled_to) with
-    downscaled_to None when nothing had to shrink."""
-    total = sum(len(tile["data"]) for tile in tiles)
-    if total <= MAX_RETURNED_BYTES or not tiles:
-        return tiles, None
-    images = [Image.open(io.BytesIO(base64.b64decode(tile["data"]))) for tile in tiles]
-    for image in images:
-        image.load()
-    limit = max(max(image.width, image.height) for image in images)
-    while True:
-        limit = max(MIN_DIMENSION, limit // 2)
-        shrunk = []
-        for tile, image in zip(tiles, images):
-            sized = _fit(image, limit)
-            buffer = io.BytesIO()
-            sized.save(buffer, format="PNG")
-            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-            shrunk.append(
-                {**tile, "data": encoded, "width": sized.width, "height": sized.height}
-            )
-        if (
-            sum(len(t["data"]) for t in shrunk) <= MAX_RETURNED_BYTES
-            or limit <= MIN_DIMENSION
-        ):
-            return shrunk, limit
-        images = [Image.open(io.BytesIO(base64.b64decode(t["data"]))) for t in shrunk]
 
 
 def get_output_text(

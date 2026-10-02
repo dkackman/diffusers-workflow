@@ -238,6 +238,7 @@ class TestServerInfo:
         assert result["directories"]["prompts"] == "/home/user/prompts"
         assert result["device"] == "cuda"
 
+
 class TestPerCallPin:
     """`workspace=` on an output-side tool: for this one call, without
     switching the session (#99). A job pinned there with

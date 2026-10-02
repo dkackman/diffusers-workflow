@@ -286,7 +286,18 @@ async def test_a_crop_is_cut_and_reported():
     body = buffer.getvalue()
 
     def serving_png(request):
-        return httpx.Response(200, content=body, headers={"content-type": "image/png"})
+        # What the server's image route answers for this crop
+        assert request.url.params["crop"] == "1000,500,300,200"
+        return httpx.Response(
+            200,
+            content=body,
+            headers={
+                "content-type": "image/png",
+                "x-dw-original-size": "2048,1024",
+                "x-dw-crop": "1000,500,300,200",
+                "x-dw-returned-size": "300,200",
+            },
+        )
 
     server = server_over(serving_png)
 
@@ -561,7 +572,7 @@ TOOL_WIRING = [
         "GET",
         "/api/gallery/out.png/metadata",
     ),
-    ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
+    ("get_output_image", {"name": "out.png"}, "GET", "/api/gallery/out.png/image"),
     ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
     (
         "get_output_frames",
@@ -1079,7 +1090,9 @@ class TestStartupWeight:
         torch - so a single convenience import from the engine would quietly
         put ~1s of model-framework startup back into every client session.
         This asserts the boundary rather than the timing, which is the part
-        a future edit can actually break.
+        a future edit can actually break. Pillow is held out too: images
+        are fitted on the server (GET /api/gallery/<name>/image), so the
+        client has nothing to decode.
         """
         import subprocess
         import sys
@@ -1089,7 +1102,7 @@ class TestStartupWeight:
                 sys.executable,
                 "-c",
                 "import sys; import dw_mcp.server; "
-                "print(','.join(m for m in ('torch', 'diffusers', 'dw') "
+                "print(','.join(m for m in ('torch', 'diffusers', 'dw', 'PIL') "
                 "if m in sys.modules))",
             ],
             capture_output=True,
