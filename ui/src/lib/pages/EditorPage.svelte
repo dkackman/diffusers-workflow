@@ -786,9 +786,6 @@
     background: color-mix(in srgb, var(--warn) 22%, transparent);
     color: var(--warn);
   }
-  .flex {
-    flex: 1;
-  }
   .withicon {
     display: inline-flex;
     align-items: center;

@@ -262,6 +262,17 @@ button.bare:hover {
 .flex {
   flex: 1;
 }
+/* The row a list page opens with: title, count and controls */
+.pagehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: var(--space-4);
+}
+.pagehead.baseline {
+  align-items: baseline;
+}
 button.withicon,
 .withicon {
   display: inline-flex;

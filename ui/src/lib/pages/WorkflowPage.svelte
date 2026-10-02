@@ -287,11 +287,6 @@
     font-weight: 600;
     padding: 0.4rem 0.5rem;
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
   .run {
     padding: 0.45rem 1.1rem;
   }

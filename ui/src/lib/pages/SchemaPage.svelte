@@ -66,9 +66,6 @@
     align-items: center;
     gap: 0.4rem 0.6rem;
   }
-  .flex {
-    flex: 1;
-  }
   .intro {
     max-width: 80ch;
   }

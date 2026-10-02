@@ -472,11 +472,6 @@
       max-width: none;
     }
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
   .dl {
     display: flex;
     align-items: center;

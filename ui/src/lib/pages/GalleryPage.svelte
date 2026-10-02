@@ -243,7 +243,7 @@
   }}
 />
 
-<div class="head">
+<div class="pagehead baseline">
   <h1>Gallery</h1>
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
@@ -462,13 +462,6 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: var(--space-4);
-  }
   .filter {
     max-width: 220px;
     margin-left: auto;

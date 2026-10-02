@@ -82,7 +82,7 @@
   }
 </script>
 
-<div class="head">
+<div class="pagehead">
   <h1>{scope === 'all' ? 'All jobs' : 'Jobs'}</h1>
   <select bind:value={statusFilter} title="filter by status">
     <option value="">all statuses</option>
@@ -195,14 +195,7 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: 1rem;
-  }
-  .head h1 {
+  .pagehead h1 {
     margin: 0;
     flex: 1;
   }
@@ -215,7 +208,7 @@
   .row.runningnow:hover {
     background: color-mix(in srgb, var(--live) 16%, transparent);
   }
-  .head select {
+  .pagehead select {
     max-width: 150px;
   }
   .filter {

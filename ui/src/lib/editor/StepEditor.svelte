@@ -590,9 +590,6 @@
   .kind {
     font-size: 0.75rem;
   }
-  .flex {
-    flex: 1;
-  }
   .icon {
     display: inline-flex;
     align-items: center;

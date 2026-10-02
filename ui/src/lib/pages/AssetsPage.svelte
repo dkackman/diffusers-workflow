@@ -265,7 +265,7 @@
   }}
 />
 
-<div class="head">
+<div class="pagehead">
   <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
   <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
@@ -500,14 +500,7 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: var(--space-4);
-  }
-  .head .filter {
+  .pagehead .filter {
     max-width: 220px;
     margin-left: auto;
   }

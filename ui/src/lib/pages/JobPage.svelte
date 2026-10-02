@@ -679,9 +679,6 @@
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
-  .flex {
-    flex: 1;
-  }
   .withicon {
     display: inline-flex;
     align-items: center;

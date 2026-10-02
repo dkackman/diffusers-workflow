@@ -760,9 +760,6 @@
     font-size: 1.1rem;
     margin: 0;
   }
-  .flex {
-    flex: 1;
-  }
   .withicon {
     display: inline-flex;
     align-items: center;
