@@ -1,6 +1,7 @@
 import type {
   AssetDeleted,
   AssetList,
+  ClassList,
   Deleted,
   DiffusersStatus,
   EnhancerPresets,
@@ -20,11 +21,13 @@ import type {
   ModelDownload,
   OutputDeleted,
   PipelineDescription,
+  PipelineNames,
   PromptDefinition,
   PromptList,
   PromptSaved,
   ServerInfo,
   StoredPrompt,
+  TaskList,
   Uploaded,
   ValidationResult,
   WorkflowDefinition,
@@ -177,13 +180,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_seed: newSeed }),
     }),
-  listTasks: () =>
-    request<{
-      commands: string[]
-      image_processors: string[]
-      video_processors: string[]
-      assessment: string[]
-    }>('/api/tasks'),
+  listTasks: () => request<TaskList>('/api/tasks'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
@@ -335,11 +332,11 @@ export const api = {
         overwrite,
       }),
     }),
-  listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
+  listPipelines: () => request<PipelineNames>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
   listClasses: (kind: string) =>
-    request<{ kind: string; classes: string[] }>(`/api/classes?kind=${kind}`),
+    request<ClassList>(`/api/classes?kind=${kind}`),
   describeClass: (name: string, target: 'call' | 'init' | 'load') =>
     request<PipelineDescription>(
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,

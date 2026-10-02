@@ -252,6 +252,28 @@
         "title": "AssetList",
         "type": "object"
       },
+      "ClassList": {
+        "additionalProperties": false,
+        "properties": {
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "classes"
+        ],
+        "title": "ClassList",
+        "type": "object"
+      },
       "Deleted": {
         "additionalProperties": false,
         "properties": {
@@ -2451,6 +2473,119 @@
         "title": "OutputDeleted",
         "type": "object"
       },
+      "PipelineDescription": {
+        "additionalProperties": false,
+        "properties": {
+          "accepts_kwargs": {
+            "title": "Accepts Kwargs",
+            "type": "boolean"
+          },
+          "compatibles": {
+            "description": "Scheduler classes this one can swap with.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Compatibles",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "summary",
+          "accepts_kwargs",
+          "parameters"
+        ],
+        "title": "PipelineDescription",
+        "type": "object"
+      },
+      "PipelineNames": {
+        "additionalProperties": false,
+        "properties": {
+          "pipelines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pipelines"
+        ],
+        "title": "PipelineNames",
+        "type": "object"
+      },
+      "PipelineParameter": {
+        "additionalProperties": false,
+        "properties": {
+          "annotation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotation"
+          },
+          "default": {
+            "description": "Null when there is none; see `required`.",
+            "title": "Default"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "doc_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type the docstring names.",
+            "title": "Doc Type"
+          },
+          "domain": {
+            "description": "The values a task argument may take.",
+            "title": "Domain"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "required",
+          "default",
+          "annotation"
+        ],
+        "title": "PipelineParameter",
+        "type": "object"
+      },
       "Plan": {
         "additionalProperties": false,
         "properties": {
@@ -3242,6 +3377,47 @@
           "shadowed_by"
         ],
         "title": "ShadowedEntry",
+        "type": "object"
+      },
+      "TaskList": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assessment",
+            "type": "array"
+          },
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "image_processors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Image Processors",
+            "type": "array"
+          },
+          "video_processors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Video Processors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands",
+          "image_processors",
+          "video_processors",
+          "assessment"
+        ],
+        "title": "TaskList",
         "type": "object"
       },
       "UpdateDiffusersRequest": {
@@ -4188,7 +4364,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ClassList"
+                }
               }
             },
             "description": "Successful Response"
@@ -4236,7 +4414,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"
@@ -6076,7 +6256,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineNames"
+                }
               }
             },
             "description": "Successful Response"
@@ -6104,7 +6286,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"
@@ -6533,7 +6717,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TaskList"
+                }
               }
             },
             "description": "Successful Response"
@@ -6561,7 +6747,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"

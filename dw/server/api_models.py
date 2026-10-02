@@ -785,3 +785,40 @@ class AssetDeleted(ApiModel):
     reference: str
     deleted: bool
     origin: AssetOrigin
+
+
+# ---------------------------------------------------------- introspection
+
+
+class PipelineParameter(ApiModel):
+    name: str
+    required: bool
+    default: Any = Field(description="Null when there is none; see `required`.")
+    annotation: str | None
+    doc_type: str | None = sometimes("The type the docstring names.")
+    description: str = sometimes()
+    domain: Any = sometimes("The values a task argument may take.")
+
+
+class PipelineDescription(ApiModel):
+    name: str
+    summary: str
+    accepts_kwargs: bool
+    parameters: list[PipelineParameter]
+    compatibles: list[str] = sometimes("Scheduler classes this one can swap with.")
+
+
+class PipelineNames(ApiModel):
+    pipelines: list[str]
+
+
+class TaskList(ApiModel):
+    commands: list[str]
+    image_processors: list[str]
+    video_processors: list[str]
+    assessment: list[str]
+
+
+class ClassList(ApiModel):
+    kind: str
+    classes: list[str]

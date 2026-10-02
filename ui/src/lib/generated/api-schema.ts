@@ -1665,6 +1665,13 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** ClassList */
+        ClassList: {
+            /** Classes */
+            classes: string[];
+            /** Kind */
+            kind: string;
+        };
         /** Deleted */
         Deleted: {
             /** Deleted */
@@ -2476,6 +2483,53 @@ export interface components {
              */
             run_swept: string | null;
         };
+        /** PipelineDescription */
+        PipelineDescription: {
+            /** Accepts Kwargs */
+            accepts_kwargs: boolean;
+            /**
+             * Compatibles
+             * @description Scheduler classes this one can swap with.
+             */
+            compatibles?: string[];
+            /** Name */
+            name: string;
+            /** Parameters */
+            parameters: components["schemas"]["PipelineParameter"][];
+            /** Summary */
+            summary: string;
+        };
+        /** PipelineNames */
+        PipelineNames: {
+            /** Pipelines */
+            pipelines: string[];
+        };
+        /** PipelineParameter */
+        PipelineParameter: {
+            /** Annotation */
+            annotation: string | null;
+            /**
+             * Default
+             * @description Null when there is none; see `required`.
+             */
+            default: unknown;
+            /** Description */
+            description?: string;
+            /**
+             * Doc Type
+             * @description The type the docstring names.
+             */
+            doc_type?: string | null;
+            /**
+             * Domain
+             * @description The values a task argument may take.
+             */
+            domain?: unknown;
+            /** Name */
+            name: string;
+            /** Required */
+            required: boolean;
+        };
         /** Plan */
         Plan: {
             /**
@@ -2753,6 +2807,17 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /** TaskList */
+        TaskList: {
+            /** Assessment */
+            assessment: string[];
+            /** Commands */
+            commands: string[];
+            /** Image Processors */
+            image_processors: string[];
+            /** Video Processors */
+            video_processors: string[];
         };
         /** UpdateDiffusersRequest */
         UpdateDiffusersRequest: {
@@ -3190,7 +3255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ClassList"];
                 };
             };
             /** @description Validation Error */
@@ -3223,7 +3288,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PipelineDescription"];
                 };
             };
             /** @description Validation Error */
@@ -4273,7 +4338,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PipelineNames"];
                 };
             };
         };
@@ -4295,7 +4360,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PipelineDescription"];
                 };
             };
             /** @description Validation Error */
@@ -4620,7 +4685,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TaskList"];
                 };
             };
         };
@@ -4642,7 +4707,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PipelineDescription"];
                 };
             };
             /** @description Validation Error */

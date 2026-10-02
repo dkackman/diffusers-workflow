@@ -139,6 +139,12 @@ UI_READ_ROUTES = [
     ("post", "/api/uploads"),
     ("post", "/api/assets/keep"),
     ("delete", "/api/assets/{name}"),
+    ("get", "/api/pipelines"),
+    ("get", "/api/pipelines/{name}"),
+    ("get", "/api/tasks"),
+    ("get", "/api/tasks/{command}"),
+    ("get", "/api/classes"),
+    ("get", "/api/classes/{name}"),
 ]
 
 
@@ -460,3 +466,16 @@ def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
     }
     assert metadata["job"] is None
     assert {"workspace", "libraries", "assets", "folders", "shadowed"} <= set(assets)
+
+
+def test_a_parameter_with_no_default_says_so_with_null(server):
+    # `default` is always present - null for a required parameter - and
+    # `required` is what tells the two apart
+    with server(success_script) as client:
+        task = client.get("/api/tasks/compose_text").json()
+        tasks = client.get("/api/tasks").json()
+    assert set(task) == {"name", "summary", "accepts_kwargs", "parameters"}
+    assert all("default" in parameter for parameter in task["parameters"])
+    assert {"commands", "image_processors", "video_processors", "assessment"} <= set(
+        tasks
+    )

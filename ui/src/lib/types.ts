@@ -57,6 +57,11 @@ export type AssetList = Schemas['AssetList']
 export type Uploaded = Schemas['Uploaded']
 export type Kept = Schemas['Kept']
 export type AssetDeleted = Schemas['AssetDeleted']
+export type PipelineParameter = Schemas['PipelineParameter']
+export type PipelineDescription = Schemas['PipelineDescription']
+export type PipelineNames = Schemas['PipelineNames']
+export type TaskList = Schemas['TaskList']
+export type ClassList = Schemas['ClassList']
 
 export interface JobEvent {
   seq: number
@@ -138,23 +143,6 @@ export interface StoredPrompt {
   /** 'workspace' | 'examples'. */
   origin: string
   writable: boolean
-}
-
-export interface PipelineParameter {
-  name: string
-  required: boolean
-  default: unknown
-  annotation: string | null
-  doc_type?: string
-  description?: string
-}
-
-export interface PipelineDescription {
-  name: string
-  summary: string
-  accepts_kwargs: boolean
-  parameters: PipelineParameter[]
-  compatibles?: string[]
 }
 
 /** An asset a nearer library hides: same shape as `AssetFile` except there
