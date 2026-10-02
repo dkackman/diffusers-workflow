@@ -15,6 +15,7 @@ import ast
 import collections
 import itertools
 import pathlib
+import re
 import statistics
 import subprocess
 import sys
@@ -98,6 +99,23 @@ def extract(ref, root, into):
             tar.extractall(into, filter="data")
 
 
+# A line that is only a comment. A multi-line /* */ comment's inner lines
+# count as code: matching them by a leading '*' would also match a CSS '*'
+# selector, and an undercount hides growth where an overcount does not.
+SVELTE_COMMENT = re.compile(r"^(<!--.*-->|//.*|/\*.*\*/)$")
+
+
+def svelte_code_lines(path):
+    """Code lines in a .svelte file, which pygount reads as 0: every line
+    that is neither blank nor a comment on its own. Script, markup and style
+    all count, since all three are what a reader holds."""
+    return sum(
+        1
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not SVELTE_COMMENT.match(line.strip())
+    )
+
+
 def sloc(tree):
     from pygount import SourceAnalysis
 
@@ -110,7 +128,12 @@ def sloc(tree):
                 and keep(path.relative_to(tree))
                 and not any(part in EXCLUDED for part in path.parts)
             ):
-                counts[layer] += SourceAnalysis.from_file(str(path), layer).code_count
+                if path.suffix == ".svelte":
+                    counts[layer] += svelte_code_lines(path)
+                else:
+                    counts[layer] += SourceAnalysis.from_file(
+                        str(path), layer
+                    ).code_count
     return counts
 
 

@@ -93,3 +93,23 @@ def test_hotspots_multiply_churn_by_total_complexity():
         (27, 3, 9, "dw/a.py"),
         (10, 10, 1, "dw/b.py"),
     ]
+
+
+def test_a_svelte_file_counts_its_code_lines(tmp_path):
+    component = tmp_path / "ui" / "src" / "Card.svelte"
+    component.parent.mkdir(parents=True)
+    component.write_text(
+        '<script lang="ts">\n'
+        "  // a comment\n"
+        "  let { title } = $props()\n"
+        "</script>\n"
+        "\n"
+        "<!-- markup -->\n"
+        "<h2>{title}</h2>\n"
+        "<style>\n"
+        "  /* a style comment */\n"
+        "  h2 { margin: 0; }\n"
+        "</style>\n"
+    )
+    counts = _load().sloc(tmp_path)
+    assert counts["UI (ui/src, tests excluded)"] == 7
