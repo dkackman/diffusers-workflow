@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PROMPT, reference } from '../references'
   import {
     Braces,
     CircleCheck,
@@ -551,7 +552,7 @@
       >prompt:{savePath()}</code
     >
     <CopyButton
-      text={`prompt:${savePath()}`}
+      text={reference(PROMPT, savePath() ?? '')}
       title="copy reference to clipboard"
     />
   {/if}

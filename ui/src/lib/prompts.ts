@@ -1,4 +1,5 @@
 import type { EnhancerPreset, ManifestEntry, PromptDefinition } from './types'
+import { PROMPT, referenceName } from './references'
 
 /** A blank prompt, the editor's starting point. */
 export function emptyPrompt(): PromptDefinition {
@@ -54,10 +55,8 @@ export function promptTooltip(
   value: unknown,
   texts: Record<string, string>,
 ): string | undefined {
-  if (typeof value !== 'string' || !value.startsWith('prompt:')) {
-    return undefined
-  }
-  return texts[value.slice('prompt:'.length).trim()] || undefined
+  const name = referenceName(value, PROMPT)
+  return name === null ? undefined : texts[name] || undefined
 }
 
 /** The one datalist of stored-prompt suggestions - declared once per page,
@@ -68,9 +67,7 @@ export const PROMPT_LIST_ID = 'prompt-references'
  * value has committed to a prompt: reference - so the dropdown doesn't pop
  * over ordinary text. */
 export function promptListId(value: unknown): string | undefined {
-  return typeof value === 'string' && value.startsWith('prompt:')
-    ? PROMPT_LIST_ID
-    : undefined
+  return referenceName(value, PROMPT) === null ? undefined : PROMPT_LIST_ID
 }
 
 /** The workflows whose definitions reference a stored prompt, from the

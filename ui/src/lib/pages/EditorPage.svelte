@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PROMPT, reference } from '../references'
   import {
     ChevronUp,
     CircleCheck,
@@ -442,7 +443,7 @@
 
 <datalist id={PROMPT_LIST_ID}>
   {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={'prompt:' + promptName}
+      value={reference(PROMPT, promptName)}
     ></option>{/each}
 </datalist>
 

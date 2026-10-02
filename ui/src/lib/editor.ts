@@ -1,7 +1,13 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
 import { danglingReferenceDetails } from './flow'
-import { isReference } from './references'
+import {
+  PREVIOUS_RESULT,
+  PROMPT,
+  VARIABLE,
+  isReference,
+  reference,
+} from './references'
 
 export { isReference }
 
@@ -208,7 +214,7 @@ export function emptyStep() {
         model_name: '',
         torch_dtype: 'torch.bfloat16',
       },
-      arguments: { prompt: 'variable:prompt' },
+      arguments: { prompt: reference(VARIABLE, 'prompt') },
     },
     result: { content_type: 'image/png' },
   }
@@ -314,20 +320,20 @@ export function referenceSuggestions(
 ): string[] {
   const suggestions: string[] = []
   for (const name of Object.keys(workflow.variables ?? {})) {
-    suggestions.push(`variable:${name}`)
+    suggestions.push(reference(VARIABLE, name))
   }
   for (const name of promptNames) {
-    suggestions.push(`prompt:${name}`)
+    suggestions.push(reference(PROMPT, name))
   }
   const steps: Array<Record<string, any>> = workflow.steps ?? []
   for (const step of steps.slice(0, Math.max(0, stepIndex))) {
     if (!step.name) continue
-    suggestions.push(`previous_result:${step.name}`)
+    suggestions.push(reference(PREVIOUS_RESULT, step.name))
     const contentType = step.result?.content_type ?? ''
     if (contentType.startsWith('video')) {
       suggestions.push(
-        `previous_result:${step.name}.frames`,
-        `previous_result:${step.name}.audio`,
+        reference(PREVIOUS_RESULT, `${step.name}.frames`),
+        reference(PREVIOUS_RESULT, `${step.name}.audio`),
       )
     }
   }

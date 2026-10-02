@@ -12,6 +12,7 @@ import {
   PROMPT,
   VARIABLE,
   isReference,
+  referenceName,
 } from './references'
 
 export interface StepFlow {
@@ -202,7 +203,6 @@ function producedCount(step: Record<string, any>): number | null {
 }
 
 const FOR_EACH_KEY = 'for_each'
-const VARIABLE_PREFIX = 'variable:'
 
 /** A for_each step's entry keys, when the list can be read statically: a
  * literal list written on the step, or a `variable:` naming a declared
@@ -218,8 +218,10 @@ function forEachMembers(
   let entries: unknown[] | null = null
   if (Array.isArray(value)) {
     entries = value
-  } else if (typeof value === 'string' && value.startsWith(VARIABLE_PREFIX)) {
-    const declared = workflow.variables?.[value.slice(VARIABLE_PREFIX.length)]
+  } else {
+    const declaredName = referenceName(value, VARIABLE)
+    const declared =
+      declaredName === null ? undefined : workflow.variables?.[declaredName]
     if (Array.isArray(declared)) entries = declared
   }
   if (!entries?.length) return null
