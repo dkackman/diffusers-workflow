@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '../poll'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
@@ -38,17 +39,14 @@
     // the filter (or the scope's own workspace) changes, rather than the
     // interval quietly polling stale
     const filter = scope === 'all' ? workspaceFilter : workspace.current
-    const poll = async () => {
+    return poll(async () => {
       try {
         jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
         error = ''
       } catch (e) {
         error = e instanceof Error ? e.message : String(e)
       }
-    }
-    poll()
-    const timer = setInterval(poll, 3000)
-    return () => clearInterval(timer)
+    }, 3000)
   })
 
   const queuedCount = $derived(

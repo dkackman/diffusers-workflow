@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from './lib/poll'
   import { gbFromMb } from './lib/format'
   import {
     BookOpen,
@@ -66,7 +67,7 @@
   }
 
   $effect(() => {
-    const poll = async () => {
+    const refreshStatus = async () => {
       // Settled independently: memory answers 503 while the worker is
       // unreachable, and that must not blank the "running" indicator too
       const [memoryInfo, healthInfo] = await Promise.allSettled([
@@ -76,9 +77,7 @@
       memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
       health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
     }
-    poll()
-    const timer = setInterval(poll, 5000)
-    return () => clearInterval(timer)
+    return poll(refreshStatus, 5000)
   })
 
   const gb = gbFromMb
