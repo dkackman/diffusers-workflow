@@ -13,9 +13,10 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "format": "prettier --write src e2e *.ts *.js",
+    "format": "prettier --write src e2e scripts *.ts *.js",
     "e2e": "playwright test",
-    "preflight": "npm run check && npm run lint && npm run format && npm run build && npm run test && npm run e2e"
+    "metrics": "node scripts/arch-metrics.mjs",
+    "preflight": "npm run check && npm run lint && npm run format && npm run metrics -- --check ../docs/stabilization/ui/baseline.json && npm run build && npm run test && npm run e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

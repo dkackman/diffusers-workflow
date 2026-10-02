@@ -69,9 +69,11 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - run: npm ci
       - name: Format check
-        run: npx prettier --check src e2e *.ts *.js
+        run: npx prettier --check src e2e scripts *.ts *.js
       - name: Lint
         run: npm run lint
+      - name: Architecture ratchet
+        run: npm run metrics -- --check ../docs/stabilization/ui/baseline.json
       - name: Type check
         run: npm run check
       - name: Unit tests

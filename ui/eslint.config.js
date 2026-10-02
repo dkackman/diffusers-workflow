@@ -14,6 +14,10 @@ export default ts.config(
     languageOptions: { globals: { ...globals.browser } },
   },
   {
+    files: ['scripts/**'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: { parserOptions: { parser: ts.parser } },
   },
