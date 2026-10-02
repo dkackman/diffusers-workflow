@@ -201,6 +201,24 @@ it('places a live step_end under its subfolder before the manifest arrives', asy
   )
 })
 
+it("shows a running step's output inline, by the kind its step_end carries", async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'step_end',
+    step: 'generate',
+    files: ['a.png'],
+    output_kinds: { 'a.png': 'image' },
+  })
+  await waitFor(() =>
+    expect(container.querySelector('img')?.getAttribute('src')).toContain(
+      'a.png',
+    ),
+  )
+})
+
 it('lights the for_each step in the flow chart while one of its members runs', async () => {
   // The graph is drawn from the definition, where for_each is one step; the
   // engine reports the members, so the two only meet at the group name

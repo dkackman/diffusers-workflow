@@ -329,7 +329,15 @@
   // still loads correctly if the picker has since moved elsewhere.
   const fileUrl = (path: string) =>
     outputUrl(path, job?.id ?? '', job?.workspace)
-  const kindOf = (path: string) => job?.output_kinds?.[path] ?? null
+  // The detail classifies the manifest; a running job's step_end events
+  // classify each output before there is a manifest
+  const kinds = $derived.by(() => {
+    const found: Record<string, string | null> = {}
+    for (const event of events)
+      Object.assign(found, (event.output_kinds as typeof found) ?? {})
+    return { ...found, ...(job?.output_kinds ?? {}) }
+  })
+  const kindOf = (path: string) => kinds[path] ?? null
 </script>
 
 <div class="head">

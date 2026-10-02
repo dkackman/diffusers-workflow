@@ -11,6 +11,7 @@ import {
   PREVIOUS_RESULT,
   PROMPT,
   VARIABLE,
+  isReference,
 } from './references'
 
 export interface StepFlow {
@@ -25,15 +26,61 @@ export interface DanglingReference {
   message: string
 }
 
-/** The earlier step a value refers to: `previous_result:<step>[.suffix]`,
- * `gather:<step>` (every member of a for_each step), or the string under
- * a `from_previous_result` key inside a reference object. */
-function refTarget(s: string, path: string[] = []): string | null {
-  if (s.startsWith('previous_result:'))
-    return s.slice('previous_result:'.length).split('.')[0]
-  if (s.startsWith('gather:')) return s.slice('gather:'.length)
-  if (path[path.length - 1] === 'from_previous_result') return s
-  return null
+interface EarlierStep {
+  name: string
+  index: number
+  forEach: boolean
+}
+
+/** The named steps before `index`: the only producers a step can read,
+ * since the engine resolves in order. */
+function earlierSteps(
+  steps: Array<Record<string, any>>,
+  index: number,
+): EarlierStep[] {
+  return steps
+    .slice(0, index)
+    .map((s, i) => ({ name: s.name, index: i, forEach: FOR_EACH_KEY in s }))
+    .filter((s) => typeof s.name === 'string' && s.name !== '')
+}
+
+/** Whether a previous_result reference resolves to an earlier step: the
+ * name itself or the name plus a property (`seg.mask`), as the engine's
+ * reference_resolves_to decides - or, for a for_each step, one of the
+ * `<step>@<entry>` members the engine expands it into, which the editor
+ * cannot list because it holds the step unexpanded. */
+function resolvesTo(reference: string, step: EarlierStep): boolean {
+  if (reference === step.name || reference.startsWith(step.name + '.'))
+    return true
+  return step.forEach && reference.startsWith(step.name + MEMBER_SEPARATOR)
+}
+
+/** The earlier step a value refers to, or null: `previous_result:<ref>`,
+ * `gather:<step>`, or an unprefixed name under a `from_previous_result`
+ * key. An exact name wins over a shorter one it extends (`x.y` over `x`).
+ * The graph and the dangling check both resolve through here, so a chip
+ * and a warning never disagree about a reference. */
+function refTarget(
+  s: string,
+  path: string[],
+  earlier: EarlierStep[],
+): EarlierStep | null {
+  if (s.startsWith(GATHER)) {
+    const name = s.slice(GATHER.length)
+    return earlier.find((e) => e.name === name) ?? null
+  }
+  let reference: string | null = null
+  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY && !isReference(s))
+    reference = s
+  else if (s.startsWith(PREVIOUS_RESULT))
+    reference = s.slice(PREVIOUS_RESULT.length)
+  if (reference === null) return null
+  const ref = reference
+  return (
+    earlier.find((e) => e.name === ref) ??
+    earlier.find((e) => resolvesTo(ref, e)) ??
+    null
+  )
 }
 
 export function flowGraph(workflow: Record<string, any>): StepFlow[] {
@@ -46,21 +93,17 @@ export function flowGraph(workflow: Record<string, any>): StepFlow[] {
   }))
 
   steps.forEach((step, index) => {
-    // Only EARLIER steps are producers - the engine resolves in order
-    const earlier = new Map<string, number>()
-    steps.slice(0, index).forEach((s, i) => {
-      if (s.name) earlier.set(s.name, i)
-    })
+    const earlier = earlierSteps(steps, index)
     scanStringsWithPath(step, [], (s, path) => {
-      const target = refTarget(s, path)
-      if (target === null || !earlier.has(target)) return
+      const producer = refTarget(s, path, earlier)
+      if (producer === null) return
       graph[index].resolvedRefs += 1
-      if (!graph[index].inputs.includes(target)) {
-        graph[index].inputs.push(target)
+      if (!graph[index].inputs.includes(producer.name)) {
+        graph[index].inputs.push(producer.name)
         // A nameless consumer has nothing sensible to show as a chip -
         // still counted in resolvedRefs/inputs above, just not surfaced
         // as an edge on the producer
-        if (step.name) graph[earlier.get(target)!].consumers.push(step.name)
+        if (step.name) graph[producer.index].consumers.push(step.name)
       }
     })
   })
@@ -214,16 +257,13 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   const incomingProducers = new Map<string, Set<string>>()
 
   steps.forEach((step, index) => {
-    const earlier = new Map<string, number>()
-    steps.slice(0, index).forEach((s, i) => {
-      if (s.name) earlier.set(s.name, i)
-    })
+    const earlier = earlierSteps(steps, index)
     const seen = new Set<string>() // producer|attribute - dedupe repeats
     scanStringsWithPath(step, [], (value, path) => {
-      const target = refTarget(value, path)
-      if (target === null || !earlier.has(target)) return
+      const target = refTarget(value, path, earlier)?.name ?? null
+      if (target === null) return
       const attribute =
-        path[path.length - 1] === 'from_previous_result'
+        path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY
           ? attributeLabel(path.slice(0, -1))
           : attributeLabel(path)
       const key = `${target}|${attribute}`
@@ -256,22 +296,6 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   }
 
   return { nodes, edges, fanIn }
-}
-
-interface EarlierStep {
-  name: string
-  forEach: boolean
-}
-
-/** Whether a previous_result reference resolves to an earlier step: the
- * name itself or the name plus a property (`seg.mask`), as the engine's
- * reference_resolves_to decides - or, for a for_each step, one of the
- * `<step>@<entry>` members the engine expands it into, which the editor
- * cannot list because it holds the step unexpanded. */
-function resolvesTo(reference: string, step: EarlierStep): boolean {
-  if (reference === step.name || reference.startsWith(step.name + '.'))
-    return true
-  return step.forEach && reference.startsWith(step.name + MEMBER_SEPARATOR)
 }
 
 interface ReferenceScope {
@@ -323,7 +347,9 @@ function referenceProblem(
   path: string[],
   scope: ReferenceScope,
 ): string | null {
-  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY)
+  // A reference spelled under the key (variable:source) is checked as that
+  // reference: the engine leaves it to the resolution its prefix names
+  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY && !isReference(value))
     return scope.earlier.some((s) => resolvesTo(value, s))
       ? null
       : `${FROM_PREVIOUS_RESULT_KEY} '${value}' - ${UNNAMED}`
@@ -341,10 +367,7 @@ export function danglingReferenceDetails(
   const steps: Array<Record<string, any>> = workflow.steps ?? []
 
   steps.forEach((step, index) => {
-    const earlier: EarlierStep[] = steps
-      .slice(0, index)
-      .filter((s) => typeof s.name === 'string' && s.name)
-      .map((s) => ({ name: s.name, forEach: s.for_each !== undefined }))
+    const earlier = earlierSteps(steps, index)
     const scope = { earlier, variables, prompts }
     scanStringsWithPath(step, [], (value, path) => {
       const problem = referenceProblem(value, path, scope)

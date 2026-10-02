@@ -4818,6 +4818,30 @@ def test_a_job_reports_each_output_files_media_kind(server, tmp_path):
         }
 
 
+def test_a_step_end_event_carries_its_files_media_kinds(server, tmp_path):
+    """A running job's page renders each output as its step ends, before
+    the manifest exists, so the event carries the kinds itself."""
+    outputs = tmp_path / "outputs"
+
+    def script(command):
+        yield {
+            "type": "progress",
+            "event": "step_end",
+            "step": "gen",
+            "index": 0,
+            "total_steps": 1,
+            "files": [str(outputs / "a.png"), str(outputs / "b.flac")],
+        }
+        yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+    with server(script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        events = client.get(f"/api/jobs/{job['id']}/event-log").json()["events"]
+        step_end = next(e for e in events if e["event"] == "step_end")
+        assert step_end["output_kinds"] == {"a.png": "image", "b.flac": "audio"}
+
+
 def test_output_kinds_tolerates_a_job_with_no_manifest():
     from dw.server.outputs import output_kinds
 

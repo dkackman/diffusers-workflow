@@ -59,6 +59,7 @@ from .job_record import (
     TERMINAL_STATES,
     Job,
 )
+from .outputs import output_kinds
 
 logger = logging.getLogger("dw")
 
@@ -702,6 +703,9 @@ class JobManager:
             event["files"] = self._relative_output_names(
                 event["files"], job.spec.get("output_dir")
             )
+            # A running job's page renders each output as its step ends,
+            # before there is a manifest to classify
+            event["output_kinds"] = output_kinds([{"files": event["files"]}])
         if "manifest" in event:
             # workflow_end carries the run's full manifest nested under this
             # key - it must match get_job's rendering of the same list rather
