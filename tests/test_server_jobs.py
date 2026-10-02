@@ -7,6 +7,8 @@ record, which is a store concern rather than a routing one.
 
 import json
 import logging
+import os
+import threading
 import time
 
 import pytest
@@ -16,12 +18,14 @@ from dw.server.jobs import JobManager
 from dw.server.job_history import JobHistory
 from dw.server.job_record import TERMINAL_STATES
 
-from .test_server import (
+from .test_server import (  # noqa: F401 - `server` is a fixture
     DyingWorkerManager,
     ScriptedWorkerManager,
     admitted_for,
+    server,
     success_script,
     valid_workflow,
+    wait_for_status,
 )
 
 RUN_ID = new_run_id({"workflow": "spec"})
@@ -529,3 +533,107 @@ def test_definition_of_a_restored_path_job_rereads_its_file(manager, tmp_path):
         assert restored.definition(job.id) is None
     finally:
         restored.shutdown()
+
+
+class _HistoricalRow:
+    """A finished job straight into history, with the run fields a test sets."""
+
+    workflow_name = "w"
+    catalog_name = None
+    status = "succeeded"
+    created_at = 1.0
+    started_at = 1.0
+    finished_at = 2.0
+    manifest = []
+    warnings = []
+    error = None
+    events = []
+    run_id = None
+    acknowledged = "none"
+
+    def __init__(self, job_id, run_dir, output_dir=None):
+        self.id = job_id
+        self.run_dir = run_dir
+        self.spec = {"workspace": "default"}
+        if output_dir:
+            self.spec["output_dir"] = output_dir
+
+
+class TestDeleteAJobsRun:
+    """DELETE /api/jobs/{id}/run: the job record names its run directory and
+    the root it ran against, so the server deletes the run without the
+    caller deriving either."""
+
+    def test_deleting_a_jobs_run_removes_its_run_directory(self, server, tmp_path):
+        run = tmp_path / "outputs" / RUN_DIR
+        run.mkdir(parents=True)
+        (run / "manifest.json").write_text("{}")
+        with server(tracked_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], TERMINAL_STATES)
+            answer = client.delete(f"/api/jobs/{job['id']}/run")
+            assert answer.status_code == 200, answer.text
+            body = answer.json()
+            assert body["job_id"] == job["id"]
+            assert body["run_dir"] == RUN_DIR
+            assert body["deleted"] is True
+            assert not run.exists()
+
+    def test_a_job_without_a_run_dir_is_404(self, server):
+        with server(success_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], TERMINAL_STATES)
+            answer = client.delete(f"/api/jobs/{job['id']}/run")
+            assert answer.status_code == 404
+            assert "no run directory" in answer.json()["detail"]
+
+    def test_an_unknown_job_is_404(self, server):
+        with server(success_script) as client:
+            assert client.delete("/api/jobs/nope/run").status_code == 404
+
+    def test_a_running_job_is_409(self, server, tmp_path):
+        release = threading.Event()
+
+        def held_script(command):
+            yield {
+                "type": "progress",
+                "event": "run_start",
+                "run_id": RUN_ID,
+                "identity": "server_test",
+                "run_dir": RUN_DIR,
+                "version": 1,
+            }
+            release.wait(5)
+            yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+        (tmp_path / "outputs" / RUN_DIR).mkdir(parents=True)
+        with server(held_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], {"running"})
+            try:
+                answer = client.delete(f"/api/jobs/{job['id']}/run")
+                assert answer.status_code == 409
+                assert (tmp_path / "outputs" / RUN_DIR).is_dir()
+            finally:
+                release.set()
+
+    def test_a_run_dir_escaping_the_root_is_refused(self, server, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        JobHistory(str(tmp_path / "jobs.sqlite")).record(
+            _HistoricalRow("escape", "../outside")
+        )
+        with server(success_script) as client:
+            answer = client.delete("/api/jobs/escape/run")
+            assert answer.status_code in (400, 404)
+            assert outside.is_dir()
+
+
+def test_run_location_is_the_jobs_own_root(manager, tmp_path):
+    """A job in a named workspace wrote under that workspace's outputs."""
+    other = tmp_path / "ws" / "outputs"
+    other.mkdir(parents=True)
+    manager.history.record(_HistoricalRow("named", RUN_DIR, output_dir=str(other)))
+    root, run_dir = manager.run_location("named")
+    assert root == os.path.realpath(str(other))
+    assert run_dir == RUN_DIR

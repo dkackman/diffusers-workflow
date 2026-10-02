@@ -13,7 +13,6 @@ from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
-from filelock import FileLock
 
 from ...media import probe_media
 from ...runs import (
@@ -21,7 +20,6 @@ from ...runs import (
     REALIZED_FILE_NAME,
     is_run_id,
     record_run_versions,
-    run_lock_path,
     run_versions,
     split_run_path,
 )
@@ -30,6 +28,8 @@ from ...workspace import Workspace, forget_workspace_usage
 from ..deps import selected_workspace
 from ..outputs import (
     ArchiveRequest,
+    delete_run_directory,
+    remove_empty_identity_folders,
     absolute_served_url,
     archive_selection,
     iter_gallery_files,
@@ -266,24 +266,6 @@ def archive_outputs(
 RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
 
 
-def _remove_empty_identity_folders(run_dir, root):
-    """Remove the folders above a deleted run, up to `root`, while empty.
-
-    Under the run lock open_run takes: it creates the identity folder
-    and then claims a run inside it, and removing the folder between
-    the two would fail that run on a path that no longer exists.
-    """
-    identity_dir = os.path.dirname(run_dir)
-    with FileLock(run_lock_path(identity_dir)):
-        parent = identity_dir
-        while os.path.normpath(parent) != os.path.normpath(root):
-            try:
-                os.rmdir(parent)
-            except OSError:
-                break
-            parent = os.path.dirname(parent)
-
-
 def _prune_empty_run_directory(name, root):
     """Drop the run directory a just-deleted output belonged to, once no
     media is left in it.
@@ -326,7 +308,7 @@ def _prune_empty_run_directory(name, root):
     shutil.rmtree(run_dir, ignore_errors=True)
     # And the identity folders above it, while they are empty - a swept
     # workspace should not keep one directory per workflow it once ran
-    _remove_empty_identity_folders(run_dir, root)
+    remove_empty_identity_folders(run_dir, root)
     logger.info(f"Swept empty run directory {relative}")
     return run_id
 
@@ -364,17 +346,10 @@ def delete_output(
     name = strip_output_prefix(name)
     run_dir = _run_directory(name, ws.outputs)
     if run_dir is not None:
-        # As in _prune_empty_run_directory: pin the siblings' numbers
-        # before one of them goes
-        record_run_versions(os.path.dirname(run_dir))
-        shutil.rmtree(run_dir, ignore_errors=True)
-        _remove_empty_identity_folders(run_dir, ws.outputs)
-        logger.info(f"Deleted run directory {name}")
-        forget_workspace_usage()
         return {
             "name": name,
             "deleted": True,
-            "run_swept": os.path.basename(run_dir),
+            "run_swept": delete_run_directory(run_dir, ws.outputs),
         }
 
     path = resolve_output_file(request.app.state, name, ws.outputs)

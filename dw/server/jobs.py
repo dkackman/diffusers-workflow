@@ -261,14 +261,15 @@ class JobManager:
             return copy.deepcopy(snapshot)
         return None
 
-    def realized(self, job_id):
-        """The realized workflow a job ran, or None when the job predates
-        run tracking or its run directory no longer holds the file.
+    def run_location(self, job_id):
+        """(output root, run dir) for the run a job wrote, or None when the
+        job is unknown or never started a run.
 
-        Read from the job's own output directory, not the manager's: one
-        server holds several workspaces, and a job carries the root it ran
-        against. The join is confined to that root, so a run_dir read back
-        out of the database cannot name anything outside it.
+        The job's own root, not the manager's: one server holds several
+        workspaces, and a job carries the root it ran against. The root is
+        validated; joining `run_dir` onto it stays the caller's, confined to
+        that root, so a run_dir read back out of the database cannot name
+        anything outside it.
         """
         job = self.jobs.get(job_id)
         if job is not None:
@@ -284,8 +285,16 @@ class JobManager:
             ) or self.output_dir
         if not run_dir:
             return None
+        return validate_output_path(output_dir, None), run_dir
+
+    def realized(self, job_id):
+        """The realized workflow a job ran, or None when the job predates
+        run tracking or its run directory no longer holds the file."""
         try:
-            root = validate_output_path(output_dir, None)
+            location = self.run_location(job_id)
+            if location is None:
+                return None
+            root, run_dir = location
             path = validate_path(os.path.join(root, run_dir, REALIZED_FILE_NAME), root)
             validate_json_size(path)
             with open(path, "r") as file:

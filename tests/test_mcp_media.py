@@ -508,76 +508,43 @@ def test_delete_output_calls_delete_on_the_gallery_route():
     assert seen == [("DELETE", "/api/gallery/out.png")]
 
 
-def deleting_by_job(job):
-    """GET /api/jobs/job-1 answers `job`; DELETE on the gallery answers as
-    the server's run-directory form does."""
+def deleting_by_job(status=200, body=None):
+    """DELETE /api/jobs/job-1/run answers as the server does."""
     seen = []
 
     def handler(request):
         seen.append((request.method, request.url.path, dict(request.url.params)))
-        if request.method == "GET" and request.url.path == "/api/jobs/job-1":
-            return httpx.Response(200, json=job)
-        if request.method == "GET":
+        if request.url.path != "/api/jobs/job-1/run":
             return httpx.Response(404, json={"detail": "Unknown job"})
-        name = request.url.path.removeprefix("/api/gallery/")
         return httpx.Response(
-            200, json={"name": name, "deleted": True, "run_swept": name.split("/")[-1]}
+            status,
+            json=body
+            or {
+                "job_id": "job-1",
+                "run_dir": "ltx2/Gyre",
+                "deleted": True,
+                "run_swept": "Gyre",
+            },
         )
 
     return DwClient(transport=httpx.MockTransport(handler)), seen
 
 
-def test_delete_output_by_job_id_deletes_the_run_directory_the_job_wrote():
-    client, seen = deleting_by_job(
-        {
-            "id": "job-1",
-            "status": "succeeded",
-            "run_dir": "ltx2/Gyre",
-            "workspace": "default",
-        }
-    )
+def test_delete_output_by_job_id_is_one_call_to_the_job_run_route():
+    """The server reads the job's run directory and its own root; the
+    client derives neither."""
+    client, seen = deleting_by_job()
+    client.workspace = "elsewhere"
 
     result = media.delete_output(client, job_id="job-1")
 
-    assert [entry[:2] for entry in seen] == [
-        ("GET", "/api/jobs/job-1"),
-        ("DELETE", "/api/gallery/ltx2/Gyre"),
-    ]
-    assert result == {
-        "name": "ltx2/Gyre",
-        "deleted": True,
-        "run_swept": "Gyre",
-        "job_id": "job-1",
-        "run_dir": "ltx2/Gyre",
-    }
-
-
-def test_delete_output_by_job_id_goes_to_the_workspace_the_job_ran_in():
-    """The run directory is wherever the job wrote it, so with no pin the
-    delete follows the job's own workspace rather than the session's."""
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": "w/Run", "workspace": "shots"}
-    )
-    client.workspace = "elsewhere"
-
-    media.delete_output(client, job_id="job-1")
-
-    assert seen[-1][1] == "/api/gallery/w/Run"
-    assert seen[-1][2] == {"workspace": "shots"}
-
-
-def test_delete_output_by_job_id_honours_an_explicit_workspace():
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": "w/Run", "workspace": "shots"}
-    )
-
-    media.delete_output(client, job_id="job-1", workspace="pinned")
-
-    assert seen[-1][2] == {"workspace": "pinned"}
+    assert [entry[:2] for entry in seen] == [("DELETE", "/api/jobs/job-1/run")]
+    assert result["run_dir"] == "ltx2/Gyre"
+    assert result["job_id"] == "job-1"
 
 
 def test_delete_output_refuses_neither_name_nor_job_id():
-    client, seen = deleting_by_job({})
+    client, seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="exactly one"):
         media.delete_output(client)
@@ -586,7 +553,7 @@ def test_delete_output_refuses_neither_name_nor_job_id():
 
 
 def test_delete_output_refuses_both_name_and_job_id():
-    client, seen = deleting_by_job({})
+    client, seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="exactly one"):
         media.delete_output(client, "out.png", job_id="job-1")
@@ -595,25 +562,21 @@ def test_delete_output_refuses_both_name_and_job_id():
 
 
 def test_delete_output_by_job_id_surfaces_an_unknown_job():
-    client, seen = deleting_by_job({})
+    client, _seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="Unknown job"):
         media.delete_output(client, job_id="ghost")
 
-    assert [entry[0] for entry in seen] == ["GET"], "nothing is deleted"
 
-
-def test_delete_output_by_job_id_refuses_a_job_with_no_run_directory():
-    """A job refused before it started (or one from before run tracking)
-    has no run_dir; that is an error, not a delete of nothing."""
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": None, "workspace": "default"}
+def test_delete_output_by_job_id_surfaces_the_servers_refusal():
+    """A job with no run directory, or one still running, is the server's
+    to refuse; its detail reaches the caller as written."""
+    client, _seen = deleting_by_job(
+        404, {"detail": "Job job-1 (failed) has no run directory to delete"}
     )
 
     with pytest.raises(DwApiError, match="no run directory"):
         media.delete_output(client, job_id="job-1")
-
-    assert [entry[0] for entry in seen] == ["GET"], "nothing is deleted"
 
 
 # --------------------------------------------------------- output download

@@ -224,11 +224,11 @@ class MediaTools:
         failed before writing any media - or give `job_id` instead: the run
         that job wrote is removed whole, and the reply adds `job_id` and
         the resolved `run_dir`. Exactly one of the two; a job with no run
-        directory, or unknown, is an error.
+        directory, unknown, or still running is an error.
 
-        `workspace` pins this call to another workspace without switching
-        the session; a `job_id` delete with no `workspace` goes to
-        the workspace the job ran in."""
+        `workspace` pins a `name` delete to another workspace without
+        switching the session; a `job_id` delete goes to the workspace the
+        job ran in."""
         return media.delete_output(
             self.client, name, workspace=workspace, job_id=job_id
         )

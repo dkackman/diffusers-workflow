@@ -451,12 +451,10 @@ def delete_output(client, name=None, workspace=None, job_id=None):
     `job_id` is the other handle on a whole run: the job record carries
     the `<workflow>/<run id>` its run wrote (`run_dir`, relative to the
     output root), so the run is deleted without the caller listing the
-    gallery to find the name. Exactly one of `name` / `job_id`. A job that
-    never wrote a run directory - refused before it started, or from
-    before run tracking - has nothing to delete and says so. `workspace`
-    pins the call as it always has; without one, a job's delete goes to
-    the workspace the job itself ran in, since that is where its run
-    directory is."""
+    gallery to find the name. Exactly one of `name` / `job_id`. The server
+    resolves a job's run against the root the job ran in, and refuses one
+    with no run directory or still running. `workspace` pins a `name`
+    delete to another workspace."""
     if (name is None) == (job_id is None):
         raise DwApiError(
             "Provide exactly one of `name` (a gallery name or a "
@@ -466,21 +464,8 @@ def delete_output(client, name=None, workspace=None, job_id=None):
     if job_id is None:
         return client.delete_json(api_path("api", "gallery", name), workspace=workspace)
 
-    job = client.get_json(api_path("api", "jobs", job_id))
-    run_dir = job.get("run_dir")
-    if not run_dir:
-        raise DwApiError(
-            f"Job {job_id} ({job.get('status') or 'unknown status'}) has no "
-            "run directory to delete - it never started a run, or predates "
-            "run tracking. If it left files, list_gallery(only_orphans=True) "
-            "finds the run directory by name."
-        )
-    # The record's path is slash-separated relative to the output root -
-    # exactly the run-directory form the gallery route accepts
-    run_dir = "/".join(part for part in str(run_dir).split("/") if part)
-    target = workspace or job.get("workspace") or None
-    deleted = client.delete_json(api_path("api", "gallery", run_dir), workspace=target)
-    return {**deleted, "job_id": job_id, "run_dir": run_dir}
+    # The server reads the job's run directory and the root it ran against
+    return client.delete_json(api_path("api", "jobs", job_id, "run"))
 
 
 def _remote_root(client, workspace=None):
