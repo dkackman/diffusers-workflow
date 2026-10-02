@@ -18,10 +18,37 @@ self.MonacoEnvironment = {
 
 let configured = false
 
-export async function setupMonaco() {
-  if (configured) return monaco
-  configured = true
+// Quiet JSON matching the pre-Monaco editor: string values in the app
+// ink, property names in the accent, numbers and true/false/null in the
+// status colours, punctuation muted - enough to read the shape of a
+// document at a glance without a syntax rainbow. The palettes mirror
+// app.css by
+// value rather than reading the live CSS tokens: setup runs once, under
+// whichever theme is active, and the editor re-themes at runtime - a
+// light theme defined while dark was active would carry dark colours
+const PALETTES = {
+  'dw-dark': {
+    base: 'vs-dark',
+    ink: 'e4eaed',
+    key: '4cb8cc',
+    number: '63b784',
+    literal: 'd9a84e',
+    muted: '8fa0a8',
+    panel: '1c2226',
+  },
+  'dw-light': {
+    base: 'vs',
+    ink: '1c2428',
+    key: '0b7285',
+    number: '2b7a4b',
+    literal: '9a6a12',
+    muted: '5b6a72',
+    panel: 'ffffff',
+  },
+} as const
 
+/** Wire the workflow and prompt schemas into the JSON language service. */
+async function configureSchemas(): Promise<void> {
   try {
     const { api } = await import('./api')
     // Each editor names its model workflow-*.json or prompt-*.json, which
@@ -53,35 +80,9 @@ export async function setupMonaco() {
   } catch {
     /* schema endpoint unreachable - plain JSON editing still works */
   }
+}
 
-  // Quiet JSON matching the pre-Monaco editor: string values in the app
-  // ink, property names in the accent, numbers and true/false/null in the
-  // status colours, punctuation muted - enough to read the shape of a
-  // document at a glance without a syntax rainbow. The palettes mirror
-  // app.css by
-  // value rather than reading the live CSS tokens: setup runs once, under
-  // whichever theme is active, and the editor re-themes at runtime - a
-  // light theme defined while dark was active would carry dark colours
-  const PALETTES = {
-    'dw-dark': {
-      base: 'vs-dark',
-      ink: 'e4eaed',
-      key: '4cb8cc',
-      number: '63b784',
-      literal: 'd9a84e',
-      muted: '8fa0a8',
-      panel: '1c2226',
-    },
-    'dw-light': {
-      base: 'vs',
-      ink: '1c2428',
-      key: '0b7285',
-      number: '2b7a4b',
-      literal: '9a6a12',
-      muted: '5b6a72',
-      panel: 'ffffff',
-    },
-  } as const
+function defineThemes(): void {
   for (const [name, palette] of Object.entries(PALETTES)) {
     monaco.editor.defineTheme(name, {
       base: palette.base,
@@ -103,6 +104,13 @@ export async function setupMonaco() {
       },
     })
   }
+}
+
+export async function setupMonaco() {
+  if (configured) return monaco
+  configured = true
+  await configureSchemas()
+  defineThemes()
   return monaco
 }
 
