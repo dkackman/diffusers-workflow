@@ -40,5 +40,8 @@ export default defineConfig({
     url: 'http://127.0.0.1:8971/api/health',
     reuseExistingServer: false,
     timeout: 90_000,
+    // The UI's response contract runs strict here too: a key a route emits
+    // that its response model has not declared is a 500 (dw/server/api_models.py)
+    env: { ...process.env, DW_STRICT_RESPONSES: '1' },
   },
 })

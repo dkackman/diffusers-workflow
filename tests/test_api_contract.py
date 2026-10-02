@@ -1,0 +1,89 @@
+"""The UI's response contract: the routes the UI reads declare response
+models, and the OpenAPI document generated from them is committed where the
+UI generates its types from (ui/src/lib/generated/). See docs/ARCHITECTURE.md,
+"The UI's response contract"."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+REPO = Path(__file__).resolve().parent.parent
+DUMP = REPO / "scripts" / "dump_openapi.py"
+
+
+def _model_in(mode: str):
+    """ApiModel as a fresh interpreter builds it with the switch set or not."""
+    env = {k: v for k, v in os.environ.items() if k != "DW_STRICT_RESPONSES"}
+    if mode == "strict":
+        env["DW_STRICT_RESPONSES"] = "1"
+    code = "from dw.server.api_models import ApiModel; print(ApiModel.model_config['extra'])"
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_the_suite_runs_strict():
+    from dw.server.api_models import STRICT
+
+    assert STRICT, "tests/conftest.py sets DW_STRICT_RESPONSES before dw is imported"
+
+
+def test_runtime_is_lenient_and_strict_mode_forbids():
+    assert _model_in("runtime") == "allow"
+    assert _model_in("strict") == "forbid"
+
+
+def test_a_lenient_model_passes_an_undeclared_key_through():
+    # What production does with a key a model has not declared yet: send it
+    from pydantic import ConfigDict
+
+    from dw.server.api_models import ApiModel
+
+    class Probe(ApiModel):
+        model_config = ConfigDict(extra="allow")
+        x: int
+
+    app = FastAPI()
+
+    @app.get("/p", response_model=Probe, response_model_exclude_unset=True)
+    def p():
+        return {"x": 1, "later": {"y": 2}}
+
+    assert TestClient(app).get("/p").json() == {"x": 1, "later": {"y": 2}}
+
+
+def _dump(extra_env):
+    env = {**os.environ, **extra_env}
+    return subprocess.run(
+        [sys.executable, str(DUMP), "--stdout"],
+        env=env,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def test_the_document_does_not_depend_on_the_machine():
+    assert _dump({"DW_DEVICE": "cpu"}) == _dump({"DW_DEVICE": "mps"})
+
+
+def test_the_document_carries_no_release_version():
+    assert json.loads(_dump({}))["info"]["version"] == "0"
+
+
+def test_the_committed_document_is_current():
+    committed = (REPO / "ui" / "src" / "lib" / "generated" / "openapi.json").read_text()
+    assert committed == _dump({}), (
+        "the server's response contract changed: run `python scripts/dump_openapi.py`, "
+        "then `cd ui && npm run gen:api`, and commit both"
+    )

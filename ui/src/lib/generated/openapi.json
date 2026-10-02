@@ -1,0 +1,3834 @@
+{
+  "components": {
+    "schemas": {
+      "AcknowledgedCost": {
+        "description": "A cost acknowledgement bound to the plan a validate call answered\nwith (#85): the server refuses to queue a run whose plan no longer\nmatches it. `minutes` is recorded, never compared.",
+        "properties": {
+          "downloads": {
+            "description": "The repos in plan.downloads_required that were acknowledged",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Downloads",
+            "type": "array"
+          },
+          "fingerprint": {
+            "description": "plan.fingerprint from POST /api/validate",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "plan.estimate.minutes, recorded on the job",
+            "title": "Minutes"
+          }
+        },
+        "required": [
+          "fingerprint"
+        ],
+        "title": "AcknowledgedCost",
+        "type": "object"
+      },
+      "ArchiveRequest": {
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "title": "ArchiveRequest",
+        "type": "object"
+      },
+      "DownloadRequest": {
+        "properties": {
+          "repo_id": {
+            "description": "Hub repo to download, e.g. org/model",
+            "title": "Repo Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id"
+        ],
+        "title": "DownloadRequest",
+        "type": "object"
+      },
+      "EnhanceRequest": {
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Device for the language model; defaults to cpu, keeping VRAM free for generation",
+            "title": "Device"
+          },
+          "idea": {
+            "description": "The idea to expand into a full prompt",
+            "title": "Idea",
+            "type": "string"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM repo id; the preset's default when omitted",
+            "title": "Model Name"
+          },
+          "preset": {
+            "default": "h3",
+            "description": "Enhancer preset key",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idea"
+        ],
+        "title": "EnhanceRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JobRequest": {
+        "properties": {
+          "acknowledged_cost": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/components/schemas/AcknowledgedCost"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost acknowledgement: true (recorded), or an object {fingerprint, minutes, downloads} bound to the plan validate answered with - then the run is refused with 409 if its plan changed",
+            "title": "Acknowledged Cost"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "description": "Workflow variable overrides",
+            "title": "Arguments",
+            "type": "object"
+          },
+          "base_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Directory relative paths in an inline workflow resolve against",
+            "title": "Base Dir"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline workflow definition",
+            "title": "Workflow"
+          },
+          "workflow_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to a workflow JSON file on the server",
+            "title": "Workflow Path"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which workspace to run or resolve in; the default when omitted",
+            "title": "Workspace"
+          }
+        },
+        "title": "JobRequest",
+        "type": "object"
+      },
+      "KeepRequest": {
+        "properties": {
+          "asset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name to keep it under in the asset library; its own file name when omitted. May name a folder; the kept file's extension is assumed when the name has none",
+            "title": "Asset Name"
+          },
+          "name": {
+            "description": "The generated file to keep, as the gallery names it",
+            "title": "Name",
+            "type": "string"
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Replace an asset already under that name",
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "shared": {
+            "default": false,
+            "description": "Keep it in the library every workspace under this root shares, rather than in this workspace's own",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "KeepRequest",
+        "type": "object"
+      },
+      "MoveRequest": {
+        "properties": {
+          "direction": {
+            "description": "up, down, front, or back",
+            "title": "Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "direction"
+        ],
+        "title": "MoveRequest",
+        "type": "object"
+      },
+      "PromptRequest": {
+        "properties": {
+          "prompt": {
+            "additionalProperties": true,
+            "description": "The prompt definition to save",
+            "title": "Prompt",
+            "type": "object"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "PromptRequest",
+        "type": "object"
+      },
+      "RerunRequest": {
+        "properties": {
+          "acknowledged_cost": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/components/schemas/AcknowledgedCost"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost acknowledgement: true (recorded), or an object {fingerprint, minutes, downloads} bound to the plan validate answered with - then the run is refused with 409 if its plan changed",
+            "title": "Acknowledged Cost"
+          },
+          "new_seed": {
+            "default": false,
+            "description": "Draw a fresh seed into the workflow's seed variable. Without it a rerun repeats the original arguments exactly, which the step cache serves from the earlier run - the same seed and inputs would produce the same files.",
+            "title": "New Seed",
+            "type": "boolean"
+          }
+        },
+        "title": "RerunRequest",
+        "type": "object"
+      },
+      "UpdateDiffusersRequest": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Git commit hash to pin the install to (7-40 hex characters) instead of tracking GitHub HEAD",
+            "title": "Commit"
+          },
+          "revert": {
+            "default": false,
+            "description": "Pin back to the known-good published release (pyproject.toml's diffusers floor) instead of installing from git. Mutually exclusive with commit.",
+            "title": "Revert",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateDiffusersRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkspaceRequest": {
+        "properties": {
+          "name": {
+            "description": "Name for the new workspace",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "WorkspaceRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Declarative diffusers workflows over HTTP: queue a job, stream its progress, fetch what it saved.",
+    "title": "diffusers-workflow",
+    "version": "0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/assets": {
+      "get": {
+        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.",
+        "operationId": "list_assets_api_assets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Assets"
+      }
+    },
+    "/api/assets/archive": {
+      "post": {
+        "description": "Bundle a multi-file asset selection into one zip - the gallery's\nbulk download, for the input side of it.\n\nResolved down the same search path a run resolves 'asset:' in, so a\nselection spanning the workspace's own library, the shared one and\nan examples tree downloads as one archive; the library-relative name\nis the entry name, which is the name the 'asset:' reference carries.",
+        "operationId": "archive_assets_api_assets_archive_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Assets"
+      }
+    },
+    "/api/assets/keep": {
+      "post": {
+        "description": "Keep a generated file as an input asset, under a stable name.\n\nA run's files live under '<workflow>/<run id>/', which is the right\nplace for them and the wrong name to build on: 'latest' moves, and a\npinned run id breaks the moment outputs are pruned. Keeping one\ncopies it into the workspace's asset library, where an 'asset:' name\nstays put - which is what turns a generated still or score into an\ninput later workflows can rely on.\n\nWithin the workspace, so nothing crosses a namespace, and no bytes\ncross the network: a client that had to download and re-upload a\nmulti-gigabyte video to reuse one frame would be paying for the\nround trip twice.",
+        "operationId": "keep_output_as_asset_api_assets_keep_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Keep Output As Asset"
+      }
+    },
+    "/api/assets/{name}": {
+      "delete": {
+        "description": "Permanently remove one file from the asset library.\n\nDeletes from whichever library on the search path holds it, the\nworkspace's own first, so the name deleted is the name 'asset:'\nwould have resolved to. An asset a read-only examples tree brought\nwith it is not this server's to delete - the same 403 a read-only\nprompt or workflow answers with.\n\nNot recoverable, and any workflow still carrying that 'asset:'\nreference stops loading. Without this, everything else that writes\nthe library (uploads, keep) had no counterpart and a mistake could\nonly be cleaned up on the box (T014).",
+        "operationId": "delete_asset_api_assets__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Asset"
+      }
+    },
+    "/api/classes": {
+      "get": {
+        "description": "Class names of one kind (pipelines, models, schedulers,\nquantization) - the pickers' data source.",
+        "operationId": "classes_api_classes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Classes"
+      }
+    },
+    "/api/classes/{name}": {
+      "get": {
+        "description": "A class's argument schema: target=call reads __call__, init reads\n__init__, load reads from_pretrained plus the curated loading knobs.",
+        "operationId": "class_description_api_classes__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "default": "init",
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Class Description"
+      }
+    },
+    "/api/enhance": {
+      "post": {
+        "description": "Queue a prompt enhancement as an ordinary job. The enhanced text\nis the job's single manifest file once it succeeds.\n\nScoped like any other job: the caller reads the result back from the\nworkspace it asked in, so this has to write there too.",
+        "operationId": "enhance_api_enhance_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnhanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enhance"
+      }
+    },
+    "/api/enhancers": {
+      "get": {
+        "operationId": "list_enhancers_api_enhancers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Enhancers"
+      }
+    },
+    "/api/gallery": {
+      "get": {
+        "description": "A page of media files in the output directory, newest first.\nStateless by design - the gallery survives server restarts because\nit reads the directory tree, not job history. 'folders' lists every\ndistinct workflow folder present (over the whole directory, not just\nthis page), for the UI's folder filter - a run id is not a folder of\nits own, so a workflow's runs group together; '' stands for files\nsaved directly at the output root, and is itself always a member so\nthat folder-less outputs stay selectable once anything is nested.\n'subfolders' is the other axis, over the whole directory the same\nway: the in-run subfolders steps wrote into ('final',\n'intermediate'), '' for files at a run's root. `folder` and\n`subfolder` filter independently and intersect when both are given.\n`version` narrows to the runs holding that ordinal - with `folder`,\nthe one run \"v4\" names; without it, that run of every workflow.\n\n`only_orphans=true` inverts the whole call: instead of media files,\nit returns run directories holding nothing but their own\nbookkeeping (manifest.json, workflow.json, job.json) as `runs`,\neach `{name, mtime}` - a run that wrote any file at all, a\ntext-shape prompt or a utility's side output included, is not\nlisted. `folder`/`subfolder` and the `folders`/`subfolders` facets\ndo not apply in this mode, since an orphan run has no file to\ncarry either. `name` is exactly what `DELETE /api/gallery/{name}`\naccepts, so listing and deleting an orphan is a two-call round\ntrip (#170).\n\n`media=true` adds `duration_seconds` to each audio/video entry,\nprobed the same way `get_gallery_metadata` reports it - which two\ntakes of the same workflow otherwise have no way to be told apart\nby, since size and mtime are misleading proxies for length (#356).\nOff by default and bounded by `limit`: only the page actually\nreturned is probed, not the whole listing, so the cost of asking\nstays proportional to the page size rather than the library size.",
+        "operationId": "gallery_api_gallery_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "folder",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subfolder",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subfolder"
+            }
+          },
+          {
+            "in": "query",
+            "name": "only_orphans",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Only Orphans",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "media",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Media",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery"
+      }
+    },
+    "/api/gallery/archive": {
+      "post": {
+        "description": "Bundle a multi-file gallery selection into one zip. A browser\ncannot zip on its own and throttles a burst of single downloads, so\nthe whole selection has to arrive as one file. Written to a temp\nfile rather than memory - a selection of videos does not fit in\nRAM - and unlinked once the response has been sent.",
+        "operationId": "archive_outputs_api_gallery_archive_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Outputs"
+      }
+    },
+    "/api/gallery/{name}": {
+      "delete": {
+        "description": "Remove one file from the output directory.\n\nWhen that was the last media file of its run, the run directory goes\nwith it, sidecars included. `name` may also be a run directory\n(`<identity>/<run id>`), which removes the whole run - the only handle\non a run that failed before it wrote any media (#134).",
+        "operationId": "delete_output_api_gallery__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Output"
+      }
+    },
+    "/api/gallery/{name}/assess": {
+      "get": {
+        "description": "Measure a finished cut and say where to look (#388): every\nassessment probe that applies to the file, run here in the server\nprocess on one decode - a sync route, so it runs beside a GPU job\nrather than queueing behind it. Findings are places to look, not\nverdicts; nothing acts on one (dw/assessment_rules.py).\n\nThe default answer merges the probes' `findings`, `rules_applied`\nand `rules_skipped`, and names each probe the file cannot feed in\n`not_applicable` (a still, no soundtrack, no recorded shots);\n`detail=true` adds each probe's full answer under `probes`.\n`probe` names one - analyze_shots, analyze_seams or\nanalyze_sync_drift - and answers with its full body. It is checked\nbefore the name is resolved. `name` may be an `asset:` reference,\nand then the shots are the ones keep_output carried beside it.",
+        "operationId": "gallery_assess_api_gallery__name__assess_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Probe"
+            }
+          },
+          {
+            "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Detail",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Assess"
+      }
+    },
+    "/api/gallery/{name}/audio": {
+      "get": {
+        "description": "The soundtrack of an output or asset, as WAV - a muxed video's\ntrack, which `get_output_audio` used to refuse outright, or an\nexcerpt (`start` + `duration`, seconds) of a track too long to send\nwhole (#193). An excerpt names itself in the response headers\n(`X-DW-Excerpt-Start`, `X-DW-Excerpt-Duration`) beside the whole\ntrack's `X-DW-Duration` - omitted only when a container carries no\nduration in its own header - so a cut is never silent (#204).\n\nAn audio-only file asked for whole is served as its own bytes in its\nown encoding - there is nothing to extract, and a transcode would\nchange what the agent hears.",
+        "operationId": "gallery_audio_api_gallery__name__audio_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "duration",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Duration"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Audio"
+      }
+    },
+    "/api/gallery/{name}/download": {
+      "get": {
+        "description": "Serve one output file as a forced download rather than an inline view.",
+        "operationId": "download_output_api_gallery__name__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Output"
+      }
+    },
+    "/api/gallery/{name}/frames": {
+      "get": {
+        "description": "Frames of a video output or asset, as PNG tiles - the way an\nagent with no video content type sees what a run made (#193).\nExactly one selector: `at` (a comma list of seconds or \"frame:N\"),\n`count` (an evenly spaced contact sheet, `frame_grid` without a\nworkflow), or `seams` (\"true\", or a comma list of 1-based seam\nnumbers) for the last frame before and first frame after each\nboundary, side by side. `boundaries` is the comma list of frame\nindexes each shot after the first starts at, and `names` the\nshots' names. Without `boundaries`, an output's seams are the shots\nits run's manifest recorded for it (a `concat_videos`,\n`dissolve_videos` or chained step), named as recorded unless `names`\nis given; a linked asset (`keep_output(shared=true)`) uses the same\nshots `get_gallery_metadata`'s `media.shots` reports for it, from the\nsidecar manifest kept beside it. A file with none recorded still\nneeds `boundaries`.\nTiles are downscaled to `max_dimension` on their longest side.\n`crop` is `x,y,width,height` in the video's own source pixels\n(`video_shape`'s `width`/`height`) - resolved once and cut from\nevery sampled frame before any stamping, fitting or composing, so\nit names the same region whatever `max_dimension` downscales the\nresult to. `max_total_bytes` is a budget on the tiles' summed base64\nsize: over it, every tile shrinks to one shared size (never below\nFRAME_MIN_DIMENSION) rather than any being dropped, and\n`downscaled_to` says the side they came out at (null when nothing\nhad to shrink).",
+        "operationId": "gallery_frames_api_gallery__name__frames_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Count"
+            }
+          },
+          {
+            "in": "query",
+            "name": "seams",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seams"
+            }
+          },
+          {
+            "in": "query",
+            "name": "boundaries",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Boundaries"
+            }
+          },
+          {
+            "in": "query",
+            "name": "names",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Names"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_dimension",
+            "required": false,
+            "schema": {
+              "default": 512,
+              "title": "Max Dimension",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "crop",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crop"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_total_bytes",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Total Bytes"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Frames"
+      }
+    },
+    "/api/gallery/{name}/image": {
+      "get": {
+        "description": "An image output or asset sized for an inline answer: `crop`\n(`x,y,width,height` in the image's own pixels, clamped to it) first,\nthen fitted to `max_dimension` on its longest side, then - with\n`max_bytes`, a budget on the base64 size - halved until it fits. The\nformat follows the source (JPEG stays JPEG, anything else is PNG)\nunless `format` names one. Headers say what came back:\nX-DW-Original-Size, X-DW-Returned-Size, and when they apply\nX-DW-Crop and X-DW-Downscaled-To (the budget shrank it).",
+        "operationId": "gallery_image_api_gallery__name__image_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_dimension",
+            "required": false,
+            "schema": {
+              "default": 768,
+              "title": "Max Dimension",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "crop",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crop"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_bytes",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Bytes"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "auto",
+              "enum": [
+                "auto",
+                "png",
+                "jpeg"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Image"
+      }
+    },
+    "/api/gallery/{name}/metadata": {
+      "get": {
+        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small.\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen.",
+        "operationId": "gallery_metadata_api_gallery__name__metadata_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "envelope",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Envelope",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Metadata"
+      }
+    },
+    "/api/gallery/{name}/thumbnail": {
+      "get": {
+        "description": "A small JPEG rendition of an image output, for the grid - the\nfull-resolution file is only fetched for the detail/lightbox view.\nGenerated on demand rather than cached to disk, so it never grows\nthe output directory the gallery itself scans.",
+        "operationId": "gallery_thumbnail_api_gallery__name__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Thumbnail"
+      }
+    },
+    "/api/guides": {
+      "get": {
+        "description": "The documentation that bears on choosing a capability: each\nguide's name, what it covers, and its section headings. Served by\nthe engine rather than read from an MCP client's install, so the\nguides an agent reads are the guides for the engine it drives.",
+        "operationId": "list_guides_api_guides_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Guides"
+      }
+    },
+    "/api/guides/{name}": {
+      "get": {
+        "description": "One guide from /api/guides, whole or one section of it. A\nsection name is matched loosely - case and punctuation dropped -\nso a heading copied approximately still resolves, and also reaches\na `###` subsection not listed at the top level, by its own heading\nor by a term inside it. An unknown name or section is a 404 whose\ndetail lists what exists.",
+        "operationId": "get_guide_api_guides__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Guide"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "description": "All jobs by default - a plain filter, not `selected_workspace`,\nsince the jobs list spans every workspace the server holds unless a\ncaller asks to narrow it.\n\n`status` narrows to one state or a comma-separated set of them.\n`limit` keeps the newest N, and `total` always reports how many\nmatched before the cut, so a caller can tell a bounded answer from a\ncomplete one. The default is still every matching job, oldest first -\nwhat the web UI polls.",
+        "operationId": "list_jobs_api_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Jobs"
+      },
+      "post": {
+        "description": "Queue a workflow. The workspace it runs in comes from the body or,\nfor a client that scopes every call the same way, the query string -\nthe body wins when both are given.",
+        "operationId": "submit_job_api_jobs_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Job"
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job"
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job"
+      }
+    },
+    "/api/jobs/{job_id}/event-log": {
+      "get": {
+        "description": "Job events as one JSON page rather than a stream, for clients that\npoll instead of holding a connection open (the MCP server). `after` is\nexclusive, matching the SSE route's parameter of the same name.\n`kinds` restricts the page to events whose `event` or `kind` is one\nof the named values (e.g. `log`, `warning`, `phase_stall`) - a consumer confirming what a step applied wants\nthose two and not the `memory`/bookkeeping events that otherwise\ndominate the payload.",
+        "operationId": "job_event_log_api_jobs__job_id__event_log_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kinds",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kinds"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Event Log"
+      }
+    },
+    "/api/jobs/{job_id}/events": {
+      "get": {
+        "description": "Server-sent events: every progress event from `after` (exclusive)\nuntil the job reaches a terminal state. Reconnect with the last seen\nseq (or let EventSource send Last-Event-ID) to resume without loss.",
+        "operationId": "job_events_api_jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "title": "After",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Events"
+      }
+    },
+    "/api/jobs/{job_id}/export": {
+      "post": {
+        "description": "Gather one finished job into '<workspace>/exports/<job id>/': the\nworkflow it ran, the run's manifest, the job row, the media it used\nand the media it made, plus a README. 404 for an unknown job, 409 for\none still running or for an export that already exists without\n`overwrite`.\n\nThe three JSON files come back inline as well as on disk - the\ndirectory is on the server, and a client on another machine has no\nother way to read them without fetching the zip.",
+        "operationId": "export_job_route_api_jobs__job_id__export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "overwrite",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Overwrite",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Job Route"
+      }
+    },
+    "/api/jobs/{job_id}/move": {
+      "post": {
+        "description": "Reorder a queued job. 409 once it is running or finished -\nonly the waiting portion of the queue can be rearranged.",
+        "operationId": "move_job_api_jobs__job_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Job"
+      }
+    },
+    "/api/jobs/{job_id}/rerun": {
+      "post": {
+        "description": "Queue a fresh job from a previous job's stored spec, admitted as\na new submission would be - a reference that resolved when the\noriginal ran may not any more. Takes `acknowledged_cost` as POST\n/api/jobs does; a bound one is checked against the stored spec's\nplan - the fresh seed of `new_seed` does not change a fingerprint.",
+        "operationId": "rerun_job_api_jobs__job_id__rerun_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RerunRequest",
+                "default": {
+                  "new_seed": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rerun Job"
+      }
+    },
+    "/api/jobs/{job_id}/run": {
+      "delete": {
+        "description": "Delete the run directory a job wrote, whole - the run a job id\nnames, without the caller listing the gallery to find it. The job\ncarries its own output root, so no workspace selector applies. A job\nstill queued or running has a run in use, and is refused (409).",
+        "operationId": "delete_job_run_api_jobs__job_id__run_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Job Run"
+      }
+    },
+    "/api/jobs/{job_id}/workflow": {
+      "get": {
+        "description": "The workflow this job ran, for the read-only graph on the job page\nand for `get_job_workflow` over MCP.\n\n`realized: true` means every mutable input is pinned - the copy the\nrun itself wrote. `false` means the job predates run tracking (or its\nrun directory is gone) and this is the definition as submitted. 404\nwhen neither is readable - the job itself still is.",
+        "operationId": "get_job_workflow_api_jobs__job_id__workflow_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Workflow"
+      }
+    },
+    "/api/memory": {
+      "get": {
+        "operationId": "memory_api_memory_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Memory"
+      }
+    },
+    "/api/memory/clear": {
+      "post": {
+        "description": "Drop every loaded pipeline and the step cache, freeing VRAM/RAM\nwithout waiting for the next job to evict one model for another.\n\nRefused while a job is running or queued (409) rather than blocked -\nthe queue is FIFO, so the caller should wait for the job to finish\nand retry instead of this call stalling until it does.\n\nA server with no worker process resident answers `cleared` with a\nnull `info` rather than a 503: the worker is on-demand, so its\nabsence means there was nothing loaded to clear.",
+        "operationId": "clear_memory_api_memory_clear_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Memory"
+      }
+    },
+    "/api/models": {
+      "delete": {
+        "description": "Delete every cached revision of one repo from the hub cache.\n\nRefused while a job is running or queued: the worker may be reading\nexactly the files a delete would remove out from under it.",
+        "operationId": "delete_cached_model_api_models_delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "title": "Repo",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Cached Model"
+      },
+      "get": {
+        "description": "What the Hugging Face hub cache holds, largest repo first.",
+        "operationId": "get_models_api_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Models"
+      }
+    },
+    "/api/models/download": {
+      "post": {
+        "description": "Start a background snapshot download into the hub cache.",
+        "operationId": "start_download_api_models_download_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Download"
+      }
+    },
+    "/api/models/downloads": {
+      "get": {
+        "operationId": "list_downloads_api_models_downloads_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Downloads"
+      }
+    },
+    "/api/models/downloads/{download_id}/cancel": {
+      "post": {
+        "description": "Request cancellation; takes effect at the next progress tick.\nPartial files stay in the cache and resume on a retry.",
+        "operationId": "cancel_download_api_models_downloads__download_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "download_id",
+            "required": true,
+            "schema": {
+              "title": "Download Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Download"
+      }
+    },
+    "/api/pipelines": {
+      "get": {
+        "description": "Every pipeline class the installed diffusers exports.",
+        "operationId": "pipelines_api_pipelines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Pipelines"
+      }
+    },
+    "/api/pipelines/{name}": {
+      "get": {
+        "description": "A pipeline's __call__ argument schema, for form generation.",
+        "operationId": "pipeline_description_api_pipelines__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pipeline Description"
+      }
+    },
+    "/api/prompt-schema": {
+      "get": {
+        "description": "The JSON schema for stored prompts - the editor's diagnostics.\nIts own path, so a prompt named 'schema' cannot shadow it.",
+        "operationId": "get_prompt_schema_api_prompt_schema_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Prompt Schema"
+      }
+    },
+    "/api/prompts": {
+      "get": {
+        "operationId": "list_prompts_api_prompts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "intended_model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Intended Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_text",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Text",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Prompts"
+      }
+    },
+    "/api/prompts/{name}": {
+      "delete": {
+        "description": "Remove a prompt file from the prompt directory. A prompt that\ncame from a read-only examples library is not this server's to\ndelete - the same 403 a read-only workflow answers with.",
+        "operationId": "delete_prompt_api_prompts__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Prompt"
+      },
+      "get": {
+        "operationId": "get_prompt_api_prompts__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Prompt"
+      },
+      "put": {
+        "description": "Write a prompt into the prompt directory. Like a workflow save,\nthe definition must be schema-valid before it lands on disk.",
+        "operationId": "save_prompt_api_prompts__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Prompt"
+      }
+    },
+    "/api/prompts/{name}/download": {
+      "get": {
+        "description": "Serve a stored prompt as a forced download.",
+        "operationId": "download_prompt_api_prompts__name__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Prompt"
+      }
+    },
+    "/api/schema": {
+      "get": {
+        "description": "The workflow JSON schema, for schema-aware JSON editing.\n\n`?section=` answers one part of it - `steps`, `pipelines`, `tasks`,\n`result`, `variables` or `configuration` - as\n`{section, sections, elsewhere, schema}`, for a reader that wants\nthe shape of a result block and not 36 KB of quantization configs\n(#101). Additive: the no-argument call is the whole schema, as it\nwas. An unknown section is a 404 naming the ones that exist.",
+        "operationId": "workflow_schema_api_schema_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "section",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workflow Schema"
+      }
+    },
+    "/api/server": {
+      "get": {
+        "description": "How this server is reachable, for the UI's Server page: what it\nis bound to, whether a token is needed, whether MCP is mounted, and\nthe addresses another machine could name it by.\n\nNo URL is composed here - the caller pairs an address with `port`\nand `mcp.path` - and the token itself is never reported in any\nform, only whether one is required. An interface enumeration\nfailure is not a server failure: `addresses` comes back empty.\n\n`directories` is scoped to the `?workspace=` a caller names (or the\nsession's own pin, via `_scoped`) - a mounted `download_output`\nconfines a write to *that* workspace's output tree, so reporting\nthe server's own default here regardless of the selector sent a\ncaller pinned elsewhere writing into `default` without any error (#389).",
+        "operationId": "server_info_api_server_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Server Info"
+      }
+    },
+    "/api/system/diffusers": {
+      "get": {
+        "description": "Installed diffusers version (with its git commit when installed\nfrom git) and the state of any update.",
+        "operationId": "diffusers_state_api_system_diffusers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Diffusers State"
+      }
+    },
+    "/api/system/diffusers/update": {
+      "post": {
+        "description": "Upgrade diffusers in the background: GitHub HEAD by default, a\npinned commit when `commit` is given, or a revert to the last\nknown-good published release when `revert` is true.\n\nRefused while a job is running or queued: pip replacing package\nfiles under a loaded pipeline is the model-delete hazard in another\nform. On success the idle worker is shut down so the next job\nimports the new version.",
+        "operationId": "update_diffusers_api_system_diffusers_update_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDiffusersRequest",
+                "default": {
+                  "revert": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Diffusers"
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "description": "Every task command a workflow's task step can name.",
+        "operationId": "tasks_api_tasks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Tasks"
+      }
+    },
+    "/api/tasks/{command}": {
+      "get": {
+        "description": "A task command's argument schema - the registered implementation\nfunction's real signature, in the same shape as a class description.",
+        "operationId": "get_task_api_tasks__command__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command",
+            "required": true,
+            "schema": {
+              "title": "Command",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Task"
+      }
+    },
+    "/api/uploads": {
+      "post": {
+        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined to the library the way `keep_output`'s is, and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.",
+        "operationId": "upload_media_api_uploads_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shared",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Shared",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Media"
+      }
+    },
+    "/api/validate": {
+      "post": {
+        "description": "Schema-validate a workflow and check its pipeline arguments\nagainst real signatures, without queuing anything. Give either an\ninline workflow or a workflow_path - a path on the server or a\nstored workflow name from /api/workflows. The workspace it resolves\nin comes from the body or the query string, body first. A valid\nanswer also carries a plan: the fingerprint of the work these\narguments produce, the step count, the list lengths, the model\nrepos not in the cache, and an estimate from the workflow's cost\nblock.",
+        "operationId": "validate_workflow_api_validate_post",
+        "parameters": [
+          {
+            "description": "Ask the hub how large each missing model is; false skips the network for a faster answer",
+            "in": "query",
+            "name": "sizes",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Ask the hub how large each missing model is; false skips the network for a faster answer",
+              "title": "Sizes",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Workflow"
+      }
+    },
+    "/api/workflows": {
+      "get": {
+        "description": "Every workflow the search path offers, each detail saying which\nlibrary it came from and whether it can be written to. 'libraries' is\nthe search path in order, the writable one being what a save targets;\n'shadowed' names the later copies an earlier library hides.\n\n`shape`, `traits` (comma-separated, all must match) and `configures`\nnarrow the listing; `view=compact` is the agent's view - summaries\nrather than descriptions, templates rather than model configs\nunless `include_models` asks for them. `workflows` always names\nexactly the entries `details` holds.",
+        "operationId": "list_workflows_api_workflows_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "shape",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shape"
+            }
+          },
+          {
+            "in": "query",
+            "name": "traits",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Traits"
+            }
+          },
+          {
+            "in": "query",
+            "name": "configures",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Configures"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_models",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Models",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "View"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workflows"
+      }
+    },
+    "/api/workflows/{name}": {
+      "delete": {
+        "description": "Remove a workflow file from the writable workflow directory.\n\nA read-only source is refused rather than silently ignored: an\nexample or a builtin is not the caller's to delete, and saying so\nis more useful than a 404 that reads like the file is missing.",
+        "operationId": "delete_workflow_api_workflows__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Workflow"
+      },
+      "get": {
+        "operationId": "get_workflow_api_workflows__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workflow"
+      },
+      "patch": {
+        "description": "Apply a JSON merge patch (RFC 7396) to a stored workflow: a key set\nto null is removed, an object merges, anything else replaces. The\nresult is validated and saved as a save would be - a patch of an\nexample writes a copy into the writable source. The read, merge and\nwrite happen under the lock saves take.",
+        "operationId": "patch_workflow_api_workflows__name__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Patch",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Workflow"
+      },
+      "put": {
+        "description": "Write a workflow into the writable workflow directory. The\ndefinition must be schema-valid - the editor validates before saving,\nand a save that silently wrote a broken file would betray both.\n\nA name that currently resolves to a read-only source (an example, a\nbuiltin) is not overwritten: the copy lands in the writable source\nand shadows it from then on.",
+        "operationId": "save_workflow_api_workflows__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Workflow"
+      }
+    },
+    "/api/workflows/{name}/download": {
+      "get": {
+        "description": "Serve a workflow definition as a forced download.",
+        "operationId": "download_workflow_api_workflows__name__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Workflow"
+      }
+    },
+    "/api/workflows/{name}/variables": {
+      "get": {
+        "description": "A workflow's variables and the values they default to.\n\nThe listing says which variables a workflow has; confirming what one\nof them defaults to meant fetching the whole definition, quantization\nblocks and all, to read a single integer. This answers that question\nby itself.\n\nLong strings - a shot's prompt runs to kilobytes, and a list-driven\nworkflow's default list holds several - are cut to their first 200\ncharacters wherever they sit and named in `truncated`\n(`shots[0].prompt`), so the answer stays small for the numbers and\nnames it is usually asked about; `full=true` returns them whole, and\n`GET /api/workflows/{name}` is still the definition itself.",
+        "operationId": "get_workflow_variables_api_workflows__name__variables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "full",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Full",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workflow Variables"
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "description": "Every workspace on this server, the default first.\n\nA workspace is a namespace, not a security boundary: the API token\nis all-or-nothing, so anything that can list these can reach all of\nthem.",
+        "operationId": "list_workspaces_api_workspaces_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Workspaces"
+      },
+      "post": {
+        "description": "Create a workspace: its own workflows, assets and outputs, sharing\nthis server's one prompt library.",
+        "operationId": "add_workspace_api_workspaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Workspace"
+      }
+    },
+    "/api/workspaces/{name}": {
+      "delete": {
+        "description": "Delete a workspace and everything in it.\n\nAnswers what it would remove and refuses until `acknowledged=true`:\nthis deletes generated work, and a count is what makes it an\ninformed choice rather than a surprise. The unacknowledged message\nnames only what would be removed - how to proceed is left to the\ncaller, since the MCP surface tells its own callers to acknowledge\nthrough a differently-named parameter (`acknowledged_cost`).",
+        "operationId": "remove_workspace_api_workspaces__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acknowledged",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Acknowledged",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Workspace"
+      }
+    },
+    "/exports/{job_id}.zip": {
+      "get": {
+        "description": "One job's export as a zip, built on request from the directory\nrather than kept as a second copy. Entries are named\n'<job id>/<relative path>', so unzipping anywhere gives the same tree\nthe server holds.",
+        "operationId": "export_zip_exports__job_id__zip_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Zip"
+      }
+    },
+    "/inputs/{name}": {
+      "get": {
+        "description": "One file from the asset search path, for the editor's preview of\nan uploaded or chosen asset - the workspace's own library first,\nthen any read-only examples library, so an example workflow's media\npreviews the way an upload does.",
+        "operationId": "input_file_inputs__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Input File"
+      }
+    },
+    "/outputs/{name}": {
+      "get": {
+        "description": "One generated file, from the workspace that made it - or, by an\n'asset:' reference, one file from its asset library (#445): every\nother route in this family (`get_gallery_metadata`, `/frames`,\n`/audio`, `/assess`) already accepts one, and this route answering a\nbare StaticFiles 404 for the same name gave no hint why.",
+        "operationId": "output_file_outputs__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Output File"
+      }
+    }
+  }
+}

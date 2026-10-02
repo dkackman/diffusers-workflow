@@ -1,3 +1,9 @@
+# The UI's response contract runs strict under test: an undeclared key a
+# route emits is a 500 here, not a silent pass (dw/server/api_models.py)
+import os as _os
+
+_os.environ.setdefault("DW_STRICT_RESPONSES", "1")
+
 import gc
 import pytest
 import os
