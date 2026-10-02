@@ -42,6 +42,7 @@ from ..http_security import query_token_ok
 from ..inline_media import (
     encode_within_budget,
     fit_longest,
+    fit_tiles_within_budget,
     open_bounded,
     png_bytes,
 )
@@ -410,6 +411,7 @@ def gallery_frames(
     names: Optional[str] = None,
     max_dimension: int = 512,
     crop: Optional[str] = None,
+    max_total_bytes: Optional[int] = None,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Frames of a video output or asset, as PNG tiles - the way an
@@ -432,7 +434,11 @@ def gallery_frames(
     (`video_shape`'s `width`/`height`) - resolved once and cut from
     every sampled frame before any stamping, fitting or composing, so
     it names the same region whatever `max_dimension` downscales the
-    result to."""
+    result to. `max_total_bytes` is a budget on the tiles' summed base64
+    size: over it, every tile shrinks to one shared size (never below
+    FRAME_MIN_DIMENSION) rather than any being dropped, and
+    `downscaled_to` says the side they came out at (null when nothing
+    had to shrink)."""
     state = request.app.state
     name = strip_output_prefix(name)
     if is_asset_reference(name):
@@ -476,11 +482,17 @@ def gallery_frames(
         raise HTTPException(status_code=400, detail=str(e))
 
     images = [fit_longest(tile["image"], limit) for tile in tiles]
+    downscaled_to = None
+    if max_total_bytes is not None:
+        images, downscaled_to = fit_tiles_within_budget(
+            images, limit, max_total_bytes, floor=FRAME_MIN_DIMENSION
+        )
     return {
         "name": name,
         **shape,
         "tiles": [_encoded_tile(tile, image) for tile, image in zip(tiles, images)],
         "crop": _crop_rectangle(crop_box),
+        "downscaled_to": downscaled_to,
     }
 
 

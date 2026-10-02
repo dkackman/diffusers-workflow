@@ -1799,6 +1799,44 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
         assert _png_of(body["tiles"][0]).size == (32, 16)
 
 
+def test_gallery_frames_shrinks_tiles_together_under_max_total_bytes(server, tmp_path):
+    """A caller with a byte budget gets every tile, shrunk to one shared
+    size, rather than a client decoding and re-encoding the answer."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(
+            tmp_path / "outputs" / "wide.mp4", frames=24, fps=6, width=512, height=256
+        )
+        params = {"at": "0.0,1.0,2.0", "max_dimension": "512"}
+        whole = client.get("/api/gallery/wide.mp4/frames", params=params).json()
+        total = sum(len(t["data"]) for t in whole["tiles"])
+        budget = total // 3
+        fitted = client.get(
+            "/api/gallery/wide.mp4/frames",
+            params={**params, "max_total_bytes": str(budget)},
+        ).json()
+
+        assert len(fitted["tiles"]) == 3
+        assert fitted["downscaled_to"] is not None and fitted["downscaled_to"] < 512
+        assert len({t["width"] for t in fitted["tiles"]}) == 1
+        assert sum(len(t["data"]) for t in fitted["tiles"]) <= budget
+
+
+def test_gallery_frames_without_a_budget_is_unchanged(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(
+            tmp_path / "outputs" / "wide.mp4", frames=24, fps=6, width=512, height=256
+        )
+        body = client.get(
+            "/api/gallery/wide.mp4/frames", params={"at": "0.0", "max_dimension": "512"}
+        ).json()
+        assert body["downscaled_to"] is None
+        assert body["tiles"][0]["width"] == 512
+
+
 def test_gallery_frames_seams_read_a_joined_outputs_recorded_shots(server, tmp_path):
     """#385: `seams` without `boundaries` was a 400 - the file carried no
     seams of its own. An output whose run recorded shots for it now answers
