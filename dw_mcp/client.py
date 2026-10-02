@@ -143,6 +143,32 @@ def resolve_base_url(explicit=None):
     return url.rstrip("/")
 
 
+def _cost_gate_sentence(plan, acknowledge):
+    """What a 409 from the cost gate adds to its message: what the run
+    costs now, so a client that only sees the message can re-quote from it,
+    and the acknowledgement to resend, ready-made by the server. An older
+    server sends none, and then that sentence is left out rather than
+    rebuilt here. json.dumps, not a repr: `minutes` is None for most inline
+    workflows, and a client pastes the object back (#107)."""
+    estimate = plan.get("estimate") or {}
+    if estimate.get("minutes") is None:
+        sentence = f" It now has no measured estimate (basis {estimate.get('basis')})"
+    else:
+        sentence = (
+            f" It now estimates {estimate.get('minutes')} minutes "
+            f"(basis {estimate.get('basis')})"
+        )
+    downloads = [
+        entry.get("repo") or entry.get("url")
+        for entry in plan.get("downloads_required") or []
+    ]
+    if downloads:
+        sentence += f", and would download {', '.join(downloads)} first"
+    if isinstance(acknowledge, dict):
+        sentence += ". Re-acknowledge with " + json.dumps(acknowledge) + "."
+    return sentence
+
+
 class DwClient:
     """One method per kind of REST call. Knows nothing about MCP - the tool
     handlers are plain functions over this."""
@@ -425,48 +451,7 @@ class DwClient:
                 formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
             plan = detail.get("plan")
             if isinstance(plan, dict):
-                # A 409 from the cost gate: say what the run costs now, so a
-                # client that only sees the message can re-quote from it
-                estimate = plan.get("estimate") or {}
-                if estimate.get("minutes") is None:
-                    formatted += (
-                        f" It now has no measured estimate (basis "
-                        f"{estimate.get('basis')})"
-                    )
-                else:
-                    formatted += (
-                        f" It now estimates {estimate.get('minutes')} minutes "
-                        f"(basis {estimate.get('basis')})"
-                    )
-                downloads = [
-                    entry.get("repo") or entry.get("url")
-                    for entry in plan.get("downloads_required") or []
-                ]
-                if downloads:
-                    formatted += f", and would download {', '.join(downloads)} first"
-                # The shape to resend, not just the new fingerprint: a
-                # client reading only the message can re-acknowledge from it
-                minutes = estimate.get("minutes")
-                repos = [
-                    entry.get("repo")
-                    for entry in plan.get("downloads_required") or []
-                    if entry.get("repo")
-                ]
-                # json.dumps for the whole object, not an f-string per field:
-                # an inline workflow has no measured estimate, so `minutes` is
-                # None far more often than not, and Python's repr of it is not
-                # JSON a client could paste back (#107)
-                formatted += (
-                    ". Re-acknowledge with "
-                    + json.dumps(
-                        {
-                            "fingerprint": plan.get("fingerprint"),
-                            "minutes": minutes,
-                            "downloads": repos,
-                        }
-                    )
-                    + "."
-                )
+                formatted += _cost_gate_sentence(plan, detail.get("acknowledge"))
             return formatted
         if isinstance(detail, list):
             messages = []

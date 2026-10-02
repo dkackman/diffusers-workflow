@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..assets import (
     activate_asset_dir,
@@ -296,10 +296,18 @@ class AcknowledgedCost(BaseModel):
     minutes: Optional[float] = Field(
         default=None, description="plan.estimate.minutes, recorded on the job"
     )
-    downloads: List[str] = Field(
+    downloads: List[Optional[str]] = Field(
         default_factory=list,
         description="The repos in plan.downloads_required that were acknowledged",
     )
+
+    @field_validator("downloads", mode="after")
+    @classmethod
+    def _drop_unnamed(cls, downloads):
+        # A from_single_file URL sits in downloads_required with repo null;
+        # an acknowledgement copied from the plan verbatim carries it, and
+        # a URL has no repo to acknowledge
+        return [repo for repo in downloads if repo]
 
 
 ACKNOWLEDGED_COST_FIELD = Field(
@@ -386,15 +394,25 @@ def check_bound_acknowledgement(current, acknowledged, workspace):
     record = acknowledged.model_dump()
 
     def refuse(message, reason, plan):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": message,
-                "reason": reason,
-                "acknowledged": record,
-                "plan": plan,
-            },
-        )
+        detail = {
+            "message": message,
+            "reason": reason,
+            "acknowledged": record,
+            "plan": plan,
+        }
+        if plan is not None:
+            # What to resend, ready-made: a client re-quotes from `plan` and
+            # resubmits with this rather than rebuilding it field by field
+            detail["acknowledge"] = {
+                "fingerprint": plan["fingerprint"],
+                "minutes": (plan.get("estimate") or {}).get("minutes"),
+                "downloads": [
+                    entry["repo"]
+                    for entry in plan.get("downloads_required") or []
+                    if entry.get("repo")
+                ],
+            }
+        raise HTTPException(status_code=409, detail=detail)
 
     if current is None:
         refuse(

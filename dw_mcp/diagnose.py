@@ -82,14 +82,6 @@ def _acknowledgement_body(acknowledged_cost):
                 "plan.fingerprint the validate answer carried. Validate again "
                 "and pass {fingerprint, minutes, downloads} from its plan."
             )
-        # A from_single_file URL sits in downloads_required with repo: null;
-        # an agent copying the list verbatim should not earn a 422 for it
-        downloads = acknowledged_cost.get("downloads")
-        if isinstance(downloads, list):
-            acknowledged_cost = {
-                **acknowledged_cost,
-                "downloads": [repo for repo in downloads if repo],
-            }
         return {"acknowledged_cost": acknowledged_cost}
     return {"acknowledged_cost": bool(acknowledged_cost)}
 

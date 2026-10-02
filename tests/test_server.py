@@ -5497,6 +5497,42 @@ class TestBoundAcknowledgement:
             assert "differ" in detail["message"]
             assert client.app.state.job_manager.worker_manager.commands == []
 
+    def test_a_null_download_entry_is_tolerated(self, server, no_hub):
+        """A from_single_file URL sits in downloads_required with repo null;
+        an acknowledgement copied from the plan verbatim carries that null
+        and must not be a 422."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            acknowledgement = {
+                **bound(plan),
+                "downloads": [None, *bound(plan)["downloads"]],
+            }
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "acknowledged_cost": acknowledgement,
+                },
+            )
+            assert response.status_code == 201, response.json()
+
+    def test_the_409_carries_a_ready_acknowledgement(self, server, no_hub):
+        """The refusal says exactly what to resend, so a client re-quotes
+        and resubmits without rebuilding the body from the plan."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            longer = {"shots": [{"name": n, "prompt": n} for n in "abc"]}
+            request = {"workflow": list_workflow(), "arguments": longer}
+            refused = client.post(
+                "/api/jobs", json={**request, "acknowledged_cost": bound(plan)}
+            )
+            assert refused.status_code == 409
+            acknowledge = refused.json()["detail"]["acknowledge"]
+            resent = client.post(
+                "/api/jobs", json={**request, "acknowledged_cost": acknowledge}
+            )
+            assert resent.status_code == 201, resent.json()
+
     def test_a_new_seed_is_the_same_work(self, server, no_hub):
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())

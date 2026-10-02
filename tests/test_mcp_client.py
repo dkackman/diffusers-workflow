@@ -427,49 +427,48 @@ def test_no_token_means_no_authorization_header(monkeypatch):
     assert seen["auth"] is None
 
 
-def _cost_gate_message(minutes):
-    """The 409 the cost gate raises, formatted the way an MCP caller reads it."""
+ACKNOWLEDGE = {"fingerprint": "sha256:abc", "minutes": None, "downloads": ["org/model"]}
+
+
+def _cost_gate_message(minutes, acknowledge=ACKNOWLEDGE):
+    """The 409 the cost gate raises, formatted the way an MCP caller reads
+    it. `acknowledge` is the ready-made body the server sends (None: an
+    older server that sends none)."""
+    detail = {
+        "message": "The plan changed since it was acknowledged.",
+        "plan": {
+            "fingerprint": "sha256:abc",
+            "estimate": {"minutes": minutes, "basis": "none"},
+            "downloads_required": [{"repo": "org/model"}],
+        },
+    }
+    if acknowledge is not None:
+        detail["acknowledge"] = acknowledge
 
     def handler(request):
-        return httpx.Response(
-            409,
-            json={
-                "detail": {
-                    "message": "The plan changed since it was acknowledged.",
-                    "plan": {
-                        "fingerprint": "sha256:abc",
-                        "estimate": {"minutes": minutes, "basis": "none"},
-                        "downloads_required": [{"repo": "org/model"}],
-                    },
-                }
-            },
-        )
+        return httpx.Response(409, json={"detail": detail})
 
     with pytest.raises(DwApiError) as caught:
         client_with(handler).get_json("/api/jobs")
     return str(caught.value)
 
 
-def test_reacknowledge_object_is_json_not_a_python_repr():
+def test_reacknowledge_object_is_the_servers_and_json():
     # An inline workflow has no measured estimate, so this is the common 409,
     # and the sentence invites the reader to resend what it prints (#107)
     import json
 
-    message = _cost_gate_message(None)
+    sent = {"fingerprint": "sha256:zzz", "minutes": None, "downloads": ["org/other"]}
+    message = _cost_gate_message(None, acknowledge=sent)
     payload = message.split("Re-acknowledge with ", 1)[1].rstrip(".")
-    assert json.loads(payload) == {
-        "fingerprint": "sha256:abc",
-        "minutes": None,
-        "downloads": ["org/model"],
-    }
+    assert json.loads(payload) == sent
     assert "None" not in payload
 
 
-def test_reacknowledge_object_carries_a_measured_estimate():
-    import json
-
-    payload = _cost_gate_message(12.5).split("Re-acknowledge with ", 1)[1].rstrip(".")
-    assert json.loads(payload)["minutes"] == 12.5
+def test_an_older_server_without_an_acknowledgement_gets_no_resend_sentence():
+    message = _cost_gate_message(12.5, acknowledge=None)
+    assert "Re-acknowledge" not in message
+    assert "12.5 minutes" in message
 
 
 class TrackingStream(httpx.SyncByteStream):
