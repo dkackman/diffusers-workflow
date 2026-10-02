@@ -386,5 +386,102 @@
     "flagged": [
       "nope"
     ]
+  },
+  {
+    "name": "group_from_same_list_variable_vs_literal",
+    "workflow": {
+      "id": "group_from_same_list_variable_vs_literal",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "open",
+              "p": "a"
+            },
+            {
+              "name": "close",
+              "p": "b"
+            }
+          ]
+        }
+      ],
+      "variables": {
+        "shots": [
+          {
+            "name": "open",
+            "p": "a"
+          },
+          {
+            "name": "close",
+            "p": "b"
+          }
+        ]
+      }
+    },
+    "flagged": []
+  },
+  {
+    "name": "group_from_same_list_key_order",
+    "workflow": {
+      "id": "group_from_same_list_key_order",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "open",
+              "p": "a"
+            }
+          ]
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "p": "a",
+              "name": "open"
+            }
+          ]
+        }
+      ]
+    },
+    "flagged": []
   }
 ]

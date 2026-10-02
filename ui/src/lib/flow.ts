@@ -31,7 +31,7 @@ interface EarlierStep {
   name: string
   index: number
   forEach: boolean
-  /** The step's for_each value, compared with a consumer's own */
+  /** The entries its for_each iterates, a `variable:` resolved */
   forEachSource: unknown
   /** Its members' entry names, or null when the list is not known here */
   members: string[] | null
@@ -50,7 +50,7 @@ function earlierSteps(
       name: s.name,
       index: i,
       forEach: FOR_EACH_KEY in s,
-      forEachSource: s[FOR_EACH_KEY],
+      forEachSource: forEachEntries(workflow, s[FOR_EACH_KEY]),
       members: FOR_EACH_KEY in s ? forEachMembers(workflow, s) : null,
     }))
     .filter((s) => typeof s.name === 'string' && s.name !== '')
@@ -76,8 +76,34 @@ function resolveName(earlier: EarlierStep[], reference: string) {
   )
 }
 
-const sameList = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b)
+/** The entries a for_each value iterates: a `variable:` reference is
+ * read through the declared variables, as the engine substitutes it before
+ * comparing; anything else is the entries themselves. */
+function forEachEntries(
+  workflow: Record<string, any>,
+  value: unknown,
+): unknown {
+  const name = referenceName(value, VARIABLE)
+  return name !== null && name in (workflow.variables ?? {})
+    ? workflow.variables[name]
+    : value
+}
+
+/** JSON with object keys sorted, so two lists equal as Python compares them
+ * (dict equality ignores key order) serialize the same. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, v[k]]),
+        )
+      : v,
+  )
+}
+
+const sameList = (a: unknown, b: unknown) => canonical(a) === canonical(b)
 
 /** Why the engine refuses a reference to a for_each step, or null. Its
  * plain name is rewritten to the same-keyed member only inside a for_each
@@ -87,12 +113,13 @@ const sameList = (a: unknown, b: unknown) =>
 function memberRefusal(
   reference: string,
   producer: EarlierStep,
-  consumer: Record<string, any>,
+  consumerEntries: unknown,
 ): string | null {
   if (!producer.forEach) return null
   const prefix = producer.name + MEMBER_SEPARATOR
   if (!reference.startsWith(prefix))
-    return sameList(consumer[FOR_EACH_KEY], producer.forEachSource)
+    return consumerEntries !== undefined &&
+      sameList(consumerEntries, producer.forEachSource)
       ? null
       : `names the for_each step '${producer.name}' from outside a for_each step over the same list - use ${GATHER}${producer.name}`
   const entry = reference.slice(prefix.length).split('.')[0]
@@ -344,7 +371,8 @@ interface ReferenceScope {
   variables: Set<string>
   prompts: Set<string> | null
   /** The step holding the reference */
-  consumer: Record<string, any>
+  /** The entries the referencing step's own for_each iterates, if any */
+  consumerEntries: unknown
 }
 
 const UNNAMED = 'no earlier step has that name'
@@ -354,7 +382,7 @@ function resultRefusal(reference: string, scope: ReferenceScope) {
   const producer = resolveName(scope.earlier, reference)
   return producer === null
     ? UNNAMED
-    : memberRefusal(reference, producer, scope.consumer)
+    : memberRefusal(reference, producer, scope.consumerEntries)
 }
 
 /** Per prefix, what is wrong with the name after it, or null. */
@@ -424,7 +452,15 @@ export function danglingReferenceDetails(
 
   steps.forEach((step, index) => {
     const earlier = earlierSteps(workflow, steps, index)
-    const scope = { earlier, variables, prompts, consumer: step }
+    const scope = {
+      earlier,
+      variables,
+      prompts,
+      consumerEntries:
+        FOR_EACH_KEY in step
+          ? forEachEntries(workflow, step[FOR_EACH_KEY])
+          : undefined,
+    }
     scanStringsWithPath(step, [], (value, path) => {
       const problem = referenceProblem(value, path, scope)
       if (problem)

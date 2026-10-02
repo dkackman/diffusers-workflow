@@ -151,8 +151,11 @@ def level_findings(media):
             "name": "full_scale",
             "severity": "warn",
             "threshold": audio_qc.CLIPPED_WARN_DBFS,
-            "says": "peaks at full scale - an encode may clip it; "
-            "normalize_audio with a peak_dbfs below 0 leaves headroom",
+            # The file measured is the written one, so past full scale it
+            # already clips; the fix is warn_if_written_above_full_scale's
+            "says": "at or above full scale, so it clips on playback - a "
+            "'normalize_audio' step at 'peak_dbfs: -3' ahead of the step that "
+            "saves it; a mux into a video needs more headroom than that",
         }
         found.append(finding(rule, peak, None))
     if mean is not None and mean < audio_qc.NEAR_SILENT_WARN_DBFS:

@@ -171,3 +171,18 @@ class TestGalleryImage:
         answer = client.get("/api/gallery/asset:cast/priya.png/image")
         assert answer.status_code == 200, answer.text
         assert decoded(answer).size == (64, 32)
+
+    def test_an_undecodable_image_is_refused_with_a_reason(self, gallery):
+        client, _, tmp_path = gallery
+        (tmp_path / "outputs" / "w").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "outputs" / "w" / "bad.png").write_bytes(b"\x89PNG\r\n\x1a\nbroken")
+        answer = client.get("/api/gallery/w/bad.png/image")
+        assert answer.status_code == 422
+        assert "could not be decoded as an image" in answer.json()["detail"]
+
+    def test_a_cmyk_jpeg_can_be_asked_for_as_png(self, gallery):
+        client, write, _ = gallery
+        name = write("w/print.jpg", Image.new("CMYK", (40, 20)), fmt="JPEG")
+        answer = client.get(f"/api/gallery/{name}/image", params={"format": "png"})
+        assert answer.status_code == 200, answer.text
+        assert decoded(answer).size == (40, 20)

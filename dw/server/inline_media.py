@@ -58,12 +58,32 @@ def open_bounded(path, name):
         return image
     except Image.DecompressionBombError as e:
         raise HTTPException(status_code=413, detail=str(e))
+    except (OSError, ValueError, SyntaxError):
+        # What Pillow raises for a truncated, corrupt or unknown file
+        # (UnidentifiedImageError is an OSError): the file's problem, not
+        # the server's, so a refusal that says so rather than a 500
+        raise HTTPException(
+            status_code=422, detail=f"{name} could not be decoded as an image"
+        )
 
 
 def _encoded(image, fmt):
     buffer = io.BytesIO()
+    # Each format writes some modes only: JPEG has no alpha or palette, PNG
+    # no CMYK - a print-ready JPEG asked for as PNG would otherwise fail
     if fmt == "JPEG" and image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
+    elif fmt == "PNG" and image.mode not in (
+        "1",
+        "L",
+        "LA",
+        "P",
+        "RGB",
+        "RGBA",
+        "I",
+        "I;16",
+    ):
+        image = image.convert("RGBA" if "A" in image.mode else "RGB")
     image.save(buffer, format=fmt)
     return buffer.getvalue()
 
