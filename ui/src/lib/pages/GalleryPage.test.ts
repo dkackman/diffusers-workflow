@@ -365,11 +365,14 @@ it('resets a run-root pick when the control it depends on disappears', async () 
 
   // The control goes with the pick it can no longer offer, and "Select
   // all" reads as unfiltered again rather than sticking on a filter
-  // nothing can now clear
-  expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
-  expect(
-    screen.getByRole('button', { name: /^select all \(1\)$/i }),
-  ).toBeTruthy()
+  // nothing can now clear. The call count only says the listing was asked
+  // for: its reply and the reset it drives land after, so wait on them
+  await waitFor(() => {
+    expect(screen.queryByRole('combobox', { name: 'subfolder' })).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /^select all \(1\)$/i }),
+    ).toBeTruthy()
+  })
 })
 
 // The confirm dialog answers Escape itself, so the page must not also take
