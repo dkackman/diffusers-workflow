@@ -20,6 +20,7 @@
     ATTENTION_BACKENDS,
     CACHE_TYPES,
     contentTypeOptions,
+    optionsWith,
     COMPONENT_SLOTS,
     TORCH_DTYPES,
     classDescription,
@@ -337,7 +338,9 @@
 
         <label for={'dtype-' + index}>dtype</label>
         <select id={'dtype-' + index} bind:value={pretrained.torch_dtype}>
-          {#each TORCH_DTYPES as dtype (dtype)}<option>{dtype}</option>{/each}
+          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option
+              >{dtype}</option
+            >{/each}
         </select>
 
         <label for={'offload-' + index}>offload</label>

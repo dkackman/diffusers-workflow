@@ -160,13 +160,20 @@ export const CONTENT_TYPES = [
   'text/plain',
 ]
 
-/** The select's options: a value the list does not hold (an alias like
- * audio/x-flac, written by hand) is kept as the last option rather than
- * shown as a blank select. */
+/** A select's options: a value the list does not hold (written by hand, or
+ * an alias) is kept as the last option rather than shown as a blank. */
+export function optionsWith(
+  listed: readonly string[],
+  current?: string | null,
+): string[] {
+  return current && !listed.includes(current)
+    ? [...listed, current]
+    : [...listed]
+}
+
+/** The result select's options; see optionsWith. */
 export function contentTypeOptions(current?: string): string[] {
-  return current && !CONTENT_TYPES.includes(current)
-    ? [...CONTENT_TYPES, current]
-    : [...CONTENT_TYPES]
+  return optionsWith(CONTENT_TYPES, current)
 }
 
 /** Text that deserves a document-scale editing surface: long enough to
