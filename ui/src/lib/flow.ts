@@ -4,6 +4,15 @@
  * editor says about flow - chips, highlights, reorder warnings, the
  * cartesian-product note - derives from here, and only from here. */
 
+import {
+  FROM_PREVIOUS_RESULT_KEY,
+  GATHER,
+  MEMBER_SEPARATOR,
+  PREVIOUS_RESULT,
+  PROMPT,
+  VARIABLE,
+} from './references'
+
 export interface StepFlow {
   name: string
   inputs: string[]
@@ -14,14 +23,6 @@ export interface StepFlow {
 export interface DanglingReference {
   stepIndex: number
   message: string
-}
-
-/** Visit every string anywhere inside a JSON value. */
-function scanStrings(value: unknown, visit: (s: string) => void): void {
-  if (typeof value === 'string') visit(value)
-  else if (Array.isArray(value)) value.forEach((v) => scanStrings(v, visit))
-  else if (value !== null && typeof value === 'object')
-    Object.values(value).forEach((v) => scanStrings(v, visit))
 }
 
 /** The earlier step a value refers to: `previous_result:<step>[.suffix]`,
@@ -257,6 +258,79 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   return { nodes, edges, fanIn }
 }
 
+interface EarlierStep {
+  name: string
+  forEach: boolean
+}
+
+/** Whether a previous_result reference resolves to an earlier step: the
+ * name itself or the name plus a property (`seg.mask`), as the engine's
+ * reference_resolves_to decides - or, for a for_each step, one of the
+ * `<step>@<entry>` members the engine expands it into, which the editor
+ * cannot list because it holds the step unexpanded. */
+function resolvesTo(reference: string, step: EarlierStep): boolean {
+  if (reference === step.name || reference.startsWith(step.name + '.'))
+    return true
+  return step.forEach && reference.startsWith(step.name + MEMBER_SEPARATOR)
+}
+
+interface ReferenceScope {
+  earlier: EarlierStep[]
+  variables: Set<string>
+  prompts: Set<string> | null
+}
+
+const UNNAMED = 'no earlier step has that name'
+
+/** Per prefix, what is wrong with the name after it, or null. */
+const PREFIX_CHECKS: Array<
+  [string, (name: string, scope: ReferenceScope) => string | null]
+> = [
+  [
+    VARIABLE,
+    (name, scope) =>
+      scope.variables.has(name)
+        ? null
+        : `${VARIABLE}${name} - no such variable is declared`,
+  ],
+  [
+    PREVIOUS_RESULT,
+    (name, scope) =>
+      scope.earlier.some((s) => resolvesTo(name, s))
+        ? null
+        : `${PREVIOUS_RESULT}${name} - ${UNNAMED}`,
+  ],
+  [
+    GATHER,
+    (name, scope) =>
+      scope.earlier.some((s) => s.name === name)
+        ? null
+        : `${GATHER}${name} - ${UNNAMED}`,
+  ],
+  [
+    PROMPT,
+    // Without a listing the server resolves these at run time - only a
+    // supplied library can say a name is missing
+    (name, scope) =>
+      scope.prompts === null || scope.prompts.has(name)
+        ? null
+        : `${PROMPT}${name} - the prompt library has no such prompt`,
+  ],
+]
+
+function referenceProblem(
+  value: string,
+  path: string[],
+  scope: ReferenceScope,
+): string | null {
+  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY)
+    return scope.earlier.some((s) => resolvesTo(value, s))
+      ? null
+      : `${FROM_PREVIOUS_RESULT_KEY} '${value}' - ${UNNAMED}`
+  const check = PREFIX_CHECKS.find(([prefix]) => value.startsWith(prefix))
+  return check ? check[1](value.slice(check[0].length), scope) : null
+}
+
 export function danglingReferenceDetails(
   workflow: Record<string, any>,
   promptNames?: string[],
@@ -267,48 +341,18 @@ export function danglingReferenceDetails(
   const steps: Array<Record<string, any>> = workflow.steps ?? []
 
   steps.forEach((step, index) => {
-    const earlier = new Set(
-      steps
-        .slice(0, index)
-        .map((s) => s.name)
-        .filter(Boolean),
-    )
-    scanStrings(step, (value) => {
-      if (value.startsWith('variable:')) {
-        const name = value.slice('variable:'.length)
-        if (!variables.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': variable:${name} - no such variable is declared`,
-          })
-        }
-      } else if (value.startsWith('previous_result:')) {
-        const name = refTarget(value)!
-        if (!earlier.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
-          })
-        }
-      } else if (value.startsWith('gather:')) {
-        const name = refTarget(value)!
-        if (!earlier.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': gather:${name} - no earlier step has that name`,
-          })
-        }
-      } else if (value.startsWith('prompt:')) {
-        // Without a listing the server resolves these at run time - only
-        // a supplied library can say a name is missing
-        const name = value.slice('prompt:'.length)
-        if (prompts !== null && !prompts.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': prompt:${name} - the prompt library has no such prompt`,
-          })
-        }
-      }
+    const earlier: EarlierStep[] = steps
+      .slice(0, index)
+      .filter((s) => typeof s.name === 'string' && s.name)
+      .map((s) => ({ name: s.name, forEach: s.for_each !== undefined }))
+    const scope = { earlier, variables, prompts }
+    scanStringsWithPath(step, [], (value, path) => {
+      const problem = referenceProblem(value, path, scope)
+      if (problem)
+        problems.push({
+          stepIndex: index,
+          message: `Step '${step.name}': ${problem}`,
+        })
     })
   })
   return problems

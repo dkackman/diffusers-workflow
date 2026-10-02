@@ -108,6 +108,54 @@ describe('danglingReferenceDetails', () => {
     expect(details[1].stepIndex).toBe(1)
     expect(details[1].message).toContain('previous_result:nope')
   })
+  const forEachStep = (name: string) => ({
+    ...step(name, { x: 'item:prompt' }),
+    for_each: [{ name: 'a', prompt: 'p' }],
+  })
+
+  it('accepts a member reference to a for_each step, with or without a property', () => {
+    const wf = {
+      variables: {},
+      steps: [
+        forEachStep('g'),
+        step('b', {
+          one: 'previous_result:g@a',
+          two: 'previous_result:g@a.mask',
+        }),
+      ],
+    }
+    expect(danglingReferenceDetails(wf)).toEqual([])
+  })
+
+  it('flags a member reference to a step that is not for_each', () => {
+    const wf = {
+      variables: {},
+      steps: [step('g', {}), step('b', { y: 'previous_result:g@a' })],
+    }
+    expect(danglingReferenceDetails(wf)).toHaveLength(1)
+  })
+
+  it('matches a dotted step name whole, and a property of a plain one', () => {
+    const wf = {
+      variables: {},
+      steps: [
+        step('x.y', {}),
+        step('seg', {}),
+        step('b', { v: 'previous_result:x.y', m: 'previous_result:seg.mask' }),
+      ],
+    }
+    expect(danglingReferenceDetails(wf)).toEqual([])
+  })
+
+  it('flags a from_previous_result that names no earlier step', () => {
+    const wf = {
+      variables: {},
+      steps: [step('b', { image: { from_previous_result: 'nope' } })],
+    }
+    const details = danglingReferenceDetails(wf)
+    expect(details).toHaveLength(1)
+    expect(details[0].message).toContain('nope')
+  })
 })
 
 describe('dataFlowGraph', () => {
