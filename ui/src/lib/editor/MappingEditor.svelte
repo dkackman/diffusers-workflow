@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
   import { Plus, Trash2 } from '@lucide/svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
@@ -7,11 +8,12 @@
   let {
     args = $bindable(),
     suggestions = [],
-    listId = undefined,
+    valueSuggestions = [],
   }: {
     args: Record<string, unknown>
     suggestions?: Array<{ name: string; hint?: string }>
-    listId?: string
+    /** What a value may be: the references the step can make */
+    valueSuggestions?: readonly string[]
   } = $props()
 
   const uid = $props.id()
@@ -37,15 +39,14 @@
 <div class="mapping">
   {#each Object.keys(args) as key (key)}
     <label for={`${uid}-${key}`}>{key}</label>
-    <input
+    <Suggest
       id={`${uid}-${key}`}
-      class:ref={isReference(args[key])}
-      list={listId}
-      autocomplete="off"
+      class={isReference(args[key]) ? 'ref' : ''}
+      suggestions={valueSuggestions}
       title={promptTooltip(args[key], promptLibrary.texts)}
       value={displayValue(args[key])}
       placeholder={hintFor(key)}
-      onchange={(e) => update(key, e.currentTarget.value)}
+      onchange={(value) => update(key, value)}
     />
     <button
       class="quiet icon"

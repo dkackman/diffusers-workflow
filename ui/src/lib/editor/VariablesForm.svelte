@@ -4,7 +4,7 @@
   import ExpandingText from './ExpandingText.svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
-  import { promptListId, promptTooltip } from '../prompts'
+  import { promptSuggestions, promptTooltip } from '../prompts'
 
   let {
     mode,
@@ -73,8 +73,9 @@
       value={shown(key)}
       placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
       refStyle={isReference(effective(key))}
-      listId={promptListId(
+      suggestions={promptSuggestions(
         mode === 'override' ? effective(key) : (drafts[key] ?? variables[key]),
+        promptLibrary.names ?? [],
       )}
       title={promptTooltip(effective(key), promptLibrary.texts)}
       oninput={(raw) => draft(key, raw)}

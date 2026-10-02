@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
+  import { editorLists } from '../editorLists.svelte'
   import {
     Boxes,
     ChevronDown,
@@ -57,8 +59,6 @@
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
-
-  const referenceListId = $derived(`refs-${index}`)
 
   const digest = $derived(stepDigest($state.snapshot(step)))
 
@@ -208,11 +208,6 @@
   })
 </script>
 
-<datalist id={referenceListId}>
-  {#each references as reference (reference)}<option value={reference}
-    ></option>{/each}
-</datalist>
-
 <div class="panel step">
   <div class="bar">
     <button
@@ -323,9 +318,9 @@
     {#if kind === 'pipeline'}
       <div class="grid">
         <label for={'ct-' + index}>pipeline</label>
-        <input
+        <Suggest
           id={'ct-' + index}
-          list="pipeline-classes"
+          suggestions={editorLists.pipelines}
           bind:value={configuration.component_type}
           placeholder="ZImagePipeline"
         />
@@ -381,7 +376,7 @@
       <ArgumentsEditor
         bind:args={step.pipeline.arguments}
         componentType={configuration.component_type ?? ''}
-        listId={referenceListId}
+        suggestions={references}
       />
 
       <details open={activeSlots.length > 0 || openSection === 'components'}>
@@ -394,7 +389,7 @@
             <ComponentEditor
               {slot}
               bind:component={step.pipeline[slot]}
-              listId={referenceListId}
+              suggestions={references}
               onremove={() => delete step.pipeline[slot]}
             />
           {/each}
@@ -443,9 +438,9 @@
           {#if step.pipeline.scheduler}
             <label for={'schedtype-' + index}>scheduler_type</label>
             <div>
-              <input
+              <Suggest
                 id={'schedtype-' + index}
-                list="scheduler-classes"
+                suggestions={editorLists.schedulerClasses}
                 bind:value={
                   step.pipeline.scheduler.configuration.scheduler_type
                 }
@@ -465,7 +460,7 @@
               componentType={step.pipeline.scheduler.configuration
                 .scheduler_type ?? ''}
               target="init"
-              listId={referenceListId}
+              suggestions={references}
             />
           {/if}
         </div>
@@ -508,22 +503,16 @@
           </div>
 
           <label for={'attn-' + index}>attention backend</label>
-          <input
+          <Suggest
             id={'attn-' + index}
-            list="attention-backends"
+            suggestions={ATTENTION_BACKENDS}
             value={configuration.attention_backend ?? ''}
             placeholder="pipeline default"
-            onchange={(e) => {
-              const v = e.currentTarget.value
+            onchange={(v) => {
               if (v) configuration.attention_backend = v
               else delete configuration.attention_backend
             }}
           />
-          <datalist id="attention-backends">
-            {#each ATTENTION_BACKENDS as backend (backend)}<option
-                value={backend}
-              ></option>{/each}
-          </datalist>
 
           <label for={'pw-' + index}>prompt weighting</label>
           <input
@@ -541,9 +530,9 @@
     {:else if kind === 'task'}
       <div class="grid">
         <label for={'task-' + index}>command</label>
-        <input
+        <Suggest
           id={'task-' + index}
-          list="task-commands"
+          suggestions={editorLists.taskCommands}
           bind:value={step.task.command}
           placeholder="e.g. upscale"
         />
@@ -553,14 +542,14 @@
         bind:args={step.task.arguments}
         componentType={step.task.command}
         target="task"
-        listId={referenceListId}
+        suggestions={references}
       />
     {:else if kind === 'workflow'}
       <div class="grid">
         <label for={'wfpath-' + index}>path</label>
-        <input
+        <Suggest
           id={'wfpath-' + index}
-          list="workflow-files"
+          suggestions={editorLists.workflowFiles}
           bind:value={step.workflow.path}
           placeholder="Other.json, flux/FluxDev.json or builtin:h3_context_ir.json"
         />
@@ -569,7 +558,7 @@
       <MappingEditor
         bind:args={step.workflow.arguments}
         suggestions={workflowVariables}
-        listId={referenceListId}
+        valueSuggestions={references}
       />
       <div class="muted hint">
         map the child's variables to values or references, e.g.

@@ -513,8 +513,36 @@ button.frame:hover {
   gap: var(--space-2);
 }
 .ui-popover {
+  /* Positioned so the z-index applies: Bits' floating wrapper is
+     positioned with z-index auto, which forms no stacking context */
+  position: relative;
   z-index: var(--layer-popover);
   min-width: min(320px, 90vw);
   box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 60%, transparent);
   font-size: 0.85rem;
+}
+.ui-suggest {
+  position: relative;
+  z-index: var(--layer-popover);
+  /* as wide as the field it suggests for, which Bits exposes */
+  width: var(--bits-combobox-anchor-width);
+  min-width: 12rem;
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.ui-suggest [data-combobox-item] {
+  /* Bits lays the list out as a flex column: rows keep their height and
+     the list scrolls, rather than every row shrinking to fit */
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ui-suggest [data-combobox-item][data-highlighted] {
+  background: var(--panel-2);
 }

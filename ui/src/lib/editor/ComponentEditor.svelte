@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
+  import { editorLists } from '../editorLists.svelte'
   import { Trash2 } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import QuantizationEditor from './QuantizationEditor.svelte'
@@ -6,12 +8,12 @@
   let {
     slot,
     component = $bindable(),
-    listId = undefined,
+    suggestions = [],
     onremove,
   }: {
     slot: string
     component: Record<string, any>
-    listId?: string
+    suggestions?: readonly string[]
     onremove: () => void
   } = $props()
 
@@ -49,9 +51,9 @@
   {#if component.configuration}
     <div class="grid">
       <label for={`${uid}-type`}>class</label>
-      <input
+      <Suggest
         id={`${uid}-type`}
-        list="model-classes"
+        suggestions={editorLists.modelClasses}
         bind:value={component.configuration.component_type}
         placeholder="e.g. FluxTransformer2DModel"
       />
@@ -69,7 +71,7 @@
         componentType={component.configuration.component_type ?? ''}
         target="load"
         hide={['model_name']}
-        {listId}
+        {suggestions}
       />
 
       <label for={`${uid}-device`}>device</label>
@@ -85,7 +87,7 @@
       />
 
       <label for={`${uid}-quant`}>quantization</label>
-      <QuantizationEditor bind:component {listId} />
+      <QuantizationEditor bind:component {suggestions} />
 
       <label for={`${uid}-go`}>group offload</label>
       <div class="gofield">

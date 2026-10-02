@@ -144,3 +144,26 @@ test('the status area opens a detail popover', async ({ page }) => {
   await trigger.click()
   await expect(pop).toHaveCount(0)
 })
+
+test('a class field suggests as you type, and keeps text it does not list', async ({
+  page,
+}) => {
+  await page.goto('/#/edit')
+  const field = page.getByLabel('pipeline').first()
+  await field.fill('')
+  await field.pressSequentially('Pipeline')
+  const list = page.getByRole('listbox')
+  await expect(list).toBeVisible()
+  const first = list.getByRole('option').first()
+  const chosen = (await first.textContent())?.trim() ?? ''
+  await first.click()
+  await expect(field).toHaveValue(chosen)
+  await expect(list).toHaveCount(0)
+
+  // a class the server does not list is still a value
+  await field.fill('')
+  await field.pressSequentially('MyOwnPipelineXyz')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await field.press('Tab')
+  await expect(field).toHaveValue('MyOwnPipelineXyz')
+})
