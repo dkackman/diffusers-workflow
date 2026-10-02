@@ -22,13 +22,20 @@ export const RESERVED_WORKSPACE_NAMES = [
   'common',
 ] as const
 
-const NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/
+/** dw/security.py's WORKSPACE_NAME_PATTERN, `^[\w][\w.-]*\Z`: Python's \w
+ * is Unicode letters and digits plus underscore, so \p{L}\p{N}_ here.
+ * tests/fixtures/workspace_names.json is read by both sides' tests. */
+const NAME = /^[\p{L}\p{N}_][\p{L}\p{N}_.-]*$/u
+export const MAX_WORKSPACE_NAME_LENGTH = 100
 
 export function workspaceNameError(name: string): string | null {
   if (!name) return 'A workspace needs a name'
   if ((RESERVED_WORKSPACE_NAMES as readonly string[]).includes(name))
     return `${name} is reserved`
-  if (!NAME.test(name)) return 'Use letters, digits, - and _ only'
+  if (name.length > MAX_WORKSPACE_NAME_LENGTH)
+    return `Use at most ${MAX_WORKSPACE_NAME_LENGTH} characters`
+  if (!NAME.test(name))
+    return 'Start with a letter, digit or _; then letters, digits, _, - and .'
   return null
 }
 
