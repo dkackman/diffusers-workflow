@@ -479,3 +479,15 @@ def test_a_parameter_with_no_default_says_so_with_null(server):
     assert {"commands", "image_processors", "video_processors", "assessment"} <= set(
         tasks
     )
+
+
+def test_a_non_finite_default_is_named_not_nulled(server):
+    # DPMSolverMultistepScheduler's lambda_min_clipped defaults to -inf; JSON
+    # has no -inf, and null would claim there is no default at all
+    with server(success_script) as client:
+        response = client.get(
+            "/api/classes/DPMSolverMultistepScheduler", params={"target": "init"}
+        )
+    assert response.status_code == 200, response.text
+    by_name = {p["name"]: p for p in response.json()["parameters"]}
+    assert by_name["lambda_min_clipped"]["default"] == "-inf"
