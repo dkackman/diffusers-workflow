@@ -27,6 +27,8 @@
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
+  import { leafName } from '../names'
+  import ShadowedAssets from '../assets/ShadowedAssets.svelte'
 
   type Origin = AssetFile['origin']
 
@@ -41,13 +43,6 @@
     workspace: 'This workspace',
     common: 'Shared library',
     examples: 'Examples',
-  }
-  // The same libraries in the possessive, for "shadowed by ...". Built by
-  // hand rather than off the labels: "the examples's" is not English
-  const SHADOWED_BY: Record<Origin, string> = {
-    workspace: "this workspace's",
-    common: "the shared library's",
-    examples: "the examples library's",
   }
 
   let assets = $state<AssetFile[]>([])
@@ -200,8 +195,6 @@
     busy = false
     await load()
   }
-
-  const leaf = (name: string) => name.split('/').pop() ?? name
 
   async function upload(event: Event) {
     const input = event.target as HTMLInputElement
@@ -391,10 +384,10 @@
             {:else if asset.kind === 'video'}
               <video src={asset.url} preload="metadata" muted></video>
             {:else}
-              <span class="audio">♪ {leaf(asset.name)}</span>
+              <span class="audio">♪ {leafName(asset.name)}</span>
             {/if}
             <span class="caption" title={asset.reference}
-              >{leaf(asset.name)}</span
+              >{leafName(asset.name)}</span
             >
           </button>
         </div>
@@ -402,39 +395,7 @@
     </FolderGroups>
 
     {#if section.shadowed.length}
-      <!-- What this library holds under a name a nearer one has taken. It
-           is here because "I uploaded it and asset: still loads the old
-           one" is otherwise unanswerable from the page - the server does
-           not serve these, so a tile is a dimmed label rather than a
-           picture, and nothing bulk can reach it -->
-      <div class="grouprow">
-        <span class="group"
-          >shadowed/ <span class="muted">({section.shadowed.length})</span
-          ></span
-        >
-      </div>
-      <div class="grid">
-        {#each section.shadowed as entry (entry.name)}
-          <div class="cellwrap">
-            <!-- role + aria-label, not title alone: a bare div is not
-                 exposed, and the title is the only thing that explains
-                 why this tile is here -->
-            <div
-              class="cell shadowed"
-              role="note"
-              aria-label="shadowed by {SHADOWED_BY[
-                entry.shadowed_by
-              ]} {entry.name} - {entry.reference} resolves to that file"
-              title="shadowed by {SHADOWED_BY[
-                entry.shadowed_by
-              ]} {entry.name} - {entry.reference} resolves to that file"
-            >
-              <span class="ghost">{entry.kind}</span>
-              <span class="caption">{leaf(entry.name)}</span>
-            </div>
-          </div>
-        {/each}
-      </div>
+      <ShadowedAssets entries={section.shadowed} />
     {/if}
   {/if}
 {/each}
@@ -535,25 +496,6 @@
     filter: none;
     color: var(--accent);
   }
-  /* FolderGroups' folder heading, for the one group it does not lay out.
-     Its styles are scoped to that component, so this is the same look
-     rather than the same rule */
-  .grouprow {
-    margin: 1.2rem 0 var(--space-2);
-  }
-  .group {
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-sm);
-    letter-spacing: -0.01em;
-  }
-  .grid {
-    display: grid;
-    align-items: start;
-    gap: 0.6rem;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  }
   .hiddenfile {
     display: none;
   }
@@ -591,10 +533,9 @@
     object-fit: cover;
     background: var(--sunk);
   }
-  /* The audio placeholder, and the shadowed tile's - neither has a
-     picture to show, and both have to keep the grid's rhythm */
-  .cell .audio,
-  .cell .ghost {
+  /* The audio placeholder has no picture to show, and has to keep the
+     grid's rhythm - ShadowedAssets' tile does the same */
+  .cell .audio {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -614,12 +555,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  /* A shadowed entry is a name, not a file: the server serves the tile
-     that won, so there is nothing to show and nothing to do with it */
-  .cell.shadowed {
-    opacity: 0.45;
-    cursor: default;
   }
   /* The gallery's popout: it rides the bottom of the viewport while the
      grid scrolls behind it. Sitting at the end of the document instead

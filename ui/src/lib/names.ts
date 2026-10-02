@@ -9,3 +9,6 @@ export const MAX_NAME_LENGTH = 100
 export function isNameSegment(name: string): boolean {
   return [...name].length <= MAX_NAME_LENGTH && SEGMENT.test(name)
 }
+
+/** The last segment of a slash path - a file's name without its folders. */
+export const leafName = (name: string) => name.split('/').pop() ?? name
