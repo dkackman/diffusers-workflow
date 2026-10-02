@@ -35,6 +35,7 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 
 vi.mock('../api', () => ({
   ApiError: class ApiError extends Error {},
+  TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
     getJobWorkflow: vi.fn(() =>

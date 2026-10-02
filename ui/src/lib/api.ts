@@ -638,7 +638,7 @@ export async function fetchOutputText(
   return response.text()
 }
 
-const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
+export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
 
 /** Stream a job's events; returns a stop function. The stream closes itself
  * when a terminal job_status arrives; transient errors are left alone so

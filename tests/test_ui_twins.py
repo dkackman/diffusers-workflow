@@ -15,7 +15,8 @@ import pytest
 from dw import references
 from dw.content_types import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE, content_type_fault
 from dw.security import InvalidInputError, SecurityError, validate_workspace_name
-from dw.workspace import RESERVED_WORKSPACE_NAMES
+from dw.server.job_record import TERMINAL_STATES
+from dw.workspace import DEFAULT_WORKSPACE_NAME, RESERVED_WORKSPACE_NAMES
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 UI_LIB = REPO / "ui" / "src" / "lib"
@@ -93,3 +94,52 @@ def test_the_ui_offers_every_audio_container_and_the_video_one():
     reachable = {AUDIO_FORMATS[ct][0] for ct in offered if ct in AUDIO_FORMATS}
     assert reachable == written
     assert MUXED_VIDEO_CONTENT_TYPE in offered
+
+
+def test_the_ui_knows_the_servers_terminal_job_states():
+    assert set(ts_string_array(UI_LIB / "api.ts", "TERMINAL_STATUSES")) == set(
+        TERMINAL_STATES
+    )
+
+
+def test_the_job_page_has_no_terminal_states_of_its_own():
+    assert "const TERMINAL =" not in (UI_LIB / "pages" / "JobPage.svelte").read_text()
+
+
+def test_the_ui_default_workspace_is_the_servers():
+    assert (
+        ts_constants(UI_LIB / "workspace.svelte.ts")["DEFAULT_WORKSPACE"]
+        == DEFAULT_WORKSPACE_NAME
+    )
+
+
+def _cache_type_enum():
+    schema = json.loads((REPO / "dw" / "workflow_schema.json").read_text())
+
+    def walk(node):
+        if isinstance(node, dict):
+            cache = node.get("cache")
+            if isinstance(cache, dict):
+                found = cache.get("properties", {}).get("type", {}).get("enum")
+                if found:
+                    return found
+            for child in node.values():
+                found = walk(child)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for child in node:
+                found = walk(child)
+                if found:
+                    return found
+        return None
+
+    found = walk(schema)
+    assert found, "no cache type enum in the workflow schema"
+    return found
+
+
+def test_the_ui_cache_types_are_the_schemas():
+    assert set(ts_string_array(UI_LIB / "editor.ts", "CACHE_TYPES")) == set(
+        _cache_type_enum()
+    )

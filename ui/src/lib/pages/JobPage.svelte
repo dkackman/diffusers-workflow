@@ -7,7 +7,13 @@
     X,
   } from '@lucide/svelte'
   import { untrack } from 'svelte'
-  import { ApiError, api, outputUrl, streamJobEvents } from '../api'
+  import {
+    ApiError,
+    TERMINAL_STATUSES,
+    api,
+    outputUrl,
+    streamJobEvents,
+  } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go, route } from '../router.svelte'
   import { wsHref } from '../routes'
@@ -53,8 +59,6 @@
   let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
   let stepTimes = $state<number[]>([])
-
-  const TERMINAL = ['succeeded', 'failed', 'cancelled']
 
   $effect(() => {
     job = null
@@ -302,7 +306,9 @@
   const unsaved = $derived(
     unsavedSteps(job?.manifest, events as JobEvent[], definition),
   )
-  const running = $derived(job !== null && !TERMINAL.includes(job.status))
+  const running = $derived(
+    job !== null && !TERMINAL_STATUSES.includes(job.status),
+  )
   // One grain finer than the group: which entries of a for_each step have
   // finished and which is running, in the engine's own `group@entry` names
   const finishedMemberSteps = $derived(finishedMembers(events as JobEvent[]))
