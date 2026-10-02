@@ -27,7 +27,7 @@ import type {
   WorkflowWithOrigin,
 } from './types'
 import { getApiToken } from './token'
-import { DEFAULT_WORKSPACE, workspace } from './workspace.svelte'
+import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
 
 /** Encode a workflow name for a URL, keeping its folder separators. */
 const encodePath = (name: string) =>

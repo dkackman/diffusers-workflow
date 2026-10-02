@@ -2,8 +2,8 @@
   "files_over_size_ceiling": 6,
   "complex_functions": 12,
   "long_functions": 0,
-  "import_cycles": 1,
-  "modules_in_import_cycles": 2,
+  "import_cycles": 0,
+  "modules_in_import_cycles": 0,
   "prefix_literals": 0,
   "a11y_suppressions": 3
 }
