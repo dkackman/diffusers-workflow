@@ -13,31 +13,12 @@
     WORKFLOW_SHAPES,
     WORKFLOW_TRAITS,
     type GalleryFile,
+    type WorkflowCard,
     type WorkflowCost,
-    type WorkflowShape,
     type WorkflowTrait,
   } from '../types'
 
-  type Detail = {
-    kinds: string[]
-    steps?: number
-    variables: number
-    description: string
-    /** For a model config: the template it configures. */
-    configures?: string
-    /** What the workflow makes - the server derives it. */
-    shape?: WorkflowShape
-    /** Sorted facts about how it is made or what it needs. */
-    traits?: WorkflowTrait[]
-    /** The description's first sentence, clipped by the server. */
-    summary?: string
-    /** Measured runs; null or absent means nobody has measured it. */
-    cost?: WorkflowCost[] | null
-    /** Which source the workflow was read from. */
-    origin?: string
-    /** False for a read-only source - an examples directory. */
-    writable?: boolean
-  }
+  type Detail = WorkflowCard
 
   let { examples = false }: { examples?: boolean } = $props()
 
