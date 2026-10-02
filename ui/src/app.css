@@ -514,4 +514,7 @@ button.frame:hover {
 }
 .ui-popover {
   z-index: var(--layer-popover);
+  min-width: min(320px, 90vw);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 60%, transparent);
+  font-size: 0.85rem;
 }
