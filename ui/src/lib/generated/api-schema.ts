@@ -1594,6 +1594,42 @@ export interface components {
             /** Names */
             names: string[];
         };
+        /** DiffusersInstall */
+        DiffusersInstall: {
+            /**
+             * Commit
+             * @description The git commit, for a git install.
+             */
+            commit: string | null;
+            /** Version */
+            version: string | null;
+        };
+        /** DiffusersStatus */
+        DiffusersStatus: {
+            /** @description What was installed when the update started. */
+            before: components["schemas"]["DiffusersInstall"] | null;
+            /** Commit */
+            commit: string | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: number | null;
+            /** Log */
+            log: string | null;
+            /** Requested Commit */
+            requested_commit: string | null;
+            /** Revert */
+            revert: boolean;
+            /** Started At */
+            started_at: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "idle" | "running" | "succeeded" | "failed";
+            /** Version */
+            version: string | null;
+        };
         /** DownloadRequest */
         DownloadRequest: {
             /**
@@ -1630,6 +1666,31 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthInfo */
+        HealthInfo: {
+            /** Current Job */
+            current_job: string | null;
+            /** Device */
+            device: string;
+            /**
+             * Hostname
+             * @description Which machine answered.
+             */
+            hostname: string;
+            /** Mcp */
+            mcp: boolean;
+            /** Queued */
+            queued: number;
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
+            /**
+             * Worker Alive
+             * @description The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
+             */
+            worker_alive: boolean;
         };
         /** JobRequest */
         JobRequest: {
@@ -1693,6 +1754,148 @@ export interface components {
              */
             shared: boolean;
         };
+        /** McpMount */
+        McpMount: {
+            /** Mounted */
+            mounted: boolean;
+            /** Path */
+            path: string;
+        };
+        /** MemoryCleared */
+        MemoryCleared: {
+            /** Cleared */
+            cleared: boolean;
+            info: components["schemas"]["MemoryDetail"] | null;
+        };
+        /**
+         * MemoryDetail
+         * @description The worker's own memory report. Open even in strict mode: its keys
+         *     vary by backend, and the UI reads only the ones declared here.
+         */
+        MemoryDetail: {
+            /** Gpu Available */
+            gpu_available?: boolean | null;
+            /** Gpu Device Name */
+            gpu_device_name?: string | null;
+            /** Gpu Memory Allocated Mb */
+            gpu_memory_allocated_mb?: number | null;
+            /** Gpu Memory Free Mb */
+            gpu_memory_free_mb?: number | null;
+            /** Gpu Memory Reserved Mb */
+            gpu_memory_reserved_mb?: number | null;
+            /** Gpu Memory Total Mb */
+            gpu_memory_total_mb?: number | null;
+            /** Run Count */
+            run_count?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** MemoryInfo */
+        MemoryInfo: {
+            /** Age Seconds */
+            age_seconds: number | null;
+            info: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Live
+             * @description Measured now, rather than the last reading.
+             */
+            live: boolean;
+            /**
+             * Reason
+             * @description Why the reading is not a live one.
+             */
+            reason: string | null;
+            /**
+             * Stale
+             * @description `info` is an earlier reading: compare only `live` readings.
+             */
+            stale: boolean;
+        };
+        /** ModelCache */
+        ModelCache: {
+            /** Cache Dir */
+            cache_dir: string;
+            /** Disk Free */
+            disk_free: number | null;
+            /** Disk Total */
+            disk_total: number | null;
+            /** Repos */
+            repos: components["schemas"]["ModelRepo"][];
+            /** Size On Disk */
+            size_on_disk: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** ModelDeleted */
+        ModelDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /**
+             * Freed
+             * @description Bytes freed.
+             */
+            freed: number;
+            /** Repo Id */
+            repo_id: string;
+        };
+        /** ModelDownload */
+        ModelDownload: {
+            /** Downloaded */
+            downloaded: number;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: number | null;
+            /** Id */
+            id: string;
+            /** Repo Id */
+            repo_id: string;
+            /** Started At */
+            started_at: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "downloading" | "completed" | "cancelled" | "failed";
+            /** Total */
+            total: number | null;
+        };
+        /** ModelDownloads */
+        ModelDownloads: {
+            /**
+             * Downloads
+             * @description Newest first.
+             */
+            downloads: components["schemas"]["ModelDownload"][];
+        };
+        /** ModelRepo */
+        ModelRepo: {
+            /** Last Accessed */
+            last_accessed: number | null;
+            /** Last Modified */
+            last_modified: number | null;
+            /** Nb Files */
+            nb_files: number;
+            /** Repo Id */
+            repo_id: string;
+            /** Repo Type */
+            repo_type: string;
+            /** Revisions */
+            revisions: components["schemas"]["ModelRevision"][];
+            /** Size On Disk */
+            size_on_disk: number;
+        };
+        /** ModelRevision */
+        ModelRevision: {
+            /** Commit Hash */
+            commit_hash: string;
+            /** Last Modified */
+            last_modified: number | null;
+            /** Refs */
+            refs: string[];
+            /** Size On Disk */
+            size_on_disk: number;
+        };
         /** MoveRequest */
         MoveRequest: {
             /**
@@ -1724,6 +1927,76 @@ export interface components {
              * @default false
              */
             new_seed: boolean;
+        };
+        /** ServerAddress */
+        ServerAddress: {
+            /** Address */
+            address: string;
+            /** Family */
+            family: string;
+            /** Interface */
+            interface: string | null;
+        };
+        /** ServerDirectories */
+        ServerDirectories: {
+            /** Assets */
+            assets: string | null;
+            /** Outputs */
+            outputs: string;
+            /** Prompts */
+            prompts: string | null;
+            /** Workflows */
+            workflows: string;
+            /**
+             * Workspace
+             * @description The workspace the folders below are folders of, when the server resolved one; an individually overridden folder still reports its own path.
+             */
+            workspace: string | null;
+        };
+        /** ServerInfo */
+        ServerInfo: {
+            /** Addresses */
+            addresses: components["schemas"]["ServerAddress"][];
+            /** Auth Required */
+            auth_required: boolean;
+            /** Bind Host */
+            bind_host: string;
+            /** Device */
+            device: string;
+            directories: components["schemas"]["ServerDirectories"];
+            /** Hostname */
+            hostname: string;
+            mcp: components["schemas"]["McpMount"];
+            /** Port */
+            port: number;
+            runtime: components["schemas"]["ServerRuntime"];
+            /**
+             * Trust Workflows
+             * @description With this off, a workflow file is untrusted input: no arbitrary imports, no remote code, no location outside the workspace's roots.
+             */
+            trust_workflows: boolean;
+            /** Version */
+            version: string;
+            /** Wildcard Bind */
+            wildcard_bind: boolean;
+        };
+        /** ServerRuntime */
+        ServerRuntime: {
+            /** Cuda Version */
+            cuda_version: string | null;
+            /** Driver Version */
+            driver_version: string | null;
+            /**
+             * Packages
+             * @description Installed version of each package the engine leans on; null when it is not installed.
+             */
+            packages: {
+                [key: string]: string | null;
+            };
+            /** Python Version */
+            python_version: string;
+            /** Torch Version */
+            torch_version: string | null;
         };
         /** UpdateDiffusersRequest */
         UpdateDiffusersRequest: {
@@ -2444,7 +2717,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HealthInfo"];
                 };
             };
         };
@@ -2828,7 +3101,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MemoryInfo"];
                 };
             };
         };
@@ -2848,7 +3121,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MemoryCleared"];
                 };
             };
         };
@@ -2868,7 +3141,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelCache"];
                 };
             };
         };
@@ -2890,7 +3163,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -2923,7 +3196,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelDownload"];
                 };
             };
             /** @description Validation Error */
@@ -2952,7 +3225,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelDownloads"];
                 };
             };
         };
@@ -2974,7 +3247,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelDownload"];
                 };
             };
             /** @description Validation Error */
@@ -3268,7 +3541,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ServerInfo"];
                 };
             };
             /** @description Validation Error */
@@ -3297,7 +3570,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DiffusersStatus"];
                 };
             };
         };
@@ -3321,7 +3594,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DiffusersStatus"];
                 };
             };
             /** @description Validation Error */

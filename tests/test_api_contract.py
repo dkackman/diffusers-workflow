@@ -9,8 +9,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from tests.test_server import (  # noqa: F401
+    server,
+    success_script,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 DUMP = REPO / "scripts" / "dump_openapi.py"
@@ -87,3 +93,82 @@ def test_the_committed_document_is_current():
         "the server's response contract changed: run `python scripts/dump_openapi.py`, "
         "then `cd ui && npm run gen:api`, and commit both"
     )
+
+
+UI_READ_ROUTES = [
+    ("get", "/api/health"),
+    ("get", "/api/server"),
+    ("get", "/api/memory"),
+    ("post", "/api/memory/clear"),
+    ("get", "/api/models"),
+    ("post", "/api/models/download"),
+    ("get", "/api/models/downloads"),
+    ("post", "/api/models/downloads/{download_id}/cancel"),
+    ("delete", "/api/models"),
+    ("get", "/api/system/diffusers"),
+    ("post", "/api/system/diffusers/update"),
+]
+
+
+def _success_schema(document, method, path):
+    responses = document["paths"][path][method]["responses"]
+    ok = next(code for code in responses if code.startswith("2"))
+    return (
+        responses[ok].get("content", {}).get("application/json", {}).get("schema", {})
+    )
+
+
+@pytest.fixture(scope="module")
+def document():
+    return json.loads(_dump({}))
+
+
+@pytest.mark.parametrize("method,path", UI_READ_ROUTES)
+def test_a_route_the_ui_reads_declares_its_response(document, method, path):
+    schema = _success_schema(document, method, path)
+    assert "$ref" in schema or schema.get("type") == "array", (
+        f"{method.upper()} {path} declares no response model: the UI's type for it "
+        "is not generated from the server"
+    )
+
+
+# The payload does not change: keys, absence and int-ness are what they were
+# before the routes declared models (dw_mcp and scripts read them too)
+
+
+def test_memory_with_no_worker_keeps_its_keys(server):
+    with server(success_script) as client:
+        body = client.get("/api/memory").json()
+    assert body == {
+        "live": False,
+        "info": None,
+        "stale": False,
+        "reason": "worker_stopped",
+        "age_seconds": None,
+    }
+
+
+def test_health_sends_exactly_its_keys(server):
+    with server(success_script) as client:
+        body = client.get("/api/health").json()
+    assert set(body) == {
+        "status",
+        "version",
+        "worker_alive",
+        "current_job",
+        "queued",
+        "hostname",
+        "device",
+        "mcp",
+    }
+    assert type(body["queued"]) is int
+
+
+def test_an_empty_model_cache_counts_bytes_in_integers(server, tmp_path, monkeypatch):
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "hub"))
+    with server(success_script) as client:
+        body = client.get("/api/models").json()
+    assert type(body["size_on_disk"]) is int
+    assert body["repos"] == [] and body["warnings"] == []

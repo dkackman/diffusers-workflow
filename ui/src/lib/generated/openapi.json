@@ -61,6 +61,167 @@
         "title": "ArchiveRequest",
         "type": "object"
       },
+      "DiffusersInstall": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The git commit, for a git install.",
+            "title": "Commit"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "version",
+          "commit"
+        ],
+        "title": "DiffusersInstall",
+        "type": "object"
+      },
+      "DiffusersStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiffusersInstall"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What was installed when the update started."
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log"
+          },
+          "requested_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Commit"
+          },
+          "revert": {
+            "title": "Revert",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "status",
+          "error",
+          "log",
+          "started_at",
+          "finished_at",
+          "requested_commit",
+          "revert",
+          "before",
+          "version",
+          "commit"
+        ],
+        "title": "DiffusersStatus",
+        "type": "object"
+      },
       "DownloadRequest": {
         "properties": {
           "repo_id": {
@@ -130,6 +291,64 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "current_job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Job"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "hostname": {
+            "description": "Which machine answered.",
+            "title": "Hostname",
+            "type": "string"
+          },
+          "mcp": {
+            "title": "Mcp",
+            "type": "boolean"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "worker_alive": {
+            "description": "The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.",
+            "title": "Worker Alive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "worker_alive",
+          "current_job",
+          "queued",
+          "hostname",
+          "device",
+          "mcp"
+        ],
+        "title": "HealthInfo",
         "type": "object"
       },
       "JobRequest": {
@@ -246,6 +465,504 @@
         "title": "KeepRequest",
         "type": "object"
       },
+      "McpMount": {
+        "additionalProperties": false,
+        "properties": {
+          "mounted": {
+            "title": "Mounted",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mounted",
+          "path"
+        ],
+        "title": "McpMount",
+        "type": "object"
+      },
+      "MemoryCleared": {
+        "additionalProperties": false,
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "boolean"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cleared",
+          "info"
+        ],
+        "title": "MemoryCleared",
+        "type": "object"
+      },
+      "MemoryDetail": {
+        "additionalProperties": true,
+        "description": "The worker's own memory report. Open even in strict mode: its keys\nvary by backend, and the UI reads only the ones declared here.",
+        "properties": {
+          "gpu_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Available"
+          },
+          "gpu_device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Device Name"
+          },
+          "gpu_memory_allocated_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Allocated Mb"
+          },
+          "gpu_memory_free_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Free Mb"
+          },
+          "gpu_memory_reserved_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Reserved Mb"
+          },
+          "gpu_memory_total_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Total Mb"
+          },
+          "run_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Count"
+          }
+        },
+        "title": "MemoryDetail",
+        "type": "object"
+      },
+      "MemoryInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "live": {
+            "description": "Measured now, rather than the last reading.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the reading is not a live one.",
+            "title": "Reason"
+          },
+          "stale": {
+            "description": "`info` is an earlier reading: compare only `live` readings.",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "live",
+          "info",
+          "stale",
+          "reason",
+          "age_seconds"
+        ],
+        "title": "MemoryInfo",
+        "type": "object"
+      },
+      "ModelCache": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_dir": {
+            "title": "Cache Dir",
+            "type": "string"
+          },
+          "disk_free": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Free"
+          },
+          "disk_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Total"
+          },
+          "repos": {
+            "items": {
+              "$ref": "#/components/schemas/ModelRepo"
+            },
+            "title": "Repos",
+            "type": "array"
+          },
+          "size_on_disk": {
+            "title": "Size On Disk",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cache_dir",
+          "size_on_disk",
+          "repos",
+          "warnings",
+          "disk_free",
+          "disk_total"
+        ],
+        "title": "ModelCache",
+        "type": "object"
+      },
+      "ModelDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "freed": {
+            "description": "Bytes freed.",
+            "title": "Freed",
+            "type": "integer"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "deleted",
+          "freed"
+        ],
+        "title": "ModelDeleted",
+        "type": "object"
+      },
+      "ModelDownload": {
+        "additionalProperties": false,
+        "properties": {
+          "downloaded": {
+            "title": "Downloaded",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "downloading",
+              "completed",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "id",
+          "repo_id",
+          "status",
+          "downloaded",
+          "total",
+          "error",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "ModelDownload",
+        "type": "object"
+      },
+      "ModelDownloads": {
+        "additionalProperties": false,
+        "properties": {
+          "downloads": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ModelDownload"
+            },
+            "title": "Downloads",
+            "type": "array"
+          }
+        },
+        "required": [
+          "downloads"
+        ],
+        "title": "ModelDownloads",
+        "type": "object"
+      },
+      "ModelRepo": {
+        "additionalProperties": false,
+        "properties": {
+          "last_accessed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Accessed"
+          },
+          "last_modified": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Modified"
+          },
+          "nb_files": {
+            "title": "Nb Files",
+            "type": "integer"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "repo_type": {
+            "title": "Repo Type",
+            "type": "string"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/ModelRevision"
+            },
+            "title": "Revisions",
+            "type": "array"
+          },
+          "size_on_disk": {
+            "title": "Size On Disk",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "repo_id",
+          "repo_type",
+          "size_on_disk",
+          "nb_files",
+          "last_accessed",
+          "last_modified",
+          "revisions"
+        ],
+        "title": "ModelRepo",
+        "type": "object"
+      },
+      "ModelRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_hash": {
+            "title": "Commit Hash",
+            "type": "string"
+          },
+          "last_modified": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Modified"
+          },
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Refs",
+            "type": "array"
+          },
+          "size_on_disk": {
+            "title": "Size On Disk",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "commit_hash",
+          "size_on_disk",
+          "refs",
+          "last_modified"
+        ],
+        "title": "ModelRevision",
+        "type": "object"
+      },
       "MoveRequest": {
         "properties": {
           "direction": {
@@ -300,6 +1017,229 @@
           }
         },
         "title": "RerunRequest",
+        "type": "object"
+      },
+      "ServerAddress": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interface"
+          }
+        },
+        "required": [
+          "address",
+          "family",
+          "interface"
+        ],
+        "title": "ServerAddress",
+        "type": "object"
+      },
+      "ServerDirectories": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assets"
+          },
+          "outputs": {
+            "title": "Outputs",
+            "type": "string"
+          },
+          "prompts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompts"
+          },
+          "workflows": {
+            "title": "Workflows",
+            "type": "string"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The workspace the folders below are folders of, when the server resolved one; an individually overridden folder still reports its own path.",
+            "title": "Workspace"
+          }
+        },
+        "required": [
+          "workspace",
+          "workflows",
+          "assets",
+          "outputs",
+          "prompts"
+        ],
+        "title": "ServerDirectories",
+        "type": "object"
+      },
+      "ServerInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "addresses": {
+            "items": {
+              "$ref": "#/components/schemas/ServerAddress"
+            },
+            "title": "Addresses",
+            "type": "array"
+          },
+          "auth_required": {
+            "title": "Auth Required",
+            "type": "boolean"
+          },
+          "bind_host": {
+            "title": "Bind Host",
+            "type": "string"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "directories": {
+            "$ref": "#/components/schemas/ServerDirectories"
+          },
+          "hostname": {
+            "title": "Hostname",
+            "type": "string"
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/McpMount"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ServerRuntime"
+          },
+          "trust_workflows": {
+            "description": "With this off, a workflow file is untrusted input: no arbitrary imports, no remote code, no location outside the workspace's roots.",
+            "title": "Trust Workflows",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "wildcard_bind": {
+            "title": "Wildcard Bind",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hostname",
+          "version",
+          "device",
+          "bind_host",
+          "port",
+          "wildcard_bind",
+          "auth_required",
+          "trust_workflows",
+          "mcp",
+          "addresses",
+          "runtime",
+          "directories"
+        ],
+        "title": "ServerInfo",
+        "type": "object"
+      },
+      "ServerRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "cuda_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda Version"
+          },
+          "driver_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Driver Version"
+          },
+          "packages": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Installed version of each package the engine leans on; null when it is not installed.",
+            "title": "Packages",
+            "type": "object"
+          },
+          "python_version": {
+            "title": "Python Version",
+            "type": "string"
+          },
+          "torch_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torch Version"
+          }
+        },
+        "required": [
+          "python_version",
+          "torch_version",
+          "cuda_version",
+          "driver_version",
+          "packages"
+        ],
+        "title": "ServerRuntime",
         "type": "object"
       },
       "UpdateDiffusersRequest": {
@@ -1700,7 +2640,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthInfo"
+                }
               }
             },
             "description": "Successful Response"
@@ -2283,7 +3225,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryInfo"
+                }
               }
             },
             "description": "Successful Response"
@@ -2300,7 +3244,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCleared"
+                }
               }
             },
             "description": "Successful Response"
@@ -2328,7 +3274,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -2353,7 +3301,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCache"
+                }
               }
             },
             "description": "Successful Response"
@@ -2380,7 +3330,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDownload"
+                }
               }
             },
             "description": "Successful Response"
@@ -2406,7 +3358,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDownloads"
+                }
               }
             },
             "description": "Successful Response"
@@ -2434,7 +3388,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDownload"
+                }
               }
             },
             "description": "Successful Response"
@@ -2823,7 +3779,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfo"
+                }
               }
             },
             "description": "Successful Response"
@@ -2850,7 +3808,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DiffusersStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -2879,7 +3839,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DiffusersStatus"
+                }
               }
             },
             "description": "Successful Response"
