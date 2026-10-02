@@ -120,6 +120,7 @@ UI_READ_ROUTES = [
     ("post", "/api/jobs/{job_id}/move"),
     ("post", "/api/jobs/{job_id}/cancel"),
     ("post", "/api/enhance"),
+    ("post", "/api/validate"),
 ]
 
 
@@ -289,3 +290,21 @@ def test_live_and_historical_jobs_keep_their_own_keys(server):
     assert "progress" in live
     assert "spec" not in live and "historical" not in live
     assert "queue_position" not in live
+
+
+def test_validation_answers_keep_their_keys(server):
+    with server(success_script) as client:
+        invalid = client.post("/api/validate", json={"workflow": {"id": "x"}}).json()
+        valid = client.post(
+            "/api/validate",
+            json={"workflow": valid_workflow()},
+            params={"sizes": False},
+        ).json()
+    # an invalid answer carries no plan at all, not a null one
+    assert invalid["valid"] is False and "plan" not in invalid
+    assert invalid["errors"] and {"path", "message"} <= set(invalid["errors"][0])
+    assert valid["valid"] is True
+    assert type(valid["plan"]["steps"]) is int
+    assert {"minutes", "basis", "device", "partial", "unpriced"} <= set(
+        valid["plan"]["estimate"]
+    )

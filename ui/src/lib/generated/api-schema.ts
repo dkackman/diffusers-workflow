@@ -1638,6 +1638,18 @@ export interface components {
              */
             repo_id: string;
         };
+        /** ElidedStep */
+        ElidedStep: {
+            /**
+             * Overridden By
+             * @description The supplied variable that made it unread.
+             */
+            overridden_by?: string;
+            /** Reason */
+            reason: string;
+            /** Step */
+            step: string | null;
+        };
         /** EnhanceRequest */
         EnhanceRequest: {
             /**
@@ -2202,6 +2214,67 @@ export interface components {
              */
             direction: string;
         };
+        /** Plan */
+        Plan: {
+            /**
+             * Cached Steps
+             * @description How many steps the worker's step cache would serve; null when the worker was busy or did not answer.
+             */
+            cached_steps: number | null;
+            /** Downloads Required */
+            downloads_required: components["schemas"]["RequiredDownload"][];
+            /**
+             * Elided Steps
+             * @description The steps that will not run because nothing reads their result and they save no file - already excluded from `steps`.
+             */
+            elided_steps: components["schemas"]["ElidedStep"][];
+            estimate: components["schemas"]["PlanEstimate"];
+            /** Fingerprint */
+            fingerprint: string;
+            /** List Entries */
+            list_entries: {
+                [key: string]: number;
+            };
+            /** Output Dir */
+            output_dir: string | null;
+            /** Steps */
+            steps: number;
+            /** Workspace */
+            workspace: string;
+        };
+        /** PlanEstimate */
+        PlanEstimate: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "per_entry" | "catalog" | "derived" | "other_device" | "unknown" | "observed";
+            /** Cached Minutes */
+            cached_minutes: number | null;
+            /** Curated Minutes */
+            curated_minutes?: number;
+            /** Device */
+            device: string;
+            /** Low Confidence */
+            low_confidence?: boolean;
+            /** Measured On */
+            measured_on: string | null;
+            /** Minutes */
+            minutes: number | null;
+            /** Observed Minutes */
+            observed_minutes?: number;
+            /** Partial */
+            partial: boolean;
+            /** Runs */
+            runs: number | null;
+            /** Tempered */
+            tempered?: boolean;
+            /**
+             * Unpriced
+             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.
+             */
+            unpriced: string[];
+        };
         /** PromptRequest */
         PromptRequest: {
             /**
@@ -2211,6 +2284,22 @@ export interface components {
             prompt: {
                 [key: string]: unknown;
             };
+        };
+        /** RequiredDownload */
+        RequiredDownload: {
+            /** Access Blocked */
+            access_blocked: boolean | null;
+            /** Gated */
+            gated: boolean | null;
+            /** Gb */
+            gb: number | null;
+            /** Repo */
+            repo: string | null;
+            /**
+             * Url
+             * @description A from_single_file URL, which has no repo.
+             */
+            url?: string;
         };
         /** RerunRequest */
         RerunRequest: {
@@ -2336,6 +2425,37 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * ValidationFinding
+         * @description One violation with its JSON path. Open even in strict mode: a
+         *     finding carries its own extra keys after these two.
+         */
+        ValidationFinding: {
+            /** Message */
+            message: string;
+            /** Path */
+            path: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ValidationResult */
+        ValidationResult: {
+            /** Checked Arguments */
+            checked_arguments?: string[];
+            /** Error */
+            error: string | null;
+            /**
+             * Errors
+             * @description Every schema violation with its JSON path; empty when valid.
+             */
+            errors: components["schemas"]["ValidationFinding"][];
+            /** @description What the run will execute for the definition validated - on a valid answer; null when the server could not build it, absent from an invalid answer. */
+            plan?: components["schemas"]["Plan"] | null;
+            /** Valid */
+            valid: boolean;
+            /** Warnings */
+            warnings: string[];
         };
         /** WorkspaceRequest */
         WorkspaceRequest: {
@@ -4028,7 +4148,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ValidationResult"];
                 };
             };
             /** @description Validation Error */

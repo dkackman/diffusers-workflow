@@ -236,6 +236,37 @@
         "title": "DownloadRequest",
         "type": "object"
       },
+      "ElidedStep": {
+        "additionalProperties": false,
+        "properties": {
+          "overridden_by": {
+            "description": "The supplied variable that made it unread.",
+            "title": "Overridden By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          }
+        },
+        "required": [
+          "step",
+          "reason"
+        ],
+        "title": "ElidedStep",
+        "type": "object"
+      },
       "EnhanceRequest": {
         "properties": {
           "device": {
@@ -1735,6 +1766,209 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "Plan": {
+        "additionalProperties": false,
+        "properties": {
+          "cached_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many steps the worker's step cache would serve; null when the worker was busy or did not answer.",
+            "title": "Cached Steps"
+          },
+          "downloads_required": {
+            "items": {
+              "$ref": "#/components/schemas/RequiredDownload"
+            },
+            "title": "Downloads Required",
+            "type": "array"
+          },
+          "elided_steps": {
+            "description": "The steps that will not run because nothing reads their result and they save no file - already excluded from `steps`.",
+            "items": {
+              "$ref": "#/components/schemas/ElidedStep"
+            },
+            "title": "Elided Steps",
+            "type": "array"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/PlanEstimate"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "list_entries": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "List Entries",
+            "type": "object"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir"
+          },
+          "steps": {
+            "title": "Steps",
+            "type": "integer"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "steps",
+          "elided_steps",
+          "list_entries",
+          "cached_steps",
+          "downloads_required",
+          "estimate",
+          "workspace",
+          "output_dir"
+        ],
+        "title": "Plan",
+        "type": "object"
+      },
+      "PlanEstimate": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "per_entry",
+              "catalog",
+              "derived",
+              "other_device",
+              "unknown",
+              "observed"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "cached_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Minutes"
+          },
+          "curated_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Curated Minutes"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "low_confidence": {
+            "title": "Low Confidence",
+            "type": "boolean"
+          },
+          "measured_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured On"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "observed_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Observed Minutes"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runs"
+          },
+          "tempered": {
+            "title": "Tempered",
+            "type": "boolean"
+          },
+          "unpriced": {
+            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unpriced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "minutes",
+          "basis",
+          "device",
+          "measured_on",
+          "partial",
+          "unpriced",
+          "runs",
+          "cached_minutes"
+        ],
+        "title": "PlanEstimate",
+        "type": "object"
+      },
       "PromptRequest": {
         "properties": {
           "prompt": {
@@ -1748,6 +1982,71 @@
           "prompt"
         ],
         "title": "PromptRequest",
+        "type": "object"
+      },
+      "RequiredDownload": {
+        "additionalProperties": false,
+        "properties": {
+          "access_blocked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Blocked"
+          },
+          "gated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gated"
+          },
+          "gb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gb"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "url": {
+            "description": "A from_single_file URL, which has no repo.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "gb",
+          "gated",
+          "access_blocked"
+        ],
+        "title": "RequiredDownload",
         "type": "object"
       },
       "RerunRequest": {
@@ -2092,6 +2391,94 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationFinding": {
+        "additionalProperties": true,
+        "description": "One violation with its JSON path. Open even in strict mode: a\nfinding carries its own extra keys after these two.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "path",
+          "message"
+        ],
+        "title": "ValidationFinding",
+        "type": "object"
+      },
+      "ValidationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_arguments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checked Arguments",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "errors": {
+            "description": "Every schema violation with its JSON path; empty when valid.",
+            "items": {
+              "$ref": "#/components/schemas/ValidationFinding"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Plan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the run will execute for the definition validated - on a valid answer; null when the server could not build it, absent from an invalid answer."
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "valid",
+          "error",
+          "errors",
+          "warnings"
+        ],
+        "title": "ValidationResult",
         "type": "object"
       },
       "WorkspaceRequest": {
@@ -4851,7 +5238,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
               }
             },
             "description": "Successful Response"

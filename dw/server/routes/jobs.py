@@ -25,6 +25,7 @@ from ..api_models import (
     JobMoved,
     JobWorkflow,
     RunDeleted,
+    ValidationResult,
 )
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
@@ -703,7 +704,9 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
         return None
 
 
-@router.post("/api/validate")
+@router.post(
+    "/api/validate", response_model=ValidationResult, response_model_exclude_unset=True
+)
 def validate_workflow(
     http_request: Request,
     request: JobRequest,

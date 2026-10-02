@@ -5063,7 +5063,17 @@ EMPTY_PLAN = {
     "cached_steps": None,
     "elided_steps": [],
     "downloads_required": [],
-    "estimate": None,
+    # The shape estimate() returns for a workflow with no cost block
+    "estimate": {
+        "minutes": None,
+        "basis": "unknown",
+        "device": "cpu",
+        "measured_on": None,
+        "partial": False,
+        "unpriced": [],
+        "runs": None,
+        "cached_minutes": None,
+    },
 }
 # The route adds these to whatever build_plan() returns - the workspace the
 # plan (and any cache probe inside it) actually ran against (#184)

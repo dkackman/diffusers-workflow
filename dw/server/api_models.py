@@ -354,3 +354,85 @@ class JobMoved(ApiModel):
 class JobCancelled(ApiModel):
     id: str
     status: JobStatus
+
+
+# ------------------------------------------------------------- validation
+
+
+class ValidationFinding(ApiModel):
+    """One violation with its JSON path. Open even in strict mode: a
+    finding carries its own extra keys after these two."""
+
+    model_config = ConfigDict(extra="allow")
+
+    path: str | None
+    message: str
+
+
+class ElidedStep(ApiModel):
+    step: str | None
+    reason: str
+    overridden_by: str = sometimes("The supplied variable that made it unread.")
+
+
+class RequiredDownload(ApiModel):
+    repo: str | None
+    url: str = sometimes("A from_single_file URL, which has no repo.")
+    gb: int | float | None
+    gated: bool | None
+    access_blocked: bool | None
+
+
+class PlanEstimate(ApiModel):
+    minutes: int | float | None
+    basis: Literal[
+        "per_entry", "catalog", "derived", "other_device", "unknown", "observed"
+    ]
+    device: str
+    measured_on: str | None
+    partial: bool
+    unpriced: list[str] = Field(
+        description="What contributed nothing to `minutes` when `partial` is true - "
+        "the workflow's own id when its own steps went unpriced, else the path of "
+        "each composed child with no cost block. Empty when `partial` is false."
+    )
+    runs: int | None
+    cached_minutes: int | float | None
+    tempered: bool = sometimes()
+    observed_minutes: int | float = sometimes()
+    curated_minutes: int | float = sometimes()
+    low_confidence: bool = sometimes()
+
+
+class Plan(ApiModel):
+    fingerprint: str
+    steps: int
+    elided_steps: list[ElidedStep] = Field(
+        description="The steps that will not run because nothing reads their result "
+        "and they save no file - already excluded from `steps`."
+    )
+    list_entries: dict[str, int]
+    cached_steps: int | None = Field(
+        description="How many steps the worker's step cache would serve; null when "
+        "the worker was busy or did not answer."
+    )
+    downloads_required: list[RequiredDownload]
+    estimate: PlanEstimate
+    workspace: str
+    output_dir: str | None
+
+
+class ValidationResult(ApiModel):
+    valid: bool
+    error: str | None
+    errors: list[ValidationFinding] = Field(
+        description="Every schema violation with its JSON path; empty when valid."
+    )
+    warnings: list[str]
+    checked_arguments: list[str] = sometimes()
+    plan: Plan | None = Field(
+        default=None,
+        description="What the run will execute for the definition validated - on a "
+        "valid answer; null when the server could not build it, absent from an "
+        "invalid answer.",
+    )
