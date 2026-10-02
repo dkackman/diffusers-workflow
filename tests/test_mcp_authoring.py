@@ -152,49 +152,23 @@ def test_save_surfaces_a_rejected_definition():
         authoring.save_workflow(client, "mine", WORKFLOW)
 
 
-def test_save_with_patch_merges_onto_the_stored_definition():
-    """A small edit shouldn't require resending the whole document (#202)."""
-    stored = {
-        "id": "w",
-        "steps": [],
-        "variables": {"prompt": {"default": "a cat"}, "seed": {"default": 1}},
-    }
+def test_save_with_patch_sends_the_patch_for_the_server_to_merge():
+    """A small edit shouldn't require resending the whole document (#202);
+    the server merges it under its save lock, so a save made meanwhile is
+    not lost to a client-side read-merge-write."""
     seen = []
 
     def handler(request):
-        seen.append((request.method, request.url.path))
-        if request.method == "GET":
-            return httpx.Response(200, json=stored)
-        body = json.loads(request.read())
-        return httpx.Response(200, json={"name": "mine", "sent": body})
+        seen.append((request.method, request.url.path, json.loads(request.read())))
+        return httpx.Response(200, json={"name": "mine", "workspace": "default"})
 
     client = DwClient(transport=httpx.MockTransport(handler))
+    patch = {"variables": {"seed": {"default": 2}}, "description": None}
 
-    result = authoring.save_workflow(
-        client, "mine", patch={"variables": {"seed": {"default": 2}}}
-    )
+    result = authoring.save_workflow(client, "mine", patch=patch)
 
-    assert seen == [("GET", "/api/workflows/mine"), ("PUT", "/api/workflows/mine")]
-    sent_workflow = result["sent"]["workflow"]
-    assert sent_workflow["variables"]["seed"]["default"] == 2
-    assert sent_workflow["variables"]["prompt"]["default"] == "a cat"
-    assert sent_workflow["id"] == "w"
-
-
-def test_save_with_patch_null_deletes_a_key():
-    stored = {"id": "w", "steps": [], "description": "old"}
-
-    def handler(request):
-        if request.method == "GET":
-            return httpx.Response(200, json=stored)
-        body = json.loads(request.read())
-        return httpx.Response(200, json={"name": "mine", "sent": body})
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    result = authoring.save_workflow(client, "mine", patch={"description": None})
-
-    assert "description" not in result["sent"]["workflow"]
+    assert seen == [("PATCH", "/api/workflows/mine", patch)]
+    assert result["name"] == "mine"
 
 
 def test_save_refuses_both_workflow_and_patch():

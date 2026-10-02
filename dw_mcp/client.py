@@ -228,6 +228,11 @@ class DwClient:
             self._request("PUT", path, json=payload, workspace=workspace), path
         )
 
+    def patch_json(self, path, payload, workspace=None):
+        return self._json(
+            self._request("PATCH", path, json=payload, workspace=workspace), path
+        )
+
     def delete_json(self, path, params=None, workspace=None):
         return self._json(
             self._request("DELETE", path, params=params, workspace=workspace), path

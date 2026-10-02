@@ -523,6 +523,21 @@ def pin_library_path(kind, workspace, examples_dirs=None):
     return joined
 
 
+def merge_patch(target, patch):
+    """RFC 7396 JSON Merge Patch: each dict key in `patch` merges
+    recursively into `target`; any other value replaces `target` outright;
+    `None` deletes the key from the result. `target` is not mutated."""
+    if not isinstance(patch, dict):
+        return patch
+    result = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = merge_patch(result.get(key), value)
+    return result
+
+
 def suggest_workflow_names(library, name, limit=3):
     """Catalog names an unresolved `name` might have meant, for an error
     message rather than a second round trip.

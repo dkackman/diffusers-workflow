@@ -94,28 +94,13 @@ def save_workflow(client, name, workflow=None, patch=None, workspace=None):
     workflow = coerce_json_object(workflow, "workflow")
     patch = coerce_json_object(patch, "patch")
     if patch is not None:
-        current = client.get_json(
-            api_path("api", "workflows", name), workspace=workspace
+        # The server merges under its save lock (RFC 7396)
+        return client.patch_json(
+            api_path("api", "workflows", name), patch, workspace=workspace
         )
-        workflow = _merge_patch(current, patch)
     return client.put_json(
         api_path("api", "workflows", name), {"workflow": workflow}, workspace=workspace
     )
-
-
-def _merge_patch(target, patch):
-    """RFC 7396 JSON Merge Patch: each dict key in `patch` merges
-    recursively into `target`; any other value replaces `target` outright;
-    `None` deletes the key from the result."""
-    if not isinstance(patch, dict):
-        return patch
-    result = dict(target) if isinstance(target, dict) else {}
-    for key, value in patch.items():
-        if value is None:
-            result.pop(key, None)
-        else:
-            result[key] = _merge_patch(result.get(key), value)
-    return result
 
 
 def delete_workflow(client, name, workspace=None):
