@@ -187,11 +187,6 @@
     gap: 0.4rem 1rem;
     margin-bottom: 1rem;
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
   .seed {
     font-size: 0.78rem;
   }
