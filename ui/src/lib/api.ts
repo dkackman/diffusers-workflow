@@ -1,34 +1,37 @@
 import type {
   AssetFile,
   AssetLibrary,
-  ShadowedAsset,
+  Deleted,
   DiffusersStatus,
-  EnhancerPreset,
-  JobDetail,
-  ModelCache,
-  ModelDownload,
-  JobEvent,
+  EnhancerPresets,
+  GalleryFile,
+  HealthInfo,
   JobCancelled,
+  JobDetail,
+  JobEvent,
   JobExport,
   JobList,
   JobMoved,
   JobWorkflow,
-  GalleryFile,
-  HealthInfo,
   MemoryInfo,
+  ModelCache,
+  ModelDownload,
   PipelineDescription,
   PromptDefinition,
-  PromptDetail,
-  LibraryRoot,
-  ShadowedEntry,
+  PromptList,
+  PromptSaved,
   ServerInfo,
-  ValidationResult,
-  WorkflowCost,
-  WorkflowDefinition,
-  WorkflowShape,
-  WorkflowTrait,
+  ShadowedAsset,
   StoredPrompt,
+  ValidationResult,
+  WorkflowDefinition,
+  WorkflowDeleted,
+  WorkflowList,
+  WorkflowSaved,
   WorkflowWithOrigin,
+  WorkspaceDeleted,
+  WorkspaceInfo,
+  WorkspaceList,
 } from './types'
 import { getApiToken } from './token'
 import { ApiError, errorDetail } from './apiErrors'
@@ -126,44 +129,7 @@ function archiveFrom(path: string) {
 }
 
 export const api = {
-  listWorkflows: () =>
-    request<{
-      workspace?: string
-      /** The search path in order; the writable workspace root is where a
-       * save lands, whatever library a workflow was read from. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      workflows: string[]
-      details: Record<
-        string,
-        {
-          kinds: string[]
-          steps?: number
-          variables: number
-          description: string
-          /** For a model config: the template it is a tuned instance of.
-           * Absent from an older server, and from every template. */
-          configures?: string
-          prompt_refs?: string[]
-          /** What the workflow makes, derived by the server from the
-           * definition (dw/server/catalog_shape.py). Absent from an older
-           * server. */
-          shape?: WorkflowShape
-          /** Sorted, independent facts about how the output is made or what
-           * it needs. */
-          traits?: WorkflowTrait[]
-          /** The description's first sentence, clipped - what a card shows. */
-          summary?: string
-          /** Measured runs, one per device the maintainer measured on. Null
-           * (or absent) means unknown - never derived. */
-          cost?: WorkflowCost[] | null
-          /** Which source it came from: 'workspace', 'examples', 'builtin'. */
-          origin: string
-          /** False for a read-only source: offer save-a-copy, not delete. */
-          writable: boolean
-        }
-      >
-    }>('/api/workflows'),
+  listWorkflows: () => request<WorkflowList>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
    * rather than a separate `listWorkflows` lookup. Beside the definition,
    * the way `getPrompt` keeps a prompt's: the object the caller holds is
@@ -351,22 +317,9 @@ export const api = {
       `/api/assets/${encodePath(name)}`,
       { method: 'DELETE' },
     ),
-  listWorkspaces: () =>
-    request<{
-      workspace_root: string | null
-      default: string
-      workspaces: {
-        name: string
-        default: boolean
-        workflows: string
-        assets: string | null
-        outputs: string
-        prompts: string | null
-        usage?: { files: number; bytes: number }
-      }[]
-    }>('/api/workspaces'),
+  listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
-    request<{ name: string }>('/api/workspaces', {
+    request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -375,7 +328,7 @@ export const api = {
    * `acknowledged`, answering with what it would remove - so the caller can
    * show that before asking again. */
   deleteWorkspace: (name: string, acknowledged = false) =>
-    request<{ name: string; deleted: boolean }>(
+    request<WorkspaceDeleted>(
       `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
       { method: 'DELETE' },
     ),
@@ -412,32 +365,18 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   deleteWorkflow: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/workflows/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<WorkflowDeleted>(`/api/workflows/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{
-      name: string
-      workspace: string
-      origin: string
-      warnings: string[]
-    }>(`/api/workflows/${encodePath(name)}`, {
+    request<WorkflowSaved>(`/api/workflows/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflow }),
     }),
-  listPrompts: () =>
-    request<{
-      /** The search path in order; the writable workspace root is where a
-       * save lands. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      prompts: string[]
-      details: Record<string, PromptDetail>
-    }>('/api/prompts'),
+  listPrompts: () => request<PromptList>('/api/prompts'),
   /** The prompt plus which library it came from, read off the response
    * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>
@@ -449,20 +388,17 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string }>(`/api/prompts/${encodePath(name)}`, {
+    request<PromptSaved>(`/api/prompts/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),
     }),
   deletePrompt: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/prompts/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<Deleted>(`/api/prompts/${encodePath(name)}`, { method: 'DELETE' }),
   promptDownloadUrl: (name: string) =>
     withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
-  listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
+  listEnhancers: () => request<EnhancerPresets>('/api/enhancers'),
   enhance: (body: {
     idea: string
     preset: string

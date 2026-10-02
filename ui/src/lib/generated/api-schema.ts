@@ -1594,6 +1594,13 @@ export interface components {
             /** Names */
             names: string[];
         };
+        /** Deleted */
+        Deleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Name */
+            name: string;
+        };
         /** DiffusersInstall */
         DiffusersInstall: {
             /**
@@ -1629,6 +1636,13 @@ export interface components {
             status: "idle" | "running" | "succeeded" | "failed";
             /** Version */
             version: string | null;
+        };
+        /** DiskUsage */
+        DiskUsage: {
+            /** Bytes */
+            bytes: number;
+            /** Files */
+            files: number;
         };
         /** DownloadRequest */
         DownloadRequest: {
@@ -1673,6 +1687,26 @@ export interface components {
              * @default h3
              */
             preset: string;
+        };
+        /** EnhancerPreset */
+        EnhancerPreset: {
+            /** Default Model */
+            default_model: string;
+            /** Intended Models */
+            intended_models: string[];
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Models */
+            models: string[];
+            /** Placeholder */
+            placeholder: string;
+        };
+        /** EnhancerPresets */
+        EnhancerPresets: {
+            /** Presets */
+            presets: components["schemas"]["EnhancerPreset"][];
         };
         /** ExportedFile */
         ExportedFile: {
@@ -2036,6 +2070,18 @@ export interface components {
              */
             shared: boolean;
         };
+        /** LibraryRoot */
+        LibraryRoot: {
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /** Root */
+            root: string;
+            /** Writable */
+            writable: boolean;
+        };
         /**
          * ManifestEntry
          * @description One step's saved files. Open even in strict mode: the worker adds
@@ -2275,6 +2321,46 @@ export interface components {
              */
             unpriced: string[];
         };
+        /** PromptCard */
+        PromptCard: {
+            /** Description */
+            description: string;
+            /** Intended Model */
+            intended_model: string;
+            /**
+             * Origin
+             * @description Which library the prompt came from, and whether a save can reach it.
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /** Tags */
+            tags: string[];
+            /**
+             * Text
+             * @description Absent when the listing was asked for without text.
+             */
+            text?: string;
+            /**
+             * Text Chars
+             * @description The text's length, in place of `text`.
+             */
+            text_chars?: number;
+            /** Writable */
+            writable: boolean;
+        };
+        /** PromptList */
+        PromptList: {
+            /** Details */
+            details: {
+                [key: string]: components["schemas"]["PromptCard"];
+            };
+            /** Libraries */
+            libraries: components["schemas"]["LibraryRoot"][];
+            /** Prompts */
+            prompts: string[];
+            /** Shadowed */
+            shadowed: components["schemas"]["ShadowedEntry"][];
+        };
         /** PromptRequest */
         PromptRequest: {
             /**
@@ -2284,6 +2370,11 @@ export interface components {
             prompt: {
                 [key: string]: unknown;
             };
+        };
+        /** PromptSaved */
+        PromptSaved: {
+            /** Name */
+            name: string;
         };
         /** RequiredDownload */
         RequiredDownload: {
@@ -2402,6 +2493,21 @@ export interface components {
             /** Torch Version */
             torch_version: string | null;
         };
+        /** ShadowedEntry */
+        ShadowedEntry: {
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /**
+             * Shadowed By
+             * @enum {string}
+             */
+            shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
         /** UpdateDiffusersRequest */
         UpdateDiffusersRequest: {
             /**
@@ -2459,6 +2565,203 @@ export interface components {
             valid: boolean;
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * WorkflowCard
+         * @description One workflow's entry in the full listing (the agent's
+         *     `view=compact` answer is a different, smaller shape outside this
+         *     model).
+         */
+        WorkflowCard: {
+            /**
+             * Configures
+             * @description For a model config: the template it is a tuned instance of; '' for a template. Absent when the file could not be read.
+             */
+            configures?: string;
+            /**
+             * Configures Missing
+             * @description A `configures` that names no workflow.
+             */
+            configures_missing?: string;
+            /** Constraints */
+            constraints: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cost
+             * @description Measured runs, one per device the maintainer measured on. Null means unknown - never derived.
+             */
+            cost: components["schemas"]["WorkflowCost"][] | null;
+            /** Cost Drivers */
+            cost_drivers: {
+                [key: string]: unknown;
+            };
+            /** Description */
+            description: string;
+            /** Kinds */
+            kinds: string[];
+            /** Lists */
+            lists: {
+                [key: string]: unknown;
+            };
+            /**
+             * Observed
+             * @description This box's own history for it.
+             */
+            observed?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /** Prompt Refs */
+            prompt_refs: string[];
+            /**
+             * Shape
+             * @description What the workflow makes, derived by the server.
+             * @enum {string}
+             */
+            shape: "image" | "image-set" | "image-edit" | "shot" | "sequence" | "audio" | "text" | "utility";
+            /** Steps */
+            steps: number;
+            /**
+             * Summary
+             * @description The description's first sentence, clipped - what a card shows.
+             */
+            summary: string;
+            /**
+             * Traits
+             * @description Sorted, independent facts about how the output is made or what it needs.
+             */
+            traits: ("has-audio" | "chained" | "image-conditioned" | "identity-referenced" | "needs-input-media" | "composes-workflows")[];
+            /** Variable Names */
+            variable_names: string[];
+            /** Variables */
+            variables: number;
+            /**
+             * Writable
+             * @description False for a read-only source: offer save-a-copy, not delete.
+             */
+            writable: boolean;
+        };
+        /**
+         * WorkflowCost
+         * @description A measured run, as the workflow's own `cost` block declares it.
+         */
+        WorkflowCost: {
+            /** Device */
+            device: string;
+            /** Minutes */
+            minutes: number;
+            /** Name */
+            name?: string;
+            /** Vram Gb */
+            vram_gb: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** WorkflowDeleted */
+        WorkflowDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /** Workspace */
+            workspace: string;
+        };
+        /** WorkflowList */
+        WorkflowList: {
+            /** Cost Basis */
+            cost_basis: string;
+            /** Details */
+            details: {
+                [key: string]: components["schemas"]["WorkflowCard"];
+            };
+            /**
+             * Libraries
+             * @description The search path in order; the writable workspace root is where a save lands, whatever library a workflow was read from.
+             */
+            libraries: components["schemas"]["LibraryRoot"][];
+            /** Shadowed */
+            shadowed: components["schemas"]["ShadowedEntry"][];
+            /** Workflows */
+            workflows: string[];
+            /** Workspace */
+            workspace: string;
+        };
+        /** WorkflowSaved */
+        WorkflowSaved: {
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "image" | "image-set" | "image-edit" | "shot" | "sequence" | "audio" | "text" | "utility";
+            /** Summary */
+            summary: string;
+            /** Traits */
+            traits: ("has-audio" | "chained" | "image-conditioned" | "identity-referenced" | "needs-input-media" | "composes-workflows")[];
+            /** Warnings */
+            warnings: string[];
+            /** Workspace */
+            workspace: string;
+        };
+        /** WorkspaceDeleted */
+        WorkspaceDeleted: {
+            /**
+             * Contents
+             * @description What it held, per folder.
+             */
+            contents: {
+                [key: string]: components["schemas"]["DiskUsage"];
+            };
+            /** Deleted */
+            deleted: boolean;
+            /** Name */
+            name: string;
+        };
+        /** WorkspaceInfo */
+        WorkspaceInfo: {
+            /** Assets */
+            assets: string | null;
+            /** Common Assets */
+            common_assets: string | null;
+            /** Default */
+            default: boolean;
+            /** Name */
+            name: string;
+            /** Outputs */
+            outputs: string;
+            /** Prompts */
+            prompts: string | null;
+            /** Root */
+            root: string | null;
+            /** @description Roughly how much disk it holds; listings only. */
+            usage?: components["schemas"]["DiskUsage"];
+            /** Workflows */
+            workflows: string;
+        };
+        /** WorkspaceList */
+        WorkspaceList: {
+            /** Default */
+            default: string;
+            /** Workspace Root */
+            workspace_root: string | null;
+            /** Workspaces */
+            workspaces: components["schemas"]["WorkspaceInfo"][];
         };
         /** WorkspaceRequest */
         WorkspaceRequest: {
@@ -2725,7 +3028,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EnhancerPresets"];
                 };
             };
         };
@@ -3786,7 +4089,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PromptList"];
                 };
             };
             /** @description Validation Error */
@@ -3852,7 +4155,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PromptSaved"];
                 };
             };
             /** @description Validation Error */
@@ -3883,7 +4186,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Deleted"];
                 };
             };
             /** @description Validation Error */
@@ -4187,7 +4490,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkflowList"];
                 };
             };
             /** @description Validation Error */
@@ -4257,7 +4560,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkflowSaved"];
                 };
             };
             /** @description Validation Error */
@@ -4290,7 +4593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkflowDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -4329,7 +4632,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkflowSaved"];
                 };
             };
             /** @description Validation Error */
@@ -4425,7 +4728,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkspaceList"];
                 };
             };
         };
@@ -4449,7 +4752,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkspaceInfo"];
                 };
             };
             /** @description Validation Error */
@@ -4482,7 +4785,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WorkspaceDeleted"];
                 };
             };
             /** @description Validation Error */

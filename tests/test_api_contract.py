@@ -121,6 +121,17 @@ UI_READ_ROUTES = [
     ("post", "/api/jobs/{job_id}/cancel"),
     ("post", "/api/enhance"),
     ("post", "/api/validate"),
+    ("get", "/api/workspaces"),
+    ("post", "/api/workspaces"),
+    ("delete", "/api/workspaces/{name}"),
+    ("get", "/api/workflows"),
+    ("put", "/api/workflows/{name}"),
+    ("patch", "/api/workflows/{name}"),
+    ("delete", "/api/workflows/{name}"),
+    ("get", "/api/prompts"),
+    ("put", "/api/prompts/{name}"),
+    ("delete", "/api/prompts/{name}"),
+    ("get", "/api/enhancers"),
 ]
 
 
@@ -374,3 +385,31 @@ def test_the_app_is_lenient_only_outside_strict_mode():
 
     assert handled(strict=False) == "True"
     assert handled(strict=True) == "False"
+
+
+def test_library_listings_keep_their_keys(server, tmp_path):
+    (tmp_path / "workflows" / "Broken.json").write_text("{not json")
+    with server(success_script) as client:
+        spaces = client.get("/api/workspaces").json()
+        listing = client.get("/api/workflows").json()
+        compact = client.get("/api/workflows", params={"view": "compact"})
+        prompts = client.get("/api/prompts").json()
+        raw = client.get("/api/workflows/Basic")
+    assert set(spaces) == {"workspace_root", "default", "workspaces"}
+    assert set(listing) == {
+        "workspace",
+        "libraries",
+        "workflows",
+        "details",
+        "shadowed",
+        "cost_basis",
+    }
+    # an unreadable file still lists, with no `configures` key at all
+    assert "configures" not in listing["details"]["Broken"]
+    assert listing["details"]["Basic"]["configures"] == ""
+    assert type(listing["details"]["Basic"]["steps"]) is int
+    # the agent's compact view is outside the model, and unchanged
+    assert compact.status_code == 200
+    assert set(prompts) == {"libraries", "prompts", "details", "shadowed"}
+    # the raw GET is the file itself, verbatim (docs/ARCHITECTURE.md)
+    assert raw.json() == json.loads((tmp_path / "workflows" / "Basic.json").read_text())

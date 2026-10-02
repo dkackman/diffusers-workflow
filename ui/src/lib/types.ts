@@ -30,6 +30,22 @@ export type Plan = Schemas['Plan']
 export type PlanEstimate = Schemas['PlanEstimate']
 export type RequiredDownload = Schemas['RequiredDownload']
 export type ElidedStep = Schemas['ElidedStep']
+export type WorkflowCost = Schemas['WorkflowCost']
+export type LibraryRoot = Schemas['LibraryRoot']
+export type ShadowedEntry = Schemas['ShadowedEntry']
+export type PromptDetail = Schemas['PromptCard']
+export type EnhancerPreset = Schemas['EnhancerPreset']
+export type WorkflowCard = Schemas['WorkflowCard']
+export type WorkflowList = Schemas['WorkflowList']
+export type WorkflowSaved = Schemas['WorkflowSaved']
+export type PromptList = Schemas['PromptList']
+export type WorkspaceInfo = Schemas['WorkspaceInfo']
+export type WorkspaceList = Schemas['WorkspaceList']
+export type WorkspaceDeleted = Schemas['WorkspaceDeleted']
+export type Deleted = Schemas['Deleted']
+export type WorkflowDeleted = Schemas['WorkflowDeleted']
+export type PromptSaved = Schemas['PromptSaved']
+export type EnhancerPresets = Schemas['EnhancerPresets']
 
 export interface JobEvent {
   seq: number
@@ -72,15 +88,6 @@ export const WORKFLOW_TRAITS = [
 ] as const
 export type WorkflowTrait = (typeof WORKFLOW_TRAITS)[number]
 
-/** One measured run. `name` is the accelerator for a person ('RTX 4090')
- * and is optional - only `device`, `vram_gb` and `minutes` are required. */
-export interface WorkflowCost {
-  device: string
-  name?: string
-  vram_gb: number
-  minutes: number
-}
-
 export interface WorkflowDefinition {
   id: string
   variables?: Record<string, unknown>
@@ -120,25 +127,6 @@ export interface StoredPrompt {
   /** 'workspace' | 'examples'. */
   origin: string
   writable: boolean
-}
-
-export interface PromptDetail {
-  description: string
-  intended_model: string
-  tags: string[]
-  text: string
-  /** Which library the prompt came from, and whether a save can reach it. */
-  origin: LibraryRoot['origin']
-  writable: boolean
-}
-
-export interface EnhancerPreset {
-  key: string
-  label: string
-  default_model: string
-  models: string[]
-  intended_models: string[]
-  placeholder: string
 }
 
 export interface PipelineParameter {
@@ -195,26 +183,8 @@ export interface AssetFile {
   url: string
 }
 
-/** One root on a library's search path - the `libraries` field every
- * library listing (workflows, prompts, assets) carries, in search order,
- * with the origin and writability a client needs to explain why a delete can
- * reach one root and not another. */
-export interface LibraryRoot {
-  origin: 'workspace' | 'common' | 'examples' | 'builtin'
-  root: string
-  writable: boolean
-}
-
 export interface AssetLibrary extends LibraryRoot {
   origin: AssetFile['origin']
-}
-
-/** An entry a nearer library hides, as every listing's `shadowed` field
- * names it. */
-export interface ShadowedEntry {
-  name: string
-  origin: LibraryRoot['origin']
-  shadowed_by: LibraryRoot['origin']
 }
 
 /** An asset a nearer library hides: same shape as `AssetFile` except there

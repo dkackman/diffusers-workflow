@@ -21,6 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .admission import AcknowledgedCost
+from .catalog_shape import SHAPES, TRAITS
 
 STRICT = os.environ.get("DW_STRICT_RESPONSES") == "1"
 
@@ -467,3 +468,171 @@ class ValidationResult(ApiModel):
         "valid answer; null when the server could not build it, absent from an "
         "invalid answer.",
     )
+
+
+# ---------------------------------------------------------------- library
+
+Origin = Literal["workspace", "common", "examples", "builtin"]
+Shape = Literal[SHAPES]
+Trait = Literal[TRAITS]
+
+
+class LibraryRoot(ApiModel):
+    root: str
+    origin: Origin
+    writable: bool
+
+
+class ShadowedEntry(ApiModel):
+    name: str
+    origin: Origin
+    shadowed_by: Origin
+
+
+class DiskUsage(ApiModel):
+    files: int
+    bytes: int
+
+
+class WorkspaceInfo(ApiModel):
+    name: str
+    default: bool
+    root: str | None
+    workflows: str
+    assets: str | None
+    outputs: str
+    prompts: str | None
+    common_assets: str | None
+    usage: DiskUsage = sometimes("Roughly how much disk it holds; listings only.")
+
+
+class WorkspaceList(ApiModel):
+    workspace_root: str | None
+    default: str
+    workspaces: list[WorkspaceInfo]
+
+
+class WorkspaceDeleted(ApiModel):
+    name: str
+    deleted: bool
+    contents: dict[str, DiskUsage] = Field(description="What it held, per folder.")
+
+
+class WorkflowCost(ApiModel):
+    """A measured run, as the workflow's own `cost` block declares it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    device: str
+    name: str = sometimes()
+    vram_gb: int | float
+    minutes: int | float
+
+
+class WorkflowCard(ApiModel):
+    """One workflow's entry in the full listing (the agent's
+    `view=compact` answer is a different, smaller shape outside this
+    model)."""
+
+    kinds: list[str]
+    steps: int
+    variables: int
+    variable_names: list[str]
+    description: str
+    configures: str = sometimes(
+        "For a model config: the template it is a tuned instance of; '' for a "
+        "template. Absent when the file could not be read."
+    )
+    configures_missing: str = sometimes("A `configures` that names no workflow.")
+    prompt_refs: list[str]
+    shape: Shape = Field(description="What the workflow makes, derived by the server.")
+    traits: list[Trait] = Field(
+        description="Sorted, independent facts about how the output is made or what "
+        "it needs."
+    )
+    summary: str = Field(
+        description="The description's first sentence, clipped - what a card shows."
+    )
+    lists: dict[str, Any]
+    constraints: dict[str, Any]
+    cost_drivers: dict[str, Any]
+    cost: list[WorkflowCost] | None = Field(
+        description="Measured runs, one per device the maintainer measured on. Null "
+        "means unknown - never derived."
+    )
+    observed: dict[str, Any] = sometimes("This box's own history for it.")
+    origin: Origin
+    writable: bool = Field(
+        description="False for a read-only source: offer save-a-copy, not delete."
+    )
+
+
+class WorkflowList(ApiModel):
+    workspace: str
+    libraries: list[LibraryRoot] = Field(
+        description="The search path in order; the writable workspace root is where "
+        "a save lands, whatever library a workflow was read from."
+    )
+    workflows: list[str]
+    details: dict[str, WorkflowCard]
+    shadowed: list[ShadowedEntry]
+    cost_basis: str
+
+
+class WorkflowSaved(ApiModel):
+    name: str
+    workspace: str
+    origin: Origin
+    warnings: list[str]
+    shape: Shape
+    traits: list[Trait]
+    summary: str
+
+
+class WorkflowDeleted(ApiModel):
+    name: str
+    workspace: str
+    origin: Origin
+    deleted: bool
+
+
+class PromptCard(ApiModel):
+    description: str
+    intended_model: str
+    tags: list[str]
+    text: str = sometimes("Absent when the listing was asked for without text.")
+    text_chars: int = sometimes("The text's length, in place of `text`.")
+    origin: Origin = Field(
+        description="Which library the prompt came from, and whether a save can "
+        "reach it."
+    )
+    writable: bool
+
+
+class PromptList(ApiModel):
+    libraries: list[LibraryRoot]
+    prompts: list[str]
+    details: dict[str, PromptCard]
+    shadowed: list[ShadowedEntry]
+
+
+class PromptSaved(ApiModel):
+    name: str
+
+
+class Deleted(ApiModel):
+    name: str
+    deleted: bool
+
+
+class EnhancerPreset(ApiModel):
+    key: str
+    label: str
+    default_model: str
+    models: list[str]
+    intended_models: list[str]
+    placeholder: str
+
+
+class EnhancerPresets(ApiModel):
+    presets: list[EnhancerPreset]
