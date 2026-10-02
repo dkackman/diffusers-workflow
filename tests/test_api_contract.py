@@ -454,6 +454,19 @@ def test_library_listings_keep_their_keys(server, tmp_path):
         prompts = client.get("/api/prompts").json()
         raw = client.get("/api/workflows/Basic")
     assert set(spaces) == {"workspace_root", "default", "workspaces"}
+    # a listing reports each workspace's disk usage; the single-workspace
+    # answers do not (usage is sometimes())
+    assert set(spaces["workspaces"][0]) == {
+        "name",
+        "default",
+        "root",
+        "workflows",
+        "assets",
+        "outputs",
+        "prompts",
+        "common_assets",
+        "usage",
+    }
     assert set(listing) == {
         "workspace",
         "libraries",
@@ -509,8 +522,54 @@ def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
         "media",
         "findings",
     }
-    assert metadata["job"] is None
-    assert {"workspace", "libraries", "assets", "folders", "shadowed"} <= set(assets)
+    assert metadata["job"] is None and metadata["findings"] == []
+    assert set(assets) == {"workspace", "libraries", "assets", "folders", "shadowed"}
+
+
+def test_asset_and_prompt_entries_keep_their_keys(tmp_path):
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from tests.test_server import ScriptedWorkerManager
+
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "iris.png").write_bytes(b"workspace png")
+    examples = tmp_path / "examples"
+    (examples / "assets").mkdir(parents=True)
+    (examples / "assets" / "iris.png").write_bytes(b"examples png")
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(workflows),
+    )
+    app = create_app(
+        workflow_dir=str(workflows),
+        output_dir=str(tmp_path / "outputs"),
+        prompt_dir=str(tmp_path / "prompts"),
+        job_manager=manager,
+        asset_dir=str(assets),
+        examples_dirs=[str(examples)],
+    )
+    prompt = {"text": "a fox", "description": "d", "intended_model": "m", "tags": []}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert (
+            client.put("/api/prompts/Fox", json={"prompt": prompt}).status_code == 200
+        )
+        listing = client.get("/api/assets").json()
+        full = client.get("/api/prompts").json()["details"]["Fox"]
+        slim = client.get("/api/prompts", params={"include_text": False}).json()
+    [asset] = listing["assets"]
+    [hidden] = listing["shadowed"]
+    common = {"name", "reference", "folder", "kind", "size", "mtime", "origin"}
+    # a local client gets no absolute_url; a shadowed copy has no url at all
+    assert set(asset) == common | {"writable", "url"}
+    assert set(hidden) == common | {"writable", "shadowed_by"}
+    card = {"description", "intended_model", "tags", "origin", "writable"}
+    assert set(full) == card | {"text"}
+    assert set(slim["details"]["Fox"]) == card | {"text_chars"}
 
 
 def test_a_parameter_with_no_default_says_so_with_null(server):
