@@ -16,7 +16,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 | 0 | UI ratchet and baseline; the gate reports count `.svelte`; fix the five rules the UI and the engine disagree on today (U1-U5) | `ui/scripts/arch-metrics.mjs --check` runs in CI and preflight against a committed baseline; U1-U5 fixed, each with a test that failed first; tagged `ui-stabilization-gate-0` | [phase-0.md](phase-0.md) | done 2026-10-01 (`ui-stabilization-gate-0`) |
 | 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server takes over what `dw_mcp` computes client-side (its stage 2), then `dw_mcp` consolidates (stage 3) | `prefix_literals` 0; every UI and `dw_mcp` copy of an engine rule is either gone or pinned by a test, and has a seam-map row | [phase-1.md](phase-1.md) (staged: 1a-1c) | done 2026-10-01 (`ui-stabilization-gate-1`) |
 | 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | [phase-2.md](phase-2.md) | done 2026-10-02 (`ui-stabilization-gate-2`); freeze lifted |
-| 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | [phase-3.md](phase-3.md) | not started |
+| 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | [phase-3.md](phase-3.md) | done 2026-10-02 (`ui-stabilization-gate-3`) |
 | 4 | Contract and guardrails: response models on the routes the UI reads, generated TS types, e2e on PRs into develop, the harness ratchets the UI, `ui/CLAUDE.md` triaged | A server response change that breaks the UI fails CI; the harness refuses a UI ratchet rise without `arch-approved` | written at gate 3 | |
 
 ## Decisions
@@ -295,6 +295,55 @@ lem smoke, `c3c0cd57` deployed, headless Chromium:
 | `modules_in_import_cycles` | 2 | 2 | 2 | 2 |
 | `prefix_literals` | 29 | 15 | 0 | 0 |
 | `a11y_suppressions` | 7 | 7 | 7 | 3 |
+
+### Gate 3 (2026-10-02, develop 329b7d0a)
+
+Gate criteria:
+- **`files_over_size_ceiling` 0:** met (was 7). The largest file is now `ModelsPage.svelte` at 597 lines; `EditorPage` is 456, down from 1,077.
+- **`import_cycles` 0:** met. `api.ts`'s cycle is broken by `apiUrls.ts` and `workspaceState.svelte.ts`.
+- **`long_functions` 0:** met (was 2).
+- **Suite, e2e and a lem UI smoke green:** met.
+
+What moved:
+- **One editor shell.** `DocumentEditor` (`editorShell.svelte.ts`) holds the document, its baseline and dirty flag, the JSON draft, the remembered view, the save path and the one tab-close guard. Both `EditorPage` and `PromptEditorPage` build on it, with `ViewSwitch`, `FolderPicker` and `EditorBody`.
+- **`JobPage` split by job.** `JobHeader`, `JobProgress` and `JobResults` sit under `lib/job/`. `JobResults` is keyed on `job.id`, so a late metadata reply from the previous job lands on a destroyed instance.
+- **The editors' parts are components.** `StepList`, `StepModes`, `ValidationPanel` and `WorkflowFileBar` serve the workflow editor; `Enhancer` and `EnhancePanel` serve the prompt editor; `PipelineOptions` and `StepDigestList` serve `StepEditor`. The gallery detail and three asset components moved too.
+- **One polling helper** (`poll.ts`), and **shared layout styles** (`.pagehead`, `.withicon` and others in `app.css`).
+- **Seam-map rows** in `docs/ARCHITECTURE.md` for the editors' document, UI polling and workspace state in the UI.
+
+Suite results:
+- pytest: 7,784 passed (`DW_DEVICE=cpu`).
+- Integration: 5 passed, on MPS.
+- vitest: 468 passed. 44 of them are new, pinning the shell, the enhancer, step modes and the split pages.
+- Playwright e2e: 109 passed.
+- Both ratchets: clean.
+
+The final whole-branch review found no behaviour regression in job switching, the enhancer download, the step list, the leave-page guard or workspace scoping. One Important finding, a GalleryPage test that asserted before its second listing landed and failed about two full runs in five, was fixed in `5ea428bf`. Preflight also caught the default-workspace twin pin reading the file the constant had left (`0a0666e5`).
+
+Minor findings are deferred:
+- A late `refresh()` on the job page can bring back the previous job after a navigation. This predates the phase.
+- No test that the enhancer download stops when the page unmounts, and no page-level leave-page test on `EditorPage`.
+- `PipelineOptions` re-runs its scheduler lookup when a step goes compact and back to full.
+
+lem smoke, `329b7d0a` deployed, headless Chromium:
+- A job page shows its header, Run again and its media. Switching to another job replaces the header and results, with none of the first job's left behind.
+- The workflow editor's four views switch. Adding a step marks the document unsaved, and the JSON view shows it in Monaco.
+- The prompt editor opens a stored prompt under its name. The enhancer panel shows its model, device and Generate controls, and comes back after a switch to the JSON view and back.
+- The gallery's detail plays a video. The assets detail shows its delete control.
+- Idle on the overview, the UI makes 4 API calls in 12 seconds, to `/api/health` and `/api/memory` only.
+- No page errors.
+
+#### Ratchets
+
+| Ratchet | Before Phase 0 | Gate 0 | Gate 1 | Gate 2 | Gate 3 |
+| --- | --- | --- | --- | --- | --- |
+| `files_over_size_ceiling` | 7 | 7 | 7 | 7 | 0 |
+| `complex_functions` | 14 | 14 | 14 | 13 | 12 |
+| `long_functions` | 2 | 2 | 2 | 2 | 0 |
+| `import_cycles` | 1 | 1 | 1 | 1 | 0 |
+| `modules_in_import_cycles` | 2 | 2 | 2 | 2 | 0 |
+| `prefix_literals` | 29 | 15 | 0 | 0 | 0 |
+| `a11y_suppressions` | 7 | 7 | 7 | 3 | 3 |
 
 ## Working rules for the duration
 
