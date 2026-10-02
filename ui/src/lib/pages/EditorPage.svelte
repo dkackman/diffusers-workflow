@@ -1,6 +1,9 @@
 <script lang="ts">
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
-  import { isNameSegment } from '../names'
+  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
+  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import FolderPicker from '../editor/FolderPicker.svelte'
+  import EditorBody from '../editor/EditorBody.svelte'
   import {
     ChevronUp,
     CircleCheck,
@@ -35,18 +38,21 @@
   import { storageGet, storageSet } from '../storage'
   import { describePlan } from '../plan'
   import StepEditor from '../editor/StepEditor.svelte'
-  import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
-  let workflow = $state<Record<string, any>>(emptyWorkflow())
-  let saveName = $state('')
+  const ed = new DocumentEditor({
+    viewKey: 'dw-editor-view',
+    views: ['form', 'split', 'json', 'flow'],
+    // migrate the old boolean split preference
+    legacyView: () =>
+      localStorage.getItem('dw-editor-split') === '1' ? 'split' : null,
+  })
+  ed.doc = emptyWorkflow()
   let workflowDir = $state('')
-  let folder = $state('')
-  let newFolder = $state('')
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
@@ -64,7 +70,7 @@
     storageSet(modesKey, $state.snapshot(stepModes))
   }
   function setAllModes(mode: StepMode) {
-    for (const step of workflow.steps ?? []) stepModes[step.name] = mode
+    for (const step of ed.doc.steps ?? []) stepModes[step.name] = mode
     storageSet(modesKey, $state.snapshot(stepModes))
   }
 
@@ -74,52 +80,33 @@
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
-  type EditorView = 'form' | 'split' | 'json' | 'flow'
-  let view = $state<EditorView>(
-    (() => {
-      try {
-        const stored = localStorage.getItem('dw-editor-view')
-        if (
-          stored === 'form' ||
-          stored === 'split' ||
-          stored === 'json' ||
-          stored === 'flow'
-        )
-          return stored
-        // migrate the old boolean split preference
-        return localStorage.getItem('dw-editor-split') === '1'
-          ? 'split'
-          : 'form'
-      } catch {
-        return 'form'
-      }
-    })(),
-  )
-
-  function setView(next: EditorView) {
-    view = next
-    try {
-      localStorage.setItem('dw-editor-view', next)
-    } catch {
-      /* session only */
-    }
-  }
-
-  let jsonDraft = $state('')
-  let jsonParseFailed = $state(false)
-
-  // Mirror the workflow into the JSON surfaces. A failed parse pins the
-  // raw text so the user's broken edit isn't regenerated out from under
-  // them before they can fix it.
-  $effect(() => {
-    const pretty = JSON.stringify($state.snapshot(workflow), null, 2)
-    if (!jsonParseFailed) jsonDraft = pretty
-  })
-  let busy = $state(false)
-  let baseline = $state('')
-
-  const serialized = $derived(JSON.stringify($state.snapshot(workflow)))
-  const dirty = $derived(baseline !== '' && serialized !== baseline)
+  const VIEWS = [
+    {
+      view: 'form',
+      label: 'form',
+      title: 'edit with introspection-driven forms',
+      icon: LayoutList,
+    },
+    {
+      view: 'split',
+      label: 'split',
+      title: 'form beside the JSON - both editable, blur applies',
+      icon: Columns2,
+    },
+    {
+      view: 'json',
+      label: 'JSON',
+      title: 'edit the raw JSON, schema-aware',
+      icon: Braces,
+    },
+    {
+      view: 'flow',
+      label: 'flow',
+      title:
+        'read-only data-flow diagram: steps as boxes, previous_result as edges',
+      icon: Workflow,
+    },
+  ] as const
 
   // Crumbs back out of the editor. The read-only page is where an edit
   // usually starts, and until now the only exit landed on the list - so
@@ -136,7 +123,7 @@
   // confirm is async, so the default navigation is always prevented first
   // and replayed by hand once the answer comes back.
   async function confirmLeave(event: MouseEvent) {
-    if (!dirty) return
+    if (!ed.dirty) return
     event.preventDefault()
     const target = (event.currentTarget as HTMLAnchorElement).href
     if (await confirmDialog('Discard unsaved changes?')) {
@@ -145,18 +132,18 @@
   }
 
   const savePreview = $derived.by(() => {
-    const directory = folder === '__new__' ? newFolder.trim() : folder
-    const file = saveName || 'unnamed'
+    const directory = ed.directory()
+    const file = ed.saveName || 'unnamed'
     return `${workflowDir}/${directory ? directory + '/' : ''}${file}.json`
   })
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays
   // undefined until the listing lands, so a missing library must not flag
   // every prompt: reference as dangling
-  const flow = $derived(flowGraph($state.snapshot(workflow)))
+  const flow = $derived(flowGraph($state.snapshot(ed.doc)))
   const problemsByStep = $derived.by(() => {
     const details = danglingReferenceDetails(
-      $state.snapshot(workflow),
+      $state.snapshot(ed.doc),
       promptLibrary.names,
     )
     const grouped: Record<number, string[]> = {}
@@ -174,7 +161,7 @@
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
-    const snapshot = $state.snapshot(workflow)
+    const snapshot = $state.snapshot(ed.doc)
     return ((snapshot.steps as unknown[]) ?? []).map((_, index) =>
       referenceSuggestions(snapshot, index, promptLibrary.names ?? []),
     )
@@ -189,58 +176,32 @@
     loadPromptLibrary()
     validation = null
     if (name) {
-      saveName = leafOf(name)
-      folder = groupOf(name)
+      ed.saveName = leafOf(name)
+      ed.folder = groupOf(name)
       fileOpen = false
       api
         .getWorkflow(name)
         .then((fetched) => {
-          workflow = fetched.definition as WorkflowDefinition
-          baseline = JSON.stringify(fetched.definition)
+          ed.load(fetched.definition as WorkflowDefinition)
           stepModes = storageGet(modesKey, {})
         })
         .catch((e) => notify.error(e.message))
     } else {
       // A gallery "open as workflow" hands the definition over in
       // sessionStorage - one-shot, so a plain "New" stays a blank slate
-      folder = sessionStorage.getItem('dw-editor-folder') ?? ''
-      sessionStorage.removeItem('dw-editor-folder')
-      const imported = sessionStorage.getItem('dw-editor-import')
+      const imported = ed.takeImport('dw-editor-import', 'dw-editor-folder')
       // Built as a plain local object and assigned once: reading the
       // workflow proxy here would subscribe this effect to every edit and
       // re-fire all the listing calls on each keystroke
-      let fresh = emptyWorkflow() as Record<string, any>
-      let didImport = false
-      if (imported) {
-        sessionStorage.removeItem('dw-editor-import')
-        try {
-          fresh = JSON.parse(imported)
-          notify.success('Imported from image metadata')
-          didImport = true
-        } catch {
-          /* unreadable hand-off - stay with the blank slate */
-        }
-      }
-      workflow = fresh
-      baseline = JSON.stringify(fresh)
-      saveName = ''
+      const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
+      if (imported) notify.success('Imported from image metadata')
+      ed.load(fresh)
+      ed.saveName = ''
       // A new workflow has nowhere to save to yet - show the fields
       fileOpen = true
-      stepModes = didImport
+      stepModes = imported
         ? storageGet(modesKey, {})
         : { [fresh.steps[0].name]: 'full' }
-    }
-  })
-
-  // Unsaved edits should survive an accidental tab close. dirty is read
-  // inside the handler only, so the listener registers exactly once
-  $effect(() => {
-    const guard = (event: BeforeUnloadEvent) => {
-      if (dirty) event.preventDefault()
-    }
-    window.addEventListener('beforeunload', guard)
-    return () => {
-      window.removeEventListener('beforeunload', guard)
     }
   })
 
@@ -265,71 +226,61 @@
     // Step mode and flow-graph edges are keyed by name - two steps sharing
     // the factory default (e.g. 'generate') would collide in stepModes
     const existingNames = new Set(
-      (workflow.steps ?? []).map((s: Record<string, any>) => s.name),
+      (ed.doc.steps ?? []).map((s: Record<string, any>) => s.name),
     )
     if (existingNames.has(step.name)) {
       let n = 2
       while (existingNames.has(`${step.name}-${n}`)) n++
       step.name = `${step.name}-${n}`
     }
-    workflow.steps = [...(workflow.steps ?? []), step]
+    ed.doc.steps = [...(ed.doc.steps ?? []), step]
     stepModes[step.name] = 'full'
   }
 
   function removeStep(index: number) {
-    workflow.steps.splice(index, 1)
+    ed.doc.steps.splice(index, 1)
   }
 
   function moveStep(index: number, delta: number) {
-    const steps = workflow.steps
+    const steps = ed.doc.steps
     const target = index + delta
     if (target < 0 || target >= steps.length) return
     ;[steps[index], steps[target]] = [steps[target], steps[index]]
   }
 
   async function validate(): Promise<boolean> {
-    busy = true
+    ed.busy = true
     try {
       validation = await api.validate(
-        $state.snapshot(workflow) as WorkflowDefinition,
+        $state.snapshot(ed.doc) as WorkflowDefinition,
       )
       return validation.valid
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
       return false
     } finally {
-      busy = false
+      ed.busy = false
     }
   }
 
-  function savePath(): string | null {
-    if (!saveName) return null
-    const directory = folder === '__new__' ? newFolder.trim() : folder
-    if (folder === '__new__' && !isNameSegment(directory)) return null
-    return directory ? `${directory}/${saveName}` : saveName
-  }
-
   async function save() {
-    const path = savePath()
+    const path = ed.savePath()
     if (!path) {
-      if (!saveName) notify.error('Give the workflow a file name first')
-      else if (!newFolder.trim()) notify.error('Name the new folder first')
+      if (!ed.saveName) notify.error('Give the workflow a file name first')
+      else if (!ed.directory()) notify.error('Name the new folder first')
       else notify.error('Folder names: letters, numbers, dot, dash, underscore')
       // The message names a field the user cannot see while collapsed
       fileOpen = true
       return
     }
     if (!(await validate())) return
-    busy = true
+    ed.busy = true
     try {
       await api.saveWorkflow(
         path,
-        $state.snapshot(workflow) as WorkflowDefinition,
+        $state.snapshot(ed.doc) as WorkflowDefinition,
       )
-      if (folder === '__new__') {
-        folder = newFolder.trim()
-        newFolder = ''
-      }
+      ed.commitNewFolder()
       // The folder picker's options come from the listing - a folder this
       // save just created must appear there, or the select falls back to
       // "(root)" while the state still names the folder
@@ -339,31 +290,32 @@
           `${path}.json`,
         ]
       }
-      baseline = JSON.stringify($state.snapshot(workflow))
+      ed.markSaved()
       notify.success(`Saved to ${path}`)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
-      busy = false
+      ed.busy = false
     }
   }
 
   async function run() {
     if (!(await validate())) return
-    busy = true
+    ed.busy = true
     try {
       // base_dir anchors relative paths (images, sub-workflow files) the
       // way running the saved file would - at the workflow's own folder
-      const directory = folder && folder !== '__new__' ? `/${folder}` : ''
+      const directory =
+        ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
       const job = await api.submitJob({
-        workflow: $state.snapshot(workflow) as WorkflowDefinition,
+        workflow: $state.snapshot(ed.doc) as WorkflowDefinition,
         base_dir: `${workflowDir}${directory}`,
       })
       goWs('jobs', job.id)
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
-      busy = false
+      ed.busy = false
     }
   }
 
@@ -372,7 +324,7 @@
   // rail chips already use on hover - a reasonable cross-reference without
   // teaching the flow view anything about editing.
   function focusStep(stepName: string) {
-    setView('form')
+    ed.setView('form')
     hovered = stepName
     requestAnimationFrame(() => {
       document
@@ -382,18 +334,6 @@
     setTimeout(() => {
       if (hovered === stepName) hovered = null
     }, 2000)
-  }
-
-  function applyJson(raw: string) {
-    jsonDraft = raw
-    try {
-      workflow = JSON.parse(raw)
-      jsonParseFailed = false
-      notify.dismiss('json-parse')
-    } catch (e) {
-      jsonParseFailed = true
-      notify.error(`JSON: ${e instanceof Error ? e.message : e}`, 'json-parse')
-    }
   }
 </script>
 
@@ -422,66 +362,37 @@
     <span class="wfidlabel">id</span>
     <input
       class="wfid"
-      bind:value={workflow.id}
+      bind:value={ed.doc.id}
       placeholder="workflow id"
       aria-label="workflow id"
       title="the workflow's id - how it names itself, independent of the file name"
     />
   </label>
-  {#if dirty}
+  {#if ed.dirty}
     <span
       class="chip unsaved"
       title="this definition differs from the last save">unsaved</span
     >
   {/if}
   <span class="flex"></span>
-  <div class="viewswitch" role="group" aria-label="editor view">
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'form'}
-      onclick={() => setView('form')}
-      title="edit with introspection-driven forms"
-    >
-      <LayoutList size={14} />form
-    </button>
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'split'}
-      onclick={() => setView('split')}
-      title="form beside the JSON - both editable, blur applies"
-    >
-      <Columns2 size={14} />split
-    </button>
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'json'}
-      onclick={() => setView('json')}
-      title="edit the raw JSON, schema-aware"
-    >
-      <Braces size={14} />JSON
-    </button>
-    <button
-      class="quiet withicon"
-      class:activebtn={view === 'flow'}
-      onclick={() => setView('flow')}
-      title="read-only data-flow diagram: steps as boxes, previous_result as edges"
-    >
-      <Workflow size={14} />flow
-    </button>
-  </div>
+  <ViewSwitch
+    view={ed.view}
+    options={[...VIEWS]}
+    onselect={(view) => ed.setView(view)}
+  />
   <button
     class="quiet withicon"
     onclick={validate}
-    disabled={busy}
+    disabled={ed.busy}
     title="check against the schema and real pipeline signatures, without running"
   >
     <CircleCheck size={14} />Validate
   </button>
   <button
     class="quiet withicon"
-    class:dirtybtn={dirty}
+    class:dirtybtn={ed.dirty}
     onclick={save}
-    disabled={busy}
+    disabled={ed.busy}
     title="validate, then write to the workflow directory under the name below (Ctrl+S)"
   >
     <Save size={14} />Save
@@ -489,7 +400,7 @@
   <button
     class="withicon"
     onclick={run}
-    disabled={busy}
+    disabled={ed.busy}
     title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
   >
     <Play size={14} />Run
@@ -501,26 +412,13 @@
     <div class="filegrid">
       <label for="wf-folder">folder</label>
       <div class="folderrow">
-        <select
+        <FolderPicker
           id="wf-folder"
-          class="folderpick"
-          bind:value={folder}
-          title="folder to save into"
-        >
-          <option value="">(root)</option>
-          {#each folders as existing (existing)}<option value={existing}
-              >{existing}/</option
-            >{/each}
-          <option value="__new__">new folder…</option>
-        </select>
-        {#if folder === '__new__'}
-          <input
-            class="newfolder"
-            bind:value={newFolder}
-            placeholder="folder name"
-            title="name for the new folder at the root of the workflow directory"
-          />
-        {/if}
+          bind:folder={ed.folder}
+          bind:newFolder={ed.newFolder}
+          {folders}
+          newFolderTitle="name for the new folder at the root of the workflow directory"
+        />
       </div>
 
       <label for="wf-savename">file name</label>
@@ -528,7 +426,7 @@
         <input
           id="wf-savename"
           class="savename"
-          bind:value={saveName}
+          bind:value={ed.saveName}
           placeholder="MyWorkflow"
         />
         <span class="muted">.json</span>
@@ -538,13 +436,13 @@
       <input
         id="wf-description"
         spellcheck="true"
-        value={workflow.description ?? ''}
+        value={ed.doc.description ?? ''}
         placeholder="shown on the workflow card"
         title="a short description of what this workflow does"
         onchange={(e) => {
           const v = e.currentTarget.value
-          if (v) workflow.description = v
-          else delete workflow.description
+          if (v) ed.doc.description = v
+          else delete ed.doc.description
         }}
       />
     </div>
@@ -553,7 +451,7 @@
       <button
         class="quiet withicon"
         onclick={() => (fileOpen = false)}
-        disabled={!saveName}
+        disabled={!ed.saveName}
         title="collapse the file settings"
       >
         <ChevronUp size={14} />done
@@ -569,8 +467,8 @@
     >
       <FileCog size={14} /><span class="path">{savePreview}</span>
     </button>
-    {#if workflow.description}
-      <span class="muted desc">{workflow.description}</span>
+    {#if ed.doc.description}
+      <span class="muted desc">{ed.doc.description}</span>
     {/if}
   </div>
 {/if}
@@ -622,27 +520,27 @@
   </div>
 {/if}
 
-{#if view === 'json'}
-  <JsonEditor value={jsonDraft} onchange={applyJson} height="560px" />
-  <p class="muted hint">
-    Schema-aware: completion, hover docs and validation come from the workflow
-    schema. Changes apply when the editor loses focus.
-  </p>
-{:else if view === 'flow'}
-  <FlowView workflow={$state.snapshot(workflow)} onselect={focusStep} />
+{#if ed.view === 'flow'}
+  <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
 {:else}
-  <div class="editwrap" class:splitcols={view === 'split'}>
-    <div class="formcol">
+  <EditorBody
+    view={ed.view}
+    jsonDraft={ed.jsonDraft}
+    onjson={(raw) => ed.applyJson(raw)}
+    hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply when the editor loses focus."
+    stickyTop="136px"
+  >
+    {#snippet form()}
       <div class="panel">
         <h2>Variables</h2>
         <VariablesForm
           mode="define"
-          bind:variables={workflow.variables}
+          bind:variables={ed.doc.variables}
           idPrefix="wfvar-"
         />
       </div>
 
-      {#if (workflow.steps ?? []).length > 1}
+      {#if (ed.doc.steps ?? []).length > 1}
         <div class="densityrow">
           <span class="muted">steps</span>
           <span class="flex"></span>
@@ -659,7 +557,7 @@
       {/if}
 
       <div class="steps">
-        {#each workflow.steps ?? [] as step, index (step)}
+        {#each ed.doc.steps ?? [] as step, index (step)}
           <div
             id={'step-' + step.name}
             class="steprow"
@@ -668,16 +566,16 @@
             <div class="railcell">
               <span
                 class="ordinal"
-                title={`step ${index + 1} of ${workflow.steps.length}`}
+                title={`step ${index + 1} of ${ed.doc.steps.length}`}
                 >{index + 1}</span
               >
             </div>
             <StepEditor
-              bind:step={workflow.steps[index]}
+              bind:step={ed.doc.steps[index]}
               {index}
-              count={workflow.steps.length}
+              count={ed.doc.steps.length}
               references={stepReferences[index] ?? []}
-              baseFolder={folder === '__new__' ? '' : folder}
+              baseFolder={ed.folder === NEW_FOLDER ? '' : ed.folder}
               mode={modeOf(step)}
               flow={flow[index]}
               problems={problemsByStep.get(index) ?? []}
@@ -713,17 +611,8 @@
           <Plus size={14} />sub-workflow step
         </button>
       </div>
-    </div>
-    {#if view === 'split'}
-      <div class="jsoncol">
-        <JsonEditor
-          value={jsonDraft}
-          onchange={applyJson}
-          height="calc(100vh - 200px)"
-        />
-      </div>
-    {/if}
-  </div>
+    {/snippet}
+  </EditorBody>
 {/if}
 
 <style>
@@ -785,11 +674,6 @@
   .chip.unsaved {
     background: color-mix(in srgb, var(--warn) 22%, transparent);
     color: var(--warn);
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
   .savebar {
     display: flex;
@@ -865,12 +749,6 @@
   .savename {
     max-width: 200px;
   }
-  .folderpick {
-    max-width: 160px;
-  }
-  .newfolder {
-    max-width: 140px;
-  }
   .panel {
     margin-bottom: 1rem;
   }
@@ -888,46 +766,6 @@
   .densityrow button {
     font-size: 0.75rem;
     padding: 0.2rem 0.55rem;
-  }
-  .editwrap.splitcols {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
-    gap: 1.1rem;
-    align-items: start;
-  }
-  /* Clears the app header plus the editor's own sticky toolbar */
-  .jsoncol {
-    position: sticky;
-    top: 136px;
-  }
-  @media (max-width: 1100px) {
-    .editwrap.splitcols {
-      grid-template-columns: 1fr;
-    }
-    .jsoncol {
-      position: static;
-    }
-  }
-  .viewswitch {
-    display: inline-flex;
-  }
-  .viewswitch button {
-    border-radius: 0;
-  }
-  .viewswitch button:first-child {
-    border-radius: 6px 0 0 6px;
-  }
-  .viewswitch button:last-child {
-    border-radius: 0 6px 6px 0;
-  }
-  .viewswitch button + button {
-    margin-left: -1px;
-  }
-  .activebtn {
-    border-color: var(--accent);
-    color: var(--accent);
-    position: relative;
-    z-index: 1;
   }
   .validation {
     position: relative;
@@ -1018,8 +856,5 @@
   }
   .plan .warn {
     display: inline;
-  }
-  .hint {
-    font-size: 0.8rem;
   }
 </style>

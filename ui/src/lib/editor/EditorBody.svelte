@@ -4,7 +4,7 @@
   import type { EditorView } from '../editorShell.svelte'
 
   // The editor's body for the view picked: the JSON alone, the form alone,
-  // or the two side by side - and, for an editor that has one, the flow
+  // or the two side by side
   let {
     view,
     jsonDraft,
@@ -13,7 +13,6 @@
     hint,
     stickyTop,
     form,
-    flow = undefined,
   }: {
     view: EditorView
     jsonDraft: string
@@ -24,15 +23,12 @@
     // below the editor's own toolbar when it has a sticky one
     stickyTop: string
     form: Snippet
-    flow?: Snippet
   } = $props()
 </script>
 
 {#if view === 'json'}
   <JsonEditor value={jsonDraft} onchange={onjson} height="560px" {schema} />
   <p class="muted hint">{hint}</p>
-{:else if view === 'flow' && flow}
-  {@render flow()}
 {:else}
   <div class="editwrap" class:splitcols={view === 'split'}>
     <div class="formcol">
