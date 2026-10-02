@@ -207,3 +207,33 @@ def test_an_image_under_the_limit_is_still_served(tmp_path):
     result = get_output_image(_serving(buffer.getvalue()), "ok.png", crop=[0, 0, 8, 8])
     assert result["original_size"] == [640, 480]
     assert result["crop"] == [0, 0, 8, 8]
+
+
+class TestGalleryImage:
+    """The gallery's image route decodes a whole image a caller names, so
+    it refuses a bomb before the pixels, as the thumbnail does."""
+
+    def test_a_bomb_over_pillows_limit_is_refused_before_decode(self, gallery, decodes):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*OVER_PILLOWS_ERROR))
+        with client:
+            assert client.get("/api/gallery/bomb.png/image").status_code == 413
+        assert decodes == []
+
+    def test_a_bomb_under_pillows_limit_is_refused_before_decode(
+        self, gallery, decodes
+    ):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
+        with client:
+            answer = client.get("/api/gallery/bomb.png/image")
+        assert answer.status_code == 413
+        assert "12000x12000" in answer.text
+        assert decodes == []
+
+    def test_a_crop_does_not_decode_the_whole_bomb(self, gallery, decodes):
+        client, outputs = gallery
+        (outputs / "bomb.png").write_bytes(bomb_png(*UNDER_PILLOWS_ERROR))
+        with client:
+            client.get("/api/gallery/bomb.png/image", params={"crop": "0,0,8,8"})
+        assert decodes == []

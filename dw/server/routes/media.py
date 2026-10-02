@@ -10,7 +10,7 @@ import base64
 import io
 import mimetypes
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -39,7 +39,12 @@ from ...workspace import Workspace
 from ..assess import assess, level_findings, unknown_probe
 from ..deps import selected_workspace
 from ..http_security import query_token_ok
-from ..inline_media import fit_longest, png_bytes
+from ..inline_media import (
+    encode_within_budget,
+    fit_longest,
+    open_bounded,
+    png_bytes,
+)
 from ..outputs import (
     MEDIA_KINDS,
     asset_file,
@@ -492,6 +497,72 @@ def _encoded_tile(tile, image):
         }
     )
     return encoded
+
+
+@router.get("/api/gallery/{name:path}/image")
+@query_token_ok
+def gallery_image(
+    request: Request,
+    name: str,
+    max_dimension: int = 768,
+    crop: Optional[str] = None,
+    max_bytes: Optional[int] = None,
+    format: Literal["auto", "png", "jpeg"] = "auto",
+    ws: Workspace = Depends(selected_workspace),
+):
+    """An image output or asset sized for an inline answer: `crop`
+    (`x,y,width,height` in the image's own pixels, clamped to it) first,
+    then fitted to `max_dimension` on its longest side, then - with
+    `max_bytes`, a budget on the base64 size - halved until it fits. The
+    format follows the source (JPEG stays JPEG, anything else is PNG)
+    unless `format` names one. Headers say what came back:
+    X-DW-Original-Size, X-DW-Returned-Size, and when they apply
+    X-DW-Crop and X-DW-Downscaled-To (the budget shrank it)."""
+    state = request.app.state
+    name = strip_output_prefix(name)
+    if is_asset_reference(name):
+        path = asset_file(state, name, ws)
+    else:
+        path = resolve_output_file(state, name, ws.outputs)
+    if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "image":
+        raise HTTPException(status_code=404, detail=f"{name} is not an image")
+    image = open_bounded(path, name)
+    original = image.size
+    headers = {"X-DW-Original-Size": f"{original[0]},{original[1]}"}
+    if crop:
+        try:
+            box = resolve_crop_box([c.strip() for c in crop.split(",")], *original)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        image = image.crop(box)
+        headers["X-DW-Crop"] = _crop_header(box)
+    fmt = (
+        format.upper()
+        if format != "auto"
+        else (
+            "JPEG"
+            if image.format == "JPEG" or path.lower().endswith((".jpg", ".jpeg"))
+            else "PNG"
+        )
+    )
+    limit = max(1, int(max_dimension))
+    fitted_size = fit_longest(image, limit).size
+    data, sized = encode_within_budget(
+        image, limit, fmt, max_bytes, floor=FRAME_MIN_DIMENSION
+    )
+    if sized.size != fitted_size:
+        headers["X-DW-Downscaled-To"] = str(max(sized.size))
+    headers["X-DW-Returned-Size"] = f"{sized.width},{sized.height}"
+    return Response(
+        content=data,
+        media_type="image/jpeg" if fmt == "JPEG" else "image/png",
+        headers=headers,
+    )
+
+
+def _crop_header(box):
+    left, upper, right, lower = box
+    return f"{left},{upper},{right - left},{lower - upper}"
 
 
 @router.get("/api/gallery/{name:path}/thumbnail")
