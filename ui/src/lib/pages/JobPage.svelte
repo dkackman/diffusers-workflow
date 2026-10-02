@@ -16,10 +16,11 @@
     finishedNodes,
     flowNodeName,
   } from '../runstate'
-  import { stepProgress } from '../progress'
+  import { estimateEta, nextStepTimes, stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
+  import JobProgress from '../job/JobProgress.svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
@@ -86,19 +87,8 @@
           -1,
           (event) => {
             events.push(event)
-            if (event.event === 'pipeline_step') {
-              stepTimes = [...stepTimes.slice(-6), performance.now()]
-            } else if (
-              event.event === 'step_start' ||
-              event.event === 'iteration_start'
-            ) {
-              // A new denoise loop: the gap since the previous loop's last
-              // step includes a model load, and would inflate the ETA
-              stepTimes = []
-            } else if (event.event === 'job_status') {
-              stepTimes = []
-              refresh()
-            }
+            stepTimes = nextStepTimes(stepTimes, event, performance.now())
+            if (event.event === 'job_status') refresh()
           },
           () => refresh(),
         )
@@ -159,15 +149,7 @@
       (events.find((e) => e.event === 'run_start')?.version as
         number | undefined),
   )
-  const etaSeconds = $derived.by(() => {
-    if (!denoise?.total_steps || stepTimes.length < 3) return null
-    const window = stepTimes.slice(-6)
-    const perStep =
-      (window[window.length - 1] - window[0]) / (window.length - 1)
-    const remaining = denoise.total_steps - denoise.step
-    if (remaining <= 0 || perStep <= 0) return null
-    return Math.round((remaining * perStep) / 1000)
-  })
+  const etaSeconds = $derived(estimateEta(stepTimes, denoise))
   // Files grouped by producing step, streamed first, then confirmed by manifest
   const fileGroups = $derived(
     groupResultFiles(job?.manifest, events as JobEvent[]),
@@ -280,43 +262,14 @@
   {#if steps.length}
     <div class="panel">
       <h2>Progress</h2>
-      {#each steps as step (step)}
-        <div class="step">
-          <span
-            class="dot"
-            class:done={finishedSteps.includes(step)}
-            class:active={step === listStep && running}
-          ></span>
-          <span class:muted={step !== listStep && !finishedSteps.includes(step)}
-            >{step}</span
-          >
-          {#if step === listStep && running}
-            {#if denoise}
-              <div class="bar">
-                <div
-                  class="fill"
-                  style:width={denoise.total_steps
-                    ? (100 * denoise.step) / denoise.total_steps + '%'
-                    : '100%'}
-                ></div>
-              </div>
-              <span class="muted count">
-                {denoise.step}{denoise.total_steps
-                  ? ` / ${denoise.total_steps}`
-                  : ''}
-                {#if etaSeconds !== null}· ~{etaSeconds}s left{/if}
-              </span>
-            {/if}
-            <!-- The counter tells the generating story on its own; every
-                 other phase is time the bar cannot account for -->
-            {#if progress.label && (!denoise || progress.phase !== 'generating')}
-              <span class="muted phase" title="what this step is doing now"
-                >{progress.label}</span
-              >
-            {/if}
-          {/if}
-        </div>
-      {/each}
+      <JobProgress
+        {steps}
+        {finishedSteps}
+        {listStep}
+        {running}
+        {progress}
+        {etaSeconds}
+      />
     </div>
   {/if}
 
@@ -503,12 +456,6 @@
     margin: 0 0 0.6rem;
   }
 
-  .phase {
-    font-size: 0.82rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .panel {
     margin-bottom: 1rem;
   }
@@ -537,52 +484,6 @@
     display: flex;
     align-items: center;
     gap: 0.45rem;
-  }
-  .step {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding: 0.3rem 0;
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-  }
-  .dot.done {
-    background: var(--good);
-    border-color: var(--good);
-  }
-  /* The step the worker is on right now - machine state, so it takes the
-     signal colour rather than the interactive ink */
-  .dot.active {
-    background: var(--live);
-    border-color: var(--live);
-    animation: dw-pulse 1.6s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .dot.active {
-      animation: none;
-    }
-  }
-  .bar {
-    flex: 1;
-    max-width: 340px;
-    height: 8px;
-    border-radius: 4px;
-    background: var(--panel-2);
-    overflow: hidden;
-  }
-  .fill {
-    height: 100%;
-    background: var(--live);
-    transition: width 0.3s;
-  }
-  .count {
-    font-variant-numeric: tabular-nums;
-    font-size: 0.8rem;
   }
   /* One output per row, the gallery detail's shape: the proof on the left,
      the recipe that made it on the right */
