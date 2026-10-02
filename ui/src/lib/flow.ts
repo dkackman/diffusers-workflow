@@ -4,6 +4,16 @@
  * editor says about flow - chips, highlights, reorder warnings, the
  * cartesian-product note - derives from here, and only from here. */
 
+import {
+  FROM_PREVIOUS_RESULT_KEY,
+  GATHER,
+  MEMBER_SEPARATOR,
+  PREVIOUS_RESULT,
+  PROMPT,
+  VARIABLE,
+  isReference,
+} from './references'
+
 export interface StepFlow {
   name: string
   inputs: string[]
@@ -16,23 +26,61 @@ export interface DanglingReference {
   message: string
 }
 
-/** Visit every string anywhere inside a JSON value. */
-function scanStrings(value: unknown, visit: (s: string) => void): void {
-  if (typeof value === 'string') visit(value)
-  else if (Array.isArray(value)) value.forEach((v) => scanStrings(v, visit))
-  else if (value !== null && typeof value === 'object')
-    Object.values(value).forEach((v) => scanStrings(v, visit))
+interface EarlierStep {
+  name: string
+  index: number
+  forEach: boolean
 }
 
-/** The earlier step a value refers to: `previous_result:<step>[.suffix]`,
- * `gather:<step>` (every member of a for_each step), or the string under
- * a `from_previous_result` key inside a reference object. */
-function refTarget(s: string, path: string[] = []): string | null {
-  if (s.startsWith('previous_result:'))
-    return s.slice('previous_result:'.length).split('.')[0]
-  if (s.startsWith('gather:')) return s.slice('gather:'.length)
-  if (path[path.length - 1] === 'from_previous_result') return s
-  return null
+/** The named steps before `index`: the only producers a step can read,
+ * since the engine resolves in order. */
+function earlierSteps(
+  steps: Array<Record<string, any>>,
+  index: number,
+): EarlierStep[] {
+  return steps
+    .slice(0, index)
+    .map((s, i) => ({ name: s.name, index: i, forEach: FOR_EACH_KEY in s }))
+    .filter((s) => typeof s.name === 'string' && s.name !== '')
+}
+
+/** Whether a previous_result reference resolves to an earlier step: the
+ * name itself or the name plus a property (`seg.mask`), as the engine's
+ * reference_resolves_to decides - or, for a for_each step, one of the
+ * `<step>@<entry>` members the engine expands it into, which the editor
+ * cannot list because it holds the step unexpanded. */
+function resolvesTo(reference: string, step: EarlierStep): boolean {
+  if (reference === step.name || reference.startsWith(step.name + '.'))
+    return true
+  return step.forEach && reference.startsWith(step.name + MEMBER_SEPARATOR)
+}
+
+/** The earlier step a value refers to, or null: `previous_result:<ref>`,
+ * `gather:<step>`, or an unprefixed name under a `from_previous_result`
+ * key. An exact name wins over a shorter one it extends (`x.y` over `x`).
+ * The graph and the dangling check both resolve through here, so a chip
+ * and a warning never disagree about a reference. */
+function refTarget(
+  s: string,
+  path: string[],
+  earlier: EarlierStep[],
+): EarlierStep | null {
+  if (s.startsWith(GATHER)) {
+    const name = s.slice(GATHER.length)
+    return earlier.find((e) => e.name === name) ?? null
+  }
+  let reference: string | null = null
+  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY && !isReference(s))
+    reference = s
+  else if (s.startsWith(PREVIOUS_RESULT))
+    reference = s.slice(PREVIOUS_RESULT.length)
+  if (reference === null) return null
+  const ref = reference
+  return (
+    earlier.find((e) => e.name === ref) ??
+    earlier.find((e) => resolvesTo(ref, e)) ??
+    null
+  )
 }
 
 export function flowGraph(workflow: Record<string, any>): StepFlow[] {
@@ -45,21 +93,17 @@ export function flowGraph(workflow: Record<string, any>): StepFlow[] {
   }))
 
   steps.forEach((step, index) => {
-    // Only EARLIER steps are producers - the engine resolves in order
-    const earlier = new Map<string, number>()
-    steps.slice(0, index).forEach((s, i) => {
-      if (s.name) earlier.set(s.name, i)
-    })
+    const earlier = earlierSteps(steps, index)
     scanStringsWithPath(step, [], (s, path) => {
-      const target = refTarget(s, path)
-      if (target === null || !earlier.has(target)) return
+      const producer = refTarget(s, path, earlier)
+      if (producer === null) return
       graph[index].resolvedRefs += 1
-      if (!graph[index].inputs.includes(target)) {
-        graph[index].inputs.push(target)
+      if (!graph[index].inputs.includes(producer.name)) {
+        graph[index].inputs.push(producer.name)
         // A nameless consumer has nothing sensible to show as a chip -
         // still counted in resolvedRefs/inputs above, just not surfaced
         // as an edge on the producer
-        if (step.name) graph[earlier.get(target)!].consumers.push(step.name)
+        if (step.name) graph[producer.index].consumers.push(step.name)
       }
     })
   })
@@ -213,16 +257,13 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   const incomingProducers = new Map<string, Set<string>>()
 
   steps.forEach((step, index) => {
-    const earlier = new Map<string, number>()
-    steps.slice(0, index).forEach((s, i) => {
-      if (s.name) earlier.set(s.name, i)
-    })
+    const earlier = earlierSteps(steps, index)
     const seen = new Set<string>() // producer|attribute - dedupe repeats
     scanStringsWithPath(step, [], (value, path) => {
-      const target = refTarget(value, path)
-      if (target === null || !earlier.has(target)) return
+      const target = refTarget(value, path, earlier)?.name ?? null
+      if (target === null) return
       const attribute =
-        path[path.length - 1] === 'from_previous_result'
+        path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY
           ? attributeLabel(path.slice(0, -1))
           : attributeLabel(path)
       const key = `${target}|${attribute}`
@@ -257,6 +298,65 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
   return { nodes, edges, fanIn }
 }
 
+interface ReferenceScope {
+  earlier: EarlierStep[]
+  variables: Set<string>
+  prompts: Set<string> | null
+}
+
+const UNNAMED = 'no earlier step has that name'
+
+/** Per prefix, what is wrong with the name after it, or null. */
+const PREFIX_CHECKS: Array<
+  [string, (name: string, scope: ReferenceScope) => string | null]
+> = [
+  [
+    VARIABLE,
+    (name, scope) =>
+      scope.variables.has(name)
+        ? null
+        : `${VARIABLE}${name} - no such variable is declared`,
+  ],
+  [
+    PREVIOUS_RESULT,
+    (name, scope) =>
+      scope.earlier.some((s) => resolvesTo(name, s))
+        ? null
+        : `${PREVIOUS_RESULT}${name} - ${UNNAMED}`,
+  ],
+  [
+    GATHER,
+    (name, scope) =>
+      scope.earlier.some((s) => s.name === name)
+        ? null
+        : `${GATHER}${name} - ${UNNAMED}`,
+  ],
+  [
+    PROMPT,
+    // Without a listing the server resolves these at run time - only a
+    // supplied library can say a name is missing
+    (name, scope) =>
+      scope.prompts === null || scope.prompts.has(name)
+        ? null
+        : `${PROMPT}${name} - the prompt library has no such prompt`,
+  ],
+]
+
+function referenceProblem(
+  value: string,
+  path: string[],
+  scope: ReferenceScope,
+): string | null {
+  // A reference spelled under the key (variable:source) is checked as that
+  // reference: the engine leaves it to the resolution its prefix names
+  if (path[path.length - 1] === FROM_PREVIOUS_RESULT_KEY && !isReference(value))
+    return scope.earlier.some((s) => resolvesTo(value, s))
+      ? null
+      : `${FROM_PREVIOUS_RESULT_KEY} '${value}' - ${UNNAMED}`
+  const check = PREFIX_CHECKS.find(([prefix]) => value.startsWith(prefix))
+  return check ? check[1](value.slice(check[0].length), scope) : null
+}
+
 export function danglingReferenceDetails(
   workflow: Record<string, any>,
   promptNames?: string[],
@@ -267,48 +367,15 @@ export function danglingReferenceDetails(
   const steps: Array<Record<string, any>> = workflow.steps ?? []
 
   steps.forEach((step, index) => {
-    const earlier = new Set(
-      steps
-        .slice(0, index)
-        .map((s) => s.name)
-        .filter(Boolean),
-    )
-    scanStrings(step, (value) => {
-      if (value.startsWith('variable:')) {
-        const name = value.slice('variable:'.length)
-        if (!variables.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': variable:${name} - no such variable is declared`,
-          })
-        }
-      } else if (value.startsWith('previous_result:')) {
-        const name = refTarget(value)!
-        if (!earlier.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': previous_result:${name} - no earlier step has that name`,
-          })
-        }
-      } else if (value.startsWith('gather:')) {
-        const name = refTarget(value)!
-        if (!earlier.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': gather:${name} - no earlier step has that name`,
-          })
-        }
-      } else if (value.startsWith('prompt:')) {
-        // Without a listing the server resolves these at run time - only
-        // a supplied library can say a name is missing
-        const name = value.slice('prompt:'.length)
-        if (prompts !== null && !prompts.has(name)) {
-          problems.push({
-            stepIndex: index,
-            message: `Step '${step.name}': prompt:${name} - the prompt library has no such prompt`,
-          })
-        }
-      }
+    const earlier = earlierSteps(steps, index)
+    const scope = { earlier, variables, prompts }
+    scanStringsWithPath(step, [], (value, path) => {
+      const problem = referenceProblem(value, path, scope)
+      if (problem)
+        problems.push({
+          stepIndex: index,
+          message: `Step '${step.name}': ${problem}`,
+        })
     })
   })
   return problems

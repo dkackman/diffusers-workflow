@@ -827,7 +827,9 @@ The gates measured `dw_mcp` and `ui/src` but never read them. Two follow-up
 surveys do: [mcp-assessment.md](mcp-assessment.md) and
 [ui/ASSESSMENT.md](ui/ASSESSMENT.md). Every gate's UI SLOC row above counts only `.ts`:
 pygount has no lexer for `.svelte` and reports those files as 0 lines, so
-`ui/src` is about 15,500 raw lines, not the ~2,270 code lines shown.
+`ui/src` is about 15,500 raw lines, not the ~2,270 code lines shown. With `.svelte` counted (`scripts/arch_report.py`'s
+`svelte_code_lines`), the UI is 12,969 code lines at `stabilization-gate-4`,
+against 20,362 for the engine and 6,956 for the API.
 
 ## Working rules for the duration
 

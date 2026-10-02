@@ -1,0 +1,54 @@
+[
+  {
+    "name": "ep4",
+    "valid": true
+  },
+  {
+    "name": "ep4.v2",
+    "valid": true
+  },
+  {
+    "name": "under_score-dash",
+    "valid": true
+  },
+  {
+    "name": "café",
+    "valid": true
+  },
+  {
+    "name": "_lead",
+    "valid": true
+  },
+  {
+    "name": ".hidden",
+    "valid": false
+  },
+  {
+    "name": "-lead",
+    "valid": false
+  },
+  {
+    "name": "a/b",
+    "valid": false
+  },
+  {
+    "name": "a b",
+    "valid": false
+  },
+  {
+    "name": "outputs",
+    "valid": false
+  },
+  {
+    "name": "",
+    "valid": false
+  },
+  {
+    "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "valid": true
+  },
+  {
+    "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "valid": false
+  }
+]

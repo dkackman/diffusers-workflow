@@ -55,7 +55,12 @@ from ..job_record import (
     RUNNING,
     TERMINAL_STATES,
 )
-from ..outputs import absolute_served_url, asset_library_for_job, served_url
+from ..outputs import (
+    absolute_served_url,
+    asset_library_for_job,
+    output_kinds,
+    served_url,
+)
 
 logger = logging.getLogger("dw")
 
@@ -226,7 +231,8 @@ def get_job(request: Request, job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job")
     # a historical job is already a detail dict; a live one renders itself
-    return job if isinstance(job, dict) else manager.describe(job)
+    detail = job if isinstance(job, dict) else manager.describe(job)
+    return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
 @router.get("/api/jobs/{job_id}/workflow")

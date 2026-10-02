@@ -1,6 +1,9 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
 import { danglingReferenceDetails } from './flow'
+import { isReference } from './references'
+
+export { isReference }
 
 /** Introspection descriptions, cached per class+target for the session. */
 const descriptions = new Map<string, Promise<PipelineDescription | null>>()
@@ -94,17 +97,6 @@ export function withMediaLocation(value: unknown, location: string): unknown {
   return location
 }
 
-/** Reference strings the engine resolves later - always edited as text. */
-export function isReference(value: unknown): boolean {
-  return (
-    typeof value === 'string' &&
-    (value.startsWith('variable:') ||
-      value.startsWith('previous_result:') ||
-      value.startsWith('constant:') ||
-      value.startsWith('prompt:'))
-  )
-}
-
 export function widgetFor(
   parameter: PipelineParameter | undefined,
   value: unknown,
@@ -143,17 +135,33 @@ export function coerce(widget: Widget, raw: string): unknown {
 
 export const TORCH_DTYPES = ['torch.bfloat16', 'torch.float16', 'torch.float32']
 
+/** What a step's result can be written as. tests/test_ui_twins.py pins it:
+ * each one is accepted by dw/content_types.py, and every audio container
+ * the engine writes is reachable from one. */
 export const CONTENT_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
-  'video/mp4',
   'image/gif',
+  'video/mp4',
   'audio/wav',
+  'audio/flac',
+  'audio/aiff',
   'audio/mpeg',
+  'audio/ogg',
+  'audio/opus',
   'application/json',
   'text/plain',
 ]
+
+/** The select's options: a value the list does not hold (an alias like
+ * audio/x-flac, written by hand) is kept as the last option rather than
+ * shown as a blank select. */
+export function contentTypeOptions(current?: string): string[] {
+  return current && !CONTENT_TYPES.includes(current)
+    ? [...CONTENT_TYPES, current]
+    : [...CONTENT_TYPES]
+}
 
 /** Text that deserves a document-scale editing surface: long enough to
  * be truncated by a single-line input, or already multi-line. */

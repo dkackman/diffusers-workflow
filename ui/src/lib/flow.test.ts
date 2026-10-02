@@ -108,6 +108,69 @@ describe('danglingReferenceDetails', () => {
     expect(details[1].stepIndex).toBe(1)
     expect(details[1].message).toContain('previous_result:nope')
   })
+  const forEachStep = (name: string) => ({
+    ...step(name, { x: 'item:prompt' }),
+    for_each: [{ name: 'a', prompt: 'p' }],
+  })
+
+  it('accepts a member reference to a for_each step, with or without a property', () => {
+    const wf = {
+      variables: {},
+      steps: [
+        forEachStep('g'),
+        step('b', {
+          one: 'previous_result:g@a',
+          two: 'previous_result:g@a.mask',
+        }),
+      ],
+    }
+    expect(danglingReferenceDetails(wf)).toEqual([])
+  })
+
+  it('flags a member reference to a step that is not for_each', () => {
+    const wf = {
+      variables: {},
+      steps: [step('g', {}), step('b', { y: 'previous_result:g@a' })],
+    }
+    expect(danglingReferenceDetails(wf)).toHaveLength(1)
+  })
+
+  it('matches a dotted step name whole, and a property of a plain one', () => {
+    const wf = {
+      variables: {},
+      steps: [
+        step('x.y', {}),
+        step('seg', {}),
+        step('b', { v: 'previous_result:x.y', m: 'previous_result:seg.mask' }),
+      ],
+    }
+    expect(danglingReferenceDetails(wf)).toEqual([])
+  })
+
+  it('checks a from_previous_result spelled as a reference as that reference', () => {
+    // The engine leaves a variable: under this key to variable resolution
+    const wf = {
+      variables: { source: 'a' },
+      steps: [
+        step('a', {}),
+        step('b', { image: { from_previous_result: 'variable:source' } }),
+        step('c', { image: { from_previous_result: 'variable:missing' } }),
+      ],
+    }
+    const details = danglingReferenceDetails(wf)
+    expect(details).toHaveLength(1)
+    expect(details[0].message).toContain('variable:missing')
+  })
+
+  it('flags a from_previous_result that names no earlier step', () => {
+    const wf = {
+      variables: {},
+      steps: [step('b', { image: { from_previous_result: 'nope' } })],
+    }
+    const details = danglingReferenceDetails(wf)
+    expect(details).toHaveLength(1)
+    expect(details[0].message).toContain('nope')
+  })
 })
 
 describe('dataFlowGraph', () => {
@@ -339,5 +402,29 @@ describe('for_each members', () => {
     expect(graph.nodes[0].members).toBeNull()
     expect(graph.nodes[1].forEach).toBe(false)
     expect(graph.nodes[1].members).toBeNull()
+  })
+})
+
+describe('the graph resolves references as the dangling check does', () => {
+  const wf = {
+    variables: {},
+    steps: [
+      step('x.y', {}),
+      { ...step('g', { p: 'item:prompt' }), for_each: [{ name: 'a' }] },
+      step('b', {
+        whole: 'previous_result:x.y',
+        member: 'previous_result:g@a.mask',
+      }),
+    ],
+  }
+
+  it('gives a dotted name and a member reference their producer chips', () => {
+    expect(flowGraph(wf)[2].inputs.sort()).toEqual(['g', 'x.y'])
+  })
+
+  it('draws their data-flow edges', () => {
+    const graph = dataFlowGraph(wf)
+    expect(graph.edges.map((e) => e.from).sort()).toEqual(['g', 'x.y'])
+    expect(graph.nodes[2].isEntryPoint).toBe(false)
   })
 })

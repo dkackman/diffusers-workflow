@@ -21,15 +21,13 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 
 ## Decisions
 
-Recorded 2026-10-01. The two marked **open** are Don's.
+Recorded 2026-10-01; Don ruled on both open questions the same day.
 
-- **Freeze (open).** The engine pass froze features until its guardrails
+- **Freeze (yes, Don 2026-10-01).** The engine pass froze features until its guardrails
   existed. The UI equivalent: no new pages, components or UI features until
   gate 2; the implementer fixes tester bugs in `ui/` through existing code,
   and a fix that needs a new component waits or is labelled `stabilization`.
-  Proposed rather than assumed, because the harness's tester bugs land in the
-  UI less often than in the engine.
-- **Component library (open; recommended: Bits UI).** Headless, so the
+- **Component library: Bits UI (approved, Don 2026-10-01).** Headless, so the
   `app.css` token system, the achromatic chrome and the WCAG AA pairs in
   `ui/CLAUDE.md` stay as they are. It is native to Svelte 5 runes, covers every
   hand-built widget (dialog, alert dialog, popover, combobox, tooltip, toggle

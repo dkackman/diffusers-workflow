@@ -56,6 +56,20 @@ MEDIA_KINDS = {
     ".txt": "text",
 }
 
+
+def output_kinds(manifest):
+    """Each file a job manifest lists, mapped to its MEDIA_KINDS entry, or
+    None for a kind the gallery does not show. A client renders an output
+    by this rather than keeping its own extension list."""
+    kinds = {}
+    for entry in manifest or []:
+        if not isinstance(entry, dict):
+            continue
+        for name in entry.get("files") or []:
+            kinds[name] = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
+    return kinds
+
+
 # The allowlist members that are not already-compressed containers -
 # everything else in MEDIA_KINDS deflates for about nothing, so it is
 # stored instead (see zip_download)

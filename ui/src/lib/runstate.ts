@@ -9,11 +9,9 @@
  * flow view's run state when list-driven steps arrived. */
 
 import type { JobEvent } from './types'
-
-/** The for_each step/member separator - `dw/for_each.py`'s
- * MEMBER_SEPARATOR, reserved in every step name, so the first one in a
- * name always splits a member from its group. */
-const MEMBER_SEPARATOR = '@'
+// The for_each step/member separator is reserved in every step name, so the
+// first one in a name always splits a member from its group
+import { MEMBER_SEPARATOR } from './references'
 
 /** The name the definition gives the step the engine ran.
  *

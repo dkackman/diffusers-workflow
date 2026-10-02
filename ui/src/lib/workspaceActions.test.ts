@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+// Read by tests/test_ui_twins.py too, so the two rules cannot drift apart
+import cases from '../../../tests/fixtures/workspace_names.json'
 
 const createWorkspace = vi.hoisted(() => vi.fn())
 const deleteWorkspace = vi.hoisted(() => vi.fn())
@@ -86,4 +88,9 @@ it('a declined confirm deletes nothing', async () => {
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
   expect(deleteWorkspace).toHaveBeenCalledTimes(1)
+})
+
+it.each(cases)('decides $name as the engine does', async ({ name, valid }) => {
+  const { workspaceNameError } = await import('./workspaceActions')
+  expect(workspaceNameError(name) === null).toBe(valid)
 })

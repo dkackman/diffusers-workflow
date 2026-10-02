@@ -7,7 +7,13 @@
     X,
   } from '@lucide/svelte'
   import { untrack } from 'svelte'
-  import { ApiError, api, outputUrl, streamJobEvents } from '../api'
+  import {
+    ApiError,
+    TERMINAL_STATUSES,
+    api,
+    outputUrl,
+    streamJobEvents,
+  } from '../api'
   import { confirmDialog } from '../confirm.svelte'
   import { go, route } from '../router.svelte'
   import { wsHref } from '../routes'
@@ -53,8 +59,6 @@
   let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
   let stepTimes = $state<number[]>([])
-
-  const TERMINAL = ['succeeded', 'failed', 'cancelled']
 
   $effect(() => {
     job = null
@@ -254,7 +258,10 @@
     const workspace = job?.workspace
     const pending = fileGroups
       .flatMap((group) => group.files)
-      .filter((file) => isImage(file) && !(file in untrack(() => fileMeta)))
+      .filter(
+        (file) =>
+          kindOf(file) === 'image' && !(file in untrack(() => fileMeta)),
+      )
     if (!pending.length) return
     untrack(() => {
       for (const file of pending) {
@@ -299,7 +306,9 @@
   const unsaved = $derived(
     unsavedSteps(job?.manifest, events as JobEvent[], definition),
   )
-  const running = $derived(job !== null && !TERMINAL.includes(job.status))
+  const running = $derived(
+    job !== null && !TERMINAL_STATUSES.includes(job.status),
+  )
   // One grain finer than the group: which entries of a for_each step have
   // finished and which is running, in the engine's own `group@entry` names
   const finishedMemberSteps = $derived(finishedMembers(events as JobEvent[]))
@@ -320,8 +329,15 @@
   // still loads correctly if the picker has since moved elsewhere.
   const fileUrl = (path: string) =>
     outputUrl(path, job?.id ?? '', job?.workspace)
-  const isVideo = (path: string) => /\.(mp4|webm)$/i.test(path)
-  const isImage = (path: string) => /\.(png|jpe?g|webp|gif)$/i.test(path)
+  // The detail classifies the manifest; a running job's step_end events
+  // classify each output before there is a manifest
+  const kinds = $derived.by(() => {
+    const found: Record<string, string | null> = {}
+    for (const event of events)
+      Object.assign(found, (event.output_kinds as typeof found) ?? {})
+    return { ...found, ...(job?.output_kinds ?? {}) }
+  })
+  const kindOf = (path: string) => kinds[path] ?? null
 </script>
 
 <div class="head">
@@ -554,7 +570,7 @@
             <!-- Laid out as the gallery detail is: the media on the left,
                  what made it on the right -->
             <div class="output">
-              {#if isImage(file)}
+              {#if kindOf(file) === 'image'}
                 <a
                   class="frame plain"
                   href={fileUrl(file)}
@@ -562,10 +578,14 @@
                   title={file.split('/').pop()}
                   ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
                 >
-              {:else if isVideo(file)}
+              {:else if kindOf(file) === 'video'}
                 <span class="frame">
                   <!-- svelte-ignore a11y_media_has_caption -->
                   <video src={fileUrl(file)} controls loop></video>
+                </span>
+              {:else if kindOf(file) === 'audio'}
+                <span class="frame">
+                  <audio src={fileUrl(file)} controls></audio>
                 </span>
               {:else}
                 <a class="filelink" href={fileUrl(file)} target="_blank"

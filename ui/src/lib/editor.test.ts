@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONTENT_TYPES,
   coerce,
+  contentTypeOptions,
   danglingReferences,
   isLongText,
   isReference,
@@ -254,5 +256,33 @@ describe('isLongText', () => {
     expect(isLongText(25)).toBe(false)
     expect(isLongText(null)).toBe(false)
     expect(isLongText({ a: 1 })).toBe(false)
+  })
+})
+
+describe('a reference is always edited as text', () => {
+  const boolParam = param({ annotation: 'bool' })
+  const intParam = param({ annotation: 'int' })
+  it.each([
+    'item:flag',
+    'gather:shots',
+    'asset:cast/priya.png',
+    'output:run/v2/final.mp4',
+  ])('%s', (value) => {
+    expect(isReference(value)).toBe(true)
+    expect(widgetFor(boolParam, value)).toBe('text')
+    expect(widgetFor(intParam, value)).toBe('text')
+  })
+})
+
+describe('contentTypeOptions', () => {
+  it('keeps a value the list does not hold, so the select shows it', () => {
+    expect(contentTypeOptions('audio/x-flac')).toEqual([
+      ...CONTENT_TYPES,
+      'audio/x-flac',
+    ])
+  })
+  it('adds nothing for a listed value or none', () => {
+    expect(contentTypeOptions('image/png')).toEqual([...CONTENT_TYPES])
+    expect(contentTypeOptions(undefined)).toEqual([...CONTENT_TYPES])
   })
 })
