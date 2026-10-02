@@ -6,10 +6,16 @@ to one side fails until the other follows. A copy that can be read from the
 server instead is deleted, not pinned.
 """
 
+import json
 import pathlib
 import re
 
+import pytest
+
 from dw import references
+from dw.content_types import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE, content_type_fault
+from dw.security import InvalidInputError, SecurityError, validate_workspace_name
+from dw.workspace import RESERVED_WORKSPACE_NAMES
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 UI_LIB = REPO / "ui" / "src" / "lib"
@@ -54,19 +60,14 @@ def test_the_member_separator_and_reference_key_are_the_engines():
     assert ui["FROM_PREVIOUS_RESULT_KEY"] == references.FROM_PREVIOUS_RESULT_KEY
 
 
-import json
-
-import pytest
-
-from dw.security import InvalidInputError, SecurityError, validate_workspace_name
-from dw.workspace import RESERVED_WORKSPACE_NAMES
-
 WORKSPACE_NAMES = json.loads(
     (REPO / "tests" / "fixtures" / "workspace_names.json").read_text()
 )
 
 
-@pytest.mark.parametrize("case", WORKSPACE_NAMES, ids=lambda c: c["name"][:12] or "empty")
+@pytest.mark.parametrize(
+    "case", WORKSPACE_NAMES, ids=lambda c: c["name"][:12] or "empty"
+)
 def test_the_engine_decides_each_shared_workspace_name_case(case):
     if case["valid"]:
         validate_workspace_name(case["name"], reserved=RESERVED_WORKSPACE_NAMES)
@@ -79,3 +80,16 @@ def test_the_ui_reserves_the_engines_workspace_names():
     assert ts_string_array(
         UI_LIB / "workspaceActions.ts", "RESERVED_WORKSPACE_NAMES"
     ) == list(RESERVED_WORKSPACE_NAMES)
+
+
+def test_every_content_type_the_ui_offers_is_one_the_engine_writes():
+    offered = ts_string_array(UI_LIB / "editor.ts", "CONTENT_TYPES")
+    assert [ct for ct in offered if content_type_fault(ct)] == []
+
+
+def test_the_ui_offers_every_audio_container_and_the_video_one():
+    offered = set(ts_string_array(UI_LIB / "editor.ts", "CONTENT_TYPES"))
+    written = {extension for extension, _ in AUDIO_FORMATS.values()}
+    reachable = {AUDIO_FORMATS[ct][0] for ct in offered if ct in AUDIO_FORMATS}
+    assert reachable == written
+    assert MUXED_VIDEO_CONTENT_TYPE in offered

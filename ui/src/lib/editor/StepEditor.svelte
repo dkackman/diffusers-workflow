@@ -19,8 +19,8 @@
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
+    contentTypeOptions,
     COMPONENT_SLOTS,
-    CONTENT_TYPES,
     TORCH_DTYPES,
     classDescription,
     emptyComponent,
@@ -366,7 +366,7 @@
           }}
         >
           <option value="">don't save</option>
-          {#each CONTENT_TYPES as contentType (contentType)}<option
+          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option
               >{contentType}</option
             >{/each}
         </select>
