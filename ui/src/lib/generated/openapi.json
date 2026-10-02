@@ -236,6 +236,37 @@
         "title": "DownloadRequest",
         "type": "object"
       },
+      "ElidedStep": {
+        "additionalProperties": false,
+        "properties": {
+          "overridden_by": {
+            "description": "The supplied variable that made it unread.",
+            "title": "Overridden By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          }
+        },
+        "required": [
+          "step",
+          "reason"
+        ],
+        "title": "ElidedStep",
+        "type": "object"
+      },
       "EnhanceRequest": {
         "properties": {
           "device": {
@@ -278,6 +309,25 @@
           "idea"
         ],
         "title": "EnhanceRequest",
+        "type": "object"
+      },
+      "ExportedFile": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "bytes"
+        ],
+        "title": "ExportedFile",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -349,6 +399,544 @@
           "mcp"
         ],
         "title": "HealthInfo",
+        "type": "object"
+      },
+      "JobCancelled": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "JobCancelled",
+        "type": "object"
+      },
+      "JobDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledged": {
+            "description": "Which form of cost acknowledgement queued the job: none (the web UI and any caller that sent nothing), a bare boolean, or one bound to the plan a validate answered with.",
+            "enum": [
+              "none",
+              "boolean",
+              "bound"
+            ],
+            "title": "Acknowledged",
+            "type": "string"
+          },
+          "acknowledged_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcknowledgedCost"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan the caller bound its acknowledgement to, when it did."
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "event_count": {
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "historical": {
+            "description": "Read from job history rather than a live job.",
+            "title": "Historical",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null on a history row recorded before manifests, or by a run that wrote none.",
+            "title": "Manifest"
+          },
+          "output_kinds": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "image",
+                    "video",
+                    "audio",
+                    "text"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Each output file's kind; null for a kind the gallery does not show. On GET /api/jobs/{id} only.",
+            "title": "Output Kinds",
+            "type": "object"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a running (or failed) job had got to; live jobs only."
+          },
+          "queue_position": {
+            "description": "Index in the waiting queue; only while queued.",
+            "title": "Queue Position",
+            "type": "integer"
+          },
+          "run_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Dir"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run this job opened - null until it opens one, and for a job recorded before runs were tracked.",
+            "title": "Run Id"
+          },
+          "run_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.",
+            "title": "Run Version"
+          },
+          "spec": {
+            "additionalProperties": true,
+            "description": "The submitted spec; history rows only.",
+            "title": "Spec",
+            "type": "object"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "traceback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traceback"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null only on a row recorded before the workflow was stored.",
+            "title": "Workflow"
+          },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalog name it was run by.",
+            "title": "Workflow Name"
+          },
+          "workspace": {
+            "description": "The workspace this job ran in - 'default' for the default one.",
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow",
+          "workflow_name",
+          "status",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "workspace",
+          "run_id",
+          "run_version",
+          "acknowledged",
+          "arguments",
+          "warnings",
+          "manifest",
+          "error",
+          "traceback",
+          "event_count",
+          "run_dir",
+          "acknowledged_cost"
+        ],
+        "title": "JobDetail",
+        "type": "object"
+      },
+      "JobExport": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_zip_url": {
+            "title": "Absolute Zip Url",
+            "type": "string"
+          },
+          "auth_required": {
+            "title": "Auth Required",
+            "type": "boolean"
+          },
+          "directory": {
+            "title": "Directory",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ExportedFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "job": {
+            "description": "job.json as exported; null if unreadable.",
+            "title": "Job"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "manifest": {
+            "description": "manifest.json as exported; null if unreadable.",
+            "title": "Manifest"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          },
+          "workflow": {
+            "description": "workflow.json as exported; null if unreadable.",
+            "title": "Workflow"
+          },
+          "zip_url": {
+            "title": "Zip Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "directory",
+          "files",
+          "total_bytes",
+          "missing",
+          "zip_url",
+          "auth_required",
+          "workflow",
+          "manifest",
+          "job"
+        ],
+        "title": "JobExport",
+        "type": "object"
+      },
+      "JobList": {
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/JobSummary"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "total": {
+            "description": "How many matched before `limit` cut the list.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobs",
+          "total"
+        ],
+        "title": "JobList",
+        "type": "object"
+      },
+      "JobMoved": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "queue": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Queue",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "queue"
+        ],
+        "title": "JobMoved",
+        "type": "object"
+      },
+      "JobProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "denoise_step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until the denoise loop starts; a number that stops moving is a stuck one.",
+            "title": "Denoise Step"
+          },
+          "denoise_total_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denoise Total Steps"
+          },
+          "parent_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The step of the queued workflow the one above is running inside, for a composed run; null when they are the same thing.",
+            "title": "Parent Step"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "phase_detail": {
+            "title": "Phase Detail"
+          },
+          "seconds_in_phase": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds In Phase"
+          },
+          "seconds_since_event": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Seconds Since Event"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "step_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Index"
+          },
+          "total_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Steps"
+          }
+        },
+        "required": [
+          "step",
+          "parent_step",
+          "step_index",
+          "total_steps",
+          "phase",
+          "phase_detail",
+          "seconds_in_phase",
+          "seconds_since_event",
+          "denoise_step",
+          "denoise_total_steps"
+        ],
+        "title": "JobProgress",
         "type": "object"
       },
       "JobRequest": {
@@ -427,6 +1015,195 @@
         "title": "JobRequest",
         "type": "object"
       },
+      "JobSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledged": {
+            "description": "Which form of cost acknowledgement queued the job: none (the web UI and any caller that sent nothing), a bare boolean, or one bound to the plan a validate answered with.",
+            "enum": [
+              "none",
+              "boolean",
+              "bound"
+            ],
+            "title": "Acknowledged",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "historical": {
+            "description": "Read from job history rather than a live job.",
+            "title": "Historical",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "queue_position": {
+            "description": "Index in the waiting queue; only while queued.",
+            "title": "Queue Position",
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run this job opened - null until it opens one, and for a job recorded before runs were tracked.",
+            "title": "Run Id"
+          },
+          "run_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.",
+            "title": "Run Version"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null only on a row recorded before the workflow was stored.",
+            "title": "Workflow"
+          },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalog name it was run by.",
+            "title": "Workflow Name"
+          },
+          "workspace": {
+            "description": "The workspace this job ran in - 'default' for the default one.",
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow",
+          "workflow_name",
+          "status",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "workspace",
+          "run_id",
+          "run_version",
+          "acknowledged"
+        ],
+        "title": "JobSummary",
+        "type": "object"
+      },
+      "JobWorkflow": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "additionalProperties": true,
+            "title": "Definition",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "realized": {
+            "description": "Every mutable input is pinned - the copy the run itself wrote.",
+            "title": "Realized",
+            "type": "boolean"
+          },
+          "seed_variable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The variable a new-seed rerun would draw into, null when the workflow has none - the cue for whether to offer that at all.",
+            "title": "Seed Variable"
+          }
+        },
+        "required": [
+          "id",
+          "definition",
+          "realized",
+          "seed_variable"
+        ],
+        "title": "JobWorkflow",
+        "type": "object"
+      },
       "KeepRequest": {
         "properties": {
           "asset_name": {
@@ -463,6 +1240,44 @@
           "name"
         ],
         "title": "KeepRequest",
+        "type": "object"
+      },
+      "ManifestEntry": {
+        "additionalProperties": true,
+        "description": "One step's saved files. Open even in strict mode: the worker adds\nper-step detail (`selected`, `shots`, ...) the UI does not read.",
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "parent_step": {
+            "description": "The composing step a rolled-up entry came from.",
+            "title": "Parent Step",
+            "type": "string"
+          },
+          "reused": {
+            "description": "The step was served from the step cache: these files are an earlier run's, republished, and nothing was generated for them this time.",
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          },
+          "subfolder": {
+            "description": "The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.",
+            "title": "Subfolder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "files"
+        ],
+        "title": "ManifestEntry",
         "type": "object"
       },
       "McpMount": {
@@ -514,15 +1329,8 @@
         "description": "The worker's own memory report. Open even in strict mode: its keys\nvary by backend, and the UI reads only the ones declared here.",
         "properties": {
           "gpu_available": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gpu Available"
+            "title": "Gpu Available",
+            "type": "boolean"
           },
           "gpu_device_name": {
             "anyOf": [
@@ -542,9 +1350,6 @@
               },
               {
                 "type": "number"
-              },
-              {
-                "type": "null"
               }
             ],
             "title": "Gpu Memory Allocated Mb"
@@ -556,9 +1361,6 @@
               },
               {
                 "type": "number"
-              },
-              {
-                "type": "null"
               }
             ],
             "title": "Gpu Memory Free Mb"
@@ -570,9 +1372,6 @@
               },
               {
                 "type": "number"
-              },
-              {
-                "type": "null"
               }
             ],
             "title": "Gpu Memory Reserved Mb"
@@ -584,23 +1383,13 @@
               },
               {
                 "type": "number"
-              },
-              {
-                "type": "null"
               }
             ],
             "title": "Gpu Memory Total Mb"
           },
           "run_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Run Count"
+            "title": "Run Count",
+            "type": "integer"
           }
         },
         "title": "MemoryDetail",
@@ -977,6 +1766,209 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "Plan": {
+        "additionalProperties": false,
+        "properties": {
+          "cached_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many steps the worker's step cache would serve; null when the worker was busy or did not answer.",
+            "title": "Cached Steps"
+          },
+          "downloads_required": {
+            "items": {
+              "$ref": "#/components/schemas/RequiredDownload"
+            },
+            "title": "Downloads Required",
+            "type": "array"
+          },
+          "elided_steps": {
+            "description": "The steps that will not run because nothing reads their result and they save no file - already excluded from `steps`.",
+            "items": {
+              "$ref": "#/components/schemas/ElidedStep"
+            },
+            "title": "Elided Steps",
+            "type": "array"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/PlanEstimate"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "list_entries": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "List Entries",
+            "type": "object"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir"
+          },
+          "steps": {
+            "title": "Steps",
+            "type": "integer"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "steps",
+          "elided_steps",
+          "list_entries",
+          "cached_steps",
+          "downloads_required",
+          "estimate",
+          "workspace",
+          "output_dir"
+        ],
+        "title": "Plan",
+        "type": "object"
+      },
+      "PlanEstimate": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "per_entry",
+              "catalog",
+              "derived",
+              "other_device",
+              "unknown",
+              "observed"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "cached_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Minutes"
+          },
+          "curated_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Curated Minutes"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "low_confidence": {
+            "title": "Low Confidence",
+            "type": "boolean"
+          },
+          "measured_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured On"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "observed_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Observed Minutes"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runs"
+          },
+          "tempered": {
+            "title": "Tempered",
+            "type": "boolean"
+          },
+          "unpriced": {
+            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unpriced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "minutes",
+          "basis",
+          "device",
+          "measured_on",
+          "partial",
+          "unpriced",
+          "runs",
+          "cached_minutes"
+        ],
+        "title": "PlanEstimate",
+        "type": "object"
+      },
       "PromptRequest": {
         "properties": {
           "prompt": {
@@ -990,6 +1982,79 @@
           "prompt"
         ],
         "title": "PromptRequest",
+        "type": "object"
+      },
+      "RequiredDownload": {
+        "additionalProperties": false,
+        "properties": {
+          "access_blocked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Blocked"
+          },
+          "gated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "enum": [
+                  "auto",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The hub's own `gated` field: false, or how access is granted.",
+            "title": "Gated"
+          },
+          "gb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gb"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "url": {
+            "description": "A from_single_file URL, which has no repo.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "gb",
+          "gated",
+          "access_blocked"
+        ],
+        "title": "RequiredDownload",
         "type": "object"
       },
       "RerunRequest": {
@@ -1017,6 +2082,36 @@
           }
         },
         "title": "RerunRequest",
+        "type": "object"
+      },
+      "RunDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "run_dir": {
+            "title": "Run Dir",
+            "type": "string"
+          },
+          "run_swept": {
+            "description": "The deleted run's directory name.",
+            "title": "Run Swept",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_dir",
+          "deleted",
+          "run_swept"
+        ],
+        "title": "RunDeleted",
         "type": "object"
       },
       "ServerAddress": {
@@ -1304,6 +2399,94 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationFinding": {
+        "additionalProperties": true,
+        "description": "One violation with its JSON path. Open even in strict mode: a\nfinding carries its own extra keys after these two.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "path",
+          "message"
+        ],
+        "title": "ValidationFinding",
+        "type": "object"
+      },
+      "ValidationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_arguments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checked Arguments",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "errors": {
+            "description": "Every schema violation with its JSON path; empty when valid.",
+            "items": {
+              "$ref": "#/components/schemas/ValidationFinding"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Plan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the run will execute for the definition validated - on a valid answer; null when the server could not build it, absent from an invalid answer."
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "valid",
+          "error",
+          "errors",
+          "warnings"
+        ],
+        "title": "ValidationResult",
         "type": "object"
       },
       "WorkspaceRequest": {
@@ -1660,7 +2843,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -2709,7 +3894,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
               }
             },
             "description": "Successful Response"
@@ -2762,7 +3949,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -2799,7 +3988,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -2836,7 +4027,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobCancelled"
+                }
               }
             },
             "description": "Successful Response"
@@ -3025,7 +4218,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobExport"
+                }
               }
             },
             "description": "Successful Response"
@@ -3073,7 +4268,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobMoved"
+                }
               }
             },
             "description": "Successful Response"
@@ -3123,7 +4320,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -3161,7 +4360,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -3199,7 +4400,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobWorkflow"
+                }
               }
             },
             "description": "Successful Response"
@@ -4043,7 +5246,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
               }
             },
             "description": "Successful Response"

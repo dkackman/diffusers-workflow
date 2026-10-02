@@ -17,6 +17,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    JobDetail,
+)
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
@@ -690,7 +693,12 @@ def list_enhancers():
     return {"presets": preset_descriptions()}
 
 
-@router.post("/api/enhance", status_code=201)
+@router.post(
+    "/api/enhance",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def enhance(
     http_request: Request,
     request: EnhanceRequest,

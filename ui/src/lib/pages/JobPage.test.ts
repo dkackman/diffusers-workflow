@@ -80,6 +80,12 @@ const job = (manifest: JobDetail['manifest']): JobDetail => ({
   error: null,
   traceback: null,
   event_count: 0,
+  workflow_name: null,
+  run_id: null,
+  run_version: null,
+  run_dir: null,
+  acknowledged: 'none',
+  acknowledged_cost: null,
 })
 
 beforeEach(() => {

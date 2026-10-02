@@ -28,7 +28,7 @@ export function presetForIntendedModel(
 /** The text file an enhancement job produced - the first .txt in its
  * manifest, or undefined while it has none. */
 export function manifestTextFile(
-  manifest: ManifestEntry[] | undefined,
+  manifest: ManifestEntry[] | null | undefined,
 ): string | undefined {
   return manifest
     ?.flatMap((entry) => entry.files)

@@ -8,7 +8,9 @@ const base: Plan = {
   list_entries: { shots: 5 },
   cached_steps: 0,
   elided_steps: [],
-  downloads_required: [{ repo: 'org/model', gb: 41.2 }],
+  downloads_required: [
+    { repo: 'org/model', gb: 41.2, gated: false, access_blocked: false },
+  ],
   estimate: {
     minutes: 42,
     basis: 'catalog',
@@ -16,7 +18,11 @@ const base: Plan = {
     measured_on: 'RTX 3090',
     partial: false,
     unpriced: [],
+    runs: null,
+    cached_minutes: 42,
   },
+  workspace: 'default',
+  output_dir: '/ws/outputs',
 }
 
 describe('describePlan', () => {
@@ -78,6 +84,8 @@ describe('describePlan', () => {
         measured_on: null,
         partial: false,
         unpriced: [],
+        runs: null,
+        cached_minutes: null,
       },
     })
     expect(figure.text).toBe('no measured cost')
@@ -119,8 +127,14 @@ describe('describePlan', () => {
     const lines = describePlan({
       ...base,
       downloads_required: [
-        { repo: 'org/a', gb: null },
-        { repo: null, url: 'https://x.test/ckpt.safetensors', gb: null },
+        { repo: 'org/a', gb: null, gated: null, access_blocked: null },
+        {
+          repo: null,
+          url: 'https://x.test/ckpt.safetensors',
+          gb: null,
+          gated: null,
+          access_blocked: null,
+        },
       ],
     })
     expect(lines[3].text).toBe(

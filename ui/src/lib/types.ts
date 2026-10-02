@@ -14,61 +14,22 @@ export type ModelRepo = Schemas['ModelRepo']
 export type ModelCache = Schemas['ModelCache']
 export type ModelDownload = Schemas['ModelDownload']
 export type DiffusersStatus = Schemas['DiffusersStatus']
-
-export interface JobSummary {
-  id: string
-  workflow: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-  created_at: number
-  started_at: number | null
-  finished_at: number | null
-  historical?: boolean
-  queue_position?: number
-  /** The workspace this job ran in - 'default' for the default one. */
-  workspace: string
-  /** Which form of cost acknowledgement queued the job: none (the web UI
-   * and any caller that sent nothing), a bare boolean, or one bound to the
-   * plan a validate answered with. Absent on rows from older servers. */
-  acknowledged?: 'none' | 'boolean' | 'bound'
-  /** The run this job opened - null until it opens one, and for a job
-   * recorded before runs were tracked. */
-  run_id?: string | null
-  /** That run's ordinal among the workflow's runs - the `v4` the gallery
-   * shows for its files. Null until the run opens, and for older rows. */
-  run_version?: number | null
-}
-
-export interface ManifestEntry {
-  step: string
-  files: string[]
-  /** The step was served from the step cache: these files are an earlier
-   * run's, republished, and nothing was generated for them this time. */
-  reused?: boolean
-  /** The in-run subfolder the step's `result.subfolder` chose - `final`,
-   * `intermediate`, any relative path - `''` when it chose none. Absent
-   * only on a job recorded before the field existed. */
-  subfolder?: string
-}
-
-export interface JobDetail extends JobSummary {
-  arguments: Record<string, unknown>
-  warnings: string[]
-  manifest: ManifestEntry[]
-  /** Each output file's kind, from the server's MEDIA_KINDS; null for a
-   * kind the gallery does not show. */
-  output_kinds?: Record<string, 'image' | 'video' | 'audio' | 'text' | null>
-  error: string | null
-  traceback: string | null
-  event_count: number
-  /** The plan the caller bound its acknowledgement to, when it did. */
-  acknowledged_cost?: AcknowledgedCost | null
-}
-
-export interface AcknowledgedCost {
-  fingerprint: string
-  minutes?: number | null
-  downloads?: string[]
-}
+export type JobSummary = Schemas['JobSummary']
+export type ManifestEntry = Schemas['ManifestEntry']
+export type JobDetail = Schemas['JobDetail']
+export type AcknowledgedCost = Schemas['AcknowledgedCost']
+export type JobProgress = Schemas['JobProgress']
+export type JobList = Schemas['JobList']
+export type JobWorkflow = Schemas['JobWorkflow']
+export type JobExport = Schemas['JobExport']
+export type JobMoved = Schemas['JobMoved']
+export type JobCancelled = Schemas['JobCancelled']
+export type RunDeleted = Schemas['RunDeleted']
+export type ValidationResult = Schemas['ValidationResult']
+export type Plan = Schemas['Plan']
+export type PlanEstimate = Schemas['PlanEstimate']
+export type RequiredDownload = Schemas['RequiredDownload']
+export type ElidedStep = Schemas['ElidedStep']
 
 export interface JobEvent {
   seq: number
@@ -195,44 +156,6 @@ export interface PipelineDescription {
   accepts_kwargs: boolean
   parameters: PipelineParameter[]
   compatibles?: string[]
-}
-
-export interface ValidationResult {
-  valid: boolean
-  error: string | null
-  /** Every schema violation with its JSON path; empty when valid. */
-  errors: { path: string | null; message: string }[]
-  warnings: string[]
-  /** What the run will execute for the definition validated - on a valid
-   * answer; null when the server could not build it, absent from older
-   * servers and from an invalid answer. */
-  plan?: Plan | null
-}
-
-/** A validate answer's plan: the work a run will do, priced from the
- * workflow's own cost block, with the weights this box lacks named. */
-export interface Plan {
-  fingerprint: string
-  steps: number
-  list_entries: Record<string, number>
-  /** How many steps the worker's step cache would serve; null when the
-   * worker was busy or did not answer. */
-  cached_steps: number | null
-  /** The steps that will not run because nothing reads their result and
-   * they save no file - already excluded from `steps` (#122). */
-  elided_steps: { step: string; reason: string }[]
-  downloads_required: { repo: string | null; url?: string; gb: number | null }[]
-  estimate: {
-    minutes: number | null
-    basis: 'per_entry' | 'catalog' | 'derived' | 'other_device' | 'unknown'
-    device: string
-    measured_on: string | null
-    partial: boolean
-    /** What contributed nothing to `minutes` when `partial` is true - the
-     * workflow's own id when its own steps went unpriced, else the path of
-     * each composed child with no cost block. Empty when `partial` is false. */
-    unpriced: string[]
-  }
 }
 
 export interface GalleryFile {

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from tests.test_server import (  # noqa: F401
     server,
     success_script,
+    hanging_script,
     valid_workflow,
     wait_for_status,
 )
@@ -109,6 +110,17 @@ UI_READ_ROUTES = [
     ("delete", "/api/models"),
     ("get", "/api/system/diffusers"),
     ("post", "/api/system/diffusers/update"),
+    ("get", "/api/jobs"),
+    ("post", "/api/jobs"),
+    ("get", "/api/jobs/{job_id}"),
+    ("delete", "/api/jobs/{job_id}/run"),
+    ("get", "/api/jobs/{job_id}/workflow"),
+    ("post", "/api/jobs/{job_id}/rerun"),
+    ("post", "/api/jobs/{job_id}/export"),
+    ("post", "/api/jobs/{job_id}/move"),
+    ("post", "/api/jobs/{job_id}/cancel"),
+    ("post", "/api/enhance"),
+    ("post", "/api/validate"),
 ]
 
 
@@ -219,3 +231,146 @@ def test_a_key_the_worker_did_not_report_stays_absent(server):
         wait_for_status(client, job["id"], ["succeeded"])
         body = client.get("/api/memory").json()
     assert body["info"] == {"gpu_available": True}
+
+
+def test_a_job_recorded_before_run_tracking_still_lists_and_opens(tmp_path):
+    # A history row from an older server: only id and status were written,
+    # so workflow and created_at are null and the newer columns are absent
+    import sqlite3
+
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from tests.test_server import ScriptedWorkerManager
+
+    path = str(tmp_path / "old.sqlite")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+            " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+            " spec TEXT, manifest TEXT, warnings TEXT, error TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, status) VALUES ('old-1', 'succeeded')"
+        )
+    (tmp_path / "workflows").mkdir()
+    manager = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=path,
+    )
+    app = create_app(
+        workflow_dir=str(tmp_path / "workflows"),
+        output_dir=str(tmp_path / "outputs"),
+        job_manager=manager,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        listing = client.get("/api/jobs")
+        detail = client.get("/api/jobs/old-1")
+    assert listing.status_code == 200, listing.text
+    [row] = listing.json()["jobs"]
+    assert row["workflow"] is None and row["historical"] is True
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["run_id"] is None and body["manifest"] == []
+    assert "progress" not in body and "queue_position" not in body
+
+
+def test_live_and_historical_jobs_keep_their_own_keys(server):
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, running["id"], ["running"])
+        queued = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        live = client.get(f"/api/jobs/{running['id']}").json()
+        listed = {job["id"]: job for job in client.get("/api/jobs").json()["jobs"]}
+        client.post(f"/api/jobs/{queued['id']}/cancel")
+        client.post(f"/api/jobs/{running['id']}/cancel")
+    assert type(queued["queue_position"]) is int
+    assert type(listed[queued["id"]]["queue_position"]) is int
+    # a live job has progress and no history-only keys
+    assert "progress" in live
+    assert "spec" not in live and "historical" not in live
+    assert "queue_position" not in live
+
+
+def test_validation_answers_keep_their_keys(server):
+    with server(success_script) as client:
+        invalid = client.post("/api/validate", json={"workflow": {"id": "x"}}).json()
+        valid = client.post(
+            "/api/validate",
+            json={"workflow": valid_workflow()},
+            params={"sizes": False},
+        ).json()
+    # an invalid answer carries no plan at all, not a null one
+    assert invalid["valid"] is False and "plan" not in invalid
+    assert invalid["errors"] and {"path", "message"} <= set(invalid["errors"][0])
+    assert valid["valid"] is True
+    assert type(valid["plan"]["steps"]) is int
+    assert {"minutes", "basis", "device", "partial", "unpriced"} <= set(
+        valid["plan"]["estimate"]
+    )
+
+
+def test_validate_answers_for_an_uncached_gated_model(server, monkeypatch):
+    # model_info's own `gated` is False, "auto" or "manual" - a gated repo
+    # the cache does not hold must still get a plan, not a 500
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(dw.plan, "_model_info", lambda name: (31.4, "manual", False))
+    with server(success_script) as client:
+        response = client.post("/api/validate", json={"workflow": valid_workflow()})
+    assert response.status_code == 200, response.text
+    downloads = response.json()["plan"]["downloads_required"]
+    assert downloads and downloads[0]["gated"] == "manual"
+
+
+def test_runtime_sends_a_response_its_model_rejects_rather_than_a_500():
+    # Lenient means lenient: a declared field holding a type the model does
+    # not expect is logged and sent as the handler built it - on POST
+    # /api/jobs the job is already queued by then, and a 500 would invite a
+    # retry that queues it twice
+    from dw.server.api_models import ApiModel, send_rejected_responses
+
+    class Probe(ApiModel):
+        x: int
+
+    app = FastAPI()
+    send_rejected_responses(app)
+
+    @app.post(
+        "/p", status_code=201, response_model=Probe, response_model_exclude_unset=True
+    )
+    def p():
+        return {"x": "not an int"}
+
+    response = TestClient(app).post("/p")
+    assert response.status_code == 201
+    assert response.json() == {"x": "not an int"}
+
+
+def test_the_app_is_lenient_only_outside_strict_mode():
+    code = (
+        "from fastapi.exceptions import ResponseValidationError\n"
+        "import tempfile, os\n"
+        "t = tempfile.mkdtemp(); os.environ['DIFFUSERS_HELPER_ROOT'] = t\n"
+        "from dw.server.app import create_app\n"
+        "app = create_app(workflow_dir=t + '/w', output_dir=t + '/o', prompt_dir=t + '/p')\n"
+        "print(ResponseValidationError in app.exception_handlers)\n"
+        "app.state.job_manager.shutdown()\n"
+    )
+
+    def handled(strict):
+        env = {k: v for k, v in os.environ.items() if k != "DW_STRICT_RESPONSES"}
+        if strict:
+            env["DW_STRICT_RESPONSES"] = "1"
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert handled(strict=False) == "True"
+    assert handled(strict=True) == "False"

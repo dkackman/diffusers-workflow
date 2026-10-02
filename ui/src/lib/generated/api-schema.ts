@@ -1638,6 +1638,18 @@ export interface components {
              */
             repo_id: string;
         };
+        /** ElidedStep */
+        ElidedStep: {
+            /**
+             * Overridden By
+             * @description The supplied variable that made it unread.
+             */
+            overridden_by?: string;
+            /** Reason */
+            reason: string;
+            /** Step */
+            step: string | null;
+        };
         /** EnhanceRequest */
         EnhanceRequest: {
             /**
@@ -1661,6 +1673,13 @@ export interface components {
              * @default h3
              */
             preset: string;
+        };
+        /** ExportedFile */
+        ExportedFile: {
+            /** Bytes */
+            bytes: number;
+            /** Path */
+            path: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1691,6 +1710,193 @@ export interface components {
              * @description The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
              */
             worker_alive: boolean;
+        };
+        /** JobCancelled */
+        JobCancelled: {
+            /** Id */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+        };
+        /** JobDetail */
+        JobDetail: {
+            /**
+             * Acknowledged
+             * @description Which form of cost acknowledgement queued the job: none (the web UI and any caller that sent nothing), a bare boolean, or one bound to the plan a validate answered with.
+             * @enum {string}
+             */
+            acknowledged: "none" | "boolean" | "bound";
+            /** @description The plan the caller bound its acknowledgement to, when it did. */
+            acknowledged_cost: components["schemas"]["AcknowledgedCost"] | null;
+            /** Arguments */
+            arguments: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at: number | null;
+            /** Error */
+            error: string | null;
+            /** Event Count */
+            event_count: number;
+            /** Finished At */
+            finished_at: number | null;
+            /**
+             * Historical
+             * @description Read from job history rather than a live job.
+             */
+            historical?: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Manifest
+             * @description Null on a history row recorded before manifests, or by a run that wrote none.
+             */
+            manifest: components["schemas"]["ManifestEntry"][] | null;
+            /**
+             * Output Kinds
+             * @description Each output file's kind; null for a kind the gallery does not show. On GET /api/jobs/{id} only.
+             */
+            output_kinds?: {
+                [key: string]: ("image" | "video" | "audio" | "text") | null;
+            };
+            /** @description Where a running (or failed) job had got to; live jobs only. */
+            progress?: components["schemas"]["JobProgress"] | null;
+            /**
+             * Queue Position
+             * @description Index in the waiting queue; only while queued.
+             */
+            queue_position?: number;
+            /** Run Dir */
+            run_dir: string | null;
+            /**
+             * Run Id
+             * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
+             */
+            run_id: string | null;
+            /**
+             * Run Version
+             * @description That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.
+             */
+            run_version: number | null;
+            /**
+             * Spec
+             * @description The submitted spec; history rows only.
+             */
+            spec?: {
+                [key: string]: unknown;
+            };
+            /** Started At */
+            started_at: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** Traceback */
+            traceback: string | null;
+            /** Warnings */
+            warnings: string[];
+            /**
+             * Workflow
+             * @description Null only on a row recorded before the workflow was stored.
+             */
+            workflow: string | null;
+            /**
+             * Workflow Name
+             * @description The catalog name it was run by.
+             */
+            workflow_name: string | null;
+            /**
+             * Workspace
+             * @description The workspace this job ran in - 'default' for the default one.
+             */
+            workspace: string;
+        };
+        /** JobExport */
+        JobExport: {
+            /** Absolute Zip Url */
+            absolute_zip_url?: string;
+            /** Auth Required */
+            auth_required: boolean;
+            /** Directory */
+            directory: string;
+            /** Files */
+            files: components["schemas"]["ExportedFile"][];
+            /**
+             * Job
+             * @description job.json as exported; null if unreadable.
+             */
+            job: unknown;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Manifest
+             * @description manifest.json as exported; null if unreadable.
+             */
+            manifest: unknown;
+            /** Missing */
+            missing: string[];
+            /** Total Bytes */
+            total_bytes: number;
+            /**
+             * Workflow
+             * @description workflow.json as exported; null if unreadable.
+             */
+            workflow: unknown;
+            /** Zip Url */
+            zip_url: string;
+        };
+        /** JobList */
+        JobList: {
+            /**
+             * Jobs
+             * @description Oldest first.
+             */
+            jobs: components["schemas"]["JobSummary"][];
+            /**
+             * Total
+             * @description How many matched before `limit` cut the list.
+             */
+            total: number;
+        };
+        /** JobMoved */
+        JobMoved: {
+            /** Id */
+            id: string;
+            /** Queue */
+            queue: string[];
+        };
+        /** JobProgress */
+        JobProgress: {
+            /**
+             * Denoise Step
+             * @description Null until the denoise loop starts; a number that stops moving is a stuck one.
+             */
+            denoise_step: number | null;
+            /** Denoise Total Steps */
+            denoise_total_steps: number | null;
+            /**
+             * Parent Step
+             * @description The step of the queued workflow the one above is running inside, for a composed run; null when they are the same thing.
+             */
+            parent_step: string | null;
+            /** Phase */
+            phase: string | null;
+            /** Phase Detail */
+            phase_detail: unknown;
+            /** Seconds In Phase */
+            seconds_in_phase: number | null;
+            /** Seconds Since Event */
+            seconds_since_event: number;
+            /** Step */
+            step: string | null;
+            /** Step Index */
+            step_index: number | null;
+            /** Total Steps */
+            total_steps: number | null;
         };
         /** JobRequest */
         JobRequest: {
@@ -1729,6 +1935,82 @@ export interface components {
              */
             workspace?: string | null;
         };
+        /** JobSummary */
+        JobSummary: {
+            /**
+             * Acknowledged
+             * @description Which form of cost acknowledgement queued the job: none (the web UI and any caller that sent nothing), a bare boolean, or one bound to the plan a validate answered with.
+             * @enum {string}
+             */
+            acknowledged: "none" | "boolean" | "bound";
+            /** Created At */
+            created_at: number | null;
+            /** Finished At */
+            finished_at: number | null;
+            /**
+             * Historical
+             * @description Read from job history rather than a live job.
+             */
+            historical?: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Queue Position
+             * @description Index in the waiting queue; only while queued.
+             */
+            queue_position?: number;
+            /**
+             * Run Id
+             * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
+             */
+            run_id: string | null;
+            /**
+             * Run Version
+             * @description That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.
+             */
+            run_version: number | null;
+            /** Started At */
+            started_at: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Workflow
+             * @description Null only on a row recorded before the workflow was stored.
+             */
+            workflow: string | null;
+            /**
+             * Workflow Name
+             * @description The catalog name it was run by.
+             */
+            workflow_name: string | null;
+            /**
+             * Workspace
+             * @description The workspace this job ran in - 'default' for the default one.
+             */
+            workspace: string;
+        };
+        /** JobWorkflow */
+        JobWorkflow: {
+            /** Definition */
+            definition: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /**
+             * Realized
+             * @description Every mutable input is pinned - the copy the run itself wrote.
+             */
+            realized: boolean;
+            /**
+             * Seed Variable
+             * @description The variable a new-seed rerun would draw into, null when the workflow has none - the cue for whether to offer that at all.
+             */
+            seed_variable: string | null;
+        };
         /** KeepRequest */
         KeepRequest: {
             /**
@@ -1754,6 +2036,34 @@ export interface components {
              */
             shared: boolean;
         };
+        /**
+         * ManifestEntry
+         * @description One step's saved files. Open even in strict mode: the worker adds
+         *     per-step detail (`selected`, `shots`, ...) the UI does not read.
+         */
+        ManifestEntry: {
+            /** Files */
+            files: string[];
+            /**
+             * Parent Step
+             * @description The composing step a rolled-up entry came from.
+             */
+            parent_step?: string;
+            /**
+             * Reused
+             * @description The step was served from the step cache: these files are an earlier run's, republished, and nothing was generated for them this time.
+             */
+            reused?: boolean;
+            /** Step */
+            step: string;
+            /**
+             * Subfolder
+             * @description The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.
+             */
+            subfolder?: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** McpMount */
         McpMount: {
             /** Mounted */
@@ -1774,19 +2084,19 @@ export interface components {
          */
         MemoryDetail: {
             /** Gpu Available */
-            gpu_available?: boolean | null;
+            gpu_available?: boolean;
             /** Gpu Device Name */
             gpu_device_name?: string | null;
             /** Gpu Memory Allocated Mb */
-            gpu_memory_allocated_mb?: number | null;
+            gpu_memory_allocated_mb?: number;
             /** Gpu Memory Free Mb */
-            gpu_memory_free_mb?: number | null;
+            gpu_memory_free_mb?: number;
             /** Gpu Memory Reserved Mb */
-            gpu_memory_reserved_mb?: number | null;
+            gpu_memory_reserved_mb?: number;
             /** Gpu Memory Total Mb */
-            gpu_memory_total_mb?: number | null;
+            gpu_memory_total_mb?: number;
             /** Run Count */
-            run_count?: number | null;
+            run_count?: number;
         } & {
             [key: string]: unknown;
         };
@@ -1904,6 +2214,67 @@ export interface components {
              */
             direction: string;
         };
+        /** Plan */
+        Plan: {
+            /**
+             * Cached Steps
+             * @description How many steps the worker's step cache would serve; null when the worker was busy or did not answer.
+             */
+            cached_steps: number | null;
+            /** Downloads Required */
+            downloads_required: components["schemas"]["RequiredDownload"][];
+            /**
+             * Elided Steps
+             * @description The steps that will not run because nothing reads their result and they save no file - already excluded from `steps`.
+             */
+            elided_steps: components["schemas"]["ElidedStep"][];
+            estimate: components["schemas"]["PlanEstimate"];
+            /** Fingerprint */
+            fingerprint: string;
+            /** List Entries */
+            list_entries: {
+                [key: string]: number;
+            };
+            /** Output Dir */
+            output_dir: string | null;
+            /** Steps */
+            steps: number;
+            /** Workspace */
+            workspace: string;
+        };
+        /** PlanEstimate */
+        PlanEstimate: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "per_entry" | "catalog" | "derived" | "other_device" | "unknown" | "observed";
+            /** Cached Minutes */
+            cached_minutes: number | null;
+            /** Curated Minutes */
+            curated_minutes?: number;
+            /** Device */
+            device: string;
+            /** Low Confidence */
+            low_confidence?: boolean;
+            /** Measured On */
+            measured_on: string | null;
+            /** Minutes */
+            minutes: number | null;
+            /** Observed Minutes */
+            observed_minutes?: number;
+            /** Partial */
+            partial: boolean;
+            /** Runs */
+            runs: number | null;
+            /** Tempered */
+            tempered?: boolean;
+            /**
+             * Unpriced
+             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.
+             */
+            unpriced: string[];
+        };
         /** PromptRequest */
         PromptRequest: {
             /**
@@ -1913,6 +2284,25 @@ export interface components {
             prompt: {
                 [key: string]: unknown;
             };
+        };
+        /** RequiredDownload */
+        RequiredDownload: {
+            /** Access Blocked */
+            access_blocked: boolean | null;
+            /**
+             * Gated
+             * @description The hub's own `gated` field: false, or how access is granted.
+             */
+            gated: boolean | ("auto" | "manual") | null;
+            /** Gb */
+            gb: number | null;
+            /** Repo */
+            repo: string | null;
+            /**
+             * Url
+             * @description A from_single_file URL, which has no repo.
+             */
+            url?: string;
         };
         /** RerunRequest */
         RerunRequest: {
@@ -1927,6 +2317,20 @@ export interface components {
              * @default false
              */
             new_seed: boolean;
+        };
+        /** RunDeleted */
+        RunDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Job Id */
+            job_id: string;
+            /** Run Dir */
+            run_dir: string;
+            /**
+             * Run Swept
+             * @description The deleted run's directory name.
+             */
+            run_swept: string;
         };
         /** ServerAddress */
         ServerAddress: {
@@ -2024,6 +2428,37 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * ValidationFinding
+         * @description One violation with its JSON path. Open even in strict mode: a
+         *     finding carries its own extra keys after these two.
+         */
+        ValidationFinding: {
+            /** Message */
+            message: string;
+            /** Path */
+            path: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ValidationResult */
+        ValidationResult: {
+            /** Checked Arguments */
+            checked_arguments?: string[];
+            /** Error */
+            error: string | null;
+            /**
+             * Errors
+             * @description Every schema violation with its JSON path; empty when valid.
+             */
+            errors: components["schemas"]["ValidationFinding"][];
+            /** @description What the run will execute for the definition validated - on a valid answer; null when the server could not build it, absent from an invalid answer. */
+            plan?: components["schemas"]["Plan"] | null;
+            /** Valid */
+            valid: boolean;
+            /** Warnings */
+            warnings: string[];
         };
         /** WorkspaceRequest */
         WorkspaceRequest: {
@@ -2261,7 +2696,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2741,7 +3176,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobList"];
                 };
             };
             /** @description Validation Error */
@@ -2776,7 +3211,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2807,7 +3242,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2838,7 +3273,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobCancelled"];
                 };
             };
             /** @description Validation Error */
@@ -2940,7 +3375,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobExport"];
                 };
             };
             /** @description Validation Error */
@@ -2975,7 +3410,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobMoved"];
                 };
             };
             /** @description Validation Error */
@@ -3010,7 +3445,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -3041,7 +3476,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -3072,7 +3507,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobWorkflow"];
                 };
             };
             /** @description Validation Error */
@@ -3716,7 +4151,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ValidationResult"];
                 };
             };
             /** @description Validation Error */

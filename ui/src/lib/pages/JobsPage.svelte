@@ -30,7 +30,7 @@
     jobs.filter(
       (job) =>
         (!statusFilter || job.status === statusFilter) &&
-        job.workflow.toLowerCase().includes(nameFilter.toLowerCase()),
+        (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
     ),
   )
 
