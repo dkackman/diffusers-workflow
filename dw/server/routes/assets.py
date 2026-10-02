@@ -16,6 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    AssetDeleted,
+    AssetList,
+    Kept,
+    Uploaded,
+)
 from ...references import ASSET, make_ref
 from ...runs import record_kept_shots, recorded_shots
 from ...security import (
@@ -68,7 +74,12 @@ ALLOWED_UPLOAD_EXTENSIONS = (
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
 
-@router.post("/api/uploads", status_code=201)
+@router.post(
+    "/api/uploads",
+    status_code=201,
+    response_model=Uploaded,
+    response_model_exclude_unset=True,
+)
 async def upload_media(
     request: Request,
     filename: str,
@@ -169,7 +180,7 @@ async def upload_media(
     return result
 
 
-@router.get("/api/assets")
+@router.get("/api/assets", response_model=AssetList, response_model_exclude_unset=True)
 def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
     """The asset library: the input media an 'asset:' reference names.
 
@@ -269,7 +280,12 @@ class KeepRequest(BaseModel):
     )
 
 
-@router.post("/api/assets/keep", status_code=201)
+@router.post(
+    "/api/assets/keep",
+    status_code=201,
+    response_model=Kept,
+    response_model_exclude_unset=True,
+)
 def keep_output_as_asset(
     request: Request, body: KeepRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -397,7 +413,11 @@ def archive_assets(
     return archive_selection(paths, "asset")
 
 
-@router.delete("/api/assets/{name:path}")
+@router.delete(
+    "/api/assets/{name:path}",
+    response_model=AssetDeleted,
+    response_model_exclude_unset=True,
+)
 def delete_asset(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):

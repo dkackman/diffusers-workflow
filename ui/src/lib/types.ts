@@ -30,6 +30,38 @@ export type Plan = Schemas['Plan']
 export type PlanEstimate = Schemas['PlanEstimate']
 export type RequiredDownload = Schemas['RequiredDownload']
 export type ElidedStep = Schemas['ElidedStep']
+export type WorkflowCost = Schemas['WorkflowCost']
+export type LibraryRoot = Schemas['LibraryRoot']
+export type ShadowedEntry = Schemas['ShadowedEntry']
+export type PromptDetail = Schemas['PromptCard']
+export type EnhancerPreset = Schemas['EnhancerPreset']
+export type WorkflowCard = Schemas['WorkflowCard']
+export type WorkflowList = Schemas['WorkflowList']
+export type WorkflowSaved = Schemas['WorkflowSaved']
+export type PromptList = Schemas['PromptList']
+export type WorkspaceInfo = Schemas['WorkspaceInfo']
+export type WorkspaceList = Schemas['WorkspaceList']
+export type WorkspaceDeleted = Schemas['WorkspaceDeleted']
+export type Deleted = Schemas['Deleted']
+export type WorkflowDeleted = Schemas['WorkflowDeleted']
+export type PromptSaved = Schemas['PromptSaved']
+export type EnhancerPresets = Schemas['EnhancerPresets']
+export type GalleryFile = Schemas['GalleryFile']
+export type GalleryList = Schemas['GalleryList']
+export type GalleryMetadata = Schemas['GalleryMetadata']
+export type OutputDeleted = Schemas['OutputDeleted']
+export type AssetFile = Schemas['AssetFile']
+export type AssetLibrary = Schemas['AssetLibraryRoot']
+export type ShadowedAsset = Schemas['ShadowedAsset']
+export type AssetList = Schemas['AssetList']
+export type Uploaded = Schemas['Uploaded']
+export type Kept = Schemas['Kept']
+export type AssetDeleted = Schemas['AssetDeleted']
+export type PipelineParameter = Schemas['PipelineParameter']
+export type PipelineDescription = Schemas['PipelineDescription']
+export type PipelineNames = Schemas['PipelineNames']
+export type TaskList = Schemas['TaskList']
+export type ClassList = Schemas['ClassList']
 
 export interface JobEvent {
   seq: number
@@ -72,15 +104,6 @@ export const WORKFLOW_TRAITS = [
 ] as const
 export type WorkflowTrait = (typeof WORKFLOW_TRAITS)[number]
 
-/** One measured run. `name` is the accelerator for a person ('RTX 4090')
- * and is optional - only `device`, `vram_gb` and `minutes` are required. */
-export interface WorkflowCost {
-  device: string
-  name?: string
-  vram_gb: number
-  minutes: number
-}
-
 export interface WorkflowDefinition {
   id: string
   variables?: Record<string, unknown>
@@ -122,104 +145,6 @@ export interface StoredPrompt {
   writable: boolean
 }
 
-export interface PromptDetail {
-  description: string
-  intended_model: string
-  tags: string[]
-  text: string
-  /** Which library the prompt came from, and whether a save can reach it. */
-  origin: LibraryRoot['origin']
-  writable: boolean
-}
-
-export interface EnhancerPreset {
-  key: string
-  label: string
-  default_model: string
-  models: string[]
-  intended_models: string[]
-  placeholder: string
-}
-
-export interface PipelineParameter {
-  name: string
-  required: boolean
-  default: unknown
-  annotation: string | null
-  doc_type?: string
-  description?: string
-}
-
-export interface PipelineDescription {
-  name: string
-  summary: string
-  accepts_kwargs: boolean
-  parameters: PipelineParameter[]
-  compatibles?: string[]
-}
-
-export interface GalleryFile {
-  name: string
-  folder: string
-  /** What followed the run id in the file's path - the `final` /
-   * `intermediate` a step's `result.subfolder` chose, `''` for none. */
-  subfolder: string
-  /** The run that wrote the file, `''` under the flat layout. */
-  run_id: string
-  /** That run's ordinal among the workflow's runs - what the grid shows as
-   * `v4`. Two runs write the same `label`, so this is what tells them
-   * apart at a glance. Assigned when the run opens and never renumbered,
-   * so a deleted sibling leaves a gap. Null when there is no run. */
-  version: number | null
-  url: string
-  kind: 'image' | 'video' | 'audio'
-  size: number
-  mtime: number
-  label: string
-}
-
-/** One file in the asset library - the input media an `asset:` reference
- * names. Reported by reference rather than by path, so a client never has
- * to build one. */
-export interface AssetFile {
-  name: string
-  reference: string
-  folder: string
-  kind: 'image' | 'video' | 'audio'
-  size: number
-  mtime: number
-  /** Which library it came from: this workspace's own, the `common` one
-   * every workspace shares, or a read-only examples tree. The last is why
-   * a delete can answer 403. */
-  origin: 'workspace' | 'common' | 'examples'
-  url: string
-}
-
-/** One root on a library's search path - the `libraries` field every
- * library listing (workflows, prompts, assets) carries, in search order,
- * with the origin and writability a client needs to explain why a delete can
- * reach one root and not another. */
-export interface LibraryRoot {
-  origin: 'workspace' | 'common' | 'examples' | 'builtin'
-  root: string
-  writable: boolean
-}
-
-export interface AssetLibrary extends LibraryRoot {
-  origin: AssetFile['origin']
-}
-
-/** An entry a nearer library hides, as every listing's `shadowed` field
- * names it. */
-export interface ShadowedEntry {
-  name: string
-  origin: LibraryRoot['origin']
-  shadowed_by: LibraryRoot['origin']
-}
-
 /** An asset a nearer library hides: same shape as `AssetFile` except there
  * is no `url` - that URL would serve the shadowing file, not this one - and
  * `shadowed_by` names the origin that won. */
-export type ShadowedAsset = Omit<AssetFile, 'url'> & {
-  shadowed_by: AssetFile['origin']
-}

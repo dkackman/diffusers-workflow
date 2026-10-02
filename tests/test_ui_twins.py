@@ -240,3 +240,39 @@ def test_the_ui_offload_modes_are_the_schemas():
     assert set(ts_string_array(UI_LIB / "editor.ts", "OFFLOAD_MODES")) == set(
         _enum_under("offload")
     )
+
+
+API_TS = UI_LIB / "api.ts"
+# Paths api.ts reaches that are not JSON responses a model declares: the
+# event stream, JSON Schema documents served as-is, files and zips, and
+# the raw workflow/prompt GETs that serve the file verbatim (their PUT and
+# DELETE on the same path are in the contract)
+NOT_IN_CONTRACT = {
+    "/api/jobs/{}/events",
+    "/api/schema",
+    "/api/prompt-schema",
+    "/api/gallery/{}/download",
+    "/api/gallery/{}/thumbnail",
+    "/api/gallery/archive",
+    "/api/assets/archive",
+    "/api/workflows/{}/download",
+    "/api/prompts/{}/download",
+}
+
+
+def _api_ts_paths():
+    """Every /api/ path api.ts builds, with each ${...} as {}."""
+    found = set()
+    for literal in re.findall(r"[`'\"](/api/[^`'\"?]*)", API_TS.read_text()):
+        found.add(re.sub(r"\$\{[^}]*\}", "{}", literal).rstrip("/"))
+    return found
+
+
+def test_every_json_route_the_ui_calls_declares_its_response():
+    from tests.test_api_contract import UI_READ_ROUTES
+
+    covered = {re.sub(r"\{[^}]*\}", "{}", path) for _, path in UI_READ_ROUTES}
+    missing = sorted(p for p in _api_ts_paths() - NOT_IN_CONTRACT if p not in covered)
+    assert missing == [], (
+        f"api.ts calls routes with no declared response model: {missing}"
+    )

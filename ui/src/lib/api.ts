@@ -1,34 +1,43 @@
 import type {
-  AssetFile,
-  AssetLibrary,
-  ShadowedAsset,
+  AssetDeleted,
+  AssetList,
+  ClassList,
+  Deleted,
   DiffusersStatus,
-  EnhancerPreset,
-  JobDetail,
-  ModelCache,
-  ModelDownload,
-  JobEvent,
+  EnhancerPresets,
+  GalleryList,
+  GalleryMetadata,
+  HealthInfo,
   JobCancelled,
+  JobDetail,
+  JobEvent,
   JobExport,
   JobList,
   JobMoved,
   JobWorkflow,
-  GalleryFile,
-  HealthInfo,
+  Kept,
   MemoryInfo,
+  ModelCache,
+  ModelDownload,
+  OutputDeleted,
   PipelineDescription,
+  PipelineNames,
   PromptDefinition,
-  PromptDetail,
-  LibraryRoot,
-  ShadowedEntry,
+  PromptList,
+  PromptSaved,
   ServerInfo,
-  ValidationResult,
-  WorkflowCost,
-  WorkflowDefinition,
-  WorkflowShape,
-  WorkflowTrait,
   StoredPrompt,
+  TaskList,
+  Uploaded,
+  ValidationResult,
+  WorkflowDefinition,
+  WorkflowDeleted,
+  WorkflowList,
+  WorkflowSaved,
   WorkflowWithOrigin,
+  WorkspaceDeleted,
+  WorkspaceInfo,
+  WorkspaceList,
 } from './types'
 import { getApiToken } from './token'
 import { ApiError, errorDetail } from './apiErrors'
@@ -126,44 +135,7 @@ function archiveFrom(path: string) {
 }
 
 export const api = {
-  listWorkflows: () =>
-    request<{
-      workspace?: string
-      /** The search path in order; the writable workspace root is where a
-       * save lands, whatever library a workflow was read from. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      workflows: string[]
-      details: Record<
-        string,
-        {
-          kinds: string[]
-          steps?: number
-          variables: number
-          description: string
-          /** For a model config: the template it is a tuned instance of.
-           * Absent from an older server, and from every template. */
-          configures?: string
-          prompt_refs?: string[]
-          /** What the workflow makes, derived by the server from the
-           * definition (dw/server/catalog_shape.py). Absent from an older
-           * server. */
-          shape?: WorkflowShape
-          /** Sorted, independent facts about how the output is made or what
-           * it needs. */
-          traits?: WorkflowTrait[]
-          /** The description's first sentence, clipped - what a card shows. */
-          summary?: string
-          /** Measured runs, one per device the maintainer measured on. Null
-           * (or absent) means unknown - never derived. */
-          cost?: WorkflowCost[] | null
-          /** Which source it came from: 'workspace', 'examples', 'builtin'. */
-          origin: string
-          /** False for a read-only source: offer save-a-copy, not delete. */
-          writable: boolean
-        }
-      >
-    }>('/api/workflows'),
+  listWorkflows: () => request<WorkflowList>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
    * rather than a separate `listWorkflows` lookup. Beside the definition,
    * the way `getPrompt` keeps a prompt's: the object the caller holds is
@@ -208,13 +180,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_seed: newSeed }),
     }),
-  listTasks: () =>
-    request<{
-      commands: string[]
-      image_processors: string[]
-      video_processors: string[]
-      assessment: string[]
-    }>('/api/tasks'),
+  listTasks: () => request<TaskList>('/api/tasks'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
@@ -287,16 +253,12 @@ export const api = {
   server: () => request<ServerInfo>('/api/server'),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
-  gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),
+  gallery: () => request<GalleryList>('/api/gallery?limit=100000'),
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
   // a job page must read its own files from where they were written
   galleryMetadata: (name: string, workspace?: string) =>
-    request<{
-      name: string
-      metadata: Record<string, unknown> | null
-      job: { id: string; status: string } | null
-    }>(
+    request<GalleryMetadata>(
       workspace === undefined
         ? `/api/gallery/${encodePath(name)}/metadata`
         : scopeTo(`/api/gallery/${encodePath(name)}/metadata`, workspace),
@@ -306,10 +268,9 @@ export const api = {
   galleryThumbnailUrl: (name: string) =>
     withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
   deleteOutput: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/gallery/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   outputDownloadUrl: (name: string, workspace?: string) =>
     withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
   /** Download a multi-file gallery selection as one zip. The browser
@@ -324,7 +285,7 @@ export const api = {
    * than the random one a browser upload gets, and `shared` puts it in the
    * library every workspace under this root shares. */
   uploadMedia: (file: File, assetName?: string, shared = false) =>
-    request<{ url: string; reference?: string }>(
+    request<Uploaded>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
@@ -332,14 +293,7 @@ export const api = {
     ),
   /** The asset library, spanning the workspace's own, the shared `common`
    * one and any example library - each entry tagged with which. */
-  listAssets: () =>
-    request<{
-      workspace: string
-      assets: AssetFile[]
-      folders: string[]
-      libraries: AssetLibrary[]
-      shadowed: ShadowedAsset[]
-    }>('/api/assets'),
+  listAssets: () => request<AssetList>('/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */
@@ -347,26 +301,12 @@ export const api = {
   /** Permanently remove one asset. Answers 403 for one an examples tree
    * brought with it, which is not this server's to delete. */
   deleteAsset: (name: string) =>
-    request<{ name: string; deleted: boolean; origin: string }>(
-      `/api/assets/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
-  listWorkspaces: () =>
-    request<{
-      workspace_root: string | null
-      default: string
-      workspaces: {
-        name: string
-        default: boolean
-        workflows: string
-        assets: string | null
-        outputs: string
-        prompts: string | null
-        usage?: { files: number; bytes: number }
-      }[]
-    }>('/api/workspaces'),
+    request<AssetDeleted>(`/api/assets/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
+  listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
-    request<{ name: string }>('/api/workspaces', {
+    request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -375,7 +315,7 @@ export const api = {
    * `acknowledged`, answering with what it would remove - so the caller can
    * show that before asking again. */
   deleteWorkspace: (name: string, acknowledged = false) =>
-    request<{ name: string; deleted: boolean }>(
+    request<WorkspaceDeleted>(
       `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
       { method: 'DELETE' },
     ),
@@ -383,23 +323,20 @@ export const api = {
    * happens on the server, inside the workspace - nothing is downloaded and
    * re-uploaded to reuse a render. */
   keepOutput: (name: string, assetName?: string, overwrite = false) =>
-    request<{ reference: string; name: string; linked: boolean }>(
-      '/api/assets/keep',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          asset_name: assetName ?? null,
-          overwrite,
-        }),
-      },
-    ),
-  listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
+    request<Kept>('/api/assets/keep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        asset_name: assetName ?? null,
+        overwrite,
+      }),
+    }),
+  listPipelines: () => request<PipelineNames>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
   listClasses: (kind: string) =>
-    request<{ kind: string; classes: string[] }>(`/api/classes?kind=${kind}`),
+    request<ClassList>(`/api/classes?kind=${kind}`),
   describeClass: (name: string, target: 'call' | 'init' | 'load') =>
     request<PipelineDescription>(
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,
@@ -412,32 +349,18 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   deleteWorkflow: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/workflows/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<WorkflowDeleted>(`/api/workflows/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{
-      name: string
-      workspace: string
-      origin: string
-      warnings: string[]
-    }>(`/api/workflows/${encodePath(name)}`, {
+    request<WorkflowSaved>(`/api/workflows/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflow }),
     }),
-  listPrompts: () =>
-    request<{
-      /** The search path in order; the writable workspace root is where a
-       * save lands. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      prompts: string[]
-      details: Record<string, PromptDetail>
-    }>('/api/prompts'),
+  listPrompts: () => request<PromptList>('/api/prompts'),
   /** The prompt plus which library it came from, read off the response
    * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>
@@ -449,20 +372,17 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string }>(`/api/prompts/${encodePath(name)}`, {
+    request<PromptSaved>(`/api/prompts/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),
     }),
   deletePrompt: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/prompts/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<Deleted>(`/api/prompts/${encodePath(name)}`, { method: 'DELETE' }),
   promptDownloadUrl: (name: string) =>
     withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
-  listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
+  listEnhancers: () => request<EnhancerPresets>('/api/enhancers'),
   enhance: (body: {
     idea: string
     preset: string

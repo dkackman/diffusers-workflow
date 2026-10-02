@@ -48,6 +48,8 @@ describe('ArgumentsEditor media arguments', () => {
     vi.spyOn(api, 'uploadMedia').mockResolvedValue({
       reference: 'asset:abc123.png',
       url: '/outputs/uploads/abc123.png',
+      workspace: 'default',
+      shared: false,
     })
 
     const args: Record<string, unknown> = { image: '' }

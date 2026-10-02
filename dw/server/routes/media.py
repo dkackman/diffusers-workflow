@@ -15,6 +15,9 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
+from ..api_models import (
+    GalleryMetadata,
+)
 from ...assets import is_asset_reference
 from ...media import (
     MAX_INLINE_AUDIO_BYTES,
@@ -60,7 +63,11 @@ router = APIRouter()
 GALLERY_THUMBNAIL_MAX_DIM = 320
 
 
-@router.get("/api/gallery/{name:path}/metadata")
+@router.get(
+    "/api/gallery/{name:path}/metadata",
+    response_model=GalleryMetadata,
+    response_model_exclude_unset=True,
+)
 def gallery_metadata(
     request: Request,
     name: str,

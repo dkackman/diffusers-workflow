@@ -13,7 +13,12 @@ from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
+from ..api_models import (
+    GalleryList,
+    OutputDeleted,
+)
 from ...media import probe_media
 from ...runs import (
     MANIFEST_FILE_NAME,
@@ -155,7 +160,9 @@ def _orphan_entries(root):
     return entries
 
 
-@router.get("/api/gallery")
+@router.get(
+    "/api/gallery", response_model=GalleryList, response_model_exclude_unset=True
+)
 def gallery(
     limit: int = 200,
     offset: int = 0,
@@ -204,13 +211,17 @@ def gallery(
         offset = max(0, offset)
         limit = max(0, limit)
         page = entries[offset : offset + limit]
-        return {
-            "runs": page,
-            "total": len(entries),
-            "offset": offset,
-            "limit": limit,
-            "workspace": ws.name,
-        }
+        # A different answer from the file listing GalleryList declares;
+        # it goes out as built, outside that model
+        return JSONResponse(
+            {
+                "runs": page,
+                "total": len(entries),
+                "offset": offset,
+                "limit": limit,
+                "workspace": ws.name,
+            }
+        )
     entries = _gallery_entries(ws.outputs, ws)
     folders = sorted({e["folder"] for e in entries} | {""})
     subfolders = sorted({e["subfolder"] for e in entries} | {""})
@@ -332,7 +343,11 @@ def _run_directory(name, root):
     return path if os.path.isdir(path) else None
 
 
-@router.delete("/api/gallery/{name:path}")
+@router.delete(
+    "/api/gallery/{name:path}",
+    response_model=OutputDeleted,
+    response_model_exclude_unset=True,
+)
 def delete_output(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):

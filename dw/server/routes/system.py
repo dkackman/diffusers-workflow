@@ -15,6 +15,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..api_models import (
+    ClassList,
+    PipelineDescription,
+    PipelineNames,
+    TaskList,
     DiffusersStatus,
     HealthInfo,
     MemoryCleared,
@@ -54,13 +58,19 @@ router = APIRouter()
 MCP_PATH = "/mcp"
 
 
-@router.get("/api/pipelines")
+@router.get(
+    "/api/pipelines", response_model=PipelineNames, response_model_exclude_unset=True
+)
 def pipelines():
     """Every pipeline class the installed diffusers exports."""
     return {"pipelines": list_pipelines()}
 
 
-@router.get("/api/pipelines/{name}")
+@router.get(
+    "/api/pipelines/{name}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def pipeline_description(name: str):
     """A pipeline's __call__ argument schema, for form generation."""
     try:
@@ -73,13 +83,17 @@ def pipeline_description(name: str):
         raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
 
 
-@router.get("/api/tasks")
+@router.get("/api/tasks", response_model=TaskList, response_model_exclude_unset=True)
 def tasks():
     """Every task command a workflow's task step can name."""
     return list_tasks()
 
 
-@router.get("/api/tasks/{command}")
+@router.get(
+    "/api/tasks/{command}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def get_task(command: str):
     """A task command's argument schema - the registered implementation
     function's real signature, in the same shape as a class description."""
@@ -89,7 +103,7 @@ def get_task(command: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/api/classes")
+@router.get("/api/classes", response_model=ClassList, response_model_exclude_unset=True)
 def classes(kind: str):
     """Class names of one kind (pipelines, models, schedulers,
     quantization) - the pickers' data source."""
@@ -99,7 +113,11 @@ def classes(kind: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/api/classes/{name:path}")
+@router.get(
+    "/api/classes/{name:path}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def class_description(name: str, target: str = "init"):
     """A class's argument schema: target=call reads __call__, init reads
     __init__, load reads from_pretrained plus the curated loading knobs."""

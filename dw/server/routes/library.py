@@ -18,7 +18,17 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ..api_models import (
+    Deleted,
+    EnhancerPresets,
     JobDetail,
+    PromptList,
+    PromptSaved,
+    WorkflowDeleted,
+    WorkflowList,
+    WorkflowSaved,
+    WorkspaceDeleted,
+    WorkspaceInfo,
+    WorkspaceList,
 )
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
@@ -76,7 +86,9 @@ class WorkspaceRequest(BaseModel):
     name: str = Field(description="Name for the new workspace")
 
 
-@router.get("/api/workspaces")
+@router.get(
+    "/api/workspaces", response_model=WorkspaceList, response_model_exclude_unset=True
+)
 def list_workspaces(request: Request):
     """Every workspace on this server, the default first.
 
@@ -108,7 +120,12 @@ def list_workspaces(request: Request):
     }
 
 
-@router.post("/api/workspaces", status_code=201)
+@router.post(
+    "/api/workspaces",
+    status_code=201,
+    response_model=WorkspaceInfo,
+    response_model_exclude_unset=True,
+)
 def add_workspace(http_request: Request, request: WorkspaceRequest):
     """Create a workspace: its own workflows, assets and outputs, sharing
     this server's one prompt library."""
@@ -125,7 +142,11 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     return created.describe()
 
 
-@router.delete("/api/workspaces/{name}")
+@router.delete(
+    "/api/workspaces/{name}",
+    response_model=WorkspaceDeleted,
+    response_model_exclude_unset=True,
+)
 def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     """Delete a workspace and everything in it.
 
@@ -192,7 +213,9 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
 VARIABLE_VALUE_PREVIEW = 200
 
 
-@router.get("/api/workflows")
+@router.get(
+    "/api/workflows", response_model=WorkflowList, response_model_exclude_unset=True
+)
 def list_workflows(
     request: Request,
     ws: Workspace = Depends(selected_workspace),
@@ -231,7 +254,7 @@ def list_workflows(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {
+    answer = {
         "workspace": ws.name,
         "libraries": library.describe(),
         "workflows": sorted(details),
@@ -250,6 +273,9 @@ def list_workflows(
         # for `cost` (#93)
         "cost_basis": "curated",
     }
+    # The agent's compact view is a different, smaller card than the one
+    # WorkflowList declares; it goes out as built, outside that model
+    return JSONResponse(answer) if view == "compact" else answer
 
 
 # A save reads nothing, but a patch reads the stored version, merges and
@@ -309,7 +335,11 @@ def _write_validated(state, ws, name, definition):
     }
 
 
-@router.put("/api/workflows/{name:path}")
+@router.put(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowSaved,
+    response_model_exclude_unset=True,
+)
 def save_workflow(
     http_request: Request,
     name: str,
@@ -333,7 +363,11 @@ def save_workflow(
         return _write_validated(http_request.app.state, ws, name, request.workflow)
 
 
-@router.patch("/api/workflows/{name:path}")
+@router.patch(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowSaved,
+    response_model_exclude_unset=True,
+)
 def patch_workflow(
     http_request: Request,
     name: str,
@@ -356,7 +390,11 @@ def patch_workflow(
         return _write_validated(state, ws, name, merge_patch(current, patch))
 
 
-@router.delete("/api/workflows/{name:path}")
+@router.delete(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowDeleted,
+    response_model_exclude_unset=True,
+)
 def delete_workflow(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -537,7 +575,9 @@ def _find_prompt(state, name):
     return found
 
 
-@router.get("/api/prompts")
+@router.get(
+    "/api/prompts", response_model=PromptList, response_model_exclude_unset=True
+)
 def list_prompts(
     request: Request,
     tag: str | None = None,
@@ -601,7 +641,11 @@ def list_prompts(
     }
 
 
-@router.put("/api/prompts/{name:path}")
+@router.put(
+    "/api/prompts/{name:path}",
+    response_model=PromptSaved,
+    response_model_exclude_unset=True,
+)
 def save_prompt(http_request: Request, name: str, request: PromptRequest):
     """Write a prompt into the prompt directory. Like a workflow save,
     the definition must be schema-valid before it lands on disk."""
@@ -626,7 +670,11 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
     return {"name": name}
 
 
-@router.delete("/api/prompts/{name:path}")
+@router.delete(
+    "/api/prompts/{name:path}",
+    response_model=Deleted,
+    response_model_exclude_unset=True,
+)
 def delete_prompt(request: Request, name: str):
     """Remove a prompt file from the prompt directory. A prompt that
     came from a read-only examples library is not this server's to
@@ -688,7 +736,9 @@ class EnhanceRequest(BaseModel):
     )
 
 
-@router.get("/api/enhancers")
+@router.get(
+    "/api/enhancers", response_model=EnhancerPresets, response_model_exclude_unset=True
+)
 def list_enhancers():
     return {"presets": preset_descriptions()}
 

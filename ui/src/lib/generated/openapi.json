@@ -61,6 +61,238 @@
         "title": "ArchiveRequest",
         "type": "object"
       },
+      "AssetDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "workspace",
+          "reference",
+          "deleted",
+          "origin"
+        ],
+        "title": "AssetDeleted",
+        "type": "object"
+      },
+      "AssetFile": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_url": {
+            "title": "Absolute Url",
+            "type": "string"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mtime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Mtime"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.",
+            "enum": [
+              "workspace",
+              "common",
+              "examples"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "reference",
+          "folder",
+          "kind",
+          "size",
+          "mtime",
+          "origin",
+          "writable",
+          "url"
+        ],
+        "title": "AssetFile",
+        "type": "object"
+      },
+      "AssetLibraryRoot": {
+        "additionalProperties": false,
+        "properties": {
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root",
+          "origin",
+          "writable"
+        ],
+        "title": "AssetLibraryRoot",
+        "type": "object"
+      },
+      "AssetList": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetFile"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "folders": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "libraries": {
+            "items": {
+              "$ref": "#/components/schemas/AssetLibraryRoot"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "shadowed": {
+            "items": {
+              "$ref": "#/components/schemas/ShadowedAsset"
+            },
+            "title": "Shadowed",
+            "type": "array"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "libraries",
+          "assets",
+          "folders",
+          "shadowed"
+        ],
+        "title": "AssetList",
+        "type": "object"
+      },
+      "ClassList": {
+        "additionalProperties": false,
+        "properties": {
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "classes"
+        ],
+        "title": "ClassList",
+        "type": "object"
+      },
+      "Deleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "deleted"
+        ],
+        "title": "Deleted",
+        "type": "object"
+      },
       "DiffusersInstall": {
         "additionalProperties": false,
         "properties": {
@@ -222,6 +454,25 @@
         "title": "DiffusersStatus",
         "type": "object"
       },
+      "DiskUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files",
+          "bytes"
+        ],
+        "title": "DiskUsage",
+        "type": "object"
+      },
       "DownloadRequest": {
         "properties": {
           "repo_id": {
@@ -311,6 +562,68 @@
         "title": "EnhanceRequest",
         "type": "object"
       },
+      "EnhancerPreset": {
+        "additionalProperties": false,
+        "properties": {
+          "default_model": {
+            "title": "Default Model",
+            "type": "string"
+          },
+          "intended_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Intended Models",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "placeholder": {
+            "title": "Placeholder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "default_model",
+          "models",
+          "intended_models",
+          "placeholder"
+        ],
+        "title": "EnhancerPreset",
+        "type": "object"
+      },
+      "EnhancerPresets": {
+        "additionalProperties": false,
+        "properties": {
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/EnhancerPreset"
+            },
+            "title": "Presets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "presets"
+        ],
+        "title": "EnhancerPresets",
+        "type": "object"
+      },
       "ExportedFile": {
         "additionalProperties": false,
         "properties": {
@@ -328,6 +641,248 @@
           "bytes"
         ],
         "title": "ExportedFile",
+        "type": "object"
+      },
+      "GalleryFile": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_url": {
+            "title": "Absolute Url",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An audio or video file's length, with `media=true`.",
+            "title": "Duration Seconds"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "mtime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Mtime"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The run that wrote the file, `''` under the flat layout.",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "subfolder": {
+            "description": "What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.",
+            "title": "Subfolder",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "That run's ordinal among the workflow's runs - what the grid shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null when there is no run.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "name",
+          "folder",
+          "subfolder",
+          "run_id",
+          "version",
+          "url",
+          "kind",
+          "size",
+          "mtime",
+          "label"
+        ],
+        "title": "GalleryFile",
+        "type": "object"
+      },
+      "GalleryList": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/GalleryFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "folders": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "subfolders": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subfolders",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "files",
+          "total",
+          "offset",
+          "limit",
+          "folders",
+          "subfolders",
+          "workspace"
+        ],
+        "title": "GalleryList",
+        "type": "object"
+      },
+      "GalleryMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/LevelFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "media": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The probe of an audio or video file; null for an image.",
+            "title": "Media"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the file embeds: the workflow and arguments that made it.",
+            "title": "Metadata"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "output",
+              "asset"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "metadata",
+          "job",
+          "run_id",
+          "version",
+          "media",
+          "findings"
+        ],
+        "title": "GalleryMetadata",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -939,6 +1494,25 @@
         "title": "JobProgress",
         "type": "object"
       },
+      "JobRef": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "JobRef",
+        "type": "object"
+      },
       "JobRequest": {
         "properties": {
           "acknowledged_cost": {
@@ -1240,6 +1814,107 @@
           "name"
         ],
         "title": "KeepRequest",
+        "type": "object"
+      },
+      "Kept": {
+        "additionalProperties": false,
+        "properties": {
+          "linked": {
+            "title": "Linked",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "shared": {
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "name",
+          "workspace",
+          "linked",
+          "shared"
+        ],
+        "title": "Kept",
+        "type": "object"
+      },
+      "LevelFinding": {
+        "additionalProperties": false,
+        "description": "A probe threshold crossing (dw/assessment_rules.finding).",
+        "properties": {
+          "at": {
+            "title": "At"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "says": {
+            "title": "Says",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "at",
+          "value",
+          "threshold",
+          "says"
+        ],
+        "title": "LevelFinding",
+        "type": "object"
+      },
+      "LibraryRoot": {
+        "additionalProperties": false,
+        "properties": {
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root",
+          "origin",
+          "writable"
+        ],
+        "title": "LibraryRoot",
         "type": "object"
       },
       "ManifestEntry": {
@@ -1766,6 +2441,151 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "OutputDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_swept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run directory the delete emptied and removed, if any.",
+            "title": "Run Swept"
+          }
+        },
+        "required": [
+          "name",
+          "deleted",
+          "run_swept"
+        ],
+        "title": "OutputDeleted",
+        "type": "object"
+      },
+      "PipelineDescription": {
+        "additionalProperties": false,
+        "properties": {
+          "accepts_kwargs": {
+            "title": "Accepts Kwargs",
+            "type": "boolean"
+          },
+          "compatibles": {
+            "description": "Scheduler classes this one can swap with.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Compatibles",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "summary",
+          "accepts_kwargs",
+          "parameters"
+        ],
+        "title": "PipelineDescription",
+        "type": "object"
+      },
+      "PipelineNames": {
+        "additionalProperties": false,
+        "properties": {
+          "pipelines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pipelines"
+        ],
+        "title": "PipelineNames",
+        "type": "object"
+      },
+      "PipelineParameter": {
+        "additionalProperties": false,
+        "properties": {
+          "annotation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotation"
+          },
+          "default": {
+            "description": "Null when there is none; see `required`.",
+            "title": "Default"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "doc_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type the docstring names.",
+            "title": "Doc Type"
+          },
+          "domain": {
+            "description": "The values a task argument may take.",
+            "title": "Domain"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "required",
+          "default",
+          "annotation"
+        ],
+        "title": "PipelineParameter",
+        "type": "object"
+      },
       "Plan": {
         "additionalProperties": false,
         "properties": {
@@ -1969,6 +2789,101 @@
         "title": "PlanEstimate",
         "type": "object"
       },
+      "PromptCard": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "intended_model": {
+            "title": "Intended Model",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Which library the prompt came from, and whether a save can reach it.",
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "description": "Absent when the listing was asked for without text.",
+            "title": "Text",
+            "type": "string"
+          },
+          "text_chars": {
+            "description": "The text's length, in place of `text`.",
+            "title": "Text Chars",
+            "type": "integer"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "description",
+          "intended_model",
+          "tags",
+          "origin",
+          "writable"
+        ],
+        "title": "PromptCard",
+        "type": "object"
+      },
+      "PromptList": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PromptCard"
+            },
+            "title": "Details",
+            "type": "object"
+          },
+          "libraries": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRoot"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "prompts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prompts",
+            "type": "array"
+          },
+          "shadowed": {
+            "items": {
+              "$ref": "#/components/schemas/ShadowedEntry"
+            },
+            "title": "Shadowed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "libraries",
+          "prompts",
+          "details",
+          "shadowed"
+        ],
+        "title": "PromptList",
+        "type": "object"
+      },
       "PromptRequest": {
         "properties": {
           "prompt": {
@@ -1982,6 +2897,20 @@
           "prompt"
         ],
         "title": "PromptRequest",
+        "type": "object"
+      },
+      "PromptSaved": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PromptSaved",
         "type": "object"
       },
       "RequiredDownload": {
@@ -2337,6 +3266,160 @@
         "title": "ServerRuntime",
         "type": "object"
       },
+      "ShadowedAsset": {
+        "additionalProperties": false,
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mtime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Mtime"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "shadowed_by": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples"
+            ],
+            "title": "Shadowed By",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "reference",
+          "folder",
+          "kind",
+          "size",
+          "mtime",
+          "origin",
+          "writable",
+          "shadowed_by"
+        ],
+        "title": "ShadowedAsset",
+        "type": "object"
+      },
+      "ShadowedEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "shadowed_by": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Shadowed By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "origin",
+          "shadowed_by"
+        ],
+        "title": "ShadowedEntry",
+        "type": "object"
+      },
+      "TaskList": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assessment",
+            "type": "array"
+          },
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "image_processors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Image Processors",
+            "type": "array"
+          },
+          "video_processors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Video Processors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands",
+          "image_processors",
+          "video_processors",
+          "assessment"
+        ],
+        "title": "TaskList",
+        "type": "object"
+      },
       "UpdateDiffusersRequest": {
         "properties": {
           "commit": {
@@ -2359,6 +3442,39 @@
           }
         },
         "title": "UpdateDiffusersRequest",
+        "type": "object"
+      },
+      "Uploaded": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_url": {
+            "title": "Absolute Url",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "shared": {
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "workspace",
+          "url",
+          "shared"
+        ],
+        "title": "Uploaded",
         "type": "object"
       },
       "ValidationError": {
@@ -2489,6 +3605,508 @@
         "title": "ValidationResult",
         "type": "object"
       },
+      "WorkflowCard": {
+        "additionalProperties": false,
+        "description": "One workflow's entry in the full listing (the agent's\n`view=compact` answer is a different, smaller shape outside this\nmodel).",
+        "properties": {
+          "configures": {
+            "description": "For a model config: the template it is a tuned instance of; '' for a template. Absent when the file could not be read.",
+            "title": "Configures",
+            "type": "string"
+          },
+          "configures_missing": {
+            "description": "A `configures` that names no workflow.",
+            "title": "Configures Missing",
+            "type": "string"
+          },
+          "constraints": {
+            "additionalProperties": true,
+            "title": "Constraints",
+            "type": "object"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/WorkflowCost"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured runs, one per device the maintainer measured on. Null means unknown - never derived.",
+            "title": "Cost"
+          },
+          "cost_drivers": {
+            "additionalProperties": true,
+            "title": "Cost Drivers",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "lists": {
+            "additionalProperties": true,
+            "title": "Lists",
+            "type": "object"
+          },
+          "observed": {
+            "additionalProperties": true,
+            "description": "This box's own history for it.",
+            "title": "Observed",
+            "type": "object"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "prompt_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prompt Refs",
+            "type": "array"
+          },
+          "shape": {
+            "description": "What the workflow makes, derived by the server.",
+            "enum": [
+              "image",
+              "image-set",
+              "image-edit",
+              "shot",
+              "sequence",
+              "audio",
+              "text",
+              "utility"
+            ],
+            "title": "Shape",
+            "type": "string"
+          },
+          "steps": {
+            "title": "Steps",
+            "type": "integer"
+          },
+          "summary": {
+            "description": "The description's first sentence, clipped - what a card shows.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "traits": {
+            "description": "Sorted, independent facts about how the output is made or what it needs.",
+            "items": {
+              "enum": [
+                "has-audio",
+                "chained",
+                "image-conditioned",
+                "identity-referenced",
+                "needs-input-media",
+                "composes-workflows"
+              ],
+              "type": "string"
+            },
+            "title": "Traits",
+            "type": "array"
+          },
+          "variable_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable Names",
+            "type": "array"
+          },
+          "variables": {
+            "title": "Variables",
+            "type": "integer"
+          },
+          "writable": {
+            "description": "False for a read-only source: offer save-a-copy, not delete.",
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kinds",
+          "steps",
+          "variables",
+          "variable_names",
+          "description",
+          "prompt_refs",
+          "shape",
+          "traits",
+          "summary",
+          "lists",
+          "constraints",
+          "cost_drivers",
+          "cost",
+          "origin",
+          "writable"
+        ],
+        "title": "WorkflowCard",
+        "type": "object"
+      },
+      "WorkflowCost": {
+        "additionalProperties": true,
+        "description": "A measured run, as the workflow's own `cost` block declares it.",
+        "properties": {
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Vram Gb"
+          }
+        },
+        "required": [
+          "device",
+          "vram_gb",
+          "minutes"
+        ],
+        "title": "WorkflowCost",
+        "type": "object"
+      },
+      "WorkflowDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "workspace",
+          "origin",
+          "deleted"
+        ],
+        "title": "WorkflowDeleted",
+        "type": "object"
+      },
+      "WorkflowList": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_basis": {
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WorkflowCard"
+            },
+            "title": "Details",
+            "type": "object"
+          },
+          "libraries": {
+            "description": "The search path in order; the writable workspace root is where a save lands, whatever library a workflow was read from.",
+            "items": {
+              "$ref": "#/components/schemas/LibraryRoot"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "shadowed": {
+            "items": {
+              "$ref": "#/components/schemas/ShadowedEntry"
+            },
+            "title": "Shadowed",
+            "type": "array"
+          },
+          "workflows": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Workflows",
+            "type": "array"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "libraries",
+          "workflows",
+          "details",
+          "shadowed",
+          "cost_basis"
+        ],
+        "title": "WorkflowList",
+        "type": "object"
+      },
+      "WorkflowSaved": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "shape": {
+            "enum": [
+              "image",
+              "image-set",
+              "image-edit",
+              "shot",
+              "sequence",
+              "audio",
+              "text",
+              "utility"
+            ],
+            "title": "Shape",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "traits": {
+            "items": {
+              "enum": [
+                "has-audio",
+                "chained",
+                "image-conditioned",
+                "identity-referenced",
+                "needs-input-media",
+                "composes-workflows"
+              ],
+              "type": "string"
+            },
+            "title": "Traits",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "workspace",
+          "origin",
+          "warnings",
+          "shape",
+          "traits",
+          "summary"
+        ],
+        "title": "WorkflowSaved",
+        "type": "object"
+      },
+      "WorkspaceDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "contents": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DiskUsage"
+            },
+            "description": "What it held, per folder.",
+            "title": "Contents",
+            "type": "object"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "deleted",
+          "contents"
+        ],
+        "title": "WorkspaceDeleted",
+        "type": "object"
+      },
+      "WorkspaceInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assets"
+          },
+          "common_assets": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Common Assets"
+          },
+          "default": {
+            "title": "Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outputs": {
+            "title": "Outputs",
+            "type": "string"
+          },
+          "prompts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompts"
+          },
+          "root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/DiskUsage",
+            "description": "Roughly how much disk it holds; listings only."
+          },
+          "workflows": {
+            "title": "Workflows",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "default",
+          "root",
+          "workflows",
+          "assets",
+          "outputs",
+          "prompts",
+          "common_assets"
+        ],
+        "title": "WorkspaceInfo",
+        "type": "object"
+      },
+      "WorkspaceList": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "string"
+          },
+          "workspace_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Root"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceInfo"
+            },
+            "title": "Workspaces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workspace_root",
+          "default",
+          "workspaces"
+        ],
+        "title": "WorkspaceList",
+        "type": "object"
+      },
       "WorkspaceRequest": {
         "properties": {
           "name": {
@@ -2538,7 +4156,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssetList"
+                }
               }
             },
             "description": "Successful Response"
@@ -2648,7 +4268,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Kept"
+                }
               }
             },
             "description": "Successful Response"
@@ -2702,7 +4324,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -2740,7 +4364,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ClassList"
+                }
               }
             },
             "description": "Successful Response"
@@ -2788,7 +4414,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"
@@ -2871,7 +4499,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EnhancerPresets"
+                }
               }
             },
             "description": "Successful Response"
@@ -2994,7 +4624,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryList"
+                }
               }
             },
             "description": "Successful Response"
@@ -3103,7 +4735,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OutputDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -3674,7 +5308,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryMetadata"
+                }
               }
             },
             "description": "Successful Response"
@@ -4620,7 +6256,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineNames"
+                }
               }
             },
             "description": "Successful Response"
@@ -4648,7 +6286,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"
@@ -4735,7 +6375,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PromptList"
+                }
               }
             },
             "description": "Successful Response"
@@ -4773,7 +6415,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -4854,7 +6498,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PromptSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -5071,7 +6717,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TaskList"
+                }
               }
             },
             "description": "Successful Response"
@@ -5099,7 +6747,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDescription"
+                }
               }
             },
             "description": "Successful Response"
@@ -5179,7 +6829,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Uploaded"
+                }
               }
             },
             "description": "Successful Response"
@@ -5367,7 +7019,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowList"
+                }
               }
             },
             "description": "Successful Response"
@@ -5421,7 +7075,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -5536,7 +7192,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -5598,7 +7256,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -5743,7 +7403,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceList"
+                }
               }
             },
             "description": "Successful Response"
@@ -5768,7 +7430,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInfo"
+                }
               }
             },
             "description": "Successful Response"
@@ -5816,7 +7480,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDeleted"
+                }
               }
             },
             "description": "Successful Response"

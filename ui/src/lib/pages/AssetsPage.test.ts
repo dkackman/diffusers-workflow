@@ -25,6 +25,7 @@ const asset = (
   size: 2048,
   mtime: 1,
   origin,
+  writable: origin !== 'examples',
   url: `/inputs/${name}`,
 })
 

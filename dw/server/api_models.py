@@ -21,6 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .admission import AcknowledgedCost
+from .catalog_shape import SHAPES, TRAITS
 
 STRICT = os.environ.get("DW_STRICT_RESPONSES") == "1"
 
@@ -467,3 +468,357 @@ class ValidationResult(ApiModel):
         "valid answer; null when the server could not build it, absent from an "
         "invalid answer.",
     )
+
+
+# ---------------------------------------------------------------- library
+
+Origin = Literal["workspace", "common", "examples", "builtin"]
+# Assets have no packaged (builtin) library
+AssetOrigin = Literal["workspace", "common", "examples"]
+Shape = Literal[SHAPES]
+Trait = Literal[TRAITS]
+
+
+class LibraryRoot(ApiModel):
+    root: str
+    origin: Origin
+    writable: bool
+
+
+class ShadowedEntry(ApiModel):
+    name: str
+    origin: Origin
+    shadowed_by: Origin
+
+
+class DiskUsage(ApiModel):
+    files: int
+    bytes: int
+
+
+class WorkspaceInfo(ApiModel):
+    name: str
+    default: bool
+    root: str | None
+    workflows: str
+    assets: str | None
+    outputs: str
+    prompts: str | None
+    common_assets: str | None
+    usage: DiskUsage = sometimes("Roughly how much disk it holds; listings only.")
+
+
+class WorkspaceList(ApiModel):
+    workspace_root: str | None
+    default: str
+    workspaces: list[WorkspaceInfo]
+
+
+class WorkspaceDeleted(ApiModel):
+    name: str
+    deleted: bool
+    contents: dict[str, DiskUsage] = Field(description="What it held, per folder.")
+
+
+class WorkflowCost(ApiModel):
+    """A measured run, as the workflow's own `cost` block declares it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    device: str
+    name: str = sometimes()
+    vram_gb: int | float
+    minutes: int | float
+
+
+class WorkflowCard(ApiModel):
+    """One workflow's entry in the full listing (the agent's
+    `view=compact` answer is a different, smaller shape outside this
+    model)."""
+
+    kinds: list[str]
+    steps: int
+    variables: int
+    variable_names: list[str]
+    description: str
+    configures: str = sometimes(
+        "For a model config: the template it is a tuned instance of; '' for a "
+        "template. Absent when the file could not be read."
+    )
+    configures_missing: str = sometimes("A `configures` that names no workflow.")
+    prompt_refs: list[str]
+    shape: Shape = Field(description="What the workflow makes, derived by the server.")
+    traits: list[Trait] = Field(
+        description="Sorted, independent facts about how the output is made or what "
+        "it needs."
+    )
+    summary: str = Field(
+        description="The description's first sentence, clipped - what a card shows."
+    )
+    lists: dict[str, Any]
+    constraints: dict[str, Any]
+    cost_drivers: dict[str, Any]
+    cost: list[WorkflowCost] | None = Field(
+        description="Measured runs, one per device the maintainer measured on. Null "
+        "means unknown - never derived."
+    )
+    observed: dict[str, Any] = sometimes("This box's own history for it.")
+    origin: Origin
+    writable: bool = Field(
+        description="False for a read-only source: offer save-a-copy, not delete."
+    )
+
+
+class WorkflowList(ApiModel):
+    workspace: str
+    libraries: list[LibraryRoot] = Field(
+        description="The search path in order; the writable workspace root is where "
+        "a save lands, whatever library a workflow was read from."
+    )
+    workflows: list[str]
+    details: dict[str, WorkflowCard]
+    shadowed: list[ShadowedEntry]
+    cost_basis: str
+
+
+class WorkflowSaved(ApiModel):
+    name: str
+    workspace: str
+    origin: Origin
+    warnings: list[str]
+    shape: Shape
+    traits: list[Trait]
+    summary: str
+
+
+class WorkflowDeleted(ApiModel):
+    name: str
+    workspace: str
+    origin: Origin
+    deleted: bool
+
+
+class PromptCard(ApiModel):
+    description: str
+    intended_model: str
+    tags: list[str]
+    text: str = sometimes("Absent when the listing was asked for without text.")
+    text_chars: int = sometimes("The text's length, in place of `text`.")
+    origin: Origin = Field(
+        description="Which library the prompt came from, and whether a save can "
+        "reach it."
+    )
+    writable: bool
+
+
+class PromptList(ApiModel):
+    libraries: list[LibraryRoot]
+    prompts: list[str]
+    details: dict[str, PromptCard]
+    shadowed: list[ShadowedEntry]
+
+
+class PromptSaved(ApiModel):
+    name: str
+
+
+class Deleted(ApiModel):
+    name: str
+    deleted: bool
+
+
+class EnhancerPreset(ApiModel):
+    key: str
+    label: str
+    default_model: str
+    models: list[str]
+    intended_models: list[str]
+    placeholder: str
+
+
+class EnhancerPresets(ApiModel):
+    presets: list[EnhancerPreset]
+
+
+# --------------------------------------------------------- gallery, assets
+
+
+class GalleryFile(ApiModel):
+    name: str
+    folder: str
+    subfolder: str = Field(
+        description="What followed the run id in the file's path - the `final` / "
+        "`intermediate` a step's `result.subfolder` chose, `''` for none."
+    )
+    run_id: str = Field(
+        description="The run that wrote the file, `''` under the flat layout."
+    )
+    version: int | None = Field(
+        description="That run's ordinal among the workflow's runs - what the grid "
+        "shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null "
+        "when there is no run."
+    )
+    url: str
+    absolute_url: str = sometimes()
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    label: str
+    duration_seconds: int | float | None = sometimes(
+        "An audio or video file's length, with `media=true`."
+    )
+
+
+class GalleryList(ApiModel):
+    files: list[GalleryFile] = Field(description="Newest first.")
+    total: int
+    offset: int
+    limit: int
+    folders: list[str]
+    subfolders: list[str]
+    workspace: str
+
+
+class OutputDeleted(ApiModel):
+    name: str
+    deleted: bool
+    run_swept: str | None = Field(
+        description="The run directory the delete emptied and removed, if any."
+    )
+
+
+class JobRef(ApiModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    status: str
+
+
+class LevelFinding(ApiModel):
+    """A probe threshold crossing (dw/assessment_rules.finding)."""
+
+    rule: str
+    severity: str
+    at: Any
+    value: Any
+    threshold: Any
+    says: str
+
+
+class GalleryMetadata(ApiModel):
+    name: str
+    source: Literal["output", "asset"]
+    metadata: dict[str, Any] | None = Field(
+        description="What the file embeds: the workflow and arguments that made it."
+    )
+    job: JobRef | None
+    run_id: str
+    version: int | None
+    media: dict[str, Any] | None = Field(
+        description="The probe of an audio or video file; null for an image."
+    )
+    findings: list[LevelFinding]
+
+
+class AssetLibraryRoot(ApiModel):
+    root: str
+    origin: AssetOrigin
+    writable: bool
+
+
+class AssetFile(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin = Field(
+        description="Which library it came from: this workspace's own, the `common` "
+        "one every workspace shares, or a read-only examples tree - why a delete "
+        "can answer 403."
+    )
+    writable: bool
+    url: str
+    absolute_url: str = sometimes()
+
+
+class ShadowedAsset(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: OutputKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin
+    writable: bool
+    shadowed_by: AssetOrigin
+
+
+class AssetList(ApiModel):
+    workspace: str
+    libraries: list[AssetLibraryRoot]
+    assets: list[AssetFile]
+    folders: list[str]
+    shadowed: list[ShadowedAsset]
+
+
+class Uploaded(ApiModel):
+    reference: str
+    workspace: str
+    url: str
+    absolute_url: str = sometimes()
+    shared: bool
+
+
+class Kept(ApiModel):
+    reference: str
+    name: str
+    workspace: str
+    linked: bool
+    shared: bool
+
+
+class AssetDeleted(ApiModel):
+    name: str
+    workspace: str
+    reference: str
+    deleted: bool
+    origin: AssetOrigin
+
+
+# ---------------------------------------------------------- introspection
+
+
+class PipelineParameter(ApiModel):
+    name: str
+    required: bool
+    default: Any = Field(description="Null when there is none; see `required`.")
+    annotation: str | None
+    doc_type: str | None = sometimes("The type the docstring names.")
+    description: str = sometimes()
+    domain: Any = sometimes("The values a task argument may take.")
+
+
+class PipelineDescription(ApiModel):
+    name: str
+    summary: str
+    accepts_kwargs: bool
+    parameters: list[PipelineParameter]
+    compatibles: list[str] = sometimes("Scheduler classes this one can swap with.")
+
+
+class PipelineNames(ApiModel):
+    pipelines: list[str]
+
+
+class TaskList(ApiModel):
+    commands: list[str]
+    image_processors: list[str]
+    video_processors: list[str]
+    assessment: list[str]
+
+
+class ClassList(ApiModel):
+    kind: str
+    classes: list[str]

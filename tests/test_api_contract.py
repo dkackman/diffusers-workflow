@@ -121,6 +121,30 @@ UI_READ_ROUTES = [
     ("post", "/api/jobs/{job_id}/cancel"),
     ("post", "/api/enhance"),
     ("post", "/api/validate"),
+    ("get", "/api/workspaces"),
+    ("post", "/api/workspaces"),
+    ("delete", "/api/workspaces/{name}"),
+    ("get", "/api/workflows"),
+    ("put", "/api/workflows/{name}"),
+    ("patch", "/api/workflows/{name}"),
+    ("delete", "/api/workflows/{name}"),
+    ("get", "/api/prompts"),
+    ("put", "/api/prompts/{name}"),
+    ("delete", "/api/prompts/{name}"),
+    ("get", "/api/enhancers"),
+    ("get", "/api/gallery"),
+    ("delete", "/api/gallery/{name}"),
+    ("get", "/api/gallery/{name}/metadata"),
+    ("get", "/api/assets"),
+    ("post", "/api/uploads"),
+    ("post", "/api/assets/keep"),
+    ("delete", "/api/assets/{name}"),
+    ("get", "/api/pipelines"),
+    ("get", "/api/pipelines/{name}"),
+    ("get", "/api/tasks"),
+    ("get", "/api/tasks/{command}"),
+    ("get", "/api/classes"),
+    ("get", "/api/classes/{name}"),
 ]
 
 
@@ -374,3 +398,96 @@ def test_the_app_is_lenient_only_outside_strict_mode():
 
     assert handled(strict=False) == "True"
     assert handled(strict=True) == "False"
+
+
+def test_library_listings_keep_their_keys(server, tmp_path):
+    (tmp_path / "workflows" / "Broken.json").write_text("{not json")
+    with server(success_script) as client:
+        spaces = client.get("/api/workspaces").json()
+        listing = client.get("/api/workflows").json()
+        compact = client.get("/api/workflows", params={"view": "compact"})
+        prompts = client.get("/api/prompts").json()
+        raw = client.get("/api/workflows/Basic")
+    assert set(spaces) == {"workspace_root", "default", "workspaces"}
+    assert set(listing) == {
+        "workspace",
+        "libraries",
+        "workflows",
+        "details",
+        "shadowed",
+        "cost_basis",
+    }
+    # an unreadable file still lists, with no `configures` key at all
+    assert "configures" not in listing["details"]["Broken"]
+    assert listing["details"]["Basic"]["configures"] == ""
+    assert type(listing["details"]["Basic"]["steps"]) is int
+    # the agent's compact view is outside the model, and unchanged
+    assert compact.status_code == 200
+    assert set(prompts) == {"libraries", "prompts", "details", "shadowed"}
+    # the raw GET is the file itself, verbatim (docs/ARCHITECTURE.md)
+    assert raw.json() == json.loads((tmp_path / "workflows" / "Basic.json").read_text())
+
+
+def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
+    from PIL import Image
+
+    outputs = tmp_path / "outputs"
+    outputs.mkdir(exist_ok=True)
+    Image.new("RGB", (4, 4)).save(outputs / "flat.png")
+    with server(success_script) as client:
+        listing = client.get("/api/gallery").json()
+        orphans = client.get("/api/gallery", params={"only_orphans": True})
+        metadata = client.get("/api/gallery/flat.png/metadata").json()
+        assets = client.get("/api/assets").json()
+    assert set(listing) == {
+        "files",
+        "total",
+        "offset",
+        "limit",
+        "folders",
+        "subfolders",
+        "workspace",
+    }
+    [entry] = listing["files"]
+    # the flat layout has no run: run_id is '' and version null
+    assert entry["run_id"] == "" and entry["version"] is None
+    assert type(entry["size"]) is int and "duration_seconds" not in entry
+    # the orphan view is a different answer, outside the model
+    assert orphans.status_code == 200 and "runs" in orphans.json()
+    assert set(metadata) == {
+        "name",
+        "source",
+        "metadata",
+        "job",
+        "run_id",
+        "version",
+        "media",
+        "findings",
+    }
+    assert metadata["job"] is None
+    assert {"workspace", "libraries", "assets", "folders", "shadowed"} <= set(assets)
+
+
+def test_a_parameter_with_no_default_says_so_with_null(server):
+    # `default` is always present - null for a required parameter - and
+    # `required` is what tells the two apart
+    with server(success_script) as client:
+        task = client.get("/api/tasks/compose_text").json()
+        tasks = client.get("/api/tasks").json()
+    assert set(task) == {"name", "summary", "accepts_kwargs", "parameters"}
+    assert all("default" in parameter for parameter in task["parameters"])
+    assert {"commands", "image_processors", "video_processors", "assessment"} <= set(
+        tasks
+    )
+
+
+def test_a_non_finite_default_is_named_not_nulled(server):
+    # DPMSolverMultistepScheduler's lambda_min_clipped defaults to -inf; JSON
+    # has no -inf, and null would claim there is no default at all
+    with server(success_script) as client:
+        response = client.get(
+            "/api/classes/DPMSolverMultistepScheduler", params={"target": "init"}
+        )
+    assert response.status_code == 200, response.text
+    by_name = {p["name"]: p for p in response.json()["parameters"]}
+    assert by_name["lambda_min_clipped"]["default"] == "-inf"
