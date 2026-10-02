@@ -1,4 +1,8 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   cycles,
@@ -32,10 +36,29 @@ describe('referencePrefixes', () => {
 })
 
 describe('regressions', () => {
+  // The engine ratchet's line format: harnest's waiver parses it for both
   it('names a metric that rose and ignores one that fell or is new', () => {
     expect(regressions({ a: 3, b: 1, c: 9 }, { a: 2, b: 2 })).toEqual([
-      'a: 3 > baseline 2',
+      'a: 2 -> 3',
     ])
+  })
+
+  it('compares two measurements without measuring', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uimetrics-'))
+    writeFileSync(join(dir, 'cur.json'), JSON.stringify({ a: 3, b: 1 }))
+    writeFileSync(join(dir, 'base.json'), JSON.stringify({ a: 2, b: 1, c: 0 }))
+    const run = spawnSync(
+      'node',
+      [
+        'scripts/arch-metrics.mjs',
+        '--compare',
+        join(dir, 'cur.json'),
+        join(dir, 'base.json'),
+      ],
+      { encoding: 'utf8' },
+    )
+    expect(run.status).toBe(1)
+    expect(run.stdout.trim()).toBe('a: 2 -> 3')
   })
 })
 

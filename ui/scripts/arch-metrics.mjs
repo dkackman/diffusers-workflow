@@ -6,6 +6,8 @@
 //   node scripts/arch-metrics.mjs                  print the metrics as JSON
 //   node scripts/arch-metrics.mjs --write PATH     record a baseline
 //   node scripts/arch-metrics.mjs --check PATH     exit 1 on any regression
+//   node scripts/arch-metrics.mjs --compare CUR BASE   the regressions
+//                                                  between two measurements
 //
 // Counting rules, fixed so any commit measures the same way:
 // - Sources are ui/src's .ts, .svelte and .css files, tests excluded
@@ -211,10 +213,20 @@ export async function measure(
 export function regressions(current, baseline) {
   return Object.entries(current)
     .filter(([key, value]) => key in baseline && value > baseline[key])
-    .map(([key, value]) => `${key}: ${value} > baseline ${baseline[key]}`)
+    .map(([key, value]) => `${key}: ${baseline[key]} -> ${value}`)
 }
 
 async function main(argv) {
+  // Two measurements already taken (harnest measures a merge base and a
+  // branch, then asks this script's rule which metrics rose)
+  if (argv[0] === '--compare') {
+    const [current, baseline] = argv
+      .slice(1, 3)
+      .map((path) => JSON.parse(readFileSync(path, 'utf8')))
+    const problems = regressions(current, baseline)
+    for (const line of problems) console.log(line)
+    return problems.length ? 1 : 0
+  }
   const { metrics, detail } = await measure()
   const flag = argv[0]
   if (flag === '--write') {
