@@ -1,5 +1,5 @@
 {
-  "files_over_size_ceiling": 6,
+  "files_over_size_ceiling": 5,
   "complex_functions": 12,
   "long_functions": 0,
   "import_cycles": 0,

@@ -27,163 +27,38 @@ import type {
   WorkflowWithOrigin,
 } from './types'
 import { getApiToken } from './token'
-import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
+import { ApiError, errorDetail } from './apiErrors'
+import {
+  addToken,
+  appendQuery,
+  encodePath,
+  outputUrl,
+  scopeTo,
+  scoped,
+  withToken,
+} from './apiUrls'
 
-/** Encode a workflow name for a URL, keeping its folder separators. */
-const encodePath = (name: string) =>
-  name.split('/').map(encodeURIComponent).join('/')
-
-/** Append one query parameter to a URL, keeping whatever query it already
- * has. Shared by every place that tacks a selector onto a path - the
- * workspace scope, the download token - so there is one rule for `?` vs
- * `&` instead of a hand-rolled check at each call site. */
-function appendQuery(url: string, key: string, value: string): string {
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}${key}=${encodeURIComponent(value)}`
-}
-
-/** Append the workspace selector to a path, keeping any query it has. The
- * server defaults to this one when no selector is sent, so 'default' sends
- * nothing and the request looks exactly as it did before workspaces
- * existed. Routes that are not workspace-scoped (prompts, models, system)
- * ignore an unknown query parameter, which is what lets this live in one
- * place instead of being threaded through every call site. */
-function scoped(path: string): string {
-  if (workspace.current === DEFAULT_WORKSPACE) return path
-  return appendQuery(path, 'workspace', workspace.current)
-}
-
-/** Append the configured API token as a query parameter. Only for the
- * routes a browser loads without being able to set headers - EventSource,
- * <img> tags and <a download> navigations - which the server accepts it
- * on; see docs/SERVER.md. */
-function withToken(url: string): string {
-  const scopedUrl = scoped(url)
-  const token = getApiToken()
-  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
-}
-
-/** Scope a path to an explicit workspace instead of the picker's current
- * selection - for a job's own files, which must resolve to where they were
- * written even if the picker has since moved elsewhere. Mirrors `scoped()`. */
-function workspaceScopedPath(
-  path: string,
-  workspace: string | undefined,
-): string {
-  if (workspace === undefined || workspace === DEFAULT_WORKSPACE) return path
-  return appendQuery(path, 'workspace', workspace)
-}
-
-/** `withToken`, scoped to an explicit workspace rather than the picker's. */
-function withTokenIn(url: string, workspace: string): string {
-  const scopedUrl = workspaceScopedPath(url, workspace)
-  const token = getApiToken()
-  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
-}
-
-/** The URL an output file is served from. Jobs report files by their name
- * relative to the output directory - a workflow under a subfolder writes
- * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
- * before that change carries an absolute path, for which the basename is
- * the best available guess. `version` busts the browser cache: two runs of
- * one workflow write the same file names. `workspace`, when given, names
- * the job's own workspace and wins over whatever is currently selected in
- * the picker - a job page must load its files from where they were written,
- * not from wherever the user has since navigated to. */
-export function outputUrl(
-  path: string,
-  version?: string,
-  workspace?: string,
-): string {
-  const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
-  const url = `/outputs/${encodePath(name)}`
-  const versioned = version === undefined ? url : appendQuery(url, 'v', version)
-  if (workspace === undefined) return scoped(versioned)
-  return workspace === DEFAULT_WORKSPACE
-    ? versioned
-    : appendQuery(versioned, 'workspace', workspace)
-}
-
-const BYTES_PER_MB = 1024 * 1024
-
-/** The per-folder file counts a workspace delete answers with, as one line.
- * Folders holding nothing are left out - the point of the count is what
- * would actually be lost. */
-function describeContents(contents: unknown): string {
-  if (!contents || typeof contents !== 'object') return ''
-  const parts: string[] = []
-  for (const [folder, value] of Object.entries(
-    contents as Record<string, { files?: number; bytes?: number }>,
-  )) {
-    const files = Number(value?.files ?? 0)
-    if (!files) continue
-    const bytes = Number(value?.bytes ?? 0)
-    const size =
-      bytes >= BYTES_PER_MB ? ` (${(bytes / BYTES_PER_MB).toFixed(1)} MB)` : ''
-    parts.push(`${folder}: ${files} file${files === 1 ? '' : 's'}${size}`)
-  }
-  return parts.length ? parts.join(', ') : 'nothing'
-}
-
-/** The message inside an error response's `detail`. Most routes answer with
- * a plain string, but the ones that have to say what they would do send an
- * object instead - the workspace delete's `{message, contents}`, the
- * not-a-workspace refusal's `{message, entries}` - and handing that straight
- * to `new Error` shows the user '[object Object]' rather than the very
- * numbers the confirmation exists to present. FastAPI's 422 list of
- * validation errors gets the same treatment. */
-export function errorDetail(payload: unknown, fallback: string): string {
-  const detail = (payload as { detail?: unknown } | null)?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((entry) =>
-        entry && typeof entry === 'object'
-          ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
-          : String(entry),
-      )
-      .filter(Boolean)
-    return messages.length ? messages.join('. ') : fallback
-  }
-  if (detail && typeof detail === 'object') {
-    const record = detail as Record<string, unknown>
-    const message =
-      typeof record.message === 'string' ? record.message : fallback
-    const contents = describeContents(record.contents)
-    if (contents) return `${message}\n\n${contents}`
-    if (Array.isArray(record.entries) && record.entries.length) {
-      return `${message}\n\n${record.entries.join(', ')}`
-    }
-    return message
-  }
-  return fallback
-}
-
-/** An error response, with the status a caller may need to branch on -
- * the export's 409 is "already exported, overwrite?" rather than a
- * failure, and the message alone cannot say which. */
-export class ApiError extends Error {
-  status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-  }
-}
+// Pages and their test mocks import these from here
+export { ApiError, errorDetail, outputUrl }
 
 /** A JSON response together with its headers, for the rare endpoint whose
  * result depends on both - `getWorkflow` reads its origin/writable from
  * headers rather than the body. */
-async function fetchJson<T>(
+/** A request with the bearer token, scoped to the picker's workspace
+ * unless `scope` is false, failing with an ApiError that carries the
+ * server's detail and status. Under every JSON call and file download. */
+async function send(
   path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<{ body: T; response: Response }> {
+  init: RequestInit = {},
+  scope = true,
+): Promise<Response> {
   const token = getApiToken()
-  const headers = new Headers(init?.headers)
+  const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const url = options?.scope === false ? path : scoped(path)
-  const response = await fetch(url, { ...init, headers })
+  const response = await fetch(scope ? scoped(path) : path, {
+    ...init,
+    headers,
+  })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -193,6 +68,15 @@ async function fetchJson<T>(
     }
     throw new ApiError(detail, response.status)
   }
+  return response
+}
+
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<{ body: T; response: Response }> {
+  const response = await send(path, init, options?.scope !== false)
   return { body: await response.json(), response }
 }
 
@@ -212,19 +96,7 @@ async function downloadResponse(
   path: string,
   init: RequestInit,
 ): Promise<void> {
-  const token = getApiToken()
-  const headers = new Headers(init.headers)
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scoped(path), { ...init, headers })
-  if (!response.ok) {
-    let detail = response.statusText
-    try {
-      detail = errorDetail(await response.json(), detail)
-    } catch {
-      /* not json */
-    }
-    throw new Error(detail)
-  }
+  const response = await send(path, init)
   const disposition = response.headers.get('content-disposition') ?? ''
   const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download'
   const url = URL.createObjectURL(await response.blob())
@@ -372,9 +244,7 @@ export const api = {
       missing: string[]
     }>(
       appendQuery(
-        workspace === DEFAULT_WORKSPACE
-          ? `/api/jobs/${id}/export`
-          : `/api/jobs/${id}/export?workspace=${encodeURIComponent(workspace)}`,
+        scopeTo(`/api/jobs/${id}/export`, workspace),
         'overwrite',
         overwrite ? 'true' : 'false',
       ),
@@ -384,10 +254,7 @@ export const api = {
   /** The `zip_url` an export answered with, ready for an <a download>. The
    * server already put the job's workspace selector on it, so only the
    * token is added - `withToken` would scope it a second time. */
-  exportZipUrl: (zipUrl: string) => {
-    const token = getApiToken()
-    return token ? appendQuery(zipUrl, 'token', token) : zipUrl
-  },
+  exportZipUrl: (zipUrl: string) => addToken(zipUrl),
   cancelJob: (id: string) =>
     request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
@@ -441,10 +308,9 @@ export const api = {
       metadata: Record<string, unknown> | null
       job: { id: string; status: string } | null
     }>(
-      workspaceScopedPath(
-        `/api/gallery/${encodePath(name)}/metadata`,
-        workspace,
-      ),
+      workspace === undefined
+        ? `/api/gallery/${encodePath(name)}/metadata`
+        : scopeTo(`/api/gallery/${encodePath(name)}/metadata`, workspace),
       undefined,
       { scope: workspace === undefined },
     ),
@@ -456,9 +322,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   outputDownloadUrl: (name: string, workspace?: string) =>
-    workspace === undefined
-      ? withToken(`/api/gallery/${encodePath(name)}/download`)
-      : withTokenIn(`/api/gallery/${encodePath(name)}/download`, workspace),
+    withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
   /** Download a multi-file gallery selection as one zip. The browser
    * cannot zip on its own and throttles a burst of single downloads, so
    * the server bundles the selection and this saves the response. */
