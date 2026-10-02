@@ -18,6 +18,12 @@ when a release ships.
 - The `argument_template` schema description now says what the code does: handed arguments are held on the child at run time, never written into the definition, and an authored value is the fallback.
 - `gain_audio` rounds a frame-addressed region's end once, as `slice_audio` does, so a region's end can no longer be one sample off the matching slice's.
 - `concat_videos` refuses a track with no sample rate (`concat_videos: '<name>' has audio with no sample rate`) instead of joining it unresampled at the wrong speed and pitch; `dissolve_videos` gives the same message in place of the resample error. Save that step with `audio_sample_rate` in its result and join the saved file through an `output:` reference. An unpinned `dissolve_videos` with such a track now raises this `ValueError` rather than a `TypeError`.
+- For developers (Python paths only; nothing on the API or MCP reaches them):
+  - `Workflow`'s one-line check methods are gone: `validation_context`, `sub_workflow_warnings`, `adapter_warnings`, `inherited_vram_warnings`, `slice_past_end_warnings`, `shot_span_warnings`, `null_variable_argument_warnings` and `cache_hits`. Call `validation.workflow_context(workflow, ...)`, `validation.run_warning_check(workflow, "<name>", ...)` and `workflow_run.cache_hits(workflow, arguments)`.
+  - Reference prefixes (`variable:`, `asset:`, `output:`, ...) are read and built only through `dw.references`; a hand-written prefix check elsewhere fails the `prefix_handling` ratchet.
+  - `scripts/arch_metrics.py --check docs/stabilization/baseline.json` runs in CI and `scripts/preflight.sh`, so a PR that raises any architecture metric goes red. The module-size metric is `modules_over_size_ceiling` (fail over 1,100 lines, warn over 1,000), renamed from `modules_over_1000_lines`.
+  - Agent context: CLAUDE.md files went from 957 to 129 lines; `docs/ARCHITECTURE.md` is the seam map (concept, owning module, rule, enforced-by).
+- The stabilization freeze is lifted (`stabilization-gate-4`).
 
 ### 0.6.0
 
