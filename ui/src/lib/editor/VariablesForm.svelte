@@ -137,11 +137,6 @@
   .icon {
     padding: 0.3rem 0.55rem;
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
   .addvar {
     justify-self: start;
   }

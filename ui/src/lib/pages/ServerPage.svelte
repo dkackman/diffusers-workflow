@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '../poll'
   import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
@@ -29,16 +30,13 @@
   // The live half of the page: the same endpoint App.svelte polls for the
   // status bar, fetched here so the worker/queue lines keep up on their own
   $effect(() => {
-    const poll = async () => {
+    return poll(async () => {
       try {
         health = await api.health()
       } catch {
         health = null
       }
-    }
-    poll()
-    const timer = setInterval(poll, 5000)
-    return () => clearInterval(timer)
+    }, 5000)
   })
 
   /** Which interface address the connect snippets are written against. */

@@ -79,6 +79,16 @@ describe('request error handling', () => {
   })
 })
 
+describe('file downloads', () => {
+  it('fail with the same ApiError, detail and status, as every request', async () => {
+    stubFetch({ ok: false, status: 404, body: { detail: 'Unknown file' } })
+    const failure = await api.archiveOutputs(['a.png']).catch((e) => e)
+    expect(failure.name).toBe('ApiError')
+    expect(failure.message).toBe('Unknown file')
+    expect(failure.status).toBe(404)
+  })
+})
+
 describe('name encoding', () => {
   it('keeps folder separators in a workflow name but escapes the segments', async () => {
     const calls = stubFetch({ ok: true, body: {} })

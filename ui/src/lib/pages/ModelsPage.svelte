@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { poll } from '../poll'
+  import { gbFromBytes } from '../format'
   import {
     ChevronDown,
     ChevronRight,
@@ -63,8 +65,7 @@
   const updating = $derived(diffusers?.status === 'running')
   $effect(() => {
     if (!updating) return
-    const timer = setInterval(refreshDiffusers, 2000)
-    return () => clearInterval(timer)
+    return poll(refreshDiffusers, 2000, { immediate: false })
   })
 
   async function startDiffusersUpdate() {
@@ -82,13 +83,18 @@
   const anyActive = $derived(downloads.some((d) => d.status === 'downloading'))
   $effect(() => {
     if (!anyActive) return
-    const timer = setInterval(async () => {
-      const before = downloads.filter((d) => d.status === 'downloading').length
-      await refreshDownloads()
-      const after = downloads.filter((d) => d.status === 'downloading').length
-      if (after < before) refresh()
-    }, 2000)
-    return () => clearInterval(timer)
+    return poll(
+      async () => {
+        const before = downloads.filter(
+          (d) => d.status === 'downloading',
+        ).length
+        await refreshDownloads()
+        const after = downloads.filter((d) => d.status === 'downloading').length
+        if (after < before) refresh()
+      },
+      2000,
+      { immediate: false },
+    )
   })
 
   async function startDownload() {
@@ -141,7 +147,7 @@
     }
   }
 
-  const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
+  const gb = gbFromBytes
   const day = (stamp: number | null) =>
     stamp ? new Date(stamp * 1000).toLocaleDateString() : '—'
   const hubUrl = (repo: ModelRepo) =>
@@ -471,11 +477,6 @@
       flex: 1;
       max-width: none;
     }
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
   .dl {
     display: flex;

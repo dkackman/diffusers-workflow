@@ -184,7 +184,7 @@
       : wsHref(workspace.current, 'workflows', ...name.split('/'))
 </script>
 
-<div class="head">
+<div class="pagehead">
   <h1>{examples ? 'Examples' : 'Workflows'}</h1>
   <span class="count num muted">{listed.length}</span>
   <span class="flex"></span>
@@ -339,14 +339,7 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: var(--space-4);
-  }
-  .head .flex {
+  .pagehead .flex {
     flex: 1;
   }
   .count {

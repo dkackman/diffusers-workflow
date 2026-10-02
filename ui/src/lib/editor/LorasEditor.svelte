@@ -77,9 +77,4 @@
     display: inline-flex;
     padding: 0.3rem 0.45rem;
   }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
 </style>

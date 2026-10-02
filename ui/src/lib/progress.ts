@@ -64,3 +64,38 @@ export function phaseLabel(event: JobEvent): string {
   const detail = event.detail as string | null | undefined
   return detail ? `${label} ${detail}` : label
 }
+
+/** Seconds left in the running denoise loop, at the pace of its last six
+ * steps, or null until three steps have arrived or when it has no total.
+ *
+ * `stepTimes` are the arrival clocks (ms) of its pipeline_step events. */
+export function estimateEta(
+  stepTimes: number[],
+  denoise: StepProgress['denoise'],
+): number | null {
+  if (!denoise?.total_steps || stepTimes.length < 3) return null
+  const window = stepTimes.slice(-6)
+  const perStep = (window[window.length - 1] - window[0]) / (window.length - 1)
+  const remaining = denoise.total_steps - denoise.step
+  if (remaining <= 0 || perStep <= 0) return null
+  return Math.round((remaining * perStep) / 1000)
+}
+
+/** The arrival clocks after `event`: a denoise step is recorded at `now`,
+ * and a new step, iteration or status starts them over - the gap since the
+ * previous loop's last step includes a model load, and would inflate the
+ * ETA. Any other event leaves them as they were. */
+export function nextStepTimes(
+  times: number[],
+  event: JobEvent,
+  now: number,
+): number[] {
+  if (event.event === 'pipeline_step') return [...times.slice(-6), now]
+  if (
+    event.event === 'step_start' ||
+    event.event === 'iteration_start' ||
+    event.event === 'job_status'
+  )
+    return []
+  return times
+}

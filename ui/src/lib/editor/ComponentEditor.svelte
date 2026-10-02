@@ -124,9 +124,6 @@
     gap: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  .flex {
-    flex: 1;
-  }
   .icon {
     display: inline-flex;
     padding: 0.25rem 0.4rem;

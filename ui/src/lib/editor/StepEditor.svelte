@@ -2,33 +2,23 @@
   import Suggest from '../ui/Suggest.svelte'
   import { editorLists } from '../editorLists.svelte'
   import {
-    Boxes,
     ChevronDown,
     ChevronRight,
     ChevronUp,
-    Layers,
-    Timer,
     Trash2,
     TriangleAlert,
-    Zap,
   } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
-  import ComponentEditor from './ComponentEditor.svelte'
-  import LorasEditor from './LorasEditor.svelte'
+  import PipelineOptions from './PipelineOptions.svelte'
+  import StepDigestList from './StepDigestList.svelte'
   import MappingEditor from './MappingEditor.svelte'
   import { api } from '../api'
   import { stepDigest } from '../digest'
   import {
-    ATTENTION_BACKENDS,
-    CACHE_TYPES,
     contentTypeOptions,
     OFFLOAD_MODES,
     optionsWith,
-    COMPONENT_SLOTS,
     TORCH_DTYPES,
-    classDescription,
-    emptyComponent,
-    setNumber,
   } from '../editor'
   import type { StepFlow } from '../flow'
 
@@ -155,57 +145,6 @@
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
   const pretrained = $derived(step.pipeline?.from_pretrained_arguments ?? {})
-
-  // ---- optional blocks: components, loras, scheduler, acceleration ----
-
-  const activeSlots = $derived(
-    COMPONENT_SLOTS.filter((slot) => step.pipeline && slot in step.pipeline),
-  )
-  let addSlot = $state('')
-
-  function addComponent() {
-    if (!addSlot) return
-    step.pipeline[addSlot] = emptyComponent()
-    addSlot = ''
-  }
-
-  function toggleScheduler(enabled: boolean) {
-    if (enabled) {
-      step.pipeline.scheduler = step.pipeline.scheduler ?? {
-        configuration: { scheduler_type: '' },
-        from_config_args: {},
-      }
-    } else {
-      delete step.pipeline.scheduler
-    }
-  }
-
-  function toggleCache(enabled: boolean) {
-    if (enabled) {
-      configuration.cache = configuration.cache ?? {
-        type: 'first_block',
-        threshold: 0.1,
-      }
-    } else {
-      delete configuration.cache
-    }
-  }
-
-  let compatibles = $state<string[]>([])
-  $effect(() => {
-    compatibles = []
-    const schedulerType =
-      step.pipeline?.scheduler?.configuration?.scheduler_type
-    // Only complete-looking names - prefixes typed on the way to a real one
-    // would each fire a doomed lookup
-    if (!schedulerType || !schedulerType.endsWith('Scheduler')) return
-    const timer = setTimeout(() => {
-      classDescription(schedulerType, 'init').then(
-        (d) => (compatibles = d?.compatibles ?? []),
-      )
-    }, 300)
-    return () => clearTimeout(timer)
-  })
 </script>
 
 <div class="panel step">
@@ -300,20 +239,7 @@
   {/if}
 
   {#if mode === 'compact'}
-    <div class="digest">
-      {#each digest.lines as line (line.section)}
-        <button
-          class="digestline"
-          onclick={() => openFull(line.section)}
-          title="edit in full view"
-        >
-          <span class="digestsection muted">{line.section}</span>
-          <span class="digesttext">{line.text}</span>
-        </button>
-      {:else}
-        <div class="muted hint">nothing set yet - switch to full to edit</div>
-      {/each}
-    </div>
+    <StepDigestList lines={digest.lines} onopen={openFull} />
   {:else if mode === 'full'}
     {#if kind === 'pipeline'}
       <div class="grid">
@@ -379,154 +305,12 @@
         suggestions={references}
       />
 
-      <details open={activeSlots.length > 0 || openSection === 'components'}>
-        <summary
-          ><Boxes size={13} /> components
-          <span class="muted">({activeSlots.length})</span></summary
-        >
-        <div class="section">
-          {#each activeSlots as slot (slot)}
-            <ComponentEditor
-              {slot}
-              bind:component={step.pipeline[slot]}
-              suggestions={references}
-              onremove={() => delete step.pipeline[slot]}
-            />
-          {/each}
-          <div class="addrow">
-            <select bind:value={addSlot}>
-              <option value="">add component…</option>
-              {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot (slot)}
-                <option value={slot}>{slot}</option>
-              {/each}
-            </select>
-            <button
-              class="quiet"
-              onclick={addComponent}
-              disabled={!addSlot}
-              title="declare the selected component on this pipeline"
-              >add</button
-            >
-          </div>
-        </div>
-      </details>
-
-      <details
-        open={(step.pipeline.loras ?? []).length > 0 || openSection === 'loras'}
-      >
-        <summary
-          ><Layers size={13} /> LoRAs
-          <span class="muted">({(step.pipeline.loras ?? []).length})</span
-          ></summary
-        >
-        <div class="section">
-          <LorasEditor bind:pipeline={step.pipeline} />
-        </div>
-      </details>
-
-      <details open={!!step.pipeline.scheduler || openSection === 'scheduler'}>
-        <summary><Timer size={13} /> scheduler</summary>
-        <div class="section grid2">
-          <label for={'sched-' + index}>replace scheduler</label>
-          <input
-            id={'sched-' + index}
-            type="checkbox"
-            class="check"
-            checked={!!step.pipeline.scheduler}
-            onchange={(e) => toggleScheduler(e.currentTarget.checked)}
-          />
-          {#if step.pipeline.scheduler}
-            <label for={'schedtype-' + index}>scheduler_type</label>
-            <div>
-              <Suggest
-                id={'schedtype-' + index}
-                suggestions={editorLists.schedulerClasses}
-                bind:value={
-                  step.pipeline.scheduler.configuration.scheduler_type
-                }
-                placeholder="e.g. FlowMatchEulerDiscreteScheduler"
-              />
-              {#if compatibles.length}
-                <div class="muted hint">
-                  interchangeable with: {compatibles
-                    .slice(0, 6)
-                    .join(', ')}{compatibles.length > 6 ? ', …' : ''}
-                </div>
-              {/if}
-            </div>
-            <label for={'schedargs-' + index}>from_config_args</label>
-            <ArgumentsEditor
-              bind:args={step.pipeline.scheduler.from_config_args}
-              componentType={step.pipeline.scheduler.configuration
-                .scheduler_type ?? ''}
-              target="init"
-              suggestions={references}
-            />
-          {/if}
-        </div>
-      </details>
-
-      <details
-        open={!!configuration.cache ||
-          !!configuration.attention_backend ||
-          openSection === 'acceleration'}
-      >
-        <summary><Zap size={13} /> acceleration</summary>
-        <div class="section grid2">
-          <label for={'cache-' + index}>cache</label>
-          <div class="inline-row">
-            <input
-              id={'cache-' + index}
-              type="checkbox"
-              class="check"
-              checked={!!configuration.cache}
-              onchange={(e) => toggleCache(e.currentTarget.checked)}
-            />
-            {#if configuration.cache}
-              <select bind:value={configuration.cache.type}>
-                {#each CACHE_TYPES as cacheType (cacheType)}<option
-                    >{cacheType}</option
-                  >{/each}
-              </select>
-              <input
-                class="num"
-                placeholder="threshold"
-                value={configuration.cache.threshold ?? ''}
-                onchange={(e) =>
-                  setNumber(
-                    configuration.cache,
-                    'threshold',
-                    e.currentTarget.value,
-                  )}
-              />
-            {/if}
-          </div>
-
-          <label for={'attn-' + index}>attention backend</label>
-          <Suggest
-            id={'attn-' + index}
-            suggestions={ATTENTION_BACKENDS}
-            value={configuration.attention_backend ?? ''}
-            placeholder="pipeline default"
-            onchange={(v) => {
-              if (v) configuration.attention_backend = v
-              else delete configuration.attention_backend
-            }}
-          />
-
-          <label for={'pw-' + index}>prompt weighting</label>
-          <input
-            id={'pw-' + index}
-            type="checkbox"
-            class="check"
-            checked={!!configuration.prompt_weighting}
-            onchange={(e) => {
-              if (e.currentTarget.checked) configuration.prompt_weighting = true
-              else delete configuration.prompt_weighting
-            }}
-          />
-        </div>
-      </details>
+      <PipelineOptions
+        bind:pipeline={step.pipeline}
+        {index}
+        {openSection}
+        {references}
+      />
     {:else if kind === 'task'}
       <div class="grid">
         <label for={'task-' + index}>command</label>
@@ -590,9 +374,6 @@
   .kind {
     font-size: 0.75rem;
   }
-  .flex {
-    flex: 1;
-  }
   .icon {
     display: inline-flex;
     align-items: center;
@@ -606,8 +387,7 @@
     align-items: center;
   }
   @container (max-width: 400px) {
-    .grid,
-    .grid2 {
+    .grid {
       grid-template-columns: minmax(0, 1fr);
       gap: 0.2rem;
     }
@@ -621,66 +401,6 @@
     text-transform: none;
     color: var(--muted);
     margin: 1rem 0 0.5rem;
-  }
-  details {
-    margin-top: 0.9rem;
-    border-top: 1px solid var(--line);
-    padding-top: 0.6rem;
-  }
-  summary {
-    cursor: pointer;
-    font-size: 0.8rem;
-    text-transform: none;
-    color: var(--muted);
-    font-weight: 600;
-    user-select: none;
-  }
-  summary:hover {
-    color: var(--ink);
-  }
-  details[open] > summary {
-    color: var(--accent);
-  }
-  summary :global(svg) {
-    vertical-align: -2px;
-    margin-right: 2px;
-  }
-  .section {
-    margin-top: 0.7rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-  .addrow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    max-width: 300px;
-  }
-  .grid2 {
-    display: grid;
-    grid-template-columns: 150px minmax(0, 1fr);
-    gap: 0.5rem 0.7rem;
-    align-items: center;
-  }
-  .grid2 > label {
-    font-weight: 600;
-    color: var(--muted);
-  }
-  .check {
-    width: auto;
-    justify-self: start;
-  }
-  .inline-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .inline-row select {
-    max-width: 150px;
-  }
-  .num {
-    max-width: 110px;
   }
   .error {
     color: var(--bad);
@@ -724,38 +444,6 @@
   .modeswitch button:last-child {
     border-radius: 0 var(--radius-1) var(--radius-1) 0;
     margin-left: -1px;
-  }
-  .digest {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    margin-top: var(--space-2);
-  }
-  .digestline {
-    display: flex;
-    gap: var(--space-2);
-    align-items: baseline;
-    background: transparent;
-    border: 0;
-    color: var(--ink);
-    font-weight: 400;
-    text-align: left;
-    padding: 0.2rem 0.3rem;
-    border-radius: var(--radius-1);
-    font-size: 0.85rem;
-  }
-  .digestline:hover {
-    background: var(--panel-2);
-    filter: none;
-  }
-  .digestsection {
-    font-size: 0.7rem;
-    text-transform: none;
-    flex: none;
-    width: 90px;
-  }
-  .digesttext {
-    overflow-wrap: anywhere;
   }
   .activebtn {
     border-color: var(--accent);

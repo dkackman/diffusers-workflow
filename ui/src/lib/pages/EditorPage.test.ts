@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import EditorPage from './EditorPage.svelte'
 import { api } from '../api'
 
@@ -8,6 +14,12 @@ import { api } from '../api'
 // the workflow listing, the prompt library) purely to feed forms the flow
 // view never touches - stubbed here so the view-switch test stays about
 // the view switch, not the network.
+// Monaco cannot boot in jsdom; the JSON view is read through this stub,
+// which renders the value it was handed as plain text
+vi.mock('../editor/JsonEditor.svelte', async () => ({
+  default: (await import('./JsonEditorStub.svelte')).default,
+}))
+
 vi.mock('../api', () => ({
   api: {
     listPipelines: vi.fn().mockResolvedValue({ pipelines: [] }),
@@ -121,5 +133,64 @@ describe('EditorPage validation plan', () => {
     expect(plan.textContent).toContain('~12 min on cuda')
     expect(plan.textContent).toContain('0 of 3 steps cached')
     expect(plan.textContent).toContain('needs download: org/model (41.2 GB)')
+  })
+})
+
+describe('EditorPage step list', () => {
+  /** The step names the form shows, top to bottom. */
+  const formSteps = () =>
+    [
+      ...document.querySelectorAll<HTMLInputElement>('.panel.step input.name'),
+    ].map((input) => input.value)
+  /** The step's own panel, found by the name in its header. */
+  const stepPanel = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>('.panel.step')].find(
+      (panel) =>
+        panel.querySelector<HTMLInputElement>('input.name')?.value === name,
+    )!
+
+  it('keeps the form and the JSON in step with an add, a move and a remove', async () => {
+    try {
+      localStorage.removeItem('dw-editor-view')
+    } catch {
+      /* no storage */
+    }
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(formSteps()).toEqual(['generate']))
+
+    await fireEvent.click(
+      screen.getByTitle(
+        'add a utility step - upscaling, segmentation, captioning, frame tools',
+      ),
+    )
+    await fireEvent.click(
+      screen.getByTitle('add a step that runs a diffusers pipeline'),
+    )
+    await waitFor(() =>
+      expect(formSteps()).toEqual(['generate', 'process', 'generate-2']),
+    )
+
+    const moveUp = stepPanel('generate-2').querySelector<HTMLButtonElement>(
+      'button[title="move up"]',
+    )!
+    await fireEvent.click(moveUp)
+    await waitFor(() =>
+      expect(formSteps()).toEqual(['generate', 'generate-2', 'process']),
+    )
+
+    const remove = stepPanel('generate').querySelector<HTMLButtonElement>(
+      'button[title="remove step"]',
+    )!
+    await fireEvent.click(remove)
+    await waitFor(() => expect(formSteps()).toEqual(['generate-2', 'process']))
+
+    await fireEvent.click(screen.getByTitle('edit the raw JSON, schema-aware'))
+    const json = JSON.parse(
+      (await screen.findByTestId('json-editor')).textContent ?? '',
+    )
+    expect(json.steps.map((step: { name: string }) => step.name)).toEqual([
+      'generate-2',
+      'process',
+    ])
   })
 })

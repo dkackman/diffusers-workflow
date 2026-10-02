@@ -44,7 +44,7 @@
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
-<div class="head">
+<div class="pagehead">
   <h1>Prompts</h1>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
@@ -140,14 +140,7 @@
   .origin {
     font-size: 0.75rem;
   }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: var(--space-4);
-  }
-  .head .flex {
+  .pagehead .flex {
     flex: 1;
   }
   /* An absolute path is worth knowing and not worth the slot beside the

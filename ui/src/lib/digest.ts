@@ -70,41 +70,32 @@ function argsLine(args: Record<string, unknown> | undefined): DigestLine[] {
   ]
 }
 
-function pipelineDigest(step: Record<string, any>): StepDigest {
-  const pipeline = step.pipeline
-  const configuration = pipeline.configuration ?? {}
-  const pretrained = pipeline.from_pretrained_arguments ?? {}
-  const args = pipeline.arguments ?? {}
-  const argCount = Object.keys(args).length
+type Config = Record<string, any>
 
-  const summary = [
-    configuration.component_type || 'pipeline',
-    pretrained.model_name,
-    countText(argCount, 'arg'),
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  const lines: DigestLine[] = []
-
+function mainLine(
+  step: Config,
+  configuration: Config,
+  pretrained: Config,
+): DigestLine[] {
   const main = [
     pretrained.model_name,
     pretrained.torch_dtype,
     configuration.offload ? `offload: ${configuration.offload}` : null,
     step.result?.content_type ? `save: ${step.result.content_type}` : null,
   ].filter(Boolean)
-  if (main.length) lines.push({ section: 'main', text: main.join(' · ') })
+  return main.length ? [{ section: 'main', text: main.join(' · ') }] : []
+}
 
-  lines.push(...argsLine(args))
-
+function componentsLine(pipeline: Config): DigestLine[] {
   const components = Object.keys(pipeline).filter(
     (key) =>
       !COMPONENT_KEYS.has(key) &&
       pipeline[key] !== null &&
       typeof pipeline[key] === 'object',
   )
-  if (components.length) {
-    lines.push({
+  if (!components.length) return []
+  return [
+    {
       section: 'components',
       text: components
         .map((slot) => {
@@ -112,22 +103,29 @@ function pipelineDigest(step: Record<string, any>): StepDigest {
           return quant ? `${slot} (${quant})` : slot
         })
         .join(' · '),
-    })
-  }
+    },
+  ]
+}
 
+function lorasLine(pipeline: Config): DigestLine[] {
   const loras: Array<Record<string, any>> = pipeline.loras ?? []
-  if (loras.length) {
-    lines.push({
+  if (!loras.length) return []
+  return [
+    {
       section: 'loras',
       text: `${countText(loras.length, 'LoRA')}: ${loras
         .map((l) => l.adapter_name || l.model_name || '?')
         .join(', ')}`,
-    })
-  }
+    },
+  ]
+}
 
+function schedulerLine(pipeline: Config): DigestLine[] {
   const schedulerType = pipeline.scheduler?.configuration?.scheduler_type
-  if (schedulerType) lines.push({ section: 'scheduler', text: schedulerType })
+  return schedulerType ? [{ section: 'scheduler', text: schedulerType }] : []
+}
 
+function accelerationLine(configuration: Config): DigestLine[] {
   const acceleration = [
     configuration.cache ? `cache: ${configuration.cache.type}` : null,
     configuration.attention_backend
@@ -135,9 +133,34 @@ function pipelineDigest(step: Record<string, any>): StepDigest {
       : null,
     configuration.prompt_weighting ? 'prompt weighting' : null,
   ].filter(Boolean)
-  if (acceleration.length) {
-    lines.push({ section: 'acceleration', text: acceleration.join(' · ') })
-  }
+  return acceleration.length
+    ? [{ section: 'acceleration', text: acceleration.join(' · ') }]
+    : []
+}
 
+/** A pipeline step at a glance: one summary, then one line per part that
+ * is set, in the order the step editor shows them. */
+function pipelineDigest(step: Record<string, any>): StepDigest {
+  const pipeline = step.pipeline
+  const configuration = pipeline.configuration ?? {}
+  const pretrained = pipeline.from_pretrained_arguments ?? {}
+  const args = pipeline.arguments ?? {}
+
+  const summary = [
+    configuration.component_type || 'pipeline',
+    pretrained.model_name,
+    countText(Object.keys(args).length, 'arg'),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  const lines: DigestLine[] = [
+    ...mainLine(step, configuration, pretrained),
+    ...argsLine(args),
+    ...componentsLine(pipeline),
+    ...lorasLine(pipeline),
+    ...schedulerLine(pipeline),
+    ...accelerationLine(configuration),
+  ]
   return { summary, lines }
 }

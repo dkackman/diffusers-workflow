@@ -140,6 +140,28 @@ it('shows each image beside what made it, with a download link, and never probes
   ])
 })
 
+it("drops one job's image metadata when the page switches to another", async () => {
+  // Under the flat output layout two runs write the same file name, so a
+  // lookup kept across the switch would show job A's recipe under job B
+  metadata.byFile['a.png'] = { model_name: 'org/first' }
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  const { rerender } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('org/first')).toBeTruthy())
+
+  metadata.byFile['a.png'] = { model_name: 'org/second' }
+  detail.job = { ...detail.job, id: 'j2' }
+  await rerender({ jobId: 'j2' })
+  await waitFor(() => expect(screen.getByText('org/second')).toBeTruthy())
+  expect(screen.queryByText('org/first')).toBeNull()
+  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+    'a.png',
+    'a.png',
+  ])
+})
+
 it('groups a foldered run under final/ and intermediate/ headings, final first', async () => {
   detail.job = job([
     {
