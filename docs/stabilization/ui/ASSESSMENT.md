@@ -1,4 +1,4 @@
-# UI stabilization scope (2026-10-01, develop 2b2b82ce)
+# UI assessment (2026-10-01, develop 2b2b82ce)
 
 The engine stabilization (gates 0-4) never read `ui/` and has no ratchet over
 it. This is the survey that scopes a pass: what is there, where it already
@@ -93,6 +93,6 @@ pass did.
    `types.ts`, checked in CI. Running `e2e` on PRs into develop is a cheaper
    step toward the same goal.
 
-Stage 2 of the [dw_mcp pass](mcp-assessment.md) moves image, frame and
+Stage 2 of the [dw_mcp pass](../mcp-assessment.md) moves image, frame and
 metadata logic to new server routes; the UI should consume the same routes, so
 that stage and this one's stage 2 share their server work.
