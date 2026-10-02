@@ -37,6 +37,9 @@ export interface JobDetail extends JobSummary {
   arguments: Record<string, unknown>
   warnings: string[]
   manifest: ManifestEntry[]
+  /** Each output file's kind, from the server's MEDIA_KINDS; null for a
+   * kind the gallery does not show. */
+  output_kinds?: Record<string, 'image' | 'video' | 'audio' | 'text' | null>
   error: string | null
   traceback: string | null
   event_count: number

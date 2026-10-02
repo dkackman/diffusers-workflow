@@ -118,7 +118,10 @@ it('shows each image beside what made it, with a download link, and never probes
     seed: 7,
     arguments: { prompt: 'a cat', negative_prompt: 'a dog' },
   }
-  detail.job = job([{ step: 'generate', files: ['a.png', 'clip.mp4'] }])
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png', 'clip.mp4'] }]),
+    output_kinds: { 'a.png': 'image', 'clip.mp4': 'video' },
+  }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('org/model')).toBeTruthy())
   expect(screen.getByText('7')).toBeTruthy()
@@ -424,4 +427,20 @@ it('shows no version for a job that never opened a run', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
   expect(screen.queryByText(/^v\d+$/)).toBeNull()
+})
+
+it('renders each output by the kind the server reports', async () => {
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.bmp', 'b.mov', 'c.flac'] }]),
+    output_kinds: { 'a.bmp': 'image', 'b.mov': 'video', 'c.flac': 'audio' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(container.querySelector('audio')).toBeTruthy())
+  expect(container.querySelector('img')?.getAttribute('src')).toContain('a.bmp')
+  expect(container.querySelector('video')?.getAttribute('src')).toContain(
+    'b.mov',
+  )
+  expect(container.querySelector('audio')?.getAttribute('src')).toContain(
+    'c.flac',
+  )
 })

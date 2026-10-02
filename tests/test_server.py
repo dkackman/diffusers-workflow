@@ -4793,6 +4793,38 @@ def test_job_files_are_reported_relative_to_the_output_dir(server, tmp_path):
         assert step_end["files"] == ["flux/FluxDev-gen.0.png", "sd15-gen.0.png"]
 
 
+def test_a_job_reports_each_output_files_media_kind(server, tmp_path):
+    """The job page renders by kind, so the kind comes from MEDIA_KINDS
+    rather than an extension list in the browser."""
+    outputs = tmp_path / "outputs"
+    files = [str(outputs / name) for name in ("a.bmp", "b.mov", "c.flac", "d.bin")]
+
+    def script(command):
+        yield {
+            "type": "success",
+            "message": "ok",
+            "run_count": 1,
+            "manifest": [{"step": "gen", "files": files}],
+        }
+
+    with server(script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["output_kinds"] == {
+            "a.bmp": "image",
+            "b.mov": "video",
+            "c.flac": "audio",
+            "d.bin": None,
+        }
+
+
+def test_output_kinds_tolerates_a_job_with_no_manifest():
+    from dw.server.outputs import output_kinds
+
+    assert output_kinds(None) == {}
+    assert output_kinds([{"step": "s"}, "not an entry"]) == {}
+
+
 def test_gallery_thumbnails_are_cacheable(server, tmp_path):
     """The grid re-requests every visible thumbnail on each visit; a
     validator lets the browser skip the decode/resize/encode round-trip
