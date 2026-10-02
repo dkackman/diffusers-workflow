@@ -204,11 +204,14 @@ class TestServerInfo:
         assert result["device"] == "cuda"
         assert result["version"] == "0.1.0"
 
-    def test_named_workspace_swaps_directories(self):
-        """When in a named workspace, directories are replaced with the
-        workspace-specific ones from /api/workspaces."""
+    def test_named_workspace_reads_its_directories_from_api_server(self):
+        """/api/server answers for the workspace the request names (#389),
+        so a named session's directories come from it alone - one request,
+        and never the workspace listing."""
+        seen = []
 
         def handler(request):
+            seen.append((request.url.path, request.url.params.get("workspace")))
             if request.url.path == "/api/server":
                 return httpx.Response(
                     200,
@@ -216,53 +219,24 @@ class TestServerInfo:
                         "device": "cuda",
                         "version": "0.1.0",
                         "directories": {
-                            "workflows": "/home/user/workflows",
-                            "assets": "/home/user/assets",
-                            "outputs": "/home/user/outputs",
+                            "workflows": "/studio/shots/workflows",
+                            "assets": "/studio/shots/assets",
+                            "outputs": "/studio/shots/outputs",
                             "prompts": "/home/user/prompts",
                         },
                     },
                 )
-            elif request.url.path == "/api/workspaces":
-                return httpx.Response(
-                    200,
-                    json={
-                        "workspace_root": "/studio",
-                        "default": DEFAULT_WORKSPACE,
-                        "workspaces": [
-                            {
-                                "name": DEFAULT_WORKSPACE,
-                                "default": True,
-                                "workflows": "/home/user/workflows",
-                                "assets": "/home/user/assets",
-                                "outputs": "/home/user/outputs",
-                                "prompts": "/home/user/prompts",
-                            },
-                            {
-                                "name": "shots",
-                                "default": False,
-                                "workflows": "/studio/shots/workflows",
-                                "assets": "/studio/shots/assets",
-                                "outputs": "/studio/shots/outputs",
-                                "prompts": "/home/user/prompts",
-                            },
-                        ],
-                    },
-                )
-            return httpx.Response(200, json={})
+            raise AssertionError(f"unexpected request {request.url.path}")
 
         client = DwClient(transport=httpx.MockTransport(handler))
         client.workspace = "shots"
         result = server_info(client)
 
+        assert seen == [("/api/server", "shots")]
         assert result["workspace"] == "shots"
         assert result["directories"]["workflows"] == "/studio/shots/workflows"
-        assert result["directories"]["assets"] == "/studio/shots/assets"
-        assert result["directories"]["outputs"] == "/studio/shots/outputs"
         assert result["directories"]["prompts"] == "/home/user/prompts"
         assert result["device"] == "cuda"
-        assert result["version"] == "0.1.0"
-
 
 class TestPerCallPin:
     """`workspace=` on an output-side tool: for this one call, without

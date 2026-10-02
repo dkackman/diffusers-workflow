@@ -183,30 +183,10 @@ def delete_workspace(client, name, acknowledged_cost=False):
 def server_info(client):
     """What this installation can do and where it keeps things: the
     accelerator, version, directories, and which workspace this session works
-    in. When the session is in a named workspace, directories are scoped to
-    that workspace rather than the server's default.
+    in. The directories are the session workspace's.
     """
+    # /api/server answers for the session's workspace (the client scopes
+    # every request), so its directories are already this workspace's
     info = catalog.get_server_info(client)
-
-    # /api/server describes the server's default workspace. A session in a
-    # named one is told where *its* folders are, so a path it is handed
-    # back is relative to the right place. The root's other keys (the
-    # workspace root itself) stay
-    if client.workspace != DEFAULT_WORKSPACE:
-        listing = client.get_json("/api/workspaces")
-        for workspace in listing.get("workspaces") or []:
-            if (
-                isinstance(workspace, dict)
-                and workspace.get("name") == client.workspace
-            ):
-                info["directories"] = {
-                    **(info.get("directories") or {}),
-                    **{
-                        key: workspace.get(key)
-                        for key in ("workflows", "assets", "outputs", "prompts")
-                    },
-                }
-                break
-
     info["workspace"] = client.workspace
     return info
