@@ -256,3 +256,18 @@ describe('isLongText', () => {
     expect(isLongText({ a: 1 })).toBe(false)
   })
 })
+
+describe('a reference is always edited as text', () => {
+  const boolParam = param({ annotation: 'bool' })
+  const intParam = param({ annotation: 'int' })
+  it.each([
+    'item:flag',
+    'gather:shots',
+    'asset:cast/priya.png',
+    'output:run/v2/final.mp4',
+  ])('%s', (value) => {
+    expect(isReference(value)).toBe(true)
+    expect(widgetFor(boolParam, value)).toBe('text')
+    expect(widgetFor(intParam, value)).toBe('text')
+  })
+})

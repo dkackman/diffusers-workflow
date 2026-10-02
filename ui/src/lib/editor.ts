@@ -1,6 +1,9 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
 import { danglingReferenceDetails } from './flow'
+import { isReference } from './references'
+
+export { isReference }
 
 /** Introspection descriptions, cached per class+target for the session. */
 const descriptions = new Map<string, Promise<PipelineDescription | null>>()
@@ -92,17 +95,6 @@ export function withMediaLocation(value: unknown, location: string): unknown {
     return { ...(value as Record<string, unknown>), location }
   }
   return location
-}
-
-/** Reference strings the engine resolves later - always edited as text. */
-export function isReference(value: unknown): boolean {
-  return (
-    typeof value === 'string' &&
-    (value.startsWith('variable:') ||
-      value.startsWith('previous_result:') ||
-      value.startsWith('constant:') ||
-      value.startsWith('prompt:'))
-  )
 }
 
 export function widgetFor(
