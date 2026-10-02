@@ -3,6 +3,8 @@
   import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
   import ViewSwitch from '../editor/ViewSwitch.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
+  import StepList from '../editor/StepList.svelte'
+  import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
   import WorkflowFileBar from '../editor/WorkflowFileBar.svelte'
   import {
@@ -11,7 +13,6 @@
     Braces,
     LayoutList,
     Play,
-    Plus,
     Save,
     Workflow,
   } from '@lucide/svelte'
@@ -22,18 +23,10 @@
   import { goWs } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
-  import {
-    emptyWorkflow,
-    emptyStep,
-    emptyTaskStep,
-    emptyWorkflowStep,
-    referenceSuggestions,
-  } from '../editor'
+  import { emptyWorkflow, referenceSuggestions } from '../editor'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { storageGet, storageSet } from '../storage'
-  import StepEditor from '../editor/StepEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
   import type { ValidationResult, WorkflowDefinition } from '../types'
@@ -53,22 +46,9 @@
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
 
-  type StepMode = 'collapsed' | 'compact' | 'full'
-  // Keyed by step name; existing steps open compact, new ones full
-  let stepModes = $state<Record<string, StepMode>>({})
   const modesKey = $derived(`step-modes:${name || '(unsaved)'}`)
-
-  function modeOf(step: Record<string, any>): StepMode {
-    return stepModes[step.name] ?? 'compact'
-  }
-  function setMode(step: Record<string, any>, mode: StepMode) {
-    stepModes[step.name] = mode
-    storageSet(modesKey, $state.snapshot(stepModes))
-  }
-  function setAllModes(mode: StepMode) {
-    for (const step of ed.doc.steps ?? []) stepModes[step.name] = mode
-    storageSet(modesKey, $state.snapshot(stepModes))
-  }
+  // Keyed by step name; existing steps open compact, new ones full
+  const modes = new StepModes(() => modesKey)
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -174,7 +154,7 @@
         .getWorkflow(name)
         .then((fetched) => {
           ed.load(fetched.definition as WorkflowDefinition)
-          stepModes = storageGet(modesKey, {})
+          modes.restore()
         })
         .catch((e) => notify.error(e.message))
     } else {
@@ -190,9 +170,8 @@
       ed.saveName = ''
       // A new workflow has nowhere to save to yet - show the fields
       fileOpen = true
-      stepModes = imported
-        ? storageGet(modesKey, {})
-        : { [fresh.steps[0].name]: 'full' }
+      if (imported) modes.restore()
+      else modes.reset({ [fresh.steps[0].name]: 'full' })
     }
   })
 
@@ -205,38 +184,6 @@
       event.preventDefault()
       run()
     }
-  }
-
-  function addStep(kind: string) {
-    const step =
-      kind === 'task'
-        ? emptyTaskStep()
-        : kind === 'workflow'
-          ? emptyWorkflowStep()
-          : emptyStep()
-    // Step mode and flow-graph edges are keyed by name - two steps sharing
-    // the factory default (e.g. 'generate') would collide in stepModes
-    const existingNames = new Set(
-      (ed.doc.steps ?? []).map((s: Record<string, any>) => s.name),
-    )
-    if (existingNames.has(step.name)) {
-      let n = 2
-      while (existingNames.has(`${step.name}-${n}`)) n++
-      step.name = `${step.name}-${n}`
-    }
-    ed.doc.steps = [...(ed.doc.steps ?? []), step]
-    stepModes[step.name] = 'full'
-  }
-
-  function removeStep(index: number) {
-    ed.doc.steps.splice(index, 1)
-  }
-
-  function moveStep(index: number, delta: number) {
-    const steps = ed.doc.steps
-    const target = index + delta
-    if (target < 0 || target >= steps.length) return
-    ;[steps[index], steps[target]] = [steps[target], steps[index]]
   }
 
   async function validate(): Promise<boolean> {
@@ -424,77 +371,15 @@
         />
       </div>
 
-      {#if (ed.doc.steps ?? []).length > 1}
-        <div class="densityrow">
-          <span class="muted">steps</span>
-          <span class="flex"></span>
-          <button class="quiet" onclick={() => setAllModes('collapsed')}
-            >collapse all</button
-          >
-          <button class="quiet" onclick={() => setAllModes('compact')}
-            >compact all</button
-          >
-          <button class="quiet" onclick={() => setAllModes('full')}
-            >expand all</button
-          >
-        </div>
-      {/if}
-
-      <div class="steps">
-        {#each ed.doc.steps ?? [] as step, index (step)}
-          <div
-            id={'step-' + step.name}
-            class="steprow"
-            class:flowlit={hovered !== null && step.name === hovered}
-          >
-            <div class="railcell">
-              <span
-                class="ordinal"
-                title={`step ${index + 1} of ${ed.doc.steps.length}`}
-                >{index + 1}</span
-              >
-            </div>
-            <StepEditor
-              bind:step={ed.doc.steps[index]}
-              {index}
-              count={ed.doc.steps.length}
-              references={stepReferences[index] ?? []}
-              baseFolder={ed.folder === NEW_FOLDER ? '' : ed.folder}
-              mode={modeOf(step)}
-              flow={flow[index]}
-              problems={problemsByStep.get(index) ?? []}
-              onmodechange={(m) => setMode(step, m)}
-              onhover={(n) => (hovered = n)}
-              onremove={() => removeStep(index)}
-              onmove={(delta) => moveStep(index, delta)}
-            />
-          </div>
-        {/each}
-      </div>
-
-      <div class="addstep">
-        <button
-          class="quiet withicon"
-          onclick={() => addStep('pipeline')}
-          title="add a step that runs a diffusers pipeline"
-        >
-          <Plus size={14} />pipeline step
-        </button>
-        <button
-          class="quiet withicon"
-          onclick={() => addStep('task')}
-          title="add a utility step - upscaling, segmentation, captioning, frame tools"
-        >
-          <Plus size={14} />task step
-        </button>
-        <button
-          class="quiet withicon"
-          onclick={() => addStep('workflow')}
-          title="add a step that runs another workflow file with mapped arguments"
-        >
-          <Plus size={14} />sub-workflow step
-        </button>
-      </div>
+      <StepList
+        bind:steps={ed.doc.steps}
+        {modes}
+        folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
+        {flow}
+        {problemsByStep}
+        {stepReferences}
+        bind:hovered
+      />
     {/snippet}
   </EditorBody>
 {/if}
@@ -562,67 +447,10 @@
   .panel {
     margin-bottom: 1rem;
   }
-  .addstep {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem 0.6rem;
-  }
-  .densityrow {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
-  }
-  .densityrow button {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.55rem;
-  }
   /* Unsaved work makes Save the thing to do next, so it stops looking
      like the two quiet buttons beside it */
   .dirtybtn {
     border-color: var(--warn);
     color: var(--warn);
-  }
-  .steps {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .steprow {
-    display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
-    gap: 0 var(--space-2);
-  }
-  .railcell {
-    position: relative;
-    display: flex;
-    justify-content: center;
-  }
-  /* the connecting line - drawn per row so it spans the gaps too */
-  .steprow:not(:last-child) .railcell::before {
-    content: '';
-    position: absolute;
-    top: 26px;
-    bottom: calc(-1 * var(--space-3));
-    width: 2px;
-    background: color-mix(in srgb, var(--accent) 35%, transparent);
-  }
-  .ordinal {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-size: 0.75rem;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: var(--space-2);
-    z-index: 1;
-  }
-  .steprow.flowlit :global(.panel.step) {
-    border-color: var(--accent);
   }
 </style>
