@@ -13,7 +13,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 
 | Phase | Scope | Gate | Plan | Status |
 | --- | --- | --- | --- | --- |
-| 0 | UI ratchet and baseline; the gate reports count `.svelte`; fix the five rules the UI and the engine disagree on today (U1-U5) | `ui/scripts/arch-metrics.mjs --check` runs in CI and preflight against a committed baseline; U1-U5 fixed, each with a test that failed first; tagged `ui-stabilization-gate-0` | [phase-0.md](phase-0.md) | not started |
+| 0 | UI ratchet and baseline; the gate reports count `.svelte`; fix the five rules the UI and the engine disagree on today (U1-U5) | `ui/scripts/arch-metrics.mjs --check` runs in CI and preflight against a committed baseline; U1-U5 fixed, each with a test that failed first; tagged `ui-stabilization-gate-0` | [phase-0.md](phase-0.md) | done 2026-10-01 (`ui-stabilization-gate-0`) |
 | 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server routes `dw_mcp` stage 2 needs, built once and used by both clients | `prefix_literals` 0; every UI copy of an engine rule is either gone or pinned by a test, and has a seam-map row | written at gate 0 | |
 | 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | written at gate 1 | |
 | 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | written at gate 2 | |
@@ -79,7 +79,101 @@ Each gate is tagged `ui-stabilization-gate-N`.
 
 ## Gate reports
 
-(Filled at each gate.)
+### Gate 0 (2026-10-01, develop 367bcb57)
+
+Gate criteria:
+- **Ratchet in CI and preflight:** met. `ui/scripts/arch-metrics.mjs --check` runs in the `ui` CI job and in `npm run preflight` against `baseline.json`.
+- **U1-U5 fixed, each with a test that failed first:** met.
+  - U1 is `flow.ts`'s dangling check. Its resolver is now shared with the flow graph's chips and edges.
+  - U2 is `references.ts` and `isReference`.
+  - U3 is workspace names, checked against the shared `tests/fixtures/workspace_names.json`.
+  - U4 is `output_kinds` on the job detail and on file-carrying run events.
+  - U5 is the content types.
+- **Tagged:** met.
+
+Suite results on develop:
+- pytest: 7,734 passed (`DW_DEVICE=cpu`).
+- Integration: 5 passed, on the GPU.
+- vitest: 374 passed.
+- Playwright e2e: 108 passed.
+- Both ratchets: clean.
+
+The final whole-branch review (one fresh reviewer) found three problems, fixed in `a6928dbe`:
+- A running job's outputs showed as links until its manifest existed.
+- A `from_previous_result` spelled `variable:...` was flagged as dangling.
+- The graph's chips still split names on the first dot.
+
+Five minor findings are deferred to Phase 1:
+- The check still accepts some references the engine refuses (`gather:` on a step without `for_each`, a group named from outside it).
+- The name length counts UTF-16 units.
+- MCP `get_job` now carries `output_kinds` undocumented.
+- Two weak pins.
+- Two Review Focus cases are tested only at unit level.
+
+The folder and prompt name patterns in the two editor pages are ASCII-only copies of a Unicode rule. They are the U3 problem again, and Phase 1's one-owner work takes them.
+
+lem smoke, `367bcb57` deployed:
+- A `normalize_audio` job renders three `<audio>` players.
+- A `text-to-image` job renders its image.
+- `assemble-and-score` renders its video.
+- No page errors.
+- `GET /api/jobs/{id}` carries `output_kinds` for historical jobs.
+
+#### Ratchets
+
+| Ratchet | Before Phase 0 (`12aa9204`) | Gate 0 |
+| --- | --- | --- |
+| `files_over_size_ceiling` | 7 | 7 |
+| `complex_functions` | 14 | 14 |
+| `long_functions` | 2 | 2 |
+| `import_cycles` | 1 | 1 |
+| `modules_in_import_cycles` | 2 | 2 |
+| `prefix_literals` | 29 | 15 |
+| `a11y_suppressions` | 7 | 7 |
+
+#### SLOC
+
+`.svelte` non-blank lines by block: script 3,744, markup 4,104, style 3,293.
+The UI as the engine report counts it (`svelte_code_lines` plus pygount):
+12,969 code lines at `stabilization-gate-4`.
+
+#### Largest files (raw lines)
+
+| Lines | File |
+| --- | --- |
+| 1075 | `src/lib/pages/EditorPage.svelte` |
+| 954 | `src/lib/pages/PromptEditorPage.svelte` |
+| 875 | `src/lib/pages/JobPage.svelte` |
+| 802 | `src/lib/editor/StepEditor.svelte` |
+| 671 | `src/lib/api.ts` |
+| 669 | `src/lib/pages/AssetsPage.svelte` |
+| 612 | `src/lib/pages/GalleryPage.svelte` |
+| 596 | `src/lib/pages/ModelsPage.svelte` |
+| 525 | `src/lib/pages/WorkflowsPage.svelte` |
+| 496 | `src/App.svelte` |
+
+#### Most complex functions (ESLint `complexity`)
+
+| Complexity | Function |
+| --- | --- |
+| 19 | `src/lib/digest.ts:73` `pipelineDigest` |
+| 17 | `src/lib/routes.ts:67` `legacyRedirect` |
+| 16 | `src/lib/editor.ts:100` `widgetFor` |
+| 15 | `src/lib/progress.ts:30` `stepProgress` |
+| 15 | `src/lib/results.ts:142` `unsavedSteps` |
+| 13 | `src/lib/editor.ts:59` `mediaKindFor` |
+| 12 | `src/lib/api.ts:112` `describeContents` |
+| 12 | `src/lib/pages/JobPage.svelte:151` `exportJob` |
+| 12 | `src/lib/pages/WorkflowsPage.svelte:167` (arrow function) |
+| 12 | `src/lib/routes.ts:39` `parseView` |
+
+Template blocks (`{#if}` and `{#each}`), the branching ESLint does not see:
+- `JobPage` 41
+- `EditorPage` 24
+- `WorkflowsPage` 22
+- `StepEditor` 21
+- `ModelsPage` 19
+- `PromptEditorPage` 19
 
 ## Working rules for the duration
 
