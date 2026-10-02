@@ -263,7 +263,9 @@ def delete_job_run(request: Request, job_id: str):
         )
     root, run_dir = location
     try:
-        path = validate_path(os.path.join(root, run_dir), root, allow_create=False)
+        # Confinement only: a run already deleted is a 404 below, not an
+        # invalid path
+        path = validate_path(os.path.join(root, run_dir), root, allow_create=True)
     except SecurityError:
         raise HTTPException(status_code=400, detail="Invalid run directory")
     if not os.path.isdir(path):

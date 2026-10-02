@@ -579,6 +579,17 @@ class TestDeleteAJobsRun:
             assert body["deleted"] is True
             assert not run.exists()
 
+    def test_deleting_a_run_twice_says_it_is_already_gone(self, server, tmp_path):
+        run = tmp_path / "outputs" / RUN_DIR
+        run.mkdir(parents=True)
+        with server(tracked_script) as client:
+            job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+            wait_for_status(client, job["id"], TERMINAL_STATES)
+            assert client.delete(f"/api/jobs/{job['id']}/run").status_code == 200
+            again = client.delete(f"/api/jobs/{job['id']}/run")
+            assert again.status_code == 404
+            assert "already gone" in again.json()["detail"]
+
     def test_a_job_without_a_run_dir_is_404(self, server):
         with server(success_script) as client:
             job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
