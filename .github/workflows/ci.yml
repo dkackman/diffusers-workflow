@@ -42,7 +42,7 @@ jobs:
         # goes on afterwards so the resolver doesn't replace it with a
         # release
         run: |
-          pip install -r requirements.txt -r requirements-test.txt
+          pip install -c constraints-openapi.txt -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
       - name: Format check
         run: ruff format --check dw dw_mcp tests scripts
@@ -91,11 +91,14 @@ jobs:
   e2e:
     # Playwright against a real dw.serve before develop moves - on PRs into
     # develop or master, and on pushes to develop, since the agent loop
-    # pushes develop directly with no PR. The job carries the backend
-    # install as well as the browser
+    # pushes develop directly with no PR. The release PR (this repo's
+    # develop into master) is skipped: its every commit is a develop push,
+    # already run. The job carries the backend install as well as the browser
     if: >-
       (github.event_name == 'pull_request' &&
-       (github.base_ref == 'develop' || github.base_ref == 'master')) ||
+       (github.base_ref == 'develop' || github.base_ref == 'master') &&
+       !(github.head_ref == 'develop' &&
+         github.event.pull_request.head.repo.full_name == github.repository)) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     steps:
@@ -113,7 +116,7 @@ jobs:
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r requirements-test.txt
+          pip install -c constraints-openapi.txt -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
       - uses: actions/setup-node@v7
         with:

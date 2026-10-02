@@ -243,10 +243,8 @@ def test_the_ui_offload_modes_are_the_schemas():
 
 
 API_TS = UI_LIB / "api.ts"
-# Paths api.ts reaches that are not JSON responses a model declares: the
-# event stream, JSON Schema documents served as-is, files and zips, and
-# the raw workflow/prompt GETs that serve the file verbatim (their PUT and
-# DELETE on the same path are in the contract)
+# Paths api.ts reaches that answer with no JSON a model declares, by any
+# method: the event stream, JSON Schema documents served as-is, files and zips
 NOT_IN_CONTRACT = {
     "/api/jobs/{}/events",
     "/api/schema",
@@ -258,21 +256,47 @@ NOT_IN_CONTRACT = {
     "/api/workflows/{}/download",
     "/api/prompts/{}/download",
 }
+# The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
+# on the same path are in the contract
+VERBATIM_GETS = {("get", "/api/workflows/{}"), ("get", "/api/prompts/{}")}
 
 
-def _api_ts_paths():
-    """Every /api/ path api.ts builds, with each ${...} as {}."""
+def _api_calls(text):
+    """Every (method, /api/ path) a client module builds, with each ${...} as
+    {}. A call's method is the first `method:` before the next /api/ path or
+    the next member of the object; with none it is a GET."""
     found = set()
-    for literal in re.findall(r"[`'\"](/api/[^`'\"?]*)", API_TS.read_text()):
-        found.add(re.sub(r"\$\{[^}]*\}", "{}", literal).rstrip("/"))
+    literals = list(re.finditer(r"[`'\"](/api/[^`'\"?]*)", text))
+    for i, match in enumerate(literals):
+        end = literals[i + 1].start() if i + 1 < len(literals) else len(text)
+        member = re.search(r"\n  [A-Za-z]+[:(]", text[match.end() : end])
+        if member:
+            end = match.end() + member.start()
+        method = re.search(r"method: '([A-Z]+)'", text[match.end() : end])
+        path = re.sub(r"\$\{[^}]*\}", "{}", match.group(1)).rstrip("/")
+        found.add((method.group(1).lower() if method else "get", path))
     return found
+
+
+def test_a_call_is_read_with_its_method():
+    text = (
+        "  get: () => request<A>('/api/things'),\n"
+        "  save: (n) =>\n    request<B>(`/api/things/${n}`, {\n      method: 'PUT',\n    }),\n"
+        "  other: () => request<C>('/api/other'),\n"
+    )
+    assert _api_calls(text) == {
+        ("get", "/api/things"),
+        ("put", "/api/things/{}"),
+        ("get", "/api/other"),
+    }
 
 
 def test_every_json_route_the_ui_calls_declares_its_response():
     from tests.test_api_contract import UI_READ_ROUTES
 
-    covered = {re.sub(r"\{[^}]*\}", "{}", path) for _, path in UI_READ_ROUTES}
-    missing = sorted(p for p in _api_ts_paths() - NOT_IN_CONTRACT if p not in covered)
+    covered = {(m, re.sub(r"\{[^}]*\}", "{}", path)) for m, path in UI_READ_ROUTES}
+    calls = _api_calls(API_TS.read_text()) - VERBATIM_GETS - covered
+    missing = sorted(call for call in calls if call[1] not in NOT_IN_CONTRACT)
     assert missing == [], (
         f"api.ts calls routes with no declared response model: {missing}"
     )

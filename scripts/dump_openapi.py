@@ -4,10 +4,13 @@ response types. `--check` exits 1 when the committed copy is stale;
 `--stdout` prints instead of writing.
 
 Normalized so it is the same on every machine and release: `info.version`
-is "0", and the app is built with fixed directories and no token."""
+is "0", and the app is built with fixed directories and no token. Written
+only under the FastAPI and Pydantic that constraints-openapi.txt pins, since
+either one's release changes the document by itself."""
 
 import json
 import os
+from importlib.metadata import version
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +23,28 @@ REPO = Path(__file__).resolve().parent.parent
 # main checkout's contract
 sys.path.insert(0, str(REPO))
 OPENAPI_PATH = REPO / "ui" / "src" / "lib" / "generated" / "openapi.json"
+CONSTRAINTS = REPO / "constraints-openapi.txt"
+
+
+def pins() -> dict[str, str]:
+    lines = (
+        line.split("#")[0].strip() for line in CONSTRAINTS.read_text().splitlines()
+    )
+    return dict(line.split("==") for line in lines if line)
+
+
+def installed() -> dict[str, str]:
+    return {name: version(name) for name in pins()}
+
+
+def unpinned() -> list[str]:
+    """Each pinned package whose installed version differs, as "name x (pinned y)"."""
+    want, have = pins(), installed()
+    return [
+        f"{name} {have[name]} (pinned {want[name]})"
+        for name in want
+        if have[name] != want[name]
+    ]
 
 
 def openapi_document() -> dict:
@@ -49,10 +74,17 @@ def render() -> str:
 
 
 def main(argv: list[str]) -> int:
-    text = render()
     if "--stdout" in argv:
-        sys.stdout.write(text)
+        sys.stdout.write(render())
         return 0
+    stray = unpinned()
+    if stray:
+        print(
+            f"not on the versions the document is pinned to: {', '.join(stray)} - "
+            f"pip install -c {CONSTRAINTS.name} -r requirements.txt"
+        )
+        return 2
+    text = render()
     if "--check" in argv:
         current = OPENAPI_PATH.read_text() if OPENAPI_PATH.exists() else ""
         if current != text:
