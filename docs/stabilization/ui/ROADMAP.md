@@ -14,7 +14,7 @@ works on is what the earlier phases leave behind. Phase 0's plan is
 | Phase | Scope | Gate | Plan | Status |
 | --- | --- | --- | --- | --- |
 | 0 | UI ratchet and baseline; the gate reports count `.svelte`; fix the five rules the UI and the engine disagree on today (U1-U5) | `ui/scripts/arch-metrics.mjs --check` runs in CI and preflight against a committed baseline; U1-U5 fixed, each with a test that failed first; tagged `ui-stabilization-gate-0` | [phase-0.md](phase-0.md) | done 2026-10-01 (`ui-stabilization-gate-0`) |
-| 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server takes over what `dw_mcp` computes client-side (its stage 2), then `dw_mcp` consolidates (stage 3) | `prefix_literals` 0; every UI and `dw_mcp` copy of an engine rule is either gone or pinned by a test, and has a seam-map row | [phase-1.md](phase-1.md) (staged: 1a-1c) | not started |
+| 1 | One owner per rule: prefixes in `src/lib/references.ts` only; engine vocabularies read from the server or pinned; the server takes over what `dw_mcp` computes client-side (its stage 2), then `dw_mcp` consolidates (stage 3) | `prefix_literals` 0; every UI and `dw_mcp` copy of an engine rule is either gone or pinned by a test, and has a seam-map row | [phase-1.md](phase-1.md) (staged: 1a-1c) | done 2026-10-01 (`ui-stabilization-gate-1`) |
 | 2 | Primitives: overlays and comboboxes on Bits UI, behind `src/lib/ui/` wrappers styled from `app.css` tokens | No hand-rolled focus trap, Escape chain or DOM sniffing for open dialogs; no false `aria-modal`; `<datalist>` gone; e2e green | written at gate 1 | |
 | 3 | Structural moves: one editor shell under `EditorPage` and `PromptEditorPage`; `JobPage` split by job; one polling helper; `api.ts` de-duplicated and its cycle broken; shared layout styles | `files_over_size_ceiling` 0, `import_cycles` 0, `long_functions` 0; suite, e2e and a lem UI smoke green | written at gate 2 | |
 | 4 | Contract and guardrails: response models on the routes the UI reads, generated TS types, e2e on PRs into develop, the harness ratchets the UI, `ui/CLAUDE.md` triaged | A server response change that breaks the UI fails CI; the harness refuses a UI ratchet rise without `arch-approved` | written at gate 3 | |
@@ -174,6 +174,69 @@ Template blocks (`{#if}` and `{#each}`), the branching ESLint does not see:
 - `StepEditor` 21
 - `ModelsPage` 19
 - `PromptEditorPage` 19
+
+
+### Gate 1 (2026-10-01, develop 59f64f8e)
+
+Gate criteria:
+- **`prefix_literals` 0:** met. `references.ts` is the only speller, through `reference()` and `referenceName()`.
+- **Every UI and `dw_mcp` copy of an engine rule gone or pinned, with a seam-map row:** met.
+  - Pinned for the UI: the shared case files (`reference_cases.json`, where the engine decides each case, and `workspace_names.json`) and `tests/test_ui_twins.py`, which pins shapes, traits, component slots, offload modes, content types, the writer settings and the terminal states.
+  - Pinned for `dw_mcp`: `tests/test_mcp_twins.py`.
+  - Gone from `dw_mcp`: image fitting, crop, decode limits, the probe list, the merge patch, run-directory derivation and the level thresholds. The server owns all of them now.
+- **`mcp-assessment.md` stages 2 and 3:** done, M-item by M-item.
+
+Suite results:
+- pytest: 7,781 passed (`DW_DEVICE=cpu`).
+- Integration: 5 passed, on the GPU.
+- vitest: 407 passed.
+- Playwright e2e: 108 passed.
+- Both ratchets: clean.
+
+The final whole-branch review (one fresh reviewer) found three problems, fixed in `d46442eb`:
+- The image route gave a bare 500 on an undecodable file.
+- The editor's same-list check compared raw values where the engine compares resolved, key-order-free values.
+- The full-scale finding gave weaker advice than `audio_qc`.
+
+Ten minor findings are deferred. They are listed as `Final: minor (deferred)` in the branch's ledger, and the main ones are:
+- No 64 px floor on `/image` and `/frames`.
+- Double encodes.
+- A workflow DELETE that does not take the save lock.
+- No version check for a newer `dw-mcp` against an older server.
+- A combined prompt-name length the editor does not check.
+
+The modules ratchet rose 165 → 167 for `dw/server/inline_media.py` and `dw_mcp/confine.py`, each rise in its own named commit, approved by Don with the plan.
+
+lem smoke, `59f64f8e` deployed, over MCP:
+- `get_output_image` with a crop returned 200x120 from an 896x1152 source, cut by the server.
+- `get_output_frames` with `hear` returned two tiles plus two excerpts.
+- `get_gallery_metadata` on a scored cut carried `findings: []` (peak -2.9 dBFS) and the next hint with no thresholds.
+- `save_workflow` patch mode merged a description onto the stored version.
+- `delete_output(job_id=)` removed a scratch run whole.
+- A second delete of the same run surfaced a bug: it answered "Invalid run directory", because the containment check required the path to exist. Fixed test-first (`4d25dd57`), redeployed, and re-smoked: the second delete now says "already gone".
+
+In the browser:
+- The job pages render audio players, images and video with no page errors.
+- The editor's warnings are covered by unit and e2e tests.
+
+`dw_mcp` is 4,405 lines, against 4,597 at the assessment.
+
+#### Ratchets
+
+| Ratchet | Before Phase 0 | Gate 0 | Gate 1 |
+| --- | --- | --- | --- |
+| `files_over_size_ceiling` | 7 | 7 | 7 |
+| `complex_functions` | 14 | 14 | 14 |
+| `long_functions` | 2 | 2 | 2 |
+| `import_cycles` | 1 | 1 | 1 |
+| `modules_in_import_cycles` | 2 | 2 | 2 |
+| `prefix_literals` | 29 | 15 | 0 |
+| `a11y_suppressions` | 7 | 7 | 7 |
+
+`.svelte` non-blank lines by block: script 3,753, markup 4,107, style 3,293.
+The largest files and most complex functions are unchanged from gate 0 apart
+from a few lines: `EditorPage` is 1,077 lines and `widgetFor` sits at
+`editor.ts:106`. Phase 3 is where they move.
 
 ## Working rules for the duration
 
