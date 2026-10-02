@@ -16,6 +16,8 @@ from fastapi.testclient import TestClient
 from tests.test_server import (  # noqa: F401
     server,
     success_script,
+    valid_workflow,
+    wait_for_status,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -172,3 +174,48 @@ def test_an_empty_model_cache_counts_bytes_in_integers(server, tmp_path, monkeyp
         body = client.get("/api/models").json()
     assert type(body["size_on_disk"]) is int
     assert body["repos"] == [] and body["warnings"] == []
+
+
+def test_the_dump_leaves_the_home_directory_alone(tmp_path):
+    # It builds an app to read its schema; a real JobManager would open (and
+    # migrate) ~/.diffusers_helper/jobs.sqlite, the history a running
+    # dw.serve owns
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {k: v for k, v in os.environ.items() if k != "DIFFUSERS_HELPER_ROOT"}
+    env["HOME"] = str(home)
+    subprocess.run(
+        [sys.executable, str(DUMP), "--stdout"],
+        env=env,
+        cwd=REPO,
+        capture_output=True,
+        check=True,
+    )
+    assert list(home.iterdir()) == []
+
+
+def test_the_dump_reads_its_own_checkout(tmp_path):
+    # In a worktree sharing the main checkout's venv, the editable install
+    # points at the main checkout's dw; the contract must come from this one
+    fake = tmp_path / "elsewhere" / "dw"
+    fake.mkdir(parents=True)
+    (fake / "__init__.py").write_text("raise ImportError('another checkout')\n")
+    env = {**os.environ, "PYTHONPATH": str(fake.parent)}
+    run = subprocess.run(
+        [sys.executable, str(DUMP), "--stdout"],
+        env=env,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    assert run.returncode == 0, run.stderr[-500:]
+
+
+def test_a_key_the_worker_did_not_report_stays_absent(server):
+    # The worker's report names only what its backend measured; a declared
+    # field it left out must not arrive as null
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], ["succeeded"])
+        body = client.get("/api/memory").json()
+    assert body["info"] == {"gpu_available": True}

@@ -15,19 +15,31 @@ from pathlib import Path
 os.environ["DW_STRICT_RESPONSES"] = "1"  # before dw is imported: no index signatures
 
 REPO = Path(__file__).resolve().parent.parent
+# This checkout's dw, not whichever one the venv's editable install points
+# at - a worktree sharing the main checkout's venv would otherwise dump the
+# main checkout's contract
+sys.path.insert(0, str(REPO))
 OPENAPI_PATH = REPO / "ui" / "src" / "lib" / "generated" / "openapi.json"
 
 
 def openapi_document() -> dict:
-    from dw.server.app import create_app
-
     with tempfile.TemporaryDirectory() as tmp:
+        # dw creates its settings root on import, and the app's JobManager
+        # opens the job history under it; point that at the scratch
+        # directory first, so reading the schema never touches the history
+        # a running dw.serve owns
+        os.environ["DIFFUSERS_HELPER_ROOT"] = os.path.join(tmp, "helper")
+        from dw.server.app import create_app
+
         app = create_app(
             workflow_dir=os.path.join(tmp, "workflows"),
             output_dir=os.path.join(tmp, "outputs"),
             prompt_dir=os.path.join(tmp, "prompts"),
         )
-        document = app.openapi()
+        try:
+            document = app.openapi()
+        finally:
+            app.state.job_manager.shutdown()
     document["info"]["version"] = "0"
     return document
 
