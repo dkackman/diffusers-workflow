@@ -29,7 +29,7 @@ BEFORE_PHASE_0 = ("Before Phase 0", "3afd70e9")
 ARCHIVED = ["dw", "dw_mcp", "tests", "ui/src", ":(glob)**/CLAUDE.md"]
 RATCHETS = [
     ("modules", "Engine + MCP modules"),
-    ("modules_over_1000_lines", "Modules over 1,000 lines"),
+    ("modules_over_size_ceiling", "Modules over 1,100 lines (ceiling)"),
     ("functions_over_150_lines", "Functions over 150 lines"),
     ("complex_functions", "Functions over cyclomatic complexity 15"),
     ("import_cycles", "Import cycles"),

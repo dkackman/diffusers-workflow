@@ -17,8 +17,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ...argument_warnings import workflow_argument_warnings
-from ...prompts import RESERVED_TEXT_PREFIXES
 from ...schema import format_validation_errors, load_schema, validate_data
+from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
 from ...library import (
@@ -295,7 +295,9 @@ def save_workflow(
     # to shape-first discovery
     metadata = derive_catalog_metadata(request.workflow)
     warnings = list(workflow_argument_warnings(request.workflow))
-    warnings += candidate.null_variable_argument_warnings()
+    warnings += validation.run_warning_check(
+        candidate, "null_variable_argument_warnings", None
+    )
     if not metadata["summary"]:
         warnings.append(
             "No summary: add a 'description' (its first sentence becomes "
@@ -566,11 +568,11 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
     status, message = validate_data(request.prompt, load_schema("prompt"))
     if not status:
         raise HTTPException(status_code=400, detail=message)
-    if str(request.prompt.get("text", "")).startswith(RESERVED_TEXT_PREFIXES):
+    if references.is_ref(references.RESERVED_TEXT, str(request.prompt.get("text", ""))):
         raise HTTPException(
             status_code=400,
             detail="A prompt's text may not itself begin with a reference "
-            f"prefix ({', '.join(RESERVED_TEXT_PREFIXES)})",
+            f"prefix ({', '.join(references.RESERVED_TEXT)})",
         )
     path = resolve_prompt_name(
         writable_prompt_directory(state), name, allow_create=True

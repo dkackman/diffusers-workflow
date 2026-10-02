@@ -80,3 +80,25 @@ duplicate-code blocks, and from Phase 1 on, functions over cyclomatic
 complexity 15 and import cycles. Change coupling, package instability and
 LCOM4 are gate reports, not gates (ROADMAP.md, "Metrics"). A ticket is done when it works, no metric regressed,
 and it added no second copy of an existing rule.
+
+## Where it ended (gate 4, 2026-10-01)
+
+Measured by `scripts/arch_report.py`, before Phase 0 → gate 4 (ROADMAP.md, "Gate 4"):
+
+- Modules over the size ceiling 9 → 0; functions over 150 lines 19 → 0;
+  functions over complexity 15 21 → 7, over 30 4 → 0.
+- Import cycles 6 → 0, modules inside them 22 → 0.
+- Reference-prefix literals 100 → 0, and hand-written prefix handling 82 → 0;
+  `references.py` is the one owner.
+- Cross-file duplicate blocks 22 → 5.
+- CLAUDE.md files 964 → 129 lines (root 106); the rest moved to the seam map
+  (`docs/ARCHITECTURE.md`), module docstrings and the guides.
+- Test `patch("dw...")` targets unchanged at 284: module moves are still
+  expensive for the tests.
+- `modules` rose 133 → 165, every rise named in its stage's Decisions.
+
+The freeze lifted at gate 4 (`stabilization-gate-4`). What holds the
+result now is mechanical: the ratchet in dw's CI and preflight, and the
+harness's stage C (the ratchet, the hot zone, `arch-approved` for a new
+module or a baseline raise, and an architecture review against the seam
+map).

@@ -329,7 +329,7 @@ def test_building_a_context_does_not_expand(tmp_path):
         _unexpandable_definition(), str(tmp_path), str(tmp_path), None
     )
 
-    context = workflow.validation_context()
+    context = validation.workflow_context(workflow)
     errors = workflow.validation_errors(context=context)
 
     assert errors == workflow.validation_errors()
@@ -346,7 +346,7 @@ def test_a_context_with_other_arguments_is_a_caller_bug(tmp_path):
         _for_each_definition(), str(tmp_path), str(tmp_path), None
     )
     arguments = {"shots": [{"name": "x", "text": "X"}]}
-    context = workflow.validation_context(arguments)
+    context = validation.workflow_context(workflow, arguments)
 
     # the context alone, or the context with the same arguments, is fine
     assert workflow.validation_errors(context=context) == []
@@ -367,15 +367,30 @@ def test_a_warning_method_on_an_unexpandable_definition_says_it_failed(tmp_path)
         _unexpandable_definition(), str(tmp_path), str(tmp_path), None
     )
     calls = {
-        "adapter_warnings": lambda: workflow.adapter_warnings(),
-        "null_variable_argument_warnings": (
-            lambda: workflow.null_variable_argument_warnings()
+        "adapter_warnings": lambda: validation.run_warning_check(
+            workflow, "adapter_warnings", None
         ),
-        "sub_workflow_warnings": lambda: workflow.sub_workflow_warnings(),
-        "slice_past_end_warnings": lambda: workflow.slice_past_end_warnings(),
-        "shot_span_warnings": lambda: workflow.shot_span_warnings(),
+        "null_variable_argument_warnings": (
+            lambda: validation.run_warning_check(
+                workflow, "null_variable_argument_warnings", None
+            )
+        ),
+        "sub_workflow_warnings": lambda: validation.run_warning_check(
+            workflow, "sub_workflow_warnings", None
+        ),
+        "slice_past_end_warnings": lambda: validation.run_warning_check(
+            workflow, "slice_past_end_warnings", None
+        ),
+        "shot_span_warnings": lambda: validation.run_warning_check(
+            workflow, "shot_span_warnings", None
+        ),
         "inherited_vram_warnings": (
-            lambda: workflow.inherited_vram_warnings(None, {"identity": {}})
+            lambda: validation.run_warning_check(
+                workflow,
+                "inherited_vram_warnings",
+                None,
+                ceiling_index={"identity": {}},
+            )
         ),
     }
     for name, call in calls.items():

@@ -7,6 +7,10 @@ to record a baseline and --check to compare against one.
 
 Counting rules, fixed so any commit measures the same way:
 - Sources are dw/ and dw_mcp/, minus EXCLUDED (vendored community pipelines).
+- Module size is a band: modules_over_size_ceiling counts modules above
+  SIZE_CEILING (1,100 lines, ratcheted); a module above SIZE_WARNING (1,000)
+  and at or under the ceiling is printed as a `warning:` line on every run,
+  which is not a metric and never enters the baseline.
 - Cyclomatic complexity is ruff's C901 (mccabe) as ruff reports it: each
   function scored on its own body, nested functions counted into it too.
 - An import cycle is a strongly connected component of more than one module
@@ -14,6 +18,22 @@ Counting rules, fixed so any commit measures the same way:
   count, TYPE_CHECKING imports do not. Folders without an __init__.py
   (dw/tasks, dw/pipeline_processors) are named to grimp explicitly, since it
   walks only regular packages.
+- prefix_literals counts a string constant that is exactly a reference
+  prefix, outside PREFIX_OWNERS.
+- prefix_handling counts hand-written handling of a reference prefix, outside
+  PREFIX_OWNERS, per AST node. A "reference expression" is a constant of
+  dw/references.py (parsed from the measured root; a fixed list when the file
+  is absent) as `<module alias>.NAME` (any import form), as a name imported
+  from references (with `as`), as a module-level name assigned from either,
+  or a name imported from a dw module that ends in _PREFIX or _PREFIXES.
+  Forms: (a) a startswith/removeprefix/removesuffix/replace/split/partition
+  call with one as an argument; (b) a slice starting at len(<one>); (c) `+`
+  with one as an operand, or an f-string splicing one in; (d) a module-level
+  assignment of one (or a tuple holding one); (e) a non-docstring string that
+  starts with a prefix and is longer than it, or an f-string fragment that
+  ends with a prefix. Prose naming a bare prefix is not counted. A table keyed by reference
+  kinds (e.g. reference_names._KINDS, a dict) is not an alias and is deliberately
+  not counted under form (d).
 """
 
 import argparse
@@ -43,7 +63,22 @@ REFERENCE_PREFIXES = frozenset(
 PREFIX_OWNERS = frozenset({"dw/references.py"})
 EXCLUDED = ("community_pipelines", "node_modules", "venv", ".git")
 PACKAGES = ("dw", "dw_mcp")
+REFERENCES_MODULE = "dw/references.py"
+FALLBACK_REFERENCE_NAMES = frozenset(
+    "ASSET OUTPUT PROMPT VARIABLE PREVIOUS_RESULT CONSTANT ITEM GATHER BUILTIN "
+    "CONSTRAINT SUBSTITUTED UNRESOLVED DEFERRED".split()
+)
+PREFIX_METHODS = frozenset(
+    ("startswith", "removeprefix", "removesuffix", "replace", "split", "partition")
+)
 PATCH_TARGET = re.compile(r"""patch\(\s*["']dw[._]""")
+# Module size is a band: warning above SIZE_WARNING, failing above SIZE_CEILING
+SIZE_WARNING = 1000
+SIZE_CEILING = 1100
+RERUN_RULE = (
+    "Re-baseline rule: lower baseline.json freely when a ratchet improves;",
+    "raise it only in a commit whose message names the rise and why.",
+)
 COMPLEXITY_LIMIT = 15
 COMPLEXITY_MESSAGE = re.compile(r"^`(?P<name>.+)` is too complex \((?P<cc>\d+) > 0\)$")
 
@@ -181,20 +216,221 @@ def import_graph(root):
     return json.loads(result.stdout)
 
 
+def _reference_names(root):
+    """(constant names, prefix strings) defined by dw/references.py under root:
+    a single prefix is an upper-case name bound to a string ending in a colon;
+    a tuple is one built from those names (and other tuples)."""
+    path = root / REFERENCES_MODULE
+    if not path.is_file():
+        return FALLBACK_REFERENCE_NAMES, REFERENCE_PREFIXES
+    assigns = [
+        (node.targets[0].id, node.value)
+        for node in ast.parse(path.read_text(encoding="utf-8")).body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id.isupper()
+    ]
+    singles = {
+        name: value.value
+        for name, value in assigns
+        if isinstance(value, ast.Constant)
+        and isinstance(value.value, str)
+        and value.value.endswith(":")
+    }
+    names = set(singles)
+
+    def built(node):
+        if isinstance(node, ast.Name):
+            return node.id in names
+        if isinstance(node, ast.Tuple):
+            return any(built(element) for element in node.elts)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return built(node.left) or built(node.right)
+        return False
+
+    grown = True
+    while grown:
+        grown = False
+        for name, value in assigns:
+            if name not in names and built(value):
+                names.add(name)
+                grown = True
+    return frozenset(names), frozenset(singles.values())
+
+
+def _dotted(node):
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+    return None
+
+
+class _Resolver:
+    """What counts as a reference expression in one module: the module's own
+    imports of references (any form), its bare imports from it, names imported
+    from a dw module that end in _PREFIX / _PREFIXES, and module-level names
+    assigned from any of those."""
+
+    def __init__(self, tree, constants):
+        self.constants = constants
+        self.modules = set()
+        self.names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "dw.references":
+                        self.modules.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                self._from_import(node)
+        grown = True
+        while grown:
+            grown = False
+            for node in tree.body:
+                target, value = _assignment(node)
+                if (
+                    target is not None
+                    and target not in self.names
+                    and self.is_reference(value)
+                ):
+                    self.names.add(target)
+                    grown = True
+
+    def _from_import(self, node):
+        in_dw = node.level > 0 or (node.module or "").split(".")[0] == "dw"
+        for alias in node.names:
+            bound = alias.asname or alias.name
+            if alias.name == "references" and node.module in (None, "dw"):
+                self.modules.add(bound)
+            elif (node.module or "").split(".")[-1] == "references" and in_dw:
+                if alias.name in self.constants:
+                    self.names.add(bound)
+            elif in_dw and alias.name.endswith(("_PREFIX", "_PREFIXES")):
+                self.names.add(bound)
+
+    def is_reference(self, node):
+        if isinstance(node, ast.Name):
+            return node.id in self.names
+        if isinstance(node, ast.Attribute):
+            return node.attr in self.constants and _dotted(node.value) in self.modules
+        if isinstance(node, ast.Tuple):
+            return any(self.is_reference(element) for element in node.elts)
+        return False
+
+
+def _assignment(node):
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        target, value = node.targets[0], node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        target, value = node.target, node.value
+    else:
+        return None, None
+    return (target.id if isinstance(target, ast.Name) else None), value
+
+
+def _ends_with_prefix(text, prefixes):
+    """True when `text` ends with a whole prefix: `" as asset:"` does,
+    `"_output:"` (the tail of some other word) does not."""
+    for prefix in prefixes:
+        if text.endswith(prefix):
+            before = text[: -len(prefix)][-1:]
+            if not (before.isalnum() or before == "_"):
+                return True
+    return False
+
+
+def prefix_handling_sites(tree, constants, prefixes):
+    """Every hand-written handling of a reference prefix in one parsed module,
+    as (line, form) with form one of "a".."e"."""
+    resolver = _Resolver(tree, constants)
+    refers = resolver.is_reference
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    fragments = {
+        id(part)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.JoinedStr)
+        for part in node.values
+    }
+    found = []
+    for node in tree.body:
+        target, value = _assignment(node)
+        if target is not None and refers(value):
+            found.append((node.lineno, "d"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in PREFIX_METHODS
+                and any(refers(arg) for arg in node.args)
+            ):
+                found.append((node.lineno, "a"))
+        elif isinstance(node, ast.Subscript):
+            lower = node.slice.lower if isinstance(node.slice, ast.Slice) else None
+            if (
+                isinstance(lower, ast.Call)
+                and isinstance(lower.func, ast.Name)
+                and lower.func.id == "len"
+                and len(lower.args) == 1
+                and refers(lower.args[0])
+            ):
+                found.append((node.lineno, "b"))
+        elif isinstance(node, ast.BinOp):
+            if isinstance(node.op, ast.Add) and (
+                refers(node.left) or refers(node.right)
+            ):
+                found.append((node.lineno, "c"))
+        elif isinstance(node, ast.JoinedStr):
+            if any(
+                isinstance(part, ast.FormattedValue) and refers(part.value)
+                for part in node.values
+            ):
+                found.append((node.lineno, "c"))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
+            text = node.value
+            if any(text.startswith(p) and len(text) > len(p) for p in prefixes) or (
+                id(node) in fragments and _ends_with_prefix(text, prefixes)
+            ):
+                found.append((node.lineno, "e"))
+    return found
+
+
 def measure(root):
     root = pathlib.Path(root)
     engine = list(_sources(root, *PACKAGES))
     metrics = {
         "modules": len(engine),
-        "modules_over_1000_lines": 0,
+        "modules_over_size_ceiling": 0,
         "functions_over_150_lines": 0,
         "prefix_literals": 0,
+        "prefix_handling": 0,
     }
+    constants, prefixes = _reference_names(root.resolve())
     for path in engine:
         text = path.read_text(encoding="utf-8")
-        if len(text.splitlines()) > 1000:
-            metrics["modules_over_1000_lines"] += 1
+        if len(text.splitlines()) > SIZE_CEILING:
+            metrics["modules_over_size_ceiling"] += 1
         tree = ast.parse(text)
+        if path.relative_to(root).as_posix() not in PREFIX_OWNERS:
+            metrics["prefix_handling"] += len(
+                prefix_handling_sites(tree, constants, prefixes)
+            )
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.end_lineno - node.lineno > 150:
@@ -224,6 +460,20 @@ def measure(root):
     return metrics
 
 
+def size_warnings(root):
+    """[(path relative to root, lines)] for each measured module in the warn
+    band: above SIZE_WARNING and at most SIZE_CEILING. Counted the way
+    measure() counts, so a module is in the band or over the ceiling, never
+    both."""
+    root = pathlib.Path(root)
+    found = []
+    for path in _sources(root, *PACKAGES):
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if SIZE_WARNING < lines <= SIZE_CEILING:
+            found.append((path.relative_to(root).as_posix(), lines))
+    return found
+
+
 def regressions(current, baseline):
     worse = []
     for name, before in baseline.items():
@@ -248,12 +498,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     current = measure(args.root)
     print(json.dumps(current, indent=2))
+    for path, lines in size_warnings(args.root):
+        print(
+            f"warning: {path} is {lines:,} lines "
+            f"(warn above {SIZE_WARNING:,}, fail above {SIZE_CEILING:,})"
+        )
     if args.write:
         pathlib.Path(args.write).write_text(json.dumps(current, indent=2) + "\n")
     if args.check:
         worse = regressions(current, json.loads(pathlib.Path(args.check).read_text()))
         for line in worse:
             print(line)
+        if worse:
+            print("\n".join(RERUN_RULE))
         return 1 if worse else 0
     return 0
 

@@ -8,11 +8,11 @@ import pytest
 
 from dw.arguments import is_prompt_reference, realize_args
 from dw.prompts import (
-    RESERVED_TEXT_PREFIXES,
     fetch_prompt,
     get_prompt_dir,
     load_prompt,
 )
+from dw.references import RESERVED_TEXT
 from dw.security import InvalidInputError, SecurityError
 
 
@@ -166,6 +166,22 @@ class TestPromptFiles:
             with pytest.raises(ValueError, match="may not itself be a reference"):
                 fetch_prompt("prompt:sneaky")
 
+    def test_the_refusal_lists_the_reserved_prefixes_in_order(self, prompt_dir):
+        (prompt_dir / "sneaky.json").write_text(json.dumps({"text": "asset:x.png"}))
+        with pytest.raises(ValueError) as refused:
+            fetch_prompt("prompt:sneaky")
+        assert (
+            "(previous_result:, variable:, constant:, asset:, output:, prompt:)"
+            in str(refused.value)
+        )
+
+    def test_a_bare_name_resolves_as_written(self, prompt_dir):
+        """`resolve_prompt_reference` strips a `prompt:` prefix and leaves a
+        bare name alone: its callers guard with is_prompt_reference, a direct
+        caller need not. Pinned so moving the strip onto `ref_name` (None for an
+        unprefixed value) keeps the leniency."""
+        assert fetch_prompt("minimax/fox") == fetch_prompt("prompt:minimax/fox")
+
     def test_load_prompt_returns_the_whole_definition(self, prompt_dir):
         definition = load_prompt(str(prompt_dir / "minimax" / "fox.json"))
         assert definition["intended_model"] == "minimax-h3"
@@ -193,4 +209,4 @@ class TestShippedLibrary:
     @pytest.mark.parametrize("path", shipped_prompt_files())
     def test_shipped_prompt_is_valid(self, path):
         prompt = load_prompt(os.path.join(REPO_ROOT, path))
-        assert not prompt["text"].startswith(RESERVED_TEXT_PREFIXES)
+        assert not prompt["text"].startswith(RESERVED_TEXT)

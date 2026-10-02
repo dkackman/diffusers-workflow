@@ -284,6 +284,13 @@ def place_component(
     accelerator and the adapter's own tensors are never among them, which runs the
     step on uninitialized weights and produces NaN.
 
+    `device` is translated by `resolve_device` first, before anything reads the
+    backend, so the MPS accommodations below (the sequential-to-model downgrade
+    here, and attention slicing and the compile skip elsewhere) fire for a
+    device translated to MPS as they do for one written as `mps`.
+    `exclude_from_cpu_offload` is sequential-only: it does not survive the
+    downgrade to model offload, which warns that it was dropped.
+
     Args:
         component: The loaded pipeline or component
         component_name: What is being placed, for the log

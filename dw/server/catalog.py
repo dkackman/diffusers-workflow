@@ -10,7 +10,7 @@ import os
 
 from fastapi import HTTPException
 
-from ..prompts import PROMPT_PREFIX
+from .. import references
 from ..security import (
     InvalidInputError,
     SecurityError,
@@ -45,17 +45,18 @@ def _prune_missing(cache):
 def collect_prompt_references(value):
     """Every stored-prompt name a definition references, at any depth - so
     deleting a prompt can warn which workflows would break."""
-    references = set()
+    found = set()
     if isinstance(value, str):
-        if value.startswith(PROMPT_PREFIX):
-            references.add(value.removeprefix(PROMPT_PREFIX).strip())
+        name = references.ref_name(references.PROMPT, value)
+        if name is not None:
+            found.add(name.strip())
     elif isinstance(value, dict):
         for item in value.values():
-            references |= collect_prompt_references(item)
+            found |= collect_prompt_references(item)
     elif isinstance(value, list):
         for item in value:
-            references |= collect_prompt_references(item)
-    return references
+            found |= collect_prompt_references(item)
+    return found
 
 
 def catalog_name_from_root(path, root):

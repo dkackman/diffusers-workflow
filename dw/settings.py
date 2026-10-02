@@ -1,3 +1,17 @@
+"""The standing settings, read from `~/.diffusers_helper/settings.json`.
+
+Keys: `device`, `workspace`, `output_layout`, `public_url`, `enable_tf32`,
+`cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename` and
+`log_to_console`. A missing or unreadable file means the defaults on `Settings`.
+
+A setting is the standing choice and each has something that overrides it for
+one run: `DW_DEVICE` for `device`; `--workspace` then `DW_WORKSPACE` for
+`workspace`; `--output-layout` / `DW_OUTPUT_LAYOUT` for `output_layout`;
+`DW_PUBLIC_URL` for `public_url`; a `log_level` passed to `startup()`. The
+three PyTorch keys have no override and are read when `startup()` configures
+CUDA.
+"""
+
 import json
 import os
 from pathlib import Path

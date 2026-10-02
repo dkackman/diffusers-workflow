@@ -26,9 +26,6 @@ from .workspace import ASSETS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
 
-# The prefix marking a value as a reference to a stored asset
-ASSET_PREFIX = references.ASSET
-
 # The asset library of the run in progress. A server holds several
 # workspaces and each has its own assets, so this cannot be a process-wide
 # environment variable there the way the prompt library can - there is one
@@ -110,7 +107,12 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None, library=No
         ValueError: If no file exists under that name in any directory on
             the search path
     """
-    name = validate_asset_reference(reference.removeprefix(ASSET_PREFIX).strip())
+    name = references.ref_name(references.ASSET, reference)
+    if name is None:
+        # A bare name resolves as written: callers guard with is_asset_reference,
+        # a direct caller need not
+        name = reference
+    name = validate_asset_reference(name.strip())
     library = library or asset_library(asset_dir, base_dir)
     # Confined to the library it was found in: the name is joined onto a
     # directory, so the containment check is what makes a name a name

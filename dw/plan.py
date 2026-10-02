@@ -25,12 +25,8 @@ from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_re
 
 from .elision import elide_definition
 from .hub_cache import repo_download_incomplete, scan_models
-from .realize import (
-    BUILTIN_PREFIX,
-    VARIABLE_PREFIX,
-    read_sub_workflow,
-    realize_workflow,
-)
+from . import references
+from .realize import read_sub_workflow, realize_workflow
 from .security import validate_url
 from .validation import _is_seeded
 
@@ -183,8 +179,8 @@ def list_entries(definition, realized):
         if not isinstance(step, dict):
             continue
         reference = step.get(FOR_EACH_KEY)
-        if isinstance(reference, str) and reference.startswith(VARIABLE_PREFIX):
-            name = reference.removeprefix(VARIABLE_PREFIX)
+        name = references.ref_name(references.VARIABLE, reference)
+        if name is not None:
             value = variables.get(name)
             if isinstance(value, list):
                 entries[name] = len(value)
@@ -227,8 +223,8 @@ def fingerprint(expanded, definition, annotations=None):
     for key in DOCUMENTATION_KEYS:
         doc.pop(key, None)
     written_seed = definition.get("seed")
-    if isinstance(written_seed, str) and written_seed.startswith(VARIABLE_PREFIX):
-        name = written_seed.removeprefix(VARIABLE_PREFIX)
+    name = references.ref_name(references.VARIABLE, written_seed)
+    if name is not None:
         variables = doc.get("variables")
         if isinstance(variables, dict) and name in variables:
             variables[name] = None
@@ -649,7 +645,7 @@ def _sub_workflow_paths(expanded):
     for step in expanded.get("steps") or []:
         reference = step.get("workflow") if isinstance(step, dict) else None
         path = reference.get("path") if isinstance(reference, dict) else None
-        if isinstance(path, str) and not path.startswith(BUILTIN_PREFIX):
+        if isinstance(path, str) and not references.is_ref(references.BUILTIN, path):
             arguments = reference.get("arguments")
             yield path, arguments if isinstance(arguments, dict) else {}
 

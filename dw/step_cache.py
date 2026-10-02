@@ -9,7 +9,9 @@ Mellon's NodeBase skips a node whose resolved params match its last call
 dicts/lists/scalars after variable substitution, not hashable).
 
 A step is safe to skip only if:
-  1. its own resolved definition (step_data) matches last run's, AND
+  1. its own resolved definition (step_data) matches last run's, AND - step_data
+     is the whole step, `result` block included, so changing a step's
+     `subfolder` misses the cache
   2. its seed matches last run's - step_data does NOT carry the seed
      (Workflow.run resolves it separately, and draws a fresh random one
      per run when the workflow sets none), so seed must be compared

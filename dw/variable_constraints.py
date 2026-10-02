@@ -22,6 +22,12 @@ own (CLAUDE.md). One shape, not two: a `variable_constraints` entry takes
 `"constraint:<variable>"` so a template states `17n + 5` once rather than
 twice in one file.
 
+`snap` is chosen per model, by what its pipeline does with an off-grid value.
+H3 rounds up, so its templates say `snap: "up"`. LTX-2.5's templates declare
+the `8 * n + 1` grid with no `snap`, because those pipelines floor an off-grid
+count rather than raising: rounding up here would be a second silent change
+to the length, so the value is refused instead.
+
 A constraint key is a plain variable name, matched wherever a value by that
 name sits: a top-level variable, or a field of an entry of a `for_each` list
 where some step hands that field to a pipeline (#145). `dialogue-short` has
@@ -420,10 +426,9 @@ def resolve_constraint_references(definition):
         if not isinstance(node, dict):
             return
         reference = node.get("frame_snap")
-        if isinstance(reference, str) and reference.startswith(references.CONSTRAINT):
-            node["frame_snap"] = snap_block(
-                constraints[reference[len(references.CONSTRAINT) :]]
-            )
+        name = references.ref_name(references.CONSTRAINT, reference)
+        if name is not None:
+            node["frame_snap"] = snap_block(constraints[name])
         for value in node.values():
             walk(value)
 
@@ -447,12 +452,12 @@ def constraint_reference_errors(definition):
             return
         for key, value in node.items():
             where = f"{path}.{key}" if path else key
-            if (
-                key == "frame_snap"
-                and isinstance(value, str)
-                and value.startswith(references.CONSTRAINT)
-                and value[len(references.CONSTRAINT) :] not in constraints
-            ):
+            name = (
+                references.ref_name(references.CONSTRAINT, value)
+                if key == "frame_snap"
+                else None
+            )
+            if name is not None and name not in constraints:
                 errors.append(
                     {
                         "path": where,

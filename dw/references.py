@@ -47,6 +47,13 @@ UNRESOLVED = (VARIABLE, ITEM, PREVIOUS_RESULT, GATHER)
 # Anything a value may still hold before realization: the unresolved
 # prefixes plus the ones realize_args fetches or looks up
 DEFERRED = UNRESOLVED + (ASSET, OUTPUT, PROMPT, CONSTANT, BUILTIN)
+# What a stored prompt's text may not begin with: it would be resolved a
+# second time (or expand into iteration) once the prompt is substituted in.
+# The order is the order the refusal message lists them in
+RESERVED_TEXT = (PREVIOUS_RESULT, VARIABLE, CONSTANT, ASSET, OUTPUT, PROMPT)
+# A media argument's value that names a file only once the run reaches the
+# step: an earlier step's result or a variable
+LAZY_MEDIA = (PREVIOUS_RESULT, VARIABLE)
 
 
 def is_ref(kind, value):

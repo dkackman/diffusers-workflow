@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from dw import validation  # noqa: E402
 from dw.introspection import describe_task, list_tasks  # noqa: E402
 from dw.server.app import create_app  # noqa: E402
 from dw.server.jobs import JobManager  # noqa: E402
@@ -209,32 +210,11 @@ WARNING_CHECKS = (
 )
 
 
-def stable_message(value):
-    """Sorts the per-variant lines of a kernels-hub "Cannot find a build
-    variant" error, which the hub library lists in set order (different on
-    every process). The lines are sorted in place, so their position against
-    the rest of the message still counts; any other string passes through
-    untouched."""
-    if isinstance(value, str):
-        if "Cannot find a build variant" not in value:
-            return value
-        lines = value.split("\n")
-        slots = [i for i, line in enumerate(lines) if line.startswith("torch")]
-        for i, line in zip(slots, sorted(lines[i] for i in slots)):
-            lines[i] = line
-        return "\n".join(lines)
-    if isinstance(value, list):
-        return [stable_message(item) for item in value]
-    if isinstance(value, dict):
-        return {key: stable_message(item) for key, item in value.items()}
-    return value
-
-
 def catalog_validation(root):
     """`validation_errors()` and the warning checks that need no server state
     (no `ceiling_index`, no observed costs) for every JSON under `workflows/`
     and `dw/workflows/`. Keyed by repo-relative path. A same-machine
-    comparison: `validation_context` reads the device. A file that will not
+    comparison: `workflow_context` reads the device. A file that will not
     load, or a check that raises, is recorded as its error string."""
     repo = Path(__file__).resolve().parent.parent
     files = sorted(
@@ -253,7 +233,12 @@ def catalog_validation(root):
             continue
         for name in ("validation_errors", *WARNING_CHECKS):
             try:
-                entry[name] = stable_message(getattr(workflow, name)())
+                found = (
+                    workflow.validation_errors()
+                    if name == "validation_errors"
+                    else validation.run_warning_check(workflow, name, None)
+                )
+                entry[name] = found
             except Exception as error:
                 entry[name] = f"error: {type(error).__name__}: {error}"
         verdicts[path.relative_to(repo).as_posix()] = entry

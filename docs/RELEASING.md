@@ -7,6 +7,24 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.7.0
+
+- A sub-workflow path is resolved by one function (`library.resolve_sub_workflow_reference`) at every site, so a path a run can open is one validation, the realized workflow's digest and the observed-cost lookup can open too.
+  - `builtin:builtin:x.json` no longer loads `x.json`: only the leading prefix is stripped, so the name `builtin:x.json` is looked up and reported as `SubWorkflowNotFound`.
+  - At run time a missing `builtin:` workflow now raises `SubWorkflowNotFound` (naming the packaged root) instead of `validate_workflow_path`'s missing-file error.
+  - The realized workflow's sub-workflow digest and a composed child's observed cost now fall back to the same catalog root, so a catalog sub-workflow a run could open is also digested and costed.
+- A run that fails before it opens its run directory no longer rewrites the previous run's `manifest.json` when the same workflow instance is reused: `Workflow.run` resets the directory and version it carried.
+- The per-variant lines of a kernels "Cannot find a build variant" error are sorted by dw (`kernel_availability.stable_message`), so the message no longer varies by process.
+- The `argument_template` schema description now says what the code does: handed arguments are held on the child at run time, never written into the definition, and an authored value is the fallback.
+- `gain_audio` rounds a frame-addressed region's end once, as `slice_audio` does, so a region's end can no longer be one sample off the matching slice's.
+- `concat_videos` refuses a track with no sample rate (`concat_videos: '<name>' has audio with no sample rate`) instead of joining it unresampled at the wrong speed and pitch; `dissolve_videos` gives the same message in place of the resample error. Save that step with `audio_sample_rate` in its result and join the saved file through an `output:` reference. An unpinned `dissolve_videos` with such a track now raises this `ValueError` rather than a `TypeError`.
+- For developers (Python paths only; nothing on the API or MCP reaches them):
+  - `Workflow`'s one-line check methods are gone: `validation_context`, `sub_workflow_warnings`, `adapter_warnings`, `inherited_vram_warnings`, `slice_past_end_warnings`, `shot_span_warnings`, `null_variable_argument_warnings` and `cache_hits`. Call `validation.workflow_context(workflow, ...)`, `validation.run_warning_check(workflow, "<name>", ...)` and `workflow_run.cache_hits(workflow, arguments)`.
+  - Reference prefixes (`variable:`, `asset:`, `output:`, ...) are read and built only through `dw.references`; a hand-written prefix check elsewhere fails the `prefix_handling` ratchet.
+  - `scripts/arch_metrics.py --check docs/stabilization/baseline.json` runs in CI and `scripts/preflight.sh`, so a PR that raises any architecture metric goes red. The module-size metric is `modules_over_size_ceiling` (fail over 1,100 lines, warn over 1,000), renamed from `modules_over_1000_lines`.
+  - Agent context: CLAUDE.md files went from 957 to 129 lines; `docs/ARCHITECTURE.md` is the seam map (concept, owning module, rule, enforced-by).
+- The stabilization freeze is lifted (`stabilization-gate-4`).
+
 ### 0.6.0
 
 <!-- Drafted by the release agent, model claude-opus-5-5 via the anthropic provider, from v0.5.0..54f8a3c9 (stabilization/gate-3). -->

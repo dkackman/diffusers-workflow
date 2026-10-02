@@ -104,7 +104,7 @@
             "format": "int64"
         },
         "argument_template": {
-            "description": "Engine-injected: the arguments a parent workflow passed to this one when it ran it as a sub-workflow. Written by create_step_action from the step's 'arguments' block, not authored - a workflow file carrying one is read, but a sub-workflow step is how they are meant to be supplied.",
+            "description": "Engine-injected: the arguments a parent workflow hands this one when it runs it as a sub-workflow. At run time _sub_workflow_action holds them on the child workflow, and they are never written into the definition. A value authored here is read only when this workflow is not run as a sub-workflow.",
             "type": "object"
         },
         "steps": {

@@ -35,11 +35,11 @@ def test_a_long_function_and_a_long_module_are_counted(tmp_path):
     metrics = _load().measure(
         _tree(
             tmp_path,
-            {"dw/a.py": _long_function(151) + "\n" * 900, "dw/b.py": "x = 1\n"},
+            {"dw/a.py": _long_function(151) + "\n" * 1000, "dw/b.py": "x = 1\n"},
         )
     )
     assert metrics["functions_over_150_lines"] == 1
-    assert metrics["modules_over_1000_lines"] == 1
+    assert metrics["modules_over_size_ceiling"] == 1
     assert metrics["modules"] == 2
 
 
@@ -93,6 +93,100 @@ def test_check_mode_exits_nonzero_on_a_regression(tmp_path):
     )
     assert result.returncode == 1
     assert "modules: 0 ->" in result.stdout
+
+
+def _module_of(lines):
+    # distinct lines: the duplicate-block scan is slow on a repeated one
+    return "".join(f"x{i} = {i}\n" for i in range(lines))
+
+
+def _run_script(root, *args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root), *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_a_module_in_the_warn_band_warns_and_passes(tmp_path):
+    root = _tree(tmp_path / "repo", {"dw/a.py": _module_of(1001)})
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"modules_over_size_ceiling": 0}))
+    result = _run_script(root, "--check", str(baseline))
+    assert result.returncode == 0
+    assert (
+        "warning: dw/a.py is 1,001 lines (warn above 1,000, fail above 1,100)"
+        in result.stdout
+    )
+    # the warning follows the JSON, which stays parseable up to it
+    assert result.stdout.index("{") < result.stdout.index("warning:")
+
+
+def test_size_warnings_cover_the_band_and_nothing_else(tmp_path):
+    root = _tree(
+        tmp_path,
+        {
+            "dw/at_1000.py": _module_of(1000),
+            "dw/at_1100.py": _module_of(1100),
+            "dw/at_1101.py": _module_of(1101),
+            "dw/x/small.py": "x = 1\n",
+        },
+    )
+    assert _load().size_warnings(root) == [("dw/at_1100.py", 1100)]
+    assert _load().measure(root)["modules_over_size_ceiling"] == 1
+
+
+def test_a_module_at_1000_lines_does_not_warn(tmp_path):
+    root = _tree(tmp_path / "repo", {"dw/a.py": _module_of(1000)})
+    assert "warning:" not in _run_script(root).stdout
+
+
+def test_a_module_over_the_ceiling_fails_the_check(tmp_path):
+    root = _tree(tmp_path / "repo", {"dw/a.py": _module_of(1101)})
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"modules_over_size_ceiling": 0}))
+    result = _run_script(root, "--check", str(baseline))
+    assert result.returncode == 1
+    assert "modules_over_size_ceiling: 0 -> 1" in result.stdout
+    assert "warning:" not in result.stdout
+
+
+_RULE = "raise it only in a commit whose message names the rise and why"
+
+
+def test_a_failing_check_prints_the_rebaseline_rule_and_a_passing_one_does_not(
+    tmp_path,
+):
+    root = _tree(tmp_path / "repo", {"dw/a.py": "x = 1\n"})
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"modules": 0}))
+    failing = _run_script(root, "--check", str(baseline))
+    assert failing.returncode == 1
+    assert "lower baseline.json freely when a ratchet improves" in failing.stdout
+    assert _RULE in failing.stdout
+    assert "arch-approved" not in failing.stdout
+    baseline.write_text(json.dumps({"modules": 5}))
+    passing = _run_script(root, "--check", str(baseline))
+    assert passing.returncode == 0
+    assert _RULE not in passing.stdout
+
+
+def test_the_check_fails_closed_when_the_import_graph_cannot_be_built(tmp_path):
+    # the graph subprocess runs in the tree's root, so this shadows grimp
+    root = _tree(
+        tmp_path / "repo",
+        {
+            "dw/__init__.py": "",
+            "dw/a.py": "x = 1\n",
+            "grimp.py": "raise ImportError('grimp is gone')\n",
+        },
+    )
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"modules": 99}))
+    result = _run_script(root, "--check", str(baseline))
+    assert result.returncode != 0
+    assert "CalledProcessError" in result.stderr
+    assert '"modules"' not in result.stdout  # no metrics were reported as a pass
 
 
 def _branches(count):
@@ -181,3 +275,81 @@ def test_the_prefix_owner_may_spell_a_prefix(tmp_path):
         )
     )
     assert metrics["prefix_literals"] == 1
+
+
+_REFERENCES = 'ASSET = "asset:"\nVARIABLE = "variable:"\nSUBSTITUTED = (VARIABLE,)\n'
+
+
+def test_each_form_of_prefix_handling_is_counted_once_and_prose_is_not(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/references.py": _REFERENCES
+                + "def f(x):\n    return x.startswith(ASSET) and x[len(ASSET):]\n",
+                "dw/a.py": (
+                    "from . import references\n"
+                    "def a(x):\n    return x.startswith(references.ASSET)\n"  # (a)
+                    "def b(x):\n    return x[len(references.ASSET) :]\n"  # (b)
+                    "def c(x):\n    return references.ASSET + x\n"  # (c)
+                    "ALIAS = references.VARIABLE\n"  # (d)
+                    'LITERAL = "builtin:h3.json"\n'  # not a prefix here: ignored
+                    'def e():\n    return "asset:cat.png"\n'  # (e)
+                    "def prose():\n    return \"'asset:' reads a file\"\n"
+                ),
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 5
+
+
+def test_a_name_bound_to_the_references_module_resolves_in_every_import_form(
+    tmp_path,
+):
+    forms = {
+        "dw/a.py": "from . import references\nx.startswith(references.ASSET)\n",
+        "dw/b.py": "from . import references as refs\nx.startswith(refs.ASSET)\n",
+        "dw/c.py": "from dw import references\nx.startswith(references.ASSET)\n",
+        "dw/d.py": "import dw.references as r\nx.startswith(r.ASSET)\n",
+        "dw/e.py": "import dw.references\nx.startswith(dw.references.ASSET)\n",
+        "dw/server/f.py": "from .. import references as p\nx.startswith(p.ASSET)\n",
+        "dw/g.py": "from .references import ASSET\nx.startswith(ASSET)\n",
+        "dw/h.py": "from .references import ASSET as A\nx.startswith(A)\n",
+        "dw/i.py": "from . import references\nK = references.ASSET\nx.startswith(K)\n",
+        "dw/j.py": "from .assets import ASSET_PREFIX\nx.startswith(ASSET_PREFIX)\n",
+        "dw/k.py": "from . import references\nx.startswith((references.ASSET, 'z'))\n",
+    }
+    load = _load()
+    for name, text in forms.items():
+        root = _tree(tmp_path / name.replace("/", "_"), {name: text})
+        _tree(root, {"dw/references.py": _REFERENCES})
+        count = 2 if name == "dw/i.py" else 1  # the alias assignment and its use
+        assert load.measure(root)["prefix_handling"] == count, name
+
+
+def test_an_fstring_fragment_ending_in_a_prefix_is_counted(tmp_path):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/references.py": _REFERENCES,
+                "dw/a.py": 'def f(n):\n    return f"Kept {n} as asset:{n}"\n',
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 1
+
+
+def test_a_fragment_ending_in_a_word_that_merely_ends_like_a_prefix_is_not_counted(
+    tmp_path,
+):
+    metrics = _load().measure(
+        _tree(
+            tmp_path,
+            {
+                "dw/a.py": 'M = f"{x}_output:{y}"\nN = f"{x} audio_item:{y}"\n'
+                'K = f"kept as asset:{y}"\n'
+            },
+        )
+    )
+    assert metrics["prefix_handling"] == 1

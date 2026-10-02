@@ -264,13 +264,13 @@ class TestTheRealDocs:
         """The prefixes the engine reserves are the ones the section has to
         explain; a new prefix added to the engine fails here until it is
         written up."""
-        from dw.prompts import RESERVED_TEXT_PREFIXES
+        from dw.references import RESERVED_TEXT
 
         content = guides.get_guide(
             "workflows", section="Authoring a workflow from an agent"
         )["content"]
 
-        for prefix in RESERVED_TEXT_PREFIXES:
+        for prefix in RESERVED_TEXT:
             assert f"`{prefix}`" in content, prefix
 
     def test_the_authoring_section_states_the_cartesian_rule_and_the_loop(self):

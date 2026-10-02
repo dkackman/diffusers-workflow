@@ -26,11 +26,10 @@ import re
 import shutil
 from dataclasses import dataclass, field
 
-from ..assets import ASSET_PREFIX
+from .. import references
 from ..realize import strings_with_prefix
 from ..runs import (
     MANIFEST_FILE_NAME,
-    OUTPUT_PREFIX,
     is_output_reference,
     resolve_output_reference,
 )
@@ -278,10 +277,10 @@ def _run_manifest(output_root, run_dir):
 
 def _copy_assets(summary, workflow, target, asset_library):
     """Every 'asset:' the workflow names, under its own name in assets/."""
-    for reference in strings_with_prefix(workflow, ASSET_PREFIX):
+    for reference in strings_with_prefix(workflow, references.ASSET):
         try:
             name = validate_asset_reference(
-                reference.removeprefix(ASSET_PREFIX).strip()
+                references.ref_name(references.ASSET, reference).strip()
             )
         except SecurityError:
             summary.missing.append(reference)
@@ -303,10 +302,10 @@ def _copy_inputs(summary, workflow, target, output_root):
     immutable record of the run - so the directory name is the reference's
     own name, and the README says where each one came from.
     """
-    for reference in strings_with_prefix(workflow, OUTPUT_PREFIX):
+    for reference in strings_with_prefix(workflow, references.OUTPUT):
         if not is_output_reference(reference):
             continue
-        name = reference.removeprefix(OUTPUT_PREFIX).strip()
+        name = references.ref_name(references.OUTPUT, reference).strip()
         try:
             source = resolve_output_reference(reference, output_root)
         except (SecurityError, OSError, ValueError):

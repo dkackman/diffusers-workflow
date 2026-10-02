@@ -51,11 +51,6 @@ MANIFEST_FILE_NAME = "manifest.json"
 # inside it is the whole reproduction story
 REALIZED_FILE_NAME = "workflow.json"
 
-# The prefix marking a value as a reference to a file an earlier run wrote.
-# Like 'asset:', it stands for a path - what a previous run made is an input
-# like any other, and multi-stage work is what a workflow engine is for
-OUTPUT_PREFIX = references.OUTPUT
-
 # The segment that means "the newest run of this workflow that has the
 # file", so a workflow can name the stage before it without being edited
 # after every run - see _resolve_segments for why it is not simply the
@@ -233,7 +228,12 @@ def resolve_output_reference(reference, root=None):
     """
     from .security import validate_output_reference, validate_path
 
-    name = validate_output_reference(reference.removeprefix(OUTPUT_PREFIX).strip())
+    name = references.ref_name(references.OUTPUT, reference)
+    if name is None:
+        # A bare name resolves as written: callers guard with is_output_reference,
+        # a direct caller need not
+        name = reference
+    name = validate_output_reference(name.strip())
     root = root or output_root()
 
     resolved = _resolve_segments(root, name.split("/"), reference, root)
@@ -527,6 +527,13 @@ def run_versions(identity_dir):
     one, so history that predates the field lands where it belongs, and an
     unrecorded run anywhere later continues from the highest number before
     it. Ordering is by run id, which is chronological.
+
+    A new run takes `max(recorded) + 1` over *every* sibling manifest
+    (`open_run`), not one past the newest: run ids are chronological only to
+    the second, so within one second the digest decides the sort. Two limits
+    are deliberate. Deleting the *newest* run frees its number for reuse,
+    since the high-water mark lived in the manifest that went with it; and
+    the flat layout has no runs, so a version is None there.
 
     Read only. A ranked number is only as stable as its neighbours until
     `record_run_versions` writes it down.

@@ -53,9 +53,6 @@ MODEL_NAME_KEY = "model_name"
 WEIGHT_NAME_KEY = "weight_name"
 WORKFLOW_KEY = "workflow"
 FROM_PRETRAINED_KEY = "from_pretrained_arguments"
-# Values another pass resolves; one still spelled out here is not this
-# pass's complaint
-_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _trained_for(weight_name):
@@ -140,8 +137,10 @@ def _lora_problems(steps, source_indices, written=None, supplied=()):
             if not isinstance(lora, dict):
                 continue
             weight_name = lora.get(WEIGHT_NAME_KEY)
-            if not isinstance(weight_name, str) or weight_name.startswith(
-                _UNRESOLVED_PREFIXES
+            # Values another pass resolves; one still spelled out here is not
+            # this pass's complaint
+            if not isinstance(weight_name, str) or references.is_ref(
+                references.UNRESOLVED, weight_name
             ):
                 continue
             problem = _problem(workflow, weight_name)
@@ -180,9 +179,9 @@ def _path_for(written_steps, source, position, supplied, key=WEIGHT_NAME_KEY):
         return None
     entry = loras[position]
     reference = entry.get(key) if isinstance(entry, dict) else None
-    if not isinstance(reference, str) or not reference.startswith(references.VARIABLE):
+    variable = references.ref_name(references.VARIABLE, reference)
+    if variable is None:
         return None
-    variable = reference.removeprefix(references.VARIABLE)
     return f"arguments.{variable}" if variable in (supplied or ()) else None
 
 

@@ -3,6 +3,7 @@ import pytest
 import torch
 import tempfile
 from unittest.mock import MagicMock
+from dw import validation
 from dw.workflow import Workflow, workflow_from_file
 from dw.library import workflow_output_subfolder
 from dw.step_cache import referenced_result_names
@@ -1449,7 +1450,9 @@ class TestSubWorkflowValidation:
         workflow = self._parent(workflows, "child", {"prompt": "a dog"})
 
         assert workflow.validation_errors() == []
-        assert workflow.sub_workflow_warnings() == []
+        assert (
+            validation.run_warning_check(workflow, "sub_workflow_warnings", None) == []
+        )
 
     def test_an_argument_the_child_does_not_declare_warns(self, tmp_path):
         import json
@@ -1475,7 +1478,7 @@ class TestSubWorkflowValidation:
         )
         workflow = self._parent(workflows, "child", {"promt": "a dog"})
 
-        warnings = workflow.sub_workflow_warnings()
+        warnings = validation.run_warning_check(workflow, "sub_workflow_warnings", None)
 
         assert all(isinstance(w, str) for w in warnings)
         assert warnings and warnings[0].startswith(
@@ -1518,7 +1521,7 @@ class TestSubWorkflowValidation:
             },
         )
 
-        warnings = workflow.sub_workflow_warnings()
+        warnings = validation.run_warning_check(workflow, "sub_workflow_warnings", None)
 
         assert all(isinstance(w, str) for w in warnings)
         assert warnings and warnings[0].startswith(

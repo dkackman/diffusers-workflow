@@ -12,6 +12,12 @@ This module owns the shape check and the static pass over an expanded
 definition. Containment - that the joined path really is inside the run
 directory - is the engine's, at the moment it joins (see
 Workflow.step_output_dir).
+
+A subfolder is `output:`-addressable only up to OUTPUT_REFERENCE_PATTERN's
+ceiling of seven path segments in all: a nested identity or subfolder counts
+one per `/`, plus the run id and the file name. SUBFOLDER_PATTERN has no depth bound of its own, so a deep
+subfolder under a nested identity validates and runs but cannot be named by a
+later `output:` reference.
 """
 
 from . import references
@@ -24,11 +30,6 @@ from .security import (
 
 SUBFOLDER_KEY = "subfolder"
 FILE_BASE_NAME_KEY = "file_base_name"
-
-# Reference prefixes substitution resolves before this pass runs. One still
-# spelled out here is one nothing resolved, and that is the undeclared-
-# variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
 
 
 def step_subfolder(step_definition):
@@ -86,7 +87,10 @@ def subfolder_errors(workflow_definition, source_indices=None):
             if key not in result:
                 continue
             value = result[key]
-            if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
+            # A prefix substitution resolves before this pass: one still
+            # spelled out is the undeclared-variable pass's complaint, not a
+            # shape error
+            if references.is_ref(references.SUBSTITUTED, value):
                 continue
             try:
                 if not isinstance(value, str):

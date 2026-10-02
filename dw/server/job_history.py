@@ -1,4 +1,10 @@
-"""Finished jobs, persisted so the Jobs view survives server restarts."""
+"""Finished jobs, persisted so the Jobs view survives server restarts.
+
+The `jobs` table has a `workspace` column; a database that predates it gets
+the column added and every existing row backfilled to `default`, since
+history that cannot say which workspace a job ran in stops making sense once
+there are two.
+"""
 
 import json
 import logging

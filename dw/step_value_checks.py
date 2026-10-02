@@ -43,11 +43,6 @@ from .task_domains import (
 
 FPS_KEY = "fps"
 
-# Reference prefixes substitution resolves before this pass runs. One still
-# spelled out here is one nothing resolved, and that is the undeclared-
-# variable pass's complaint rather than a shape error
-_UNRESOLVED_PREFIXES = references.SUBSTITUTED
-
 
 def fps_errors(workflow_definition, source_indices=None):
     """Every result 'fps' that cannot be written, as [{path, message}].
@@ -71,7 +66,9 @@ def fps_errors(workflow_definition, source_indices=None):
         if not isinstance(result, dict) or FPS_KEY not in result:
             continue
         value = result[FPS_KEY]
-        if isinstance(value, str) and value.startswith(_UNRESOLVED_PREFIXES):
+        # A prefix substitution resolves before this pass: one still spelled
+        # out is the undeclared-variable pass's complaint, not a shape error
+        if references.is_ref(references.SUBSTITUTED, value):
             continue
 
         source = references.author_index(source_indices, index)

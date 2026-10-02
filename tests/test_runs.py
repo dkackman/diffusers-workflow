@@ -460,6 +460,33 @@ class TestRunDirectories:
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["seed"] == 1234
 
+    def test_a_run_that_fails_before_opening_leaves_the_previous_manifest_alone(
+        self, tmp_path, fake_pipeline
+    ):
+        import dw.workflow as workflow_module
+        from dw.workflow import Workflow
+
+        workflow = Workflow(
+            _workflow_definition(), str(tmp_path), "/w/workflows/Gyre.json"
+        )
+        workflow.run({})
+        manifest_path = next((tmp_path / "Gyre").iterdir()) / "manifest.json"
+        before = manifest_path.read_bytes()
+
+        # A persistent worker reuses one Workflow across jobs: a second run
+        # that fails in prepare_run, before it opens a directory of its own,
+        # must not find the first run's directory still set and rewrite its
+        # manifest from the finally block
+        with patch.object(
+            workflow_module.workflow_run,
+            "prepare_run",
+            side_effect=RuntimeError("refused"),
+        ):
+            with pytest.raises(RuntimeError):
+                workflow.run({})
+
+        assert manifest_path.read_bytes() == before
+
     def test_a_failed_run_still_records_what_it_wrote(self, tmp_path, fake_pipeline):
         from dw.workflow import Workflow
 

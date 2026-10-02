@@ -175,10 +175,9 @@ def selected_field(step_data, selected):
         position = selected.get("position")
         if isinstance(position, int) and 0 <= position < len(candidates):
             candidate = candidates[position]
-            if isinstance(candidate, str) and candidate.startswith(
-                references.PREVIOUS_RESULT
-            ):
-                field["entry"] = candidate[len(references.PREVIOUS_RESULT) :]
+            entry = references.ref_name(references.PREVIOUS_RESULT, candidate)
+            if entry is not None:
+                field["entry"] = entry
     return field
 
 

@@ -15,24 +15,23 @@ depends on the workspace and on what pruning has taken, and the definition's
 own references (a template's `prompt:ltx2/hummingbird_garden`) are not the
 caller's to answer for; the caller's `arguments` are separately resolved
 against the workspace by the validate route.
+
+An `output:` or `asset:` name accepts `@`, because the engine writes it: a
+`for_each` member is `<group>@<entry>` and its files carry that in their base
+name, so every file the server names can be named back to it. `@` is not a
+separator and not `..`, and containment is still `validate_path`'s; a name
+(and each segment of it) may not *start* with one. `_name_fault`, in
+`dw/security.py`, is what names the offending character and its position.
 """
 
 from . import references
-from .assets import ASSET_PREFIX
 from .for_each import MEMBER_SEPARATOR, render_path
-from .prompts import PROMPT_PREFIX
-from .runs import OUTPUT_PREFIX
 from .security import (
     InvalidInputError,
     validate_asset_reference,
     validate_output_reference,
     validate_prompt_reference,
 )
-
-# Substitution and expansion run before this pass, so every string reaching
-# it is literal. One still spelled with a deferred prefix is nothing this
-# pass resolved, and the undeclared-variable pass owns that complaint
-_UNRESOLVED_PREFIXES = references.UNRESOLVED
 
 
 def _output_name(reference):
@@ -41,14 +40,17 @@ def _output_name(reference):
     `latest` in the run-id position is expanded before the path is joined,
     so it is checked as the ordinary segment it looks like.
     """
-    return reference.removeprefix(OUTPUT_PREFIX).strip()
+    return references.ref_name(references.OUTPUT, reference).strip()
 
 
-_KINDS = (
-    (OUTPUT_PREFIX, validate_output_reference, _output_name),
-    (ASSET_PREFIX, validate_asset_reference, None),
-    (PROMPT_PREFIX, validate_prompt_reference, None),
-)
+# The name rule each reference kind holds its name to: the validator, and how
+# to read the name out of the reference when it is not simply what follows the
+# prefix
+_KINDS = {
+    references.OUTPUT: (validate_output_reference, _output_name),
+    references.ASSET: (validate_asset_reference, None),
+    references.PROMPT: (validate_prompt_reference, None),
+}
 
 
 def reference_name_errors(workflow_definition, source_indices=None):
@@ -93,11 +95,16 @@ def reference_fault(value):
     """
     if not isinstance(value, str):
         return None
-    for prefix, check, extract in _KINDS:
-        if not value.startswith(prefix):
+    for prefix, (check, extract) in _KINDS.items():
+        rest = references.ref_name(prefix, value)
+        if rest is None:
             continue
-        rest = value[len(prefix) :].strip()
-        if not rest or rest.startswith(_UNRESOLVED_PREFIXES):
+        rest = rest.strip()
+        # Substitution and expansion run before this pass, so every string
+        # reaching it is literal. One still spelled with a deferred prefix is
+        # nothing this pass resolved, and the undeclared-variable pass owns
+        # that complaint
+        if not rest or references.is_ref(references.UNRESOLVED, rest):
             return None
         try:
             check(extract(value) if extract else rest)

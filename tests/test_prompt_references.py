@@ -12,7 +12,8 @@ import os
 
 import pytest
 
-from dw.prompts import PROMPT_PREFIX, resolve_prompt_reference
+from dw.prompts import resolve_prompt_reference
+from dw.references import PROMPT, make_ref
 from dw.server.catalog import collect_prompt_references
 from tests.test_examples import REPO_ROOT, get_example_files
 
@@ -34,8 +35,7 @@ def get_builtin_files():
 def prompt_references(definition):
     """Every 'prompt:' reference a workflow makes, as written."""
     return [
-        f"{PROMPT_PREFIX}{name}"
-        for name in sorted(collect_prompt_references(definition))
+        make_ref(PROMPT, name) for name in sorted(collect_prompt_references(definition))
     ]
 
 

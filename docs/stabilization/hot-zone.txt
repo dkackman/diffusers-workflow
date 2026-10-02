@@ -1,7 +1,6 @@
-# Files the current stabilization phase is restructuring.
-# The harness implementer must not change these; a field bug whose fix
+# Files the harness implementer must not change; a field bug whose fix
 # needs one is labelled `stabilization` and handed to owner:don.
 # One path (or directory ending in /) per line; '#' starts a comment.
-# Stage 3e merged (2026-10-01); Phase 3 complete pending gate 3.
+# A later refactor lists the files it is restructuring here while it runs.
+# The harness must never edit its own ruler, so this entry is permanent.
 scripts/arch_metrics.py
-docs/stabilization/

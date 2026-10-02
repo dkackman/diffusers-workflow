@@ -16,10 +16,6 @@ from .assets import fetch_asset, is_asset_reference
 from .locations import is_http_url, validate_media_path
 from .runs import fetch_output, is_output_reference
 
-# Left to the run-time check: not yet resolved to a real file at the point
-# validation walks the expanded definition.
-UNRESOLVED_PREFIXES = references.UNRESOLVED
-
 
 def resolve_probe_path(value, base_dir, what="a media argument"):
     """The local file `value` names, or None when it is not yet resolvable,
@@ -38,7 +34,9 @@ def resolve_probe_path(value, base_dir, what="a media argument"):
         value = value.get("location")
     if not isinstance(value, str) or not value:
         return None
-    if value.startswith(UNRESOLVED_PREFIXES) or is_http_url(value):
+    # Left to the run-time check: not yet resolved to a real file at the point
+    # validation walks the expanded definition
+    if references.is_ref(references.UNRESOLVED, value) or is_http_url(value):
         return None
     if is_asset_reference(value) or is_output_reference(value):
         try:
@@ -63,4 +61,4 @@ def resolve_probe_path(value, base_dir, what="a media argument"):
     return value if os.path.isfile(value) else None
 
 
-__all__ = ["UNRESOLVED_PREFIXES", "resolve_probe_path"]
+__all__ = ["resolve_probe_path"]

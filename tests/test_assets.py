@@ -72,6 +72,16 @@ class TestReferences:
             asset_dir / "gyre" / "frames" / "web.png"
         )
 
+    def test_a_bare_name_resolves_as_written(self, asset_dir):
+        """The prefix is stripped when present and a bare name is left alone:
+        callers guard with is_asset_reference, a direct caller need not."""
+        assert resolve_asset_reference("iris.png") == resolve_asset_reference(
+            "asset:iris.png"
+        )
+        assert resolve_asset_reference("  iris.png ") == resolve_asset_reference(
+            "asset:iris.png"
+        )
+
     def test_a_missing_asset_says_so(self, asset_dir):
         with pytest.raises(ValueError, match="not found"):
             resolve_asset_reference("asset:nothing.png")
