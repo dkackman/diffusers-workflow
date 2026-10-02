@@ -446,8 +446,10 @@ Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
 passing. It covers more than CI: ruff over the whole repo rather than
-`dw dw_mcp tests`, the real-model integration tests (`pytest -m
-integration`), and the UI's Playwright e2e tests, none of which CI runs.
+`dw dw_mcp tests` and the real-model integration tests (`pytest -m
+integration`), neither of which CI runs. (CI runs the UI's Playwright e2e
+tests on every develop push and on PRs into develop; the release PR from
+develop relies on the push runs.)
 
 ```bash
 scripts/release.sh 0.38.0
