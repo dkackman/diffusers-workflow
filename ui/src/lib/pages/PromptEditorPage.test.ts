@@ -86,9 +86,9 @@ function unloadPrevented() {
 
 it('mounts a stored prompt under the folder and name it was saved as', async () => {
   await openHero()
-  expect(
-    (document.querySelector('.savename') as HTMLInputElement).value,
-  ).toBe('hero')
+  expect((document.querySelector('.savename') as HTMLInputElement).value).toBe(
+    'hero',
+  )
   await waitFor(() =>
     expect(
       (document.querySelector('.folderpick') as HTMLSelectElement).value,
