@@ -127,7 +127,7 @@ def test_only_the_api_module_lists_the_terminal_job_states():
 
 def test_the_ui_default_workspace_is_the_servers():
     assert (
-        ts_constants(UI_LIB / "workspace.svelte.ts")["DEFAULT_WORKSPACE"]
+        ts_constants(UI_LIB / "workspaceState.svelte.ts")["DEFAULT_WORKSPACE"]
         == DEFAULT_WORKSPACE_NAME
     )
 
