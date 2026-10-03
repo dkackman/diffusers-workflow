@@ -67,8 +67,10 @@
     {:else if asset.kind === 'video'}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video src={asset.url} controls loop></video>
-    {:else}
+    {:else if asset.kind === 'audio'}
       <audio src={asset.url} controls></audio>
+    {:else}
+      <a href={asset.url} target="_blank" rel="noreferrer">{asset.name}</a>
     {/if}
   </div>
 </div>

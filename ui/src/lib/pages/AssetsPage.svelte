@@ -345,7 +345,10 @@
             {:else if asset.kind === 'video'}
               <video src={asset.url} preload="metadata" muted></video>
             {:else}
-              <span class="audio">♪ {leafName(asset.name)}</span>
+              <span class="audio"
+                >{asset.kind === 'audio' ? '♪' : '¶'}
+                {leafName(asset.name)}</span
+              >
             {/if}
             <span class="caption" title={asset.reference}
               >{leafName(asset.name)}</span

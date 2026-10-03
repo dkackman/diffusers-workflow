@@ -28,6 +28,26 @@
     onclose: () => void
   } = $props()
 
+  // A text file's contents, fetched when the pick changes
+  let textBody = $state<string | null>(null)
+  $effect(() => {
+    if (file.kind !== 'text') return
+    const url = file.url
+    textBody = null
+    let stale = false
+    fetch(url)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText))))
+      .then((t) => {
+        if (!stale) textBody = t
+      })
+      .catch(() => {
+        if (!stale) textBody = '(could not load this file)'
+      })
+    return () => {
+      stale = true
+    }
+  })
+
   /** Keep this file as an input asset, so a later workflow can name it
    * without depending on the run that made it. */
   async function keepAsAsset() {
@@ -145,8 +165,10 @@
     {:else if file.kind === 'video'}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video src={file.url} controls loop></video>
-    {:else}
+    {:else if file.kind === 'audio'}
       <audio src={file.url} controls></audio>
+    {:else if file.kind === 'text'}
+      <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
     {#if metadata}
       <div class="meta">
@@ -205,6 +227,14 @@
 </div>
 
 <style>
+  .body pre.text {
+    margin: 0;
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+  }
   .detail {
     position: sticky;
     bottom: 1rem;

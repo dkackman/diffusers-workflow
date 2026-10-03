@@ -245,7 +245,9 @@
         {:else if file.kind === 'video'}
           <video src={file.url} preload="metadata" muted></video>
         {:else}
-          <span class="audio">♪ {file.label}</span>
+          <span class="audio"
+            >{file.kind === 'text' ? '¶' : '♪'} {file.label}</span
+          >
         {/if}
         <span class="caption" title={file.name}>
           {#if file.version}

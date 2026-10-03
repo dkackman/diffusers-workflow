@@ -7,7 +7,8 @@ import type { GalleryFile } from './types'
  * first, so the first one seen for a folder is that workflow's latest.
  * Images win over video because only images have a thumbnail endpoint; a
  * video-only workflow falls back to its video, which renders its first
- * frame. */
+ * frame. Audio and text have nothing to show in a frame, so a workflow with
+ * neither an image nor a video gets no proof. */
 export function latestProofs(
   files: GalleryFile[],
 ): Record<string, GalleryFile> {
@@ -15,6 +16,7 @@ export function latestProofs(
   for (const file of files) {
     if (!file.folder) continue
     const held = latest[file.folder]
+    if (file.kind !== 'image' && file.kind !== 'video') continue
     if (!held) latest[file.folder] = file
     else if (held.kind !== 'image' && file.kind === 'image')
       latest[file.folder] = file
