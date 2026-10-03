@@ -12,7 +12,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "model",
+                    "offload": "sequential",
                     "cache": {
                         "type": "first_block",
                         "threshold": 0.05
