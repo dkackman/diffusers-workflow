@@ -586,3 +586,25 @@ def test_select_kinds_matches_a_warnings_kind_as_well_as_event():
     assert [e["seq"] for e in select_kinds(events, ["log", "warning"])] == [1, 2, 3]
     assert [e["seq"] for e in select_kinds(events, None)] == [0, 1, 2, 3]
     assert select_kinds(events, ["nothing"]) == []
+
+
+def test_a_quiet_stretch_before_a_phase_is_not_that_phases_stall():
+    """A watchdog that measured silence from the last event, not from the
+    phase start, reported a stall at +0.0s into a phase noted after a quiet
+    stretch - how test_watchdog_fires_after_threshold_with_no_events failed
+    under a loaded parallel run."""
+    events = []
+    context = RunContext(on_event=events.append)
+    with _fast_watchdog():
+        context.enter_run()
+        try:
+            # longer than the threshold, before any phase
+            time.sleep(0.1)
+            context.note_phase("generating")
+            time.sleep(0.2)
+        finally:
+            context.exit_run()
+
+    stalls = _stalls(events)
+    assert stalls
+    assert stalls[0]["seconds_since_phase_start"] > 0
