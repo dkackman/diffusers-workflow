@@ -204,6 +204,12 @@ def validate_prompt_path(path: str, prompt_dir: str) -> str:
     return validate_file_extension(validated, ALLOWED_JSON_EXTENSIONS)
 
 
+def validate_lora_path(path: str, lora_dir: str) -> str:
+    """Validate LoRA catalog entry paths, confined to the LoRA library."""
+    validated = validate_path(path, lora_dir, allow_create=False)
+    return validate_file_extension(validated, ALLOWED_JSON_EXTENSIONS)
+
+
 def validate_output_path(path: str, output_dir: str) -> str:
     """Validate output file paths."""
     return validate_path(path, output_dir, allow_create=True)
@@ -412,6 +418,20 @@ def validate_prompt_reference(name: str) -> str:
         "Prompt name",
         "a prompt is named by its file under the prompt directory, at most "
         "one folder deep, like 'scenic_landscape' or 'minimax/fox_dawn'",
+        allowed=PROMPT_REFERENCE_CHARACTERS,
+    )
+
+
+def validate_lora_name(name: str) -> str:
+    """Validate a LoRA catalog entry's name before it is joined onto a
+    library root: a plain name or one family folder deep."""
+    return _validate_name(
+        name,
+        PROMPT_REFERENCE_PATTERN,
+        MAX_PROMPT_REFERENCE_LENGTH,
+        "LoRA name",
+        "a catalog entry is named by its file under the LoRA library, at most "
+        "one folder deep, like 'qwen-image/voxel-style'",
         allowed=PROMPT_REFERENCE_CHARACTERS,
     )
 

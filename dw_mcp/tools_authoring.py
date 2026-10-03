@@ -33,7 +33,7 @@ class WorkspaceTools:
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs, exports, common). Pass use=true to switch this
+        (workflows, prompts, assets, outputs, exports, common, loras). Pass use=true to switch this
         session to it as well; otherwise the session stays where it was and
         the result says so."""
         return workspaces.create_workspace(self.client, name, use=use)
