@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Refine-Details",
+  "weight_name": "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors",
+  "revision": "4912c478b35dd96b6cdcc5f7c7ff9d72c2c57929",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that rebuilds fine detail - texture, edges, grain - in a soft, compressed or upscaled clip. The source, lanczos-upscaled to the output canvas, is the reference video. Prompts stay generic and about rendering (sharpness, texture, light), not subjects. Trained on 97-frame 1024x576 / 576x1024 tiles @ 24 fps; the card runs it tiled (50% overlap) at every output size, which dw does not do, so only a clip near the tile size is run as trained",
+  "use_when": "Add native-looking detail to a soft or upscaled clip",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "refine",
+    "detail",
+    "upscale"
+  ]
+}

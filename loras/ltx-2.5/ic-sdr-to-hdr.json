@@ -1,0 +1,25 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-SDR-To-HDR",
+  "weight_name": "ltx-2.5-22b-ic-lora-sdr-to-hdr-1.0.safetensors",
+  "revision": "c7578ebddb54f4210e534e4d8cad698a5a520692",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Converts 8-bit SDR video to scene-linear HDR; needs LTX2HDRPipeline with precomputed connector embeddings and an HDR export that dw does not wire",
+  "use_when": "Do not use under dw",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Needs diffusers' LTX2HDRPipeline fed the repo's second file (ltx-2.5-22b-ic-lora-sdr-to-hdr-scene-emb.safetensors) as connector_video_embeds / connector_audio_embeds in place of a prompt, and writes linear HDR (ACEScg EXR, HLG BT.2020 HEVC); dw has no step that loads those tensors or exports HDR"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "hdr"
+  ]
+}

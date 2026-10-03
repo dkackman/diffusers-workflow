@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render",
+  "weight_name": "ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors",
+  "revision": "349625f9bad639dc41f1c70d2c63f75a02a09c59",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that turns a 3D viewport playblast - clay render or blocky shapes from Blender or Unreal - into a finished shot, keeping the camera move and object placement. The playblast is the reference video and a styled first-frame image (art direction, not the raw clay frame) is a keyframe condition. One or two sentences describing the finished shot; never mention clay, 3D or the tool. 960x544 stage 1, 1920x1088 stage 2, 24 fps; width and height divisible by 64",
+  "use_when": "Render a 3D blockout or previs animation as a finished shot",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "previs",
+    "layout",
+    "render"
+  ]
+}
