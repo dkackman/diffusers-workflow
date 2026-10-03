@@ -541,7 +541,7 @@ The editor's forms come from these; they are just as usable from scripts:
   under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
   the uploaded file's extension assumed, confined to the library the way
   `keep_output`'s name is).
-  Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
+  Answers 201 with `reference` - `asset:uploads/<name>`, the reference a saved
   workflow can carry and still resolve on a later run - and `url`, the same
   file under the `/inputs` mount, for the editor's preview. A server started
   without an asset library falls back to the output directory's `uploads/`

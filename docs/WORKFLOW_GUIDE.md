@@ -297,7 +297,7 @@ for existence.
   curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary @portrait.jpg \
     "http://<host>:8765/api/uploads?filename=portrait.jpg&asset_name=cast/portrait.jpg&workspace=<ws>"
   ```
-  It answers 201 with `path` - the `asset:` reference to use in a workflow
+  It answers 201 with `reference` - the `asset:` reference to use in a workflow
   argument (the bearer token only when the server requires one). The same
   route is also how a file assembled entirely on the client - a finished cut
   stitched locally rather than by a workflow step - gets onto the server at
