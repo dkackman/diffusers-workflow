@@ -13,8 +13,8 @@ What comes back is a candidate to trial, never a recommendation: download
 counts are the only quality signal the Hub has.
 """
 
-import concurrent.futures
 import logging
+import threading
 
 from .lora_catalog import is_repo_id
 
@@ -27,6 +27,11 @@ SAFETENSORS = ".safetensors"
 KOHYA_PREFIXES = ("lora_unet_", "lora_te")
 FULL_WEIGHT_SUFFIXES = (".diff", ".diff_b")
 LORA_MARKERS = ("lora_A", "lora_B", "lora_down", "lora_up")
+MAX_SEARCH_TERMS = 4
+BUSY_ERROR = "A Hub search is already running on this server; try again shortly"
+# one Hub search per server, released when the worker finishes (not at the timeout),
+# so a hung search cannot stack threads.
+_IN_FLIGHT = threading.Lock()
 
 
 def classify_format(keys):
@@ -53,12 +58,13 @@ def _card_value(card, key):
 
 
 def _searches(query, terms):
-    """The search strings to run: the request as typed, then each term.
-    No terms (a stop-word or empty query) is one unfiltered search."""
+    """The search strings to run: the request as typed, then each term (up to
+    MAX_SEARCH_TERMS to prevent unbounded amplification). No terms (a stop-word
+    or empty query) is one unfiltered search."""
     if not terms:
         return [None]
     searches = []
-    for search in [(query or "").strip()] + terms:
+    for search in [(query or "").strip()] + terms[:MAX_SEARCH_TERMS]:
         if search and search not in searches:
             searches.append(search)
     return searches
@@ -164,19 +170,30 @@ def hub_candidates(bases, query, terms, limit, rejected, api):
 
 def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEOUT):
     """`(results, hub_error)`. Never raises: an unreachable, rate-limited or
-    slow Hub is reported, and the caller still answers with the catalog."""
+    slow Hub is reported, and the caller still answers with the catalog. A
+    second concurrent call answers BUSY_ERROR."""
     if api is None:
         from huggingface_hub import HfApi
 
         api = HfApi()
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(hub_candidates, bases, query, terms, limit, rejected, api)
-    try:
-        return future.result(timeout=timeout), None
-    except concurrent.futures.TimeoutError:
+    if not _IN_FLIGHT.acquire(blocking=False):
+        return [], BUSY_ERROR
+    outcome = {}
+
+    def run():
+        try:
+            outcome["results"] = hub_candidates(bases, query, terms, limit, rejected, api)
+        except Exception as error:
+            outcome["error"] = f"Hub search failed: {type(error).__name__}: {error}"
+        finally:
+            _IN_FLIGHT.release()
+
+    # A daemon thread: a hung Hub request must not hold up server shutdown
+    worker = threading.Thread(target=run, name="lora-hub-search", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
         return [], f"Hub search timed out after {timeout:g} s"
-    except Exception as error:
-        return [], f"Hub search failed: {type(error).__name__}: {error}"
-    finally:
-        # Not waiting: a timed-out search finishes in the background
-        pool.shutdown(wait=False)
+    if "error" in outcome:
+        return [], outcome["error"]
+    return outcome["results"], None

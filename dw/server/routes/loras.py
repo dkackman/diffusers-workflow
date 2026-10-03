@@ -151,7 +151,7 @@ TRIAL_NOTE = (
 def recommend_loras(
     request: Request,
     model: str,
-    query: str = "",
+    query: str = Query("", max_length=200),
     limit: int = Query(8, ge=1, le=25),
     ws: Workspace = Depends(selected_workspace),
 ):

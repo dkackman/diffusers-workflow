@@ -205,3 +205,7 @@ class TestRecommend:
         body = server.get("/api/loras/recommend", params={"model": "models/local"}).json()
         assert body["resolved"] == [] and body["hub"] == [] and "bases" not in hub
 
+    def test_an_overlong_query_is_a_422(self, server, hub):
+        query = "x" * 201
+        assert server.get("/api/loras/recommend", params={"model": QWEN, "query": query}).status_code == 422
+

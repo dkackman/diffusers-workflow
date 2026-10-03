@@ -7,10 +7,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from dw.lora_hub import classify_format, hub_candidates, search_hub
+import dw.lora_hub as lora_hub
+from dw.lora_hub import BUSY_ERROR, classify_format, hub_candidates, search_hub
 
 OLD = datetime(2025, 1, 1, tzinfo=timezone.utc)
 NEW = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def lock_cleanup():
+    yield
+    assert lora_hub._IN_FLIGHT.acquire(timeout=5)
+    lora_hub._IN_FLIGHT.release()
 
 
 def sibling(name):
@@ -150,7 +158,37 @@ class TestFailure:
     def test_a_slow_hub_times_out(self):
         class Slow(FakeApi):
             def list_models(self, **kwargs):
-                time.sleep(2)
+                time.sleep(0.5)
                 return []
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.2)
+        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1)
         assert results == [] and "timed out" in error
+
+    def test_search_terms_are_capped(self):
+        api = FakeApi({})
+        hub_candidates(["Qwen/Qwen-Image-2.1"], "a b", ["t1", "t2", "t3", "t4", "t5", "t6"], 8, {}, api)
+        assert len(api.searches) == 5  # typed query + 4 terms max
+        assert (F, "t5") not in api.searches
+
+    def test_a_concurrent_search_is_busy(self):
+        lora_hub._IN_FLIGHT.acquire()
+        try:
+            results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+            assert results == [] and error == BUSY_ERROR
+        finally:
+            lora_hub._IN_FLIGHT.release()
+
+    def test_the_lock_outlives_a_timeout_until_the_worker_ends(self):
+        class Slow(FakeApi):
+            def list_models(self, **kwargs):
+                time.sleep(0.5)
+                return []
+        # First call times out but lock is held
+        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1)
+        assert "timed out" in error
+        # Second call immediately returns BUSY_ERROR
+        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        assert error == BUSY_ERROR
+        # After worker finishes, lock is released
+        time.sleep(0.6)
+        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        assert error is None

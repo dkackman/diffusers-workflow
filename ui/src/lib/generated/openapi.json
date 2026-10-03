@@ -6217,6 +6217,7 @@
             "required": false,
             "schema": {
               "default": "",
+              "maxLength": 200,
               "title": "Query",
               "type": "string"
             }
