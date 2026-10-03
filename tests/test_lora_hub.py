@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import dw.lora_hub as lora_hub
-from dw.lora_hub import BUSY_ERROR, classify_format, hub_candidates, search_hub
+from dw.lora_hub import BUSY_ERROR, CARD_TEXT_LIMIT, classify_format, hub_candidates, search_hub
 
 OLD = datetime(2025, 1, 1, tzinfo=timezone.utc)
 NEW = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -62,6 +62,13 @@ class TestFormat:
 
     def test_kohya_keys(self):
         assert classify_format(["lora_unet_blocks_0_attn.lora_down.weight"]) == "kohya"
+
+    def test_lora_down_up_alone_is_kohya_whatever_the_prefix(self):
+        assert classify_format(["lora_transformer_blocks_0.lora_up.weight"]) == "kohya"
+        assert classify_format(["blocks.0.lora_down.weight"]) == "kohya"
+
+    def test_diffusers_needs_lora_a_b(self):
+        assert classify_format(["x.lora_B.weight"]) == "diffusers"
 
     def test_full_weight_keys_win(self):
         assert classify_format(["a.lora_A.weight", "b.diff", "c.diff_b"]) == "full_weight"
@@ -118,6 +125,14 @@ class TestCandidates:
         [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
         assert result["trigger"] == "Voxel Style"
         assert result["license"] == "apache-2.0"
+
+    def test_card_text_is_capped(self):
+        card = {"license": "L" * 500, "instance_prompt": "x" * 500}
+        api = FakeApi({(F, None): [info("a/x", card=card)]})
+        [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
+        assert CARD_TEXT_LIMIT == 200
+        assert result["trigger"] == "x" * 200
+        assert result["license"] == "L" * 200
 
     def test_older_than_its_base_is_stale(self):
         api = FakeApi({(F, None): [info("a/x", modified=OLD)]}, base_modified=NEW)

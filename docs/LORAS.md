@@ -156,8 +156,9 @@ file per LoRA, under a family folder: `loras/qwen-image/voxel-style.json`.
 `model_name`, `weight_name`, `revision` and `scale.default` drop straight into
 a step's `loras` entry. `base_models` holds exact repo ids, and matching is
 exact - an adapter on the wrong base usually loads and is quietly worse.
-`workflow` constrains a MiniMax-H3 entry to one partition (`t2va`, `fl2va`,
-`ref2va`). `proven` and `rejected` entries need `evidence`; a rejected
+`workflow` constrains a MiniMax-H3 entry to a partition (`t2va`, `fl2va`,
+`ref2va`) - a string, or a list of them for an adapter that covers several
+(the turbo keyframe files are `["t2va", "fl2va"]`). `proven` and `rejected` entries need `evidence`; a rejected
 entry's first note is why. The schema is `GET /api/lora-schema`.
 
 Promotion: a trial that worked is saved with `save_lora` (or
@@ -170,7 +171,7 @@ place dw searches the Hub, and only when called. It returns the catalog's
 entries for the model first, ranked against the query, then Hub adapters
 whose card declares that exact base (`base_model:adapter:<repo>`), most
 downloaded first. Nothing is downloaded; the weight file's header is read to
-check its layout. Hub rows are candidates to trial, never recommendations,
+check its layout, for a single-weight repo only. Hub rows are candidates to trial, never recommendations,
 and carry `warnings`:
 
 | Warning | Meaning |
@@ -184,7 +185,9 @@ and carry `warnings`:
 | `stale` | Last changed before its base was - trained on an older revision |
 
 A repo holding only pickle `.bin` weights is never offered. A repo the
-catalog marks `rejected` comes back as `rejected` with the reason. When the
+catalog marks `rejected` comes back in `hub` as `rejected` with the reason
+only when the Hub search turns it up; rejected entries are left out of
+`catalog` (`list_loras` still shows them). When the
 Hub is unreachable the catalog rows still come back, with `hub_error`.
 
 Limits: the search runs the typed query plus at most 4 of its words;

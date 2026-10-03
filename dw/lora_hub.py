@@ -26,7 +26,9 @@ SEARCH_EXPAND = ["downloads", "likes", "lastModified", "gated", "cardData", "sha
 SAFETENSORS = ".safetensors"
 KOHYA_PREFIXES = ("lora_unet_", "lora_te")
 FULL_WEIGHT_SUFFIXES = (".diff", ".diff_b")
-LORA_MARKERS = ("lora_A", "lora_B", "lora_down", "lora_up")
+DIFFUSERS_MARKERS = ("lora_A", "lora_B")
+KOHYA_MARKERS = ("lora_down", "lora_up")
+CARD_TEXT_LIMIT = 200
 MAX_SEARCH_TERMS = 4
 BUSY_ERROR = "A Hub search is already running on this server; try again shortly"
 # one Hub search per server, released when the worker finishes (not at the timeout),
@@ -43,7 +45,9 @@ def classify_format(keys):
         return "full_weight"
     if any(key.startswith(KOHYA_PREFIXES) for key in keys):
         return "kohya"
-    if any(marker in key for key in keys for marker in LORA_MARKERS):
+    if any(marker in key for key in keys for marker in KOHYA_MARKERS):
+        return "kohya"
+    if any(marker in key for key in keys for marker in DIFFUSERS_MARKERS):
         return "diffusers"
     return "unknown"
 
@@ -54,6 +58,8 @@ def _card_value(card, key):
     value = card.get(key) if hasattr(card, "get") else getattr(card, key, None)
     if isinstance(value, list):
         value = value[0] if value else None
+    if isinstance(value, str):
+        value = value[:CARD_TEXT_LIMIT]
     return value
 
 
