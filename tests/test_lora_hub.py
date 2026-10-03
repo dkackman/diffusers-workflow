@@ -225,7 +225,31 @@ class TestFailure:
         results, error = search_hub(
             ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Down({})
         )
-        assert results == [] and "hub unreachable" in error
+        assert results == [] and error == "Hub search failed (ConnectionError)"
+
+    def test_a_hub_error_does_not_carry_the_exception_text(self, caplog):
+        class Denied(FakeApi):
+            def list_models(self, **kwargs):
+                raise PermissionError("[Errno 13] /home/srv/.cache/huggingface/hub")
+
+        with caplog.at_level("WARNING", logger="dw"):
+            results, error = search_hub(
+                ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Denied({})
+            )
+        assert results == [] and "/home/srv" not in error
+        assert "/home/srv" in caplog.text  # the log keeps it
+
+    def test_a_hub_http_error_names_its_status(self):
+        class Limited(FakeApi):
+            def list_models(self, **kwargs):
+                error = RuntimeError("429 for url https://huggingface.co/api/models")
+                error.response = SimpleNamespace(status_code=429)
+                raise error
+
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Limited({})
+        )
+        assert error == "Hub search failed (HTTP 429)"
 
     def test_a_slow_hub_times_out(self):
         class Slow(FakeApi):
@@ -296,7 +320,7 @@ class TestFailure:
         results, error = search_hub(
             ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
         )
-        assert results == [] and "can't start new thread" in error
+        assert results == [] and error == "Hub search failed (RuntimeError)"
         # Lock is released, can be acquired immediately
         assert lora_hub._IN_FLIGHT.acquire(blocking=False)
         lora_hub._IN_FLIGHT.release()

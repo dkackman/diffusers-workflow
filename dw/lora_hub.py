@@ -187,6 +187,16 @@ def hub_candidates(bases, query, terms, limit, rejected, api):
     return results
 
 
+def _failure(error):
+    """The `hub_error` for an exception: its type, or the HTTP status when it
+    carries a response. Never its text - an OSError from the HF cache names
+    the server's home directory - so the log keeps the full error."""
+    logger.warning(f"Hub search failed: {type(error).__name__}: {error}")
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    detail = f"HTTP {status}" if isinstance(status, int) else type(error).__name__
+    return f"Hub search failed ({detail})"
+
+
 def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEOUT):
     """`(results, hub_error)`. Never raises: an unreachable, rate-limited or
     slow Hub is reported, and the caller still answers with the catalog. A
@@ -205,7 +215,7 @@ def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEO
                 bases, query, terms, limit, rejected, api
             )
         except Exception as error:
-            outcome["error"] = f"Hub search failed: {type(error).__name__}: {error}"
+            outcome["error"] = _failure(error)
         finally:
             _IN_FLIGHT.release()
 
@@ -215,7 +225,7 @@ def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEO
         worker.start()
     except Exception as error:
         _IN_FLIGHT.release()
-        return [], f"Hub search failed: {type(error).__name__}: {error}"
+        return [], _failure(error)
     except BaseException:
         _IN_FLIGHT.release()
         raise
