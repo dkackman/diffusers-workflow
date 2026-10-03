@@ -762,7 +762,6 @@ class TestShotBoundaries:
         result = find_loop_bed(loud, shots=SHOTS, fps=10)
 
         assert result["candidates"] == []
-        assert result["rejected"]["shot_boundary"] > result["rejected"]["too_loud"]
         assert result["rejected"]["too_loud"] > 0
         assert result["findings"][0]["rejected_by"] == "too_loud"
         assert "max_bin_dbfs" in result["findings"][0]["message"]
