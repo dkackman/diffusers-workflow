@@ -1594,8 +1594,10 @@ Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
 native 768p render, since only a small 3D-convolution network and a VAE decode run,
 not the transformer. There is no refine pass over the upscaled latents, so the result
 is sharper than the 544p take but cannot show detail the base pass never generated.
-This is a measurement path, not a catalog template: the catalog's native 768p render is
-`templates/minimax/video-with-audio-768p`.
+Measured on a 124-frame crowd scene, it took 7.8 min against a native 768p render's
+12.7 min, and the faces came out soft and waxy where the native render's were distinct.
+So this is a measurement path, not a catalog template: the catalog's native 768p render
+is `templates/minimax/video-with-audio-768p`, and it is the one to use when faces matter.
 
 Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
 latents' own size, and within H3's 1344x768 (or portrait 768x1344) canvas. The latents
@@ -1609,7 +1611,7 @@ step carries no `result` at all, so nothing beyond its return value is written -
 upscaling only makes sense for a take chosen from something already reviewed, so the
 544p pass that produced it is not itself a deliverable here.
 
-The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, MIT-licensed,
+The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, Apache-2.0,
 read at a pinned revision) and the H3 VAE download on first use, the same as any other
 model. Neither is counted in `plan.downloads_required`, since that walk collects
 `from_pretrained_arguments` sources on pipeline steps and does not see a task

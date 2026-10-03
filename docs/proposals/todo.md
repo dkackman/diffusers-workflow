@@ -80,6 +80,13 @@ remaining deferred fix is recorded in
   and one wait rule in the guide and skills, with no code change. Record,
   including what was deferred (the progress heartbeat, stage #547, not
   needed since no long wait was cut): `complete/mcp-long-wait-complete.md`.
+- **Promoting an H3 take to 1344x768 in latent space** (#471, stage #499;
+  #500 not built), shipped 2026-10-03 as two tasks, `upscale_h3_latents` and
+  `decode_h3_latents`, with an inline workflow in the guide and no template.
+  Don's gate found the preview ~39% faster than a native 768p render but
+  soft in the faces. Record, including what was deferred (the refine pass,
+  persisted latents, task weights in `downloads_required`):
+  `complete/h3-latent-upscale-complete.md`.
 
 ## Declined
 
