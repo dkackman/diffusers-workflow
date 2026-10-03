@@ -73,6 +73,11 @@ remaining deferred fix is recorded in
   task. Record, including what was deferred (a 1x refine and the
   VAE-encode task it needs, encoding the source soundtrack into audio
   latents): `complete/ltx2-refine-clip-complete.md`.
+- **`ltx2/upscale-clip`, LTX-2.5's generative 2x upscale of an existing
+  mp4** (#542, stage #548), shipped 2026-09-28 as one template that keeps
+  the source's soundtrack. Record, including what was deferred (probing
+  the source at validate, source audio for the restore templates, the
+  vendor's Refine-Details IC-LoRA): `complete/ltx2-upscale-clip-complete.md`.
 
 ## Declined
 
