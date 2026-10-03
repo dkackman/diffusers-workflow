@@ -98,6 +98,25 @@ class TestLifecycle:
         assert result["current"] == DEFAULT_WORKSPACE
         assert "use_workspace" in result["next"]
 
+    def test_creating_one_names_no_server_folder(self):
+        """GHSA-crqf-hw9p-r739: the server's answer carries the folders it
+        made; the MCP result names the workspace only."""
+        client, _ = recording(
+            {
+                "name": "shots",
+                "default": False,
+                "root": "/home/u/ws/shots",
+                "workflows": "/home/u/ws/shots/workflows",
+                "assets": "/home/u/ws/shots/assets",
+                "outputs": "/home/u/ws/shots/outputs",
+                "prompts": "/home/u/ws/prompts",
+                "common_assets": "/home/u/ws/common/assets",
+            }
+        )
+        result = create_workspace(client, "shots")
+        assert set(result) == {"name", "default", "current", "next"}
+        assert "/home/u" not in str(result)
+
     def test_creating_with_use_switches_to_it(self):
         client, _seen = recording(listing("default", "shots"))
         result = create_workspace(client, "shots", use=True)

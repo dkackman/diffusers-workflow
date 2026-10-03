@@ -5851,7 +5851,10 @@ def test_gallery_metadata_refuses_an_asset_that_escapes_the_library(
         )
         missing = client.get("/api/gallery/asset:nothing.wav/metadata")
         assert missing.status_code == 404
-        assert "not found in" in missing.json()["detail"]
+        detail = missing.json()["detail"]
+        assert "not found in" in detail
+        # the library is named, never the server directory it lives in
+        assert str(tmp_path) not in detail
 
 
 def test_gallery_metadata_finds_an_asset_an_examples_tree_brought(tmp_path):

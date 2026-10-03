@@ -99,6 +99,7 @@ one to open.
 | Worker protocol | `dw/worker_protocol.py`: `parse_reply` | Every command and reply is a frozen dataclass that travels as a wire dict. | `tests/test_worker_messages.py::test_from_wire_inverts_to_wire`, `tests/test_worker_messages.py::test_an_unknown_reply_type_is_kept_whole_rather_than_raised` |
 | Persistent worker | `dw/worker.py`, `dw/worker_manager.py`, `dw/serve.py` | Jobs run in one spawned worker that keeps models loaded, so a change to engine code needs a server restart. | — |
 | Failed-run reporting | `dw/worker.py`, `dw/worker_protocol.py`: `Failed`, `Cancelled` | A failed or cancelled run's reply still carries the manifest of the steps that ran. | `tests/test_worker_execute.py::test_failure_carries_the_manifest_of_the_steps_that_ran`, `tests/test_worker_execute.py::test_cancellation_carries_the_manifest_too` |
+| Failure path redaction | `dw/path_redaction.py`: `redact_paths`, called by `dw/worker.py` | A failed run's message and traceback name a file under the job's asset roots or output directory by its `asset:`/`output:` reference, never its absolute server path. | `tests/test_worker_execute.py::test_a_failure_names_an_asset_by_reference_not_by_server_path`, `tests/test_path_redaction.py` |
 | Run-time warnings | `dw/events.py`: `emit_warning` | A warning found at run time is emitted as an event, so it reaches the caller and not just the log. | `tests/test_concat_videos.py::TestWarningsReachTheCaller::test_the_level_spread_warning_is_emitted_as_an_event` |
 
 ## Media and DSP

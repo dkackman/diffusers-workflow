@@ -264,7 +264,11 @@ class TestServer:
 
         assert missing["valid"] is False
         assert missing["errors"][0]["path"] == "arguments.image"
-        assert os.path.abspath(workspace.assets) in missing["errors"][0]["message"]
+        # The miss names the libraries it searched, never their server
+        # directories (GHSA-fwg5-jfjg-fxpf)
+        message = missing["errors"][0]["message"]
+        assert "asset library (workspace, examples)" in message
+        assert os.path.abspath(workspace.assets) not in message
 
 
 def test_two_apps_in_one_process_each_list_their_own_examples(tmp_path):

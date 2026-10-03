@@ -55,6 +55,25 @@ def _isolate_settings_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_device_capacity(monkeypatch):
+    """Check a vram_estimate against the catalog's measured cards, never the
+    accelerator the suite happens to run on.
+
+    The check uses the serving device's own capacity when no 'cost' entry
+    describes its backend (dw/vram_estimate.py `_entries_for`), so on a
+    24 GB Mac - a 17.8 GB Metal working set - a template's own defaults were
+    refused and its tests failed there and nowhere else. With no capacity
+    read, every machine gets what CI gets. A test about the device ceiling
+    patches its own capacity, which wins over this one.
+    """
+    import dw.validation
+    import dw.workflow_run
+
+    for module in (dw.validation, dw.workflow_run):
+        monkeypatch.setattr(module, "device_capacity_gb", lambda device=None: None)
+
+
+@pytest.fixture(autouse=True)
 def _clear_task_model_cache():
     """Ensure dw.tasks.model_cache is empty at the start of every test.
 

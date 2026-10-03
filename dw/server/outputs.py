@@ -247,11 +247,16 @@ def asset_in(name, library):
     found = library.find(name)
     if found:
         return found[0]
-    roots = [root.root for root in library.roots()]
-    if not roots:
+    # Named by origin, not directory: the roots are the server's filesystem
+    # layout (GHSA-fwg5-jfjg-fxpf)
+    origins = list(dict.fromkeys(root.origin for root in library.roots()))
+    if not origins:
         detail = f"Unknown asset {name!r}: this workspace has no asset library"
     else:
-        detail = f"Unknown asset {name!r}: not found in {', '.join(roots)}"
+        detail = (
+            f"Unknown asset {name!r}: not found in the asset library "
+            f"({', '.join(origins)})"
+        )
     raise HTTPException(status_code=404, detail=detail)
 
 

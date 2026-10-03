@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dw import workflow_run
 from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
-from dw.assets import activate_asset_dir, deactivate_asset_dir
+from dw.assets import activate_asset_dir, asset_library, deactivate_asset_dir
+from dw.path_redaction import redact_paths
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
@@ -282,9 +283,12 @@ class WorkflowWorker:
             )
         except Exception as e:
             logger.error(f"Error executing workflow: {e}", exc_info=True)
+            # The log keeps the paths; the reply reaches API and MCP
+            # callers, who address files by reference (GHSA-fwg5-jfjg-fxpf)
+            redact = self._failure_redactor(command)
             failure = Failed(
-                message=f"Workflow execution error: {str(e)}",
-                traceback=traceback.format_exc(),
+                message=redact(f"Workflow execution error: {str(e)}"),
+                traceback=redact(traceback.format_exc()),
                 # The files the steps before the failure wrote are on
                 # disk; reporting them is what keeps a run that died at
                 # step five from looking like one that produced nothing
@@ -306,6 +310,23 @@ class WorkflowWorker:
         finally:
             if job.asset_token is not None:
                 deactivate_asset_dir(job.asset_token)
+
+    @staticmethod
+    def _failure_redactor(command: Dict[str, Any]):
+        """What rewrites a failure reply's paths under this job's asset
+        search path and output directory as references - called while the
+        job's asset root is still active, so the search path is its own.
+        A search path that cannot be built leaves the asset roots out
+        rather than failing the failure report."""
+        try:
+            asset_roots = [
+                root.root for root in asset_library(command.get("asset_dir")).roots()
+            ]
+        except Exception:
+            logger.debug("No asset search path to redact against", exc_info=True)
+            asset_roots = [command["asset_dir"]] if command.get("asset_dir") else []
+        output_dir = command.get("output_dir")
+        return lambda text: redact_paths(text, asset_roots, output_dir)
 
     def _activate_job(self, command: Dict[str, Any], job: "_Job"):
         """Phase 1: the job's log level and its asset root, before anything

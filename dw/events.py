@@ -98,6 +98,12 @@ class RunContext:
         by the watchdog to time how long the current phase has run."""
         self._current_phase = phase
         self._phase_started_at = time.monotonic()
+        # A new phase starts its own silence: measured from the last event
+        # instead, a quiet stretch before the phase made the watchdog report
+        # a stall at +0.0s into it - for a check landing before emit_phase's
+        # own event, or on every check for a caller that notes a phase
+        # without emitting one
+        self._last_event_at = self._phase_started_at
 
     def enter_run(self):
         """Called around Workflow.run - starts the watchdog on the
