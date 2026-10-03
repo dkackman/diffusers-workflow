@@ -299,7 +299,7 @@ references written in the same session.
 | `enhance_prompt(idea, preset="h3", model_name=None, device=None, acknowledged_cost=False)` | `idea`, `preset`, optional `model_name` and `device`, `acknowledged_cost` | Expand a short idea into a full prompt with a language model. Queued as an ordinary job, so it passes the gate; the enhanced text is the text file in the finished manifest, readable with `get_output_text` |
 | `list_loras(model=None, workflow=None, status=None, tag=None)` | optional `model`, `workflow`, `status`, `tag` | List the LoRAs tried on a base model - proven, trial or rejected - with `use_when`, `trigger` and `scale`; exact match on the base. Guide: `loras` |
 | `save_lora(name, entry)` | `name`, `entry` | Save a catalog entry, overwriting any entry of that name; promote a trial to `proven` with its job in `evidence` |
-| `recommend_loras(model, query, limit=8)` | `model`, `query`, optional `limit` | Opt-in: catalog LoRAs ranked against a style request, then Hugging Face Hub adapters of that exact base. Queries the Hub (the one tool with `open_world_hint`); no download, no GPU. Hub rows are candidates to trial |
+| `recommend_loras(model, query, limit=8)` | `model`, `query`, optional `limit` | Opt-in: catalog LoRAs ranked against a style request, then Hugging Face Hub adapters of that exact base. Queries the Hub (the one tool with `open_world_hint`); no download, no GPU. Hub rows are candidates to trial. A failed or busy Hub (another search already running) returns the catalog rows plus `hub_error`; an empty `hub` with `hub_error` means the search failed |
 
 ### Diagnose
 

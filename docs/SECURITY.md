@@ -10,6 +10,7 @@ diffusers-workflow validates all file paths, user inputs, and URLs to protect ag
 
 - `validate_path()` — Blocks `../` (anywhere in the path), `~/` (or `~\`), and paths rooted at `/dev/`, `/proc/`, `/sys/`. Rejects null bytes and overlong paths (> 4096 chars). Resolves to an absolute, realpath'd path. If `base_dir` is given, raises `PathTraversalError` when the resolved path falls outside it.
 - `validate_workflow_path()` — `validate_path()` plus a required `.json` extension (via `validate_file_extension()`)
+- `validate_lora_path()` / `validate_lora_name()` — Confine a LoRA catalog entry to the `loras/` root: a plain name or one family folder deep, `.json` only, no traversal
 - `validate_output_path()` — `validate_path()` with `allow_create=True`, for directories/files that don't need to exist yet
 - `validate_file_extension()` — Checks a path's extension against an allowed set (used internally by `validate_workflow_path()` and by `arguments.py` for media files)
 

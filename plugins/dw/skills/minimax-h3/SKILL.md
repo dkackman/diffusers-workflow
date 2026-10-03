@@ -100,7 +100,7 @@ read the `workflows` guide's authoring section.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming
-  neither path.
+  neither path. Tried LoRAs: `list_loras(model=<workflow>)`.
 - Fit a crowd's action to what it holds: a candle-holding crowd asked to
   clap rendered three-handed people. State an action the prop allows.
 - A directed crowd move needs its landmark in frame - "the town marches up
