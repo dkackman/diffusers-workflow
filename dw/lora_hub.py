@@ -189,8 +189,15 @@ def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEO
             _IN_FLIGHT.release()
 
     # A daemon thread: a hung Hub request must not hold up server shutdown
-    worker = threading.Thread(target=run, name="lora-hub-search", daemon=True)
-    worker.start()
+    try:
+        worker = threading.Thread(target=run, name="lora-hub-search", daemon=True)
+        worker.start()
+    except Exception as error:
+        _IN_FLIGHT.release()
+        return [], f"Hub search failed: {type(error).__name__}: {error}"
+    except BaseException:
+        _IN_FLIGHT.release()
+        raise
     worker.join(timeout)
     if worker.is_alive():
         return [], f"Hub search timed out after {timeout:g} s"

@@ -209,3 +209,9 @@ class TestRecommend:
         query = "x" * 201
         assert server.get("/api/loras/recommend", params={"model": QWEN, "query": query}).status_code == 422
 
+    def test_a_200_character_query_is_accepted(self, server, hub):
+        query = "x" * 200
+        response = server.get("/api/loras/recommend", params={"model": QWEN, "query": query})
+        assert response.status_code == 200
+        assert "catalog" in response.json()
+

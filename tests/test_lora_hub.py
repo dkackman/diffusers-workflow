@@ -192,3 +192,16 @@ class TestFailure:
         time.sleep(0.6)
         results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
         assert error is None
+
+    def test_a_thread_that_cannot_start_releases_the_lock(self, monkeypatch):
+        class FailingThread:
+            def __init__(self, *args, **kwargs):
+                pass
+            def start(self):
+                raise RuntimeError("can't start new thread")
+        monkeypatch.setattr(lora_hub.threading, "Thread", FailingThread)
+        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        assert results == [] and "can't start new thread" in error
+        # Lock is released, can be acquired immediately
+        assert lora_hub._IN_FLIGHT.acquire(blocking=False)
+        lora_hub._IN_FLIGHT.release()
