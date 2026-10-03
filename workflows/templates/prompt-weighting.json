@@ -13,7 +13,7 @@
                 "configuration": {
                     "component_type": "FluxPipeline",
                     "prompt_weighting": true,
-                    "offload": "model"
+                    "offload": "sequential"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-schnell",
