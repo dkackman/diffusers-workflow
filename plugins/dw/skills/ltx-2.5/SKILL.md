@@ -149,10 +149,11 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    and chain multiply by their passes.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` set to the
    plan's `{fingerprint, minutes, downloads}`.
-3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
-   (call again while `still_running`), then `get_job` for the manifest.
+3. `wait_for_job`, `timeout_seconds` = estimate plus margin;
+   `timeout_applied_seconds` is what you got (`timeout_capped`: the cap cut
+   it). Call again while `still_running`.
 4. Writing costs on a long chain: `"result": {"save": false}` on every step
-   not worth keeping, as `two-stage` does for `base` and `upscale`; missing it
+   not worth keeping, as `two-stage` does for `base` and `upscale`; a miss
    is silent. A saving step carries a `subfolder` - the one shown to the user
    `final`, the rest `intermediate` - so `list_gallery(subfolder="final")`
    lists only deliverables. Keep both in anything you compose.
@@ -161,10 +162,9 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    where the prompt contradicted the image or softness where the refine pass
    was skipped, and `get_output_audio` for a near-silent soundtrack. Then
    `get_job` for the manifest and its warnings, `get_gallery_metadata` for
-   duration, size and audio presence, and hand the user the
-   gallery `url` (`list_gallery`, or the manifest's file name).
-6. Save a run worth keeping (`get_job_workflow`, `save_workflow`) to rerun
-   it by name.
+   duration, size and audio presence, and give the user the gallery `url`
+   (`list_gallery`, or the manifest's file name).
+6. Save a keeper (`get_job_workflow`, `save_workflow`) to rerun it by name.
 
 ## Sources
 
