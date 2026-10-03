@@ -41,8 +41,8 @@ def is_repo_id(value):
 def _resolved(value, variables):
     """A `variable:` reference replaced by the variable's default; anything
     else unchanged."""
-    if isinstance(value, str) and value.startswith(references.VARIABLE):
-        return variables.get(value[len(references.VARIABLE):])
+    if references.is_ref(references.VARIABLE, value):
+        return variables.get(references.ref_name(references.VARIABLE, value))
     return value
 
 
