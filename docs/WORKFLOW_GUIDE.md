@@ -1634,6 +1634,16 @@ this task can still stall mid-run pulling the upscaler.
         "lora_adapter_name": "turbo",
         "seed": 42
     },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
+    },
     "seed": "variable:seed",
     "steps": [
         {
