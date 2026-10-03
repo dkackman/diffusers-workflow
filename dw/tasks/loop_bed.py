@@ -353,12 +353,19 @@ def _looped(segment, sample_rate, crossfade_ms, loop_seconds):
 
 def _empty_finding(rejected, criteria):
     """The one finding for a search that found nothing, naming the rule that
-    threw the most out and the argument that relaxes it."""
+    threw the most out and the argument that relaxes it.
+
+    A window that crosses a shot boundary is counted under `shot_boundary`
+    alone, so the other rules tally in-shot windows only. When any in-shot
+    window existed the dominant of those is named: crossing windows
+    outnumber them on any multi-shot cut and would otherwise always win."""
     if not any(rejected.values()):
         message = "no window fit in the range; widen it or lower min_seconds"
         rule = None
     else:
-        rule = max(rejected, key=lambda name: rejected[name])
+        in_shot = {n: c for n, c in rejected.items() if n != "shot_boundary"}
+        pool = in_shot if any(in_shot.values()) else rejected
+        rule = max(pool, key=lambda name: pool[name])
         message = {
             "too_loud": (
                 f"nothing below {criteria['max_bin_dbfs']:g} dBFS per 50 ms "

@@ -757,6 +757,16 @@ class TestShotBoundaries:
         assert result["candidates"] == []
         assert result["findings"][0]["rejected_by"] == "shot_boundary"
 
+    def test_loud_in_shot_windows_are_blamed_not_the_boundaries(self):
+        loud = track(noise(numpy.random.default_rng(6), 6 * SR, -20.0))
+        result = find_loop_bed(loud, shots=SHOTS, fps=10)
+
+        assert result["candidates"] == []
+        assert result["rejected"]["shot_boundary"] > result["rejected"]["too_loud"]
+        assert result["rejected"]["too_loud"] > 0
+        assert result["findings"][0]["rejected_by"] == "too_loud"
+        assert "max_bin_dbfs" in result["findings"][0]["message"]
+
     def test_a_stretch_no_shot_covers_is_not_searched(self):
         result = find_loop_bed(
             _quiet_track(),
