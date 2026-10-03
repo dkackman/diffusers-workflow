@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from dw_mcp import authoring, prompts, workspaces
+from dw_mcp import authoring, loras, prompts, workspaces
 
 
 class WorkspaceTools:
@@ -231,3 +231,36 @@ class PromptTools:
             device=device,
             acknowledged_cost=acknowledged_cost,
         )
+
+
+class LoraTools:
+    """The LoRA catalog and the opt-in Hub search."""
+
+    def __init__(self, client):
+        self.client = client
+
+    def list_loras(
+        self,
+        model: Optional[str] = None,
+        workflow: Optional[str] = None,
+        status: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> dict:
+        """LoRAs tried on a base model - proven, trial, or rejected with the
+        reason. `model` is a workflow name or a Hub repo id; matching is
+        exact on the base (and the H3 partition). `use_when` says when to
+        reach for one; `trigger` and `scale` say how. Guide: loras."""
+        return loras.list_loras(self.client, model=model, workflow=workflow, status=status, tag=tag)
+
+    def save_lora(self, name: str, entry: dict | str) -> dict:
+        """Save a catalog entry, e.g. promote a trial that worked to
+        `proven` with its job in `evidence`. get_guide("loras") has the
+        entry format."""
+        return loras.save_lora(self.client, name, entry)
+
+    def recommend_loras(self, model: str, query: str, limit: int = 8) -> dict:
+        """Opt-in: catalog LoRAs for `model` ranked against a style request,
+        then Hugging Face Hub adapters of that exact base (queries the Hub;
+        no download, no GPU). Hub rows are candidates to trial, not
+        recommendations - mind each one's `warnings`."""
+        return loras.recommend_loras(self.client, model, query, limit=limit)
