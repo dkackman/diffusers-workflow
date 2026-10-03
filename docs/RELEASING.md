@@ -38,6 +38,9 @@ upscaler and two security fixes.
 - GHSA-crqf-hw9p-r739: `create_workspace`'s MCP result is `name`,
   `default`, `current` and `next` only; `list_workspaces(detail=true)` is
   the opt-in for folder paths. `POST /api/workspaces` is unchanged.
+- `GET /api/loras/recommend` and `recommend_loras`: `hub_error` names the
+  exception type, or the HTTP status, never the exception's text, which
+  could name the server's HF cache directory. The log keeps the full error.
 - UI lockfile bumps for open Dependabot alerts (devalue, dompurify,
   brace-expansion, undici).
 
