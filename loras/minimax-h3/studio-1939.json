@@ -1,0 +1,29 @@
+{
+  "model_name": "lovis93/studio-1939-old-animation-lora-minimax-h3",
+  "weight_name": "studio1939-strong.safetensors",
+  "revision": "19214d4c3989de6caca673d534d0d4b16b73b0f7",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "1930s hand-painted cel animation look (the full-cel r64 file; the repo's studio1939-light is a softer painterly r16). fal-trainer format, attention only - the same format as the proven realism-people entry. Turn prompt expansion off so the trigger stays first",
+  "use_when": "Render a clip as 1930s hand-painted cel animation",
+  "trigger": "gulliv3r, ",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.4,
+      1.0
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "style",
+    "animation",
+    "vintage"
+  ]
+}

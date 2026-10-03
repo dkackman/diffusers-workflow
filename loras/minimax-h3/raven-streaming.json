@@ -1,0 +1,25 @@
+{
+  "model_name": "mvp-lab/MiniMax-H3-RAVEN-Streaming-LoRA",
+  "weight_name": "minimax_h3_raven_streaming_lora_4nfe_preview.safetensors",
+  "revision": "90f30b11639e73ce0e3f2ab6ed70d1a133a66caf",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "Causal streaming generation; its key prefix matches no format the converter knows, so it loads nothing",
+  "use_when": "Do not use under dw",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Keys are prefixed base_model.model.dit., which matches no format diffusers' MiniMax-H3 converter knows: the load warns and applies nothing. It also needs RAVEN's causal chunked sampler"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "streaming"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "model_name": "wcde/Z-Image-Turbo-DeJPEG-Lora",
+  "weight_name": "dejpeg_v3.safetensors",
+  "revision": "a963b554171a35895660af26fe9e931994fb9587",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Removes Turbo's JPEG-like block and ringing artifacts. v3 (r128) is the newest of the repo's files. No trigger, scale not stated. The repo declares no license",
+  "use_when": "Clean JPEG-like artifacts out of Z-Image-Turbo output",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "unknown",
+  "tags": [
+    "quality",
+    "fix",
+    "artifacts"
+  ]
+}

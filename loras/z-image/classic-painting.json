@@ -1,0 +1,22 @@
+{
+  "model_name": "renderartist/Classic-Painting-Z-Image-Turbo-LoRA",
+  "weight_name": "Classic_Painting_Z_Image_Turbo_v1_renderartist_1750.safetensors",
+  "revision": "e873cc474ce517d49d09ed1f64358ff43660b276",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Old Master oil painting, trained on public-domain Art Institute of Chicago works with no artist names. The trigger is taken from the card's examples",
+  "use_when": "An Old Master oil painting",
+  "trigger": "class1cpa1nt",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "painting",
+    "classical"
+  ]
+}

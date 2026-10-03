@@ -1,0 +1,26 @@
+{
+  "model_name": "bdsqlsz/qinglong_DetailedEyes_Z-Image",
+  "weight_name": "qinglong_detailedeye_z-image.safetensors",
+  "revision": "cf2ef7daebdb5c2c042ea09b59b429aeba1e3bb9",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Eye-detail slider (trained 'girl' to 'extremely detailed gradient eyes'): scale works both ways, negative reduces it. No trigger, scale not stated; one user reports a reddish tint. kohya format, includes the refiners",
+  "use_when": "Sharper, more detailed eyes",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      -1.0,
+      1.0
+    ]
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "eyes",
+    "detail",
+    "slider",
+    "quality"
+  ]
+}

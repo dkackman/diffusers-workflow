@@ -1,0 +1,29 @@
+{
+  "model_name": "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair",
+  "weight_name": "Motion_Repair_V2.safetensors",
+  "revision": "8a5126beb17b7de5642ee056ff5a7b60ae0915c7",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Repairs broken fast motion - flips, spins, slow-motion drift, missing transitions. About 0.9 alone, 0.5-0.7 stacked with an action LoRA such as wushu-action. The card states no partition or license; tagged for the keyframe transformer since it is ai-toolkit's default and the wushu card pairs it there",
+  "use_when": "Fast action whose motion breaks or skips",
+  "trigger": "bunny_crisp_motion",
+  "scale": {
+    "default": 0.9,
+    "range": [
+      0.5,
+      0.9
+    ]
+  },
+  "status": "trial",
+  "license": "unknown",
+  "tags": [
+    "motion",
+    "repair",
+    "action"
+  ]
+}

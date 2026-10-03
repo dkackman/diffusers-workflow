@@ -1,0 +1,25 @@
+{
+  "model_name": "alibaba-pai/Qwen-Image-2.1-Fun-Acc-LoRAs",
+  "weight_name": "models/Qwen-Image-2.1-Fun-Acc-4Step.safetensors",
+  "revision": "f7545234760e1847cd8e89e52bd951cb0b7e327f",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "4-step PDD distill in a custom format that needs alibaba-pai's own pipeline",
+  "use_when": "Do not use under dw",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Custom qwenimage21_extracted_prefused_v1 format: .lora_down/.lora_up keys without .weight, plus full norm_q/norm_k/txt_in.text_norm and proj_out weights - diffusers raises Invalid LoRA checkpoint. Needs the vendor's qwenimage21_pdd.py pipeline"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "speed"
+  ]
+}

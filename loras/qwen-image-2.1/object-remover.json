@@ -1,0 +1,22 @@
+{
+  "model_name": "prithivMLmods/Qwen-Image-2.1-Object-Remover-Bbox-turbo",
+  "weight_name": "Qwen-Image-2.1-Object-Remover-Bbox-turbo-4000.safetensors",
+  "revision": "90f708f53feb896a2873378629ffe414e0e584c0",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: removes the object inside a red box drawn on the input image (red 239,68,68). The card's examples run 40 steps; 'turbo' means it also holds stacked with a turbo LoRA",
+  "use_when": "Remove an object marked with a red box",
+  "trigger": "Remove the red highlighted object from the scene",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "remove",
+    "bbox"
+  ]
+}

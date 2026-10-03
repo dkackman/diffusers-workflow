@@ -1,0 +1,22 @@
+{
+  "model_name": "prithivMLmods/Qwen-Image-2.1-Voxel-Style",
+  "weight_name": "Qwen-Image-2.1-Voxel-Style-3000.safetensors",
+  "revision": "b4ccfe9333f04c2f978f2d1bfdfdafe287cbfad1",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: restyles an image as voxel art. The latest of the repo's 1000/2000/3000 checkpoints; the card names none",
+  "use_when": "Restyle an image as voxel art",
+  "trigger": "Transform the image into a voxel style",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "style",
+    "voxel"
+  ]
+}

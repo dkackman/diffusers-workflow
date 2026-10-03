@@ -1,0 +1,23 @@
+{
+  "model_name": "pablodawson/MiniMax-H3-360-Orbit-LoRA",
+  "weight_name": "minimax_h3_flf2v_lora_v1.safetensors",
+  "revision": "5ddbc2dbbe95edbbdaf5017c3e934b1d01791697",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "fl2va",
+  "description": "Frozen-time 360-degree camera orbit; with the same image as first and last frame the clip loops seamlessly. Use the card's instance prompt verbatim ('One frozen instant. Only the camera moves. In a continuous 360 orbit. ...'). Trained at 768x768, 73 frames, 28 steps on the adaln-pruned FL2VA base; no adaln keys, so it loads on the full one, quality there unproven",
+  "use_when": "A looping frozen-moment orbit around a still image",
+  "trigger": "One frozen instant. Only the camera moves. In a continuous 360 orbit.",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "camera",
+    "orbit",
+    "360",
+    "loop"
+  ]
+}

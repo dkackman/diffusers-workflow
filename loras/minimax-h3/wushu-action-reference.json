@@ -1,0 +1,27 @@
+{
+  "model_name": "Jojocodex/wushu-action-v7-minimax-h3-fl2va-ref2va-lora",
+  "weight_name": "wushu_h3_r2v_v7_2000.safetensors",
+  "revision": "1aab496db1c70df44b3edb2cf4e90d8ae3c5b26d",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "ref2va",
+  "description": "The ref2va file of the wushu fight-choreography LoRA - the same moves with the subject held from references. The trigger must start the prompt. diffusion_model. format, r32",
+  "use_when": "A martial-arts fight scene with a referenced subject",
+  "trigger": "wushu_action",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.6,
+      1.0
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "action",
+    "fight",
+    "martial-arts",
+    "reference"
+  ]
+}

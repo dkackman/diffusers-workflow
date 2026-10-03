@@ -1,0 +1,25 @@
+{
+  "model_name": "WarmBloodAban/Qwen-Image-2.1-LoRAs",
+  "weight_name": "Qwen2.1_Anime_consistency.safetensors",
+  "revision": "c4ab5473bfdf585fc19cfd1e280f79d2b0c79947",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: keeps an anime character consistent across edits. The author marks it an experimental parameter test; base step count",
+  "use_when": "Edit an anime character without it drifting off-model",
+  "scale": {
+    "default": 0.7,
+    "range": [
+      0.6,
+      0.8
+    ]
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "edit",
+    "anime",
+    "consistency"
+  ]
+}

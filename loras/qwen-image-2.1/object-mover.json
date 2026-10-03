@@ -1,0 +1,22 @@
+{
+  "model_name": "prithivMLmods/Qwen-Image-2.1-Object-Mover-Bbox-turbo",
+  "weight_name": "Qwen-Image-2.1-Object-Mover-Bbox-turbo-4000.safetensors",
+  "revision": "183eb9034853c03e6ec273d81c324edb3d033f34",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: moves the object in one red box to the spot marked by a second red box. Trained on only 45 pairs",
+  "use_when": "Move an object from one red box to another",
+  "trigger": "Move the object highlighted in the red box to the location indicated by the other red box in the scene.",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "move",
+    "bbox"
+  ]
+}

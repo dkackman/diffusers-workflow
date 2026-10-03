@@ -1,0 +1,25 @@
+{
+  "model_name": "FastVideo/FastVideo-FastH3-4-step-Preview-v1-LoRA",
+  "weight_name": "dense-datafree/adapter_model.safetensors",
+  "revision": "f509e629374cac104e7f62daecce6d1488a3041d",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "FastH3 4-step DMD2 distill; carries full-weight delta keys diffusers' converter refuses",
+  "use_when": "Do not use under dw",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "diffusers' MiniMax-H3 converter rejects its 85 .diff/.diff_b full-weight keys (state_dict should be empty) - the same failure as fasth3-preview; the repo's vsa-* files add to_gate_compress.set_weight keys and need FastVideo's VSA kernel"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "speed"
+  ]
+}

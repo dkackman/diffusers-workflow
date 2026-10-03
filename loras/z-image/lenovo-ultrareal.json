@@ -1,0 +1,21 @@
+{
+  "model_name": "Danrisi/Lenovo_UltraReal_Z_Image",
+  "weight_name": "lenovo_z.safetensors",
+  "revision": "9708e1e10d666d60ca9b97bfdbf1d697fa4acb16",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Amateur phone-photo realism, from the author's UltraReal series. The card is empty: trigger and scale unknown. Overlaps realism",
+  "use_when": "A casual amateur phone-camera photo",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "realism",
+    "photo",
+    "amateur"
+  ]
+}

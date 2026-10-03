@@ -1,0 +1,21 @@
+{
+  "model_name": "tarn59/pixel_art_style_lora_z_image_turbo",
+  "weight_name": "pixel_art_style_z_image_turbo.safetensors",
+  "revision": "0a5092d1619664d94a5a36784f92db84b3ae62bd",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Pixel art style. Scale not stated",
+  "use_when": "Render as pixel art",
+  "trigger": "Pixel art style.",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "pixel-art"
+  ]
+}
