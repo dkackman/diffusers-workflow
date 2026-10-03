@@ -6,10 +6,12 @@ Vendored from https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler
 https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler. Fixed to the v1
 checkpoint's layout: 24 latent channels, 512 wide, twelve residual blocks
 either side of the resize with a temporal convolution after every second one,
-and no attention (the upstream node forces it off). The ComfyUI plumbing,
-the latent normalization wrapper and the other resize modes are not carried:
-diffusers hands MiniMax-H3 latents over already in the space the network was
-trained on, so the caller runs it directly.
+and no attention (the upstream node forces it off). The ComfyUI plumbing and
+the other resize modes are not carried. The node's latent normalization
+wrapper is carried, but by the caller (`upscale_h3_latents` in
+`h3_latent_upscale.py`, whose docstring says why): the training normalized
+latents that were already normalized, a second time, so the network must
+never be run directly on pipeline latents.
 
 MIT License - Copyright (c) LBH-123-AI
 
