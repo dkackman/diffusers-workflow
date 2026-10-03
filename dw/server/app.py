@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
 from ..hub_cache import DownloadManager
-from ..workspace import ConfiguredWorkspace, Workspace
+from ..workspace import LORAS_SUBDIR, ConfiguredWorkspace, Workspace
 from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
@@ -81,6 +81,13 @@ def _store_directories(
     # None when the caller resolved no workspace (a test building an app
     # around three explicit directories)
     state.workspace = os.path.abspath(workspace) if workspace else None
+    # The LoRA catalog this server writes to: the root's loras/, shared by
+    # every workspace like the prompt library. None when there is no root (a
+    # server configured from loose directories) - the shipped catalog is
+    # still read, and a save answers 409
+    state.lora_dir = (
+        os.path.join(state.workspace, LORAS_SUBDIR) if state.workspace else None
+    )
     # The root that holds named workspaces. Its own folders are the default
     # workspace - which is what the three directories above already point at,
     # so a server given individual directory overrides simply has one

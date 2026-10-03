@@ -50,13 +50,18 @@ def workflow_bases(definition):
     """The `(repo, partition)` each pipeline step loads, in step order, once
     each. A base that is not a repo id once its variable is substituted (a
     null default, a local path) is skipped: nothing on the Hub is keyed by it."""
-    variables = definition.get("variables") or {}
+    variables = definition.get("variables")
+    if not isinstance(variables, dict):
+        variables = {}
+    steps = definition.get("steps")
     bases = []
-    for step in definition.get("steps") or []:
+    for step in steps if isinstance(steps, list) else []:
         pipeline = step.get("pipeline") if isinstance(step, dict) else None
         if not isinstance(pipeline, dict):
             continue
-        arguments = pipeline.get("from_pretrained_arguments") or {}
+        arguments = pipeline.get("from_pretrained_arguments")
+        if not isinstance(arguments, dict):
+            arguments = {}
         repo = _resolved(arguments.get("model_name"), variables)
         if not is_repo_id(repo):
             continue

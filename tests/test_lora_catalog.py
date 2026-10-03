@@ -176,3 +176,10 @@ def test_every_proven_base_is_one_a_catalog_workflow_loads():
             data = json.load(file)
         if data["status"] == "proven":
             assert set(data["base_models"]) & loaded, path
+
+
+def test_workflow_bases_tolerates_malformed_containers():
+    # a workflow file is unvalidated input: wrong container types are empty
+    assert workflow_bases({"variables": [], "steps": "nope"}) == []
+    step = {"pipeline": {"from_pretrained_arguments": "x"}}
+    assert workflow_bases({"variables": "x", "steps": [step]}) == []
