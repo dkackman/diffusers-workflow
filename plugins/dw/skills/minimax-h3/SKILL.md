@@ -14,9 +14,9 @@ arguments; prompt format is MiniMax's, from its text not here.
 1. `get_server_info`: the device (H3 is CUDA; quantized configs don't
    run on mps) and the session's workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
-   `list_workflows(shape="audio")`: the family's templates by current name,
+   `list_workflows(shape="audio")`: the family's templates by name,
    `summary`, `traits`, `cost`. Trust the listing over names below.
-3. `get_workflow` on the one chosen, for its variables and defaults.
+3. `get_workflow` on the one chosen: its variables and defaults.
 
 ## Which shape is the request
 
@@ -104,7 +104,8 @@ read the `workflows` guide's authoring section.
   `h3-realism-people-t2v-i2v-r2v.safetensors`, scale 0.7, own `adapter_name`;
   a saved copy): validate warns the name fits neither partition, so never on
   a `ref2va` template. Acc PDD, HyperFlow and drozbay FastH3 need their own
-  loaders, not `loras`: don't try them.
+  loaders, not `loras`: don't try them. Other LoRAs:
+  `list_loras` first.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.

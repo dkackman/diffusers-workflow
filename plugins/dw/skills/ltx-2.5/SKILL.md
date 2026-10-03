@@ -12,10 +12,10 @@ schedule that is not a knob. Every template here fits a 24 GB card.
 
 1. `get_server_info`: the device and workspace. On `mps` they run
    slower than CUDA `cost` says (only text-to-video has run
-   there); on `cpu` say so and stop.
+   there); on `cpu` say so, stop.
 2. `list_workflows(shape="shot")`: every template in the family carries
-   that shape. Take current names, `summary`, `traits` and `cost` from
-   the listing, trusting it over names quoted below.
+   that shape. Take names, `summary`, `traits` and `cost` from the
+   listing over names quoted below.
 3. `get_workflow` on the one chosen, for its variables and defaults.
 4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
    2x upscale - `get_memory` on an idle server; a leftover `live: true` figure
@@ -33,7 +33,7 @@ schedule that is not a knob. Every template here fits a 24 GB card.
 - **Sharper at full size**: `templates/ltx2/two-stage` - eight sigmas at
   768x448, a 2x latent upsample, then renoise and three stage-two sigmas at
   1536x896 carrying audio latents through. The upsample alone is soft;
-  the refine pass supplies the detail. On the user's clip: `refine-clip`.
+  the refine adds the detail. On the user's clip: `refine-clip`.
 - `templates/ltx2/diffusion-decode` compares decoders. Do not offer it: without
   a `shi-labs/natten` build its fallback OOMs on 24GB at any size.
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
@@ -62,7 +62,8 @@ schedule that is not a knob. Every template here fits a 24 GB card.
   added a chunked one 2026-09-29); one 481-frame pass reaches 20 seconds first.
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
-read the `workflows` guide's authoring section first.
+read the `workflows` guide's authoring section first. Other
+LoRAs: `list_loras` first.
 
 ## Hard rules
 
