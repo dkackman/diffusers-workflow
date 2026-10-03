@@ -231,11 +231,16 @@ def get_lora(request: Request, name: str):
     if found is None:
         raise HTTPException(status_code=404, detail=f"Unknown LoRA entry: {name}")
     path, root = found
-    with open(path, "r") as file:
-        return JSONResponse(
-            json.load(file),
-            headers={
-                "X-Lora-Origin": root.origin,
-                "X-Lora-Writable": "true" if root.writable else "false",
-            },
-        )
+    try:
+        with open(path, "r") as file:
+            body = json.load(file)
+    except (OSError, ValueError) as error:
+        logger.warning(f"Unreadable LoRA entry {name}: {error}")
+        raise HTTPException(status_code=404, detail=f"LoRA entry {name} is unreadable")
+    return JSONResponse(
+        body,
+        headers={
+            "X-Lora-Origin": root.origin,
+            "X-Lora-Writable": "true" if root.writable else "false",
+        },
+    )

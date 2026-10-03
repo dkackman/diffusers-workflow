@@ -261,10 +261,11 @@ reference, and a prompt duplicated per workspace would resolve to different
 text depending on where a workflow happened to be saved. `workflows`,
 `prompts`, `assets` and `outputs` are reserved names for that reason.
 
-`loras` is the LoRA catalog, shared by every workspace like `prompts/`.
-
 Three more names are reserved beside `workflows`, `prompts`, `assets` and
-`outputs`: `exports`, `common` and `loras`. `POST /api/jobs/{id}/export` gathers one
+`outputs`: `exports`, `common` and `loras`. `loras/` is the LoRA catalog,
+shared by every workspace like `prompts/`; a workspace already named `loras`
+stops being listed on upgrade, and the server logs a warning at start naming
+its directory. `POST /api/jobs/{id}/export` gathers one
 finished job into `<root>/exports/<job id>/`, and that folder is never mistaken
 for a workspace.
 

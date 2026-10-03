@@ -146,6 +146,16 @@ class TestWrites:
         assert server.delete("/api/loras/mine").json() == {"name": "mine", "deleted": True}
         assert server.get("/api/loras/mine").status_code == 404
 
+    def test_a_corrupt_entry_is_a_404_naming_it_unreadable(self, server):
+        path = os.path.join(server.workspace.root, "loras", "bad.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as file:
+            file.write("{not json")
+        response = server.get("/api/loras/bad")
+        assert response.status_code == 404
+        assert "bad" in response.json()["detail"]
+        assert "unreadable" in response.json()["detail"]
+
     def test_the_schema_has_its_own_route(self, server):
         assert server.get("/api/lora-schema").json()["title"] == "LoRA catalog entry"
 
@@ -215,3 +225,30 @@ class TestRecommend:
         assert response.status_code == 200
         assert "catalog" in response.json()
 
+
+
+def test_a_workspace_named_loras_is_warned_about(tmp_path, monkeypatch, caplog):
+    for variable in ("DW_PROMPT_PATH", "DW_ASSET_PATH", "DW_WORKFLOW_PATH", "DW_PROMPT_DIR", "DW_ASSET_DIR"):
+        monkeypatch.delenv(variable, raising=False)
+    workspace = Workspace(tmp_path / "studio", "flag").ensure()
+    old = tmp_path / "studio" / "loras"
+    for sub in ("workflows", "assets", "outputs"):
+        (old / sub).mkdir(parents=True)
+    manager = JobManager(
+        workspace.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=workspace.workflows,
+    )
+    with caplog.at_level("WARNING", logger="dw"):
+        create_app(
+            workflow_dir=workspace.workflows,
+            output_dir=workspace.outputs,
+            job_manager=manager,
+            prompt_dir=workspace.prompts,
+            asset_dir=workspace.assets,
+            examples_dirs=[],
+            workspace=workspace.root,
+        )
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(str(old) in m and "reserved" in m for m in messages)

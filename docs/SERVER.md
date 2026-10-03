@@ -439,6 +439,18 @@ The editor's forms come from these; they are just as usable from scripts:
   403; saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
 - `GET /api/prompts/{name:path}/download` — download a prompt file as text
+- `GET /api/loras?model=&workflow=&status=&tag=`, `GET/PUT/DELETE /api/loras/{name}` —
+  the LoRA catalog (see [LORAS.md](LORAS.md#lora-catalog)): one JSON file per
+  tried LoRA, in the root's writable `loras/` ahead of the shipped read-only
+  ones. The listing carries `libraries` and an `origin`/`writable` per entry;
+  `model` is a Hub repo id or a workflow name and matches exactly. `GET` of an
+  entry that cannot be parsed is a 404 naming it unreadable; deleting a
+  read-only entry is a 403; saves are validated against the entry schema,
+  served at `GET /api/lora-schema`
+- `GET /api/loras/recommend?model=&query=&limit=` — catalog entries for the
+  model ranked against the query, then Hub candidates for the same exact base
+  (the one place dw searches the Hub, only when called); `hub_error` when the
+  Hub is unreachable, and a concurrent search gets the catalog rows only
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
   and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
   queue an enhancement as an ordinary job whose saved text file is the
