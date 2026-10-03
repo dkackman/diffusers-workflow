@@ -73,13 +73,15 @@ def workflow_bases(definition):
 
 
 def matches(entry, bases):
-    """Whether an entry fits any of `bases`. A partitioned entry fits a step
-    of that partition, or a bare repo (no partition asked for)."""
+    """Whether an entry fits any of `bases`. A partitioned entry (one partition or a list)
+    fits a step of one of them, or a bare repo (no partition asked for)."""
     constraint = entry.get("workflow")
+    if isinstance(constraint, str):
+        constraint = [constraint]
     for repo, partition in bases:
         if repo not in entry.get("base_models", []):
             continue
-        if constraint is None or partition is None or constraint == partition:
+        if constraint is None or partition is None or partition in constraint:
             return True
     return False
 

@@ -54,6 +54,12 @@ class TestSchema:
         assert entry_errors(entry(workflow="ref2va")) is None
         assert entry_errors(entry(workflow="i2v")) is not None
 
+    def test_workflow_accepts_a_list_of_partitions(self):
+        assert entry_errors(entry(workflow=["t2va", "fl2va"])) is None
+        assert entry_errors(entry(workflow=["t2va", "i2v"])) is not None
+        assert entry_errors(entry(workflow=[])) is not None
+        assert entry_errors(entry(workflow=["t2va", "t2va"])) is not None
+
 
 class TestRepoIds:
     @pytest.mark.parametrize("value", ["Qwen/Qwen-Image-2.1", "a/b.c_d-e"])
@@ -111,6 +117,14 @@ class TestMatching:
 
     def test_a_bare_repo_lists_every_partition(self):
         h3 = entry(base_models=["MiniMaxAI/MiniMax-H3"], workflow="t2va")
+        assert matches(h3, [("MiniMaxAI/MiniMax-H3", None)])
+
+
+    def test_a_list_constraint_fits_any_member(self):
+        h3 = entry(base_models=["MiniMaxAI/MiniMax-H3"], workflow=["t2va", "fl2va"])
+        assert matches(h3, [("MiniMaxAI/MiniMax-H3", "fl2va")])
+        assert matches(h3, [("MiniMaxAI/MiniMax-H3", "t2va")])
+        assert not matches(h3, [("MiniMaxAI/MiniMax-H3", "ref2va")])
         assert matches(h3, [("MiniMaxAI/MiniMax-H3", None)])
 
 
@@ -183,3 +197,27 @@ def test_workflow_bases_tolerates_malformed_containers():
     assert workflow_bases({"variables": [], "steps": "nope"}) == []
     step = {"pipeline": {"from_pretrained_arguments": "x"}}
     assert workflow_bases({"variables": "x", "steps": [step]}) == []
+
+
+def test_every_h3_workflow_has_a_usable_shipped_entry():
+    """A shipped H3 workflow must match at least one non-rejected entry, or
+    recommend_loras has nothing to say for it."""
+    entries = []
+    for path in SHIPPED:
+        with open(path) as file:
+            data = json.load(file)
+        if data["status"] != "rejected":
+            entries.append(data)
+    checked = 0
+    for path in glob.glob(os.path.join(REPO, "workflows", "**", "*.json"), recursive=True):
+        with open(path) as file:
+            try:
+                definition = json.load(file)
+            except ValueError:
+                continue
+        bases = [pair for pair in workflow_bases(definition) if pair[0] == "MiniMaxAI/MiniMax-H3"]
+        if not bases:
+            continue
+        checked += 1
+        assert any(matches(e, bases) for e in entries), path
+    assert checked

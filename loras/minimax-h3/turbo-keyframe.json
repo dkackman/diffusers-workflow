@@ -5,9 +5,12 @@
   "base_models": [
     "MiniMaxAI/MiniMax-H3"
   ],
-  "workflow": "t2va",
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
   "description": "8-step turbo for the keyframe partition (t2va/fl2va), 768p",
-  "use_when": "Any T2VA or FL2VA render; the shipped templates already load it through lora_model_name/lora_weight_name",
+  "use_when": "Any T2VA or FL2VA render at 768p; the 768p templates already load this file through lora_model_name/lora_weight_name (the 544p templates load minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors)",
   "scale": {
     "default": 1.0
   },

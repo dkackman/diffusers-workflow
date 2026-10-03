@@ -5,7 +5,10 @@
   "base_models": [
     "MiniMaxAI/MiniMax-H3"
   ],
-  "workflow": "t2va",
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
   "description": "4-step v1.2 turbo, keyframe partition, 768p - a draft path",
   "use_when": "A faster draft render (~25% faster); set num_inference_steps 5. Keep 8-step for finals",
   "scale": {
