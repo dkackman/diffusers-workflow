@@ -195,7 +195,7 @@ def test_a_svelte_file_counts_its_code_lines(tmp_path):
     component = tmp_path / "ui" / "src" / "Card.svelte"
     component.parent.mkdir(parents=True)
     component.write_text(
-        "<script lang=\"ts\">\n"
+        '<script lang="ts">\n'
         "  // a comment\n"
         "  let { title } = $props()\n"
         "</script>\n"
@@ -243,12 +243,10 @@ def svelte_code_lines(path):
 and in `sloc`, replace the `counts[layer] += ...` line with:
 
 ```python
-                if path.suffix == ".svelte":
-                    counts[layer] += svelte_code_lines(path)
-                else:
-                    counts[layer] += SourceAnalysis.from_file(
-                        str(path), layer
-                    ).code_count
+if path.suffix == ".svelte":
+    counts[layer] += svelte_code_lines(path)
+else:
+    counts[layer] += SourceAnalysis.from_file(str(path), layer).code_count
 ```
 
 Add `import re` if the module does not already import it.
@@ -677,7 +675,9 @@ WORKSPACE_NAMES = json.loads(
 )
 
 
-@pytest.mark.parametrize("case", WORKSPACE_NAMES, ids=lambda c: c["name"][:12] or "empty")
+@pytest.mark.parametrize(
+    "case", WORKSPACE_NAMES, ids=lambda c: c["name"][:12] or "empty"
+)
 def test_the_engine_decides_each_shared_workspace_name_case(case):
     if case["valid"]:
         validate_workspace_name(case["name"], reserved=RESERVED_WORKSPACE_NAMES)

@@ -117,7 +117,11 @@ def _model_in(mode: str):
         env["DW_STRICT_RESPONSES"] = "1"
     code = "from dw.server.api_models import ApiModel; print(ApiModel.model_config['extra'])"
     return subprocess.run(
-        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        [sys.executable, "-c", code],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
@@ -154,8 +158,12 @@ def test_a_lenient_model_passes_an_undeclared_key_through():
 def _dump(extra_env):
     env = {**os.environ, **extra_env}
     return subprocess.run(
-        [sys.executable, str(DUMP), "--stdout"], env=env, cwd=REPO,
-        capture_output=True, text=True, check=True,
+        [sys.executable, str(DUMP), "--stdout"],
+        env=env,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
 
@@ -255,7 +263,9 @@ def main(argv: list[str]) -> int:
     if "--check" in argv:
         current = OPENAPI_PATH.read_text() if OPENAPI_PATH.exists() else ""
         if current != text:
-            print(f"{OPENAPI_PATH.relative_to(REPO)} is stale: run python scripts/dump_openapi.py")
+            print(
+                f"{OPENAPI_PATH.relative_to(REPO)} is stale: run python scripts/dump_openapi.py"
+            )
             return 1
         return 0
     OPENAPI_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -396,7 +406,9 @@ UI_READ_ROUTES = [
 def _success_schema(document, method, path):
     responses = document["paths"][path][method]["responses"]
     ok = next(code for code in responses if code.startswith("2"))
-    return responses[ok].get("content", {}).get("application/json", {}).get("schema", {})
+    return (
+        responses[ok].get("content", {}).get("application/json", {}).get("schema", {})
+    )
 
 
 import pytest  # noqa: E402  (beside the routes it parametrizes over)
@@ -647,7 +659,9 @@ def test_every_json_route_the_ui_calls_declares_its_response():
 
     covered = {re.sub(r"\{[^}]*\}", "{}", path) for _, path in UI_READ_ROUTES}
     missing = sorted(p for p in _api_ts_paths() - NOT_IN_CONTRACT if p not in covered)
-    assert missing == [], f"api.ts calls routes with no declared response model: {missing}"
+    assert missing == [], (
+        f"api.ts calls routes with no declared response model: {missing}"
+    )
 ```
 
   If `tests` is not importable as a package, move `UI_READ_ROUTES` into `tests/api_contract_routes.py` and import it from both tests. Ledger that.

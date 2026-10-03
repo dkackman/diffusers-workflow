@@ -37,7 +37,9 @@ class TestSchema:
     def test_proven_needs_evidence(self):
         assert entry_errors(entry(status="proven")) is not None
         assert (
-            entry_errors(entry(status="proven", evidence=[{"issue": 585, "note": "best arm"}]))
+            entry_errors(
+                entry(status="proven", evidence=[{"issue": 585, "note": "best arm"}])
+            )
             is None
         )
 
@@ -66,7 +68,9 @@ class TestRepoIds:
     def test_a_repo_id(self, value):
         assert is_repo_id(value)
 
-    @pytest.mark.parametrize("value", ["noslash", "a/b/c", "../x", "a/..", None, 3, "variable:x"])
+    @pytest.mark.parametrize(
+        "value", ["noslash", "a/b/c", "../x", "a/..", None, 3, "variable:x"]
+    )
     def test_not_a_repo_id(self, value):
         assert not is_repo_id(value)
 
@@ -75,8 +79,21 @@ class TestWorkflowBases:
     def test_each_pipeline_step_names_its_base_and_partition(self):
         definition = {
             "steps": [
-                {"pipeline": {"from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}}},
-                {"pipeline": {"from_pretrained_arguments": {"model_name": "Qwen/Qwen-Image-2.1"}}},
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "MiniMaxAI/MiniMax-H3",
+                            "workflow": "ref2va",
+                        }
+                    }
+                },
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "Qwen/Qwen-Image-2.1"
+                        }
+                    }
+                },
                 {"task": {"command": "gather_images"}},
             ]
         }
@@ -88,14 +105,26 @@ class TestWorkflowBases:
     def test_a_variable_reference_takes_the_variables_default(self):
         definition = {
             "variables": {"model": "Qwen/Qwen-Image-2.1"},
-            "steps": [{"pipeline": {"from_pretrained_arguments": {"model_name": "variable:model"}}}],
+            "steps": [
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {"model_name": "variable:model"}
+                    }
+                }
+            ],
         }
         assert workflow_bases(definition) == [("Qwen/Qwen-Image-2.1", None)]
 
     def test_a_variable_with_no_repo_default_is_skipped(self):
         definition = {
             "variables": {"model": None},
-            "steps": [{"pipeline": {"from_pretrained_arguments": {"model_name": "variable:model"}}}],
+            "steps": [
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {"model_name": "variable:model"}
+                    }
+                }
+            ],
         }
         assert workflow_bases(definition) == []
 
@@ -118,7 +147,6 @@ class TestMatching:
     def test_a_bare_repo_lists_every_partition(self):
         h3 = entry(base_models=["MiniMaxAI/MiniMax-H3"], workflow="t2va")
         assert matches(h3, [("MiniMaxAI/MiniMax-H3", None)])
-
 
     def test_a_list_constraint_fits_any_member(self):
         h3 = entry(base_models=["MiniMaxAI/MiniMax-H3"], workflow=["t2va", "fl2va"])
@@ -148,7 +176,11 @@ class TestRanking:
 
     def test_rejection_reasons_come_from_the_first_evidence_note(self):
         entries = {
-            "fast": entry(model_name="drozbay/FastH3", status="rejected", evidence=[{"note": ".diff keys"}]),
+            "fast": entry(
+                model_name="drozbay/FastH3",
+                status="rejected",
+                evidence=[{"note": ".diff keys"}],
+            ),
             "ok": entry(),
         }
         assert rejection_reasons(entries) == {"drozbay/FastH3": ".diff keys"}
@@ -171,14 +203,18 @@ def test_every_shipped_entry_is_valid(path):
 @pytest.mark.parametrize("path", SHIPPED, ids=lambda p: os.path.relpath(p, REPO))
 def test_every_shipped_entry_pins_a_revision(path):
     with open(path) as file:
-        assert json.load(file).get("revision"), "shipped entries pin the commit they were tried at"
+        assert json.load(file).get("revision"), (
+            "shipped entries pin the commit they were tried at"
+        )
 
 
 def test_every_proven_base_is_one_a_catalog_workflow_loads():
     """A proven entry for a base no shipped workflow loads is knowledge
     nobody can reach from list_workflows."""
     loaded = set()
-    for path in glob.glob(os.path.join(REPO, "workflows", "**", "*.json"), recursive=True):
+    for path in glob.glob(
+        os.path.join(REPO, "workflows", "**", "*.json"), recursive=True
+    ):
         with open(path) as file:
             try:
                 definition = json.load(file)
@@ -209,13 +245,19 @@ def test_every_h3_workflow_has_a_usable_shipped_entry():
         if data["status"] != "rejected":
             entries.append(data)
     checked = 0
-    for path in glob.glob(os.path.join(REPO, "workflows", "**", "*.json"), recursive=True):
+    for path in glob.glob(
+        os.path.join(REPO, "workflows", "**", "*.json"), recursive=True
+    ):
         with open(path) as file:
             try:
                 definition = json.load(file)
             except ValueError:
                 continue
-        bases = [pair for pair in workflow_bases(definition) if pair[0] == "MiniMaxAI/MiniMax-H3"]
+        bases = [
+            pair
+            for pair in workflow_bases(definition)
+            if pair[0] == "MiniMaxAI/MiniMax-H3"
+        ]
         if not bases:
             continue
         checked += 1

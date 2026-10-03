@@ -296,7 +296,9 @@ class TestSchema:
     def test_proven_needs_evidence(self):
         assert entry_errors(entry(status="proven")) is not None
         assert (
-            entry_errors(entry(status="proven", evidence=[{"issue": 585, "note": "best arm"}]))
+            entry_errors(
+                entry(status="proven", evidence=[{"issue": 585, "note": "best arm"}])
+            )
             is None
         )
 
@@ -319,7 +321,9 @@ class TestRepoIds:
     def test_a_repo_id(self, value):
         assert is_repo_id(value)
 
-    @pytest.mark.parametrize("value", ["noslash", "a/b/c", "../x", "a/..", None, 3, "variable:x"])
+    @pytest.mark.parametrize(
+        "value", ["noslash", "a/b/c", "../x", "a/..", None, 3, "variable:x"]
+    )
     def test_not_a_repo_id(self, value):
         assert not is_repo_id(value)
 
@@ -328,8 +332,21 @@ class TestWorkflowBases:
     def test_each_pipeline_step_names_its_base_and_partition(self):
         definition = {
             "steps": [
-                {"pipeline": {"from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}}},
-                {"pipeline": {"from_pretrained_arguments": {"model_name": "Qwen/Qwen-Image-2.1"}}},
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "MiniMaxAI/MiniMax-H3",
+                            "workflow": "ref2va",
+                        }
+                    }
+                },
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "Qwen/Qwen-Image-2.1"
+                        }
+                    }
+                },
                 {"task": {"command": "gather_images"}},
             ]
         }
@@ -341,14 +358,26 @@ class TestWorkflowBases:
     def test_a_variable_reference_takes_the_variables_default(self):
         definition = {
             "variables": {"model": "Qwen/Qwen-Image-2.1"},
-            "steps": [{"pipeline": {"from_pretrained_arguments": {"model_name": "variable:model"}}}],
+            "steps": [
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {"model_name": "variable:model"}
+                    }
+                }
+            ],
         }
         assert workflow_bases(definition) == [("Qwen/Qwen-Image-2.1", None)]
 
     def test_a_variable_with_no_repo_default_is_skipped(self):
         definition = {
             "variables": {"model": None},
-            "steps": [{"pipeline": {"from_pretrained_arguments": {"model_name": "variable:model"}}}],
+            "steps": [
+                {
+                    "pipeline": {
+                        "from_pretrained_arguments": {"model_name": "variable:model"}
+                    }
+                }
+            ],
         }
         assert workflow_bases(definition) == []
 
@@ -393,7 +422,11 @@ class TestRanking:
 
     def test_rejection_reasons_come_from_the_first_evidence_note(self):
         entries = {
-            "fast": entry(model_name="drozbay/FastH3", status="rejected", evidence=[{"note": ".diff keys"}]),
+            "fast": entry(
+                model_name="drozbay/FastH3",
+                status="rejected",
+                evidence=[{"note": ".diff keys"}],
+            ),
             "ok": entry(),
         }
         assert rejection_reasons(entries) == {"drozbay/FastH3": ".diff keys"}
@@ -487,7 +520,9 @@ STATUS_ORDER = {"proven": 0, "trial": 1, "rejected": 2}
 
 REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 # Words that say nothing about which LoRA: every style LoRA is a "style lora"
-STOP_WORDS = frozenset({"style", "lora", "loras", "the", "and", "with", "for", "image", "images"})
+STOP_WORDS = frozenset(
+    {"style", "lora", "loras", "the", "and", "with", "for", "image", "images"}
+)
 MIN_TERM_LENGTH = 3
 
 
@@ -506,7 +541,7 @@ def _resolved(value, variables):
     """A `variable:` reference replaced by the variable's default; anything
     else unchanged."""
     if isinstance(value, str) and value.startswith(references.VARIABLE):
-        return variables.get(value[len(references.VARIABLE):])
+        return variables.get(value[len(references.VARIABLE) :])
     return value
 
 
@@ -548,14 +583,19 @@ def query_terms(query):
     words = re.findall(r"[a-z0-9]+", (query or "").lower())
     terms = []
     for word in words:
-        if len(word) >= MIN_TERM_LENGTH and word not in STOP_WORDS and word not in terms:
+        if (
+            len(word) >= MIN_TERM_LENGTH
+            and word not in STOP_WORDS
+            and word not in terms
+        ):
             terms.append(word)
     return terms
 
 
 def _score(entry, terms):
     text = " ".join(
-        [entry.get("use_when", ""), entry.get("description", "")] + list(entry.get("tags", []))
+        [entry.get("use_when", ""), entry.get("description", "")]
+        + list(entry.get("tags", []))
     ).lower()
     return sum(1 for term in terms if term in text)
 
@@ -634,14 +674,18 @@ def test_every_shipped_entry_is_valid(path):
 @pytest.mark.parametrize("path", SHIPPED, ids=lambda p: os.path.relpath(p, REPO))
 def test_every_shipped_entry_pins_a_revision(path):
     with open(path) as file:
-        assert json.load(file).get("revision"), "shipped entries pin the commit they were tried at"
+        assert json.load(file).get("revision"), (
+            "shipped entries pin the commit they were tried at"
+        )
 
 
 def test_every_proven_base_is_one_a_catalog_workflow_loads():
     """A proven entry for a base no shipped workflow loads is knowledge
     nobody can reach from list_workflows."""
     loaded = set()
-    for path in glob.glob(os.path.join(REPO, "workflows", "**", "*.json"), recursive=True):
+    for path in glob.glob(
+        os.path.join(REPO, "workflows", "**", "*.json"), recursive=True
+    ):
         with open(path) as file:
             try:
                 definition = json.load(file)
@@ -818,20 +862,57 @@ def write(root, name, body):
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    for variable in ("DW_PROMPT_PATH", "DW_ASSET_PATH", "DW_WORKFLOW_PATH", "DW_PROMPT_DIR", "DW_ASSET_DIR"):
+    for variable in (
+        "DW_PROMPT_PATH",
+        "DW_ASSET_PATH",
+        "DW_WORKFLOW_PATH",
+        "DW_PROMPT_DIR",
+        "DW_ASSET_DIR",
+    ):
         monkeypatch.delenv(variable, raising=False)
     checkout = tmp_path / "repo"
     (checkout / "workflows" / "models").mkdir(parents=True)
-    write(str(checkout / "workflows"), "models/qwen", {
-        "steps": [{"name": "s", "pipeline": {"from_pretrained_arguments": {"model_name": QWEN}}}]
-    })
-    write(str(checkout / "workflows"), "models/h3-ref", {
-        "steps": [{"name": "s", "pipeline": {"from_pretrained_arguments": {"model_name": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}}}]
-    })
+    write(
+        str(checkout / "workflows"),
+        "models/qwen",
+        {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {"from_pretrained_arguments": {"model_name": QWEN}},
+                }
+            ]
+        },
+    )
+    write(
+        str(checkout / "workflows"),
+        "models/h3-ref",
+        {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "from_pretrained_arguments": {
+                            "model_name": "MiniMaxAI/MiniMax-H3",
+                            "workflow": "ref2va",
+                        }
+                    },
+                }
+            ]
+        },
+    )
     write(str(checkout / "loras"), "qwen-image/voxel", entry())
-    write(str(checkout / "loras"), "minimax-h3/realism", entry(
-        model_name="fal/R", base_models=["MiniMaxAI/MiniMax-H3"], workflow="t2va",
-        status="proven", evidence=[{"note": "best"}]))
+    write(
+        str(checkout / "loras"),
+        "minimax-h3/realism",
+        entry(
+            model_name="fal/R",
+            base_models=["MiniMaxAI/MiniMax-H3"],
+            workflow="t2va",
+            status="proven",
+            evidence=[{"note": "best"}],
+        ),
+    )
     write(str(checkout / "loras"), "broken", {"model_name": "not valid"})
     workspace = Workspace(tmp_path / "studio", "flag").ensure()
     manager = JobManager(
@@ -858,7 +939,10 @@ def server(tmp_path, monkeypatch):
 class TestListing:
     def test_lists_valid_entries_and_skips_an_invalid_file(self, server):
         body = server.get("/api/loras").json()
-        assert [row["name"] for row in body["loras"]] == ["minimax-h3/realism", "qwen-image/voxel"]
+        assert [row["name"] for row in body["loras"]] == [
+            "minimax-h3/realism",
+            "qwen-image/voxel",
+        ]
         assert body["loras"][0]["origin"] == "examples"
         assert body["loras"][0]["writable"] is False
 
@@ -866,7 +950,12 @@ class TestListing:
         body = server.get("/api/loras", params={"model": QWEN}).json()
         assert [row["name"] for row in body["loras"]] == ["qwen-image/voxel"]
         assert body["resolved"] == [{"repo": QWEN, "workflow": None}]
-        assert server.get("/api/loras", params={"model": "Qwen/Qwen-Image-2.1-2509"}).json()["loras"] == []
+        assert (
+            server.get(
+                "/api/loras", params={"model": "Qwen/Qwen-Image-2.1-2509"}
+            ).json()["loras"]
+            == []
+        )
 
     def test_a_workflow_name_resolves_to_its_bases(self, server):
         body = server.get("/api/loras", params={"model": "models/qwen"}).json()
@@ -875,14 +964,21 @@ class TestListing:
     def test_a_reference_workflow_does_not_list_a_t2va_entry(self, server):
         body = server.get("/api/loras", params={"model": "models/h3-ref"}).json()
         assert body["loras"] == []
-        assert body["resolved"] == [{"repo": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}]
+        assert body["resolved"] == [
+            {"repo": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}
+        ]
 
     def test_the_workflow_parameter_narrows_a_repo(self, server):
         params = {"model": "MiniMaxAI/MiniMax-H3", "workflow": "ref2va"}
         assert server.get("/api/loras", params=params).json()["loras"] == []
 
     def test_status_and_tag_filter(self, server):
-        assert [r["name"] for r in server.get("/api/loras", params={"status": "proven"}).json()["loras"]] == ["minimax-h3/realism"]
+        assert [
+            r["name"]
+            for r in server.get("/api/loras", params={"status": "proven"}).json()[
+                "loras"
+            ]
+        ] == ["minimax-h3/realism"]
 
     def test_neither_a_workflow_nor_a_repo_is_a_400(self, server):
         response = server.get("/api/loras", params={"model": "no-such-thing"})
@@ -892,7 +988,9 @@ class TestListing:
 
 class TestWrites:
     def test_save_lands_in_the_roots_library_and_shadows_the_shipped_one(self, server):
-        response = server.put("/api/loras/qwen-image/voxel", json={"entry": entry(scale={"default": 0.8})})
+        response = server.put(
+            "/api/loras/qwen-image/voxel", json={"entry": entry(scale={"default": 0.8})}
+        )
         assert response.status_code == 200
         saved = os.path.join(server.workspace.root, "loras", "qwen-image", "voxel.json")
         assert os.path.isfile(saved)
@@ -906,7 +1004,11 @@ class TestWrites:
 
     def test_a_traversing_name_is_a_400(self, server):
         # the client may normalise the '..' away, which lands on no route at all
-        assert server.put("/api/loras/../x", json={"entry": entry()}).status_code in (400, 404, 405)
+        assert server.put("/api/loras/../x", json={"entry": entry()}).status_code in (
+            400,
+            404,
+            405,
+        )
 
     def test_the_name_recommend_is_refused(self, server):
         response = server.put("/api/loras/recommend", json={"entry": entry()})
@@ -915,7 +1017,12 @@ class TestWrites:
     def test_a_named_workspace_sees_the_same_library(self, server):
         server.put("/api/loras/mine", json={"entry": entry()})
         create_workspace(server.workspace, "other")
-        names = [r["name"] for r in server.get("/api/loras", params={"workspace": "other"}).json()["loras"]]
+        names = [
+            r["name"]
+            for r in server.get("/api/loras", params={"workspace": "other"}).json()[
+                "loras"
+            ]
+        ]
         assert "mine" in names
 
     def test_deleting_a_shipped_entry_is_a_403(self, server):
@@ -923,7 +1030,10 @@ class TestWrites:
 
     def test_deleting_an_own_entry(self, server):
         server.put("/api/loras/mine", json={"entry": entry()})
-        assert server.delete("/api/loras/mine").json() == {"name": "mine", "deleted": True}
+        assert server.delete("/api/loras/mine").json() == {
+            "name": "mine",
+            "deleted": True,
+        }
         assert server.get("/api/loras/mine").status_code == 404
 
     def test_the_schema_has_its_own_route(self, server):
@@ -1003,9 +1113,19 @@ from ...lora_catalog import (
     ranked,
 )
 from ...schema import load_schema
-from ...security import InvalidInputError, SecurityError, validate_lora_name, validate_path
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_lora_name,
+    validate_path,
+)
 from ...workspace import Workspace, forget_workspace_usage
-from ..deps import lora_library_missing, selected_workspace, server_lora_library, sources_for
+from ..deps import (
+    lora_library_missing,
+    selected_workspace,
+    server_lora_library,
+    sources_for,
+)
 from ...lora_catalog import workflow_bases
 
 logger = logging.getLogger("dw")
@@ -1061,7 +1181,9 @@ def resolve_model(state, ws, model, partition=None):
             with open(found[0], "r") as file:
                 bases = workflow_bases(json.load(file))
         except (OSError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=f"Workflow '{model}' cannot be read: {error}")
+            raise HTTPException(
+                status_code=400, detail=f"Workflow '{model}' cannot be read: {error}"
+            )
     elif is_repo_id(model):
         bases = [(model, None)]
     else:
@@ -1106,7 +1228,11 @@ def list_loras(
     if tag:
         entries = {n: e for n, e in entries.items() if tag in e.get("tags", [])}
     body["loras"] = [
-        {**row, "origin": roots[row["name"]].origin, "writable": roots[row["name"]].writable}
+        {
+            **row,
+            "origin": roots[row["name"]].origin,
+            "writable": roots[row["name"]].writable,
+        }
         for row in sorted(ranked(entries, []), key=lambda row: row["name"])
     ]
     return body
@@ -1126,7 +1252,9 @@ def save_lora(http_request: Request, name: str, request: LoraRequest):
     except InvalidInputError as error:
         raise HTTPException(status_code=400, detail=str(error))
     if bare in RESERVED_NAMES:
-        raise HTTPException(status_code=400, detail=f"'{bare}' is reserved by the LoRA routes")
+        raise HTTPException(
+            status_code=400, detail=f"'{bare}' is reserved by the LoRA routes"
+        )
     problem = entry_errors(request.entry)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
@@ -1134,7 +1262,9 @@ def save_lora(http_request: Request, name: str, request: LoraRequest):
     if root is None:
         raise lora_library_missing()
     try:
-        path = validate_path(os.path.join(root.root, f"{bare}.json"), root.root, allow_create=True)
+        path = validate_path(
+            os.path.join(root.root, f"{bare}.json"), root.root, allow_create=True
+        )
     except SecurityError as error:
         raise HTTPException(status_code=400, detail=str(error))
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1233,10 +1363,23 @@ def sibling(name):
     return SimpleNamespace(rfilename=name)
 
 
-def info(repo, files=("lora.safetensors",), downloads=10, card=None, gated=False, modified=NEW):
+def info(
+    repo,
+    files=("lora.safetensors",),
+    downloads=10,
+    card=None,
+    gated=False,
+    modified=NEW,
+):
     return SimpleNamespace(
-        id=repo, downloads=downloads, likes=1, last_modified=modified, gated=gated,
-        sha=f"{repo}-sha", siblings=[sibling(f) for f in files], card_data=card,
+        id=repo,
+        downloads=downloads,
+        likes=1,
+        last_modified=modified,
+        gated=gated,
+        sha=f"{repo}-sha",
+        siblings=[sibling(f) for f in files],
+        card_data=card,
     )
 
 
@@ -1255,10 +1398,14 @@ class FakeApi:
     def model_info(self, repo):
         return SimpleNamespace(last_modified=self.base_modified)
 
-    def parse_safetensors_file_metadata(self, repo, filename, *, revision=None, timeout=None):
+    def parse_safetensors_file_metadata(
+        self, repo, filename, *, revision=None, timeout=None
+    ):
         if repo in self.fail_header:
             raise RuntimeError("range read refused")
-        return SimpleNamespace(tensors=dict.fromkeys(self.headers.get(repo, ["x.lora_A.weight"])))
+        return SimpleNamespace(
+            tensors=dict.fromkeys(self.headers.get(repo, ["x.lora_A.weight"]))
+        )
 
 
 F = "base_model:adapter:Qwen/Qwen-Image-2.1"
@@ -1266,13 +1413,18 @@ F = "base_model:adapter:Qwen/Qwen-Image-2.1"
 
 class TestFormat:
     def test_diffusers_peft_keys(self):
-        assert classify_format(["transformer.blocks.0.attn.to_q.lora_A.weight"]) == "diffusers"
+        assert (
+            classify_format(["transformer.blocks.0.attn.to_q.lora_A.weight"])
+            == "diffusers"
+        )
 
     def test_kohya_keys(self):
         assert classify_format(["lora_unet_blocks_0_attn.lora_down.weight"]) == "kohya"
 
     def test_full_weight_keys_win(self):
-        assert classify_format(["a.lora_A.weight", "b.diff", "c.diff_b"]) == "full_weight"
+        assert (
+            classify_format(["a.lora_A.weight", "b.diff", "c.diff_b"]) == "full_weight"
+        )
 
     def test_anything_else(self):
         assert classify_format(["model.weight"]) == "unknown"
@@ -1280,8 +1432,15 @@ class TestFormat:
 
 class TestCandidates:
     def test_searches_the_exact_base_per_word_and_merges(self):
-        api = FakeApi({(F, "voxel style"): [info("a/voxel")], (F, "voxel"): [info("a/voxel"), info("b/voxel2", downloads=99)]})
-        results = hub_candidates(["Qwen/Qwen-Image-2.1"], "voxel style", ["voxel"], 8, {}, api)
+        api = FakeApi(
+            {
+                (F, "voxel style"): [info("a/voxel")],
+                (F, "voxel"): [info("a/voxel"), info("b/voxel2", downloads=99)],
+            }
+        )
+        results = hub_candidates(
+            ["Qwen/Qwen-Image-2.1"], "voxel style", ["voxel"], 8, {}, api
+        )
         assert (F, "voxel style") in api.searches and (F, "voxel") in api.searches
         assert [r["model_name"] for r in results] == ["b/voxel2", "a/voxel"]
 
@@ -1299,11 +1458,18 @@ class TestCandidates:
         api = FakeApi({(F, None): [info("a/x")]})
         [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
         assert result["source"] == "hub" and result["status"] == "candidate"
-        assert result["as_lora"] == {"model_name": "a/x", "weight_name": "lora.safetensors", "revision": "a/x-sha", "scale": 1.0}
+        assert result["as_lora"] == {
+            "model_name": "a/x",
+            "weight_name": "lora.safetensors",
+            "revision": "a/x-sha",
+            "scale": 1.0,
+        }
         assert result["format"] == "diffusers"
 
     def test_multiple_weights_leave_weight_name_unset(self):
-        api = FakeApi({(F, None): [info("a/x", files=("one.safetensors", "two.safetensors"))]})
+        api = FakeApi(
+            {(F, None): [info("a/x", files=("one.safetensors", "two.safetensors"))]}
+        )
         [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
         assert "as_lora" not in result
         assert result["weights"] == ["one.safetensors", "two.safetensors"]
@@ -1334,7 +1500,12 @@ class TestCandidates:
 
     def test_gated_is_flagged(self):
         api = FakeApi({(F, None): [info("a/x", gated="manual")]})
-        assert "gated" in hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)[0]["warnings"]
+        assert (
+            "gated"
+            in hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)[0][
+                "warnings"
+            ]
+        )
 
     def test_an_unreadable_header_is_a_warning(self):
         api = FakeApi({(F, None): [info("a/x")]}, fail_header=["a/x"])
@@ -1343,8 +1514,15 @@ class TestCandidates:
 
     def test_a_catalog_rejected_repo_comes_back_rejected(self):
         api = FakeApi({(F, None): [info("drozbay/FastH3")]})
-        [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {"drozbay/FastH3": ".diff keys"}, api)
-        assert result == {"source": "hub", "status": "rejected", "model_name": "drozbay/FastH3", "reason": ".diff keys"}
+        [result] = hub_candidates(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {"drozbay/FastH3": ".diff keys"}, api
+        )
+        assert result == {
+            "source": "hub",
+            "status": "rejected",
+            "model_name": "drozbay/FastH3",
+            "reason": ".diff keys",
+        }
 
     def test_a_malformed_repo_id_from_the_hub_is_ignored(self):
         api = FakeApi({(F, None): [info("../evil")]})
@@ -1360,7 +1538,10 @@ class TestFailure:
         class Down(FakeApi):
             def list_models(self, **kwargs):
                 raise ConnectionError("hub unreachable")
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Down({}))
+
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Down({})
+        )
         assert results == [] and "hub unreachable" in error
 
     def test_a_slow_hub_times_out(self):
@@ -1368,7 +1549,10 @@ class TestFailure:
             def list_models(self, **kwargs):
                 time.sleep(2)
                 return []
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.2)
+
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.2
+        )
         assert results == [] and "timed out" in error
 ```
 
@@ -1404,7 +1588,15 @@ logger = logging.getLogger("dw")
 
 HUB_TIMEOUT = 20.0
 HEADER_TIMEOUT = 5.0
-SEARCH_EXPAND = ["downloads", "likes", "lastModified", "gated", "cardData", "sha", "siblings"]
+SEARCH_EXPAND = [
+    "downloads",
+    "likes",
+    "lastModified",
+    "gated",
+    "cardData",
+    "sha",
+    "siblings",
+]
 SAFETENSORS = ".safetensors"
 KOHYA_PREFIXES = ("lora_unet_", "lora_te")
 FULL_WEIGHT_SUFFIXES = (".diff", ".diff_b")
@@ -1534,7 +1726,12 @@ def hub_candidates(bases, query, terms, limit, rejected, api):
             break
         if info.id in rejected:
             results.append(
-                {"source": "hub", "status": "rejected", "model_name": info.id, "reason": rejected[info.id]}
+                {
+                    "source": "hub",
+                    "status": "rejected",
+                    "model_name": info.id,
+                    "reason": rejected[info.id],
+                }
             )
             continue
         candidate = _inspect(api, info, base_modified.get(base_of[info.id]))
@@ -1613,7 +1810,9 @@ def hub(monkeypatch):
     calls = {}
 
     def fake(bases, query, terms, limit, rejected, api=None, timeout=None):
-        calls.update(bases=bases, query=query, terms=terms, limit=limit, rejected=rejected)
+        calls.update(
+            bases=bases, query=query, terms=terms, limit=limit, rejected=rejected
+        )
         return calls.get("results", []), calls.get("error")
 
     monkeypatch.setattr(lora_routes, "search_hub", fake)
@@ -1623,7 +1822,10 @@ def hub(monkeypatch):
 class TestRecommend:
     def test_catalog_first_then_hub(self, server, hub):
         hub["results"] = [{"source": "hub", "status": "candidate", "model_name": "x/y"}]
-        body = server.get("/api/loras/recommend", params={"model": "models/qwen", "query": "voxel style"}).json()
+        body = server.get(
+            "/api/loras/recommend",
+            params={"model": "models/qwen", "query": "voxel style"},
+        ).json()
         assert [row["name"] for row in body["catalog"]] == ["qwen-image/voxel"]
         assert body["catalog"][0]["source"] == "catalog"
         assert body["hub"] == hub["results"]
@@ -1632,14 +1834,27 @@ class TestRecommend:
         assert "trial" in body["note"]
 
     def test_rejected_entries_are_not_offered_but_suppress_the_hub(self, server, hub):
-        server.put("/api/loras/qwen-image/bad", json={"entry": entry(model_name="bad/one", status="rejected", evidence=[{"note": "noise"}])})
-        body = server.get("/api/loras/recommend", params={"model": QWEN, "query": ""}).json()
+        server.put(
+            "/api/loras/qwen-image/bad",
+            json={
+                "entry": entry(
+                    model_name="bad/one",
+                    status="rejected",
+                    evidence=[{"note": "noise"}],
+                )
+            },
+        )
+        body = server.get(
+            "/api/loras/recommend", params={"model": QWEN, "query": ""}
+        ).json()
         assert "qwen-image/bad" not in [row["name"] for row in body["catalog"]]
         assert hub["rejected"] == {"bad/one": "noise"}
 
     def test_a_hub_failure_still_returns_the_catalog(self, server, hub):
         hub["error"] = "Hub search timed out after 20 s"
-        body = server.get("/api/loras/recommend", params={"model": QWEN, "query": "voxel"}).json()
+        body = server.get(
+            "/api/loras/recommend", params={"model": QWEN, "query": "voxel"}
+        ).json()
         assert body["hub_error"] == "Hub search timed out after 20 s"
         assert body["catalog"]
 
@@ -1649,12 +1864,37 @@ class TestRecommend:
         assert "catalog" in response.json()
 
     def test_limit_is_bounded(self, server, hub):
-        assert server.get("/api/loras/recommend", params={"model": QWEN, "limit": 0}).status_code == 422
-        assert server.get("/api/loras/recommend", params={"model": QWEN, "limit": 26}).status_code == 422
+        assert (
+            server.get(
+                "/api/loras/recommend", params={"model": QWEN, "limit": 0}
+            ).status_code
+            == 422
+        )
+        assert (
+            server.get(
+                "/api/loras/recommend", params={"model": QWEN, "limit": 26}
+            ).status_code
+            == 422
+        )
 
     def test_a_model_with_no_repo_bases_skips_the_hub(self, server, hub):
-        write(str(server.checkout / "workflows"), "models/local", {"steps": [{"name": "s", "pipeline": {"from_pretrained_arguments": {"model_name": "./weights"}}}]})
-        body = server.get("/api/loras/recommend", params={"model": "models/local"}).json()
+        write(
+            str(server.checkout / "workflows"),
+            "models/local",
+            {
+                "steps": [
+                    {
+                        "name": "s",
+                        "pipeline": {
+                            "from_pretrained_arguments": {"model_name": "./weights"}
+                        },
+                    }
+                ]
+            },
+        )
+        body = server.get(
+            "/api/loras/recommend", params={"model": "models/local"}
+        ).json()
         assert body["resolved"] == [] and body["hub"] == [] and "bases" not in hub
 ```
 
@@ -1694,10 +1934,17 @@ def recommend_loras(
         for row in ranked(fitting, terms)
         if row.get("status") != "rejected"
     ]
-    body = {"resolved": described_bases(bases), "catalog": catalog, "hub": [], "note": TRIAL_NOTE}
+    body = {
+        "resolved": described_bases(bases),
+        "catalog": catalog,
+        "hub": [],
+        "note": TRIAL_NOTE,
+    }
     repos = sorted({repo for repo, _ in bases})
     if repos:
-        hub, hub_error = search_hub(repos, query, terms, limit, rejection_reasons(fitting))
+        hub, hub_error = search_hub(
+            repos, query, terms, limit, rejection_reasons(fitting)
+        )
         body["hub"] = hub
         if hub_error:
             body["hub_error"] = hub_error
@@ -1751,7 +1998,14 @@ def recording(body=None):
 
     def handler(request):
         raw = request.read()
-        seen.append((request.method, request.url.path, dict(request.url.params), json.loads(raw) if raw else None))
+        seen.append(
+            (
+                request.method,
+                request.url.path,
+                dict(request.url.params),
+                json.loads(raw) if raw else None,
+            )
+        )
         return httpx.Response(200, json=body if body is not None else {})
 
     return DwClient(transport=httpx.MockTransport(handler)), seen
@@ -1779,7 +2033,14 @@ def test_save_lora_accepts_a_json_string():
 def test_recommend_loras_sends_model_query_and_limit():
     client, seen = recording({"catalog": [], "hub": []})
     loras.recommend_loras(client, "Qwen/Qwen-Image-2.1", "voxel style", limit=5)
-    assert seen == [("GET", "/api/loras/recommend", {"model": "Qwen/Qwen-Image-2.1", "query": "voxel style", "limit": "5"}, None)]
+    assert seen == [
+        (
+            "GET",
+            "/api/loras/recommend",
+            {"model": "Qwen/Qwen-Image-2.1", "query": "voxel style", "limit": "5"},
+            None,
+        )
+    ]
 ```
 
 and in `tests/test_mcp_server.py` add `"list_loras", "save_lora", "recommend_loras"` to `EXPECTED_TOOLS`, add `"save_lora"` to the set subtracted for `READ_ONLY_TOOLS`, plus:
@@ -1811,7 +2072,12 @@ from dw_mcp.client import api_path, coerce_json_object
 def list_loras(client, model=None, workflow=None, status=None, tag=None):
     params = {
         key: value
-        for key, value in (("model", model), ("workflow", workflow), ("status", status), ("tag", tag))
+        for key, value in (
+            ("model", model),
+            ("workflow", workflow),
+            ("status", status),
+            ("tag", tag),
+        )
         if value is not None
     }
     return client.get_json("/api/loras", params=params)
@@ -1848,7 +2114,9 @@ class LoraTools:
         reason. `model` is a workflow name or a Hub repo id; matching is
         exact on the base (and the H3 partition). `use_when` says when to
         reach for one; `trigger` and `scale` say how. Guide: loras."""
-        return loras.list_loras(self.client, model=model, workflow=workflow, status=status, tag=tag)
+        return loras.list_loras(
+            self.client, model=model, workflow=workflow, status=status, tag=tag
+        )
 
     def save_lora(self, name: str, entry: dict | str) -> dict:
         """Save a catalog entry, e.g. promote a trial that worked to

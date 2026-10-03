@@ -22,7 +22,15 @@ logger = logging.getLogger("dw")
 
 HUB_TIMEOUT = 20.0
 HEADER_TIMEOUT = 5.0
-SEARCH_EXPAND = ["downloads", "likes", "lastModified", "gated", "cardData", "sha", "siblings"]
+SEARCH_EXPAND = [
+    "downloads",
+    "likes",
+    "lastModified",
+    "gated",
+    "cardData",
+    "sha",
+    "siblings",
+]
 SAFETENSORS = ".safetensors"
 KOHYA_PREFIXES = ("lora_unet_", "lora_te")
 FULL_WEIGHT_SUFFIXES = (".diff", ".diff_b")
@@ -164,7 +172,12 @@ def hub_candidates(bases, query, terms, limit, rejected, api):
             break
         if info.id in rejected:
             results.append(
-                {"source": "hub", "status": "rejected", "model_name": info.id, "reason": rejected[info.id]}
+                {
+                    "source": "hub",
+                    "status": "rejected",
+                    "model_name": info.id,
+                    "reason": rejected[info.id],
+                }
             )
             continue
         candidate = _inspect(api, info, base_modified.get(base_of[info.id]))
@@ -188,7 +201,9 @@ def search_hub(bases, query, terms, limit, rejected, api=None, timeout=HUB_TIMEO
 
     def run():
         try:
-            outcome["results"] = hub_candidates(bases, query, terms, limit, rejected, api)
+            outcome["results"] = hub_candidates(
+                bases, query, terms, limit, rejected, api
+            )
         except Exception as error:
             outcome["error"] = f"Hub search failed: {type(error).__name__}: {error}"
         finally:

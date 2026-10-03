@@ -13,7 +13,14 @@ def recording(body=None):
 
     def handler(request):
         raw = request.read()
-        seen.append((request.method, request.url.path, dict(request.url.params), json.loads(raw) if raw else None))
+        seen.append(
+            (
+                request.method,
+                request.url.path,
+                dict(request.url.params),
+                json.loads(raw) if raw else None,
+            )
+        )
         return httpx.Response(200, json=body if body is not None else {})
 
     return DwClient(transport=httpx.MockTransport(handler)), seen
@@ -41,4 +48,11 @@ def test_save_lora_accepts_a_json_string():
 def test_recommend_loras_sends_model_query_and_limit():
     client, seen = recording({"catalog": [], "hub": []})
     loras.recommend_loras(client, "Qwen/Qwen-Image-2.1", "voxel style", limit=5)
-    assert seen == [("GET", "/api/loras/recommend", {"model": "Qwen/Qwen-Image-2.1", "query": "voxel style", "limit": "5"}, None)]
+    assert seen == [
+        (
+            "GET",
+            "/api/loras/recommend",
+            {"model": "Qwen/Qwen-Image-2.1", "query": "voxel style", "limit": "5"},
+            None,
+        )
+    ]

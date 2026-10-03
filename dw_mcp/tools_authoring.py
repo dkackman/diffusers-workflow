@@ -250,7 +250,9 @@ class LoraTools:
         reason. `model` is a workflow name or a Hub repo id; matching is
         exact on the base (and the H3 partition). `use_when` says when to
         reach for one; `trigger` and `scale` say how. Guide: loras."""
-        return loras.list_loras(self.client, model=model, workflow=workflow, status=status, tag=tag)
+        return loras.list_loras(
+            self.client, model=model, workflow=workflow, status=status, tag=tag
+        )
 
     def save_lora(self, name: str, entry: dict | str) -> dict:
         """Save a catalog entry, e.g. promote a trial that worked to

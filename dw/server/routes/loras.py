@@ -28,9 +28,19 @@ from ...lora_catalog import (
 )
 from ...lora_hub import search_hub
 from ...schema import load_schema
-from ...security import InvalidInputError, SecurityError, validate_lora_name, validate_path
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_lora_name,
+    validate_path,
+)
 from ...workspace import Workspace, forget_workspace_usage
-from ..deps import lora_library_missing, selected_workspace, server_lora_library, sources_for
+from ..deps import (
+    lora_library_missing,
+    selected_workspace,
+    server_lora_library,
+    sources_for,
+)
 
 logger = logging.getLogger("dw")
 router = APIRouter()
@@ -85,9 +95,13 @@ def resolve_model(state, ws, model, partition=None):
             with open(found[0], "r") as file:
                 definition = json.load(file)
         except (OSError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=f"Workflow '{model}' cannot be read: {error}")
+            raise HTTPException(
+                status_code=400, detail=f"Workflow '{model}' cannot be read: {error}"
+            )
         if not isinstance(definition, dict):
-            raise HTTPException(status_code=400, detail=f"Workflow '{model}' is not a JSON object")
+            raise HTTPException(
+                status_code=400, detail=f"Workflow '{model}' is not a JSON object"
+            )
         bases = workflow_bases(definition)
     elif is_repo_id(model):
         bases = [(model, None)]
@@ -133,7 +147,11 @@ def list_loras(
     if tag:
         entries = {n: e for n, e in entries.items() if tag in e.get("tags", [])}
     body["loras"] = [
-        {**row, "origin": roots[row["name"]].origin, "writable": roots[row["name"]].writable}
+        {
+            **row,
+            "origin": roots[row["name"]].origin,
+            "writable": roots[row["name"]].writable,
+        }
         for row in sorted(ranked(entries, []), key=lambda row: row["name"])
     ]
     return body
@@ -167,10 +185,17 @@ def recommend_loras(
         for row in ranked(fitting, terms)
         if row.get("status") != "rejected"
     ]
-    body = {"resolved": described_bases(bases), "catalog": catalog, "hub": [], "note": TRIAL_NOTE}
+    body = {
+        "resolved": described_bases(bases),
+        "catalog": catalog,
+        "hub": [],
+        "note": TRIAL_NOTE,
+    }
     repos = sorted({repo for repo, _ in bases})
     if repos:
-        hub, hub_error = search_hub(repos, query, terms, limit, rejection_reasons(fitting))
+        hub, hub_error = search_hub(
+            repos, query, terms, limit, rejection_reasons(fitting)
+        )
         body["hub"] = hub
         if hub_error:
             body["hub_error"] = hub_error
@@ -188,7 +213,9 @@ def save_lora(http_request: Request, name: str, request: LoraRequest):
     except InvalidInputError as error:
         raise HTTPException(status_code=400, detail=str(error))
     if bare in RESERVED_NAMES:
-        raise HTTPException(status_code=400, detail=f"'{bare}' is reserved by the LoRA routes")
+        raise HTTPException(
+            status_code=400, detail=f"'{bare}' is reserved by the LoRA routes"
+        )
     problem = entry_errors(request.entry)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
@@ -196,7 +223,9 @@ def save_lora(http_request: Request, name: str, request: LoraRequest):
     if root is None:
         raise lora_library_missing()
     try:
-        path = validate_path(os.path.join(root.root, f"{bare}.json"), root.root, allow_create=True)
+        path = validate_path(
+            os.path.join(root.root, f"{bare}.json"), root.root, allow_create=True
+        )
     except SecurityError as error:
         raise HTTPException(status_code=400, detail=str(error))
     os.makedirs(os.path.dirname(path), exist_ok=True)

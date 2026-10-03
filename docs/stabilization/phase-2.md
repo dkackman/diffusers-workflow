@@ -333,13 +333,16 @@ from dw import (
 
 
 @pytest.mark.parametrize(
-    "module", [adapter_compatibility, reference_names, reference_limits, video_extensions]
+    "module",
+    [adapter_compatibility, reference_names, reference_limits, video_extensions],
 )
 def test_the_unresolved_checkers_share_one_set(module):
     assert module._UNRESOLVED_PREFIXES is references.UNRESOLVED
 
 
-@pytest.mark.parametrize("module", [content_types, kernel_availability, result_fps, subfolders])
+@pytest.mark.parametrize(
+    "module", [content_types, kernel_availability, result_fps, subfolders]
+)
 def test_the_substituted_checkers_still_check_step_results(module):
     assert module._UNRESOLVED_PREFIXES is references.SUBSTITUTED
 

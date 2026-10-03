@@ -7,7 +7,12 @@ from dw_mcp.client import api_path, coerce_json_object
 def list_loras(client, model=None, workflow=None, status=None, tag=None):
     params = {
         key: value
-        for key, value in (("model", model), ("workflow", workflow), ("status", status), ("tag", tag))
+        for key, value in (
+            ("model", model),
+            ("workflow", workflow),
+            ("status", status),
+            ("tag", tag),
+        )
         if value is not None
     }
     return client.get_json("/api/loras", params=params)

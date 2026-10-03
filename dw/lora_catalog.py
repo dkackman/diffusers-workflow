@@ -23,7 +23,9 @@ STATUS_ORDER = {"proven": 0, "trial": 1, "rejected": 2}
 
 REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 # Words that say nothing about which LoRA: every style LoRA is a "style lora"
-STOP_WORDS = frozenset({"style", "lora", "loras", "the", "and", "with", "for", "image", "images"})
+STOP_WORDS = frozenset(
+    {"style", "lora", "loras", "the", "and", "with", "for", "image", "images"}
+)
 MIN_TERM_LENGTH = 3
 
 
@@ -91,14 +93,19 @@ def query_terms(query):
     words = re.findall(r"[a-z0-9]+", (query or "").lower())
     terms = []
     for word in words:
-        if len(word) >= MIN_TERM_LENGTH and word not in STOP_WORDS and word not in terms:
+        if (
+            len(word) >= MIN_TERM_LENGTH
+            and word not in STOP_WORDS
+            and word not in terms
+        ):
             terms.append(word)
     return terms
 
 
 def _score(entry, terms):
     text = " ".join(
-        [entry.get("use_when", ""), entry.get("description", "")] + list(entry.get("tags", []))
+        [entry.get("use_when", ""), entry.get("description", "")]
+        + list(entry.get("tags", []))
     ).lower()
     return sum(1 for term in terms if term in text)
 

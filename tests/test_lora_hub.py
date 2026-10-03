@@ -8,7 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 import dw.lora_hub as lora_hub
-from dw.lora_hub import BUSY_ERROR, CARD_TEXT_LIMIT, classify_format, hub_candidates, search_hub
+from dw.lora_hub import (
+    BUSY_ERROR,
+    CARD_TEXT_LIMIT,
+    classify_format,
+    hub_candidates,
+    search_hub,
+)
 
 OLD = datetime(2025, 1, 1, tzinfo=timezone.utc)
 NEW = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -25,10 +31,23 @@ def sibling(name):
     return SimpleNamespace(rfilename=name)
 
 
-def info(repo, files=("lora.safetensors",), downloads=10, card=None, gated=False, modified=NEW):
+def info(
+    repo,
+    files=("lora.safetensors",),
+    downloads=10,
+    card=None,
+    gated=False,
+    modified=NEW,
+):
     return SimpleNamespace(
-        id=repo, downloads=downloads, likes=1, last_modified=modified, gated=gated,
-        sha=f"{repo}-sha", siblings=[sibling(f) for f in files], card_data=card,
+        id=repo,
+        downloads=downloads,
+        likes=1,
+        last_modified=modified,
+        gated=gated,
+        sha=f"{repo}-sha",
+        siblings=[sibling(f) for f in files],
+        card_data=card,
     )
 
 
@@ -47,10 +66,14 @@ class FakeApi:
     def model_info(self, repo):
         return SimpleNamespace(last_modified=self.base_modified)
 
-    def parse_safetensors_file_metadata(self, repo, filename, *, revision=None, timeout=None):
+    def parse_safetensors_file_metadata(
+        self, repo, filename, *, revision=None, timeout=None
+    ):
         if repo in self.fail_header:
             raise RuntimeError("range read refused")
-        return SimpleNamespace(tensors=dict.fromkeys(self.headers.get(repo, ["x.lora_A.weight"])))
+        return SimpleNamespace(
+            tensors=dict.fromkeys(self.headers.get(repo, ["x.lora_A.weight"]))
+        )
 
 
 F = "base_model:adapter:Qwen/Qwen-Image-2.1"
@@ -58,7 +81,10 @@ F = "base_model:adapter:Qwen/Qwen-Image-2.1"
 
 class TestFormat:
     def test_diffusers_peft_keys(self):
-        assert classify_format(["transformer.blocks.0.attn.to_q.lora_A.weight"]) == "diffusers"
+        assert (
+            classify_format(["transformer.blocks.0.attn.to_q.lora_A.weight"])
+            == "diffusers"
+        )
 
     def test_kohya_keys(self):
         assert classify_format(["lora_unet_blocks_0_attn.lora_down.weight"]) == "kohya"
@@ -71,7 +97,9 @@ class TestFormat:
         assert classify_format(["x.lora_B.weight"]) == "diffusers"
 
     def test_full_weight_keys_win(self):
-        assert classify_format(["a.lora_A.weight", "b.diff", "c.diff_b"]) == "full_weight"
+        assert (
+            classify_format(["a.lora_A.weight", "b.diff", "c.diff_b"]) == "full_weight"
+        )
 
     def test_anything_else(self):
         assert classify_format(["model.weight"]) == "unknown"
@@ -79,8 +107,15 @@ class TestFormat:
 
 class TestCandidates:
     def test_searches_the_exact_base_per_word_and_merges(self):
-        api = FakeApi({(F, "voxel style"): [info("a/voxel")], (F, "voxel"): [info("a/voxel"), info("b/voxel2", downloads=99)]})
-        results = hub_candidates(["Qwen/Qwen-Image-2.1"], "voxel style", ["voxel"], 8, {}, api)
+        api = FakeApi(
+            {
+                (F, "voxel style"): [info("a/voxel")],
+                (F, "voxel"): [info("a/voxel"), info("b/voxel2", downloads=99)],
+            }
+        )
+        results = hub_candidates(
+            ["Qwen/Qwen-Image-2.1"], "voxel style", ["voxel"], 8, {}, api
+        )
         assert (F, "voxel style") in api.searches and (F, "voxel") in api.searches
         assert [r["model_name"] for r in results] == ["b/voxel2", "a/voxel"]
 
@@ -98,11 +133,18 @@ class TestCandidates:
         api = FakeApi({(F, None): [info("a/x")]})
         [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
         assert result["source"] == "hub" and result["status"] == "candidate"
-        assert result["as_lora"] == {"model_name": "a/x", "weight_name": "lora.safetensors", "revision": "a/x-sha", "scale": 1.0}
+        assert result["as_lora"] == {
+            "model_name": "a/x",
+            "weight_name": "lora.safetensors",
+            "revision": "a/x-sha",
+            "scale": 1.0,
+        }
         assert result["format"] == "diffusers"
 
     def test_multiple_weights_leave_weight_name_unset(self):
-        api = FakeApi({(F, None): [info("a/x", files=("one.safetensors", "two.safetensors"))]})
+        api = FakeApi(
+            {(F, None): [info("a/x", files=("one.safetensors", "two.safetensors"))]}
+        )
         [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)
         assert "as_lora" not in result
         assert result["weights"] == ["one.safetensors", "two.safetensors"]
@@ -141,7 +183,12 @@ class TestCandidates:
 
     def test_gated_is_flagged(self):
         api = FakeApi({(F, None): [info("a/x", gated="manual")]})
-        assert "gated" in hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)[0]["warnings"]
+        assert (
+            "gated"
+            in hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api)[0][
+                "warnings"
+            ]
+        )
 
     def test_an_unreadable_header_is_a_warning(self):
         api = FakeApi({(F, None): [info("a/x")]}, fail_header=["a/x"])
@@ -150,8 +197,15 @@ class TestCandidates:
 
     def test_a_catalog_rejected_repo_comes_back_rejected(self):
         api = FakeApi({(F, None): [info("drozbay/FastH3")]})
-        [result] = hub_candidates(["Qwen/Qwen-Image-2.1"], "", [], 8, {"drozbay/FastH3": ".diff keys"}, api)
-        assert result == {"source": "hub", "status": "rejected", "model_name": "drozbay/FastH3", "reason": ".diff keys"}
+        [result] = hub_candidates(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {"drozbay/FastH3": ".diff keys"}, api
+        )
+        assert result == {
+            "source": "hub",
+            "status": "rejected",
+            "model_name": "drozbay/FastH3",
+            "reason": ".diff keys",
+        }
 
     def test_a_malformed_repo_id_from_the_hub_is_ignored(self):
         api = FakeApi({(F, None): [info("../evil")]})
@@ -167,7 +221,10 @@ class TestFailure:
         class Down(FakeApi):
             def list_models(self, **kwargs):
                 raise ConnectionError("hub unreachable")
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Down({}))
+
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Down({})
+        )
         assert results == [] and "hub unreachable" in error
 
     def test_a_slow_hub_times_out(self):
@@ -175,19 +232,31 @@ class TestFailure:
             def list_models(self, **kwargs):
                 time.sleep(0.5)
                 return []
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1)
+
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1
+        )
         assert results == [] and "timed out" in error
 
     def test_search_terms_are_capped(self):
         api = FakeApi({})
-        hub_candidates(["Qwen/Qwen-Image-2.1"], "a b", ["t1", "t2", "t3", "t4", "t5", "t6"], 8, {}, api)
+        hub_candidates(
+            ["Qwen/Qwen-Image-2.1"],
+            "a b",
+            ["t1", "t2", "t3", "t4", "t5", "t6"],
+            8,
+            {},
+            api,
+        )
         assert len(api.searches) == 5  # typed query + 4 terms max
         assert (F, "t5") not in api.searches
 
     def test_a_concurrent_search_is_busy(self):
         lora_hub._IN_FLIGHT.acquire()
         try:
-            results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+            results, error = search_hub(
+                ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
+            )
             assert results == [] and error == BUSY_ERROR
         finally:
             lora_hub._IN_FLIGHT.release()
@@ -197,25 +266,36 @@ class TestFailure:
             def list_models(self, **kwargs):
                 time.sleep(0.5)
                 return []
+
         # First call times out but lock is held
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1)
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=Slow({}), timeout=0.1
+        )
         assert "timed out" in error
         # Second call immediately returns BUSY_ERROR
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
+        )
         assert error == BUSY_ERROR
         # After worker finishes, lock is released
         time.sleep(0.6)
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
+        )
         assert error is None
 
     def test_a_thread_that_cannot_start_releases_the_lock(self, monkeypatch):
         class FailingThread:
             def __init__(self, *args, **kwargs):
                 pass
+
             def start(self):
                 raise RuntimeError("can't start new thread")
+
         monkeypatch.setattr(lora_hub.threading, "Thread", FailingThread)
-        results, error = search_hub(["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({}))
+        results, error = search_hub(
+            ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
+        )
         assert results == [] and "can't start new thread" in error
         # Lock is released, can be acquired immediately
         assert lora_hub._IN_FLIGHT.acquire(blocking=False)
