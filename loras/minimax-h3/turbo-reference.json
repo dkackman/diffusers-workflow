@@ -1,0 +1,26 @@
+{
+  "model_name": "lightx2v/Minimax-h3-Turbo",
+  "weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+  "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "ref2va",
+  "description": "8-step turbo for the reference partition (ref2va), 768p",
+  "use_when": "Any Ref2VA render; never on a t2va/fl2va step (#149, #155)",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "The partition rule adapter_compatibility.py enforces",
+      "issue": 155
+    }
+  ],
+  "license": "apache-2.0",
+  "tags": [
+    "turbo",
+    "speed"
+  ]
+}

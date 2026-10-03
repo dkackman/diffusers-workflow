@@ -1,0 +1,23 @@
+{
+  "model_name": "videorebirth/hyperflow",
+  "weight_name": "minimax_h3_hyperflow_8step_v1.0.safetensors",
+  "revision": "5bde94d7de3e78dafa2abc43ee2f280a1cb244e8",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "Needs its own loader or is refused by the converter; not a plain LoRA",
+  "use_when": "Do not use under dw",
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Needs load_hyperflow_lora for its time-embedding changes; its license excludes the US, EU, UK and South Korea",
+      "issue": 585
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "speed"
+  ]
+}

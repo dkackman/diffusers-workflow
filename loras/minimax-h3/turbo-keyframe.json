@@ -1,0 +1,26 @@
+{
+  "model_name": "lightx2v/Minimax-h3-Turbo",
+  "weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors",
+  "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "t2va",
+  "description": "8-step turbo for the keyframe partition (t2va/fl2va), 768p",
+  "use_when": "Any T2VA or FL2VA render; the shipped templates already load it through lora_model_name/lora_weight_name",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Shipped default of the 768p templates; 9.5 min warm baseline",
+      "issue": 585
+    }
+  ],
+  "license": "apache-2.0",
+  "tags": [
+    "turbo",
+    "speed"
+  ]
+}

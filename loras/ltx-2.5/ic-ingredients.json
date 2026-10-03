@@ -1,0 +1,25 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
+  "weight_name": "ltx-2.5-22b-ic-lora-ingredients-0.9.safetensors",
+  "revision": "12040e4091ac2008d3906a594e31a7fb1ab9d546",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Hold a subject across a clip from a reference sheet",
+  "use_when": "Hold a subject across a clip from a reference sheet",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Used by the shipped workflows/templates/ltx2 template of that name"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "reference",
+    "subject"
+  ]
+}

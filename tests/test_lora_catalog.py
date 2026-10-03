@@ -1,6 +1,10 @@
 """dw/lora_catalog.py: the entry schema, which bases a workflow loads, and
 which entries fit them - exactly, never by family."""
 
+import glob
+import json
+import os
+
 import pytest
 
 from dw.lora_catalog import (
@@ -134,3 +138,41 @@ class TestRanking:
             "ok": entry(),
         }
         assert rejection_reasons(entries) == {"drozbay/FastH3": ".diff keys"}
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SHIPPED = sorted(glob.glob(os.path.join(REPO, "loras", "**", "*.json"), recursive=True))
+
+
+def test_the_catalog_ships_entries():
+    assert len(SHIPPED) >= 13
+
+
+@pytest.mark.parametrize("path", SHIPPED, ids=lambda p: os.path.relpath(p, REPO))
+def test_every_shipped_entry_is_valid(path):
+    with open(path) as file:
+        assert entry_errors(json.load(file)) is None
+
+
+@pytest.mark.parametrize("path", SHIPPED, ids=lambda p: os.path.relpath(p, REPO))
+def test_every_shipped_entry_pins_a_revision(path):
+    with open(path) as file:
+        assert json.load(file).get("revision"), "shipped entries pin the commit they were tried at"
+
+
+def test_every_proven_base_is_one_a_catalog_workflow_loads():
+    """A proven entry for a base no shipped workflow loads is knowledge
+    nobody can reach from list_workflows."""
+    loaded = set()
+    for path in glob.glob(os.path.join(REPO, "workflows", "**", "*.json"), recursive=True):
+        with open(path) as file:
+            try:
+                definition = json.load(file)
+            except ValueError:
+                continue
+        loaded |= {repo for repo, _ in workflow_bases(definition)}
+    for path in SHIPPED:
+        with open(path) as file:
+            data = json.load(file)
+        if data["status"] == "proven":
+            assert set(data["base_models"]) & loaded, path
