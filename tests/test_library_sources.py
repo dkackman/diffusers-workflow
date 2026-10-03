@@ -21,6 +21,7 @@ from dw.library import (
 )
 from dw.workspace import (
     ASSETS_SUBDIR,
+    LORAS_SUBDIR,
     PROMPTS_SUBDIR,
     Workspace,
     example_libraries,
@@ -76,7 +77,7 @@ class TestDerivation:
         bare = tmp_path / "elsewhere" / "workflows"
         bare.mkdir(parents=True)
         found = example_libraries([str(bare)])
-        assert found == {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: []}
+        assert found == {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: [], LORAS_SUBDIR: []}
 
     def test_fallbacks_round_trip_through_the_environment(self, trees):
         # This is how the worker subprocess learns them: spawn inherits the

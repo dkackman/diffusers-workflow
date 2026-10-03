@@ -8,6 +8,7 @@ through dw.security validators. Interactive API docs are served at /docs
 (OpenAPI at /openapi.json).
 """
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -16,7 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
 from ..hub_cache import DownloadManager
-from ..workspace import ConfiguredWorkspace, Workspace
+from ..workspace import (
+    LORAS_SUBDIR,
+    ConfiguredWorkspace,
+    Workspace,
+    _holds_a_workspace,
+)
 from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
@@ -25,6 +31,8 @@ from .observed_cost import ObservedCosts
 from .outputs import MEDIA_KINDS, RAW_MEDIA_EXTENSIONS
 from .routes import include_file_routes, include_routers
 from .updater import DiffusersUpdater
+
+logger = logging.getLogger("dw")
 
 
 def default_ui_dir():
@@ -81,6 +89,20 @@ def _store_directories(
     # None when the caller resolved no workspace (a test building an app
     # around three explicit directories)
     state.workspace = os.path.abspath(workspace) if workspace else None
+    # The LoRA catalog this server writes to: the root's loras/, shared by
+    # every workspace like the prompt library. None when there is no root (a
+    # server configured from loose directories) - the shipped catalog is
+    # still read, and a save answers 409
+    state.lora_dir = (
+        os.path.join(state.workspace, LORAS_SUBDIR) if state.workspace else None
+    )
+    if state.lora_dir and _holds_a_workspace(state.lora_dir):
+        logger.warning(
+            f"{state.lora_dir} holds a workspace named '{LORAS_SUBDIR}', but "
+            f"'{LORAS_SUBDIR}' is now a reserved name (the LoRA catalog): the "
+            "workspace is no longer listed and LoRA saves land beside its "
+            "folders. Rename the directory to keep using it."
+        )
     # The root that holds named workspaces. Its own folders are the default
     # workspace - which is what the three directories above already point at,
     # so a server given individual directory overrides simply has one

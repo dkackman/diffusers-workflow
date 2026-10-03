@@ -8,6 +8,7 @@ for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
 - New server routes and fields (UI stabilization Phase 1): `GET /api/gallery/{name}/image`, `PATCH /api/workflows/{name}`, `DELETE /api/jobs/{id}/run`, `max_total_bytes` on `/frames`, `findings` on gallery metadata, `acknowledge` in a cost 409, `output_kinds` on a job. The MCP tools now call them, so a stdio `dw-mcp` needs a `dw.serve` at least as new as itself: upgrade the server first. A mounted MCP (`dw.serve --mcp`) is always the same version.
+- LoRA catalog: one JSON file per tried LoRA in a library (`loras/` at the workspace root, writable, ahead of the shipped read-only `loras/`). Three MCP tools - `list_loras`, `save_lora` and the opt-in `recommend_loras` (the only call that searches the Hub) - and the `/api/loras` routes (`GET /api/loras`, `GET/PUT/DELETE /api/loras/{name}`, `GET /api/loras/recommend`, `GET /api/lora-schema`). `loras` is now a reserved workspace name: a workspace already called `loras` is no longer listed, and the server logs a warning at start; rename its directory.
 - `dw-mcp` no longer imports Pillow; images and frame tiles are fitted on the server.
 
 ### 0.7.0

@@ -44,7 +44,8 @@ private predicate pathValidatorName(string name) {
   name =
     [
       "validate_path", "validate_workflow_path", "validate_output_path",
-      "validate_prompt_path", "safe_join_path", "validate_media_path"
+      "validate_prompt_path", "validate_lora_path", "safe_join_path",
+      "validate_media_path"
     ]
 }
 
@@ -56,7 +57,8 @@ private predicate pathValidatorName(string name) {
 private predicate nameValidatorName(string name) {
   name =
     [
-      "validate_workspace_name", "validate_prompt_reference", "validate_asset_reference",
+      "validate_workspace_name", "validate_prompt_reference", "validate_lora_name",
+      "validate_asset_reference",
       "validate_output_reference", "validate_variable_name", "validate_commit_hash"
     ]
 }

@@ -1,0 +1,35 @@
+{
+  "model_name": "fal/MiniMax-H3-Realism-People-LoRA",
+  "weight_name": "h3-realism-people-t2v-i2v-r2v.safetensors",
+  "revision": "039cc8579d7aa357a882d7f4111b25da4f72dccc",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "t2va",
+  "description": "Realistic people and faces; stacks as a second adapter on the 8-step turbo",
+  "use_when": "People, crowds or faces should look photoreal; tried on T2VA only. It tightens framing against a prompt's wide shot",
+  "scale": {
+    "default": 0.7,
+    "range": [
+      0.7,
+      0.7
+    ]
+  },
+  "stacks_with": [
+    "minimax-h3/turbo-keyframe"
+  ],
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Best arm of the 2026-10-03 eval, about 6 s over the 9.5 min 768p baseline; 1.0 and a second prompt untested",
+      "issue": 585
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "realism",
+    "faces",
+    "people",
+    "crowd"
+  ]
+}

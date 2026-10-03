@@ -1,0 +1,23 @@
+{
+  "model_name": "drozbay/MiniMax-H3-FastH3-Preview-LoRA",
+  "weight_name": "loras/minimax_h3_fl2va_fasth3_preview_v0.2_lora_pruned_rank128_fp16.safetensors",
+  "revision": "4f95050e9f28a761ed8408654de1d808f715eb07",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "Needs its own loader or is refused by the converter; not a plain LoRA",
+  "use_when": "Do not use under dw",
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "diffusers' MiniMax-H3 converter rejects its .diff/.diff_b full-weight keys (state_dict should be empty at this point)",
+      "issue": 585
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "speed"
+  ]
+}

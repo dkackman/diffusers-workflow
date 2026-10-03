@@ -40,8 +40,9 @@ reusing `LibraryPath` unchanged:
 
 - Search path: the workspace's LoRA library (writable) shadows the shipped
   top-level `loras/` (read-only examples). Like the prompt library, the
-  writable LoRA library belongs to the workspace root and a named workspace
-  points back at it (`Workspace.loras`, following `Workspace.prompts`), so a
+  writable LoRA library belongs to the workspace root: the server passes the
+  root's `loras/` (`state.lora_dir`) as the library's `primary` in
+  `dw/server/deps.py` `server_lora_library`, with no `Workspace` field, so a
   LoRA promoted in one workspace is seen from all of them.
 - One JSON file per LoRA, grouped by family folder:
   `loras/qwen-image/voxel-style.json`, `loras/minimax-h3/realism-people.json`.
@@ -86,7 +87,7 @@ is written.)
 | `weight_name` | no | Weight file; required when the repo holds more than one `.safetensors` |
 | `revision` | no | Pinned commit sha; the shipped entries pin one |
 | `base_models` | yes, non-empty | Exact base repo ids the LoRA is known to work on |
-| `workflow` | no | Partition constraint, the `adapter_compatibility.py` vocabulary (`t2va`, `fl2va`, `ref2va`) |
+| `workflow` | no | Partition constraint, the `adapter_compatibility.py` vocabulary (`t2va`, `fl2va`, `ref2va`): a string, or a non-empty list of them for an adapter covering several |
 | `description` | yes | What it does, one line |
 | `use_when` | yes | Prose an agent matches a request against |
 | `trigger` | no | Trigger word or phrase the prompt must contain |

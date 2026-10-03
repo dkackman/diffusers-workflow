@@ -1,0 +1,25 @@
+{
+  "model_name": "XLabs-AI/flux-RealismLora",
+  "weight_name": "lora.safetensors",
+  "revision": "1965e17d2e745fcbf8f4004bdbdf603421ef37a8",
+  "base_models": [
+    "black-forest-labs/FLUX.1-dev"
+  ],
+  "workflow": null,
+  "description": "Photoreal look for Flux",
+  "use_when": "Photoreal Flux images",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "workflows/templates/lora.json"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "realism",
+    "photo"
+  ]
+}
