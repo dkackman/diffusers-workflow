@@ -119,7 +119,8 @@ from the templates' examples:
    `npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter`
    installs it; this is the family where the local skill pays off, since a
    fetch of `SKILL.md` alone doesn't reach the templates.
-2. Else read its `SKILL.md` and `references/genre-router.md` at that path. The
+2. Else read `skills/music-caption-rewriter/SKILL.md` and
+   `skills/music-caption-rewriter/references/genre-router.md` in that repo. The
    contract is three headings in order - Global Metadata, Vocal Details,
    Arrangement - in 250-450 English words, with no title, no reasoning, and
    no lyric line copied into the caption. The pipeline strips markdown
@@ -163,29 +164,17 @@ Control" section.
 4. Judge it yourself. `get_gallery_metadata` for duration and sample rate:
    `media.duration_seconds` within 0.2 s of `audio_duration` means the
    ceiling cut the track (raise it and rerun); well short of it means the
-   song finished on its own. Its `peak_dbfs` is a single sample and doesn't
-   say how loud the song reads end to end - `integrated_lufs` (BS.1770,
-   whole-track) is the field for that, and what `normalize_audio`'s
-   `target_lufs` targets when a mix must match another track by ear, not
-   by peak. A master louder than its peak allows (-16 streaming): add
-   `limit: true`; `limiter_heavy` means lower the target. Then listen with
-   `get_output_audio` (a long
-   track in `start`/`duration` excerpts) for the family's failure modes: a
+   song finished on its own. For loudness (`peak_dbfs`, `integrated_lufs`,
+   matching a mix) read `references/loudness.md`. Then listen with
+   `get_output_audio` (a long track in `start`/`duration` excerpts) for the family's failure modes: a
    song gone instrumental (name the vocals in the caption), an ending
    cut mid-note (raise the ceiling, then trim), a structure ignoring the
    tags (fewer sections, plainer directions). Hand the user the gallery
    `url` (`list_gallery`, or the manifest's file name).
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
-6. After an inline run worth keeping, `get_job_workflow` and `save_workflow` it,
-   so the next run is by name rather than pasting JSON; `export_job` bundles
-   the run — workflow, manifest, job row and media — for git, on the server.
-   If `auth_required` is false, fetch `open_url` and unpack it into
-   `exports/` under the session's working directory, never a temp directory
-   (the archive already unpacks into a job-id folder, don't make one first).
-   If true, this agent can't attach the token - hand `open_url` to
-   the person, and keep working via
-   `get_output_image`/`get_output_audio`/`get_output_frames`.
+6. A run worth keeping: `references/keeping-a-run.md` saves it by name
+   and exports it.
 
 ## Sources
 

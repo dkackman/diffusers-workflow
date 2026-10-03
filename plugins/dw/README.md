@@ -36,7 +36,10 @@ Name the skill: the H3 repo also ships eight style packs
 alongside it.
 
 Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`
-holds to the catalog and to the diffusers module that enforces them. The
+holds to the catalog and to the diffusers module that enforces them. A
+skill's `SKILL.md` stays under 12 KB because it loads whenever the skill
+triggers; detail only some requests need is in its `references/`, read on
+demand, and held to the same tests. The
 plugin's version is the engine's; the release script bumps both.
 
 Adding a family: copy a skill, follow its outline, add the family's rules to

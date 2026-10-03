@@ -22,10 +22,26 @@ SKILLS = sorted(glob.glob(os.path.join(PLUGIN_DIR, "skills", "*", "SKILL.md")))
 SKILL_SIZE_LIMIT = 12 * 1024
 
 CATALOG_NAME = re.compile(r"`((?:templates|models)/[A-Za-z0-9_./-]+)`")
+REFERENCE_LINK = re.compile(r"`(references/[A-Za-z0-9_.-]+\.md)`")
+
+
+def skill_body(path):
+    """SKILL.md alone - what loads whenever the skill triggers."""
+    return open(path, encoding="utf-8").read()
+
+
+def skill_references(path):
+    """The files beside a skill that it sends an agent to read on demand."""
+    folder = os.path.join(os.path.dirname(path), "references")
+    return sorted(glob.glob(os.path.join(folder, "*.md")))
 
 
 def skill_text(path):
-    return open(path, encoding="utf-8").read()
+    """A skill and its references, so a rule moved out of SKILL.md is still
+    held to the library that enforces it."""
+    parts = [skill_body(path)]
+    parts += [open(ref, encoding="utf-8").read() for ref in skill_references(path)]
+    return "\n".join(parts)
 
 
 def frontmatter(text):
@@ -85,13 +101,32 @@ def test_there_are_skills():
     "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
 )
 def test_a_skill_has_a_triggering_description_under_the_size_cap(path):
-    text = skill_text(path)
+    """The cap is on SKILL.md, which loads every time the skill triggers;
+    detail only some requests need goes in `references/`, read on demand."""
+    text = skill_body(path)
     fields = frontmatter(text)
 
     assert fields["name"] == os.path.basename(os.path.dirname(path))
     assert "description" in fields and len(fields["description"]) > 40
     assert len(text.encode("utf-8")) <= SKILL_SIZE_LIMIT, (
         f"{path} is over {SKILL_SIZE_LIMIT} bytes"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_skill_links_each_reference_and_each_link_resolves(path):
+    """A reference no SKILL.md names is never read, and a link to a file that
+    is not there sends the agent nowhere."""
+    linked = set(REFERENCE_LINK.findall(skill_body(path)))
+    shipped = {
+        "references/" + os.path.basename(ref) for ref in skill_references(path)
+    }
+
+    assert linked == shipped, (
+        f"{path}: linked but missing {sorted(linked - shipped)}, "
+        f"shipped but never linked {sorted(shipped - linked)}"
     )
 
 
