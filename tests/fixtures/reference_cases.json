@@ -1,0 +1,487 @@
+[
+  {
+    "name": "plain",
+    "workflow": {
+      "id": "plain",
+      "steps": [
+        {
+          "name": "a",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:a"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "property",
+    "workflow": {
+      "id": "property",
+      "steps": [
+        {
+          "name": "a",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:a.mask"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "dotted_name",
+    "workflow": {
+      "id": "dotted_name",
+      "steps": [
+        {
+          "name": "x.y",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:x.y"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "member_with_property",
+    "workflow": {
+      "id": "member_with_property",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g@a.mask"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "unknown_member",
+    "workflow": {
+      "id": "unknown_member",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g@zzz"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": [
+      "g@zzz"
+    ]
+  },
+  {
+    "name": "group_from_outside",
+    "workflow": {
+      "id": "group_from_outside",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": [
+      "for_each step 'g'"
+    ]
+  },
+  {
+    "name": "group_from_same_list",
+    "workflow": {
+      "id": "group_from_same_list",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        }
+      ],
+      "variables": {
+        "shots": [
+          {
+            "name": "open"
+          },
+          {
+            "name": "close"
+          }
+        ]
+      }
+    },
+    "flagged": []
+  },
+  {
+    "name": "gather_plain_step",
+    "workflow": {
+      "id": "gather_plain_step",
+      "steps": [
+        {
+          "name": "a",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "gather:a"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": [
+      "gather:a"
+    ]
+  },
+  {
+    "name": "gather_for_each",
+    "workflow": {
+      "id": "gather_for_each",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "gather:g"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "from_key_variable",
+    "workflow": {
+      "id": "from_key_variable",
+      "steps": [
+        {
+          "name": "a",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                {
+                  "from_previous_result": "variable:source"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "variables": {
+        "source": "a"
+      }
+    },
+    "flagged": []
+  },
+  {
+    "name": "from_key_missing",
+    "workflow": {
+      "id": "from_key_missing",
+      "steps": [
+        {
+          "name": "a",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "name": "b",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                {
+                  "from_previous_result": "nope"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": [
+      "nope"
+    ]
+  },
+  {
+    "name": "group_from_same_list_variable_vs_literal",
+    "workflow": {
+      "id": "group_from_same_list_variable_vs_literal",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "open",
+              "p": "a"
+            },
+            {
+              "name": "close",
+              "p": "b"
+            }
+          ]
+        }
+      ],
+      "variables": {
+        "shots": [
+          {
+            "name": "open",
+            "p": "a"
+          },
+          {
+            "name": "close",
+            "p": "b"
+          }
+        ]
+      }
+    },
+    "flagged": []
+  },
+  {
+    "name": "group_from_same_list_key_order",
+    "workflow": {
+      "id": "group_from_same_list_key_order",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "name": "open",
+              "p": "a"
+            }
+          ]
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g"
+              ]
+            }
+          },
+          "for_each": [
+            {
+              "p": "a",
+              "name": "open"
+            }
+          ]
+        }
+      ]
+    },
+    "flagged": []
+  }
+]

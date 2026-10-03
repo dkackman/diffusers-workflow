@@ -7,15 +7,19 @@ client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
 """
 
+import logging
+import math
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path, coerce_json_object
+from dw_mcp.client import DwApiError, api_path, workflow_source
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
 # How often wait_for_job re-polls /api/jobs/{id} - matches SSE_POLL_SECONDS,
-# the interval the SSE stream itself re-checks a job at (dw/server/app.py).
+# the interval the SSE stream itself re-checks a job at (dw/server/routes/jobs.py).
 WAIT_POLL_SECONDS = 1.0
 
 # A generation can run for minutes, far longer than an MCP client holds a
@@ -24,7 +28,31 @@ WAIT_POLL_SECONDS = 1.0
 # longer than the 55s this was tuned against (#248), so a deployment that
 # knows its own harness's tool-call budget can raise the cap with
 # DW_MCP_MAX_WAIT_SECONDS - unset, it stays 55.
-MAX_WAIT_SECONDS = float(os.environ.get("DW_MCP_MAX_WAIT_SECONDS", 55))
+DEFAULT_MAX_WAIT_SECONDS = 55.0
+
+
+def _max_wait_seconds(raw):
+    """The cap from DW_MCP_MAX_WAIT_SECONDS. Read at import, so a value
+    that is not a positive number keeps the default with a warning rather
+    than failing the import - which would take dw.serve's --mcp mount down
+    with it."""
+    if raw is None:
+        return DEFAULT_MAX_WAIT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if math.isfinite(value) and value > 0:
+        return value
+    logger.warning(
+        "DW_MCP_MAX_WAIT_SECONDS=%r is not a positive number of seconds; using %s",
+        raw,
+        DEFAULT_MAX_WAIT_SECONDS,
+    )
+    return DEFAULT_MAX_WAIT_SECONDS
+
+
+MAX_WAIT_SECONDS = _max_wait_seconds(os.environ.get("DW_MCP_MAX_WAIT_SECONDS"))
 
 COST_REFUSAL = (
     "Running a workflow occupies the GPU for minutes and the engine runs one "
@@ -54,14 +82,6 @@ def _acknowledgement_body(acknowledged_cost):
                 "plan.fingerprint the validate answer carried. Validate again "
                 "and pass {fingerprint, minutes, downloads} from its plan."
             )
-        # A from_single_file URL sits in downloads_required with repo: null;
-        # an agent copying the list verbatim should not earn a 422 for it
-        downloads = acknowledged_cost.get("downloads")
-        if isinstance(downloads, list):
-            acknowledged_cost = {
-                **acknowledged_cost,
-                "downloads": [repo for repo in downloads if repo],
-            }
         return {"acknowledged_cost": acknowledged_cost}
     return {"acknowledged_cost": bool(acknowledged_cost)}
 
@@ -101,18 +121,7 @@ def run_workflow(
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
     shape changed since the quote and the message carries the new plan."""
-    if workflow_path is not None and name is not None:
-        raise DwApiError(
-            "`workflow_path` and `name` are the same thing - provide only one."
-        )
-    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
-    workflow = coerce_json_object(workflow, "workflow")
-    if inline_workflow is not None and workflow is not None:
-        raise DwApiError(
-            "`inline_workflow` and `workflow` are the same thing - provide only one."
-        )
-    path = workflow_path if workflow_path is not None else name
-    inline = inline_workflow if inline_workflow is not None else workflow
+    path, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     if (path is None) == (inline is None):

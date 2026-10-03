@@ -18,13 +18,9 @@ schedule that is not a knob. Every template here fits a 24 GB card.
    the listing, trusting it over names quoted below.
 3. `get_workflow` on the one chosen, for its variables and defaults.
 4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
-   2x upscale - `get_memory` on an idle server and read a `live: true`
-   reading's `gpu_memory_allocated_mb`; only those are the worker's.
-   `info: null` means nothing is resident, and `live: false` is cached from
-   another moment. A non-trivial idle figure is an earlier run's leftover,
-   subtracted from what this one has. `clear_memory` (idle server only)
-   clears it and drops the step cache, so even a seeded rerun is cold. Re-read
-   `get_memory` to confirm; retry a failed attempt only once cleared.
+   2x upscale - `get_memory` on an idle server; a leftover `live: true` figure
+   is an earlier run's, and `clear_memory` (idle only) drops it and the step
+   cache.
 
 ## Which shape is the request
 
@@ -62,8 +58,8 @@ schedule that is not a knob. Every template here fits a 24 GB card.
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
   of generating; `templates/ltx2/chained-segments` re-runs per segment on
-  the previous last frame and stitches. Neither is a Lightricks recipe; a
-  single 481-frame pass reaches 20 seconds before either is needed.
+  the previous last frame and stitches. Both are dw's own recipes (Lightricks
+  added a chunked one 2026-09-29); one 481-frame pass reaches 20 seconds first.
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first.
@@ -93,12 +89,23 @@ A caption, not a tag list: one paragraph of roughly 150 to 220 words in the
 present progressive, opening on the action, stating for every shot a shot
 type, a camera motion (say static when none) and a viewpoint, soundscape
 interleaved with the action rather than appended, in plain
-observable words. For an image-conditioned clip describe only what changes
-from the image; restating it invites a scene cut. The `ltx2/`
-stored prompts (`list_prompts`) follow it. The spec, from
+observable words. For an image-conditioned clip the image gives the look and
+the caption the motion: open by matching the image faithfully, never
+contradict it, one continuous take, no cuts. The `ltx2/` stored prompts
+(`list_prompts`) follow it. The duration predictor times the clip as written:
+put beats in the prompt ("she pauses") or set a duration. On-screen text and
+chaotic physics are unreliable.
+
+**Several shots**: one chronological paragraph, no shot list or sluglines. At
+each cut name the transition in prose ("a hard cut to"), re-establish scale,
+angle and lighting, reuse the same identifiers for recurring subjects, and
+say what the audio does. 2 to 4 shots; stay single-take for image-to-video,
+lip-synced dialogue or an unbroken camera move. Skip the enhancer.
+
+The spec, from
 `diffusers.pipelines.ltx2.utils.LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT` (the
 image-to-video variant, `LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT`, adds the
-describe-only-changes rule):
+image-grounding rule):
 
 ## The trained caption spec
 
@@ -142,29 +149,26 @@ AESTHETIC QUALITY (in addition to the above, without breaking the objective capt
    and chain multiply by their passes.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` set to the
    plan's `{fingerprint, minutes, downloads}`.
-3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
-   (call again while `still_running`), then `get_job` for the manifest.
-4. Writing still costs on a long chain, so only worthwhile steps
-   should: `"result": {"save": false}` on the rest, as `two-stage` does for
-   `base` and `upscale`. Missing it is silent. What does write carries a
-   `subfolder` - the step the user is shown `final`, every other saving step
-   `intermediate` - so `list_gallery(subfolder="final")` lists only
-   deliverables. Keep both in anything you compose.
+3. `wait_for_job`, `timeout_seconds` = estimate plus margin;
+   `timeout_applied_seconds` is what you got (`timeout_capped`: the cap cut
+   it). Call again while `still_running`.
+4. Writing costs on a long chain: `"result": {"save": false}` on every step
+   not worth keeping, as `two-stage` does for `base` and `upscale`; a miss
+   is silent. A saving step carries a `subfolder` - the one shown to the user
+   `final`, the rest `intermediate` - so `list_gallery(subfolder="final")`
+   lists only deliverables. Keep both in anything you compose.
 5. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
    `seams=true` for a chained clip's joins, `at` near the end for a scene cut
    where the prompt contradicted the image or softness where the refine pass
    was skipped, and `get_output_audio` for a near-silent soundtrack. Then
    `get_job` for the manifest and its warnings, `get_gallery_metadata` for
-   duration, size and audio presence, and hand the user the
-   gallery `url` (`list_gallery`, or the manifest's file name).
-6. Save a run worth keeping (`get_job_workflow`, `save_workflow`) to rerun
-   it by name; `export_job` bundles it on the server. `auth_required: false` - fetch `open_url` into `exports/` under
-   the working dir (never a temp dir; unpacks into a job-id folder).
-   `true` - hand `open_url` to the person instead, keep using
-   `get_output_image`/`_audio`/`_frames`
+   duration, size and audio presence, and give the user the gallery `url`
+   (`list_gallery`, or the manifest's file name).
+6. Save a keeper (`get_job_workflow`, `save_workflow`) to rerun it by name.
 
 ## Sources
 
 Lightricks/LTX-2.5-Diffusers model card, the `ltx-pipelines` docs and CHANGELOG
-(github.com/Lightricks/LTX-2), the diffusers LTX-2 pipelines and `utils.py`.
-Read 2026-09-07; audit `docs/proposals/audits/2026-09-07-ltx-2.5-audit.md`.
+(github.com/Lightricks/LTX-2), docs.ltx.io prompting guide, the diffusers LTX-2
+pipelines and `utils.py`. Read 2026-10-02; audit
+`docs/proposals/audits/2026-10-02-ltx-2.5-audit.md`.

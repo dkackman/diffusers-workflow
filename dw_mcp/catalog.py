@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import api_path
+from dw_mcp.client import api_path, project
 
 
 def list_workflows(
@@ -70,7 +70,7 @@ def _summarised(answer):
     if not isinstance(details, dict):
         return answer
     summarised = {
-        name: {key: detail.get(key) for key in SUMMARY_FIELDS if key in detail}
+        name: project(detail, SUMMARY_FIELDS)
         for name, detail in details.items()
         if isinstance(detail, dict)
     }
@@ -305,7 +305,7 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     job = body.get("job")
     hints = []
     if body.get("metadata") is None:
-        if job:
+        if job and job.get("id"):
             hints.append(
                 "metadata is null because only an image (PNG/JPEG/WebP) "
                 "carries it embedded - this file's job is known, and "
@@ -328,27 +328,13 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
             "cut is padded with digital silence rather than refused, so "
             "make a longer bed with the 'loop_audio' task instead."
         )
-    elif media and media.get("kind") == "audio":
+    if body.get("findings"):
+        # The server measured the levels against dw/audio_qc.py's thresholds;
+        # each finding says what crossed and what to do, so no number is
+        # restated here
         hints.append(
-            "Check duration_seconds against what was asked for: a Music 3 "
-            "track that lands within 0.2 s of its audio_duration ceiling was "
-            "cut off, one well short of it finished naturally. peak_dbfs is "
-            "the level normalize_audio would be given, and the range has two "
-            "ends: mean_dbfs below -40 on a track that should be full is a "
-            "near-silent render, and peak_dbfs at or above 0 is a deliverable "
-            "at or over full scale - a decoded lossy file overshoots by up to "
-            "a couple dB legitimately (0.59-1.56 dB measured on Music 3 "
-            "mp3s), but a figure of +1 or more is a mix with no headroom, and "
-            "'normalize_audio' (peak_dbfs: -3) before the saving step is what "
-            "fixes it."
-        )
-    elif media and media.get("kind") == "video":
-        hints.append(
-            "peak_dbfs is the level normalize_audio would be given, and the "
-            "range has two ends: mean_dbfs below -40 on a track that should "
-            "be full is a near-silent render, and peak_dbfs at or above 0 is "
-            "a deliverable at or over full scale - 'normalize_audio' "
-            "(peak_dbfs: -3) before the saving step is what fixes it."
+            "`findings` names each level problem the server measured, with "
+            "its threshold and the fix."
         )
     if media and media.get("shots"):
         hints.append(

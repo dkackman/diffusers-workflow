@@ -14,7 +14,7 @@ from fastapi import HTTPException, Request
 
 from ..security import SecurityError
 from ..vram_inheritance import build_index
-from ..library import ASSETS_KIND, PROMPTS_KIND, library_path
+from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
     Workspace,
@@ -186,4 +186,24 @@ def observed_for_name(state, name, definition, arguments=None, *, workspace=None
         costs.observed(name, definition, arguments, workspace=workspace)
         if costs
         else None
+    )
+
+
+def lora_library_missing():
+    """The 409 a LoRA save answers when the server has no LoRA library."""
+    return HTTPException(
+        status_code=409,
+        detail="This server has no LoRA library - it was configured from "
+        "loose directories rather than a workspace root",
+    )
+
+
+def server_lora_library(state):
+    """The LoRA catalog's search path: the root's loras/ (writable), then
+    each examples tree's loras/ (read-only). Shared by every workspace."""
+    return library_path(
+        LORAS_KIND,
+        state.default_workspace,
+        state.examples_dirs,
+        primary=getattr(state, "lora_dir", None),
     )

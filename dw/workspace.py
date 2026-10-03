@@ -58,6 +58,7 @@ DEFAULT_WORKSPACE = "~/diffusers-workspace"
 WORKFLOWS_SUBDIR = "workflows"
 PROMPTS_SUBDIR = "prompts"
 ASSETS_SUBDIR = "assets"
+LORAS_SUBDIR = "loras"
 OUTPUTS_SUBDIR = "outputs"
 
 SUBDIRS = (WORKFLOWS_SUBDIR, PROMPTS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
@@ -93,7 +94,8 @@ DEFAULT_WORKSPACE_NAME = "default"
 
 # Names a workspace cannot take, because the root's own folders already
 # use them - its four content folders, and the exports gathered beside them
-RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR, COMMON_SUBDIR)
+# loras/ is the root's LoRA library, shared like prompts/ - not created by ensure()
+RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR, COMMON_SUBDIR, LORAS_SUBDIR)
 
 # What a named workspace holds - prompts excluded, per above
 NAMED_SUBDIRS = (WORKFLOWS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
@@ -299,10 +301,10 @@ def example_libraries(examples_dirs):
         examples_dirs: The directories --examples-dir named, in order
 
     Returns:
-        {'prompts': [roots], 'assets': [roots]}, deduplicated, in the order
+        {'prompts': [roots], 'assets': [roots], 'loras': [roots]}, deduplicated, in the order
         the examples directories were given
     """
-    found = {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: []}
+    found = {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: [], LORAS_SUBDIR: []}
     for directory in examples_dirs or []:
         root = os.path.abspath(os.path.expanduser(str(directory)))
         for holder in (root, os.path.dirname(root)):

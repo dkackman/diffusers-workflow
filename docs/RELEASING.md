@@ -7,6 +7,139 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.8.0
+
+<!-- Drafted from v0.7.0..a9e1e72b (develop). Paste into the GitHub release body once the tag has published: gh release edit v0.8.0 --notes-file ... -->
+
+Most of this range landed on `develop` without PRs, so the auto-generated
+notes are close to empty. Most of it is the UI stabilization (gates 0-4)
+and the second `dw_mcp` pass; the per-phase detail is in
+docs/stabilization/ui/. The rest is the LoRA catalog, the H3 latent
+upscaler and two security fixes.
+
+**Upgrade order**
+
+- The MCP tools now call new server routes, so a stdio `dw-mcp` needs a
+  `dw.serve` at least as new as itself: upgrade the server first. A mounted
+  MCP (`dw.serve --mcp`) is always the same version.
+- `loras` is now a reserved workspace name. A workspace already called
+  `loras` is no longer listed, and the server logs a warning at start;
+  rename its directory.
+
+**Security**
+
+- GHSA-fwg5-jfjg-fxpf: a job error no longer carries absolute server paths.
+  A file under the job's asset search path is reported as `asset:<name>`,
+  one under its output directory as `output:<name>`, and asset not-found
+  messages name the libraries searched by origin (workspace, common,
+  examples) instead of by directory. The server log keeps the paths. Still
+  open: a traceback's frame lines name the server's source and
+  site-packages paths, and `get_job` returns the traceback.
+- GHSA-crqf-hw9p-r739: `create_workspace`'s MCP result is `name`,
+  `default`, `current` and `next` only; `list_workspaces(detail=true)` is
+  the opt-in for folder paths. `POST /api/workspaces` is unchanged.
+- UI lockfile bumps for open Dependabot alerts (devalue, dompurify,
+  brace-expansion, undici).
+
+**LoRA catalog** (docs/LORAS.md)
+
+- A library of the LoRAs tried on a base model, one JSON file each, marked
+  `proven`, `trial` or `rejected` with the evidence. The writable `loras/`
+  at the server root is shared by every workspace and is read ahead of the
+  shipped read-only one. An entry's `model_name`, `weight_name`, `revision`
+  and `scale.default` drop straight into a step's `loras` entry. Base models
+  match exactly.
+- Shipped entries: 7 for MiniMax-H3 (Realism People and the turbo keyframe
+  and reference adapters as proven; Acc-PDD, HyperFlow and FastH3 as
+  rejected, because they need loaders dw doesn't have), 4 LTX-2.5 IC-LoRAs
+  and 2 for FLUX.
+- MCP: `list_loras`, `save_lora`, and the opt-in `recommend_loras`. It is
+  the only call that searches the Hugging Face Hub. It returns the catalog's
+  entries ranked against the request first, then Hub adapters whose card
+  declares that exact base. Nothing is downloaded; a single-weight repo's
+  header is read to check its layout. Hub rows are candidates to trial and
+  carry warnings (`will_not_load`, `unknown_format`, `gated`, `stale`, ...).
+- HTTP: `GET /api/loras`, `GET/PUT/DELETE /api/loras/{name}`,
+  `GET /api/loras/recommend`, `GET /api/lora-schema`. One Hub search runs
+  at a time per server. A concurrent call gets the catalog rows plus
+  `hub_error`, and the query is capped at 200 characters and 4 search
+  terms.
+
+**New**
+
+- `upscale_h3_latents` and `decode_h3_latents` take a 960x544 MiniMax-H3
+  take to 768p in latent space (#499). This is the build withdrawn before
+  0.7.0, relanded with the ComfyUI node's normalization wrapper. Its
+  `weight_name` must be a bare file name, and `model_name` must be a Hub
+  repo id. docs/WORKFLOW_GUIDE.md has the recipe; the #500 A/B found it
+  softer than a native 768p render.
+- Server routes the MCP tools now use:
+  - `GET /api/gallery/{name}/image` returns an image output or `asset:`
+    cropped, fitted to `max_dimension` and halved until it fits `max_bytes`.
+  - `max_total_bytes` on `/frames` shrinks every tile to one shared size.
+  - `PATCH /api/workflows/{name}` applies a JSON merge patch under the save
+    lock. `save_workflow`'s patch mode calls it.
+  - `DELETE /api/jobs/{id}/run` deletes a finished job's run directory.
+    `delete_output(job_id=)` calls it, and a job still queued or running is
+    a 409.
+  - `findings` on gallery metadata reports measured level problems
+    (`full_scale`, `near_silent`) with the fix.
+  - `acknowledge` in a cost 409 is the `{fingerprint, minutes, downloads}`
+    to resend.
+  - `output_kinds` on a job, and on each `step_end` event, maps each file to
+    `image`, `video`, `audio`, `text` or null.
+- Every JSON route declares its response model, and the UI's types are
+  generated from the server's OpenAPI document.
+- `dw-mcp` no longer imports Pillow; images and frame tiles are fitted on
+  the server.
+- Web UI: dialogs and popovers run on Bits UI, with keyboard help on the
+  modal. Every datalist is now a suggestion combobox that keeps typed text.
+  The job page renders outputs by the server's media kinds, audio and text
+  included.
+- Plugin: the `minimax-h3` skill names the 4-step draft and the stacked
+  Realism People LoRA, and rules out loader-only LoRAs (#585). `ltx-2.5`
+  names the wait reply's `timeout_applied_seconds` and `timeout_capped`
+  (#546).
+
+**Fixes**
+
+- Validating a workflow that needs an uncached gated repo (e.g. flux-dev on
+  a fresh box) no longer answers 500. A response that fails its model is
+  logged and sent rather than 500ing, so a retried `POST /api/jobs` can no
+  longer queue a job twice.
+- A scheduler parameter defaulting to `-inf` reads `"-inf"`, not null.
+- The phase watchdog measures silence from the last event, so it no longer
+  reports false stalls.
+- The unquantized FLUX templates use sequential offload. Model offload left
+  the 22 GiB transformer no room on a 24 GB card (#580).
+- `mix_audio`'s rate-mismatch warning no longer advises `sample_rate`,
+  which relabels the rate rather than resampling (#586). `find_loop_bed`'s
+  `no_loop_bed` names the in-shot rule that actually ruled windows out
+  (#587).
+- Deleting a job's run twice says the run is already gone.
+- MCP: `upload_asset` confines a source to the workspace the call names.
+  `get_output_frames`' audio excerpts share the response byte budget. A bad
+  `DW_MCP_MAX_WAIT_SECONDS` keeps the default with a warning instead of
+  failing the import. The startup probe reads a 401 from the status code.
+- UI: workspace, folder and prompt names follow the engine's one
+  name-segment rule. The dtype select keeps a dtype it doesn't list. Text
+  outputs render as text, and audio and text stay out of workflow card
+  proofs (#573).
+
+**For developers**
+
+- UI architecture ratchet over `ui/src`, in CI alongside the engine's.
+  Reference prefixes are spelled only in `references.ts`, and the UI's
+  copies of engine vocabularies are pinned to their owners.
+- The response contract is generated under the FastAPI and Pydantic pinned
+  in `constraints-openapi.txt`. Every route `api.ts` calls must declare its
+  response model.
+- `dw_mcp`'s copied constants are pinned to their engine owners
+  (`tests/test_mcp_twins.py`), and every tool that takes
+  `acknowledged_cost` is checked to refuse without it.
+- CI runs the e2e suite before `develop` moves, once per push while the
+  release PR is open.
+
 ### 0.7.0
 
 - A sub-workflow path is resolved by one function (`library.resolve_sub_workflow_reference`) at every site, so a path a run can open is one validation, the realized workflow's digest and the observed-cost lookup can open too.
@@ -443,8 +576,10 @@ Releases are cut by pushing a `v<semver>` tag. CI does the rest.
 
 Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
 passing. It covers more than CI: ruff over the whole repo rather than
-`dw dw_mcp tests`, the real-model integration tests (`pytest -m
-integration`), and the UI's Playwright e2e tests, none of which CI runs.
+`dw dw_mcp tests` and the real-model integration tests (`pytest -m
+integration`), neither of which CI runs. (CI runs the UI's Playwright e2e
+tests on every develop push and on PRs into develop; the release PR from
+develop relies on the push runs.)
 
 ```bash
 scripts/release.sh 0.38.0

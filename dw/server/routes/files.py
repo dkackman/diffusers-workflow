@@ -71,9 +71,9 @@ async def output_file(
     name = strip_output_prefix(name)
     if is_asset_reference(name):
         # This route is outside the token gate (the auth middleware
-        # covers /api/ and /mcp only), so a miss must not carry
-        # _asset_file's detail, which names every root searched by its
-        # absolute server path. Keep the hint #445 added, without them.
+        # covers /api/ and /mcp only), so a miss says no more than that
+        # the name is not in this workspace's library - not even which
+        # libraries were searched. Keep the hint #445 added.
         try:
             path = asset_file(request.app.state, name, ws)
         except HTTPException as e:

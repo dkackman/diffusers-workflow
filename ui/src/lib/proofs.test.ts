@@ -19,6 +19,17 @@ const file = (
   label: name,
 })
 
+it('skips audio and text, so a workflow with neither image nor video has no proof', () => {
+  const proofs = latestProofs([
+    file('a.wav', 'song', 'audio'),
+    file('a.txt', 'song', 'text'),
+    file('n.txt', 'note', 'text'),
+    file('n.mp4', 'note', 'video'),
+  ])
+  expect(proofs.song).toBeUndefined()
+  expect(proofs.note.name).toBe('n.mp4')
+})
+
 it('keeps the first entry seen per folder, preferring an image over a video', () => {
   const proofs = latestProofs([
     file('a.mp4', 'shot', 'video'),

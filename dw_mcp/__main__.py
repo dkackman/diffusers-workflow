@@ -109,7 +109,7 @@ def _probe(client, base_url, required=True):
         health = client.get_json("/api/health")
     except (DwApiError, httpx.HTTPError) as e:
         text = str(e)
-        if "401" in text or "token" in text.lower():
+        if getattr(e, "status_code", None) == 401:
             code = _refuse(
                 f"dw.serve at {base_url} requires a bearer token and rejected "
                 f"the one given (or none was given): {text}"

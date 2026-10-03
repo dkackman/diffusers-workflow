@@ -5,27 +5,23 @@
   // meant guessing a name - and nothing showed which names a `common` or an
   // examples library was shadowing. The UX is the gallery's on purpose:
   // folder groups, a contact-sheet grid, a detail popout.
-  import {
-    ChevronDown,
-    ChevronRight,
-    FolderOpen,
-    Trash2,
-    Upload,
-    X,
-  } from '@lucide/svelte'
+  import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import CopyButton from '../CopyButton.svelte'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import HintBar from '../HintBar.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach, dialogOpen } from '../picks.svelte'
+  import { Picks, actOnEach } from '../picks.svelte'
+  import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { formatBytes, formatMtime } from '../format'
+  import { leafName } from '../names'
+  import AssetDetail from '../assets/AssetDetail.svelte'
+  import LibraryRow from '../assets/LibraryRow.svelte'
+  import ShadowedAssets from '../assets/ShadowedAssets.svelte'
 
   type Origin = AssetFile['origin']
 
@@ -40,13 +36,6 @@
     workspace: 'This workspace',
     common: 'Shared library',
     examples: 'Examples',
-  }
-  // The same libraries in the possessive, for "shadowed by ...". Built by
-  // hand rather than off the labels: "the examples's" is not English
-  const SHADOWED_BY: Record<Origin, string> = {
-    workspace: "this workspace's",
-    common: "the shared library's",
-    examples: "the examples library's",
   }
 
   let assets = $state<AssetFile[]>([])
@@ -200,8 +189,6 @@
     await load()
   }
 
-  const leaf = (name: string) => name.split('/').pop() ?? name
-
   async function upload(event: Event) {
     const input = event.target as HTMLInputElement
     const file = input.files?.[0]
@@ -258,13 +245,13 @@
     // Escape closes the thing on top, and a dialog answers it itself. The
     // selection is the more recent, more surprising state to be stuck in,
     // so it clears first and the detail panel on a second press
-    if (e.key !== 'Escape' || dialogOpen()) return
+    if (e.key !== 'Escape' || overlayOpen()) return
     if (picks.size) picks.clear()
     else selected = null
   }}
 />
 
-<div class="head">
+<div class="pagehead">
   <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
   <span class="num muted">{assets.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
@@ -313,46 +300,14 @@
 />
 
 {#each sections as section (section.origin)}
-  <div class="libraryrow">
-    <button
-      class="library"
-      onclick={() => toggleLibrary(section.origin)}
-      title={isOpen(section.origin)
-        ? 'collapse this library'
-        : 'expand this library'}
-    >
-      {#if isOpen(section.origin)}<ChevronDown size={15} />{:else}<ChevronRight
-          size={15}
-        />{/if}
-      {section.label}
-      <span class="muted">({section.assets.length})</span>
-    </button>
-    <span class="path muted">{section.root}</span>
-    <span class="flex"></span>
-    {#if !section.writable}
-      <span class="muted" title="read-only: this server cannot write to it"
-        >read-only</span
-      >
-    {:else if section.origin === 'common'}
-      <button
-        class="withicon"
-        class:quiet={!shared}
-        onclick={() => startUpload('shared')}
-        disabled={busy}
-        title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"
-      >
-        <Upload size={14} />Upload to shared
-      </button>
-    {:else if section.origin === 'workspace'}
-      <button
-        class="withicon"
-        onclick={() => startUpload('workspace')}
-        disabled={busy}
-      >
-        <Upload size={14} />Upload
-      </button>
-    {/if}
-  </div>
+  <LibraryRow
+    {section}
+    open={isOpen(section.origin)}
+    {shared}
+    {busy}
+    ontoggle={() => toggleLibrary(section.origin)}
+    onupload={startUpload}
+  />
 
   {#if isOpen(section.origin)}
     <FolderGroups
@@ -390,10 +345,13 @@
             {:else if asset.kind === 'video'}
               <video src={asset.url} preload="metadata" muted></video>
             {:else}
-              <span class="audio">♪ {leaf(asset.name)}</span>
+              <span class="audio"
+                >{asset.kind === 'audio' ? '♪' : '¶'}
+                {leafName(asset.name)}</span
+              >
             {/if}
             <span class="caption" title={asset.reference}
-              >{leaf(asset.name)}</span
+              >{leafName(asset.name)}</span
             >
           </button>
         </div>
@@ -401,39 +359,7 @@
     </FolderGroups>
 
     {#if section.shadowed.length}
-      <!-- What this library holds under a name a nearer one has taken. It
-           is here because "I uploaded it and asset: still loads the old
-           one" is otherwise unanswerable from the page - the server does
-           not serve these, so a tile is a dimmed label rather than a
-           picture, and nothing bulk can reach it -->
-      <div class="grouprow">
-        <span class="group"
-          >shadowed/ <span class="muted">({section.shadowed.length})</span
-          ></span
-        >
-      </div>
-      <div class="grid">
-        {#each section.shadowed as entry (entry.name)}
-          <div class="cellwrap">
-            <!-- role + aria-label, not title alone: a bare div is not
-                 exposed, and the title is the only thing that explains
-                 why this tile is here -->
-            <div
-              class="cell shadowed"
-              role="note"
-              aria-label="shadowed by {SHADOWED_BY[
-                entry.shadowed_by
-              ]} {entry.name} - {entry.reference} resolves to that file"
-              title="shadowed by {SHADOWED_BY[
-                entry.shadowed_by
-              ]} {entry.name} - {entry.reference} resolves to that file"
-            >
-              <span class="ghost">{entry.kind}</span>
-              <span class="caption">{leaf(entry.name)}</span>
-            </div>
-          </div>
-        {/each}
-      </div>
+      <ShadowedAssets entries={section.shadowed} />
     {/if}
   {/if}
 {/each}
@@ -443,122 +369,18 @@
 {/if}
 
 {#if selected}
-  <div class="detail panel">
-    <div class="bar">
-      <strong class="selname">{selected.reference}</strong>
-      <CopyButton
-        text={selected.reference}
-        title="copy the reference a workflow argument carries"
-      />
-      <span class="flex"></span>
-      <a
-        href={selected.url}
-        target="_blank"
-        class="muted"
-        title="open the file itself in a new tab">open file</a
-      >
-      <span class="num muted"
-        >{selected.kind} · {formatBytes(selected.size)} · {formatMtime(
-          selected.mtime,
-        )}</span
-      >
-      {#if selected.origin === 'examples'}
-        <span class="muted" title="read-only: an examples library brought it"
-          >read-only</span
-        >
-      {:else}
-        <button
-          class="quiet icon danger"
-          onclick={() => selected && remove(selected)}
-          disabled={busy}
-          title="delete this asset from the library"
-          aria-label="delete this asset from the library"
-        >
-          <Trash2 size={14} />
-        </button>
-      {/if}
-      <span class="flex"></span>
-      <button
-        class="quiet icon"
-        onclick={() => (selected = null)}
-        title="close details"
-        aria-label="close details"><X size={14} /></button
-      >
-    </div>
-    <div class="body">
-      {#if selected.kind === 'image'}
-        <img src={selected.url} alt={selected.name} />
-      {:else if selected.kind === 'video'}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video src={selected.url} controls loop></video>
-      {:else}
-        <audio src={selected.url} controls></audio>
-      {/if}
-    </div>
-  </div>
+  <AssetDetail
+    asset={selected}
+    {busy}
+    onremove={remove}
+    onclose={() => (selected = null)}
+  />
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: var(--space-4);
-  }
-  .head .filter {
+  .pagehead .filter {
     max-width: 220px;
     margin-left: auto;
-  }
-  /* A library section header: the label, the count, the root it reads,
-     and the one action that library offers */
-  .libraryrow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin: 1.6rem 0 var(--space-2);
-    padding-bottom: 0.3rem;
-    border-bottom: 1px solid var(--line);
-  }
-  /* A library is a heavier folder heading: the same mono name the engine
-     resolves, ink rather than muted, because it is the page's top level */
-  .library {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-md);
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .library:hover {
-    filter: none;
-    color: var(--accent);
-  }
-  /* FolderGroups' folder heading, for the one group it does not lay out.
-     Its styles are scoped to that component, so this is the same look
-     rather than the same rule */
-  .grouprow {
-    margin: 1.2rem 0 var(--space-2);
-  }
-  .group {
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-sm);
-    letter-spacing: -0.01em;
-  }
-  .grid {
-    display: grid;
-    align-items: start;
-    gap: 0.6rem;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
   .hiddenfile {
     display: none;
@@ -597,10 +419,9 @@
     object-fit: cover;
     background: var(--sunk);
   }
-  /* The audio placeholder, and the shadowed tile's - neither has a
-     picture to show, and both have to keep the grid's rhythm */
-  .cell .audio,
-  .cell .ghost {
+  /* The audio placeholder has no picture to show, and has to keep the
+     grid's rhythm - ShadowedAssets' tile does the same */
+  .cell .audio {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -620,50 +441,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  /* A shadowed entry is a name, not a file: the server serves the tile
-     that won, so there is nothing to show and nothing to do with it */
-  .cell.shadowed {
-    opacity: 0.45;
-    cursor: default;
-  }
-  /* The gallery's popout: it rides the bottom of the viewport while the
-     grid scrolls behind it. Sitting at the end of the document instead
-     would put it off screen for any click above the fold */
-  .detail {
-    position: sticky;
-    bottom: 1rem;
-    z-index: 2;
-    margin-top: var(--space-4);
-    padding: 0.6rem 0.8rem;
-    box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
-  }
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .selname {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    word-break: break-all;
-  }
-  .body {
-    margin-top: 0.6rem;
-  }
-  .body img,
-  .body video {
-    max-width: 100%;
-    max-height: 60vh;
-    border-radius: var(--radius-frame);
-    background: var(--sunk);
-  }
-  .body audio {
-    width: 100%;
-  }
-  .path {
-    font-family: var(--font-mono);
-    word-break: break-all;
   }
 </style>

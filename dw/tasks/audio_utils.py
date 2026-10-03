@@ -560,9 +560,11 @@ def _load_tracks_matching_rate(audios, sample_rate, command):
         emit_warning(
             f"{command}: tracks carry audio at different sample rates ("
             + ", ".join(f"{name}: {rate} Hz" for name, rate in per_track.items())
-            + f") - resampling them all to {target_rate} Hz. Pass "
-            "'sample_rate' to pin a different target, or resample ahead of "
-            "this step with the 'resample_audio' task.",
+            + f") - resampling them all to {target_rate} Hz. Do not pass "
+            "'sample_rate' to pin a different target: it relabels every "
+            "track's samples rather than resampling them (changing speed and "
+            "pitch). To convert to another rate, resample ahead of this step "
+            "with the 'resample_audio' task.",
             kind="sample_rate_mismatch",
             command=command,
             sample_rate=target_rate,
@@ -701,10 +703,13 @@ def mix_audio(audios, gains=None, sample_rate=None):
         gain = 1.0 if gains is None else float(gains[index])
         applied.append(gain)
         mixed[:, : waveform.shape[1]] += waveform * gain
+    seconds = [round(waveform.shape[1] / sample_rate, 2) for waveform in waveforms]
     emit_log(
-        f"mix_audio: {len(waveforms)} tracks, gains {applied}",
+        f"mix_audio: {len(waveforms)} tracks, gains {applied}, track seconds "
+        f"{seconds} - shorter tracks are padded with silence to {length / sample_rate:.2f} s",
         command="mix_audio",
         gains=applied,
+        seconds=seconds,
     )
     return as_track(mixed, sample_rate, "mix_audio")
 

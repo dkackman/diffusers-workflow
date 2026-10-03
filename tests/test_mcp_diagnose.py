@@ -690,6 +690,11 @@ def test_a_409_surfaces_with_the_new_estimate():
                         "from what was validated",
                         "reason": "fingerprint",
                         "acknowledged": BOUND,
+                        "acknowledge": {
+                            "fingerprint": "sha256:def",
+                            "minutes": 19.0,
+                            "downloads": ["org/y"],
+                        },
                         "plan": {
                             "fingerprint": "sha256:def",
                             "steps": 6,
@@ -737,9 +742,9 @@ def test_the_refusal_teaches_the_bound_form():
     assert "fingerprint" in COST_REFUSAL
 
 
-def test_a_null_download_entry_is_dropped_before_sending():
+def test_a_bound_acknowledgement_is_sent_verbatim():
     """A `from_single_file` URL sits in downloads_required with repo: null;
-    an agent copying the list verbatim must not earn a 422 for it."""
+    the server drops it, so the client sends what the agent quoted."""
     import json
 
     client, seen = submitting()
@@ -748,7 +753,10 @@ def test_a_null_download_entry_is_dropped_before_sending():
         workflow_path="w.json",
         acknowledged_cost={"fingerprint": "sha256:abc", "downloads": ["org/x", None]},
     )
-    assert json.loads(seen[0]["body"])["acknowledged_cost"]["downloads"] == ["org/x"]
+    assert json.loads(seen[0]["body"])["acknowledged_cost"]["downloads"] == [
+        "org/x",
+        None,
+    ]
 
 
 def test_a_409_without_a_measured_estimate_says_so():
@@ -785,3 +793,16 @@ def test_a_409_without_a_measured_estimate_says_so():
     message = str(caught.value)
     assert "None minutes" not in message
     assert "no measured estimate" in message
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-5", "nan", "inf"])
+def test_a_bad_wait_cap_keeps_the_default(raw, caplog):
+    """Parsed at import: a bad value must not fail the import, which would
+    take dw.serve's --mcp mount down with it."""
+    assert diagnose._max_wait_seconds(raw) == diagnose.DEFAULT_MAX_WAIT_SECONDS
+    assert "DW_MCP_MAX_WAIT_SECONDS" in caplog.text
+
+
+def test_a_wait_cap_is_read_from_the_environment():
+    assert diagnose._max_wait_seconds(None) == diagnose.DEFAULT_MAX_WAIT_SECONDS
+    assert diagnose._max_wait_seconds("120") == 120.0

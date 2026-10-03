@@ -594,6 +594,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # ltx2/two-stage (upscale) reuses components, so its effective key hashes the
 # own keys of its reuse closure (itself and its sources). Every step that
 # reuses nothing kept its 1f94c2a0 hash.
+#
+# Four more were regenerated when #580 (9c708a12) moved embed-metadata,
+# lora, prompt-weighting and step-caching from model to sequential offload:
+# offload is part of how a pipeline is loaded, so its key moves with it.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -632,7 +636,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "describe-and-regenerate.json": {},
     "dissolve-between-shots.json": {},
     "embed-metadata.json": {
-        "generate": "ba05817f175f71163f8007c8e9af3073686df61dbb090a8dd45f26a9dd502fa2"
+        "generate": "5326e88c70c970b932201c47ab65899f5fd17a307d583f1add96a24792e17585"
     },
     "expand-prompt.json": {},
     "generate-speech.json": {},
@@ -670,7 +674,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "visual-identity-design": "004a829d2a7c1d55b36f279ffc67057a165ecbf8a109da55f93f6acb09545afa",
     },
     "lora.json": {
-        "txt2img": "47aba88047464c927983d4666abacb74ea253bb310c847e3e955f4e02658b277"
+        "txt2img": "45cddf5b7b38cd2ba06e7906368e45eec2db70ae11ad12edbee1f5604878094e"
     },
     "ltx2/chained-segments.json": {
         "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
@@ -806,7 +810,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "outpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
     },
     "prompt-weighting.json": {
-        "txt2img": "5d31f1fa9f9fa65e19e82f6a5e9634ae4c5f2a0f4a7880b5f186ccd43860f560"
+        "txt2img": "74fd88b30ffbf3cd95b1b971e90ce8da33e7370a160e838478fc5d5a6d3bc9df"
     },
     "qr-code.json": {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
@@ -820,7 +824,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "segment.json": {},
     "step-caching.json": {
-        "txt2img": "ee477459eb2c2860c84b8da2913bf9c891666cc9c99d271e6255853539726786"
+        "txt2img": "69c2b1c0bf23b291404b655919a94e7ed2b766d962dc209ca1e5df86f619a9dd"
     },
     "sub-workflow.json": {},
     "surface-normals.json": {

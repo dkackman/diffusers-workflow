@@ -1,0 +1,25 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Decompression",
+  "weight_name": "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors",
+  "revision": "25f4a063c188c05a9e0485d211aa5df7f5596bd6",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Restore a compressed clip",
+  "use_when": "Restore a compressed clip",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Used by the shipped workflows/templates/ltx2 template of that name"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "restore",
+    "compression"
+  ]
+}

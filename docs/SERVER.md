@@ -164,9 +164,10 @@ agent from another machine, plus the queue across every workspace:
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan}}` with the current plan, so the caller re-quotes from it. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. |
+| `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
@@ -421,7 +422,9 @@ The editor's forms come from these; they are just as usable from scripts:
   otherwise. With no params the response is what it always was, plus the new
   fields
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
-  (confined to `--workflow-dir`)
+  (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
+  `application/merge-patch+json` or JSON) to the stored version and saves the
+  result as `PUT` would, under the same lock, so a save in between is not lost
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
   they default to, without the definition around them. Long string defaults are
@@ -436,6 +439,18 @@ The editor's forms come from these; they are just as usable from scripts:
   403; saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
 - `GET /api/prompts/{name:path}/download` — download a prompt file as text
+- `GET /api/loras?model=&workflow=&status=&tag=`, `GET/PUT/DELETE /api/loras/{name}` —
+  the LoRA catalog (see [LORAS.md](LORAS.md#lora-catalog)): one JSON file per
+  tried LoRA, in the root's writable `loras/` ahead of the shipped read-only
+  ones. The listing carries `libraries` and an `origin`/`writable` per entry;
+  `model` is a Hub repo id or a workflow name and matches exactly. `GET` of an
+  entry that cannot be parsed is a 404 naming it unreadable; deleting a
+  read-only entry is a 403; saves are validated against the entry schema,
+  served at `GET /api/lora-schema`
+- `GET /api/loras/recommend?model=&query=&limit=` — catalog entries for the
+  model ranked against the query, then Hub candidates for the same exact base
+  (the one place dw searches the Hub, only when called); `hub_error` when the
+  Hub is unreachable, and a concurrent search gets the catalog rows only
 - `GET /api/enhancers`, `POST /api/enhance` — prompt-enhancement presets,
   and `{"idea": ..., "preset": ..., "model_name": ..., "device": ...}` to
   queue an enhancement as an ordinary job whose saved text file is the
@@ -450,6 +465,16 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
+- `GET /api/gallery/{name}/metadata` also carries `findings`: each level
+  problem the probed soundtrack shows (`full_scale`, `near_silent`), measured
+  against `dw/audio_qc.py`'s thresholds, in the assess route's finding shape
+- `GET /api/gallery/{name}/image?max_dimension=768&crop=x,y,w,h&max_bytes=&format=auto`
+  — an image output or `asset:` sized for an inline answer: cropped (clamped),
+  fitted to `max_dimension`, and with `max_bytes` (a base64 budget) halved
+  until it fits. Headers `X-DW-Original-Size`, `X-DW-Returned-Size`, and when
+  they apply `X-DW-Crop` and `X-DW-Downscaled-To`. Takes `?token=`
+- `GET /api/gallery/{name}/frames` takes `max_total_bytes`: over it, every
+  tile shrinks to one shared size and `downscaled_to` says which
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
   multi-file selection into one zip, named by each file's gallery-relative
   path so output subfolders survive. A browser cannot zip on its own and
@@ -528,7 +553,7 @@ The editor's forms come from these; they are just as usable from scripts:
   under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
   the uploaded file's extension assumed, confined to the library the way
   `keep_output`'s name is).
-  Answers 201 with `path` - `asset:uploads/<name>`, the reference a saved
+  Answers 201 with `reference` - `asset:uploads/<name>`, the reference a saved
   workflow can carry and still resolve on a later run - and `url`, the same
   file under the `/inputs` mount, for the editor's preview. A server started
   without an asset library falls back to the output directory's `uploads/`

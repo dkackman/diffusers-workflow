@@ -17,6 +17,7 @@ from dw.library import (
     WORKFLOWS_KIND,
     WORKSPACE_ORIGIN,
     library_path_from_env,
+    merge_patch,
     pin_library_path,
 )
 from dw.server.app import create_app
@@ -549,3 +550,68 @@ class TestPromptSaveWithNoPromptLibrary:
             response = client.put("/api/prompts/x", json={"prompt": {"text": "hello"}})
         assert response.status_code == 409
         assert response.json()["detail"] == "This server has no prompt library"
+
+
+def test_merge_patch_is_rfc_7396():
+    target = {"a": 1, "b": {"c": 2, "d": 3}, "keep": [1, 2]}
+    patch = {"a": None, "b": {"c": 9, "e": 4}, "keep": [3]}
+    assert merge_patch(target, patch) == {"b": {"c": 9, "d": 3, "e": 4}, "keep": [3]}
+    assert target["a"] == 1, "the target is not mutated"
+
+
+class TestPatchWorkflow:
+    """PATCH /api/workflows/{name}: a merge patch onto the stored version,
+    read, merged and written under one lock, so a save made between the
+    read and the write is not silently lost."""
+
+    def test_patch_merges_onto_the_stored_definition(self, make_server):
+        server = make_server()
+        server.client.put("/api/workflows/ok", json={"workflow": valid_workflow("ok")})
+        answer = server.client.patch(
+            "/api/workflows/ok", json={"description": "Patched in place."}
+        )
+        assert answer.status_code == 200, answer.text
+        stored = server.client.get("/api/workflows/ok").json()
+        assert stored["description"] == "Patched in place."
+        assert stored["steps"] == valid_workflow("ok")["steps"]
+
+    def test_patch_null_deletes_a_key(self, make_server):
+        server = make_server()
+        server.client.put(
+            "/api/workflows/ok",
+            json={"workflow": {**valid_workflow("ok"), "description": "Gone soon."}},
+        )
+        server.client.patch("/api/workflows/ok", json={"description": None})
+        assert "description" not in server.client.get("/api/workflows/ok").json()
+
+    def test_patch_of_an_example_writes_a_writable_copy(self, make_server):
+        server = make_server()
+        example = os.path.join(str(server.checkout / "workflows"), "ex.json")
+        with open(example, "w") as file:
+            json.dump(valid_workflow("ex"), file)
+        answer = server.client.patch(
+            "/api/workflows/ex", json={"description": "My copy."}
+        )
+        assert answer.status_code == 200, answer.text
+        with open(os.path.join(server.workspace.workflows, "ex.json")) as file:
+            assert json.load(file)["description"] == "My copy."
+        with open(example) as file:
+            assert "description" not in json.load(file)
+
+    def test_an_invalid_patch_result_is_a_400_and_writes_nothing(self, make_server):
+        server = make_server()
+        server.client.put("/api/workflows/ok", json={"workflow": valid_workflow("ok")})
+        answer = server.client.patch("/api/workflows/ok", json={"steps": "no"})
+        assert answer.status_code == 400
+        assert server.client.get("/api/workflows/ok").json() == valid_workflow("ok")
+
+    def test_patch_accepts_the_merge_patch_media_type(self, make_server):
+        server = make_server()
+        server.client.put("/api/workflows/ok", json={"workflow": valid_workflow("ok")})
+        answer = server.client.patch(
+            "/api/workflows/ok",
+            content=json.dumps({"description": "Typed."}),
+            headers={"content-type": "application/merge-patch+json"},
+        )
+        assert answer.status_code == 200, answer.text
+        assert server.client.get("/api/workflows/ok").json()["description"] == "Typed."

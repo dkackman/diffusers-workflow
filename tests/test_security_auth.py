@@ -188,6 +188,19 @@ class TestTheTokenGate:
             )
         assert (layout["outputs"] / "run.png").exists()
 
+    def test_the_image_route_takes_the_query_token(self, make_client, layout):
+        """An <img> cannot send a header, so the inline image route is a
+        marked route, as the thumbnail is; without the token it is a 401."""
+        from PIL import Image
+
+        Image.new("RGB", (8, 8)).save(layout["outputs"] / "real.png")
+        with make_client(token=TOKEN) as client:
+            assert (
+                client.get(f"/api/gallery/real.png/image?token={TOKEN}").status_code
+                == 200
+            )
+            assert client.get("/api/gallery/real.png/image").status_code == 401
+
     def test_a_valid_token_does_not_excuse_a_foreign_origin(self, make_client):
         """The Origin check is not an auth check the token can satisfy: a
         page that somehow holds the token still may not drive the API."""

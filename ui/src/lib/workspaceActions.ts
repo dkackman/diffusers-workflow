@@ -9,6 +9,7 @@ import {
   rememberWorkspace,
   workspace,
 } from './workspace.svelte'
+import { MAX_NAME_LENGTH, isNameSegment } from './names'
 
 /** The names a workspace cannot take: the folders the root itself holds
  * (dw/workspace.py's RESERVED). Checked here so the sidebar can say why
@@ -20,15 +21,19 @@ export const RESERVED_WORKSPACE_NAMES = [
   'outputs',
   'exports',
   'common',
+  'loras',
 ] as const
 
-const NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/
+export const MAX_WORKSPACE_NAME_LENGTH = MAX_NAME_LENGTH
 
 export function workspaceNameError(name: string): string | null {
   if (!name) return 'A workspace needs a name'
   if ((RESERVED_WORKSPACE_NAMES as readonly string[]).includes(name))
     return `${name} is reserved`
-  if (!NAME.test(name)) return 'Use letters, digits, - and _ only'
+  if ([...name].length > MAX_WORKSPACE_NAME_LENGTH)
+    return `Use at most ${MAX_WORKSPACE_NAME_LENGTH} characters`
+  if (!isNameSegment(name))
+    return 'Start with a letter, digit or _; then letters, digits, _, - and .'
   return null
 }
 

@@ -7,8 +7,7 @@
   import { goWs, route } from '../router.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
-  import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
-  import { PROMPT_LIST_ID } from '../prompts'
+  import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
@@ -168,12 +167,6 @@
   </button>
 </div>
 
-<datalist id={PROMPT_LIST_ID}>
-  {#each promptLibrary.names ?? [] as promptName (promptName)}<option
-      value={'prompt:' + promptName}
-    ></option>{/each}
-</datalist>
-
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if workflow}
@@ -293,11 +286,6 @@
     font-size: var(--t-sm);
     font-weight: 600;
     padding: 0.4rem 0.5rem;
-  }
-  .withicon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
   }
   .run {
     padding: 0.45rem 1.1rem;

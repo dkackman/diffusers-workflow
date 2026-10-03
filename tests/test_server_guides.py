@@ -260,6 +260,23 @@ class TestTheRealDocs:
             assert guide["parent_section"] == "Authoring a workflow from an agent"
             assert "for_each" in guide["content"]
 
+    def test_the_h3_promoting_workflow_is_reachable(self):
+        """#499: the inline upscale workflow is a `###` subsection, so every
+        term an agent holds - the heading, a word in it, either task name -
+        reaches it, and it carries the workflow JSON."""
+        for section in (
+            "Promoting an H3 take to 768p in latent space",
+            "Promoting",
+            "upscale_h3_latents",
+            "decode_h3_latents",
+        ):
+            guide = guides.get_guide("workflows", section=section)
+
+            assert guide["section"].startswith("Promoting an H3 take")
+            assert guide["parent_section"] == "Pipeline Configuration"
+            assert '"command": "upscale_h3_latents"' in guide["content"]
+            assert '"command": "pair_audio"' in guide["content"]
+
     def test_the_authoring_section_names_every_reference_prefix(self):
         """The prefixes the engine reserves are the ones the section has to
         explain; a new prefix added to the engine fails here until it is

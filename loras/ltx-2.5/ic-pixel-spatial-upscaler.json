@@ -1,0 +1,25 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+  "weight_name": "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+  "revision": "380e63e764cad353c47a8e7c9c7ad6095d25e814",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "A 2x re-render of a clip (the upscale templates)",
+  "use_when": "A 2x re-render of a clip (the upscale templates)",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Used by the shipped workflows/templates/ltx2 template of that name"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "upscale",
+    "2x"
+  ]
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '../poll'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
@@ -29,7 +30,7 @@
     jobs.filter(
       (job) =>
         (!statusFilter || job.status === statusFilter) &&
-        job.workflow.toLowerCase().includes(nameFilter.toLowerCase()),
+        (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
     ),
   )
 
@@ -38,17 +39,14 @@
     // the filter (or the scope's own workspace) changes, rather than the
     // interval quietly polling stale
     const filter = scope === 'all' ? workspaceFilter : workspace.current
-    const poll = async () => {
+    return poll(async () => {
       try {
         jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
         error = ''
       } catch (e) {
         error = e instanceof Error ? e.message : String(e)
       }
-    }
-    poll()
-    const timer = setInterval(poll, 3000)
-    return () => clearInterval(timer)
+    }, 3000)
   })
 
   const queuedCount = $derived(
@@ -82,7 +80,7 @@
   }
 </script>
 
-<div class="head">
+<div class="pagehead">
   <h1>{scope === 'all' ? 'All jobs' : 'Jobs'}</h1>
   <select bind:value={statusFilter} title="filter by status">
     <option value="">all statuses</option>
@@ -195,14 +193,7 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.8rem;
-    margin-bottom: 1rem;
-  }
-  .head h1 {
+  .pagehead h1 {
     margin: 0;
     flex: 1;
   }
@@ -215,7 +206,7 @@
   .row.runningnow:hover {
     background: color-mix(in srgb, var(--live) 16%, transparent);
   }
-  .head select {
+  .pagehead select {
     max-width: 150px;
   }
   .filter {

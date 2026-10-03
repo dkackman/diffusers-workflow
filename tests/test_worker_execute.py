@@ -554,3 +554,32 @@ def test_a_request_whose_handler_fails_is_answered_with_its_request_id(command_t
     assert answer["type"] == "error"
     assert answer["request_id"] == "r-7"
     assert "no reading" in answer["message"]
+
+
+def test_a_failure_names_an_asset_by_reference_not_by_server_path(tmp_path):
+    """GHSA-fwg5-jfjg-fxpf: a task failing on an 'asset:' input reported the
+    path it had resolved to - the server's home directory and workspace
+    layout - to every API and MCP caller."""
+    assets = tmp_path / "ws" / "assets"
+    outputs = tmp_path / "ws" / "outputs"
+    source = assets / "refine" / "src.mp4"
+
+    class FailingWorkflow(StubWorkflow):
+        def run(
+            self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+        ):
+            raise ValueError(
+                f"{source} carries no audio track; wrote {outputs / 'id' / 'a.png'}"
+            )
+
+    worker = _make_worker()
+    messages = _execute(
+        worker,
+        FailingWorkflow(),
+        command=snapshot_command(asset_dir=str(assets), output_dir=str(outputs)),
+    )
+    error = next(m for m in messages if m["type"] == "error")
+    assert "asset:refine/src.mp4 carries no audio track" in error["message"]
+    assert "output:id/a.png" in error["message"]
+    assert str(tmp_path) not in error["message"]
+    assert str(tmp_path) not in error["traceback"]

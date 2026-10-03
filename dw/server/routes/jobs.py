@@ -17,11 +17,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    JobCancelled,
+    JobDetail,
+    JobExport,
+    JobList,
+    JobMoved,
+    JobWorkflow,
+    RunDeleted,
+    ValidationResult,
+)
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
-from ...security import SecurityError
+from ...security import SecurityError, validate_path
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -55,7 +65,13 @@ from ..job_record import (
     RUNNING,
     TERMINAL_STATES,
 )
-from ..outputs import absolute_served_url, asset_library_for_job, served_url
+from ..outputs import (
+    absolute_served_url,
+    asset_library_for_job,
+    delete_run_directory,
+    output_kinds,
+    served_url,
+)
 
 logger = logging.getLogger("dw")
 
@@ -85,7 +101,12 @@ def _historical_log_note(stored):
     return None
 
 
-@router.post("/api/jobs", status_code=201)
+@router.post(
+    "/api/jobs",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def submit_job(
     http_request: Request,
     request: JobRequest,
@@ -174,7 +195,7 @@ def submit_job(
         raise internal_error("Job submission failed after admission")
 
 
-@router.get("/api/jobs")
+@router.get("/api/jobs", response_model=JobList, response_model_exclude_unset=True)
 def list_jobs(
     request: Request,
     workspace: Optional[str] = None,
@@ -219,17 +240,72 @@ def list_jobs(
     return {"jobs": jobs, "total": total}
 
 
-@router.get("/api/jobs/{job_id}")
+@router.get(
+    "/api/jobs/{job_id}", response_model=JobDetail, response_model_exclude_unset=True
+)
 def get_job(request: Request, job_id: str):
     manager = request.app.state.job_manager
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job")
     # a historical job is already a detail dict; a live one renders itself
-    return job if isinstance(job, dict) else manager.describe(job)
+    detail = job if isinstance(job, dict) else manager.describe(job)
+    return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
-@router.get("/api/jobs/{job_id}/workflow")
+@router.delete(
+    "/api/jobs/{job_id}/run",
+    response_model=RunDeleted,
+    response_model_exclude_unset=True,
+)
+def delete_job_run(request: Request, job_id: str):
+    """Delete the run directory a job wrote, whole - the run a job id
+    names, without the caller listing the gallery to find it. The job
+    carries its own output root, so no workspace selector applies. A job
+    still queued or running has a run in use, and is refused (409)."""
+    manager = request.app.state.job_manager
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    status = job["status"] if isinstance(job, dict) else job.status
+    if status not in TERMINAL_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job {job_id} is {status}; cancel it before deleting its run",
+        )
+    location = manager.run_location(job_id)
+    if location is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Job {job_id} ({status}) has no run directory to delete - it "
+                "never started a run, or predates run tracking"
+            ),
+        )
+    root, run_dir = location
+    try:
+        # Confinement only: a run already deleted is a 404 below, not an
+        # invalid path
+        path = validate_path(os.path.join(root, run_dir), root, allow_create=True)
+    except SecurityError:
+        raise HTTPException(status_code=400, detail="Invalid run directory")
+    if not os.path.isdir(path):
+        raise HTTPException(
+            status_code=404, detail=f"Job {job_id}'s run directory is already gone"
+        )
+    return {
+        "job_id": job_id,
+        "run_dir": run_dir,
+        "deleted": True,
+        "run_swept": delete_run_directory(path, root),
+    }
+
+
+@router.get(
+    "/api/jobs/{job_id}/workflow",
+    response_model=JobWorkflow,
+    response_model_exclude_unset=True,
+)
 def get_job_workflow(request: Request, job_id: str):
     """The workflow this job ran, for the read-only graph on the job page
     and for `get_job_workflow` over MCP.
@@ -269,7 +345,12 @@ class RerunRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
-@router.post("/api/jobs/{job_id}/rerun", status_code=201)
+@router.post(
+    "/api/jobs/{job_id}/rerun",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()):
     """Queue a fresh job from a previous job's stored spec, admitted as
     a new submission would be - a reference that resolved when the
@@ -330,7 +411,12 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         raise internal_error("Job rerun failed after admission")
 
 
-@router.post("/api/jobs/{job_id}/export", status_code=201)
+@router.post(
+    "/api/jobs/{job_id}/export",
+    status_code=201,
+    response_model=JobExport,
+    response_model_exclude_unset=True,
+)
 def export_job_route(
     request: Request,
     job_id: str,
@@ -391,7 +477,11 @@ class MoveRequest(BaseModel):
     direction: str = Field(description="up, down, front, or back")
 
 
-@router.post("/api/jobs/{job_id}/move")
+@router.post(
+    "/api/jobs/{job_id}/move",
+    response_model=JobMoved,
+    response_model_exclude_unset=True,
+)
 def move_job(request: Request, job_id: str, body: MoveRequest):
     """Reorder a queued job. 409 once it is running or finished -
     only the waiting portion of the queue can be rearranged."""
@@ -409,7 +499,11 @@ def move_job(request: Request, job_id: str, body: MoveRequest):
     return {"id": job_id, "queue": order}
 
 
-@router.post("/api/jobs/{job_id}/cancel")
+@router.post(
+    "/api/jobs/{job_id}/cancel",
+    response_model=JobCancelled,
+    response_model_exclude_unset=True,
+)
 def cancel_job(request: Request, job_id: str):
     manager = request.app.state.job_manager
     status = manager.cancel(job_id)
@@ -610,7 +704,9 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
         return None
 
 
-@router.post("/api/validate")
+@router.post(
+    "/api/validate", response_model=ValidationResult, response_model_exclude_unset=True
+)
 def validate_workflow(
     http_request: Request,
     request: JobRequest,

@@ -35,6 +35,7 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 
 vi.mock('../api', () => ({
   ApiError: class ApiError extends Error {},
+  TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
     getJobWorkflow: vi.fn(() =>
@@ -79,6 +80,12 @@ const job = (manifest: JobDetail['manifest']): JobDetail => ({
   error: null,
   traceback: null,
   event_count: 0,
+  workflow_name: null,
+  run_id: null,
+  run_version: null,
+  run_dir: null,
+  acknowledged: 'none',
+  acknowledged_cost: null,
 })
 
 beforeEach(() => {
@@ -118,7 +125,10 @@ it('shows each image beside what made it, with a download link, and never probes
     seed: 7,
     arguments: { prompt: 'a cat', negative_prompt: 'a dog' },
   }
-  detail.job = job([{ step: 'generate', files: ['a.png', 'clip.mp4'] }])
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png', 'clip.mp4'] }]),
+    output_kinds: { 'a.png': 'image', 'clip.mp4': 'video' },
+  }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('org/model')).toBeTruthy())
   expect(screen.getByText('7')).toBeTruthy()
@@ -132,6 +142,28 @@ it('shows each image beside what made it, with a download link, and never probes
   // The metadata route decodes a video whole to probe it, and the page
   // shows nothing a probe would report
   expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+    'a.png',
+  ])
+})
+
+it("drops one job's image metadata when the page switches to another", async () => {
+  // Under the flat output layout two runs write the same file name, so a
+  // lookup kept across the switch would show job A's recipe under job B
+  metadata.byFile['a.png'] = { model_name: 'org/first' }
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  const { rerender } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('org/first')).toBeTruthy())
+
+  metadata.byFile['a.png'] = { model_name: 'org/second' }
+  detail.job = { ...detail.job, id: 'j2' }
+  await rerender({ jobId: 'j2' })
+  await waitFor(() => expect(screen.getByText('org/second')).toBeTruthy())
+  expect(screen.queryByText('org/first')).toBeNull()
+  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+    'a.png',
     'a.png',
   ])
 })
@@ -194,6 +226,24 @@ it('places a live step_end under its subfolder before the manifest arrives', asy
     expect(
       screen.getByRole('heading', { level: 3, name: 'final/' }),
     ).toBeTruthy(),
+  )
+})
+
+it("shows a running step's output inline, by the kind its step_end carries", async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'step_end',
+    step: 'generate',
+    files: ['a.png'],
+    output_kinds: { 'a.png': 'image' },
+  })
+  await waitFor(() =>
+    expect(container.querySelector('img')?.getAttribute('src')).toContain(
+      'a.png',
+    ),
   )
 })
 
@@ -424,4 +474,20 @@ it('shows no version for a job that never opened a run', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
   expect(screen.queryByText(/^v\d+$/)).toBeNull()
+})
+
+it('renders each output by the kind the server reports', async () => {
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.bmp', 'b.mov', 'c.flac'] }]),
+    output_kinds: { 'a.bmp': 'image', 'b.mov': 'video', 'c.flac': 'audio' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(container.querySelector('audio')).toBeTruthy())
+  expect(container.querySelector('img')?.getAttribute('src')).toContain('a.bmp')
+  expect(container.querySelector('video')?.getAttribute('src')).toContain(
+    'b.mov',
+  )
+  expect(container.querySelector('audio')?.getAttribute('src')).toContain(
+    'c.flac',
+  )
 })

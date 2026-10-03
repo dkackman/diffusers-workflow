@@ -280,3 +280,64 @@ def test_it_answers_while_a_job_holds_the_worker(server, tmp_path):
     assert answer.json()["findings"]
     listed = jobs["jobs"] if isinstance(jobs, dict) else jobs
     assert len(listed) == 1
+
+
+class TestMetadataLevelFindings:
+    """The metadata route reports a level problem itself, from the
+    thresholds dw/audio_qc.py owns, so no client restates them."""
+
+    def test_a_full_scale_peak_is_a_warn_finding(self):
+        from dw.server.assess import level_findings
+
+        found = level_findings({"kind": "audio", "peak_dbfs": 0.0, "mean_dbfs": -12.0})
+        assert [f["rule"] for f in found] == ["full_scale"]
+        assert found[0]["severity"] == "warn"
+        assert "normalize_audio" in found[0]["says"]
+        # the gallery reads the written file: past full scale it clips on
+        # playback, and the fix is audio_qc's - -3 dB, more for a mux
+        assert "clips on playback" in found[0]["says"]
+        assert "peak_dbfs: -3" in found[0]["says"]
+
+    def test_near_silent_with_real_peaks_is_info(self):
+        from dw.server.assess import level_findings
+
+        quiet = level_findings(
+            {"kind": "audio", "peak_dbfs": -18.0, "mean_dbfs": -54.0}
+        )
+        empty = level_findings(
+            {"kind": "audio", "peak_dbfs": -60.0, "mean_dbfs": -70.0}
+        )
+        assert [(f["rule"], f["severity"]) for f in quiet] == [("near_silent", "info")]
+        assert [(f["rule"], f["severity"]) for f in empty] == [("near_silent", "warn")]
+
+    def test_no_levels_no_findings(self):
+        from dw.server.assess import level_findings
+
+        assert level_findings(None) == []
+        assert level_findings({"kind": "video"}) == []
+        assert level_findings({"peak_dbfs": -6.0, "mean_dbfs": -20.0}) == []
+
+    def test_level_findings_read_audio_qc_thresholds(self, monkeypatch):
+        from dw import audio_qc
+        from dw.server.assess import level_findings
+
+        monkeypatch.setattr(audio_qc, "CLIPPED_WARN_DBFS", -3.0)
+        found = level_findings({"peak_dbfs": -2.0, "mean_dbfs": -12.0})
+        assert [f["rule"] for f in found] == ["full_scale"]
+
+    def test_the_metadata_route_carries_findings(self, server, tmp_path):
+        import wave
+
+        path = tmp_path / "outputs" / "loud" / "20260923-120000-abcdef01" / "a.wav"
+        path.parent.mkdir(parents=True)
+        t = numpy.arange(SAMPLE_RATE // 4) / SAMPLE_RATE
+        samples = (numpy.sin(2 * numpy.pi * 440.0 * t) * 32767).astype(numpy.int16)
+        with wave.open(str(path), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(SAMPLE_RATE)
+            out.writeframes(samples.tobytes())
+        with server() as client:
+            name = "loud/20260923-120000-abcdef01/a.wav"
+            body = client.get(f"/api/gallery/{name}/metadata").json()
+        assert [f["rule"] for f in body["findings"]] == ["full_scale"]

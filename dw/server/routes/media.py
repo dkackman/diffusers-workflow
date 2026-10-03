@@ -10,11 +10,14 @@ import base64
 import io
 import mimetypes
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
+from ..api_models import (
+    GalleryMetadata,
+)
 from ...assets import is_asset_reference
 from ...media import (
     MAX_INLINE_AUDIO_BYTES,
@@ -36,9 +39,16 @@ from ...writers import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
 from ...security import MAX_DECODE_PIXELS
 from ...workspace import Workspace
-from ..assess import assess, unknown_probe
+from ..assess import assess, level_findings, unknown_probe
 from ..deps import selected_workspace
 from ..http_security import query_token_ok
+from ..inline_media import (
+    encode_within_budget,
+    fit_longest,
+    fit_tiles_within_budget,
+    open_bounded,
+    png_bytes,
+)
 from ..outputs import (
     MEDIA_KINDS,
     asset_file,
@@ -53,7 +63,11 @@ router = APIRouter()
 GALLERY_THUMBNAIL_MAX_DIM = 320
 
 
-@router.get("/api/gallery/{name:path}/metadata")
+@router.get(
+    "/api/gallery/{name:path}/metadata",
+    response_model=GalleryMetadata,
+    response_model_exclude_unset=True,
+)
 def gallery_metadata(
     request: Request,
     name: str,
@@ -135,6 +149,7 @@ def gallery_metadata(
         "run_id": run_id,
         "version": version,
         "media": media,
+        "findings": level_findings(media),
     }
 
 
@@ -403,6 +418,7 @@ def gallery_frames(
     names: Optional[str] = None,
     max_dimension: int = 512,
     crop: Optional[str] = None,
+    max_total_bytes: Optional[int] = None,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Frames of a video output or asset, as PNG tiles - the way an
@@ -425,7 +441,11 @@ def gallery_frames(
     (`video_shape`'s `width`/`height`) - resolved once and cut from
     every sampled frame before any stamping, fitting or composing, so
     it names the same region whatever `max_dimension` downscales the
-    result to."""
+    result to. `max_total_bytes` is a budget on the tiles' summed base64
+    size: over it, every tile shrinks to one shared size (never below
+    FRAME_MIN_DIMENSION) rather than any being dropped, and
+    `downscaled_to` says the side they came out at (null when nothing
+    had to shrink)."""
     state = request.app.state
     name = strip_output_prefix(name)
     if is_asset_reference(name):
@@ -468,37 +488,100 @@ def gallery_frames(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    images = [fit_longest(tile["image"], limit) for tile in tiles]
+    downscaled_to = None
+    if max_total_bytes is not None:
+        images, downscaled_to = fit_tiles_within_budget(
+            images, limit, max_total_bytes, floor=FRAME_MIN_DIMENSION
+        )
     return {
         "name": name,
         **shape,
-        "tiles": [_encoded_tile(tile, limit) for tile in tiles],
+        "tiles": [_encoded_tile(tile, image) for tile, image in zip(tiles, images)],
         "crop": _crop_rectangle(crop_box),
+        "downscaled_to": downscaled_to,
     }
 
 
-def _encoded_tile(tile, limit):
-    image = tile["image"]
-    longest = max(image.width, image.height)
-    if longest > limit:
-        scale = limit / longest
-        image = image.resize(
-            (
-                max(1, round(image.width * scale)),
-                max(1, round(image.height * scale)),
-            )
-        )
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+def _encoded_tile(tile, image):
+    """A tile as the frames answer carries it: PNG, base64, and the size
+    `image` - the tile's picture, already fitted - came out at."""
     encoded = {key: value for key, value in tile.items() if key != "image"}
     encoded.update(
         {
-            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "data": base64.b64encode(png_bytes(image)).decode("ascii"),
             "mime_type": "image/png",
             "width": image.width,
             "height": image.height,
         }
     )
     return encoded
+
+
+@router.get("/api/gallery/{name:path}/image")
+@query_token_ok
+def gallery_image(
+    request: Request,
+    name: str,
+    max_dimension: int = 768,
+    crop: Optional[str] = None,
+    max_bytes: Optional[int] = None,
+    format: Literal["auto", "png", "jpeg"] = "auto",
+    ws: Workspace = Depends(selected_workspace),
+):
+    """An image output or asset sized for an inline answer: `crop`
+    (`x,y,width,height` in the image's own pixels, clamped to it) first,
+    then fitted to `max_dimension` on its longest side, then - with
+    `max_bytes`, a budget on the base64 size - halved until it fits. The
+    format follows the source (JPEG stays JPEG, anything else is PNG)
+    unless `format` names one. Headers say what came back:
+    X-DW-Original-Size, X-DW-Returned-Size, and when they apply
+    X-DW-Crop and X-DW-Downscaled-To (the budget shrank it)."""
+    state = request.app.state
+    name = strip_output_prefix(name)
+    if is_asset_reference(name):
+        path = asset_file(state, name, ws)
+    else:
+        path = resolve_output_file(state, name, ws.outputs)
+    if MEDIA_KINDS.get(os.path.splitext(path)[1].lower()) != "image":
+        raise HTTPException(status_code=404, detail=f"{name} is not an image")
+    image = open_bounded(path, name)
+    original = image.size
+    headers = {"X-DW-Original-Size": f"{original[0]},{original[1]}"}
+    if crop:
+        try:
+            box = resolve_crop_box([c.strip() for c in crop.split(",")], *original)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        image = image.crop(box)
+        headers["X-DW-Crop"] = _crop_header(box)
+    fmt = (
+        format.upper()
+        if format != "auto"
+        else (
+            "JPEG"
+            if image.format == "JPEG" or path.lower().endswith((".jpg", ".jpeg"))
+            else "PNG"
+        )
+    )
+    limit = max(1, int(max_dimension))
+    fitted_size = fit_longest(image, limit).size
+    data, sized = encode_within_budget(
+        image, limit, fmt, max_bytes, floor=FRAME_MIN_DIMENSION
+    )
+    if sized.size != fitted_size:
+        headers["X-DW-Downscaled-To"] = str(max(sized.size))
+    headers["X-DW-Returned-Size"] = f"{sized.width},{sized.height}"
+    return Response(
+        content=data,
+        media_type="image/jpeg" if fmt == "JPEG" else "image/png",
+        headers=headers,
+    )
+
+
+def _crop_header(box):
+    left, upper, right, lower = box
+    return f"{left},{upper},{right - left},{lower - upper}"
 
 
 @router.get("/api/gallery/{name:path}/thumbnail")

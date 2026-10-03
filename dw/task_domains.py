@@ -150,6 +150,7 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
     },
     "loop_frames": {"num_frames": POSITIVE},
+    "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "dissolve_videos": {
         "dissolve_frames": NON_NEGATIVE,

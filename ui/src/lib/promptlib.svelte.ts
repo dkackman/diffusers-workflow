@@ -19,7 +19,7 @@ export async function loadPromptLibrary(): Promise<void> {
     promptLibrary.texts = Object.fromEntries(
       Object.entries(result.details).map(([name, detail]) => [
         name,
-        detail.text,
+        detail.text ?? '',
       ]),
     )
   } catch {

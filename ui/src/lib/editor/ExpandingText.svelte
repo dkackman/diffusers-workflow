@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Suggest from '../ui/Suggest.svelte'
   import { Ellipsis, Minimize2 } from '@lucide/svelte'
   import { isLongText } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
@@ -8,7 +9,7 @@
     value,
     placeholder = '',
     refStyle = false,
-    listId = undefined,
+    suggestions = [],
     title = '',
     alwaysExpandable = false,
     onchange,
@@ -19,7 +20,7 @@
     value: string
     placeholder?: string
     refStyle?: boolean
-    listId?: string
+    suggestions?: readonly string[]
     title?: string
     /** Offer the expand affordance even while the text is still short -
      * for fields that exist to hold documents (prompts). */
@@ -93,17 +94,15 @@
   </div>
 {:else}
   <div class="linewrap">
-    <input
+    <Suggest
       {id}
-      class:ref={refStyle}
-      class:roomy={expandable}
-      list={listId}
-      autocomplete="off"
+      class={[refStyle && 'ref', expandable && 'roomy']}
+      {suggestions}
       {title}
       {placeholder}
       {value}
-      oninput={(e) => oninput?.(e.currentTarget.value)}
-      onchange={(e) => onchange(e.currentTarget.value)}
+      {oninput}
+      {onchange}
     />
     {#if expandable}
       <button
@@ -127,7 +126,7 @@
     gap: var(--space-1);
     min-width: 0;
   }
-  input.roomy {
+  .linewrap :global(input.roomy) {
     padding-right: 2rem;
   }
   textarea {

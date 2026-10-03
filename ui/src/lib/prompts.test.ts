@@ -5,7 +5,7 @@ import {
   manifestTextFile,
   parseTags,
   presetForIntendedModel,
-  promptListId,
+  promptSuggestions,
   promptTooltip,
   workflowsReferencing,
 } from './prompts'
@@ -96,18 +96,25 @@ describe('promptTooltip', () => {
   })
 })
 
-describe('promptListId', () => {
-  it('names the datalist once the value commits to prompt:', () => {
-    expect(promptListId('prompt:')).toBe('prompt-references')
-    expect(promptListId('prompt:scenic')).toBe('prompt-references')
+describe('promptSuggestions', () => {
+  const names = ['scenic', 'cast/priya']
+  it('offers the stored prompts once the value commits to prompt:', () => {
+    expect(promptSuggestions('prompt:', names)).toEqual([
+      'prompt:scenic',
+      'prompt:cast/priya',
+    ])
+    expect(promptSuggestions('prompt:sce', names)).toHaveLength(2)
   })
 
-  it('is undefined before that, so no dropdown pops over ordinary text', () => {
-    expect(promptListId('prom')).toBeUndefined()
-    expect(promptListId('a cat wearing a hat')).toBeUndefined()
-    expect(promptListId('variable:prompt')).toBeUndefined()
-    expect(promptListId(42)).toBeUndefined()
-    expect(promptListId(undefined)).toBeUndefined()
+  it('offers nothing before that, so no list pops over ordinary text', () => {
+    for (const value of [
+      'prom',
+      'a cat wearing a hat',
+      'variable:prompt',
+      42,
+      undefined,
+    ])
+      expect(promptSuggestions(value, names)).toEqual([])
   })
 })
 
@@ -136,4 +143,10 @@ describe('emptyPrompt', () => {
   it('starts with only the required field', () => {
     expect(emptyPrompt()).toEqual({ text: '' })
   })
+})
+
+it('finds the text of a foldered prompt picked from the picker', () => {
+  expect(
+    promptTooltip('prompt:cast/priya', { 'cast/priya': 'a portrait' }),
+  ).toBe('a portrait')
 })

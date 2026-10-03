@@ -441,6 +441,40 @@ class TestUploadContainmentOverAMountedEndpoint:
         result = upload_asset(client, str(source))
         assert result["reference"] == "asset:uploads/deadbeef.png"
 
+    def test_a_per_call_workspace_confines_to_that_workspace(self, tmp_path):
+        """#389's twin: upload_asset's own `workspace` names where the asset
+        goes, so the source is confined to that workspace's roots, not the
+        session's - download_output's _remote_root already did this."""
+        default_ws = tmp_path / "default"
+        (default_ws / "assets").mkdir(parents=True)
+        other_ws = tmp_path / "other"
+        (other_ws / "assets").mkdir(parents=True)
+        source = other_ws / "assets" / "iris.png"
+        source.write_bytes(b"png-bytes")
+
+        def handler(request):
+            requested = httpx.QueryParams(request.url.query.decode())
+            root = other_ws if requested.get("workspace") == "other" else default_ws
+            if request.url.path == "/api/server":
+                return httpx.Response(
+                    200, json={"directories": {"workspace": str(root)}}
+                )
+            if request.url.path == "/api/assets":
+                return httpx.Response(200, json={"libraries": []})
+            return httpx.Response(
+                201,
+                json={
+                    "reference": "asset:uploads/deadbeef.png",
+                    "url": "/inputs/uploads/deadbeef.png",
+                },
+            )
+
+        client = client_over(handler)
+        client.mounted = True
+
+        result = upload_asset(client, str(source), workspace="other")
+        assert result["reference"] == "asset:uploads/deadbeef.png"
+
     def test_a_stdio_client_is_unconfined(self, tmp_path):
         """There 'local' is genuinely the caller's own machine."""
         source = tmp_path / "elsewhere" / "iris.png"

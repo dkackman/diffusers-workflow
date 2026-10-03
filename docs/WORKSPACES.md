@@ -245,6 +245,7 @@ it is working in - `dw.run --workspace NAME` among them.
 <workspace root>/
   workflows/  assets/  outputs/    <- the 'default' workspace
   prompts/                         <- shared by all of them
+  loras/                           <- the LoRA catalog, shared by all of them
   common/assets/                   <- shared by all of them
   studio/
     workflows/  assets/  outputs/  <- the 'studio' workspace
@@ -260,8 +261,11 @@ reference, and a prompt duplicated per workspace would resolve to different
 text depending on where a workflow happened to be saved. `workflows`,
 `prompts`, `assets` and `outputs` are reserved names for that reason.
 
-Two more names are reserved beside `workflows`, `prompts`, `assets` and
-`outputs`: `exports` and `common`. `POST /api/jobs/{id}/export` gathers one
+Three more names are reserved beside `workflows`, `prompts`, `assets` and
+`outputs`: `exports`, `common` and `loras`. `loras/` is the LoRA catalog,
+shared by every workspace like `prompts/`; a workspace already named `loras`
+stops being listed on upgrade, and the server logs a warning at start naming
+its directory. `POST /api/jobs/{id}/export` gathers one
 finished job into `<root>/exports/<job id>/`, and that folder is never mistaken
 for a workspace.
 

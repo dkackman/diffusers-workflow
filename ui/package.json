@@ -13,9 +13,11 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "format": "prettier --write src e2e *.ts *.js",
+    "format": "prettier --write src e2e scripts *.ts *.js",
     "e2e": "playwright test",
-    "preflight": "npm run check && npm run lint && npm run format && npm run build && npm run test && npm run e2e"
+    "metrics": "node scripts/arch-metrics.mjs",
+    "preflight": "npm run check && npm run lint && npm run format && npm run metrics -- --check ../docs/stabilization/ui/baseline.json && npm run build && npm run test && npm run e2e",
+    "gen:api": "openapi-typescript src/lib/generated/openapi.json -o src/lib/generated/api-schema.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -30,6 +32,7 @@
     "eslint-plugin-svelte": "^3.23.0",
     "globals": "^17.12.0",
     "jsdom": "^30.0.1",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.56.10",
@@ -41,6 +44,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "^1.39.0",
+    "bits-ui": "^2.19.4",
     "monaco-editor": "^0.56.0",
     "svelte-sonner": "^1.2.1"
   },
@@ -51,6 +55,9 @@
   "overrides": {
     "monaco-editor": {
       "dompurify": "^3.4.13"
+    },
+    "openapi-typescript": {
+      "typescript": "$typescript"
     }
   }
 }

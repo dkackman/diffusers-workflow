@@ -1132,7 +1132,10 @@ DEFINITION = {
     },
     "variable_constraints": {
         "num_frames": {
-            "modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 345,
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
             "snap": "up",
         }
     },
@@ -1256,21 +1259,32 @@ def test_expansion_is_computed_once_per_workflow_and_arguments(tmp_path):
 ```python
 @dataclass
 class Admission:
-    workflow: Workflow            # the one instance this request builds
-    arguments: dict               # as the caller sent them ({} when omitted)
-    supplied: bool                # the caller sent `arguments` at all
-    errors: list                  # [{path, message}]: schema, argument, constraint, reference
-    warnings: list                # [str]: every warning /api/validate reports
-    plan: dict | None = None      # build_plan's answer, when plan_for was given
+    workflow: Workflow  # the one instance this request builds
+    arguments: dict  # as the caller sent them ({} when omitted)
+    supplied: bool  # the caller sent `arguments` at all
+    errors: list  # [{path, message}]: schema, argument, constraint, reference
+    warnings: list  # [str]: every warning /api/validate reports
+    plan: dict | None = None  # build_plan's answer, when plan_for was given
 
     @property
     def ok(self):
         return not self.errors
 
 
-def admit(*, workflow_path, workflow, arguments, base_dir, workspace,
-          sources, ceiling_index, output_dir, workflow_dir,
-          supplied=True, plan_for=None) -> Admission:
+def admit(
+    *,
+    workflow_path,
+    workflow,
+    arguments,
+    base_dir,
+    workspace,
+    sources,
+    ceiling_index,
+    output_dir,
+    workflow_dir,
+    supplied=True,
+    plan_for=None,
+) -> Admission:
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
     used to leave it off for its warnings). `plan_for`, a callable taking
@@ -1357,13 +1371,20 @@ def _bridge(app):
     def handler(request):
         headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
         response = local.request(
-            request.method, request.url.path, params=request.url.params,
-            content=request.content, headers=headers,
+            request.method,
+            request.url.path,
+            params=request.url.params,
+            content=request.content,
+            headers=headers,
         )
-        return httpx.Response(response.status_code, headers=response.headers, content=response.content)
+        return httpx.Response(
+            response.status_code, headers=response.headers, content=response.content
+        )
 
     # TestClient's own host, so host-checking middleware sees what it expects
-    return DwClient(base_url="http://testserver", transport=httpx.MockTransport(handler))
+    return DwClient(
+        base_url="http://testserver", transport=httpx.MockTransport(handler)
+    )
 ```
 
   - Tests, one behavior each:

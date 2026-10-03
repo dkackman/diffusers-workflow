@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports for the reason GalleryPage.test.ts states: the
 // static import below is hoisted too, and must see an initialized mock
 import AssetsPage from './AssetsPage.svelte'
-import ConfirmDialog from '../ConfirmDialog.svelte'
+import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 
@@ -25,6 +25,7 @@ const asset = (
   size: 2048,
   mtime: 1,
   origin,
+  writable: origin !== 'examples',
   url: `/inputs/${name}`,
 })
 
@@ -127,6 +128,14 @@ async function renderAssets(first = 'iris.png') {
   render(ConfirmDialog)
   render(AssetsPage)
   await waitFor(() => expect(screen.getByText(first)).toBeTruthy())
+}
+
+// A key press starts at the focused element and bubbles to the document
+// and the window - where an overlay and the page each listen
+function pressEscape() {
+  ;(document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  )
 }
 
 async function answerConfirm(accept: boolean) {
@@ -346,7 +355,7 @@ it('leaves the detail open when Escape answers a confirm dialog', async () => {
   screen.getByLabelText('delete this asset from the library').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  pressEscape()
 
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(screen.getByText('asset:iris.png')).toBeTruthy()
@@ -414,12 +423,12 @@ it('clears the selection on Escape before it closes the detail', async () => {
   screen.getByLabelText('select iris.png').click()
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
 
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  pressEscape()
   await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
   // The detail is the older state, so it survives the first press
   expect(screen.getByText('asset:iris.png')).toBeTruthy()
 
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  pressEscape()
   await waitFor(() => expect(screen.queryByText('asset:iris.png')).toBeNull())
 })
 

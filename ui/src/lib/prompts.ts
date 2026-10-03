@@ -1,4 +1,5 @@
 import type { EnhancerPreset, ManifestEntry, PromptDefinition } from './types'
+import { PROMPT, reference, referenceName } from './references'
 
 /** A blank prompt, the editor's starting point. */
 export function emptyPrompt(): PromptDefinition {
@@ -27,7 +28,7 @@ export function presetForIntendedModel(
 /** The text file an enhancement job produced - the first .txt in its
  * manifest, or undefined while it has none. */
 export function manifestTextFile(
-  manifest: ManifestEntry[] | undefined,
+  manifest: ManifestEntry[] | null | undefined,
 ): string | undefined {
   return manifest
     ?.flatMap((entry) => entry.files)
@@ -54,23 +55,19 @@ export function promptTooltip(
   value: unknown,
   texts: Record<string, string>,
 ): string | undefined {
-  if (typeof value !== 'string' || !value.startsWith('prompt:')) {
-    return undefined
-  }
-  return texts[value.slice('prompt:'.length).trim()] || undefined
+  const name = referenceName(value, PROMPT)
+  return name === null ? undefined : texts[name] || undefined
 }
 
-/** The one datalist of stored-prompt suggestions - declared once per page,
- * referenced everywhere a prompt: reference can be typed. */
-export const PROMPT_LIST_ID = 'prompt-references'
-
-/** The datalist id for stored-prompt suggestions, attached only once the
- * value has committed to a prompt: reference - so the dropdown doesn't pop
- * over ordinary text. */
-export function promptListId(value: unknown): string | undefined {
-  return typeof value === 'string' && value.startsWith('prompt:')
-    ? PROMPT_LIST_ID
-    : undefined
+/** The stored prompts a value can name, offered once the value commits to
+ * a prompt: reference - so no list pops over ordinary text. */
+export function promptSuggestions(
+  value: unknown,
+  names: readonly string[],
+): string[] {
+  return referenceName(value, PROMPT) === null
+    ? []
+    : names.map((name) => reference(PROMPT, name))
 }
 
 /** The workflows whose definitions reference a stored prompt, from the

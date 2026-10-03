@@ -1,0 +1,23 @@
+{
+  "model_name": "alibaba-pai/MiniMax-H3-Acc-LoRAs",
+  "weight_name": "MiniMax-H3-FL2VA-Acc-8Step.safetensors",
+  "revision": "335001fb9e5455d68a0caa18ec2e319072150328",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "Needs its own loader or is refused by the converter; not a plain LoRA",
+  "use_when": "Do not use under dw",
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Carries a 32-copy output-head bank and needs its own apply_pdd_lora loader; not a plain LoRA",
+      "issue": 585
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "speed"
+  ]
+}

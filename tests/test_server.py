@@ -1799,6 +1799,44 @@ def test_gallery_frames_returns_the_moments_asked_for(server, tmp_path):
         assert _png_of(body["tiles"][0]).size == (32, 16)
 
 
+def test_gallery_frames_shrinks_tiles_together_under_max_total_bytes(server, tmp_path):
+    """A caller with a byte budget gets every tile, shrunk to one shared
+    size, rather than a client decoding and re-encoding the answer."""
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(
+            tmp_path / "outputs" / "wide.mp4", frames=24, fps=6, width=512, height=256
+        )
+        params = {"at": "0.0,1.0,2.0", "max_dimension": "512"}
+        whole = client.get("/api/gallery/wide.mp4/frames", params=params).json()
+        total = sum(len(t["data"]) for t in whole["tiles"])
+        budget = total // 3
+        fitted = client.get(
+            "/api/gallery/wide.mp4/frames",
+            params={**params, "max_total_bytes": str(budget)},
+        ).json()
+
+        assert len(fitted["tiles"]) == 3
+        assert fitted["downscaled_to"] is not None and fitted["downscaled_to"] < 512
+        assert len({t["width"] for t in fitted["tiles"]}) == 1
+        assert sum(len(t["data"]) for t in fitted["tiles"]) <= budget
+
+
+def test_gallery_frames_without_a_budget_is_unchanged(server, tmp_path):
+    from tests.test_media_frames import write_ramp_mp4
+
+    with server(success_script) as client:
+        write_ramp_mp4(
+            tmp_path / "outputs" / "wide.mp4", frames=24, fps=6, width=512, height=256
+        )
+        body = client.get(
+            "/api/gallery/wide.mp4/frames", params={"at": "0.0", "max_dimension": "512"}
+        ).json()
+        assert body["downscaled_to"] is None
+        assert body["tiles"][0]["width"] == 512
+
+
 def test_gallery_frames_seams_read_a_joined_outputs_recorded_shots(server, tmp_path):
     """#385: `seams` without `boundaries` was a 400 - the file carried no
     seams of its own. An output whose run recorded shots for it now answers
@@ -4793,6 +4831,91 @@ def test_job_files_are_reported_relative_to_the_output_dir(server, tmp_path):
         assert step_end["files"] == ["flux/FluxDev-gen.0.png", "sd15-gen.0.png"]
 
 
+def test_a_job_reports_each_output_files_media_kind(server, tmp_path):
+    """The job page renders by kind, so the kind comes from MEDIA_KINDS
+    rather than an extension list in the browser."""
+    outputs = tmp_path / "outputs"
+    files = [str(outputs / name) for name in ("a.bmp", "b.mov", "c.flac", "d.bin")]
+
+    def script(command):
+        yield {
+            "type": "success",
+            "message": "ok",
+            "run_count": 1,
+            "manifest": [{"step": "gen", "files": files}],
+        }
+
+    with server(script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert detail["output_kinds"] == {
+            "a.bmp": "image",
+            "b.mov": "video",
+            "c.flac": "audio",
+            "d.bin": None,
+        }
+
+
+def test_a_step_end_event_carries_its_files_media_kinds(server, tmp_path):
+    """A running job's page renders each output as its step ends, before
+    the manifest exists, so the event carries the kinds itself."""
+    outputs = tmp_path / "outputs"
+
+    def script(command):
+        yield {
+            "type": "progress",
+            "event": "step_end",
+            "step": "gen",
+            "index": 0,
+            "total_steps": 1,
+            "files": [str(outputs / "a.png"), str(outputs / "b.flac")],
+        }
+        yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+    with server(script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        events = client.get(f"/api/jobs/{job['id']}/event-log").json()["events"]
+        step_end = next(e for e in events if e["event"] == "step_end")
+        assert step_end["output_kinds"] == {"a.png": "image", "b.flac": "audio"}
+
+
+def test_a_historical_job_with_no_manifest_reports_no_output_kinds(server, tmp_path):
+    """A row recorded before manifests, or by a run that wrote none, stores
+    null; the job detail still answers, with nothing to classify."""
+    from dw.server.job_history import JobHistory
+
+    class Row:
+        id = "old"
+        workflow_name = "w"
+        catalog_name = None
+        status = "succeeded"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = None
+        warnings = []
+        error = None
+        events = []
+        run_id = None
+        run_dir = None
+        acknowledged = "none"
+        spec = {"workspace": "default"}
+
+    JobHistory(str(tmp_path / "jobs.sqlite")).record(Row())
+    with server(success_script) as client:
+        detail = client.get("/api/jobs/old")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["output_kinds"] == {}
+
+
+def test_output_kinds_tolerates_a_job_with_no_manifest():
+    from dw.server.outputs import output_kinds
+
+    assert output_kinds(None) == {}
+    assert output_kinds([{"step": "s"}, "not an entry"]) == {}
+
+
 def test_gallery_thumbnails_are_cacheable(server, tmp_path):
     """The grid re-requests every visible thumbnail on each visit; a
     validator lets the browser skip the decode/resize/encode round-trip
@@ -4940,7 +5063,17 @@ EMPTY_PLAN = {
     "cached_steps": None,
     "elided_steps": [],
     "downloads_required": [],
-    "estimate": None,
+    # The shape estimate() returns for a workflow with no cost block
+    "estimate": {
+        "minutes": None,
+        "basis": "unknown",
+        "device": "cpu",
+        "measured_on": None,
+        "partial": False,
+        "unpriced": [],
+        "runs": None,
+        "cached_minutes": None,
+    },
 }
 # The route adds these to whatever build_plan() returns - the workspace the
 # plan (and any cache probe inside it) actually ran against (#184)
@@ -5412,6 +5545,42 @@ class TestBoundAcknowledgement:
             assert "differ" in detail["message"]
             assert client.app.state.job_manager.worker_manager.commands == []
 
+    def test_a_null_download_entry_is_tolerated(self, server, no_hub):
+        """A from_single_file URL sits in downloads_required with repo null;
+        an acknowledgement copied from the plan verbatim carries that null
+        and must not be a 422."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            acknowledgement = {
+                **bound(plan),
+                "downloads": [None, *bound(plan)["downloads"]],
+            }
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "workflow": list_workflow(),
+                    "acknowledged_cost": acknowledgement,
+                },
+            )
+            assert response.status_code == 201, response.json()
+
+    def test_the_409_carries_a_ready_acknowledgement(self, server, no_hub):
+        """The refusal says exactly what to resend, so a client re-quotes
+        and resubmits without rebuilding the body from the plan."""
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            longer = {"shots": [{"name": n, "prompt": n} for n in "abc"]}
+            request = {"workflow": list_workflow(), "arguments": longer}
+            refused = client.post(
+                "/api/jobs", json={**request, "acknowledged_cost": bound(plan)}
+            )
+            assert refused.status_code == 409
+            acknowledge = refused.json()["detail"]["acknowledge"]
+            resent = client.post(
+                "/api/jobs", json={**request, "acknowledged_cost": acknowledge}
+            )
+            assert resent.status_code == 201, resent.json()
+
     def test_a_new_seed_is_the_same_work(self, server, no_hub):
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5682,7 +5851,10 @@ def test_gallery_metadata_refuses_an_asset_that_escapes_the_library(
         )
         missing = client.get("/api/gallery/asset:nothing.wav/metadata")
         assert missing.status_code == 404
-        assert "not found in" in missing.json()["detail"]
+        detail = missing.json()["detail"]
+        assert "not found in" in detail
+        # the library is named, never the server directory it lives in
+        assert str(tmp_path) not in detail
 
 
 def test_gallery_metadata_finds_an_asset_an_examples_tree_brought(tmp_path):

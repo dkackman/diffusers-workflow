@@ -14,12 +14,18 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from dw_mcp.client import DwApiError
-from dw_mcp.tools_authoring import AuthoringTools, PromptTools, WorkspaceTools
+from dw_mcp.tools_authoring import (
+    AuthoringTools,
+    LoraTools,
+    PromptTools,
+    WorkspaceTools,
+)
 from dw_mcp.tools_catalog import CatalogTools, ModelTools
 from dw_mcp.tools_jobs import JobTools
 from dw_mcp.tools_media import AssetTools, MediaTools
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+READ_ONLY_OPEN = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 WRITES = ToolAnnotations(read_only_hint=False, open_world_hint=False)
 OVERWRITES = ToolAnnotations(
     read_only_hint=False,
@@ -123,6 +129,7 @@ def build_server(client):
     cat, mod = CatalogTools(client), ModelTools(client)
     med, asset = MediaTools(client), AssetTools(client)
     wks, aut, prm = WorkspaceTools(client), AuthoringTools(client), PromptTools(client)
+    lor = LoraTools(client)
     job = JobTools(client)
 
     for fn in (
@@ -183,6 +190,10 @@ def build_server(client):
     tool(prm.save_prompt, OVERWRITES)
     tool(prm.delete_prompt, DELETES)
     tool(prm.enhance_prompt, WRITES)
+
+    tool(lor.list_loras, READ_ONLY)
+    tool(lor.save_lora, OVERWRITES)
+    tool(lor.recommend_loras, READ_ONLY_OPEN)
 
     for fn in (job.get_job, job.get_job_workflow, job.get_job_events, job.wait_for_job):
         tool(fn, READ_ONLY)

@@ -1166,6 +1166,9 @@ class TestAudioTasksTakeAnAudioVideo:
         assert warnings[0]["command"] == "crossfade_audio"
         assert warnings[0]["sample_rate"] == 200
         assert warnings[0]["sample_rates"] == {"track 1": 100, "track 2": 200}
+        # #586: sample_rate relabels here, so the warning must not advise it
+        assert "Do not pass 'sample_rate'" in warnings[0]["message"]
+        assert "resample_audio" in warnings[0]["message"]
 
     def test_crossfade_audio_still_needs_a_rate_for_a_bare_waveform(self):
         from dw.tasks.audio_utils import crossfade_audio

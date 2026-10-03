@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
-import { formatBytes, formatMtime } from './format'
+import { describe, expect, it } from 'vitest'
+import { formatBytes, formatMtime, gbFromBytes, gbFromMb } from './format'
 
 it('formats sub-megabyte sizes in whole KB, rounded up to at least 1', () => {
   expect(formatBytes(500)).toBe('1 KB')
@@ -22,4 +22,12 @@ it('reads mtime as unix seconds, not milliseconds', () => {
   const rendered = formatMtime(1700000000)
   expect(rendered).toBe(new Date('2023-11-14T22:13:20Z').toLocaleString())
   expect(rendered).not.toBe(new Date(1700000000).toLocaleString())
+})
+
+describe('GB figures', () => {
+  it('reads megabytes and bytes alike, one decimal, no unit', () => {
+    expect(gbFromMb(1536)).toBe('1.5')
+    expect(gbFromBytes(1610612736)).toBe('1.5')
+    expect(gbFromMb(0)).toBe('0.0')
+  })
 })

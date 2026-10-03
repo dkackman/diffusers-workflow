@@ -84,7 +84,10 @@ def _long_function(lines):
 
 def test_a_long_function_and_a_long_module_are_counted(tmp_path):
     metrics = _load().measure(
-        _tree(tmp_path, {"dw/a.py": _long_function(151) + "\n" * 900, "dw/b.py": "x = 1\n"})
+        _tree(
+            tmp_path,
+            {"dw/a.py": _long_function(151) + "\n" * 900, "dw/b.py": "x = 1\n"},
+        )
     )
     assert metrics["functions_over_150_lines"] == 1
     assert metrics["modules_over_1000_lines"] == 1
@@ -167,8 +170,16 @@ import re
 import sys
 
 REFERENCE_PREFIXES = frozenset(
-    ("asset:", "output:", "prompt:", "variable:", "previous_result:",
-     "constant:", "item:", "gather:")
+    (
+        "asset:",
+        "output:",
+        "prompt:",
+        "variable:",
+        "previous_result:",
+        "constant:",
+        "item:",
+        "gather:",
+    )
 )
 # Modules allowed to spell a reference prefix. Empty until Phase 2 gives the
 # prefixes one owner (dw/references.py).
@@ -189,8 +200,13 @@ def _duplicate_blocks(paths):
         from pylint.checkers.symilar import Symilar
     except ImportError:
         return None
-    similar = Symilar(min_lines=8, ignore_comments=True, ignore_docstrings=True,
-                      ignore_imports=True, ignore_signatures=True)
+    similar = Symilar(
+        min_lines=8,
+        ignore_comments=True,
+        ignore_docstrings=True,
+        ignore_imports=True,
+        ignore_signatures=True,
+    )
     for path in paths:
         with open(path, encoding="utf-8") as stream:
             similar.append_stream(str(path), stream)
@@ -247,10 +263,14 @@ def regressions(current, baseline):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=pathlib.Path(__file__).resolve().parent.parent)
+    parser.add_argument(
+        "--root", default=pathlib.Path(__file__).resolve().parent.parent
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--write", help="write the metrics to this JSON file")
-    group.add_argument("--check", help="fail if any metric is worse than this JSON file")
+    group.add_argument(
+        "--check", help="fail if any metric is worse than this JSON file"
+    )
     args = parser.parse_args(argv)
     current = measure(args.root)
     print(json.dumps(current, indent=2))
@@ -402,7 +422,11 @@ def snap_constraints(definition, variables):
         if notice is not None:
             entry[name] = snapped(entry[name], constraints[name])
             changes.append(
-                (f"{variable}[{index}]: {notice}", f"{variable}[{index}].{name}", entry[name])
+                (
+                    f"{variable}[{index}]: {notice}",
+                    f"{variable}[{index}].{name}",
+                    entry[name],
+                )
             )
     return changes
 ```
@@ -489,12 +513,11 @@ Change the signature to `def sub_workflow_warnings(self, arguments=None):`. Repl
 Inside the loop, compute `source = source_indices[index] if index < len(source_indices) else index`, and append a string:
 
 ```python
-                warnings.append(
-                    f"steps[{source}].workflow.arguments.{name}: "
-                    f"'{reference['path']}' declares no variable '{name}' - the "
-                    "value is dropped. Declared: "
-                    + (", ".join(sorted(declared)) or "<none>")
-                )
+warnings.append(
+    f"steps[{source}].workflow.arguments.{name}: "
+    f"'{reference['path']}' declares no variable '{name}' - the "
+    "value is dropped. Declared: " + (", ".join(sorted(declared)) or "<none>")
+)
 ```
 
 Grep for other callers (`grep -rn "sub_workflow_warnings" dw dw_mcp tests`). In `dw/server/app.py`, change `candidate.sub_workflow_warnings()` to `candidate.sub_workflow_warnings(request.arguments)`.
@@ -541,7 +564,9 @@ class TestDetailCachePruning:
             cache[f"/new/{len(cache)}.json"] = 0
             return False
 
-        with patch.object(app_module.os.path, "exists", exists_while_another_thread_inserts):
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_inserts
+        ):
             app_module._prune_missing(cache)
         assert "/gone/a.json" not in cache and "/gone/b.json" not in cache
 
@@ -556,7 +581,9 @@ class TestDetailCachePruning:
             cache.pop("/gone/b.json", None)
             return False
 
-        with patch.object(app_module.os.path, "exists", exists_while_another_thread_prunes):
+        with patch.object(
+            app_module.os.path, "exists", exists_while_another_thread_prunes
+        ):
             app_module._prune_missing(cache)
         assert cache == {}
 ```
@@ -611,39 +638,45 @@ git commit -m "fix(server): detail-cache pruning tolerates concurrent requests"
 Add to `TestRunVersions` in `tests/test_runs.py`:
 
 ```python
-    def test_two_runs_with_the_same_id_get_distinct_directories_and_versions(self, tmp_path):
-        from dw.runs import open_run
+def test_two_runs_with_the_same_id_get_distinct_directories_and_versions(
+    self, tmp_path
+):
+    from dw.runs import open_run
 
-        first = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
-        second = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
-        assert first[0] != second[0]
-        assert (first[1], second[1]) == (1, 2)
-        assert os.path.isdir(first[0]) and os.path.isdir(second[0])
+    first = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
+    second = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
+    assert first[0] != second[0]
+    assert (first[1], second[1]) == (1, 2)
+    assert os.path.isdir(first[0]) and os.path.isdir(second[0])
 
-    def test_concurrent_opens_never_share_a_version(self, tmp_path):
-        import threading
 
-        from dw.runs import open_run
+def test_concurrent_opens_never_share_a_version(self, tmp_path):
+    import threading
 
-        barrier = threading.Barrier(8)
-        results = []
+    from dw.runs import open_run
 
-        def opener(i):
-            barrier.wait()
-            results.append(open_run(str(tmp_path), None, "wf", f"20260928T120000Z-{i:08x}"))
+    barrier = threading.Barrier(8)
+    results = []
 
-        threads = [threading.Thread(target=opener, args=(i,)) for i in range(8)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        assert sorted(version for _, version in results) == list(range(1, 9))
+    def opener(i):
+        barrier.wait()
+        results.append(open_run(str(tmp_path), None, "wf", f"20260928T120000Z-{i:08x}"))
 
-    def test_the_first_run_is_version_one_even_though_its_own_directory_exists(self, tmp_path):
-        from dw.runs import open_run
+    threads = [threading.Thread(target=opener, args=(i,)) for i in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(version for _, version in results) == list(range(1, 9))
 
-        _, version = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
-        assert version == 1
+
+def test_the_first_run_is_version_one_even_though_its_own_directory_exists(
+    self, tmp_path
+):
+    from dw.runs import open_run
+
+    _, version = open_run(str(tmp_path), None, "wf", "20260928T120000Z-aaaaaaaa")
+    assert version == 1
 ```
 
 The last test matters: the run's own freshly claimed, manifest-less directory must not be ranked as an older sibling.
@@ -681,7 +714,9 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
         name = os.path.basename(candidate)
         versions = record_run_versions(identity_dir, exclude=name)
         version = max(versions.values(), default=0) + 1
-        write_manifest(candidate, {"run_id": name, "version": version, "status": "running"})
+        write_manifest(
+            candidate, {"run_id": name, "version": version, "status": "running"}
+        )
     return candidate, version
 ```
 
@@ -822,17 +857,25 @@ Then add:
 def test_a_step_borrowing_a_pipeline_misses_when_the_source_model_changes(tmp_path):
     definition = _pipeline_reference_workflow_def()
     definition["variables"] = {"model_a": "m1"}
-    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = "variable:model_a"
-    order = _run_twice_recording_order(tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}])
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}]
+    )
     assert order == ["A", "B", "A", "B"]
 
 
 def test_a_step_reusing_components_misses_when_the_sharing_model_changes(tmp_path):
     definition = _shared_components_workflow_def()
     definition["variables"] = {"model_a": "m1"}
-    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = "variable:model_a"
-    order = _run_twice_recording_order(tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}])
-    assert order[len(order) // 2:] == order[: len(order) // 2]
+    definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+        "variable:model_a"
+    )
+    order = _run_twice_recording_order(
+        tmp_path, definition, [{"model_a": "m1"}, {"model_a": "m2"}]
+    )
+    assert order[len(order) // 2 :] == order[: len(order) // 2]
 ```
 
 Write `_run_twice_recording_order` from the pattern the file already uses: `_mock_pipeline_load`, a `FakeResult`, and a spy on step execution. Adapt the step names and the `model_name` path to what the helper definitions actually contain. Read them, then write the assertions against their real step names.

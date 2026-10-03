@@ -35,6 +35,7 @@ from .security import (
     SecurityError,
     contained,
     validate_path,
+    validate_lora_path,
     validate_prompt_path,
     validate_workflow_path,
 )
@@ -160,8 +161,9 @@ class ReadOnlyLibraryError(Exception):
 WORKFLOWS_KIND = "workflows"
 PROMPTS_KIND = "prompts"
 ASSETS_KIND = "assets"
-_JSON_KINDS = {WORKFLOWS_KIND, PROMPTS_KIND}
-LIBRARY_KINDS = (WORKFLOWS_KIND, PROMPTS_KIND, ASSETS_KIND)
+LORAS_KIND = "loras"
+_JSON_KINDS = {WORKFLOWS_KIND, PROMPTS_KIND, LORAS_KIND}
+LIBRARY_KINDS = (WORKFLOWS_KIND, PROMPTS_KIND, ASSETS_KIND, LORAS_KIND)
 LIBRARY_PATH_ENV_VARS = {
     PROMPTS_KIND: PROMPT_PATH_ENV_VAR,
     ASSETS_KIND: ASSET_PATH_ENV_VAR,
@@ -219,6 +221,8 @@ class LibraryPath:
                 return validate_workflow_path(candidate, root.root)
             if self.kind == PROMPTS_KIND and not allow_create:
                 return validate_prompt_path(candidate, root.root)
+            if self.kind == LORAS_KIND and not allow_create:
+                return validate_lora_path(candidate, root.root)
             # Assets: containment alone, with a non-None base
             return validate_path(candidate, root.root, allow_create=allow_create)
         except SecurityError:
@@ -362,7 +366,7 @@ def _assemble(kind, primary, candidates):
 
 
 def _front_directory(kind, workspace):
-    return getattr(workspace, kind)
+    return getattr(workspace, kind, None)
 
 
 def read_only_candidates(kind, workspace, examples_dirs=None, include_builtin=False):
@@ -394,6 +398,9 @@ def library_path(
 
     Prompts: the prompt directory (writable), then the `prompts/` each
     examples directory brings (read-only).
+
+    LoRAs: the server's LoRA directory (writable, `primary`), then each
+    examples tree's `loras/` (read-only).
 
     Assets: the workspace's `assets/` (writable), then the library every
     workspace under the root shares (`common`; writable, but only a write
@@ -521,6 +528,21 @@ def pin_library_path(kind, workspace, examples_dirs=None):
     else:
         os.environ.pop(name, None)
     return joined
+
+
+def merge_patch(target, patch):
+    """RFC 7396 JSON Merge Patch: each dict key in `patch` merges
+    recursively into `target`; any other value replaces `target` outright;
+    `None` deletes the key from the result. `target` is not mutated."""
+    if not isinstance(patch, dict):
+        return patch
+    result = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = merge_patch(result.get(key), value)
+    return result
 
 
 def suggest_workflow_names(library, name, limit=3):

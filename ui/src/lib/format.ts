@@ -18,3 +18,9 @@ export function formatBytes(size: number): string {
 export function formatMtime(mtime: number): string {
   return new Date(mtime * 1000).toLocaleString()
 }
+
+/** A size in GB to one decimal and no unit - the header meter and the
+ * models list put the unit beside it themselves. */
+export const gbFromMb = (mb: number): string => (mb / 1024).toFixed(1)
+export const gbFromBytes = (bytes: number): string =>
+  (bytes / 1024 ** 3).toFixed(1)

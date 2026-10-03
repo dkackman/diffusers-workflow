@@ -8,12 +8,14 @@ app's `state` explicitly, so two apps in one process resolve independently.
 
 import logging
 import os
+import shutil
 import tempfile
 import zipfile
 from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import HTTPException
+from filelock import FileLock
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -28,7 +30,13 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
-from ..runs import is_output_reference, run_versions, split_run_path
+from ..runs import (
+    is_output_reference,
+    record_run_versions,
+    run_lock_path,
+    run_versions,
+    split_run_path,
+)
 from ..security import (
     ALLOWED_AUDIO_EXTENSIONS,
     ALLOWED_IMAGE_EXTENSIONS,
@@ -40,6 +48,7 @@ from ..security import (
     validate_asset_reference,
     validate_path,
 )
+from ..workspace import forget_workspace_usage
 
 logger = logging.getLogger("dw")
 
@@ -55,6 +64,20 @@ MEDIA_KINDS = {
     # gallery like any other kind (#238)
     ".txt": "text",
 }
+
+
+def output_kinds(manifest):
+    """Each file a job manifest lists, mapped to its MEDIA_KINDS entry, or
+    None for a kind the gallery does not show. A client renders an output
+    by this rather than keeping its own extension list."""
+    kinds = {}
+    for entry in manifest or []:
+        if not isinstance(entry, dict):
+            continue
+        for name in entry.get("files") or []:
+            kinds[name] = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
+    return kinds
+
 
 # The allowlist members that are not already-compressed containers -
 # everything else in MEDIA_KINDS deflates for about nothing, so it is
@@ -224,11 +247,16 @@ def asset_in(name, library):
     found = library.find(name)
     if found:
         return found[0]
-    roots = [root.root for root in library.roots()]
-    if not roots:
+    # Named by origin, not directory: the roots are the server's filesystem
+    # layout (GHSA-fwg5-jfjg-fxpf)
+    origins = list(dict.fromkeys(root.origin for root in library.roots()))
+    if not origins:
         detail = f"Unknown asset {name!r}: this workspace has no asset library"
     else:
-        detail = f"Unknown asset {name!r}: not found in {', '.join(roots)}"
+        detail = (
+            f"Unknown asset {name!r}: not found in the asset library "
+            f"({', '.join(origins)})"
+        )
     raise HTTPException(status_code=404, detail=detail)
 
 
@@ -398,3 +426,36 @@ def archive_selection(entries, kind):
     response = zip_download(entries, f"dw-{kind}s-{stamp}.zip")
     logger.info(f"Archived {len(entries)} {kind} files")
     return response
+
+
+def remove_empty_identity_folders(run_dir, root):
+    """Remove the folders above a deleted run, up to `root`, while empty.
+
+    Under the run lock open_run takes: it creates the identity folder
+    and then claims a run inside it, and removing the folder between
+    the two would fail that run on a path that no longer exists.
+    """
+    identity_dir = os.path.dirname(run_dir)
+    with FileLock(run_lock_path(identity_dir)):
+        parent = identity_dir
+        while os.path.normpath(parent) != os.path.normpath(root):
+            try:
+                os.rmdir(parent)
+            except OSError:
+                break
+            parent = os.path.dirname(parent)
+
+
+def delete_run_directory(run_dir, root):
+    """Remove one run directory under `root`, sidecars included, and the
+    identity folders it leaves empty. Returns the run's directory name.
+
+    As the gallery's single-file delete does, the siblings' version numbers are
+    pinned before one of them goes, so the gallery's v-numbers do not shift.
+    """
+    record_run_versions(os.path.dirname(run_dir))
+    shutil.rmtree(run_dir, ignore_errors=True)
+    remove_empty_identity_folders(run_dir, root)
+    logger.info(f"Deleted run directory {os.path.relpath(run_dir, root)}")
+    forget_workspace_usage()
+    return os.path.basename(run_dir)

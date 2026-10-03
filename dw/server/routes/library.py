@@ -10,12 +10,26 @@ import copy
 import json
 import logging
 import os
+import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    Deleted,
+    EnhancerPresets,
+    JobDetail,
+    PromptList,
+    PromptSaved,
+    WorkflowDeleted,
+    WorkflowList,
+    WorkflowSaved,
+    WorkspaceDeleted,
+    WorkspaceInfo,
+    WorkspaceList,
+)
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
@@ -23,6 +37,7 @@ from ...security import InvalidInputError, SecurityError, validate_prompt_refere
 from ...workflow import Workflow
 from ...library import (
     ReadOnlyLibraryError,
+    merge_patch,
     shadowed_listing,
     workflow_names,
 )
@@ -71,7 +86,9 @@ class WorkspaceRequest(BaseModel):
     name: str = Field(description="Name for the new workspace")
 
 
-@router.get("/api/workspaces")
+@router.get(
+    "/api/workspaces", response_model=WorkspaceList, response_model_exclude_unset=True
+)
 def list_workspaces(request: Request):
     """Every workspace on this server, the default first.
 
@@ -103,7 +120,12 @@ def list_workspaces(request: Request):
     }
 
 
-@router.post("/api/workspaces", status_code=201)
+@router.post(
+    "/api/workspaces",
+    status_code=201,
+    response_model=WorkspaceInfo,
+    response_model_exclude_unset=True,
+)
 def add_workspace(http_request: Request, request: WorkspaceRequest):
     """Create a workspace: its own workflows, assets and outputs, sharing
     this server's one prompt library."""
@@ -120,7 +142,11 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     return created.describe()
 
 
-@router.delete("/api/workspaces/{name}")
+@router.delete(
+    "/api/workspaces/{name}",
+    response_model=WorkspaceDeleted,
+    response_model_exclude_unset=True,
+)
 def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     """Delete a workspace and everything in it.
 
@@ -187,7 +213,9 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
 VARIABLE_VALUE_PREVIEW = 200
 
 
-@router.get("/api/workflows")
+@router.get(
+    "/api/workflows", response_model=WorkflowList, response_model_exclude_unset=True
+)
 def list_workflows(
     request: Request,
     ws: Workspace = Depends(selected_workspace),
@@ -226,7 +254,7 @@ def list_workflows(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {
+    answer = {
         "workspace": ws.name,
         "libraries": library.describe(),
         "workflows": sorted(details),
@@ -245,32 +273,24 @@ def list_workflows(
         # for `cost` (#93)
         "cost_basis": "curated",
     }
+    # The agent's compact view is a different, smaller card than the one
+    # WorkflowList declares; it goes out as built, outside that model
+    return JSONResponse(answer) if view == "compact" else answer
 
 
-@router.put("/api/workflows/{name:path}")
-def save_workflow(
-    http_request: Request,
-    name: str,
-    request: JobRequest,
-    ws: Workspace = Depends(selected_workspace),
-):
-    """Write a workflow into the writable workflow directory. The
-    definition must be schema-valid - the editor validates before saving,
-    and a save that silently wrote a broken file would betray both.
+# A save reads nothing, but a patch reads the stored version, merges and
+# writes it back: one lock across both, so a save landing between a
+# patch's read and its write is not silently overwritten
+_WORKFLOW_WRITE_LOCK = threading.Lock()
 
-    A name that currently resolves to a read-only source (an example, a
-    builtin) is not overwritten: the copy lands in the writable source
-    and shadows it from then on.
-    """
-    state = http_request.app.state
-    if request.workflow is None:
-        raise HTTPException(
-            status_code=400,
-            detail='Provide the definition as {"workflow": {...}}',
-        )
+
+def _write_validated(state, ws, name, definition):
+    """Validate `definition` and write it to the writable workflow source,
+    answering what a save answers. A read-only source's name gets a copy
+    in the writable one, which shadows it from then on."""
     path, source = resolve_writable_workflow(sources_for(state, ws), name)
     candidate = Workflow(
-        copy.deepcopy(request.workflow),
+        copy.deepcopy(definition),
         ws.outputs,
         path,
         ws.workflows,
@@ -286,15 +306,15 @@ def save_workflow(
         raise HTTPException(status_code=400, detail=format_validation_errors(errors))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
-        json.dump(request.workflow, file, indent=2)
+        json.dump(definition, file, indent=2)
         file.write("\n")
     logger.info(f"Saved workflow {name} to {path}")
     # What the catalog will say about it, so the author sees the match
     # it just created. An empty summary is a warning, never a refusal:
     # a workflow with no description still runs, it is just invisible
     # to shape-first discovery
-    metadata = derive_catalog_metadata(request.workflow)
-    warnings = list(workflow_argument_warnings(request.workflow))
+    metadata = derive_catalog_metadata(definition)
+    warnings = list(workflow_argument_warnings(definition))
     warnings += validation.run_warning_check(
         candidate, "null_variable_argument_warnings", None
     )
@@ -315,7 +335,66 @@ def save_workflow(
     }
 
 
-@router.delete("/api/workflows/{name:path}")
+@router.put(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowSaved,
+    response_model_exclude_unset=True,
+)
+def save_workflow(
+    http_request: Request,
+    name: str,
+    request: JobRequest,
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Write a workflow into the writable workflow directory. The
+    definition must be schema-valid - the editor validates before saving,
+    and a save that silently wrote a broken file would betray both.
+
+    A name that currently resolves to a read-only source (an example, a
+    builtin) is not overwritten: the copy lands in the writable source
+    and shadows it from then on.
+    """
+    if request.workflow is None:
+        raise HTTPException(
+            status_code=400,
+            detail='Provide the definition as {"workflow": {...}}',
+        )
+    with _WORKFLOW_WRITE_LOCK:
+        return _write_validated(http_request.app.state, ws, name, request.workflow)
+
+
+@router.patch(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowSaved,
+    response_model_exclude_unset=True,
+)
+def patch_workflow(
+    http_request: Request,
+    name: str,
+    patch: Dict[str, Any] = Body(...),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Apply a JSON merge patch (RFC 7396) to a stored workflow: a key set
+    to null is removed, an object merges, anything else replaces. The
+    result is validated and saved as a save would be - a patch of an
+    example writes a copy into the writable source. The read, merge and
+    write happen under the lock saves take."""
+    state = http_request.app.state
+    with _WORKFLOW_WRITE_LOCK:
+        path, _source = resolve_readable_workflow(sources_for(state, ws), name)
+        try:
+            with open(path, "r") as file:
+                current = json.load(file)
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
+        return _write_validated(state, ws, name, merge_patch(current, patch))
+
+
+@router.delete(
+    "/api/workflows/{name:path}",
+    response_model=WorkflowDeleted,
+    response_model_exclude_unset=True,
+)
 def delete_workflow(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -496,7 +575,9 @@ def _find_prompt(state, name):
     return found
 
 
-@router.get("/api/prompts")
+@router.get(
+    "/api/prompts", response_model=PromptList, response_model_exclude_unset=True
+)
 def list_prompts(
     request: Request,
     tag: str | None = None,
@@ -560,7 +641,11 @@ def list_prompts(
     }
 
 
-@router.put("/api/prompts/{name:path}")
+@router.put(
+    "/api/prompts/{name:path}",
+    response_model=PromptSaved,
+    response_model_exclude_unset=True,
+)
 def save_prompt(http_request: Request, name: str, request: PromptRequest):
     """Write a prompt into the prompt directory. Like a workflow save,
     the definition must be schema-valid before it lands on disk."""
@@ -585,7 +670,11 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
     return {"name": name}
 
 
-@router.delete("/api/prompts/{name:path}")
+@router.delete(
+    "/api/prompts/{name:path}",
+    response_model=Deleted,
+    response_model_exclude_unset=True,
+)
 def delete_prompt(request: Request, name: str):
     """Remove a prompt file from the prompt directory. A prompt that
     came from a read-only examples library is not this server's to
@@ -647,12 +736,19 @@ class EnhanceRequest(BaseModel):
     )
 
 
-@router.get("/api/enhancers")
+@router.get(
+    "/api/enhancers", response_model=EnhancerPresets, response_model_exclude_unset=True
+)
 def list_enhancers():
     return {"presets": preset_descriptions()}
 
 
-@router.post("/api/enhance", status_code=201)
+@router.post(
+    "/api/enhance",
+    status_code=201,
+    response_model=JobDetail,
+    response_model_exclude_unset=True,
+)
 def enhance(
     http_request: Request,
     request: EnhanceRequest,

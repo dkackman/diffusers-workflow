@@ -8,7 +8,7 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.7.0"
+version = "0.8.0-alpha.1"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -168,10 +168,12 @@ ignore = ["E501"]
 # These import a pytest fixture by name and reuse that name as a test
 # function's parameter (the idiomatic way to share a fixture across
 # modules) - pyflakes/ruff can't tell that from a genuine redefinition.
+"tests/test_api_contract.py" = ["F811"]
 "tests/test_cli.py" = ["F811"]
 "tests/test_jobs_listing.py" = ["F811"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]
+"tests/test_server_jobs.py" = ["F811"]
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

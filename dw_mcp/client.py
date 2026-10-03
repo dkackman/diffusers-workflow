@@ -16,6 +16,24 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8765"
 # this pure HTTP client must not do (tests/test_mcp_server.py guards that).
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
+# Hosts a URL cannot be handed to another machine with: each one names
+# whichever machine reads it - loopback, plus the wildcard binds (a URL
+# naming 127.* is caught by prefix where this set is read). A different
+# question from LOOPBACK_HOSTS's "is unauthenticated safe", so a second set
+UNSHAREABLE_HOSTS = LOOPBACK_HOSTS | {"0.0.0.0", "::"}
+
+
+def base64_size(n):
+    """How long `n` bytes are once base64-encoded - what an inline payload
+    costs. dw.media.base64_size's formula; tests/test_mcp_twins.py pins it."""
+    return 4 * math.ceil(n / 3)
+
+
+def project(entry, fields):
+    """`entry` cut to the named fields it has - how a compact listing keeps
+    enough to choose an entry and nothing that only reading one needs."""
+    return {key: entry.get(key) for key in fields if key in entry}
+
 
 def is_loopback_url(url):
     """True when `url` names this machine's loopback interface - the case
@@ -48,6 +66,27 @@ def coerce_json_object(value, param_name):
             f"`{param_name}` must be a JSON object, not {type(parsed).__name__}."
         )
     return parsed
+
+
+def workflow_source(name=None, workflow_path=None, workflow=None, inline_workflow=None):
+    """(stored name, inline definition) from the tools' two spellings of
+    each - `name`/`workflow_path` and `workflow`/`inline_workflow` - either
+    of which may be None. Giving both spellings of one is refused; whether
+    exactly one of the two answers was given is the caller's to check,
+    after any refusal of its own."""
+    workflow = coerce_json_object(workflow, "workflow")
+    inline_workflow = coerce_json_object(inline_workflow, "inline_workflow")
+    if workflow is not None and inline_workflow is not None:
+        raise DwApiError(
+            "`workflow` and `inline_workflow` are the same thing - provide only one."
+        )
+    if name is not None and workflow_path is not None:
+        raise DwApiError(
+            "`name` and `workflow_path` are the same thing - provide only one."
+        )
+    stored = name if name is not None else workflow_path
+    inline = workflow if workflow is not None else inline_workflow
+    return stored, inline
 
 
 def path_segment(name):
@@ -143,6 +182,32 @@ def resolve_base_url(explicit=None):
     return url.rstrip("/")
 
 
+def _cost_gate_sentence(plan, acknowledge):
+    """What a 409 from the cost gate adds to its message: what the run
+    costs now, so a client that only sees the message can re-quote from it,
+    and the acknowledgement to resend, ready-made by the server. An older
+    server sends none, and then that sentence is left out rather than
+    rebuilt here. json.dumps, not a repr: `minutes` is None for most inline
+    workflows, and a client pastes the object back (#107)."""
+    estimate = plan.get("estimate") or {}
+    if estimate.get("minutes") is None:
+        sentence = f" It now has no measured estimate (basis {estimate.get('basis')})"
+    else:
+        sentence = (
+            f" It now estimates {estimate.get('minutes')} minutes "
+            f"(basis {estimate.get('basis')})"
+        )
+    downloads = [
+        entry.get("repo") or entry.get("url")
+        for entry in plan.get("downloads_required") or []
+    ]
+    if downloads:
+        sentence += f", and would download {', '.join(downloads)} first"
+    if isinstance(acknowledge, dict):
+        sentence += ". Re-acknowledge with " + json.dumps(acknowledge) + "."
+    return sentence
+
+
 class DwClient:
     """One method per kind of REST call. Knows nothing about MCP - the tool
     handlers are plain functions over this."""
@@ -202,6 +267,11 @@ class DwClient:
             self._request("PUT", path, json=payload, workspace=workspace), path
         )
 
+    def patch_json(self, path, payload, workspace=None):
+        return self._json(
+            self._request("PATCH", path, json=payload, workspace=workspace), path
+        )
+
     def delete_json(self, path, params=None, workspace=None):
         return self._json(
             self._request("DELETE", path, params=params, workspace=workspace), path
@@ -218,17 +288,10 @@ class DwClient:
             path,
         )
 
-    def get_bytes(self, path, workspace=None):
-        """Raw body plus content type - for the output media served from the
-        /outputs static mount rather than an /api route."""
-        response = self._request("GET", path, workspace=workspace)
-        self._raise_for_status(response, path)
-        return response.content, response.headers.get("content-type", "")
-
     def get_media_if(
         self, path, accept_content_type, workspace=None, params=None, max_bytes=None
     ):
-        """Like `get_bytes`, but the body is only downloaded when
+        """A body plus its content type, downloaded only when
         `accept_content_type(content_type)` is true, and the response
         headers come back with it - a media route says what it cut in
         them.
@@ -252,7 +315,7 @@ class DwClient:
                 return None, content_type, response.headers
             if response.status_code < 400 and max_bytes is not None:
                 declared = _declared_length(response.headers)
-                if declared is not None and 4 * math.ceil(declared / 3) > max_bytes:
+                if declared is not None and base64_size(declared) > max_bytes:
                     return None, content_type, response.headers
             self._call_httpx(response.read, path)
             self._raise_for_status(response, path)
@@ -271,7 +334,7 @@ class DwClient:
     def stream_to_file(self, path, destination, workspace=None):
         """Stream `path`'s body straight to `destination` on disk, in
         chunks, rather than buffering it whole - for a body too large to
-        hold in memory (the videos `get_bytes` can't return). Returns
+        hold in memory (the videos the inline tools cannot return). Returns
         `(content_type, bytes_written)`.
 
         Written atomically: chunks land in a temp file next to
@@ -380,7 +443,7 @@ class DwClient:
         if response.status_code < 400:
             return
         # 5xx is always a server-side failure, even when the body happens to
-        # carry a `detail` (dw/server/app.py raises 500s with one) - the
+        # carry a `detail` (dw/server/deps.py raises 500s with one) - the
         # status has to survive so it reads as distinct from a validation
         # message.
         if response.status_code < 500:
@@ -425,48 +488,7 @@ class DwClient:
                 formatted += f" Also holds: {', '.join(str(e) for e in entries)}."
             plan = detail.get("plan")
             if isinstance(plan, dict):
-                # A 409 from the cost gate: say what the run costs now, so a
-                # client that only sees the message can re-quote from it
-                estimate = plan.get("estimate") or {}
-                if estimate.get("minutes") is None:
-                    formatted += (
-                        f" It now has no measured estimate (basis "
-                        f"{estimate.get('basis')})"
-                    )
-                else:
-                    formatted += (
-                        f" It now estimates {estimate.get('minutes')} minutes "
-                        f"(basis {estimate.get('basis')})"
-                    )
-                downloads = [
-                    entry.get("repo") or entry.get("url")
-                    for entry in plan.get("downloads_required") or []
-                ]
-                if downloads:
-                    formatted += f", and would download {', '.join(downloads)} first"
-                # The shape to resend, not just the new fingerprint: a
-                # client reading only the message can re-acknowledge from it
-                minutes = estimate.get("minutes")
-                repos = [
-                    entry.get("repo")
-                    for entry in plan.get("downloads_required") or []
-                    if entry.get("repo")
-                ]
-                # json.dumps for the whole object, not an f-string per field:
-                # an inline workflow has no measured estimate, so `minutes` is
-                # None far more often than not, and Python's repr of it is not
-                # JSON a client could paste back (#107)
-                formatted += (
-                    ". Re-acknowledge with "
-                    + json.dumps(
-                        {
-                            "fingerprint": plan.get("fingerprint"),
-                            "minutes": minutes,
-                            "downloads": repos,
-                        }
-                    )
-                    + "."
-                )
+                formatted += _cost_gate_sentence(plan, detail.get("acknowledge"))
             return formatted
         if isinstance(detail, list):
             messages = []

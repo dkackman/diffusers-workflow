@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374, #377, #379, #380, and #244 for `resume.md`; #375 was declined, #376 and #378 shipped), parked with Don. Its
+`feature` (#374, #379, #380, and #244 for `resume.md`; #375 was declined, #376, #377 and #378 shipped), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -24,9 +24,6 @@ remaining deferred fix is recorded in
 2. **orphaned-run-directories.md** — real, recurring disk-usage annoyance
    (leftover manifests invisible to gallery/asset listings); the proposal
    already recommends the simple option (A). Moderate but bounded work.
-5. **mcp-job-notifications.md** — improves reliability of the wait/poll loop
-   (cursor-based, `failure_kind`), but there's no reported live pain forcing
-   this yet; medium complexity touching the event/job-record schema.
 
 ## Tier 3 — high benefit, but big lifts (stage carefully, don't take all at once)
 
@@ -73,6 +70,23 @@ remaining deferred fix is recorded in
   task. Record, including what was deferred (a 1x refine and the
   VAE-encode task it needs, encoding the source soundtrack into audio
   latents): `complete/ltx2-refine-clip-complete.md`.
+- **`ltx2/upscale-clip`, LTX-2.5's generative 2x upscale of an existing
+  mp4** (#542, stage #548), shipped 2026-09-28 as one template that keeps
+  the source's soundtrack. Record, including what was deferred (probing
+  the source at validate, source audio for the restore templates, the
+  vendor's Refine-Details IC-LoRA): `complete/ltx2-upscale-clip-complete.md`.
+- **One `wait_for_job` call that covers a long render** (#377, stage
+  #546), shipped 2026-09-28: `DW_MCP_MAX_WAIT_SECONDS=1800` on lem's unit
+  and one wait rule in the guide and skills, with no code change. Record,
+  including what was deferred (the progress heartbeat, stage #547, not
+  needed since no long wait was cut): `complete/mcp-long-wait-complete.md`.
+- **Promoting an H3 take to 1344x768 in latent space** (#471, stage #499;
+  #500 not built), shipped 2026-10-03 as two tasks, `upscale_h3_latents` and
+  `decode_h3_latents`, with an inline workflow in the guide and no template.
+  Don's gate found the preview ~39% faster than a native 768p render but
+  soft in the faces. Record, including what was deferred (the refine pass,
+  persisted latents, task weights in `downloads_required`):
+  `complete/h3-latent-upscale-complete.md`.
 
 ## Declined
 
@@ -82,6 +96,11 @@ the analysis rather than repeating it.
 - **declined/workspace-folders.md** — grouped workspace names (`QA/EP1`).
   Declined 2026-09-23 on #375: thin demonstrated value against a loosened
   security boundary and a change that can't be taken back.
+- **declined/mcp-job-notifications.md** — a gapless cursor and a
+  `failure_kind` on `wait_for_job`. Superseded 2026-10-03 by #377's smaller
+  plan: terminal status is sticky, so the cursor closes no gap, and the
+  proposed OOM label would have missed CUDA OOMs. Reopen triggers are at the
+  top of the doc.
 
 ## Backlog ideas with no doc on file
 

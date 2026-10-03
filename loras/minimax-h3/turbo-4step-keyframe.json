@@ -1,0 +1,30 @@
+{
+  "model_name": "lightx2v/Minimax-h3-Turbo",
+  "weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+  "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "4-step v1.2 turbo, keyframe partition, 768p - a draft path",
+  "use_when": "A faster draft render (~25% faster); set num_inference_steps 5. Keep 8-step for finals",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "7.1 min vs 9.5 min, faces good; 8-step possibly slightly better",
+      "issue": 585
+    }
+  ],
+  "license": "apache-2.0",
+  "tags": [
+    "turbo",
+    "speed",
+    "draft"
+  ]
+}

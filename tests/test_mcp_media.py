@@ -63,116 +63,65 @@ def decoded(result):
     return Image.open(io.BytesIO(base64.b64decode(result["data"])))
 
 
-def test_a_large_image_is_downscaled_to_max_dimension():
-    client = serving(png_bytes(2048, 1024), "image/png")
+def image_route(body=b"img", content_type="image/png", headers=None, status=200):
+    """A server whose /api/gallery/<name>/image answers `body` with the
+    sizing headers the route sends; records each request."""
+    seen = []
+    sizing = {"x-dw-original-size": "2048,1024", "x-dw-returned-size": "512,256"}
 
-    result = get_output_image(client, "big.png", max_dimension=512)
-
-    assert decoded(result).size == (512, 256)
-    assert result["original_size"] == [2048, 1024]
-    assert result["returned_size"] == [512, 256]
-
-
-def test_the_taller_side_governs_the_downscale():
-    client = serving(png_bytes(600, 1200), "image/png")
-
-    result = get_output_image(client, "tall.png", max_dimension=600)
-
-    assert decoded(result).size == (300, 600)
-
-
-def test_a_small_image_is_returned_at_its_own_size():
-    client = serving(png_bytes(64, 48), "image/png")
-
-    result = get_output_image(client, "small.png", max_dimension=768)
-
-    assert decoded(result).size == (64, 48)
-    assert result["returned_size"] == [64, 48]
-
-
-class TestCrop:
-    """A 2K still cannot be checked for whether a small element reads, or
-    for a decode-tiling seam, through a 768-pixel downscale. `crop` is a
-    box in the original's pixels, cut before the downscale, so a region
-    of the full-resolution file comes back at 100%."""
-
-    def two_tone(self):
-        # left half red, right half blue, 2048 wide
-        image = Image.new("RGB", (2048, 1024), (255, 0, 0))
-        image.paste((0, 0, 255), (1024, 0, 2048, 1024))
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        return serving(buffer.getvalue(), "image/png")
-
-    def test_a_crop_returns_that_region_at_full_resolution(self):
-        result = get_output_image(
-            self.two_tone(), "big.png", max_dimension=768, crop=[1000, 0, 400, 300]
+    def handler(request):
+        seen.append(request)
+        if status >= 400:
+            return httpx.Response(status, json={"detail": body})
+        return httpx.Response(
+            200,
+            content=body,
+            headers={"content-type": content_type, **sizing, **(headers or {})},
         )
-        image = decoded(result)
-        assert image.size == (400, 300)
-        assert image.getpixel((0, 0)) == (255, 0, 0)
-        assert image.getpixel((399, 0)) == (0, 0, 255)
+
+    return DwClient(transport=httpx.MockTransport(handler)), seen
+
+
+class TestGetOutputImage:
+    """The server crops, fits and budgets (GET /api/gallery/<name>/image);
+    the tool forwards the request and reshapes the answer."""
+
+    def test_it_asks_the_image_route_with_the_size_and_budget(self):
+        client, seen = image_route()
+
+        get_output_image(client, "w/run/big.png", max_dimension=512)
+
+        assert seen[0].url.path == "/api/gallery/w/run/big.png/image"
+        params = dict(seen[0].url.params)
+        assert params["max_dimension"] == "512"
+        assert params["max_bytes"] == str(MAX_RETURNED_BYTES)
+        assert "crop" not in params
+
+    def test_it_forwards_a_crop(self):
+        client, seen = image_route(headers={"x-dw-crop": "10,20,30,40"})
+
+        result = get_output_image(client, "big.png", crop=[10, 20, 30, 40])
+
+        assert dict(seen[0].url.params)["crop"] == "10,20,30,40"
+        assert result["crop"] == [10, 20, 30, 40]
+
+    def test_it_reshapes_the_answer(self):
+        client, _ = image_route(body=b"jpeg-bytes", content_type="image/jpeg")
+
+        result = get_output_image(client, "photo.jpg")
+
+        assert base64.b64decode(result["data"]) == b"jpeg-bytes"
+        assert result["mime_type"] == "image/jpeg"
         assert result["original_size"] == [2048, 1024]
-        assert result["crop"] == [1000, 0, 400, 300]
-        assert result["returned_size"] == [400, 300]
+        assert result["returned_size"] == [512, 256]
+        assert result["crop"] is None
+        assert result["bytes"] == len(b"jpeg-bytes")
 
-    def test_a_crop_wider_than_max_dimension_is_still_downscaled(self):
-        result = get_output_image(
-            self.two_tone(), "big.png", max_dimension=256, crop=[0, 0, 1024, 512]
-        )
-        assert decoded(result).size == (256, 128)
-        assert result["crop"] == [0, 0, 1024, 512]
+    def test_the_servers_refusal_reaches_the_caller(self):
+        client, _ = image_route(body="clip.mp4 is not an image", status=404)
 
-    def test_a_crop_is_clamped_to_the_image(self):
-        result = get_output_image(
-            self.two_tone(), "big.png", max_dimension=768, crop=[1900, 900, 500, 500]
-        )
-        assert decoded(result).size == (148, 124)
-        assert result["crop"] == [1900, 900, 148, 124]
-
-    @pytest.mark.parametrize(
-        "crop", [[0, 0, 0, 10], [-1, 0, 10, 10], [2048, 0, 10, 10], [0, 0, 10], "x"]
-    )
-    def test_an_empty_or_malformed_crop_is_refused(self, crop):
-        with pytest.raises(DwApiError, match="crop"):
-            get_output_image(self.two_tone(), "big.png", crop=crop)
-
-
-def test_a_jpeg_source_comes_back_as_jpeg():
-    client = serving(jpeg_bytes(300, 300), "image/jpeg")
-
-    result = get_output_image(client, "photo.jpg")
-
-    assert result["mime_type"] == "image/jpeg"
-
-
-def test_a_png_source_comes_back_as_png():
-    client = serving(png_bytes(300, 300), "image/png")
-
-    assert get_output_image(client, "a.png")["mime_type"] == "image/png"
-
-
-def test_the_result_stays_under_the_byte_ceiling():
-    """A hard cap matters more than fidelity - a payload over the ceiling
-    would crowd out the conversation it is meant to inform."""
-    noise = Image.frombytes("RGB", (4000, 4000), os.urandom(4000 * 4000 * 3))
-    buffer = io.BytesIO()
-    noise.save(buffer, format="PNG")
-    client = serving(buffer.getvalue(), "image/png")
-
-    result = get_output_image(client, "noise.png", max_dimension=4000)
-
-    assert result["bytes"] <= MAX_RETURNED_BYTES
-    assert len(base64.b64decode(result["data"])) == result["bytes"]
-
-
-def test_a_video_output_is_refused_by_name():
-    client = serving(b"\x00\x00\x00\x18ftypmp42", "video/mp4")
-
-    with pytest.raises(DwApiError) as caught:
-        get_output_image(client, "clip.mp4")
-
-    assert "video/mp4" in str(caught.value)
+        with pytest.raises(DwApiError, match="not an image"):
+            get_output_image(client, "clip.mp4")
 
 
 class TestGetOutputAudio:
@@ -287,146 +236,27 @@ def test_a_non_audio_answer_is_refused():
         get_output_audio(client, "thing.json")
 
 
-def test_a_non_image_output_is_refused_without_reading_the_body():
-    """A video can be arbitrarily large - the content-type header alone
-    should be enough to refuse it, before the body is ever downloaded."""
-
-    class TrackingStream(httpx.SyncByteStream):
-        def __init__(self, chunks):
-            self.chunks = chunks
-            self.iterated = False
-
-        def __iter__(self):
-            self.iterated = True
-            yield from self.chunks
-
-        def close(self):
-            pass
-
-    stream = TrackingStream([b"\x00\x00\x00\x18ftypmp42" * 100000])
-
-    def handler(request):
-        return httpx.Response(200, headers={"content-type": "video/mp4"}, stream=stream)
-
-    client = DwClient(transport=httpx.MockTransport(handler))
-
-    with pytest.raises(DwApiError):
-        get_output_image(client, "clip.mp4")
-
-    assert stream.iterated is False
-
-
 def test_the_name_is_url_quoted_in_the_request():
     # "#" starts a URL fragment when left unescaped - an unquoted name would
-    # arrive at the server truncated ("a b", with "1.png" silently dropped as
-    # a fragment). httpx's request.url.path decodes percent-escapes back for
-    # display, so the escaping itself is checked on url.raw_path, the bytes
-    # actually placed on the wire; url.path then confirms the full name
-    # (not a truncated one) is what the server would see.
-    seen = {}
+    # arrive at the server truncated. The escaping itself is checked on
+    # url.raw_path, the bytes actually placed on the wire.
+    client, seen = image_route()
 
-    def handler(request):
-        seen["path"] = request.url.path
-        seen["raw_path"] = request.url.raw_path.decode("ascii")
-        return httpx.Response(
-            200, content=png_bytes(10, 10), headers={"content-type": "image/png"}
-        )
+    get_output_image(client, "a b#1.png")
 
-    get_output_image(DwClient(transport=httpx.MockTransport(handler)), "a b#1.png")
-
-    assert "%23" in seen["raw_path"]
-    assert seen["path"] == "/outputs/a b#1.png"
-
-
-def test_bytes_that_are_not_a_decodable_image_are_refused():
-    """A truncated or corrupt file is served with an image content type like
-    any other - only the decode tells us it is unusable."""
-    client = serving(b"\x89PNG\r\n\x1a\ntruncated", "image/png")
-
-    with pytest.raises(DwApiError) as caught:
-        get_output_image(client, "broken.png")
-
-    assert "could not be decoded" in str(caught.value)
-
-
-def test_the_budget_is_checked_against_the_base64_size_not_the_raw_bytes(monkeypatch):
-    """The payload the caller actually receives is base64 text (4/3 the raw
-    bytes). A cap that only looked at the raw encoded bytes would let a
-    payload through that is over budget once encoded."""
-    client = serving(noise_png_bytes(300, 300), "image/png")
-
-    raw_result = get_output_image(client, "noise.png", max_dimension=300)
-    raw_bytes = raw_result["bytes"]
-
-    # Set the cap strictly between the raw size and its base64 expansion, so
-    # a raw-bytes comparison would accept the first encoding while a
-    # base64-aware comparison must keep shrinking.
-    budget = raw_bytes + 1
-    assert budget < 4 * -(-raw_bytes // 3)
-    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", budget)
-
-    client = serving(noise_png_bytes(300, 300), "image/png")
-    result = get_output_image(client, "noise.png", max_dimension=300)
-
-    encoded_len = len(base64.b64decode(result["data"]))
-    base64_len = 4 * -(-encoded_len // 3)
-    assert base64_len <= budget
-    assert result["returned_size"] != raw_result["returned_size"]
-
-
-def test_the_downscale_loop_resizes_from_the_previous_result_not_the_original(
-    monkeypatch,
-):
-    calls = []
-    original_fit = media._fit
-
-    def tracking_fit(image, limit):
-        result = original_fit(image, limit)
-        calls.append((image, result))
-        return result
-
-    monkeypatch.setattr(media, "_fit", tracking_fit)
-    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 1)
-
-    client = serving(noise_png_bytes(600, 600), "image/png")
-    get_output_image(client, "noise.png", max_dimension=600)
-
-    assert len(calls) >= 2
-    for previous, current in zip(calls, calls[1:]):
-        _, previous_sized = previous
-        current_source, _ = current
-        assert current_source is previous_sized
-
-
-def test_a_jpeg_in_an_unencodable_mode_is_converted_before_re_encoding():
-    """A CMYK JPEG cannot be re-saved as JPEG without a conversion first."""
-    buffer = io.BytesIO()
-    Image.new("CMYK", (200, 100)).save(buffer, format="JPEG")
-    client = serving(buffer.getvalue(), "image/jpeg")
-
-    result = get_output_image(client, "cmyk.jpg", max_dimension=64)
-
-    assert result["mime_type"] == "image/jpeg"
-    assert decoded(result).mode == "RGB"
+    assert "%23" in seen[0].url.raw_path.decode("ascii")
+    assert seen[0].url.path == "/api/gallery/a b#1.png/image"
 
 
 def test_a_dot_segment_name_survives_intact_onto_the_wire():
     """httpx normalizes `..` out of a request path client-side, which would
-    escape the /outputs prefix entirely and skip the static mount's own
-    confinement. Quoting the separator keeps the literal bytes on the wire so
-    it is the server that refuses the name. Gallery names come from a listing
-    of one flat directory, so a legitimate one never contains '/'."""
-    seen = {}
+    skip the server's own confinement. Quoting the separator keeps the
+    literal bytes on the wire so it is the server that refuses the name."""
+    client, seen = image_route()
 
-    def handler(request):
-        seen["raw_path"] = request.url.raw_path
-        return httpx.Response(
-            200, content=png_bytes(10, 10), headers={"content-type": "image/png"}
-        )
+    get_output_image(client, "../api/models")
 
-    get_output_image(DwClient(transport=httpx.MockTransport(handler)), "../api/models")
-
-    assert seen["raw_path"] == b"/outputs/..%2Fapi%2Fmodels"
+    assert seen[0].url.raw_path.startswith(b"/api/gallery/..%2Fapi%2Fmodels")
 
 
 # ------------------------------------------------------------- text output
@@ -508,76 +338,43 @@ def test_delete_output_calls_delete_on_the_gallery_route():
     assert seen == [("DELETE", "/api/gallery/out.png")]
 
 
-def deleting_by_job(job):
-    """GET /api/jobs/job-1 answers `job`; DELETE on the gallery answers as
-    the server's run-directory form does."""
+def deleting_by_job(status=200, body=None):
+    """DELETE /api/jobs/job-1/run answers as the server does."""
     seen = []
 
     def handler(request):
         seen.append((request.method, request.url.path, dict(request.url.params)))
-        if request.method == "GET" and request.url.path == "/api/jobs/job-1":
-            return httpx.Response(200, json=job)
-        if request.method == "GET":
+        if request.url.path != "/api/jobs/job-1/run":
             return httpx.Response(404, json={"detail": "Unknown job"})
-        name = request.url.path.removeprefix("/api/gallery/")
         return httpx.Response(
-            200, json={"name": name, "deleted": True, "run_swept": name.split("/")[-1]}
+            status,
+            json=body
+            or {
+                "job_id": "job-1",
+                "run_dir": "ltx2/Gyre",
+                "deleted": True,
+                "run_swept": "Gyre",
+            },
         )
 
     return DwClient(transport=httpx.MockTransport(handler)), seen
 
 
-def test_delete_output_by_job_id_deletes_the_run_directory_the_job_wrote():
-    client, seen = deleting_by_job(
-        {
-            "id": "job-1",
-            "status": "succeeded",
-            "run_dir": "ltx2/Gyre",
-            "workspace": "default",
-        }
-    )
+def test_delete_output_by_job_id_is_one_call_to_the_job_run_route():
+    """The server reads the job's run directory and its own root; the
+    client derives neither."""
+    client, seen = deleting_by_job()
+    client.workspace = "elsewhere"
 
     result = media.delete_output(client, job_id="job-1")
 
-    assert [entry[:2] for entry in seen] == [
-        ("GET", "/api/jobs/job-1"),
-        ("DELETE", "/api/gallery/ltx2/Gyre"),
-    ]
-    assert result == {
-        "name": "ltx2/Gyre",
-        "deleted": True,
-        "run_swept": "Gyre",
-        "job_id": "job-1",
-        "run_dir": "ltx2/Gyre",
-    }
-
-
-def test_delete_output_by_job_id_goes_to_the_workspace_the_job_ran_in():
-    """The run directory is wherever the job wrote it, so with no pin the
-    delete follows the job's own workspace rather than the session's."""
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": "w/Run", "workspace": "shots"}
-    )
-    client.workspace = "elsewhere"
-
-    media.delete_output(client, job_id="job-1")
-
-    assert seen[-1][1] == "/api/gallery/w/Run"
-    assert seen[-1][2] == {"workspace": "shots"}
-
-
-def test_delete_output_by_job_id_honours_an_explicit_workspace():
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": "w/Run", "workspace": "shots"}
-    )
-
-    media.delete_output(client, job_id="job-1", workspace="pinned")
-
-    assert seen[-1][2] == {"workspace": "pinned"}
+    assert [entry[:2] for entry in seen] == [("DELETE", "/api/jobs/job-1/run")]
+    assert result["run_dir"] == "ltx2/Gyre"
+    assert result["job_id"] == "job-1"
 
 
 def test_delete_output_refuses_neither_name_nor_job_id():
-    client, seen = deleting_by_job({})
+    client, seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="exactly one"):
         media.delete_output(client)
@@ -586,7 +383,7 @@ def test_delete_output_refuses_neither_name_nor_job_id():
 
 
 def test_delete_output_refuses_both_name_and_job_id():
-    client, seen = deleting_by_job({})
+    client, seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="exactly one"):
         media.delete_output(client, "out.png", job_id="job-1")
@@ -595,25 +392,21 @@ def test_delete_output_refuses_both_name_and_job_id():
 
 
 def test_delete_output_by_job_id_surfaces_an_unknown_job():
-    client, seen = deleting_by_job({})
+    client, _seen = deleting_by_job()
 
     with pytest.raises(DwApiError, match="Unknown job"):
         media.delete_output(client, job_id="ghost")
 
-    assert [entry[0] for entry in seen] == ["GET"], "nothing is deleted"
 
-
-def test_delete_output_by_job_id_refuses_a_job_with_no_run_directory():
-    """A job refused before it started (or one from before run tracking)
-    has no run_dir; that is an error, not a delete of nothing."""
-    client, seen = deleting_by_job(
-        {"id": "job-1", "status": "failed", "run_dir": None, "workspace": "default"}
+def test_delete_output_by_job_id_surfaces_the_servers_refusal():
+    """A job with no run directory, or one still running, is the server's
+    to refuse; its detail reaches the caller as written."""
+    client, _seen = deleting_by_job(
+        404, {"detail": "Job job-1 (failed) has no run directory to delete"}
     )
 
     with pytest.raises(DwApiError, match="no run directory"):
         media.delete_output(client, job_id="job-1")
-
-    assert [entry[0] for entry in seen] == ["GET"], "nothing is deleted"
 
 
 # --------------------------------------------------------- output download
@@ -1031,11 +824,18 @@ def test_seams_send_boundaries_and_names():
     assert params["names"] == "a,b,c"
 
 
-def test_two_selectors_are_refused_before_any_request():
-    client = frames_server([])
+def test_two_selectors_are_both_sent_and_the_servers_refusal_reaches_the_caller():
+    """The server owns the one-selector rule; the tool sends what it was
+    given rather than quietly dropping the second."""
+    seen = []
+    detail = "Pass exactly one of `at`, `count` or `seams` - got at, count"
+    client = frames_server([], seen, status=400, detail=detail)
 
     with pytest.raises(DwApiError, match="one of"):
         get_output_frames(client, "x.mp4", at=[0.0], count=4)
+
+    sent = dict(seen[0][1])
+    assert "at" in sent and "count" in sent
 
 
 def test_names_without_seams_is_refused_before_any_request():
@@ -1052,27 +852,30 @@ def test_names_without_seams_is_refused_before_any_request():
     assert seen == []  # refused before any request reached the server
 
 
-def test_tiles_over_budget_are_shrunk_together_and_say_so():
-    # three noisy 2048x1024 tiles: well over 4MB base64 between them
-    tiles = []
-    for n in range(3):
-        tiles.append(
-            {
-                **tile_json(2048, 1024, frame=n, seconds=float(n)),
-                "data": base64.b64encode(noise_png_bytes(2048, 1024, seed=n)).decode(
-                    "ascii"
-                ),
-            }
+def test_frames_ask_the_server_to_budget_the_tiles_and_echo_what_it_did():
+    """The server shrinks the tiles together under max_total_bytes; the
+    tool forwards the budget and reports `downscaled_to` as answered."""
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "frame_count": 24,
+                "fps": 6.0,
+                "tiles": [tile_json(64, 32)],
+                "crop": None,
+                "downscaled_to": 64,
+            },
         )
-    client = frames_server(tiles)
 
-    result = get_output_frames(client, "x.mp4", at=[0, 1, 2], max_dimension=2048)
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_frames(client, "x.mp4", at=[0.0], max_dimension=2048)
 
-    total = sum(len(t["data"]) for t in result["tiles"])
-    assert total <= MAX_RETURNED_BYTES
-    assert len(result["tiles"]) == 3  # shrunk, not dropped
-    assert result["downscaled_to"] is not None and result["downscaled_to"] < 2048
-    assert all(decoded(t).width == result["tiles"][0]["width"] for t in result["tiles"])
+    assert seen[0]["max_total_bytes"] == str(MAX_RETURNED_BYTES)
+    assert seen[0]["max_dimension"] == "2048"
+    assert result["downscaled_to"] == 64
 
 
 def two_tone_tile(width, height, **kwargs):
@@ -1245,22 +1048,21 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     three of them together are not under the response's overall budget:
     fetching must stop rather than blow the aggregate, and the tiles it
     stopped on say so rather than silently losing their audio (#193 review,
-    finding 1)."""
-    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", 20)
+    finding 1). The tiles spend the same budget first, so 20 bytes are
+    left for the excerpts."""
+    tiles = [
+        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
+        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
+        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
+    ]
+    tile_bytes = sum(len(tile["data"]) for tile in tiles)
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", tile_bytes + 20)
 
     def handler(request):
         if request.url.path.endswith("/frames"):
             return httpx.Response(
                 200,
-                json={
-                    "frame_count": 72,
-                    "fps": 24.0,
-                    "tiles": [
-                        tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0),
-                        tile_json(64, 32, "00:01.0 (frame 24)", 24, 1.0),
-                        tile_json(64, 32, "00:02.0 (frame 48)", 48, 2.0),
-                    ],
-                },
+                json={"frame_count": 72, "fps": 24.0, "tiles": tiles},
             )
         return httpx.Response(
             200,
@@ -1285,6 +1087,32 @@ def test_hear_stops_fetching_once_the_aggregate_budget_is_spent(monkeypatch):
     assert result["audio_truncated"] is True
 
 
+def test_hear_counts_the_tiles_against_the_response_budget(monkeypatch):
+    """The tiles and the excerpts are one reply: excerpts that fit a budget
+    of their own would still double what reaches the conversation."""
+    tiles = [tile_json(64, 32, "00:00.0 (frame 0)", 0, 0.0)]
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", len(tiles[0]["data"]) + 4)
+
+    def handler(request):
+        if request.url.path.endswith("/frames"):
+            return httpx.Response(
+                200, json={"frame_count": 24, "fps": 24.0, "tiles": tiles}
+            )
+        return httpx.Response(
+            200,
+            content=b"x" * 3,  # base64-encodes to 4 bytes: exactly what is left
+            headers={"content-type": "audio/wav", "x-dw-duration": "1.0"},
+        )
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    result = get_output_frames(client, "x.mp4", at=[0.0], hear=1.0)
+    assert "audio" in result["tiles"][0]
+
+    monkeypatch.setattr(media, "MAX_RETURNED_BYTES", len(tiles[0]["data"]) + 3)
+    result = get_output_frames(client, "x.mp4", at=[0.0], hear=1.0)
+    assert result["audio_truncated"] is True
+
+
 def _assess_client(body=None):
     seen = []
 
@@ -1295,16 +1123,22 @@ def _assess_client(body=None):
     return DwClient(transport=httpx.MockTransport(handler)), seen
 
 
-def test_assess_output_refuses_an_unknown_probe_before_any_request():
-    """#388: the probe is whitelisted before anything else is read - no
-    request leaves for a name outside it."""
-    client, seen = _assess_client()
+def test_assess_output_surfaces_the_servers_unknown_probe_refusal():
+    """#388: the probe is whitelisted before anything else is read. The
+    server owns the whitelist (tests/test_server_assess.py); a copy here
+    would be a second owner, so its 400 reaches the caller as is."""
+    from dw.server.assess import PROBES, unknown_probe
 
+    detail = unknown_probe("analyze_vibes")
+
+    def handler(request):
+        return httpx.Response(400, json={"detail": detail})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
     with pytest.raises(DwApiError) as refused:
         media.assess_output(client, "cut.mp4", probe="analyze_vibes")
 
-    assert seen == []
-    for probe in ("analyze_shots", "analyze_seams", "analyze_sync_drift"):
+    for probe in PROBES:
         assert probe in str(refused.value)
 
 

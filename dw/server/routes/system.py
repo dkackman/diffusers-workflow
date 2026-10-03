@@ -14,6 +14,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ..api_models import (
+    ClassList,
+    PipelineDescription,
+    PipelineNames,
+    TaskList,
+    DiffusersStatus,
+    HealthInfo,
+    MemoryCleared,
+    MemoryInfo,
+    ModelCache,
+    ModelDeleted,
+    ModelDownload,
+    ModelDownloads,
+    ServerInfo,
+)
 from ...hub_cache import delete_model, scan_models
 from ...introspection import (
     describe_class,
@@ -43,13 +58,19 @@ router = APIRouter()
 MCP_PATH = "/mcp"
 
 
-@router.get("/api/pipelines")
+@router.get(
+    "/api/pipelines", response_model=PipelineNames, response_model_exclude_unset=True
+)
 def pipelines():
     """Every pipeline class the installed diffusers exports."""
     return {"pipelines": list_pipelines()}
 
 
-@router.get("/api/pipelines/{name}")
+@router.get(
+    "/api/pipelines/{name}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def pipeline_description(name: str):
     """A pipeline's __call__ argument schema, for form generation."""
     try:
@@ -62,13 +83,17 @@ def pipeline_description(name: str):
         raise HTTPException(status_code=404, detail=f"Could not load {name}: {e}")
 
 
-@router.get("/api/tasks")
+@router.get("/api/tasks", response_model=TaskList, response_model_exclude_unset=True)
 def tasks():
     """Every task command a workflow's task step can name."""
     return list_tasks()
 
 
-@router.get("/api/tasks/{command}")
+@router.get(
+    "/api/tasks/{command}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def get_task(command: str):
     """A task command's argument schema - the registered implementation
     function's real signature, in the same shape as a class description."""
@@ -78,7 +103,7 @@ def get_task(command: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/api/classes")
+@router.get("/api/classes", response_model=ClassList, response_model_exclude_unset=True)
 def classes(kind: str):
     """Class names of one kind (pipelines, models, schedulers,
     quantization) - the pickers' data source."""
@@ -88,7 +113,11 @@ def classes(kind: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/api/classes/{name:path}")
+@router.get(
+    "/api/classes/{name:path}",
+    response_model=PipelineDescription,
+    response_model_exclude_unset=True,
+)
 def class_description(name: str, target: str = "init"):
     """A class's argument schema: target=call reads __call__, init reads
     __init__, load reads from_pretrained plus the curated loading knobs."""
@@ -145,7 +174,7 @@ def get_guide(name: str, section: Optional[str] = None):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/api/models")
+@router.get("/api/models", response_model=ModelCache, response_model_exclude_unset=True)
 def get_models():
     """What the Hugging Face hub cache holds, largest repo first."""
     return scan_models()
@@ -155,7 +184,12 @@ class DownloadRequest(BaseModel):
     repo_id: str = Field(description="Hub repo to download, e.g. org/model")
 
 
-@router.post("/api/models/download", status_code=202)
+@router.post(
+    "/api/models/download",
+    status_code=202,
+    response_model=ModelDownload,
+    response_model_exclude_unset=True,
+)
 def start_download(request: Request, body: DownloadRequest):
     """Start a background snapshot download into the hub cache."""
     state = request.app.state
@@ -165,13 +199,21 @@ def start_download(request: Request, body: DownloadRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/api/models/downloads")
+@router.get(
+    "/api/models/downloads",
+    response_model=ModelDownloads,
+    response_model_exclude_unset=True,
+)
 def list_downloads(request: Request):
     state = request.app.state
     return {"downloads": state.downloads.status_list()}
 
 
-@router.post("/api/models/downloads/{download_id}/cancel")
+@router.post(
+    "/api/models/downloads/{download_id}/cancel",
+    response_model=ModelDownload,
+    response_model_exclude_unset=True,
+)
 def cancel_download(request: Request, download_id: str):
     """Request cancellation; takes effect at the next progress tick.
     Partial files stay in the cache and resume on a retry."""
@@ -182,7 +224,9 @@ def cancel_download(request: Request, download_id: str):
     return status
 
 
-@router.delete("/api/models")
+@router.delete(
+    "/api/models", response_model=ModelDeleted, response_model_exclude_unset=True
+)
 def delete_cached_model(request: Request, repo: str):
     """Delete every cached revision of one repo from the hub cache.
 
@@ -213,7 +257,11 @@ def delete_cached_model(request: Request, repo: str):
 # ------------------------------------------------------ diffusers update
 
 
-@router.get("/api/system/diffusers")
+@router.get(
+    "/api/system/diffusers",
+    response_model=DiffusersStatus,
+    response_model_exclude_unset=True,
+)
 def diffusers_state(request: Request):
     """Installed diffusers version (with its git commit when installed
     from git) and the state of any update."""
@@ -235,7 +283,12 @@ class UpdateDiffusersRequest(BaseModel):
     )
 
 
-@router.post("/api/system/diffusers/update", status_code=202)
+@router.post(
+    "/api/system/diffusers/update",
+    status_code=202,
+    response_model=DiffusersStatus,
+    response_model_exclude_unset=True,
+)
 def update_diffusers(
     request: Request, body: UpdateDiffusersRequest = UpdateDiffusersRequest()
 ):
@@ -285,7 +338,7 @@ def update_diffusers(
 # --------------------------------------------------------- memory/health
 
 
-@router.get("/api/memory")
+@router.get("/api/memory", response_model=MemoryInfo, response_model_exclude_unset=True)
 def memory(request: Request):
     manager = request.app.state.job_manager
     try:
@@ -294,7 +347,9 @@ def memory(request: Request):
         raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
 
 
-@router.post("/api/memory/clear")
+@router.post(
+    "/api/memory/clear", response_model=MemoryCleared, response_model_exclude_unset=True
+)
 def clear_memory(request: Request):
     """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
     without waiting for the next job to evict one model for another.
@@ -320,7 +375,7 @@ def clear_memory(request: Request):
     return {"cleared": True, "info": info}
 
 
-@router.get("/api/health")
+@router.get("/api/health", response_model=HealthInfo, response_model_exclude_unset=True)
 def health(request: Request):
     state = request.app.state
     manager = request.app.state.job_manager
@@ -351,7 +406,7 @@ def health(request: Request):
     }
 
 
-@router.get("/api/server")
+@router.get("/api/server", response_model=ServerInfo, response_model_exclude_unset=True)
 def server_info(request: Request, ws: Workspace = Depends(selected_workspace)):
     """How this server is reachable, for the UI's Server page: what it
     is bound to, whether a token is needed, whether MCP is mounted, and

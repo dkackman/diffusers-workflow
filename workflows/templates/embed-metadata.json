@@ -12,7 +12,7 @@
             "name": "generate",
             "pipeline": {
                 "configuration": {
-                    "offload": "model",
+                    "offload": "sequential",
                     "component_type": "FluxPipeline"
                 },
                 "from_pretrained_arguments": {

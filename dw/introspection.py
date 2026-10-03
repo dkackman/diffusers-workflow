@@ -13,6 +13,7 @@ any module on the system.
 
 import re
 import inspect
+import math
 import logging
 from . import references
 
@@ -148,6 +149,10 @@ load_pipeline_class = load_allowed_class
 def _json_safe_default(value):
     if value is inspect.Parameter.empty:
         return None
+    # JSON has no inf or nan: named as a string, the way any other value
+    # JSON cannot carry is, rather than nulled into "no default"
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)

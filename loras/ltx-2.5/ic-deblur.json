@@ -1,0 +1,25 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Deblur",
+  "weight_name": "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
+  "revision": "7d0cf41dcc6c93d763346e17f76d5f8d64d0e2ff",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Restore a blurry clip",
+  "use_when": "Restore a blurry clip",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "proven",
+  "evidence": [
+    {
+      "note": "Used by the shipped workflows/templates/ltx2 template of that name"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "restore",
+    "blur"
+  ]
+}

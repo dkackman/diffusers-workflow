@@ -1,189 +1,79 @@
 import type {
-  AssetFile,
-  AssetLibrary,
-  ShadowedAsset,
+  AssetDeleted,
+  AssetList,
+  ClassList,
+  Deleted,
   DiffusersStatus,
-  EnhancerPreset,
-  JobDetail,
-  ModelCache,
-  ModelDownload,
-  JobEvent,
-  JobSummary,
-  GalleryFile,
+  EnhancerPresets,
+  GalleryList,
+  GalleryMetadata,
   HealthInfo,
+  JobCancelled,
+  JobDetail,
+  JobEvent,
+  JobExport,
+  JobList,
+  JobMoved,
+  JobWorkflow,
+  Kept,
   MemoryInfo,
+  ModelCache,
+  ModelDeleted,
+  ModelDownload,
+  ModelDownloads,
+  OutputDeleted,
   PipelineDescription,
+  PipelineNames,
   PromptDefinition,
-  PromptDetail,
-  LibraryRoot,
-  ShadowedEntry,
+  PromptList,
+  PromptSaved,
   ServerInfo,
-  ValidationResult,
-  WorkflowCost,
-  WorkflowDefinition,
-  WorkflowShape,
-  WorkflowTrait,
   StoredPrompt,
+  TaskList,
+  Uploaded,
+  ValidationResult,
+  WorkflowDefinition,
+  WorkflowDeleted,
+  WorkflowList,
+  WorkflowSaved,
   WorkflowWithOrigin,
+  WorkspaceDeleted,
+  WorkspaceInfo,
+  WorkspaceList,
 } from './types'
 import { getApiToken } from './token'
-import { DEFAULT_WORKSPACE, workspace } from './workspace.svelte'
+import { ApiError, errorDetail } from './apiErrors'
+import {
+  addToken,
+  appendQuery,
+  encodePath,
+  outputUrl,
+  scopeTo,
+  scoped,
+  withToken,
+} from './apiUrls'
 
-/** Encode a workflow name for a URL, keeping its folder separators. */
-const encodePath = (name: string) =>
-  name.split('/').map(encodeURIComponent).join('/')
-
-/** Append one query parameter to a URL, keeping whatever query it already
- * has. Shared by every place that tacks a selector onto a path - the
- * workspace scope, the download token - so there is one rule for `?` vs
- * `&` instead of a hand-rolled check at each call site. */
-function appendQuery(url: string, key: string, value: string): string {
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}${key}=${encodeURIComponent(value)}`
-}
-
-/** Append the workspace selector to a path, keeping any query it has. The
- * server defaults to this one when no selector is sent, so 'default' sends
- * nothing and the request looks exactly as it did before workspaces
- * existed. Routes that are not workspace-scoped (prompts, models, system)
- * ignore an unknown query parameter, which is what lets this live in one
- * place instead of being threaded through every call site. */
-function scoped(path: string): string {
-  if (workspace.current === DEFAULT_WORKSPACE) return path
-  return appendQuery(path, 'workspace', workspace.current)
-}
-
-/** Append the configured API token as a query parameter. Only for the
- * routes a browser loads without being able to set headers - EventSource,
- * <img> tags and <a download> navigations - which the server accepts it
- * on; see docs/SERVER.md. */
-function withToken(url: string): string {
-  const scopedUrl = scoped(url)
-  const token = getApiToken()
-  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
-}
-
-/** Scope a path to an explicit workspace instead of the picker's current
- * selection - for a job's own files, which must resolve to where they were
- * written even if the picker has since moved elsewhere. Mirrors `scoped()`. */
-function workspaceScopedPath(
-  path: string,
-  workspace: string | undefined,
-): string {
-  if (workspace === undefined || workspace === DEFAULT_WORKSPACE) return path
-  return appendQuery(path, 'workspace', workspace)
-}
-
-/** `withToken`, scoped to an explicit workspace rather than the picker's. */
-function withTokenIn(url: string, workspace: string): string {
-  const scopedUrl = workspaceScopedPath(url, workspace)
-  const token = getApiToken()
-  return token ? appendQuery(scopedUrl, 'token', token) : scopedUrl
-}
-
-/** The URL an output file is served from. Jobs report files by their name
- * relative to the output directory - a workflow under a subfolder writes
- * to '<sub>/<file>' - so the whole relative path is kept. A job recorded
- * before that change carries an absolute path, for which the basename is
- * the best available guess. `version` busts the browser cache: two runs of
- * one workflow write the same file names. `workspace`, when given, names
- * the job's own workspace and wins over whatever is currently selected in
- * the picker - a job page must load its files from where they were written,
- * not from wherever the user has since navigated to. */
-export function outputUrl(
-  path: string,
-  version?: string,
-  workspace?: string,
-): string {
-  const name = path.startsWith('/') ? (path.split('/').pop() ?? '') : path
-  const url = `/outputs/${encodePath(name)}`
-  const versioned = version === undefined ? url : appendQuery(url, 'v', version)
-  if (workspace === undefined) return scoped(versioned)
-  return workspace === DEFAULT_WORKSPACE
-    ? versioned
-    : appendQuery(versioned, 'workspace', workspace)
-}
-
-const BYTES_PER_MB = 1024 * 1024
-
-/** The per-folder file counts a workspace delete answers with, as one line.
- * Folders holding nothing are left out - the point of the count is what
- * would actually be lost. */
-function describeContents(contents: unknown): string {
-  if (!contents || typeof contents !== 'object') return ''
-  const parts: string[] = []
-  for (const [folder, value] of Object.entries(
-    contents as Record<string, { files?: number; bytes?: number }>,
-  )) {
-    const files = Number(value?.files ?? 0)
-    if (!files) continue
-    const bytes = Number(value?.bytes ?? 0)
-    const size =
-      bytes >= BYTES_PER_MB ? ` (${(bytes / BYTES_PER_MB).toFixed(1)} MB)` : ''
-    parts.push(`${folder}: ${files} file${files === 1 ? '' : 's'}${size}`)
-  }
-  return parts.length ? parts.join(', ') : 'nothing'
-}
-
-/** The message inside an error response's `detail`. Most routes answer with
- * a plain string, but the ones that have to say what they would do send an
- * object instead - the workspace delete's `{message, contents}`, the
- * not-a-workspace refusal's `{message, entries}` - and handing that straight
- * to `new Error` shows the user '[object Object]' rather than the very
- * numbers the confirmation exists to present. FastAPI's 422 list of
- * validation errors gets the same treatment. */
-export function errorDetail(payload: unknown, fallback: string): string {
-  const detail = (payload as { detail?: unknown } | null)?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((entry) =>
-        entry && typeof entry === 'object'
-          ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
-          : String(entry),
-      )
-      .filter(Boolean)
-    return messages.length ? messages.join('. ') : fallback
-  }
-  if (detail && typeof detail === 'object') {
-    const record = detail as Record<string, unknown>
-    const message =
-      typeof record.message === 'string' ? record.message : fallback
-    const contents = describeContents(record.contents)
-    if (contents) return `${message}\n\n${contents}`
-    if (Array.isArray(record.entries) && record.entries.length) {
-      return `${message}\n\n${record.entries.join(', ')}`
-    }
-    return message
-  }
-  return fallback
-}
-
-/** An error response, with the status a caller may need to branch on -
- * the export's 409 is "already exported, overwrite?" rather than a
- * failure, and the message alone cannot say which. */
-export class ApiError extends Error {
-  status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-  }
-}
+// Pages and their test mocks import these from here
+export { ApiError, errorDetail, outputUrl }
 
 /** A JSON response together with its headers, for the rare endpoint whose
  * result depends on both - `getWorkflow` reads its origin/writable from
  * headers rather than the body. */
-async function fetchJson<T>(
+/** A request with the bearer token, scoped to the picker's workspace
+ * unless `scope` is false, failing with an ApiError that carries the
+ * server's detail and status. Under every JSON call and file download. */
+async function send(
   path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<{ body: T; response: Response }> {
+  init: RequestInit = {},
+  scope = true,
+): Promise<Response> {
   const token = getApiToken()
-  const headers = new Headers(init?.headers)
+  const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const url = options?.scope === false ? path : scoped(path)
-  const response = await fetch(url, { ...init, headers })
+  const response = await fetch(scope ? scoped(path) : path, {
+    ...init,
+    headers,
+  })
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -193,6 +83,15 @@ async function fetchJson<T>(
     }
     throw new ApiError(detail, response.status)
   }
+  return response
+}
+
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { scope?: boolean },
+): Promise<{ body: T; response: Response }> {
+  const response = await send(path, init, options?.scope !== false)
   return { body: await response.json(), response }
 }
 
@@ -212,19 +111,7 @@ async function downloadResponse(
   path: string,
   init: RequestInit,
 ): Promise<void> {
-  const token = getApiToken()
-  const headers = new Headers(init.headers)
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scoped(path), { ...init, headers })
-  if (!response.ok) {
-    let detail = response.statusText
-    try {
-      detail = errorDetail(await response.json(), detail)
-    } catch {
-      /* not json */
-    }
-    throw new Error(detail)
-  }
+  const response = await send(path, init)
   const disposition = response.headers.get('content-disposition') ?? ''
   const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download'
   const url = URL.createObjectURL(await response.blob())
@@ -250,44 +137,7 @@ function archiveFrom(path: string) {
 }
 
 export const api = {
-  listWorkflows: () =>
-    request<{
-      workspace?: string
-      /** The search path in order; the writable workspace root is where a
-       * save lands, whatever library a workflow was read from. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      workflows: string[]
-      details: Record<
-        string,
-        {
-          kinds: string[]
-          steps?: number
-          variables: number
-          description: string
-          /** For a model config: the template it is a tuned instance of.
-           * Absent from an older server, and from every template. */
-          configures?: string
-          prompt_refs?: string[]
-          /** What the workflow makes, derived by the server from the
-           * definition (dw/server/catalog_shape.py). Absent from an older
-           * server. */
-          shape?: WorkflowShape
-          /** Sorted, independent facts about how the output is made or what
-           * it needs. */
-          traits?: WorkflowTrait[]
-          /** The description's first sentence, clipped - what a card shows. */
-          summary?: string
-          /** Measured runs, one per device the maintainer measured on. Null
-           * (or absent) means unknown - never derived. */
-          cost?: WorkflowCost[] | null
-          /** Which source it came from: 'workspace', 'examples', 'builtin'. */
-          origin: string
-          /** False for a read-only source: offer save-a-copy, not delete. */
-          writable: boolean
-        }
-      >
-    }>('/api/workflows'),
+  listWorkflows: () => request<WorkflowList>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
    * rather than a separate `listWorkflows` lookup. Beside the definition,
    * the way `getPrompt` keeps a prompt's: the object the caller holds is
@@ -311,11 +161,9 @@ export const api = {
     if (status) query.set('status', status)
     if (limit) query.set('limit', String(limit))
     const qs = query.toString()
-    return request<{ jobs: JobSummary[]; total?: number }>(
-      qs ? `/api/jobs?${qs}` : '/api/jobs',
-      undefined,
-      { scope: false },
-    )
+    return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
+      scope: false,
+    })
   },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
@@ -324,14 +172,7 @@ export const api = {
    * submitted. 404s when the job named a workflow file that is no longer
    * readable. */
   getJobWorkflow: (id: string) =>
-    request<{
-      id: string
-      definition: Record<string, any>
-      realized: boolean
-      /** The variable a new-seed rerun would draw into, null when the
-       * workflow has none - the cue for whether to offer that at all. */
-      seed_variable: string | null
-    }>(`/api/jobs/${id}/workflow`),
+    request<JobWorkflow>(`/api/jobs/${id}/workflow`),
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
    * seed variable; without it the arguments repeat exactly, which the step
    * cache serves from the earlier run rather than generating anything. */
@@ -341,17 +182,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_seed: newSeed }),
     }),
-  listTasks: () =>
-    request<{
-      commands: string[]
-      image_processors: string[]
-      video_processors: string[]
-      assessment: string[]
-    }>('/api/tasks'),
+  listTasks: () => request<TaskList>('/api/tasks'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
-    request<{ id: string; queue: string[] }>(`/api/jobs/${id}/move`, {
+    request<JobMoved>(`/api/jobs/${id}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ direction }),
@@ -364,17 +199,9 @@ export const api = {
    * navigated. 409 (an `ApiError`) when the export exists and `overwrite`
    * was not asked for. */
   exportJob: (id: string, workspace: string, overwrite = false) =>
-    request<{
-      directory: string
-      zip_url: string
-      files: { path: string; bytes: number }[]
-      total_bytes: number
-      missing: string[]
-    }>(
+    request<JobExport>(
       appendQuery(
-        workspace === DEFAULT_WORKSPACE
-          ? `/api/jobs/${id}/export`
-          : `/api/jobs/${id}/export?workspace=${encodeURIComponent(workspace)}`,
+        scopeTo(`/api/jobs/${id}/export`, workspace),
         'overwrite',
         overwrite ? 'true' : 'false',
       ),
@@ -384,12 +211,9 @@ export const api = {
   /** The `zip_url` an export answered with, ready for an <a download>. The
    * server already put the job's workspace selector on it, so only the
    * token is added - `withToken` would scope it a second time. */
-  exportZipUrl: (zipUrl: string) => {
-    const token = getApiToken()
-    return token ? appendQuery(zipUrl, 'token', token) : zipUrl
-  },
+  exportZipUrl: (zipUrl: string) => addToken(zipUrl),
   cancelJob: (id: string) =>
-    request<{ id: string; status: string }>(`/api/jobs/${id}/cancel`, {
+    request<JobCancelled>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
     }),
   submitJob: (body: {
@@ -411,17 +235,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo_id: repoId }),
     }),
-  listDownloads: () =>
-    request<{ downloads: ModelDownload[] }>('/api/models/downloads'),
+  listDownloads: () => request<ModelDownloads>('/api/models/downloads'),
   cancelDownload: (id: string) =>
     request<ModelDownload>(`/api/models/downloads/${id}/cancel`, {
       method: 'POST',
     }),
   deleteModel: (repo: string) =>
-    request<{ repo_id: string; deleted: boolean; freed: number }>(
-      `/api/models?repo=${encodeURIComponent(repo)}`,
-      { method: 'DELETE' },
-    ),
+    request<ModelDeleted>(`/api/models?repo=${encodeURIComponent(repo)}`, {
+      method: 'DELETE',
+    }),
   diffusersStatus: () => request<DiffusersStatus>('/api/system/diffusers'),
   updateDiffusers: () =>
     request<DiffusersStatus>('/api/system/diffusers/update', {
@@ -431,34 +253,26 @@ export const api = {
   server: () => request<ServerInfo>('/api/server'),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
-  gallery: () => request<{ files: GalleryFile[] }>('/api/gallery?limit=100000'),
+  gallery: () => request<GalleryList>('/api/gallery?limit=100000'),
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
   // a job page must read its own files from where they were written
   galleryMetadata: (name: string, workspace?: string) =>
-    request<{
-      name: string
-      metadata: Record<string, unknown> | null
-      job: { id: string; status: string } | null
-    }>(
-      workspaceScopedPath(
-        `/api/gallery/${encodePath(name)}/metadata`,
-        workspace,
-      ),
+    request<GalleryMetadata>(
+      workspace === undefined
+        ? `/api/gallery/${encodePath(name)}/metadata`
+        : scopeTo(`/api/gallery/${encodePath(name)}/metadata`, workspace),
       undefined,
       { scope: workspace === undefined },
     ),
   galleryThumbnailUrl: (name: string) =>
     withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
   deleteOutput: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/gallery/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   outputDownloadUrl: (name: string, workspace?: string) =>
-    workspace === undefined
-      ? withToken(`/api/gallery/${encodePath(name)}/download`)
-      : withTokenIn(`/api/gallery/${encodePath(name)}/download`, workspace),
+    withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
   /** Download a multi-file gallery selection as one zip. The browser
    * cannot zip on its own and throttles a burst of single downloads, so
    * the server bundles the selection and this saves the response. */
@@ -471,7 +285,7 @@ export const api = {
    * than the random one a browser upload gets, and `shared` puts it in the
    * library every workspace under this root shares. */
   uploadMedia: (file: File, assetName?: string, shared = false) =>
-    request<{ url: string; reference?: string }>(
+    request<Uploaded>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
@@ -479,14 +293,7 @@ export const api = {
     ),
   /** The asset library, spanning the workspace's own, the shared `common`
    * one and any example library - each entry tagged with which. */
-  listAssets: () =>
-    request<{
-      workspace: string
-      assets: AssetFile[]
-      folders: string[]
-      libraries: AssetLibrary[]
-      shadowed: ShadowedAsset[]
-    }>('/api/assets'),
+  listAssets: () => request<AssetList>('/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */
@@ -494,26 +301,12 @@ export const api = {
   /** Permanently remove one asset. Answers 403 for one an examples tree
    * brought with it, which is not this server's to delete. */
   deleteAsset: (name: string) =>
-    request<{ name: string; deleted: boolean; origin: string }>(
-      `/api/assets/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
-  listWorkspaces: () =>
-    request<{
-      workspace_root: string | null
-      default: string
-      workspaces: {
-        name: string
-        default: boolean
-        workflows: string
-        assets: string | null
-        outputs: string
-        prompts: string | null
-        usage?: { files: number; bytes: number }
-      }[]
-    }>('/api/workspaces'),
+    request<AssetDeleted>(`/api/assets/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
+  listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
-    request<{ name: string }>('/api/workspaces', {
+    request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -522,7 +315,7 @@ export const api = {
    * `acknowledged`, answering with what it would remove - so the caller can
    * show that before asking again. */
   deleteWorkspace: (name: string, acknowledged = false) =>
-    request<{ name: string; deleted: boolean }>(
+    request<WorkspaceDeleted>(
       `/api/workspaces/${encodeURIComponent(name)}?acknowledged=${acknowledged}`,
       { method: 'DELETE' },
     ),
@@ -530,23 +323,20 @@ export const api = {
    * happens on the server, inside the workspace - nothing is downloaded and
    * re-uploaded to reuse a render. */
   keepOutput: (name: string, assetName?: string, overwrite = false) =>
-    request<{ reference: string; name: string; linked: boolean }>(
-      '/api/assets/keep',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          asset_name: assetName ?? null,
-          overwrite,
-        }),
-      },
-    ),
-  listPipelines: () => request<{ pipelines: string[] }>('/api/pipelines'),
+    request<Kept>('/api/assets/keep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        asset_name: assetName ?? null,
+        overwrite,
+      }),
+    }),
+  listPipelines: () => request<PipelineNames>('/api/pipelines'),
   describePipeline: (name: string) =>
     request<PipelineDescription>(`/api/pipelines/${name}`),
   listClasses: (kind: string) =>
-    request<{ kind: string; classes: string[] }>(`/api/classes?kind=${kind}`),
+    request<ClassList>(`/api/classes?kind=${kind}`),
   describeClass: (name: string, target: 'call' | 'init' | 'load') =>
     request<PipelineDescription>(
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,
@@ -559,32 +349,18 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   deleteWorkflow: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/workflows/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<WorkflowDeleted>(`/api/workflows/${encodePath(name)}`, {
+      method: 'DELETE',
+    }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<{
-      name: string
-      workspace: string
-      origin: string
-      warnings: string[]
-    }>(`/api/workflows/${encodePath(name)}`, {
+    request<WorkflowSaved>(`/api/workflows/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflow }),
     }),
-  listPrompts: () =>
-    request<{
-      /** The search path in order; the writable workspace root is where a
-       * save lands. */
-      libraries: LibraryRoot[]
-      shadowed: ShadowedEntry[]
-      prompts: string[]
-      details: Record<string, PromptDetail>
-    }>('/api/prompts'),
+  listPrompts: () => request<PromptList>('/api/prompts'),
   /** The prompt plus which library it came from, read off the response
    * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>
@@ -596,20 +372,17 @@ export const api = {
       }),
     ),
   savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<{ name: string }>(`/api/prompts/${encodePath(name)}`, {
+    request<PromptSaved>(`/api/prompts/${encodePath(name)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),
     }),
   deletePrompt: (name: string) =>
-    request<{ name: string; deleted: boolean }>(
-      `/api/prompts/${encodePath(name)}`,
-      { method: 'DELETE' },
-    ),
+    request<Deleted>(`/api/prompts/${encodePath(name)}`, { method: 'DELETE' }),
   promptDownloadUrl: (name: string) =>
     withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
-  listEnhancers: () => request<{ presets: EnhancerPreset[] }>('/api/enhancers'),
+  listEnhancers: () => request<EnhancerPresets>('/api/enhancers'),
   enhance: (body: {
     idea: string
     preset: string
@@ -638,7 +411,7 @@ export async function fetchOutputText(
   return response.text()
 }
 
-const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
+export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
 
 /** Stream a job's events; returns a stop function. The stream closes itself
  * when a terminal job_status arrives; transient errors are left alone so

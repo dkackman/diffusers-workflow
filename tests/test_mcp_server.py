@@ -17,6 +17,9 @@ from dw_mcp.server import build_server  # noqa: E402
 
 EXPECTED_TOOLS = {
     "list_guides",
+    "list_loras",
+    "save_lora",
+    "recommend_loras",
     "get_guide",
     "list_workflows",
     "get_workflow",
@@ -91,6 +94,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "delete_model",
     "update_diffusers",
     "save_prompt",
+    "save_lora",
     "delete_prompt",
     "enhance_prompt",
     "download_output",
@@ -222,7 +226,8 @@ async def test_no_tool_claims_an_open_world():
     tools = await tools_of(server_over(ok({})))
 
     for name, tool in tools.items():
-        assert tool.annotations.open_world_hint is False, name
+        # recommend_loras queries the Hugging Face Hub, and says so.
+        assert tool.annotations.open_world_hint is (name == "recommend_loras"), name
 
 
 @pytest.mark.asyncio
@@ -286,7 +291,18 @@ async def test_a_crop_is_cut_and_reported():
     body = buffer.getvalue()
 
     def serving_png(request):
-        return httpx.Response(200, content=body, headers={"content-type": "image/png"})
+        # What the server's image route answers for this crop
+        assert request.url.params["crop"] == "1000,500,300,200"
+        return httpx.Response(
+            200,
+            content=body,
+            headers={
+                "content-type": "image/png",
+                "x-dw-original-size": "2048,1024",
+                "x-dw-crop": "1000,500,300,200",
+                "x-dw-returned-size": "300,200",
+            },
+        )
 
     server = server_over(serving_png)
 
@@ -561,7 +577,7 @@ TOOL_WIRING = [
         "GET",
         "/api/gallery/out.png/metadata",
     ),
-    ("get_output_image", {"name": "out.png"}, "GET", "/outputs/out.png"),
+    ("get_output_image", {"name": "out.png"}, "GET", "/api/gallery/out.png/image"),
     ("get_output_audio", {"name": "out.wav"}, "GET", "/api/gallery/out.wav/audio"),
     (
         "get_output_frames",
@@ -642,6 +658,19 @@ TOOL_WIRING = [
         "/api/prompts/duke",
     ),
     ("delete_prompt", {"name": "duke"}, "DELETE", "/api/prompts/duke"),
+    ("list_loras", {}, "GET", "/api/loras"),
+    (
+        "save_lora",
+        {"name": "qwen-image/voxel", "entry": {"model_name": "a/b"}},
+        "PUT",
+        "/api/loras/qwen-image/voxel",
+    ),
+    (
+        "recommend_loras",
+        {"model": "a/b", "query": "voxel"},
+        "GET",
+        "/api/loras/recommend",
+    ),
     ("list_enhancers", {}, "GET", "/api/enhancers"),
     (
         "enhance_prompt",
@@ -1079,7 +1108,9 @@ class TestStartupWeight:
         torch - so a single convenience import from the engine would quietly
         put ~1s of model-framework startup back into every client session.
         This asserts the boundary rather than the timing, which is the part
-        a future edit can actually break.
+        a future edit can actually break. Pillow is held out too: images
+        are fitted on the server (GET /api/gallery/<name>/image), so the
+        client has nothing to decode.
         """
         import subprocess
         import sys
@@ -1089,7 +1120,7 @@ class TestStartupWeight:
                 sys.executable,
                 "-c",
                 "import sys; import dw_mcp.server; "
-                "print(','.join(m for m in ('torch', 'diffusers', 'dw') "
+                "print(','.join(m for m in ('torch', 'diffusers', 'dw', 'PIL') "
                 "if m in sys.modules))",
             ],
             capture_output=True,
@@ -1517,7 +1548,17 @@ def test_the_stated_tool_count_is_the_registered_one():
 # character cap on instructions, so get_gallery_metadata's hint carries it.
 # Measured 2026-09-24 at 13_849.5 (9_395.0 / 3_946.25 / 508.25); the ceiling
 # stays, 40.5 of headroom.
-SURFACE_BUDGET = 13_890
+# 2026-10-03: the LoRA catalog added list_loras, save_lora and
+# recommend_loras - measured at 14_255.0 (9_398.5 / 4_345.75 / 510.75); the
+# ceiling moves to 14_265 with 10 of headroom.
+SURFACE_BUDGET = 14_265
+
+
+@pytest.mark.asyncio
+async def test_recommend_loras_says_it_reaches_the_hub():
+    tools = await tools_of(server_over(ok({})))
+    assert tools["recommend_loras"].annotations.open_world_hint is True
+    assert tools["list_loras"].annotations.open_world_hint is False
 
 
 @pytest.mark.asyncio

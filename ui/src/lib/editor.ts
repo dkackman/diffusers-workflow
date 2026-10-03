@@ -1,6 +1,15 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
 import { danglingReferenceDetails } from './flow'
+import {
+  PREVIOUS_RESULT,
+  PROMPT,
+  VARIABLE,
+  isReference,
+  reference,
+} from './references'
+
+export { isReference }
 
 /** Introspection descriptions, cached per class+target for the session. */
 const descriptions = new Map<string, Promise<PipelineDescription | null>>()
@@ -94,17 +103,6 @@ export function withMediaLocation(value: unknown, location: string): unknown {
   return location
 }
 
-/** Reference strings the engine resolves later - always edited as text. */
-export function isReference(value: unknown): boolean {
-  return (
-    typeof value === 'string' &&
-    (value.startsWith('variable:') ||
-      value.startsWith('previous_result:') ||
-      value.startsWith('constant:') ||
-      value.startsWith('prompt:'))
-  )
-}
-
 export function widgetFor(
   parameter: PipelineParameter | undefined,
   value: unknown,
@@ -143,17 +141,40 @@ export function coerce(widget: Widget, raw: string): unknown {
 
 export const TORCH_DTYPES = ['torch.bfloat16', 'torch.float16', 'torch.float32']
 
+/** What a step's result can be written as. tests/test_ui_twins.py pins it:
+ * each one is accepted by dw/content_types.py, and every audio container
+ * the engine writes is reachable from one. */
 export const CONTENT_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
-  'video/mp4',
   'image/gif',
+  'video/mp4',
   'audio/wav',
+  'audio/flac',
+  'audio/aiff',
   'audio/mpeg',
+  'audio/ogg',
+  'audio/opus',
   'application/json',
   'text/plain',
 ]
+
+/** A select's options: a value the list does not hold (written by hand, or
+ * an alias) is kept as the last option rather than shown as a blank. */
+export function optionsWith(
+  listed: readonly string[],
+  current?: string | null,
+): string[] {
+  return current && !listed.includes(current)
+    ? [...listed, current]
+    : [...listed]
+}
+
+/** The result select's options; see optionsWith. */
+export function contentTypeOptions(current?: string): string[] {
+  return optionsWith(CONTENT_TYPES, current)
+}
 
 /** Text that deserves a document-scale editing surface: long enough to
  * be truncated by a single-line input, or already multi-line. */
@@ -200,7 +221,7 @@ export function emptyStep() {
         model_name: '',
         torch_dtype: 'torch.bfloat16',
       },
-      arguments: { prompt: 'variable:prompt' },
+      arguments: { prompt: reference(VARIABLE, 'prompt') },
     },
     result: { content_type: 'image/png' },
   }
@@ -257,6 +278,9 @@ export const COMPONENT_SLOTS = [
   'model',
 ]
 
+/** A pipeline's offload modes, the schema's `offload` enum. */
+export const OFFLOAD_MODES = ['model', 'sequential']
+
 export const CACHE_TYPES = [
   'first_block',
   'faster',
@@ -306,20 +330,20 @@ export function referenceSuggestions(
 ): string[] {
   const suggestions: string[] = []
   for (const name of Object.keys(workflow.variables ?? {})) {
-    suggestions.push(`variable:${name}`)
+    suggestions.push(reference(VARIABLE, name))
   }
   for (const name of promptNames) {
-    suggestions.push(`prompt:${name}`)
+    suggestions.push(reference(PROMPT, name))
   }
   const steps: Array<Record<string, any>> = workflow.steps ?? []
   for (const step of steps.slice(0, Math.max(0, stepIndex))) {
     if (!step.name) continue
-    suggestions.push(`previous_result:${step.name}`)
+    suggestions.push(reference(PREVIOUS_RESULT, step.name))
     const contentType = step.result?.content_type ?? ''
     if (contentType.startsWith('video')) {
       suggestions.push(
-        `previous_result:${step.name}.frames`,
-        `previous_result:${step.name}.audio`,
+        reference(PREVIOUS_RESULT, `${step.name}.frames`),
+        reference(PREVIOUS_RESULT, `${step.name}.audio`),
       )
     }
   }

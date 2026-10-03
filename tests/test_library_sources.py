@@ -21,6 +21,7 @@ from dw.library import (
 )
 from dw.workspace import (
     ASSETS_SUBDIR,
+    LORAS_SUBDIR,
     PROMPTS_SUBDIR,
     Workspace,
     example_libraries,
@@ -76,7 +77,7 @@ class TestDerivation:
         bare = tmp_path / "elsewhere" / "workflows"
         bare.mkdir(parents=True)
         found = example_libraries([str(bare)])
-        assert found == {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: []}
+        assert found == {PROMPTS_SUBDIR: [], ASSETS_SUBDIR: [], LORAS_SUBDIR: []}
 
     def test_fallbacks_round_trip_through_the_environment(self, trees):
         # This is how the worker subprocess learns them: spawn inherits the
@@ -264,7 +265,11 @@ class TestServer:
 
         assert missing["valid"] is False
         assert missing["errors"][0]["path"] == "arguments.image"
-        assert os.path.abspath(workspace.assets) in missing["errors"][0]["message"]
+        # The miss names the libraries it searched, never their server
+        # directories (GHSA-fwg5-jfjg-fxpf)
+        message = missing["errors"][0]["message"]
+        assert "asset library (workspace, examples)" in message
+        assert os.path.abspath(workspace.assets) not in message
 
 
 def test_two_apps_in_one_process_each_list_their_own_examples(tmp_path):

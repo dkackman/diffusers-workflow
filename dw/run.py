@@ -29,13 +29,13 @@ from .security import (
     MAX_VARIABLE_VALUE_LENGTH,
 )
 
-# Matches dw_mcp.diagnose.WAIT_POLL_SECONDS / dw.server.app.SSE_POLL_SECONDS -
+# Matches dw_mcp.diagnose.WAIT_POLL_SECONDS / dw.server.routes.jobs.SSE_POLL_SECONDS -
 # the cadence every other poller in this codebase already uses.
 POLL_SECONDS = 1.0
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled"})
 
-# The exact prefix of dw/server/app.py's resolve_workflow_reference() 400 -
+# The exact prefix of dw/server/catalog.py's resolve_workflow_reference() 400 -
 # the one case where resending the file inline is the right fallback rather
 # than a caller mistake to report as-is. Matching text is brittle, but the
 # alternative is a server change this module does not make.

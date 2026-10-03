@@ -1,3 +1,9 @@
+# The UI's response contract runs strict under test: an undeclared key a
+# route emits is a 500 here, not a silent pass (dw/server/api_models.py)
+import os as _os
+
+_os.environ.setdefault("DW_STRICT_RESPONSES", "1")
+
 import gc
 import pytest
 import os
@@ -46,6 +52,25 @@ def _isolate_settings_dir(tmp_path, monkeypatch):
     hold. A test about the settings directory itself sets its own.
     """
     monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path / "helper"))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_device_capacity(monkeypatch):
+    """Check a vram_estimate against the catalog's measured cards, never the
+    accelerator the suite happens to run on.
+
+    The check uses the serving device's own capacity when no 'cost' entry
+    describes its backend (dw/vram_estimate.py `_entries_for`), so on a
+    24 GB Mac - a 17.8 GB Metal working set - a template's own defaults were
+    refused and its tests failed there and nowhere else. With no capacity
+    read, every machine gets what CI gets. A test about the device ceiling
+    patches its own capacity, which wins over this one.
+    """
+    import dw.validation
+    import dw.workflow_run
+
+    for module in (dw.validation, dw.workflow_run):
+        monkeypatch.setattr(module, "device_capacity_gb", lambda device=None: None)
 
 
 @pytest.fixture(autouse=True)

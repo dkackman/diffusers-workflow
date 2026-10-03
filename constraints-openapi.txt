@@ -1,0 +1,8 @@
+# The FastAPI and Pydantic that ui/src/lib/generated/openapi.json is
+# generated under. Either one's release can change the document with no
+# change here, so CI installs these exactly (pip -c) and
+# scripts/dump_openapi.py refuses to write under anything else. To move
+# them: bump both lines, install them, run the dump and `npm run gen:api`,
+# and commit the four files together.
+fastapi==0.142.2
+pydantic==2.13.5
