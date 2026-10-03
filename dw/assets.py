@@ -121,9 +121,12 @@ def resolve_asset_reference(reference, asset_dir=None, base_dir=None, library=No
     if found:
         logger.debug(f"Resolved {reference} to {found[0]}")
         return found[0]
-    searched = ", ".join(root.root for root in library.roots())
+    # Named by origin, not directory: this message reaches API and MCP
+    # callers, and the roots are the server's filesystem layout
+    searched = ", ".join(dict.fromkeys(root.origin for root in library.roots()))
     raise ValueError(
-        f"Asset '{name}' not found in {searched} - an 'asset:' reference "
+        f"Asset '{name}' not found in the asset library ({searched}) - an "
+        f"'asset:' reference "
         f"names a file in the asset library, with its extension, like "
         f"'asset:iris.jpg' or 'asset:gyre/frame_1.jpg'"
     )

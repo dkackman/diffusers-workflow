@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 # size, nothing that only naming its folders needs
 WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage")
 
+# What create_workspace answers with: the name to address it by, never the
+# folders the server made for it - no MCP response carries an absolute
+# server path unasked (#521, #527, GHSA-crqf-hw9p-r739)
+CREATED_WORKSPACE_FIELDS = ("name", "default")
+
 # dw.serve --mcp builds one DwClient for every connected agent (#298) - the
 # pin is server-global there, not per-session, and that is a deliberate scope
 # decision (this server is single-user) rather than a bug to fix with session
@@ -122,8 +127,13 @@ def create_workspace(client, name, use=False):
     and outputs, and shares the server's one prompt library. Creating it
     does not switch to it unless `use` is true - the natural
     create-then-run sequence otherwise runs in the workspace the session
-    was already in, and the result says which that is."""
-    body = client.post_json("/api/workspaces", {"name": name})
+    was already in, and the result says which that is.
+
+    The answer names the workspace, not its folders; list_workspaces
+    (detail=True) is the opt-in for those."""
+    body = project(
+        client.post_json("/api/workspaces", {"name": name}), CREATED_WORKSPACE_FIELDS
+    )
     warning = _switch(client, name) if use else None
     result = {
         **body,

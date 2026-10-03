@@ -272,8 +272,8 @@ def argument_reference_errors(
                             "this workspace has no asset library"
                         )
                     # One resolve over the whole path, the way a run does:
-                    # a miss names every root it looked in, the workspace's
-                    # own first
+                    # a miss names every library it looked in, the
+                    # workspace's own first
                     resolve_asset_reference(leaf, library=asset_library)
                 elif references.is_ref(references.PROMPT, leaf):
                     resolve_prompt_reference(leaf, library=prompt_library)
