@@ -18,7 +18,7 @@ def entry(**overrides):
     base = {
         "model_name": "prithivMLmods/Qwen-Image-2.1-Voxel-Style",
         "base_models": ["Qwen/Qwen-Image-2.1"],
-        "description": "Blocky voxel look",
+        "description": "Blocky 3D look",
         "use_when": "voxel or blocky 3D requests",
         "status": "trial",
     }

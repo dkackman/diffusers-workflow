@@ -91,7 +91,7 @@ def query_terms(query):
 
 def _score(entry, terms):
     text = " ".join(
-        [entry.get("use_when", "")] + list(entry.get("tags", []))
+        [entry.get("use_when", ""), entry.get("description", "")] + list(entry.get("tags", []))
     ).lower()
     return sum(1 for term in terms if term in text)
 
