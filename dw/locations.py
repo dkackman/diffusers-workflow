@@ -469,20 +469,21 @@ def validate_model_name(name, base_dir=None):
 # relative path and nothing else
 WEIGHT_NAME_KEY = "weight_name"
 
-# Tasks that read their weights with safetensors and nothing else. A pickle
-# format is refused by name rather than left to fail in the loader: the
-# refusal is the documented contract, not an accident of which loader runs
-SAFETENSORS_ONLY_COMMANDS = ()
+# Tasks that read their weights with safetensors and nothing else, from a file
+# named bare (no subfolder: the task knows its default repo's layout). A
+# pickle format is refused by name rather than left to fail in the loader:
+# the refusal is the documented contract, not an accident of which loader runs
+SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents",)
 SAFETENSORS_SUFFIX = ".safetensors"
 
 
-def validate_weight_name(name, suffixes=None, what="weight_name"):
+def validate_weight_name(name, suffixes=None, what="weight_name", subfolders=True):
     """A file name inside a Hub repo: relative, and never climbing out of it.
 
     `hf_hub_download(filename=...)` joins the name onto the local cache
     directory, so a name shaped like a path is a path on this machine. A
-    subfolder is legitimate (the H3 upscaler's default lives under one);
-    an absolute path, a backslash, a drive, an empty segment or a '.'/'..'
+    subfolder is legitimate where `subfolders` allows one (an IP adapter's
+    lives under one); an absolute path, a backslash, a drive, an empty segment or a '.'/'..'
     segment is not. The refusal names only what the caller wrote, never a
     directory on the server.
 
@@ -490,6 +491,7 @@ def validate_weight_name(name, suffixes=None, what="weight_name"):
         name: The file name the workflow supplied
         suffixes: The file endings allowed, or None for any
         what: Short phrase naming the argument, for the error message
+        subfolders: Whether the name may hold a '/' at all
 
     Raises:
         PathTraversalError: On a name that is not a plain relative path
@@ -509,6 +511,10 @@ def validate_weight_name(name, suffixes=None, what="weight_name"):
         raise PathTraversalError(
             f"Refusing a {what} of '{name}': it has an empty, '.' or '..' "
             f"path segment, so it does not name a file inside the model repo."
+        )
+    if not subfolders and "/" in name:
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it is a file name, not a path - no '/'."
         )
     if suffixes and not name.lower().endswith(tuple(suffixes)):
         raise InvalidInputError(
@@ -583,31 +589,40 @@ def location_errors(definition, source_indices=None, base_dir=None):
         if not isinstance(step, dict):
             continue
         source = references.author_index(source_indices, index)
-        _walk(step, f"steps[{source}]", base_dir, errors, _weight_suffixes(step))
+        _walk(step, f"steps[{source}]", base_dir, errors, _weight_rules(step))
     return errors
 
 
-def _weight_suffixes(step):
-    """The weight file endings a step's task reads, or None for any."""
+def _weight_rules(step):
+    """validate_weight_name's (suffixes, subfolders) for a step's task, and
+    whether its model_name must be a Hub repo id (a task that downloads its
+    weights reads no local directory, so one is refused here, not at run)."""
     task = step.get("task")
     command = task.get("command") if isinstance(task, dict) else None
     if command in SAFETENSORS_ONLY_COMMANDS:
-        return (SAFETENSORS_SUFFIX,)
-    return None
+        return (SAFETENSORS_SUFFIX,), False, True
+    return None, True, False
 
 
-def _walk(node, path, base_dir, errors, weight_suffixes=None):
+def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
     if isinstance(node, dict):
         for key, value in node.items():
             here = f"{path}.{key}"
             if key == "model_name" and isinstance(value, str):
-                message = _model_name_message(value, base_dir)
+                message = _model_name_message(value, base_dir, weight_rules[2])
                 if message:
                     errors.append({"path": here, "message": message})
                 continue
             if key == WEIGHT_NAME_KEY and isinstance(value, str):
                 if not _deferred(value):
-                    message = _refusal(validate_weight_name, value, weight_suffixes)
+                    suffixes, subfolders, _ = weight_rules
+                    message = _refusal(
+                        validate_weight_name,
+                        value,
+                        suffixes,
+                        WEIGHT_NAME_KEY,
+                        subfolders,
+                    )
                     if message:
                         errors.append({"path": here, "message": message})
                 continue
@@ -642,10 +657,10 @@ def _walk(node, path, base_dir, errors, weight_suffixes=None):
                     message = _check(item, base_dir, f"'{key}'")
                     if message:
                         errors.append({"path": sub_path, "message": message})
-            _walk(value, here, base_dir, errors, weight_suffixes)
+            _walk(value, here, base_dir, errors, weight_rules)
     elif isinstance(node, list):
         for index, item in enumerate(node):
-            _walk(item, f"{path}[{index}]", base_dir, errors, weight_suffixes)
+            _walk(item, f"{path}[{index}]", base_dir, errors, weight_rules)
 
 
 def _each(value, path):
@@ -660,10 +675,30 @@ def _glob_message(pattern, base_dir):
     return _refusal(validate_media_glob, pattern, base_dir)
 
 
-def _model_name_message(name, base_dir):
+def _model_name_message(name, base_dir, hub_only=False):
     if _deferred(name):
         return None
+    if hub_only:
+        return _refusal(validate_hub_repo_id, name)
     return _refusal(validate_model_name, name, base_dir)
+
+
+def validate_hub_repo_id(name, what="model_name"):
+    """A Hugging Face repo id and nothing else - for a task that downloads.
+
+    Raises:
+        InvalidInputError: On a path, a URL, or any other non-repo-id
+    """
+    from huggingface_hub.utils import HFValidationError, validate_repo_id
+
+    try:
+        validate_repo_id(str(name))
+    except HFValidationError:
+        raise InvalidInputError(
+            f"Refusing a {what} of '{name}': this task downloads its weights, "
+            f"so it takes a Hugging Face repo id ('owner/name'), not a path."
+        ) from None
+    return str(name)
 
 
 def _refusal(check, *args):

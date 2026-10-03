@@ -1587,6 +1587,234 @@ it — see [workflows/templates/minimax/last-frame-only.json](../workflows/templ
 See [workflows/templates/minimax/music.json](../workflows/templates/minimax/music.json) and
 [workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json) for full examples.
 
+### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
+
+Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
+`decode_h3_latents` promote it to 1344x768 without denoising it again - cheaper than a
+native 768p render, since only a small 3D-convolution network and a VAE decode run,
+not the transformer. There is no refine pass over the upscaled latents, so the result
+is sharper than the 544p take but cannot show detail the base pass never generated.
+This is a measurement path, not a catalog template: the catalog's native 768p render is
+`templates/minimax/video-with-audio-768p`.
+
+Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
+latents' own size, and within H3's 1344x768 (or portrait 768x1344) canvas. The latents
+pass from `base` to `up` to `decode` entirely in memory. A `previous_result:` property
+on a modular step names a key of the dict its `output` list returns, spelled as the
+pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` - not
+`sample_rate`, which is what the saved AudioVideo calls it, and which the dict does
+not carry. A property no result carries is an error rather than an empty list, so a
+misspelt one fails the step instead of skipping the mux that reads it. The base
+step carries no `result` at all, so nothing beyond its return value is written -
+upscaling only makes sense for a take chosen from something already reviewed, so the
+544p pass that produced it is not itself a deliverable here.
+
+The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, MIT-licensed,
+read at a pinned revision) and the H3 VAE download on first use, the same as any other
+model. Neither is counted in `plan.downloads_required`, since that walk collects
+`from_pretrained_arguments` sources on pipeline steps and does not see a task
+argument naming a Hugging Face repo - a box that has run the base pass before but never
+this task can still stall mid-run pulling the upscaler.
+
+```json
+{
+    "id": "H3LatentUpscalePreview",
+    "description": "Promote a MiniMax-H3 take from 960x544 to 1344x768 in latent space, no refine pass.",
+    "variables": {
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
+        "num_frames": 124,
+        "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "base",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": 960,
+                    "height": 544,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate",
+                        "latents"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "up",
+            "task": {
+                "command": "upscale_h3_latents",
+                "arguments": {
+                    "latents": "previous_result:base.latents",
+                    "width": 1344,
+                    "height": 768
+                }
+            }
+        },
+        {
+            "name": "decode",
+            "task": {
+                "command": "decode_h3_latents",
+                "arguments": {
+                    "latents": "previous_result:up"
+                }
+            }
+        },
+        {
+            "name": "mux",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:decode",
+                    "audio": "previous_result:base.audio",
+                    "sample_rate": "previous_result:base.sampling_rate",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "subfolder": "final"
+            }
+        }
+    ]
+}
+```
+
+To keep the 544p take beside the promotion for comparison, add one more `pair_audio`
+step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`,
+saved with `"result": {"content_type": "video/mp4", "fps": 24, "subfolder":
+"intermediate"}`. `base.videos` is the pipeline's batch - a list holding the one video -
+and `pair_audio` unwraps a batch of one (a batch of several is refused, since one track
+goes under one video). The dict's frames carry no frame rate, so the result's `fps`
+says it; without it the file is written at the 8 fps fallback.
+
 ### Chained Video Generation
 
 Video pipelines generate short clips - a `chain` block on a pipeline step runs the
