@@ -1,6 +1,38 @@
 # Proposal: gapless job-completion signaling across the MCP bridge
 
-Status: **not started** - design only, written after tracing the current
+Status: **declined 2026-10-03** (issue #377, superseded by its plan v1).
+Plan v1 built something smaller instead: one `wait_for_job` call long enough
+to cover a long render. That record is
+`../complete/mcp-long-wait-complete.md`. Both halves of this proposal were
+cut. Read #377's plan before reviving either.
+
+- **The cursor (`since_seq`/`last_seq`).** Its premise is wrong. A snapshot
+  poll cannot "skip past finished" between two calls, because terminal
+  status is sticky. `cancel` returns early on a terminal job, a rerun is a
+  new id, and a history row replays the terminal `job_status` event
+  (`dw/server/jobs.py`). The one real way to miss a terminal state is a
+  server restart dropping the job ("Unknown job"). That is #300's, and a
+  cursor over an in-memory log doesn't fix it either. The cursor would also
+  have renamed `get_job_events`' `after` (pinned in tests and the UI's
+  `streamJobEvents`) and needed a gap signal for logs trimmed at
+  `MAX_PERSISTED_EVENTS`. **Reopen on:** a field report of an agent that
+  stopped polling on a non-terminal status and missed a job that really
+  finished.
+- **`failure_kind`.** Basing `"oom"` on `crash_details()`'s SIGKILL
+  heuristic mislabels the common case. A CUDA `torch.OutOfMemoryError`
+  reaches the server as an ordinary `"error"` from a live worker
+  (`dw/worker.py`), and SIGKILL is itself only a guess at the kernel OOM
+  killer. Doing it right means classifying inside the worker, plus a
+  `jobs.sqlite` column, which shifts the positional indexing in
+  `_to_detail`/`get`/`recent_summaries`. **Reopen on:** a report of an agent
+  failing to act on an OOM's error text, or a caller that must branch
+  automatically (retry smaller) without reading prose.
+
+The original text follows unchanged.
+
+---
+
+Original status: **not started** - design only, written after tracing the current
 `wait_for_job` / event-log path end to end. No code changes yet.
 
 ## The problem, as reported
