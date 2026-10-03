@@ -874,6 +874,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/loras/recommend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recommend Loras
+         * @description Catalog entries for `model` ranked against `query`, then Hub
+         *     candidates for the same exact bases. The Hub is searched only here.
+         */
+        get: operations["recommend_loras_api_loras_recommend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/loras/{name}": {
         parameters: {
             query?: never;
@@ -4249,6 +4270,40 @@ export interface operations {
                 workflow?: string | null;
                 status?: string | null;
                 tag?: string | null;
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recommend_loras_api_loras_recommend_get: {
+        parameters: {
+            query: {
+                model: string;
+                query?: string;
+                limit?: number;
                 workspace?: string | null;
             };
             header?: never;

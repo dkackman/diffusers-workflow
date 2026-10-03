@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -21,9 +21,12 @@ from ...lora_catalog import (
     entry_errors,
     is_repo_id,
     matches,
+    query_terms,
     ranked,
+    rejection_reasons,
     workflow_bases,
 )
+from ...lora_hub import search_hub
 from ...schema import load_schema
 from ...security import InvalidInputError, SecurityError, validate_lora_name, validate_path
 from ...workspace import Workspace, forget_workspace_usage
@@ -136,7 +139,42 @@ def list_loras(
     return body
 
 
-# GET /api/loras/recommend is added here by Task 6, before the greedy routes
+TRIAL_NOTE = (
+    "Catalog rows are LoRAs tried on this base. Hub rows are candidates to "
+    "trial, ranked by downloads only - run one beside a no-LoRA render at the "
+    "same seed, and save_lora a trial that works (status proven, its job in "
+    "evidence)."
+)
+
+
+@router.get("/api/loras/recommend")
+def recommend_loras(
+    request: Request,
+    model: str,
+    query: str = "",
+    limit: int = Query(8, ge=1, le=25),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """Catalog entries for `model` ranked against `query`, then Hub
+    candidates for the same exact bases. The Hub is searched only here."""
+    state = request.app.state
+    bases = resolve_model(state, ws, model)
+    entries, _roots, _library = catalog_entries(state)
+    fitting = {n: e for n, e in entries.items() if matches(e, bases)}
+    terms = query_terms(query)
+    catalog = [
+        {"source": "catalog", **row}
+        for row in ranked(fitting, terms)
+        if row.get("status") != "rejected"
+    ]
+    body = {"resolved": described_bases(bases), "catalog": catalog, "hub": [], "note": TRIAL_NOTE}
+    repos = sorted({repo for repo, _ in bases})
+    if repos:
+        hub, hub_error = search_hub(repos, query, terms, limit, rejection_reasons(fitting))
+        body["hub"] = hub
+        if hub_error:
+            body["hub_error"] = hub_error
+    return body
 
 
 @router.put("/api/loras/{name:path}")

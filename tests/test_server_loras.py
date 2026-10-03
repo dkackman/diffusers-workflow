@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
+from dw.server.routes import loras as lora_routes
 from dw.workspace import Workspace, create_workspace
 
 from .test_server import ScriptedWorkerManager, success_script
@@ -153,4 +154,54 @@ class TestWrites:
         response = server.get("/api/loras", params={"model": "models/listy"})
         assert response.status_code == 400
         assert "models/listy" in response.json()["detail"]
+
+
+@pytest.fixture
+def hub(monkeypatch):
+    calls = {}
+
+    def fake(bases, query, terms, limit, rejected, api=None, timeout=None):
+        calls.update(bases=bases, query=query, terms=terms, limit=limit, rejected=rejected)
+        return calls.get("results", []), calls.get("error")
+
+    monkeypatch.setattr(lora_routes, "search_hub", fake)
+    return calls
+
+
+class TestRecommend:
+    def test_catalog_first_then_hub(self, server, hub):
+        hub["results"] = [{"source": "hub", "status": "candidate", "model_name": "x/y"}]
+        body = server.get("/api/loras/recommend", params={"model": "models/qwen", "query": "voxel style"}).json()
+        assert [row["name"] for row in body["catalog"]] == ["qwen-image/voxel"]
+        assert body["catalog"][0]["source"] == "catalog"
+        assert body["hub"] == hub["results"]
+        assert hub["bases"] == ["Qwen/Qwen-Image-2.1"]
+        assert hub["terms"] == ["voxel"]
+        assert "trial" in body["note"]
+
+    def test_rejected_entries_are_not_offered_but_suppress_the_hub(self, server, hub):
+        server.put("/api/loras/qwen-image/bad", json={"entry": entry(model_name="bad/one", status="rejected", evidence=[{"note": "noise"}])})
+        body = server.get("/api/loras/recommend", params={"model": QWEN, "query": ""}).json()
+        assert "qwen-image/bad" not in [row["name"] for row in body["catalog"]]
+        assert hub["rejected"] == {"bad/one": "noise"}
+
+    def test_a_hub_failure_still_returns_the_catalog(self, server, hub):
+        hub["error"] = "Hub search timed out after 20 s"
+        body = server.get("/api/loras/recommend", params={"model": QWEN, "query": "voxel"}).json()
+        assert body["hub_error"] == "Hub search timed out after 20 s"
+        assert body["catalog"]
+
+    def test_recommend_is_not_read_as_an_entry_name(self, server, hub):
+        response = server.get("/api/loras/recommend", params={"model": QWEN})
+        assert response.status_code == 200
+        assert "catalog" in response.json()
+
+    def test_limit_is_bounded(self, server, hub):
+        assert server.get("/api/loras/recommend", params={"model": QWEN, "limit": 0}).status_code == 422
+        assert server.get("/api/loras/recommend", params={"model": QWEN, "limit": 26}).status_code == 422
+
+    def test_a_model_with_no_repo_bases_skips_the_hub(self, server, hub):
+        write(str(server.checkout / "workflows"), "models/local", {"steps": [{"name": "s", "pipeline": {"from_pretrained_arguments": {"model_name": "./weights"}}}]})
+        body = server.get("/api/loras/recommend", params={"model": "models/local"}).json()
+        assert body["resolved"] == [] and body["hub"] == [] and "bases" not in hub
 
