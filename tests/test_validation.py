@@ -180,6 +180,7 @@ ERROR_ORDER = [
     "fps",
     "reference_names",
     "video_extensions",
+    "hold_audio",
     "content_types",
     "scalar_results",
     "locations",
