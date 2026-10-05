@@ -1278,6 +1278,46 @@ without reading every command's schema. The list is exactly the commands
 declared `assessment=True`; `attribute_voices` stays in `commands` only,
 since it analyzes a song rather than checking a cut.
 
+## Stem separation
+
+Split a mix into its htdemucs stems - `vocals`, `drums`, `bass` and `other` -
+each returned as its own audio result. It is the separator `attribute_voices`
+runs (one shared loader and cache), exposed for its own sake: transcribing the
+`vocals` stem aligns sung lyrics better than transcribing the full mix, and
+`drums` + `bass` + `other` is the instrumental to put under dialogue as a
+score bed.
+
+```json
+{
+    "name": "stems",
+    "task": {
+        "command": "separate_stems",
+        "arguments": { "audio": "asset:song.mp3" }
+    },
+    "result": { "content_type": "audio/wav", "file_name": "stems" }
+},
+{
+    "name": "lyrics",
+    "task": {
+        "command": "transcribe_audio",
+        "arguments": { "audio": "previous_result:stems.vocals" }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+The result saves one file per stem, `<file_name>-vocals`, `-drums`, `-bass`
+and `-other`, and a later step reads one as `previous_result:<step>.vocals`.
+Stems are 44.1 kHz stereo, whatever the source was, and sum back to the mix.
+The model is fixed (`htdemucs`, run in fp32), its weights download on first
+use, and it needs the `demucs` package. On MPS a failed separation falls back
+to the CPU and warns (`separation_cpu_fallback`).
+
 ## Voice attribution
 
 Which reference voice sings each line of a song, by timbre - staging

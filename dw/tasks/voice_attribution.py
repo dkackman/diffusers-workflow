@@ -534,7 +534,8 @@ def _load_embedder(device, dtype):
     return cached_model((COMMAND, _EMBEDDER_MODEL, str(device), str(dtype)), load)
 
 
-def _run_separator(waveform, sample_rate, device, dtype):
+def _run_separator_stems(waveform, sample_rate, device, dtype):
+    """Every htdemucs stem of a mix: ({name: (channels, samples) array}, rate)."""
     from demucs.apply import apply_model
 
     model = _load_separator(device, dtype)
@@ -551,30 +552,42 @@ def _run_separator(waveform, sample_rate, device, dtype):
         stems = apply_model(
             model, ((mix - mean) / std)[None], device=device, split=True
         )[0]
-    vocals = stems[model.sources.index("vocals")] * std + mean
-    return vocals.float().cpu().numpy(), rate
+    return {
+        name: (stems[index] * std + mean).float().cpu().numpy()
+        for index, name in enumerate(model.sources)
+    }, rate
 
 
-def separate_vocals(waveform, sample_rate, device, dtype):
-    """The vocal stem of a (channels, samples) mix, as a mono 16 kHz array.
+def _run_separator(waveform, sample_rate, device, dtype):
+    stems, rate = _run_separator_stems(waveform, sample_rate, device, dtype)
+    return stems["vocals"], rate
 
-    demucs on MPS is unverified; if it fails there, separation is retried on
-    the CPU with a warning rather than failing the step.
-    """
+
+def _separate_with_fallback(run, command, waveform, sample_rate, device, dtype):
+    """`run` (a separator entry point) on the device, retried on the CPU on
+    MPS. demucs on MPS is unverified; if it fails there, separation is retried
+    on the CPU with a warning rather than failing the step."""
     from .. import get_device_type
 
     try:
-        vocals, rate = _run_separator(waveform, sample_rate, device, dtype)
+        return run(waveform, sample_rate, device, dtype)
     except Exception as error:
         if get_device_type(device) != "mps":
             raise
         emit_warning(
-            f"{COMMAND}: htdemucs failed on {device} ({error}); separating on "
+            f"{command}: htdemucs failed on {device} ({error}); separating on "
             "the CPU instead, which is slower",
             kind="separation_cpu_fallback",
-            command=COMMAND,
+            command=command,
         )
-        vocals, rate = _run_separator(waveform, sample_rate, "cpu", torch.float32)
+        return run(waveform, sample_rate, "cpu", torch.float32)
+
+
+def separate_vocals(waveform, sample_rate, device, dtype):
+    """The vocal stem of a (channels, samples) mix, as a mono 16 kHz array."""
+    vocals, rate = _separate_with_fallback(
+        _run_separator, COMMAND, waveform, sample_rate, device, dtype
+    )
     return _mono_16k(vocals, rate)
 
 
@@ -808,4 +821,43 @@ def attribute_voices(
         "reference_similarity": similarity,
         "warnings": warnings,
         "thresholds": dict(THRESHOLDS),
+    }
+
+
+STEMS_COMMAND = "separate_stems"
+
+
+def separate_stems(audio, sample_rate=None, device="cpu"):
+    """Task command: split a mix into its vocals, drums, bass and other stems.
+
+    Runs htdemucs (Hybrid Transformer Demucs), the separator `attribute_voices`
+    uses, and returns each stem as its own audio result: the step's result
+    saves them as `<name>-vocals`, `<name>-drums`, `<name>-bass` and
+    `<name>-other`, and a later step reads one as
+    `previous_result:<step>.vocals`. Transcribing the vocal stem aligns sung
+    lyrics better than the full mix, and `other` + `drums` + `bass` is the
+    instrumental to put under dialogue as a score bed. The stems sum back to
+    the mix. Needs the `demucs` package; on MPS a failed separation is retried
+    on the CPU with a warning.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a soundtrack, or a
+            waveform (which needs sample_rate alongside it)
+        sample_rate: Sample rate of a directly passed waveform (files carry
+            their own)
+        device: Where htdemucs runs
+
+    Returns:
+        Dict of stem name to an audio track, at htdemucs' 44.1 kHz stereo
+    """
+    from .audio_utils import as_track
+
+    waveform, rate = waveform_and_rate(audio, sample_rate, STEMS_COMMAND)
+    # fp32 on every device, as attribute_voices runs it
+    stems, stem_rate = _separate_with_fallback(
+        _run_separator_stems, STEMS_COMMAND, waveform, rate, device, torch.float32
+    )
+    return {
+        name: as_track(array, stem_rate, STEMS_COMMAND) for name, array in stems.items()
     }

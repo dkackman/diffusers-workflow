@@ -425,6 +425,18 @@ def _handle_attribute_voices(task, arguments, previous_pipelines):
     return attribute_voices(device=task.device_for(arguments), **arguments)
 
 
+@register_command(
+    "separate_stems",
+    implementation="dw.tasks.voice_attribution.separate_stems",
+    consumes_device=True,
+)
+def _handle_separate_stems(task, arguments, previous_pipelines):
+    """Split a mix into vocals, drums, bass and other stems, one audio result each"""
+    from .voice_attribution import separate_stems
+
+    return separate_stems(device=task.device_for(arguments), **arguments)
+
+
 @register_command("compose_text", implementation="dw.tasks.compose_text.compose_text")
 def _handle_compose_text(task, arguments, previous_pipelines):
     """Join parts written once into one block of text"""
