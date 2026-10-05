@@ -132,3 +132,42 @@ class TestRegistered:
         from dw.tasks.task import _COMMAND_REGISTRY
 
         assert "ingredients_grid" in _COMMAND_REGISTRY
+
+
+class TestStaticValidation:
+    """validate refuses literal layout/fit/background and over-max image lists (#646)."""
+
+    def _errors(self, **arguments):
+        from dw.task_domains import task_argument_errors
+
+        step = {
+            "name": "s",
+            "task": {"command": "ingredients_grid", "arguments": arguments},
+        }
+        return task_argument_errors({"steps": [step]})
+
+    def test_bad_layout_and_fit(self):
+        paths = {
+            e["path"]
+            for e in self._errors(images=["asset:a"], layout="grid", fit="stretch")
+        }
+        assert paths == {
+            "steps[0].task.arguments.layout",
+            "steps[0].task.arguments.fit",
+        }
+
+    def test_bad_background(self):
+        assert self._errors(images=["asset:a"], background="notacolour")
+
+    def test_too_many_images(self):
+        errors = self._errors(images=[f"asset:{i}" for i in range(13)])
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.images"]
+        assert not self._errors(images=[f"asset:{i}" for i in range(13)], max_images=13)
+
+    def test_references_left_to_run_time(self):
+        assert not self._errors(
+            images=["gather:x"],
+            layout="variable:l",
+            fit="previous_result:f",
+            background="#fff",
+        )

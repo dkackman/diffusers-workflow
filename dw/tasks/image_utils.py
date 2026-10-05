@@ -3,7 +3,11 @@ from itertools import combinations
 from PIL import Image, ImageColor, ImageOps
 import numpy as np
 from ..argument_media import fetch_image
-from ..task_domains import check_arguments
+from ..task_domains import (
+    INGREDIENTS_FITS,
+    INGREDIENTS_LAYOUTS,
+    check_arguments,
+)
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
 import torch
@@ -784,8 +788,8 @@ ada_palette = np.asarray(
 # - `panels` gives every image an equal cell of a grid whose column count is
 #   searched the same way, so a sheet of several elements reads as even panels.
 
-LAYOUTS = ("auto", "rows", "panels")
-FITS = ("contain", "cover")
+LAYOUTS = INGREDIENTS_LAYOUTS
+FITS = INGREDIENTS_FITS
 
 # A handful of references is a row to read across; past this, even panels
 AUTO_ROWS_UP_TO = 3

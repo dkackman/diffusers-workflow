@@ -188,6 +188,79 @@ TASK_ARGUMENT_DOMAINS = {
 }
 
 
+# command -> argument -> the literal values it accepts. Owned here so the
+# command's run-time refusal and the static pass read one list
+INGREDIENTS_LAYOUTS = ("auto", "rows", "panels")
+INGREDIENTS_FITS = ("contain", "cover")
+TASK_ARGUMENT_CHOICES = {
+    "ingredients_grid": {
+        "layout": INGREDIENTS_LAYOUTS,
+        "fit": INGREDIENTS_FITS,
+    },
+}
+INGREDIENTS_DEFAULT_MAX_IMAGES = 12
+
+
+def _is_reference(value):
+    """A string that names a reference (`variable:x`, `asset:y`) rather than a
+    literal - run time is the right place to check those."""
+    return isinstance(value, str) and ":" in value and not value.startswith("#")
+
+
+def choice_errors(command, arguments):
+    """[(argument, message)] for each literal argument outside its accepted
+    values, worded as the command's own refusal."""
+    errors = []
+    for name, choices in TASK_ARGUMENT_CHOICES.get(command, {}).items():
+        value = arguments.get(name)
+        if name not in arguments or _is_reference(value):
+            continue
+        if value not in choices:
+            errors.append(
+                (
+                    name,
+                    f"{command} needs '{name}' as one of {list(choices)}, got {value!r}",
+                )
+            )
+    return errors
+
+
+def ingredients_grid_errors(arguments):
+    """[(argument, message)] for the ingredients_grid rules a literal
+    workflow can break before it runs: a bad `layout`/`fit`/`background`, and
+    a literal `images` list longer than a literal `max_images`."""
+    errors = choice_errors("ingredients_grid", arguments)
+    background = arguments.get("background")
+    if isinstance(background, str) and not (_is_reference(background)):
+        from PIL import ImageColor
+
+        try:
+            ImageColor.getrgb(background)
+        except ValueError:
+            errors.append(
+                (
+                    "background",
+                    "ingredients_grid needs 'background' as a colour name or "
+                    f"#hex, got {background!r}",
+                )
+            )
+    images = arguments.get("images")
+    limit = arguments.get("max_images", INGREDIENTS_DEFAULT_MAX_IMAGES)
+    if isinstance(images, list) and not any(
+        isinstance(item, str) and item.startswith("gather:") for item in images
+    ):
+        number = as_number(limit)
+        if number is not None and number > 0 and len(images) > number:
+            errors.append(
+                (
+                    "images",
+                    f"ingredients_grid was given {len(images)} images but "
+                    f"'max_images' is {limit} - raise it, or pass fewer images",
+                )
+            )
+    return errors
+
+
 def in_domain(value, domain):
     """Whether a number satisfies a domain. Anything unmeasurable is True -
     a value this cannot read is not this check's to refuse."""
@@ -332,6 +405,12 @@ def task_argument_errors(workflow_definition, source_indices=None):
                     "message": f"{message}{where}.",
                 }
             )
+        if command == "ingredients_grid":
+            for key, message in ingredients_grid_errors(arguments):
+                path = ("steps", source, "task", "arguments", key)
+                errors.append(
+                    {"path": render_path(path), "message": f"{message}{where}."}
+                )
     return errors
 
 
