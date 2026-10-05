@@ -1,0 +1,42 @@
+{
+  "id": "AttributeLines",
+  "description": "Which singer sings each line of a song, and when. It transcribes the song with timestamps ('transcribe', a Whisper-class model), then hands the whole transcript to 'attribute_voices' as its 'lines' ('attribute'), which scores every line against each named voice's reference spans by timbre. The result is one JSON document whose lines carry numeric start and end seconds into the song, the text, and the voice with its margin, uncertain flag and reason. 'voices' is required: each singer's name mapped to reference spans into 'audio' - [{\"start_seconds\": 4.0, \"duration_seconds\": 6.0}] - at least two voices and three seconds each. 'timestamps' is 'segment' (a Whisper segment per line) or 'word' (finer lines, noisier attribution - the escape for a call-and-response line that comes back uncertain). The follow-up is the lip-sync target check in the tasks guide, 'Checking the lip-sync target': one get_output_frames call per face crop at each line's start + 0.3 s and midpoint, with 'hear', to see whose mouth is open on each line - mapping song time to the cut's time first.",
+  "variables": {
+    "audio": "asset:song.wav",
+    "voices": null,
+    "timestamps": "segment",
+    "model_name": "openai/whisper-base"
+  },
+  "steps": [
+    {
+      "name": "transcribe",
+      "task": {
+        "command": "transcribe_audio",
+        "arguments": {
+          "audio": "variable:audio",
+          "timestamps": "variable:timestamps",
+          "model_name": "variable:model_name"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate"
+      }
+    },
+    {
+      "name": "attribute",
+      "task": {
+        "command": "attribute_voices",
+        "arguments": {
+          "audio": "variable:audio",
+          "voices": "variable:voices",
+          "lines": "previous_result:transcribe"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

@@ -217,6 +217,73 @@ class TestTranscribeAudio(unittest.TestCase):
         )
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_an_open_ended_last_chunk_ends_at_the_clips_duration(self, mock_pipeline):
+        # #488: Whisper leaves the last chunk's end None when the clip stops
+        # inside a line, and attribute_voices refused the whole transcript
+        # on it - the clip's own duration is where that chunk ends
+        self._mock_pipe(
+            mock_pipeline,
+            "first line cut off",
+            chunks=[
+                {"text": " first line", "timestamp": (0.0, 2.0)},
+                {"text": " cut off", "timestamp": (2.5, None)},
+            ],
+        )
+        waveform, rate = self._waveform(seconds=4.0)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(
+            result["chunks"],
+            [
+                {"start": 0.0, "end": 2.0, "text": "first line"},
+                {"start": 2.5, "end": 4.0, "text": "cut off"},
+            ],
+        )
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_the_duration_is_the_clips_whatever_its_sample_rate(self, mock_pipeline):
+        # The duration comes from the 16 kHz mono array the model heard, so a
+        # 44.1 kHz stereo clip of 3 s still ends its open chunk at 3 s
+        self._mock_pipe(
+            mock_pipeline, "held", chunks=[{"text": "held", "timestamp": (1.0, None)}]
+        )
+        waveform, rate = self._waveform(channels=2, seconds=3.0, sample_rate=44100)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertAlmostEqual(result["chunks"][0]["end"], 3.0, places=3)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_none_start_takes_the_previous_end_or_zero(self, mock_pipeline):
+        self._mock_pipe(
+            mock_pipeline,
+            "a b c",
+            chunks=[
+                {"text": "a", "timestamp": (None, 1.0)},
+                {"text": "b", "timestamp": (1.0, 1.5)},
+                {"text": "c", "timestamp": (None, 2.0)},
+            ],
+        )
+        waveform, rate = self._waveform(seconds=3.0)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(
+            [(c["start"], c["end"]) for c in result["chunks"]],
+            [(0.0, 1.0), (1.0, 1.5), (1.5, 2.0)],
+        )
+        for chunk in result["chunks"]:
+            self.assertIsInstance(chunk["start"], float)
+            self.assertIsInstance(chunk["end"], float)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_timestamps_requested_under_thirty_seconds_too(self, mock_pipeline):
         # The 30 s long-form branch is a separate reason to ask for
         # timestamps; an explicit request must not depend on clip length

@@ -782,3 +782,79 @@ class TestVoicePathsAreLocations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# The attribute-lines template: transcribe_audio -> attribute_voices (#488)
+# ---------------------------------------------------------------------------
+
+
+class TestAttributeLinesTemplate(unittest.TestCase):
+    TEMPLATE = "workflows/templates/attribute-lines.json"
+
+    def _workflow(self, output_dir):
+        import json
+
+        with open(self.TEMPLATE) as f:
+            return Workflow(json.load(f), output_dir, "")
+
+    def test_the_template_validates_and_needs_its_voices(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            workflow = self._workflow(output_dir)
+            self.assertEqual(workflow.validation_errors(), [])
+            errors = workflow.validation_errors({"audio": "asset:song.wav"})
+            self.assertEqual(
+                [error["path"] for error in errors],
+                ["steps[1].task.arguments.voices"],
+            )
+
+    def test_the_transcript_reaches_attribute_voices_as_its_lines(self):
+        """The whole {text, chunks} transcript is attribute_voices' lines, and
+        a last chunk Whisper left open-ended (end None) is attributed with the
+        clip's duration as its end rather than refusing the transcript."""
+        import tempfile
+
+        pipe = MagicMock(
+            return_value={
+                "text": "one two",
+                "chunks": [
+                    {"timestamp": (0.0, 4.0), "text": " one"},
+                    {"timestamp": (4.0, None), "text": " two"},
+                ],
+            }
+        )
+        pipe.type = "seq2seq_whisper"
+        model_cache.clear_model_cache()
+        with (
+            tempfile.TemporaryDirectory() as output_dir,
+            patch("dw.tasks.audio_transcription.hf_pipeline", return_value=pipe),
+            patch("dw.tasks.voice_attribution._load_embedder"),
+            patch(
+                "dw.tasks.voice_attribution.embed",
+                return_value=numpy.array([1.0, 0.0]),
+            ),
+            patch(
+                "dw.tasks.voice_attribution.separate_vocals",
+                side_effect=lambda mix, rate, device, dtype: mix.mean(axis=0),
+            ),
+        ):
+            result = self._workflow(output_dir).run(
+                {
+                    "audio": song_audio(10.0),
+                    "voices": {
+                        "a": [{"start_seconds": 0.0, "duration_seconds": 3.0}],
+                        "b": [{"start_seconds": 5.0, "duration_seconds": 3.0}],
+                    },
+                }
+            )
+        model_cache.clear_model_cache()
+
+        self.assertEqual(len(result), 1)
+        lines = result[0]["lines"]
+        self.assertEqual([line["text"] for line in lines], ["one", "two"])
+        self.assertEqual(
+            [(line["start"], line["end"]) for line in lines],
+            [(0.0, 4.0), (4.0, 10.0)],
+        )
