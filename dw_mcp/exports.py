@@ -3,9 +3,9 @@
 The one thing this module has to keep saying: the directory it makes is on
 the machine running dw.serve, which over a `dw.serve --mcp` endpoint is the
 GPU box and not where the agent is. The zip URL is the way to it from
-anywhere else - but when the server requires a bearer token (#353), that URL
-is for the person to open, not for this agent to fetch on their behalf; see
-`export_job`'s `auth_required` / `open_url`.
+anywhere else, and it needs no token: /exports/*.zip is ungated like
+/outputs (#592), so `auth_required` is false and the agent fetches it itself.
+The hand-it-to-the-person branch (#353) stays for the day it is gated.
 """
 
 from dw_mcp.client import api_path
@@ -22,10 +22,10 @@ def export_job(client, job_id, overwrite=False):
     here. The directory is on the server machine, not this one.
 
     `auth_required` says whether the zip needs this server's bearer token
-    to open - a token this agent has no way to attach to a browser or hand
-    to someone else's tooling. When it is true, `open_url` is for the
-    *person* to open, not for this agent to fetch: hand it to them (see
-    `next`). When it is false, `open_url` may be fetched directly. It is
+    to open. The server reports false - the zip route is ungated, token or
+    not (#592) - and `next` says to fetch `open_url` and unpack it. True
+    is a forward guard: a gated zip is for the *person* to open, since
+    this agent cannot attach the token to their browser. `open_url` is
     `absolute_zip_url` when the server has one configured (`DW_PUBLIC_URL`
     / the `public_url` setting), else the relative `zip_url`."""
     body = client.post_json(
@@ -58,11 +58,14 @@ def export_job(client, job_id, overwrite=False):
         open_url = absolute_zip_url or zip_url
         next_text = (
             "The directory is on the server. To give the user the files, "
-            "fetch open_url and unpack it into exports/ under the session's "
-            "working directory - it is the user's deliverable, not a "
-            "temporary file, so not a scratch or temp directory. The archive "
-            "already unpacks into one folder named after the job id; do not "
-            "create that folder first or the id is doubled in the path. "
+            "fetch open_url with whatever HTTP you have - it needs no token; "
+            "prefix a relative one with the address you reach this server at "
+            "- and unpack it into exports/ under the session's working "
+            "directory - it is the user's deliverable, not a temporary file, "
+            "so not a scratch or temp directory. The archive already unpacks "
+            "into one folder named after the job id; do not create that "
+            "folder first or the id is doubled in the path. Only if you "
+            "cannot make HTTP requests, give the user open_url to open. "
             "workflow.json, manifest.json and job.json are inside it - they "
             "are not repeated here; get_job_workflow and get_job serve them "
             "individually."

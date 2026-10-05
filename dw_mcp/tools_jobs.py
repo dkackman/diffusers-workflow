@@ -216,16 +216,15 @@ class JobTools:
         repeated here - get_job_workflow and get_job serve them individually.
         THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
 
-        `auth_required` says whether opening the zip needs this server's
-        bearer token, a token you cannot attach to someone else's browser
-        or tooling. When it is false, fetch open_url yourself and unpack
-        it into exports/ under the session's working directory - it is
-        the user's deliverable, not a temp file; the archive already
-        unpacks into one folder named after the job id, so do not create that folder first.
-        When it is true, do NOT fetch it: hand open_url to the person and let them open it
-        (`next` says whether it is already absolute or needs the server's
-        address told to them). Individual results stay reachable inline
-        via get_output_image/get_output_audio/get_output_frames either
-        way. Refuses a job that is still running; refuses an existing
+        open_url is the zip and needs no token: fetch it with any HTTP
+        you have (prefix a relative one with the server's address) and
+        unpack it into exports/ under the session's working directory -
+        the user's deliverable, not a temp file; it already unpacks into
+        one folder named after the job id, so do not create that folder first.
+        Only without HTTP, give the user open_url to open. If `auth_required`
+        is ever true, the zip is gated: hand it over (see `next`).
+        Individual results stay reachable inline via
+        get_output_image/get_output_audio/get_output_frames
+        without the zip. Refuses a job that is still running; refuses an existing
         export unless overwrite=true."""
         return exports.export_job(self.client, job_id, overwrite=overwrite)

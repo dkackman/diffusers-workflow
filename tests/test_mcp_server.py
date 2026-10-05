@@ -1056,17 +1056,18 @@ async def test_export_job_sends_the_zip_to_the_working_directory():
 
 
 @pytest.mark.asyncio
-async def test_export_job_description_is_auth_aware():
-    """#353: the served tool description, not just the runtime `next` hint,
-    has to tell the agent not to fetch an auth-gated zip on the person's
-    behalf - the description is what the agent plans from before it ever
-    calls the tool and sees `next`."""
+async def test_export_job_description_says_to_fetch_the_ungated_zip():
+    """#592: the zip route is ungated, so the served description - what the
+    agent plans from before it sees `next` - tells it to fetch open_url,
+    no longer the #353 "do NOT fetch it", and keeps auth_required's hand-over
+    as the forward guard for a gated zip."""
     tools = await tools_of(server_over(ok({})))
 
     description = tools["export_job"].description
+    assert "needs no token" in description
+    assert "fetch it with any HTTP" in description
+    assert "do NOT fetch it" not in description
     assert "auth_required" in description
-    assert "do NOT fetch it" in description
-    assert "hand open_url to the person" in description
 
 
 @pytest.mark.asyncio
