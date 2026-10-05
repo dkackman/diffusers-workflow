@@ -466,6 +466,12 @@ class TestEstimate:
         assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
         moved = plan(spec, arguments={"shots": long})["estimate"]
         assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        as_text = [dict(entry, num_frames=str(entry["num_frames"])) for entry in long]
+        moved = plan(spec, arguments={"shots": as_text})["estimate"]
+        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        same_text = [dict(entry, num_frames="124") for entry in same]
+        kept = plan(spec, arguments={"shots": same_text})["estimate"]
+        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
 
     def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
         """Only a declared cost_driver triggers the fallback - any other

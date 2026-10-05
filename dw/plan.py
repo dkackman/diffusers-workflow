@@ -17,6 +17,7 @@ import copy
 import hashlib
 import json
 import logging
+import math
 import os
 
 from huggingface_hub import model_info
@@ -341,7 +342,9 @@ def _driver_comparable(value):
 
 
 def _numeric_fields(entries):
-    """{field: {values}} over the numeric fields of a list's dict entries."""
+    """{field: {values}} over the numeric fields of a list's dict entries. A
+    numeric string ("243") counts as its number, as `_driver_comparable` does
+    for a scalar driver."""
     fields = {}
     if not isinstance(entries, list):
         return fields
@@ -349,8 +352,9 @@ def _numeric_fields(entries):
         if not isinstance(entry, dict):
             continue
         for key, value in entry.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                fields.setdefault(key, set()).add(float(value))
+            number = _driver_comparable(value)
+            if isinstance(number, float) and math.isfinite(number):
+                fields.setdefault(key, set()).add(number)
     return fields
 
 
