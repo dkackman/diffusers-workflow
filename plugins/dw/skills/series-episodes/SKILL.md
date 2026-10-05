@@ -64,6 +64,10 @@ and reference it as `prompt:<series>/<character>` from every episode.
 described the same way in episode 6 as in episode 1 is a reference rather
 than a paragraph retyped - which is the drift this skill exists to stop.
 
+Store each speaking character's voice description the same way, beside the
+portrait: `prompt:<series>/<character>-voice`. It is the written half of the
+voice clip, and the shot list's cast entry (`script-to-video` step 2) points at both.
+
 ## 1-5. Per episode: generate, then recut, bed, match_levels, normalize, pair
 
 Generate the episode's shots with `templates/minimax/dialogue-short` (or
