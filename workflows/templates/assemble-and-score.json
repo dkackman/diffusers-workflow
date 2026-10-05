@@ -42,6 +42,7 @@
                 "arguments": {
                     "videos": "variable:shots",
                     "fps": "variable:fps",
+                    "sample_rate": "variable:sample_rate",
                     "audio_bleed_ms": "variable:audio_bleed_ms",
                     "audio_bleed_gain_db": "variable:audio_bleed_gain_db",
                     "seam_fade_ms": "variable:seam_fade_ms",
