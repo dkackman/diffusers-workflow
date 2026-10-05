@@ -32,7 +32,7 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 import logging
 import numbers
 
-from .references import GATHER, MEMBER_SEPARATOR, author_index, render_path
+from .references import GATHER, MEMBER_SEPARATOR, author_index, is_ref, render_path
 
 logger = logging.getLogger("dw")
 
@@ -246,9 +246,7 @@ def ingredients_grid_errors(arguments):
             )
     images = arguments.get("images")
     limit = arguments.get("max_images", INGREDIENTS_DEFAULT_MAX_IMAGES)
-    if isinstance(images, list) and not any(
-        isinstance(item, str) and item.startswith(GATHER) for item in images
-    ):
+    if isinstance(images, list) and not any(is_ref(GATHER, item) for item in images):
         number = as_number(limit)
         if number is not None and number > 0 and len(images) > number:
             errors.append(
