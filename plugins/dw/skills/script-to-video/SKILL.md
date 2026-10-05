@@ -89,8 +89,14 @@ a `still_running` reply means call again. After the job completes, read `get_job
 the warnings the engine already emits (`audio_no_headroom`, `audio_clipped`,
 an elision diagnostic) and `rerun_job(new_seed=True)` a shot that reads
 wrong - not by inventing a new heuristic, by reading what is already
-surfaced. Give each shot a budget of three failed attempts, then stop and
-ask the user rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
+surfaced. On an H3 shot with dialogue a new seed also redraws the voice: in
+a lem probe (#610) three seeds of one line gave a different speaker each
+time without an audio reference, and only a narrower spread with one
+(`voice` / `voice-timbre-reference`). So when the voice is right and the
+picture is wrong, change the prompt and keep the seed; reach for
+`new_seed` only when the voice is pinned by a reference or does not matter.
+Give each shot a budget of three failed attempts, then stop and ask the user
+rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the
 manifest to determine what was written where.
 
