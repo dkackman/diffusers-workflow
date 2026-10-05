@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from dw.hold_audio import hold_audio_errors
+from dw.introspection import describe_pipeline
 from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
 from dw.pipeline_processors import h3_blocks
@@ -379,6 +380,20 @@ class TestRefusals:
         assert len(errors) == 1
         assert "not an audio file" in errors[0]["message"]
 
+    @pytest.mark.parametrize("value", ["hello", "asset:track", "clip"])
+    def test_a_name_with_no_audio_extension_is_refused(self, value):
+        errors = errors_for(h3_step(hold_audio=value))
+        assert len(errors) == 1
+        assert "not an audio file" in errors[0]["message"]
+        assert errors[0]["path"] == "steps[0].pipeline.arguments.hold_audio"
+
+    @pytest.mark.parametrize("value", [5, 1.5, True, ["track.wav"]])
+    def test_a_value_that_is_no_file_or_reference_is_refused(self, value):
+        errors = errors_for(h3_step(hold_audio=value))
+        assert len(errors) == 1
+        assert "is not one" in errors[0]["message"]
+        assert errors[0]["path"] == "steps[0].pipeline.arguments.hold_audio"
+
     def test_a_media_reference_is_refused(self):
         value = {"media_type": "image", "location": "asset:frame.png"}
         errors = errors_for(h3_step(hold_audio=value))
@@ -410,6 +425,31 @@ def hold_errors(definition):
 def template(*parts):
     with open(os.path.join(ROOT, "workflows", "templates", *parts)) as f:
         return json.load(f)
+
+
+class TestSignature:
+    """`get_pipeline_signature` reads a modular pipeline's block inputs, so the
+    hold dw inserts shows up where a caller looks for H3's arguments."""
+
+    def test_the_h3_signature_shows_hold_audio(self):
+        names = {
+            parameter["name"]: parameter
+            for parameter in describe_pipeline("MiniMaxH3ModularPipeline")["parameters"]
+        }
+        assert {"hold_audio", "prompt", "num_frames"} <= set(names)
+        assert names["hold_audio"]["required"] is False
+        assert "soundtrack" in names["hold_audio"]["description"]
+
+    def test_a_bare_modular_pipeline_keeps_its_call_signature(self):
+        names = [p["name"] for p in describe_pipeline("ModularPipeline")["parameters"]]
+        assert names == ["state", "output"]
+
+    def test_a_non_h3_modular_pipeline_shows_no_hold(self):
+        names = [
+            p["name"] for p in describe_pipeline("WanModularPipeline")["parameters"]
+        ]
+        assert "prompt" in names
+        assert "hold_audio" not in names
 
 
 class TestValidationEntry:

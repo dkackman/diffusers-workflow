@@ -298,6 +298,58 @@ def _callable_parameters(target_callable):
     return parameters, accepts_kwargs
 
 
+def _modular_block_parameters(cls):
+    """A modular pipeline's call arguments, read from its default block graph.
+
+    A modular pipeline's __call__ is `(state, output, **kwargs)`: what it
+    takes is whatever its blocks declare as inputs, so those are the honest
+    answer. The graph is built without weights (`init_pipeline()` with no
+    repository), and carries dw's own blocks - the H3 audio hold
+    (dw/pipeline_processors/h3_blocks.py) - as a loaded one does. Empty for
+    a class with no default blocks, the bare `ModularPipeline` among them.
+    """
+    blocks_name = getattr(cls, "default_blocks_name", None)
+    if not isinstance(blocks_name, str):
+        return []
+    import importlib
+
+    from .pipeline_processors.h3_blocks import insert_audio_hold
+
+    blocks_class = getattr(importlib.import_module(cls.__module__), blocks_name, None)
+    if blocks_class is None:
+        import diffusers
+
+        blocks_class = getattr(diffusers, blocks_name, None)
+    if not isinstance(blocks_class, type):
+        return []
+    try:
+        pipeline = blocks_class().init_pipeline()
+        insert_audio_hold(pipeline)
+        block_inputs = pipeline._blocks.inputs
+    except Exception as error:
+        # The signature still answers without them
+        logger.debug(f"Could not read {blocks_name}'s inputs: {error}")
+        return []
+    parameters = []
+    for block_input in block_inputs:
+        if not block_input.name:
+            continue
+        parameters.append(
+            {
+                "name": block_input.name,
+                "required": bool(block_input.required),
+                "default": _json_safe_default(block_input.default),
+                "annotation": (
+                    None
+                    if block_input.type_hint is None
+                    else str(block_input.type_hint)
+                ),
+                "description": block_input.description or "",
+            }
+        )
+    return parameters
+
+
 def describe_class(name, target="call"):
     """The argument schema of a class, for form generation.
 
@@ -320,6 +372,14 @@ def describe_class(name, target="call"):
         raise ValueError(f"Unknown inspection target: {target!r}")
 
     parameters, accepts_kwargs = _callable_parameters(target_callable)
+
+    if target == "call":
+        named = {parameter["name"] for parameter in parameters}
+        parameters += [
+            parameter
+            for parameter in _modular_block_parameters(cls)
+            if parameter["name"] not in named
+        ]
 
     if target == "load":
         named = {parameter["name"] for parameter in parameters}

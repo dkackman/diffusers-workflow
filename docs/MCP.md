@@ -216,7 +216,7 @@ when no single workflow covers it.
 | `get_workflow(name, variables_only=False)` | `name` | Get one stored workflow's full JSON definition. `variables_only=true` answers with just its variables and their defaults (long strings cut to 200 characters, the cut ones named in `truncated`, including strings inside a list default, named like `shots[0].prompt`) — the cheap way to confirm what a variable defaults to |
 | `get_schema(section=None)` | `section` | Get the JSON schema every workflow definition must satisfy. Whole it is ~8.6k tokens, so name the part you need: `section` takes `steps`, `pipelines`, `tasks`, `result`, `variables` or `configuration` and answers `{section, sections, elsewhere, schema}` - `elsewhere` says which section holds each definition the fragment still `$ref`s. An unknown section is a 404 naming the ones there are |
 | `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
-| `get_pipeline_signature(name)` | `name` | Get a pipeline's real call arguments |
+| `get_pipeline_signature(name)` | `name` | Get a pipeline's real call arguments; for a modular pipeline class (e.g. `MiniMaxH3ModularPipeline`), its block graph's inputs |
 | `list_classes(kind)` | `kind` | List class names of one kind: pipelines, models, schedulers, or quantization |
 | `get_class(name, target="init")` | `name`, `target` (`init`\|`call`\|`load`) | Get a class's argument schema from the entry point a workflow reaches it by: `init` the constructor (quantization configs, schedulers), `call` a pipeline's `__call__`, `load` `from_pretrained` plus the curated loading knobs |
 | `list_tasks()` | — | List every task command a workflow's task step can name |

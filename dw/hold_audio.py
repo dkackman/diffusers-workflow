@@ -10,9 +10,10 @@ checkpoint load:
   `from_pretrained` `workflow` is not one of H3's three (`t2va`, `fl2va`,
   `ref2va`). A modular pipeline loaded with no `workflow` is left to the
   run-time check, which asks the loaded block graph itself;
-- a literal path, or an `asset:`/`output:` reference whose name carries an
-  extension that is not audio, and any `{"media_type": ...}` reference - those
-  load an image or a video.
+- a literal path, or an `asset:`/`output:` reference, whose name carries no
+  audio extension (a bare word like `hello` among them), any value that is not
+  a string or a mapping (a number), and any `{"media_type": ...}` reference -
+  those load an image or a video.
 
 A `previous_result:` names no file yet and is left to the run-time check, the
 same as `dw/video_extensions.py` leaves it.
@@ -38,19 +39,25 @@ def _not_audio(value):
             f"'{value.get('media_type')}' reference - name the audio file "
             f"directly, or with 'asset:', 'output:' or 'previous_result:'"
         )
-    if not isinstance(value, str):
+    if isinstance(value, dict):
         return None
+    if not isinstance(value, str):
+        # A number or a list is no file and no reference - the call refuses it
+        return (
+            f"hold_audio holds a soundtrack, and {value!r} is not one - name an "
+            f"audio file directly, or with 'asset:', 'output:' or "
+            f"'previous_result:'"
+        )
     if value.startswith(("http://", "https://")):
         return None
     if references.is_ref(references.UNRESOLVED, value):
         return None
     if references.is_ref((references.CONSTANT, references.PROMPT), value):
         return None
-    ext = value.rsplit(".", 1)
-    if len(ext) != 2 or not ext[1] or "/" in ext[1]:
-        return None
-    ext = f".{ext[1].lower()}"
-    if ext in ALLOWED_AUDIO_EXTENSIONS:
+    # A name with no extension - a bare word like 'hello' - is refused at the
+    # call too, which checks the extension before it opens anything
+    _, dot, ext = value.rpartition(".")
+    if dot and ext and "/" not in ext and f".{ext.lower()}" in ALLOWED_AUDIO_EXTENSIONS:
         return None
     return (
         f"hold_audio holds a soundtrack, and '{value}' is not an audio file "
