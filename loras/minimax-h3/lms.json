@@ -1,0 +1,27 @@
+{
+  "model_name": "Alissonerdx/Minimax-H3-ComfyUI",
+  "weight_name": "loras/minimax_h3_lms_v1.0_r64.safetensors",
+  "revision": "849fb3d4f434f2e9b4a4d4f7253471bf5e6719f9",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "Blocked, not judged: a fixed-caption sharpening second pass over an existing clip (see the repo's docs/lms.md). It conditions on the source video's latents laid over the whole output grid from frame 0 (ComfyUI MiniMaxH3AddGuide); diffusers' H3 keyframe layout takes only single-frame first/last anchors, so no dw workflow can feed it its guide",
+  "use_when": "Do not use under dw until a full-length aligned guide exists (#611)",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "issue": 611,
+      "note": "Blocked on #611: needs a multi-frame source-video guide aligned to the output grid at frame_idx 0, which dw's keyframe layout cannot express. Not tried and not rejected on merit; reopen the entry when #611 lands"
+    }
+  ],
+  "tags": [
+    "blocked",
+    "sharpen",
+    "second-pass"
+  ],
+  "license": "apache-2.0"
+}
