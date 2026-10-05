@@ -85,6 +85,15 @@ VOICES_TOO_SIMILAR = 0.8
 END_TOLERANCE_SECONDS = 0.1
 # Default length of the fixed windows the song is cut into without `lines`
 WINDOW_SECONDS = 2.0
+# A line longer than this is also scored in pieces of this length, because
+# one embedding of two singers can name either of them confidently: a
+# Whisper segment over a whole duet - 7.4 s of one singer, 6.5 s of the
+# other - came back as the second at margin 0.54 (#617)
+PIECE_SECONDS = 2.0
+# A line whose confidently attributed pieces give a second voice at least
+# this share of their voiced time is `uncertain` - it holds more than one
+# singer, and its single verdict cannot be trusted
+MIXED_LINE_SHARE = 0.25
 
 THRESHOLDS = {
     "voiced_level_percentile": VOICED_LEVEL_PERCENTILE,
@@ -93,6 +102,8 @@ THRESHOLDS = {
     "min_voiced_seconds": MIN_VOICED_SECONDS,
     "uncertain_margin": UNCERTAIN_MARGIN,
     "uncertain_share_margin": UNCERTAIN_SHARE_MARGIN,
+    "piece_seconds": PIECE_SECONDS,
+    "mixed_line_share": MIXED_LINE_SHARE,
     "voices_too_similar": VOICES_TOO_SIMILAR,
 }
 
@@ -112,11 +123,14 @@ def _round(value, places=4):
 # --- arguments -------------------------------------------------------------
 
 
-def _span(entry, where, duration):
+def _span(entry, where, duration, allow_empty=False):
     """A {start, end} span in seconds from either accepted shape.
 
     `{start, end}` is transcribe_audio's chunk shape (#483), so its output
     drops in as `lines`; `{start_seconds, duration_seconds}` is slice_audio's.
+    allow_empty accepts end == start: Whisper's word timestamps give a
+    zero-length chunk now and then, and a transcript line is attributed
+    (no voice, too short) rather than failing the whole call (#617).
     """
     if not isinstance(entry, dict):
         raise ValueError(
@@ -144,9 +158,10 @@ def _span(entry, where, duration):
         raise ValueError(f"{COMMAND}: {where} is not a finite span")
     if start < 0:
         raise ValueError(f"{COMMAND}: {where} starts before the audio ({start} s)")
-    if end <= start:
+    empty = allow_empty and end == start
+    if end <= start and not empty:
         raise ValueError(f"{COMMAND}: {where} ends at {end} s, not after its start")
-    if duration is not None and start >= duration:
+    if duration is not None and (start > duration or (start == duration and not empty)):
         raise ValueError(
             f"{COMMAND}: {where} starts at {start:.3f} s, past the end of the "
             f"{duration:.3f} s audio"
@@ -295,7 +310,7 @@ def parse_lines(lines, duration, window_seconds):
         raise ValueError(f"{COMMAND}: 'lines' must be a non-empty list of spans")
     parsed = []
     for index, line in enumerate(lines):
-        start, end = _span(line, f"lines[{index}]", duration)
+        start, end = _span(line, f"lines[{index}]", duration, allow_empty=True)
         parsed.append({"start": start, "end": end, "text": line.get("text")})
     return parsed
 
@@ -651,22 +666,66 @@ def _embed_references(references, clips, song, encoder, separate, device, dtype)
     return embeddings
 
 
+def piece_voices(start, end, score_piece):
+    """Voiced seconds by voice over a line's PIECE_SECONDS pieces, counting
+    only the pieces score_piece(start, end) answers with a confident voice."""
+    tally = {}
+    count = max(1, math.ceil((end - start) / PIECE_SECONDS - 1e-9))
+    for index in range(count):
+        piece_start = start + index * PIECE_SECONDS
+        piece = score_piece(piece_start, min(piece_start + PIECE_SECONDS, end))
+        if piece["voice"] is not None and not piece["uncertain"]:
+            tally[piece["voice"]] = (
+                tally.get(piece["voice"], 0.0) + piece["voiced_seconds"]
+            )
+    return tally
+
+
+def mixed_reason(tally):
+    """Why a line is mixed, when a second voice holds MIXED_LINE_SHARE or
+    more of its pieces' voiced time; None when one voice has it."""
+    total = sum(tally.values())
+    if len(tally) < 2 or total <= 0:
+        return None
+    ranked = sorted(tally, key=tally.get, reverse=True)
+    share = tally[ranked[1]] / total
+    if share < MIXED_LINE_SHARE:
+        return None
+    split = ", ".join(f"'{name}' {tally[name]:.2f} s" for name in ranked)
+    return (
+        f"its {PIECE_SECONDS:g} s pieces name more than one voice ({split}); "
+        f"'{ranked[1]}' holds {share:.2f} of it, at or over {MIXED_LINE_SHARE} "
+        '- a duet, or a segment over a hand-over; timestamps: "word" splits it'
+    )
+
+
 def _attribute_lines(parsed_lines, song, encoder, embeddings, too_similar, separate):
-    """Score each parsed line against every voice."""
-    attributed = []
-    for line in parsed_lines:
-        voiced = song.seconds(line["start"], line["end"])
+    """Score each parsed line against every voice - and a line longer than
+    PIECE_SECONDS in pieces too, `uncertain` when they disagree."""
+
+    def score(start, end):
+        voiced = song.seconds(start, end)
         embedding = None
         if voiced >= MIN_VOICED_SECONDS:
-            embedding = embed(encoder, song.samples([(line["start"], line["end"])]))
+            embedding = embed(encoder, song.samples([(start, end)]))
+        return score_line(
+            embedding, embeddings, voiced, too_similar, separated=separate
+        )
+
+    attributed = []
+    for line in parsed_lines:
+        result = score(line["start"], line["end"])
+        if result["voice"] is not None and line["end"] - line["start"] > PIECE_SECONDS:
+            reason = mixed_reason(piece_voices(line["start"], line["end"], score))
+            if reason is not None:
+                result["uncertain"] = True
+                result["reason"] = "; ".join(filter(None, [result["reason"], reason]))
         attributed.append(
             {
                 "start": _round(line["start"], 3),
                 "end": _round(line["end"], 3),
                 "text": line["text"],
-                **score_line(
-                    embedding, embeddings, voiced, too_similar, separated=separate
-                ),
+                **result,
             }
         )
     return attributed
@@ -731,8 +790,11 @@ def attribute_voices(
             (letters, digits, '_', '-').
         lines: The spans to attribute, in seconds - a list of {start, end,
             text?} (transcribe_audio's chunk shape) or {start_seconds,
-            duration_seconds, text?}. Omitted: the song is cut into fixed
-            windows of window_seconds.
+            duration_seconds, text?}. A zero-length line (a word chunk with
+            start == end) has no voice rather than being refused. A line
+            longer than 2 s is also scored in 2 s pieces, and is uncertain
+            when they name different voices. Omitted: the song is cut into
+            fixed windows of window_seconds.
         windows: Named spans to roll the lines up into, e.g. shots - a list
             of {name, start, end}. Each reports every voice's share of its
             voiced time. Omitted: the fixed windows when 'lines' is omitted

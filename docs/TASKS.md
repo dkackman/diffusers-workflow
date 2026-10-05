@@ -1359,7 +1359,7 @@ voiced, so a weak answer is visible as weak rather than silently accepted.
 | -------- | -------- | ----------- |
 | `audio` | Yes | The song - a path, `asset:`/`output:` reference, or an earlier step's audio or video |
 | `voices` | Yes | Each voice's name mapped to its reference: a list of `{start_seconds, duration_seconds}` (or `{start, end}`) spans into `audio`, or a path/`asset:` of a separate clip. At least 2 voices; names follow the variable-name pattern; each voice's reference must total at least `min_reference_seconds` |
-| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. Omitted: the song is cut into fixed windows of `window_seconds` |
+| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. A zero-length line (`start` = `end`, as Whisper's word timestamps sometimes give) comes back with `voice: null` rather than refusing the call. Omitted: the song is cut into fixed windows of `window_seconds` |
 | `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
 | `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
 | `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
@@ -1395,6 +1395,8 @@ well above that and well below the singing.
 | `min_voiced_seconds` | 0.5 s | A line or window under this much voiced time has no voice - `voice: null`, `uncertain: true` |
 | `uncertain_margin` | 0.05 | A line whose best score beats the runner-up by less than this is `uncertain` - the argmax is still reported |
 | `uncertain_share_margin` | 0.2 | A window whose leading voice's share beats the runner-up's by less than this is `uncertain` - a duet line, or a window straddling a hand-over |
+| `piece_seconds` | 2.0 s | A line longer than this is also scored in pieces of this length |
+| `mixed_line_share` | 0.25 | A line whose confidently attributed pieces give a second voice at least this share of their voiced time is `uncertain`, and its `reason` names each voice's seconds - one embedding of two singers can name either of them with a wide margin |
 | `voices_too_similar` | 0.8 | Two references scoring above this against each other make every line between them a weak answer whatever its scores say |
 
 A `voices_too_similar` pair is reported in `reference_similarity`, added to
@@ -1454,8 +1456,16 @@ depends on how the piece was assembled:
 **Where it misleads:**
 
 - A duet line - two singers on one line, or call and response inside one
-  Whisper segment - comes back `uncertain`. `timestamps: "word"` splits it
-  into words, each attributed on its own, at the cost of noisier scores.
+  Whisper segment - comes back `uncertain`: its 2 s pieces name more than one
+  voice, and the `reason` says how many seconds each holds.
+  `timestamps: "word"` splits it into words, each attributed on its own, at
+  the cost of noisier scores. A zero-length word comes back with a null
+  `voice`, like any line too short to embed.
+- Whisper can return one segment over most of a song, its text a repeated
+  hallucination, when the accompaniment drowns the words. Such a line is a
+  duet line by the rule above whenever two singers are in it; re-run with
+  `timestamps: "word"`, or transcribe the `vocals` stem of
+  [`separate_stems`](#stem-separation) instead.
 - `start + 0.3 s` is a heuristic: a singer who opens late or holds a pickup
   note is still closed-mouthed there. That is why the midpoint frame is read
   too; trust the two together, not either alone.
@@ -2025,7 +2035,7 @@ Transcribe spoken audio to text with a local Whisper-class model. The word-corre
 
 Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. By default the result is plain text, read with MCP's `get_output_text`.
 
-Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`.
+Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
 
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 
