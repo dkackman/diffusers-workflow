@@ -94,12 +94,22 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
         for video, waveform in zip(videos, waveforms)
         if waveform is not None
     ]
+    pinned = bool(sample_rate)
     sample_rate = sample_rate or (max(set(rates)) if rates else None)
     if rates and len(set(rates)) == 1 and rates[0] != sample_rate:
         # The inputs agree and the caller pinned another rate: converting
         # to what was asked for is not a decision made on its behalf (#453)
         emit_log(
             f"{command}: resampling every track from {rates[0]} Hz to the "
+            f"requested {sample_rate} Hz",
+            command=command,
+            sample_rate=sample_rate,
+        )
+    elif rates and pinned and any(rate != sample_rate for rate in rates):
+        # Mixed inputs converted to the rate the caller (or the template)
+        # pinned: expected, and 'pass sample_rate' advice would be wrong (#594)
+        emit_log(
+            f"{command}: resampling tracks at {sorted(set(rates))} Hz to the "
             f"requested {sample_rate} Hz",
             command=command,
             sample_rate=sample_rate,
