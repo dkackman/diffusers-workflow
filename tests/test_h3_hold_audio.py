@@ -483,6 +483,22 @@ class TestValidationEntry:
 
         assert len(hold_errors(definition)) == 1
 
+    @pytest.mark.parametrize(
+        "value", ["file:///usr/share/sounds/alsa/Front_Center.wav", "file:///x/x.wav"]
+    )
+    def test_h3_template_refuses_a_file_url(self, value, monkeypatch):
+        # SE-F040: a file:// URL validated clean as a path under the workflow
+        monkeypatch.delenv("DW_TRUST_WORKFLOWS")  # conftest trusts by default
+        definition = copy.deepcopy(template("minimax", "video-with-audio.json"))
+        definition["steps"][0]["pipeline"]["arguments"]["hold_audio"] = value
+
+        problems = hold_errors(definition)
+
+        assert [problem["path"] for problem in problems] == [
+            "steps[0].pipeline.arguments.hold_audio"
+        ]
+        assert "'file' URL" in problems[0]["message"]
+
 
 class TestHoldAudioReference:
     @pytest.mark.parametrize("value", ["x.png", "notes.txt", "noextension"])
@@ -549,6 +565,13 @@ class TestHoldAudioLocation:
 
         with pytest.raises(SecurityError, match="outside every directory"):
             hold_audio_reference(str(elsewhere / "track.wav"), str(workflow_dir))
+        assert opened == []
+
+    def test_a_file_url_is_refused_at_the_call(self, tmp_path, opened):
+        from dw.security import SecurityError
+
+        with pytest.raises(SecurityError, match="'file' URL"):
+            hold_audio_reference("file:///usr/share/sounds/x.wav", str(tmp_path))
         assert opened == []
 
     def test_the_step_hands_its_base_dir_to_the_check(self, tmp_path, opened):

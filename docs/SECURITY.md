@@ -144,6 +144,10 @@ One policy now answers all of it, untrusted:
   for a file outside is to put it in the asset library and use an `asset:`
   reference. Containment is checked **before** existence, so the refusal
   cannot be used as a file-existence oracle.
+- **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
+  validation and at the loader, whatever the trust posture. No loader opens
+  one, but as a relative path it joined onto the workflow directory and
+  passed containment, so validation called it clean (#618).
 - **A glob** is contained the same way, on the fixed directory its pattern
   starts from, and every match is re-checked on its real path so a symlink
   cannot carry the expansion out.

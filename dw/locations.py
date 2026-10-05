@@ -67,6 +67,25 @@ def is_http_url(value):
     return isinstance(value, str) and value.startswith(("http://", "https://"))
 
 
+def _refuse_other_url(location, what):
+    """Refuse a location written as a URL whose scheme is not http(s).
+
+    No loader opens a `file://` (or any other scheme) URL, but as a relative
+    path it joined onto the workflow directory, landed inside a root and so
+    passed containment - a refusal at run time only because no such directory
+    existed, and none at validation (#618). The rule `validate_model_name`
+    applies to a model_name (#117), applied to every media location.
+    """
+    text = str(location)
+    if "://" in text and not is_http_url(text):
+        scheme = text.split("://", 1)[0]
+        raise InvalidInputError(
+            f"Refusing to read {what} at '{location}': it is a '{scheme}' URL, "
+            f"and only http(s) URLs are fetched. Name a local file by its path "
+            f"or with an 'asset:' reference."
+        )
+
+
 def media_roots(base_dir=None):
     """Every directory a workflow's own locations may point inside, resolved.
 
@@ -138,6 +157,7 @@ def validate_media_path(
         PathTraversalError: If the path resolves outside every root
         InvalidInputError, PathTraversalError: Whatever validate_path raises
     """
+    _refuse_other_url(location, what)
     # base_dir is the first root, so a relative path keeps resolving against
     # the workflow file exactly as it did before this check existed.
     # allow_create here, with the existence check moved below the containment
@@ -546,6 +566,8 @@ def _check(value, base_dir, what):
     try:
         if is_http_url(value):
             validate_media_url(value, what)
+        elif "://" in value:
+            _refuse_other_url(value, what)
         elif os.path.isabs(value):
             validate_media_path(value, base_dir, what, require_exists=False)
         elif ".." in value.replace("\\", "/").split("/"):
