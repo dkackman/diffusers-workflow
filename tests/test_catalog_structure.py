@@ -112,6 +112,7 @@ EXPECTED_SHAPES = {
 # Templates that genuinely are utilities - processing with no generation.
 # Anything else that derives 'utility' is a rule that missed.
 UTILITIES = {
+    "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/recenter-crop.json",
@@ -415,7 +416,10 @@ def test_no_stale_entry_in_the_allowlist():
 # at 9_052 before its curated `cost` (about 15 tokens more): the latent-refine
 # route to 2x for a clip the caller brings, kept beside upscale-clip because
 # the two trade differently (source latents vs. an IC-LoRA re-render).
-COMPACT_BUDGET = 9_150
+# Then to 9_200 for `templates/attribute-lines` (#617, 2026-10-05), measured
+# at 9_180: about 30 tokens, the transcribe -> attribute_voices chain a
+# lip-sync target check starts from (#488).
+COMPACT_BUDGET = 9_200
 FILTERED_BUDGET = 1_500
 
 

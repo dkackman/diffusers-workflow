@@ -60,7 +60,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 (default: openai/whisper-base).
             timestamps: Unset (default) returns plain text. "segment" or
                 "word" instead returns a dict of {text, chunks}, chunks
-                being a list of {start, end, text} - the step's result
+                being a list of {start, end, text}, every time a number of
+                seconds (a chunk the clip ends inside ends at the clip's
+                duration) - the step's result
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
 
@@ -125,12 +127,30 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
     if timestamps is None:
         return text
 
-    chunks = [
-        {
-            "start": chunk.get("timestamp", (None, None))[0],
-            "end": chunk.get("timestamp", (None, None))[1],
-            "text": chunk.get("text", "").strip(),
-        }
-        for chunk in result.get("chunks", [])
-    ]
+    duration = len(mono) / _ASR_SAMPLE_RATE
+    chunks = _numeric_chunks(result.get("chunks", []), duration)
     return {"text": text, "chunks": chunks}
+
+
+def _numeric_chunks(raw_chunks, duration):
+    """The {start, end, text} chunks, with every time a number of seconds.
+
+    Whisper leaves a chunk's end None when the audio stops inside it - a song
+    cut mid-line - and a None there failed every reader that does arithmetic
+    on the span: attribute_voices refused the whole transcript (#488). Such a
+    chunk ends at the clip's own duration, and a None start takes the
+    previous chunk's end (0 for the first).
+    """
+    chunks = []
+    previous_end = 0.0
+    for chunk in raw_chunks:
+        start, end = chunk.get("timestamp", (None, None))
+        if start is None:
+            start = previous_end
+        if end is None:
+            end = max(duration, start)
+        chunks.append(
+            {"start": start, "end": end, "text": chunk.get("text", "").strip()}
+        )
+        previous_end = end
+    return chunks

@@ -603,6 +603,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "attention-processor.json": {
         "generate_with_sdpa": "8dc3e92052c445d5dbf20bf6e8b6fe91794cfa3772bb7366e2390889b4e99459"
     },
+    "attribute-lines.json": {},
     "audio-trim-fade.json": {},
     "base-and-refiner.json": {
         "main": "384b0dccd2842b0c235b9d325e53e48bef5bc1b5150fd2e836f154d7dde32507",
