@@ -94,6 +94,12 @@ remaining deferred fix is recorded in
   home. Record, including what was deferred (a multi-job bundle, an
   outputs-only zip, removing an export over MCP):
   `complete/job-export-bulk-download-complete.md`.
+- **Checking the lip-sync target** (#488, stage #617), shipped 2026-10-05
+  from shipped parts: `transcribe_audio` never emits a null `end`, an
+  `attribute-lines` template, a mixed-line `uncertain` rule in
+  `attribute_voices`, and the loop in `docs/TASKS.md`. Record, including
+  what was deferred (the VLM probe, anatomy and travel-direction checks, a
+  real two-singer round): `complete/lip-sync-target-check-complete.md`.
 
 ## Declined
 
