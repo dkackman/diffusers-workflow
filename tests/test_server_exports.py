@@ -354,12 +354,13 @@ class TestExportDirectory:
             forced = client.post(f"/api/jobs/{job_id}/export?overwrite=true")
             assert forced.status_code == 201
 
-    def test_auth_required_reflects_whether_a_token_is_configured(
+    def test_with_a_token_the_zip_is_not_auth_required_and_opens_without_one(
         self, workspace_root, tmp_path
     ):
-        # #353: an MCP-only agent has no way to attach a bearer token to a
-        # fetch on the person's behalf, so export_job's `next` hint branches
-        # on this field rather than assuming the zip is open to fetch.
+        # #592 (Don, Q1): the field and the route are pinned together, so
+        # they cannot drift apart again the way #353's
+        # `bool(state.api_token)` did - with a token configured the export
+        # says auth_required false, and the zip it names opens without one.
         manager = JobManager(
             workspace_root.outputs,
             worker_manager=ScriptedWorkerManager(exporting_script),
@@ -395,8 +396,16 @@ class TestExportDirectory:
             body = client.post(
                 f"/api/jobs/{submitted['id']}/export", headers=headers
             ).json()
+            unauthenticated_export = client.post(
+                f"/api/jobs/{submitted['id']}/export?overwrite=true"
+            )
+            zip_response = client.get(body["zip_url"])
 
-        assert body["auth_required"] is True
+        assert unauthenticated_export.status_code == 401
+        assert body["auth_required"] is False
+        assert zip_response.status_code == 200
+        names = zipfile.ZipFile(io.BytesIO(zip_response.content)).namelist()
+        assert f"{submitted['id']}/manifest.json" in names
 
     def test_an_absolute_zip_url_is_added_when_a_public_url_is_configured(
         self, server, monkeypatch

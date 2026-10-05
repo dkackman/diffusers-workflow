@@ -83,6 +83,10 @@ Once every shot exists, hand off to `templates/assemble-and-score` (or the
 a series) for the recut/bed/match_levels/normalize/pair pass. That skill
 already owns this step - do not re-derive it here.
 
+To take the project home, call `export_job` once per job of the project, then
+fetch each zip's `open_url` and unpack it into `exports/` under the working
+directory (per its `next`).
+
 ## Not in scope
 
 - **Automatic model speed optimization.** If a model is slow, that is a
