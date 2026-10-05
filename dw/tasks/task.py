@@ -282,6 +282,17 @@ def _handle_frame_grid(task, arguments, previous_pipelines):
     return frame_grid(**arguments)
 
 
+@register_command(
+    "ingredients_grid", implementation="dw.tasks.image_utils.ingredients_grid"
+)
+def _handle_ingredients_grid(task, arguments, previous_pipelines):
+    """Lay individual images out as one reference sheet"""
+    logger.debug("Building ingredients grid")
+    from .image_utils import ingredients_grid
+
+    return ingredients_grid(**arguments)
+
+
 @register_command("pair_audio", implementation="dw.tasks.pair_audio.pair_audio")
 def _handle_pair_audio(task, arguments, previous_pipelines):
     """Pair a video's frames with an audio track generated beside them"""

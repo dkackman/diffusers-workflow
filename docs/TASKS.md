@@ -1409,6 +1409,65 @@ and are cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
 
+### ingredients_grid
+
+Lay individual images - a character, a prop, a location - out on one canvas as a
+reference sheet. It is `frame_grid`'s counterpart for separate images, and builds
+the still `ltx2/reference-sheet` conditions on. Pure PIL.
+
+```json
+{
+    "name": "sheet",
+    "task": {
+        "command": "ingredients_grid",
+        "arguments": {
+            "images": ["asset:hero.png", "asset:sword.png", "asset:castle.png"],
+            "width": 768,
+            "height": 448
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Default | Description |
+| -------- | ------- | ----------- |
+| `images` | required | Images in reading order: references, paths or `{"location": ...}` dicts; `gather:` of a `for_each` step splices in |
+| `width`, `height` | 768, 448 | Canvas size in pixels |
+| `layout` | `auto` | `rows`, `panels` or `auto` |
+| `fit` | `contain` | `contain` scales each image to fit whole and pads with `background`; `cover` fills its cell and crops the overflow |
+| `gap` | 8 | Pixels between cells, and kept clear of the canvas edge |
+| `background` | `white` | Canvas colour, a name or `#hex` |
+| `max_images` | 12 | More images than this is refused, never silently dropped |
+
+`rows` keeps every image at its own aspect ratio and justifies each row to the
+canvas width. Which images share a row is searched: every way of cutting the
+list, in order, into rows is scored on wasted canvas, overflow past the height,
+and spread of row heights. `panels` gives every image an equal grid cell, the
+column count chosen to waste the least canvas, with a short last row centred.
+`auto` uses `rows` for up to 3 images and `panels` for more. Transparency is
+flattened onto white. Returns one RGB image of exactly `width` x `height`.
+
+To build the sheet inside `ltx2/reference-sheet`, add this step first and point
+`static_sheet`'s `video` at it (`"video": "previous_result:sheet"` in place of the
+`reference_sheet` asset). Keep `width` and `height` the clip's own, so the sheet
+reads at the size the model was trained on:
+
+```json
+{
+    "name": "sheet",
+    "task": {
+        "command": "ingredients_grid",
+        "arguments": {
+            "images": ["asset:hero.png", "asset:sword.png", "asset:castle.png"],
+            "width": "variable:width",
+            "height": "variable:height"
+        }
+    },
+    "result": { "content_type": "image/png", "save": false }
+}
+```
+
 ## Data Gathering
 
 ### gather_images

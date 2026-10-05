@@ -1,5 +1,8 @@
-from PIL import Image
+from itertools import combinations
+
+from PIL import Image, ImageColor, ImageOps
 import numpy as np
+from ..argument_media import fetch_image
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
 import torch
@@ -762,3 +765,254 @@ ada_palette = np.asarray(
         [92, 0, 255],
     ]
 )
+
+
+# --- ingredients_grid (#607) ---
+# Lay individual images out as one reference sheet.
+#
+# `frame_grid` tiles the frames of a video; this tiles separate images - a
+# character, a prop, a location - onto one canvas the size a model reads, which
+# is the sheet the LTX-2.5 Ingredients template conditions on. Pure PIL.
+#
+# Two layouts, and `auto` picks between them from the image count:
+#
+# - `rows` keeps every image at its own aspect ratio and justifies each row to the
+#   canvas width. Which images share a row is searched: every way of cutting the
+#   list, in order, into rows is scored on the canvas it wastes, how far it
+#   overflows the height, and how unevenly tall its rows come out.
+# - `panels` gives every image an equal cell of a grid whose column count is
+#   searched the same way, so a sheet of several elements reads as even panels.
+
+LAYOUTS = ("auto", "rows", "panels")
+FITS = ("contain", "cover")
+
+# A handful of references is a row to read across; past this, even panels
+AUTO_ROWS_UP_TO = 3
+
+# Weights of the row-partition score. Waste dominates; overflow and uneven row
+# heights are tie-breakers that keep a sheet from favouring one tiny row
+_OVERFLOW_WEIGHT = 0.5
+_SPREAD_WEIGHT = 0.25
+
+
+def ingredients_grid(
+    images,
+    width=768,
+    height=448,
+    layout="auto",
+    fit="contain",
+    gap=8,
+    background="white",
+    max_images=12,
+):
+    """Task command: lay out several images on one canvas as a reference sheet.
+
+    Args:
+        images: The images to lay out, in reading order - a list of
+            previous_result / asset: / output: references, paths, or
+            {"location": ...} dicts. `gather:` of a for_each step splices in
+        width: Canvas width in pixels
+        height: Canvas height in pixels
+        layout: "rows" (aspect-preserving justified rows), "panels" (an even
+            grid of equal cells) or "auto" (rows for up to 3 images, panels
+            for more)
+        fit: How an image fills its cell: "contain" scales it to fit whole
+            and pads the rest with `background`; "cover" scales it to fill
+            the cell and crops the overflow
+        gap: Pixels between cells, and kept clear of the canvas edge
+        background: Canvas colour, any name or #hex PIL accepts
+        max_images: Refuse more images than this rather than drop some
+
+    Returns:
+        One RGB PIL image of exactly width x height
+    """
+    width = _grid_whole_number(width, "width", 1)
+    height = _grid_whole_number(height, "height", 1)
+    gap = _grid_whole_number(gap, "gap", 0)
+    max_images = _grid_whole_number(max_images, "max_images", 1)
+    if layout not in LAYOUTS:
+        raise ValueError(
+            f"ingredients_grid needs 'layout' as one of {list(LAYOUTS)}, got {layout!r}"
+        )
+    if fit not in FITS:
+        raise ValueError(
+            f"ingredients_grid needs 'fit' as one of {list(FITS)}, got {fit!r}"
+        )
+    try:
+        color = ImageColor.getrgb(background)
+    except (ValueError, AttributeError):
+        raise ValueError(
+            f"ingredients_grid needs 'background' as a colour name or #hex, got {background!r}"
+        )
+
+    sources = _grid_load(images)
+    if not sources:
+        raise ValueError("ingredients_grid was given no images")
+    if len(sources) > max_images:
+        raise ValueError(
+            f"ingredients_grid was given {len(sources)} images but 'max_images' is "
+            f"{max_images} - raise it, or pass fewer images"
+        )
+
+    # The margin is one gap; a canvas the gaps alone would fill has no room
+    inner_w, inner_h = width - 2 * gap, height - 2 * gap
+    if inner_w < len(sources) and inner_h < len(sources):
+        raise ValueError(
+            f"ingredients_grid cannot fit {len(sources)} images on a {width}x{height} "
+            f"canvas with a gap of {gap}"
+        )
+
+    aspects = [image.width / image.height for image in sources]
+    if layout == "auto":
+        layout = "rows" if len(sources) <= AUTO_ROWS_UP_TO else "panels"
+    if layout == "rows":
+        cells = _grid_row_cells(aspects, inner_w, inner_h, gap)
+    else:
+        cells = _grid_panel_cells(aspects, inner_w, inner_h, gap)
+
+    canvas = Image.new("RGB", (width, height), color)
+    for source, (x, y, w, h) in zip(sources, cells):
+        canvas.paste(_grid_fit_to_cell(source, w, h, fit, color), (gap + x, gap + y))
+    return canvas
+
+
+def _grid_whole_number(value, name, minimum):
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            raise ValueError(
+                f"ingredients_grid needs '{name}' as a whole number, got {value!r}"
+            )
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(
+            f"ingredients_grid needs '{name}' as a whole number, got {value!r}"
+        )
+    if value < minimum:
+        raise ValueError(
+            f"ingredients_grid needs '{name}' of at least {minimum}, got {value}"
+        )
+    return value
+
+
+def _grid_load(images):
+    """The images as flat list of RGB PIL images, from whatever references resolved to"""
+    if images is None:
+        return []
+    loaded = fetch_image(images)
+    return [_grid_flatten_alpha(image) for image in _grid_flatten(loaded)]
+
+
+def _grid_flatten(value):
+    if isinstance(value, (list, tuple)):
+        return [leaf for item in value for leaf in _grid_flatten(item)]
+    return [value]
+
+
+def _grid_flatten_alpha(image):
+    """RGB of an image, transparency composited onto white"""
+    if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+        rgba = image.convert("RGBA")
+        base = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        return Image.alpha_composite(base, rgba).convert("RGB")
+    return image.convert("RGB")
+
+
+def _grid_compositions(count):
+    """Every way of cutting `count` ordered items into consecutive rows, as row sizes"""
+    for cuts in range(count):
+        for chosen in combinations(range(1, count), cuts):
+            edges = (0, *chosen, count)
+            yield [edges[i + 1] - edges[i] for i in range(len(edges) - 1)]
+
+
+def _grid_row_layout(aspects, sizes, width, height, gap):
+    """Score one partition into rows; returns (score, rects)"""
+    rows, start = [], 0
+    for size in sizes:
+        rows.append(aspects[start : start + size])
+        start += size
+
+    heights = [(width - gap * (len(row) - 1)) / sum(row) for row in rows]
+    total = sum(heights) + gap * (len(rows) - 1)
+    overflow = max(0.0, total - height) / height
+    # Over-tall rows shrink uniformly to fit, which narrows them too
+    scale = min(1.0, height / total)
+    heights = [h * scale for h in heights]
+
+    rects, y = [], 0.0
+    for row, row_h in zip(rows, heights):
+        row_w = sum(a * row_h for a in row) + gap * (len(row) - 1)
+        x = (width - row_w) / 2
+        for aspect in row:
+            rects.append((x, y, aspect * row_h, row_h))
+            x += aspect * row_h + gap
+        y += row_h + gap
+    used = sum(w * h for _, _, w, h in rects)
+    waste = 1 - used / (width * height)
+    spread = (max(heights) - min(heights)) / max(heights)
+    return waste + _OVERFLOW_WEIGHT * overflow + _SPREAD_WEIGHT * spread, rects
+
+
+def _grid_row_cells(aspects, width, height, gap):
+    best_score, best_rects = None, None
+    for sizes in _grid_compositions(len(aspects)):
+        score, rects = _grid_row_layout(aspects, sizes, width, height, gap)
+        if best_score is None or score < best_score:
+            best_score, best_rects = score, rects
+    return _grid_centered(best_rects, width, height)
+
+
+def _grid_panel_cells(aspects, width, height, gap):
+    count = len(aspects)
+    best_score, best = None, None
+    for columns in range(1, count + 1):
+        rows = -(-count // columns)
+        cell_w = (width - gap * (columns - 1)) / columns
+        cell_h = (height - gap * (rows - 1)) / rows
+        if cell_w < 1 or cell_h < 1:
+            continue
+        # The canvas each image leaves empty when contained in its cell
+        used = sum(min(cell_w, cell_h * a) * min(cell_h, cell_w / a) for a in aspects)
+        score = 1 - used / (width * height)
+        if best_score is None or score < best_score:
+            best_score, best = score, (columns, rows, cell_w, cell_h)
+    if best is None:
+        raise ValueError(
+            f"ingredients_grid cannot fit {count} panels on a {width}x{height} canvas "
+            f"with a gap of {gap}"
+        )
+    columns, rows, cell_w, cell_h = best
+    rects = []
+    for index in range(count):
+        row, column = divmod(index, columns)
+        in_row = min(columns, count - row * columns)
+        # A short last row is centred rather than left-justified
+        x0 = (width - (in_row * cell_w + gap * (in_row - 1))) / 2
+        rects.append(
+            (x0 + column * (cell_w + gap), row * (cell_h + gap), cell_w, cell_h)
+        )
+    return _grid_centered(rects, width, height)
+
+
+def _grid_centered(rects, width, height):
+    """Integer cells, the block of them centred vertically on the canvas"""
+    bottom = max(y + h for _, y, _, h in rects)
+    shift = (height - bottom) / 2
+    return [
+        (round(x), round(y + shift), max(1, round(w)), max(1, round(h)))
+        for x, y, w, h in rects
+    ]
+
+
+def _grid_fit_to_cell(image, width, height, fit, background):
+    if fit == "cover":
+        return ImageOps.fit(image, (width, height), Image.LANCZOS)
+    scale = min(width / image.width, height / image.height)
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    cell = Image.new("RGB", (width, height), background)
+    cell.paste(
+        image.resize(size, Image.LANCZOS),
+        ((width - size[0]) // 2, (height - size[1]) // 2),
+    )
+    return cell

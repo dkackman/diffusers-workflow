@@ -152,6 +152,12 @@ TASK_ARGUMENT_DOMAINS = {
     "loop_frames": {"num_frames": POSITIVE},
     "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
+    "ingredients_grid": {
+        "width": POSITIVE,
+        "height": POSITIVE,
+        "gap": NON_NEGATIVE,
+        "max_images": POSITIVE,
+    },
     "dissolve_videos": {
         "dissolve_frames": NON_NEGATIVE,
         "fade_in_frames": NON_NEGATIVE,
