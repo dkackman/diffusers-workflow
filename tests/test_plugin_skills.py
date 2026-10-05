@@ -120,9 +120,7 @@ def test_a_skill_links_each_reference_and_each_link_resolves(path):
     """A reference no SKILL.md names is never read, and a link to a file that
     is not there sends the agent nowhere."""
     linked = set(REFERENCE_LINK.findall(skill_body(path)))
-    shipped = {
-        "references/" + os.path.basename(ref) for ref in skill_references(path)
-    }
+    shipped = {"references/" + os.path.basename(ref) for ref in skill_references(path)}
 
     assert linked == shipped, (
         f"{path}: linked but missing {sorted(linked - shipped)}, "
