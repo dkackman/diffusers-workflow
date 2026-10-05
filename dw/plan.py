@@ -365,7 +365,7 @@ def _scalar_driver_shifted(definition, expanded, list_entries):
 def _own_price(definition, expanded, list_entries, device, measured_entries):
     """The workflow's own price, reset to unknown when a scalar driver moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
-    if own["basis"] == CATALOG and _scalar_driver_shifted(
+    if own["basis"] in (CATALOG, OTHER_DEVICE) and _scalar_driver_shifted(
         definition, expanded, list_entries
     ):
         # A scalar cost_driver (H3's num_frames, say) moved away from the
@@ -434,7 +434,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child_list_entries = _list_entries(child_definition, child_expanded)
     child = _price(child_cost, device, child_list_entries, child_measured_entries)
     if (
-        child["basis"] == CATALOG
+        child["basis"] in (CATALOG, OTHER_DEVICE)
         and child_definition is not None
         and _scalar_driver_shifted(child_definition, child_expanded, child_list_entries)
     ):
@@ -696,18 +696,22 @@ def _price(cost, device, list_entries, measured_entries):
         basis = OTHER_DEVICE
     minutes = float(chosen.get("minutes", 0))
     per = chosen.get("per_entry")
-    if (
-        basis == CATALOG
-        and isinstance(per, dict)
-        and per.get("variable") in list_entries
-    ):
+    # Another device's figure is re-priced for the list length too (#589): it
+    # stays `other_device` (still not a measurement here), but a 32-entry
+    # for_each must not be quoted at the one-clip figure
+    if isinstance(per, dict) and per.get("variable") in list_entries:
         count = list_entries[per["variable"]]
         each = float(per.get("minutes", 0))
         measured_with = int(per.get("entries", 0))
         minutes = max(0.0, (minutes - each * measured_with) + each * count)
-        basis = PER_ENTRY
-    elif basis == CATALOG:
-        minutes, basis = _repriced(minutes, list_entries, measured_entries)
+        if basis == CATALOG:
+            basis = PER_ENTRY
+    else:
+        minutes, repriced_basis = _repriced(minutes, list_entries, measured_entries)
+        if repriced_basis == UNKNOWN:
+            return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+        if basis == CATALOG:
+            basis = repriced_basis
     return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
 
 

@@ -365,14 +365,42 @@ class TestEstimate:
         answer = plan(spec, arguments=arguments)["estimate"]
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
 
-    def test_another_devices_figure_is_not_extrapolated(self, plan):
-        """`other_device` already says the figure is not this machine's -
-        re-pricing it would dress a guess as arithmetic."""
+    def test_another_devices_figure_is_re_priced_for_the_list(self, plan):
+        """#589: a 2-shot figure from another backend quoted verbatim for a
+        10-shot run was the 1/100 gate. It stays `other_device` - not a
+        measurement here - but the entry count multiplies."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
         answer = plan(spec, arguments={"shots": shots})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (40.0, "other_device")
+        assert (answer["minutes"], answer["basis"]) == (200.0, "other_device")
+
+    def test_another_devices_per_entry_rate_prices_the_list(self, plan):
+        spec = definition()
+        spec["cost"] = [
+            cost("mps", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(5)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (19.0, "other_device")
+
+    def test_another_devices_figure_with_two_changed_lists_is_unknown(self, plan):
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
+        spec["variables"]["angles"] = [{"name": "wide"}]
+        spec["steps"].append(
+            {
+                "name": "angle",
+                "for_each": "variable:angles",
+                "task": {"command": "x", "arguments": {"name": "item:name"}},
+            }
+        )
+        arguments = {
+            "shots": [{"name": f"s{n}", "prompt": "x"} for n in range(4)],
+            "angles": [{"name": "wide"}, {"name": "tight"}],
+        }
+        answer = plan(spec, arguments=arguments)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
 
     def test_minutes_is_rounded_to_one_decimal(self, plan):
         spec = definition()
@@ -385,6 +413,15 @@ class TestEstimate:
         describing the run the figure was measured for, and `_repriced`
         only re-prices a for_each list's length, not a bare variable (#267)."""
         spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(spec, arguments={"frames": 9})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+
+    def test_a_shifted_scalar_driver_is_unknown_on_another_device_too(self, plan):
+        """#589: the other_device branch skipped the #267 check, so a 241-frame
+        run was quoted the 121-frame clip's figure."""
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
