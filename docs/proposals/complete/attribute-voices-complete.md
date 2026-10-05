@@ -101,4 +101,5 @@ The plan estimated ~$7-10 total.
   warning.
 - **Ensemble lines** (both singers at once) score between the two; `share`
   and `margin` show it, but `voice` names one.
-- A `lines: "previous_result:transcribe"` case, once #483 lands.
+- A `lines: "previous_result:transcribe"` case, once #483 lands. Done
+  by #488 (`templates/attribute-lines`; `complete/lip-sync-target-check-complete.md`).
