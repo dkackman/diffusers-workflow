@@ -109,6 +109,17 @@ class TestMediaPathContainment:
                 outside
             )
 
+    @pytest.mark.parametrize(
+        "location",
+        ["file:///usr/share/sounds/x.wav", "file:///nonexistent/x.png", "s3://b/x.png"],
+    )
+    def test_a_url_that_is_not_http_is_refused(self, location, workflow_dir):
+        """#618: joined onto the workflow directory as a relative path, a
+        file:// URL landed inside a root and passed containment. Refused
+        whatever the trust posture - no loader opens one as a path."""
+        with pytest.raises(InvalidInputError, match="only http\\(s\\) URLs"):
+            validate_media_path(location, workflow_dir, "an audio argument")
+
     def test_fetch_image_refuses_an_out_of_root_absolute_path(
         self, untrusted, workflow_dir
     ):
@@ -336,6 +347,22 @@ class TestValidationTimeErrors:
         assert [error["path"] for error in errors] == [
             "steps[0].pipeline.arguments.image"
         ]
+
+    @pytest.mark.parametrize("key", ["image", "hold_audio"])
+    def test_a_file_url_is_an_error_with_its_path(self, untrusted, workflow_dir, key):
+        definition = {
+            "steps": [
+                {
+                    "name": "edit",
+                    "pipeline": {"arguments": {key: "file:///usr/share/sounds/x.wav"}},
+                }
+            ]
+        }
+        errors = location_errors(definition, base_dir=workflow_dir)
+        assert [error["path"] for error in errors] == [
+            f"steps[0].pipeline.arguments.{key}"
+        ]
+        assert "'file' URL" in errors[0]["message"]
 
     def test_a_loopback_url_is_an_error(self, untrusted, workflow_dir):
         definition = {
