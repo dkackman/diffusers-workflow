@@ -1587,6 +1587,40 @@ it — see [workflows/templates/minimax/last-frame-only.json](../workflows/templ
 See [workflows/templates/minimax/music.json](../workflows/templates/minimax/music.json) and
 [workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json) for full examples.
 
+### H3: generating to a held soundtrack
+
+A MiniMax-H3 step (`t2va`, `fl2va` or `ref2va`) takes a pipeline argument `hold_audio`:
+an audio value, spelled `asset:<file>`, `output:<file>` or `previous_result:<step>.audio`
+(an `AudioTrack` or `AudioVideo`). The video is generated *to* that soundtrack. The
+track goes through H3's Ref2VA reference-audio encode, is written over the target audio
+rows and held clean as conditioning through denoise, so the model draws picture that
+fits audio it is not allowed to change:
+
+```json
+"pipeline": {
+    "arguments": {
+        "prompt": "a drummer in a lit rehearsal room",
+        "num_frames": 125,
+        "hold_audio": "asset:track.wav"
+    },
+    "output": ["videos", "audio", "sampling_rate"]
+}
+```
+
+`"audio"` must be in `output` (as it already is in `video-with-audio`) for the held
+track to be what the step returns. A track longer than the video is cropped, a shorter
+one padded with silence. The step's `audio` is the caller's original waveform fitted to
+the video's duration (`num_frames / 24` s) at its own sample rate, not a VAE round trip.
+`previous_result:base.audio` holds a track an earlier step generated, music for example.
+
+`run_workflow`'s `arguments` can set only a declared variable, so unless the template
+has one, add `"hold_audio": "variable:hold_audio"` and a `hold_audio` variable, or edit
+the argument. Validation refuses `hold_audio` on a step that is not H3, on a modular
+pipeline loaded with a workflow other than `t2va`, `fl2va` or `ref2va`, on a path whose
+extension is not `.wav`, `.mp3`, `.flac` or `.ogg`, and on any `{"media_type": ...}`
+dict; a run refuses a pipeline with no hold blocks or a value that is not audio. Without
+`hold_audio` the output is unchanged.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
