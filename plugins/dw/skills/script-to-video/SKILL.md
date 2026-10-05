@@ -107,6 +107,10 @@ Once every shot exists, hand off to `templates/assemble-and-score` (or the
 a series) for the recut/bed/match_levels/normalize/pair pass. That skill
 already owns this step - do not re-derive it here.
 
+A sung multi-shot piece is reviewed by its lip-sync target: run
+`get_guide("tasks", section="Checking the lip-sync target")` on the cut
+before delivering it.
+
 To take the project home, call `export_job` once per job of the project, then
 fetch each zip's `open_url` and unpack it into `exports/` under the working
 directory (per its `next`).

@@ -1409,6 +1409,57 @@ and are cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
 
+**Example:** [attribute-lines.json](../workflows/templates/attribute-lines.json) — Which singer sings each line of a song, and when: `transcribe_audio` with timestamps, its transcript handed whole to `attribute_voices` as `lines`.
+
+### Checking the lip-sync target
+
+A sung multi-shot piece can put the right song on the wrong mouth: the shot
+lip-syncs whoever the prompt or the reference made most prominent, not the
+singer the song gives that line to. Listening does not catch it, and one
+frame per shot does not either. This check lines each sung line up with the
+picture and looks at whose mouth is open on it.
+
+1. Run `attribute-lines` on the song with each singer's reference spans as
+   `voices`. Every line comes back with numeric `start` and `end` seconds into
+   the song, its `voice`, `margin` and `uncertain` flag.
+2. Map each line's song times onto the cut's timeline (the rules below).
+3. For every line with a non-null `voice`, take two moments: `start + 0.3 s`,
+   where the mouth has opened on the line's first syllable, and the line's
+   midpoint.
+4. Make one `get_output_frames` call per face: `at` the moments, `crop` the
+   face's region, `hear: 1.0`. At most 32 moments per call, so a long song
+   takes more than one call per face.
+5. On each line, the singer `voice` names should be the face with an open
+   mouth. Another face singing it is the wrong lip-sync target; both mouths
+   open on a solo line is a shot that lip-syncs everyone.
+6. Skip the lines that are `uncertain` or have a null `voice`, and name them
+   in the report - a skipped line is unchecked, not passed.
+
+**Song time to cut time.** `attribute-lines` answers in seconds into the song
+it was given; the frames are read from the cut. The offset between the two
+depends on how the piece was assembled:
+
+- `minimax/music-video`: song time is cut time unless `trim_frames > 0`. The
+  template slices the song at each shot's `start_frame`, joins the shots with
+  `concat_videos` at `trim_frames: 0`, and lays the whole song back with
+  `pair_audio` at `fit: video`, so no offset applies. A trim drops frames at
+  every seam, and the song no longer lines up past the first one.
+- `join_into_song`: add `start_frame / fps − cue_seconds` to every line time,
+  where `start_frame` is the first sung shot's, from the step's shots output.
+  That shot's frame 0 is where song time `cue_seconds` lands.
+- Any other assembly: transcribe the final cut's own track instead, so the
+  times are already the cut's. Attribution is weaker there - dialogue ducked
+  under the song is in the mix too.
+
+**Where it misleads:**
+
+- A duet line - two singers on one line, or call and response inside one
+  Whisper segment - comes back `uncertain`. `timestamps: "word"` splits it
+  into words, each attributed on its own, at the cost of noisier scores.
+- `start + 0.3 s` is a heuristic: a singer who opens late or holds a pickup
+  note is still closed-mouthed there. That is why the midpoint frame is read
+  too; trust the two together, not either alone.
+
 ### ingredients_grid
 
 Lay individual images - a character, a prop, a location - out on one canvas as a
@@ -1974,7 +2025,7 @@ Transcribe spoken audio to text with a local Whisper-class model. The word-corre
 
 Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. By default the result is plain text, read with MCP's `get_output_text`.
 
-Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask.
+Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`.
 
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 
