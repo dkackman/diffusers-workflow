@@ -451,11 +451,17 @@ class TestEstimate:
         spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["shots"]
         spec["variables"]["shots"] = [
-            {"name": "a", "num_frames": 124},
-            {"name": "b", "num_frames": 141},
+            {"name": "a", "prompt": "p", "num_frames": 124},
+            {"name": "b", "prompt": "p", "num_frames": 141},
         ]
-        same = [{"name": "x", "num_frames": 124}, {"name": "y", "num_frames": 124}]
-        long = [{"name": "x", "num_frames": 243}, {"name": "y", "num_frames": 243}]
+        same = [
+            {"name": "x", "prompt": "p", "num_frames": 124},
+            {"name": "y", "prompt": "p", "num_frames": 124},
+        ]
+        long = [
+            {"name": "x", "prompt": "p", "num_frames": 243},
+            {"name": "y", "prompt": "p", "num_frames": 243},
+        ]
         kept = plan(spec, arguments={"shots": same})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
         moved = plan(spec, arguments={"shots": long})["estimate"]
