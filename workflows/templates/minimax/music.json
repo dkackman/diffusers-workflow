@@ -7,6 +7,12 @@
             "name": "RTX 3090",
             "vram_gb": 24,
             "minutes": 3.6
+        },
+        {
+            "device": "mps",
+            "name": "M5 Pro 64GB",
+            "vram_gb": 64,
+            "minutes": 3.3
         }
     ],
     "cost_drivers": [

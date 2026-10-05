@@ -1,0 +1,24 @@
+{
+  "model_name": "KennethFal/16bit-pixel-lora-minimax-h3",
+  "weight_name": "16bit-pixel.safetensors",
+  "revision": "ae7d92788e8ff760e75639d5a413f5f460b29d37",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "SNES-era 16-bit pixel-art video. The trigger is not published (fal applies it server-side), so the prompt has to find it by experiment; scale not stated. fal-trainer format, attention only - the proven realism-people format",
+  "use_when": "Render a clip as 16-bit pixel art",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "style",
+    "pixel-art",
+    "retro"
+  ]
+}

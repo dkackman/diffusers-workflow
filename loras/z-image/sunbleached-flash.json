@@ -1,0 +1,22 @@
+{
+  "model_name": "Quorlen/z_image_turbo_Sunbleached_Protograph_Style_Lora",
+  "weight_name": "zimageturbo_Sunbleach_Photograph_Style_Lora_TAV2_000002500_(recommended).safetensors",
+  "revision": "aa74c8731efe332ebfb3397f71d4329ac25a6249",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Sun-bleached flash photograph: teal shadows, peach skin, halation. The trigger is optional; end the prompt with 'flash pop, warm peach skin, cyan grass, sunbleach style, red halation, light vignette'. The author's recommended checkpoint of twelve",
+  "use_when": "A sun-bleached flash photo look",
+  "trigger": "Act1vate!",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "mit",
+  "tags": [
+    "style",
+    "photo",
+    "film"
+  ]
+}

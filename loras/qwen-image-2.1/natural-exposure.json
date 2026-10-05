@@ -1,0 +1,23 @@
+{
+  "model_name": "prithivMLmods/Qwen-Image-2.1-Natural-Exposure-LoRA",
+  "weight_name": "Qwen-Image-2.1-Natural-Exposure-LoRA-4000.safetensors",
+  "revision": "382d066d079854a86c9513f3c5a4026ada21ddbe",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: corrects an over- or under-exposed photo to balanced, neutral exposure. Scale and steps not stated (try 1.0, 40 steps); a preview",
+  "use_when": "Fix the exposure of a photo",
+  "trigger": "Transform the image with balanced neutral exposure",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "exposure",
+    "photo",
+    "fix"
+  ]
+}

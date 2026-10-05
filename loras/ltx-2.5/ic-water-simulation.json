@@ -1,0 +1,26 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Water-Simulation",
+  "weight_name": "ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors",
+  "revision": "f698d6801a673c636a2c5165ffa07737d7964691",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that adds water - rain, rivers, floods, splashes - to a dry clip while keeping identity, clothing, pose and framing. The dry clip is the reference video at 1x output size. Prompt in the trained dual-panel form: 'Reference shows ... Edited shows the same scene with water added. ADD WATER ... Subject identity, clothing, framing, and background geometry are identical to the reference.' A 0.9 preview weight trained at 960x544, 97-121 frames @ 24 fps; scale above 1.0 for more water",
+  "use_when": "Add rain, flooding or splashing water to an existing clip",
+  "trigger": "ADD WATER",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.9,
+      1.45
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "water",
+    "vfx",
+    "edit"
+  ]
+}

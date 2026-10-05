@@ -1,0 +1,22 @@
+{
+  "model_name": "renderartist/Coloring-Book-Z-Image-Turbo-LoRA",
+  "weight_name": "Coloring_Book_Z_Image_Turbo_v1_renderartist_2000.safetensors",
+  "revision": "3d65420a16668ec00847915f2f69c50854eb5d33",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Black-and-white coloring-book line art. The trigger is optional - 'black and white cartoon, simple, cute' also works",
+  "use_when": "A coloring-book page",
+  "trigger": "c0l0ringb00k",
+  "scale": {
+    "default": 0.7
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "line-art",
+    "coloring-book"
+  ]
+}

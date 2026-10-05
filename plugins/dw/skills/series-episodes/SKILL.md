@@ -171,6 +171,10 @@ wait_seconds=60)`, then `get_output_text` on the result, and
 plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
 minutes; it runs in a few seconds.
 
+To take the project home, call `export_job` once per job of the project (each
+episode, and the cast run), then fetch each zip's `open_url` and unpack it into
+`exports/` under the working directory (per its `next`).
+
 ## Sources
 
 `workflows/templates/assemble-and-score.json`, `dw/tasks/audio_utils.py`

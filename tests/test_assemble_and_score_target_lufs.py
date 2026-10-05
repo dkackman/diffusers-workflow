@@ -124,3 +124,15 @@ def test_the_description_places_the_limit_ceiling_on_the_mix_not_the_film():
     description = load_definition()["description"]
     assert "holds on the mix 'balanced' writes, not on the film" in description
     assert "about 1 dB above it" in description
+
+
+def test_edit_join_gets_template_sample_rate():
+    """#594: the edit join resampled mixed-rate shots to its own 48 kHz default
+    and warned the caller to pass sample_rate, which the template never
+    threaded through."""
+    from dw.variables import replace_variables, resolve_variable_values
+
+    definition = load_definition()
+    merged = resolve_variable_values({**definition["variables"], "sample_rate": 32000})
+    edit = steps_by_name(replace_variables(definition, merged))["edit"]
+    assert edit["task"]["arguments"]["sample_rate"] == 32000

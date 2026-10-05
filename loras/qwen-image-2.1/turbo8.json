@@ -1,0 +1,23 @@
+{
+  "model_name": "chriswritescode/Turbo8-LoRA-Qwen-Image-2.1",
+  "weight_name": "turbo8_lora_step2500.safetensors",
+  "revision": "611a3f86d0cc53d21a1a09d07ea7dc82df3d68a1",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "8-step DMD2 distill covering text-to-image, editing (up to 10 references) and RGBA. 8 steps, cfg 1, scheduler shift_terminal null. For RGBA: 'This is an RGBA image with transparency. {description}. The image has alpha channel and the background is transparent.'",
+  "use_when": "Fast Qwen-Image-2.1 generation, edits or RGBA output in 8 steps",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "speed",
+    "turbo",
+    "distill",
+    "edit",
+    "rgba"
+  ]
+}

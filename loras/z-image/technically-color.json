@@ -1,0 +1,23 @@
+{
+  "model_name": "renderartist/Technically-Color-Z-Image-Turbo",
+  "weight_name": "Technically_Color_Z_Image_Turbo_v1_renderartist_2000.safetensors",
+  "revision": "193838d6d10d552514d51105fa1c07e4a7bbd7e6",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Classic three-strip Technicolor film look. The author's examples use a two-pass workflow",
+  "use_when": "A vintage Technicolor film look",
+  "trigger": "t3chnic4lly",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "film",
+    "color",
+    "vintage"
+  ]
+}

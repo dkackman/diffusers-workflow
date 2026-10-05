@@ -7,6 +7,63 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.9.0
+
+<!-- Drafted from v0.8.0..dd74e17b (develop). Paste into the GitHub release body once the tag has published: gh release edit v0.9.0 --notes-file ... -->
+
+A smaller range than 0.8.0: the LoRA catalog grows to cover three more
+bases, the cost planner is corrected for list-driven and `for_each` steps,
+and `export_job` reports its zip's real auth gating. No upgrade-order
+changes.
+
+**LoRA catalog** (docs/LORAS.md)
+
+- 11 LTX-2.5 entries added: IC-LoRAs for alpha generation, clean plate,
+  colorization, day-to-night, layout-to-render, detail refinement,
+  restoration, SDR-to-HDR and water simulation, plus cinemagraph and
+  slow-motion control.
+- MiniMax-H3 goes to 13 trial and 3 rejected entries beyond the 0.8.0 set:
+  styles, speech, orbits, action and motion, and a diffusers-native 4-step
+  turbo. FastVideo FastH3 (`.diff` keys), RAVEN (unrecognised prefix, loads
+  nothing silently) and TaoMate (lowercase `lora_a`/`lora_b`) are rejected.
+- New bases: Qwen-Image-2.1 (10 trial, including three few-step distills
+  that need their scheduler and sigma overrides, plus edit LoRAs; Fun-Acc
+  rejected) and Z-Image-Turbo (13 trial). The Z-Image entries match
+  `Tongyi-MAI/Z-Image-Turbo` only; whether they apply to the SDNQ
+  checkpoint is untested.
+- Every new entry pins the repo's current sha, and its header was read
+  against the installed diffusers converter.
+
+**Cost planning**
+
+- `other_device` figures are re-priced for `for_each` counts and shifted
+  list drivers (#589, #590).
+- A shifted per-entry field in a list driver resets to unknown, and a
+  summed child figure takes the children's basis (#593). A numeric string
+  in a list-driver entry compares as its number (#593).
+- Measured MPS cost entries for `templates/ltx2/text-to-video` and Music 3
+  (#590).
+
+**Fixes**
+
+- `assemble-and-score` threads `sample_rate` into its edit join, and mixed-rate
+  shots resampled to a pinned `sample_rate` no longer draw a warning advising
+  you to pass it (#594).
+- `export_job` reports the zip's real gating: `/exports/*.zip` is ungated
+  like `/outputs`, so `auth_required` is false whether or not the server has
+  a token. The MCP `next` text and the skills now say to fetch `open_url` and
+  unpack into `exports/` to bring a project home (#595, #592).
+
+**Plugin**
+
+- The `ltx-2.5`, `minimax-h3` and `minimax-music3` skills moved
+  request-specific detail (the LTX caption spec, H3 checkpoint and LoRA
+  combinations and cuts recipes, Music 3 loudness) into `references/`
+  beside each `SKILL.md`, which are read when the skill points there. The
+  12 KiB cap applies to `SKILL.md` alone; a new test fails on an unlinked
+  reference or a dead link.
+- The H3 and LTX skills point at `list_loras`.
+
 ### 0.8.0
 
 <!-- Drafted from v0.7.0..a9e1e72b (develop). Paste into the GitHub release body once the tag has published: gh release edit v0.8.0 --notes-file ... -->
@@ -38,6 +95,9 @@ upscaler and two security fixes.
 - GHSA-crqf-hw9p-r739: `create_workspace`'s MCP result is `name`,
   `default`, `current` and `next` only; `list_workspaces(detail=true)` is
   the opt-in for folder paths. `POST /api/workspaces` is unchanged.
+- `GET /api/loras/recommend` and `recommend_loras`: `hub_error` names the
+  exception type, or the HTTP status, never the exception's text, which
+  could name the server's HF cache directory. The log keeps the full error.
 - UI lockfile bumps for open Dependabot alerts (devalue, dompurify,
   brace-expansion, undici).
 

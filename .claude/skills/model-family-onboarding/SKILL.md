@@ -111,7 +111,11 @@ triggering; call `get_server_info` and a shape-filtered `list_workflows`
 before trusting any name; the shape decision as choices; the hard numeric
 rules; the vendor pointer for prompts and nothing else; validate, quote cost,
 run, look, and the family's failure modes; sources with dates. Near the size
-of the README it derives from, under the 12 KB cap.
+of the README it derives from, `SKILL.md` under the 12 KB cap. What only some
+requests need (a long vendor spec, a multi-shot recipe, checkpoint swaps) goes
+in `references/<topic>.md` beside it, named by path at the point an agent
+needs it; the tests read references as part of the skill and fail on a
+reference no `SKILL.md` links.
 
 Add the family's numbers to `tests/test_plugin_skills.py`, each checked
 against the diffusers module that enforces it, and any quoted vendor text to

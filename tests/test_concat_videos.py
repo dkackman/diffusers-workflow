@@ -643,6 +643,23 @@ class TestWarningsReachTheCaller:
         assert "resampling them all to 200 Hz" in warnings[0]["message"]
         assert "resample_audio" in warnings[0]["message"]
 
+    def test_mixed_rates_resampled_to_a_pinned_rate_draw_no_warning(self):
+        """#594: a pinned sample_rate is the target; no advice to pass it."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            result = concat_videos(
+                [audio_video(8, 0.5), audio_video(8, 0.5, sample_rate=200)],
+                sample_rate=150,
+            )
+        finally:
+            deactivate_context(token)
+
+        assert result.sample_rate == 150
+        assert [e for e in events if e.get("event") == "warning"] == []
+
     def test_agreeing_rates_resampled_to_a_pinned_rate_draw_no_warning(self):
         """#453: inputs that agree, converted to the rate the caller pinned,
         are not 'videos at different sample rates'."""

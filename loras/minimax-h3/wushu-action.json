@@ -1,0 +1,30 @@
+{
+  "model_name": "Jojocodex/wushu-action-v7-minimax-h3-fl2va-ref2va-lora",
+  "weight_name": "wushu_action_v7_fl2va_aitoolkit_adaln_full-int8convrot_bf16te_2000step.safetensors",
+  "revision": "1aab496db1c70df44b3edb2cf4e90d8ae3c5b26d",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Wushu / martial-arts fight choreography; the card's Chinese move vocabulary steers the moves. The trigger must start the prompt. Lower toward 0.6-0.8 if bodies or weapons break; soft at low step counts. Stacks with motion-repair. musubi format, r32",
+  "use_when": "A martial-arts fight scene",
+  "trigger": "wushu_action",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.6,
+      1.0
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "action",
+    "fight",
+    "martial-arts",
+    "motion"
+  ]
+}

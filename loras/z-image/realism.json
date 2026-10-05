@@ -1,0 +1,21 @@
+{
+  "model_name": "suayptalha/Z-Image-Turbo-Realism-LoRA",
+  "weight_name": "pytorch_lora_weights.safetensors",
+  "revision": "8dc179cb56844d4ddc6e4527c30e98347eeae971",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Photo realism, trained on the cc12m-4mp-realistic subset. Prefix the prompt with the trigger. Scale not stated; r16",
+  "use_when": "A more photographic look",
+  "trigger": "Realism, ",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "realism",
+    "photo"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "model_name": "KennethFal/vh5tape-vhs-lora-minimax-h3",
+  "weight_name": "vh5tape.safetensors",
+  "revision": "d25a4ab75aba899aa508220321525c8465ac11af",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Worn 1980s VHS tape look, picture and soundtrack both. The trigger goes first, then a damage phrase from the card (light / medium / heavy). fal-trainer format, attention only - the proven realism-people format. vh5tape-comfyui.safetensors in the same repo is the same weights with alpha scalars",
+  "use_when": "Make a clip look and sound like a worn VHS tape",
+  "trigger": "vh5tape",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.7,
+      1.5
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "style",
+    "vhs",
+    "vintage",
+    "audio"
+  ]
+}

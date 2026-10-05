@@ -1,0 +1,23 @@
+{
+  "model_name": "AlekseyCalvin/HistoricColor_Z-image-Turbo-LoRA",
+  "weight_name": "ZImage1HST.safetensors",
+  "revision": "c4f2cb7bfd1df640522cc4d5c5ed9fe061de6d61",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "1900s-1910s early colour photography in the Prokudin-Gorsky manner. The final file of the repo's checkpoints; scale not stated",
+  "use_when": "An early-1900s colour photograph",
+  "trigger": "HST photo",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "photo",
+    "vintage",
+    "historic"
+  ]
+}

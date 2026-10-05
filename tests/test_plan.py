@@ -365,14 +365,42 @@ class TestEstimate:
         answer = plan(spec, arguments=arguments)["estimate"]
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
 
-    def test_another_devices_figure_is_not_extrapolated(self, plan):
-        """`other_device` already says the figure is not this machine's -
-        re-pricing it would dress a guess as arithmetic."""
+    def test_another_devices_figure_is_re_priced_for_the_list(self, plan):
+        """#589: a 2-shot figure from another backend quoted verbatim for a
+        10-shot run was the 1/100 gate. It stays `other_device` - not a
+        measurement here - but the entry count multiplies."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
         answer = plan(spec, arguments={"shots": shots})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (40.0, "other_device")
+        assert (answer["minutes"], answer["basis"]) == (200.0, "other_device")
+
+    def test_another_devices_per_entry_rate_prices_the_list(self, plan):
+        spec = definition()
+        spec["cost"] = [
+            cost("mps", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(5)]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (19.0, "other_device")
+
+    def test_another_devices_figure_with_two_changed_lists_is_unknown(self, plan):
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
+        spec["variables"]["angles"] = [{"name": "wide"}]
+        spec["steps"].append(
+            {
+                "name": "angle",
+                "for_each": "variable:angles",
+                "task": {"command": "x", "arguments": {"name": "item:name"}},
+            }
+        )
+        arguments = {
+            "shots": [{"name": f"s{n}", "prompt": "x"} for n in range(4)],
+            "angles": [{"name": "wide"}, {"name": "tight"}],
+        }
+        answer = plan(spec, arguments=arguments)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
 
     def test_minutes_is_rounded_to_one_decimal(self, plan):
         spec = definition()
@@ -385,6 +413,15 @@ class TestEstimate:
         describing the run the figure was measured for, and `_repriced`
         only re-prices a for_each list's length, not a bare variable (#267)."""
         spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(spec, arguments={"frames": 9})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+
+    def test_a_shifted_scalar_driver_is_unknown_on_another_device_too(self, plan):
+        """#589: the other_device branch skipped the #267 check, so a 241-frame
+        run was quoted the 121-frame clip's figure."""
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
@@ -406,6 +443,35 @@ class TestEstimate:
         shots = [{"name": f"s{n}", "prompt": "x"} for n in range(10)]
         answer = plan(spec, arguments={"shots": shots})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
+
+    def test_a_shifted_per_entry_field_in_a_list_driver_is_unknown(self, plan):
+        """#593: a per-shot num_frames outside the values the default entries
+        were measured with has no matching bucket, same as a scalar (#267)."""
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "p", "num_frames": 124},
+            {"name": "b", "prompt": "p", "num_frames": 141},
+        ]
+        same = [
+            {"name": "x", "prompt": "p", "num_frames": 124},
+            {"name": "y", "prompt": "p", "num_frames": 124},
+        ]
+        long = [
+            {"name": "x", "prompt": "p", "num_frames": 243},
+            {"name": "y", "prompt": "p", "num_frames": 243},
+        ]
+        kept = plan(spec, arguments={"shots": same})["estimate"]
+        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        moved = plan(spec, arguments={"shots": long})["estimate"]
+        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        as_text = [dict(entry, num_frames=str(entry["num_frames"])) for entry in long]
+        moved = plan(spec, arguments={"shots": as_text})["estimate"]
+        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        same_text = [dict(entry, num_frames="124") for entry in same]
+        kept = plan(spec, arguments={"shots": same_text})["estimate"]
+        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
 
     def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
         """Only a declared cost_driver triggers the fallback - any other
@@ -579,6 +645,17 @@ class TestSubWorkflowEstimate:
         answer = plan(composing("child.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (7.0, False)
         assert answer["unpriced"] == []
+
+    def test_a_number_never_carries_the_unknown_basis(self, plan, tmp_path):
+        """#593: an uncosted parent that only composes priced children sums
+        to a figure, which takes the children's basis rather than `unknown`."""
+        child = {"id": "child", "cost": [cost("cuda", 5)], "steps": []}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = composing("child.json")
+        del parent["cost"]
+        parent["steps"] = parent["steps"][1:]
+        answer = plan(parent)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (5.0, "catalog")
 
     def test_a_child_without_a_cost_makes_the_estimate_partial(self, plan, tmp_path):
         (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))

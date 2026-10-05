@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen",
+  "weight_name": "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors",
+  "revision": "6184df14b1b560bf9b6447d3ee126bd7e4a88513",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that generates an alpha matte from an RGB clip - no green screen, mask or prompt; handles hair, smoke, fire and glass. The RGB clip is the reference video; the prompt must be empty. Output is a grayscale matte video (white foreground) aligned frame-for-frame, to be combined with the source RGB for compositing. A 0.9 preview weight; up to 145 frames (8n+1) at up to 1920x1088, stage-1 only at native size",
+  "use_when": "Pull a matte to cut a subject out of a clip for compositing",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "matte",
+    "alpha",
+    "compositing"
+  ]
+}

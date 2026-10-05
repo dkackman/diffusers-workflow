@@ -1,0 +1,26 @@
+{
+  "model_name": "TaoLiveAIGC/TaoMate-H3",
+  "weight_name": "adapter_model.safetensors",
+  "revision": "7d7a51f3e63972138882ec2f0e4d1d47728110cf",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": null,
+  "description": "3-step streaming text-to-video for the TaoMate runtime; lowercase lora_a/lora_b keys the converter refuses",
+  "use_when": "Do not use under dw",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "rejected",
+  "evidence": [
+    {
+      "note": "Lowercase .lora_a/.lora_b keys are left over by diffusers' MiniMax-H3 converter (state_dict should be empty); it also needs the TaoMate streaming runtime"
+    }
+  ],
+  "license": "other",
+  "tags": [
+    "rejected",
+    "streaming",
+    "speed"
+  ]
+}

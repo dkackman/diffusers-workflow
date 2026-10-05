@@ -1,0 +1,21 @@
+{
+  "model_name": "ThakiCloud/Qwen-Image-2.1-FewStep-v0.1",
+  "weight_name": "qif_qwen_image_2.1_8step_v0.1.safetensors",
+  "revision": "82327fb112551eba6ccd5f54e6d0779105452c66",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "8-step DMD2 distill, text-to-image only (editing unverified). Scheduler use_dynamic_shifting false, shift 1.0, shift_terminal null; sigmas [1, 14/15, 6/7, 10/13, 2/3, 6/11, 0.4, 2/9]; cfg 1; trained at 1024x1024 only. The repo's qif_..._5step file is the 5-step variant, sigmas [1, 0.94, 6/7, 2/3, 0.4]",
+  "use_when": "Fast Qwen-Image-2.1 text-to-image in 8 steps",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "speed",
+    "turbo",
+    "distill"
+  ]
+}

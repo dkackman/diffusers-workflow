@@ -48,6 +48,11 @@ responses add an `absolute_url` / `absolute_zip_url` built from it; nothing
 guesses this from request headers, so an unconfigured server omits the
 field rather than composing a wrong origin.
 
+The export zip, like `/outputs` and `/inputs` files, needs no token (#592), so
+an agent with HTTP fetches `export_job`'s `open_url` itself, prefixing a
+relative one with the address it reaches the server at; `DW_PUBLIC_URL` is for
+the URLs handed to a person.
+
 ## Browser
 
 Open `http://<box>:8765`. Click the key icon next to the theme toggle,

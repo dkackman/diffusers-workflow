@@ -1,0 +1,29 @@
+{
+  "model_name": "vpakarinen/natural-face-speech-h3-lora",
+  "weight_name": "natural_face_speech_h3_lora_v2_500.safetensors",
+  "revision": "3349b1f21fa5ca597d364aaa038c29dcec765b85",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Facial muscle dynamics and clear lip-synced English speech. No trigger; the card's prompts follow '... speaking into a mic ... saying: '...''. ai-toolkit format, attention and MLP, r32, v2 at 500 steps",
+  "use_when": "A character speaking a line on camera",
+  "scale": {
+    "default": 0.7,
+    "range": [
+      0.6,
+      0.8
+    ]
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "speech",
+    "dialogue",
+    "face",
+    "lip-sync"
+  ]
+}

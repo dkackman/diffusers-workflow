@@ -87,6 +87,13 @@ remaining deferred fix is recorded in
   soft in the faces. Record, including what was deferred (the refine pass,
   persisted latents, task weights in `downloads_required`):
   `complete/h3-latent-upscale-complete.md`.
+- **Bulk download of a job's outputs** (#592, stage #595), shipped
+  2026-10-05 with no new tool: `export_job` now reports the ungated
+  `/exports` zip as `auth_required: false` on a token server and tells the
+  agent to fetch it, and the multi-job skills name it as how a project goes
+  home. Record, including what was deferred (a multi-job bundle, an
+  outputs-only zip, removing an export over MCP):
+  `complete/job-export-bulk-download-complete.md`.
 
 ## Declined
 

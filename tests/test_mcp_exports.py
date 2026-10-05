@@ -106,9 +106,10 @@ def test_the_next_hint_sends_the_zip_to_the_working_directory():
 
 
 def test_auth_required_tells_the_agent_to_hand_the_zip_to_a_person():
-    """#353: when the server gates the zip with a bearer token, this agent
-    has no way to attach one to a fetch made on the person's behalf - the
-    hint has to say hand it over, not fetch it."""
+    """#353, kept as a forward guard by #592: the server reports false
+    today, but if the zip is ever gated this agent has no way to attach the
+    token to a fetch made on the person's behalf - the hint has to say hand
+    it over, not fetch it."""
     client, _ = exporting(body={**SUMMARY, "auth_required": True})
 
     result = exports.export_job(client, "job-1")
@@ -135,7 +136,9 @@ def test_an_absolute_open_url_is_preferred_and_said_to_be_absolute():
     assert "already absolute" in result["next"]
 
 
-def test_no_auth_required_still_fetches_the_zip_itself():
+def test_no_auth_required_fetches_the_zip_itself():
+    """#592: the zip is ungated, so the server reports false and the hint
+    says fetch and unpack - not hand it over, which is the gated branch."""
     client, _ = exporting(body={**SUMMARY, "auth_required": False})
 
     result = exports.export_job(client, "job-1")
@@ -143,6 +146,10 @@ def test_no_auth_required_still_fetches_the_zip_itself():
     assert result["auth_required"] is False
     assert result["open_url"] == "/exports/job-1.zip"
     assert "fetch open_url" in result["next"]
+    assert "needs no token" in result["next"]
+    assert "exports/" in result["next"]
+    assert "hand open_url to the person" not in result["next"]
+    assert "do not fetch it" not in result["next"]
 
 
 def test_absolute_zip_url_is_omitted_rather_than_null_when_unconfigured():

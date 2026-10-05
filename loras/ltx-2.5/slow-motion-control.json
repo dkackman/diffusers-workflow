@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-LoRA-Slow-Motion-Control",
+  "weight_name": "ltx-2.5-22b-lora-slow-motion-control-1.0.safetensors",
+  "revision": "c7a014b985023874de6000fc791b959dbd46a0a8",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Plain LoRA for high-speed-camera slow motion without smearing. Speed is set by frame rate alone: the pipeline's frame_rate is the motion fps (24 / speed, speed 1.0 down to 0.025) while the file is saved at 24 fps. Unverified under dw: frame_rate also sets the audio length, so the soundtrack will not match. Regular captions, identical across speeds, no speed wording. Trained at 1920x1088, 121 frames; width and height divisible by 64",
+  "use_when": "Generate a clip in true slow motion",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "slow-motion",
+    "speed",
+    "motion"
+  ]
+}

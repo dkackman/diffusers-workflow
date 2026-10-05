@@ -1,0 +1,26 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Colorization",
+  "weight_name": "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors",
+  "revision": "a2b3d526bfe3b251ba61cdfbf93deb51eb607198",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that restores natural colour to grayscale or desaturated footage, keeping subject, composition and motion. The monochrome clip is the reference video at 1x output size. Prompt in the trained dual-panel form: 'Reference shows ... Edited shows the same scene with natural colors restored. COLORIZE ... only color information differs.' A 0.9 preview weight trained at 960x544, 121 frames @ 24 fps; far above that size weakens it; lower toward 0.8 if it oversaturates",
+  "use_when": "Colorize a black-and-white or washed-out clip",
+  "trigger": "COLORIZE",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      0.8,
+      1.0
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "restore",
+    "color",
+    "edit"
+  ]
+}

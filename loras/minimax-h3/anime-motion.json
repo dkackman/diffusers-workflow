@@ -1,0 +1,22 @@
+{
+  "model_name": "prithivMLmods/MiniMax-H3-I2V-Anime-Motion-LoRA",
+  "weight_name": "MiniMax-H3-I2V-Anime-Motion-LoRA-1400.safetensors",
+  "revision": "ca20427ab7488b80fc3a14363561431e27a8f974",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "fl2va",
+  "description": "Subtle looping anime motion for animating an anime still from its first frame. DiffSynth format covering blocks 25-49 only, r16; experimental, scale not stated",
+  "use_when": "Animate an anime still with subtle motion",
+  "trigger": "Anime-Motion:",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "anime",
+    "motion",
+    "image-to-video"
+  ]
+}

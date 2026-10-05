@@ -455,11 +455,13 @@ def export_job_route(
     absolute_zip_url = absolute_served_url(zip_path, ws)
     if absolute_zip_url is not None:
         body["absolute_zip_url"] = absolute_zip_url
-    # Same rule get_server_info's field states (#353): whether the zip
-    # URL above needs a bearer token an MCP-only agent has no way to
-    # attach itself, which is what tells the caller whether to fetch it
-    # or hand it to the person.
-    body["auth_required"] = bool(state.api_token)
+    # Whether the zip URL above needs a bearer token (#353, #592) - a
+    # property of the route, not of whether this server has a token. The
+    # auth middleware covers /api/ and /mcp only, and /exports/*.zip sits
+    # with /outputs and /inputs on dw/server/routes/files.py's ungated
+    # list, so it is false. export_job's `next` keeps its hand-it-over
+    # branch for the day /exports is gated.
+    body["auth_required"] = False
     for key, name in (
         ("workflow", "workflow.json"),
         ("manifest", "manifest.json"),

@@ -1,0 +1,24 @@
+{
+  "model_name": "InstantX/MiniMax-H3-Turbo-Lora-Diffusers",
+  "weight_name": "minimax_h3_turbo_4step_ckpt500_diffusers.safetensors",
+  "revision": "d290a021e3c927b9396f3d20fc8de4a567c603dd",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "larryvrh's 4-step turbo in native diffusers format (transformer.-prefixed, adaln and norm_out included). num_inference_steps 5 (4 evaluations). The card calls it an under-trained prototype; an alternative to the proven lightx2v turbo-4step-keyframe, not a replacement. Needs the unpruned transformer",
+  "use_when": "A 4-step keyframe render, as an alternative to turbo-4step-keyframe",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "speed",
+    "turbo",
+    "distill"
+  ]
+}

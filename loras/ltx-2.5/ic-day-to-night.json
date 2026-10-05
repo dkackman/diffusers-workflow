@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Day-To-Night",
+  "weight_name": "ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors",
+  "revision": "52aac758c153f9a74a6f6fe08cf92d2167f3c184",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that relights a daytime clip as night, keeping the composition, camera move and subject motion. The day clip is the reference video at 1x output size; the prompt steers the night look (moonlight, shadows, colour temperature). A 0.9 preview weight trained at 768x448 / 448x768, 97 frames @ 24 fps; re-encode the reference to 24 fps first",
+  "use_when": "Turn a daytime shot into the same shot at night",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "relight",
+    "night",
+    "edit"
+  ]
+}

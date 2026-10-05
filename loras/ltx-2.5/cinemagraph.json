@@ -1,0 +1,26 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-LoRA-Cinemagraph",
+  "weight_name": "ltx-2.5-22b-lora-cinemagraph-0.9.safetensors",
+  "revision": "8e5e88efcf59ff0efa6f9dcf7164c7a7d72c4022",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "Plain image-to-video LoRA that animates a still into a looping cinemagraph - one element moves (water, light), the rest stays frozen. Prompt for a locked-off camera, what stays frozen, what moves and a seamless loop. A 0.9 preview weight trained at 512x704, 25 frames on static-camera footage with no moving people; the card recommends STG scale 1.0 on block 29",
+  "use_when": "Animate a still image into a looping cinemagraph",
+  "trigger": "CINEMAGRAPH_MOTION",
+  "scale": {
+    "default": 1.0,
+    "range": [
+      1.0,
+      1.2
+    ]
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "cinemagraph",
+    "loop",
+    "image-to-video"
+  ]
+}

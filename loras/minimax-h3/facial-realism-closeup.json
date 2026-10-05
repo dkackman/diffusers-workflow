@@ -1,0 +1,25 @@
+{
+  "model_name": "prithivMLmods/MiniMax-H3-Facial-Realism-CloseUp",
+  "weight_name": "minimax-h3-facial-realism-closeup-cp2000.safetensors",
+  "revision": "c89656bd0cb71873133dd2c7a925f306a21c633c",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Close-up facial micro-expression realism. DiffSynth format covering blocks 25-49 only, r16 - a format not yet run here. Overlaps realism-people; the card's samples ran a 4-6 step turbo, scale not stated",
+  "use_when": "A close-up of a face that needs realistic micro-expressions",
+  "trigger": "Facial Realism:",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "realism",
+    "face",
+    "close-up"
+  ]
+}

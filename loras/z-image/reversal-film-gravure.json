@@ -1,0 +1,23 @@
+{
+  "model_name": "AIImageStudio/ReversalFilmGravure_z_Image_turbo",
+  "weight_name": "z_image_turbo_ReversalFilmGravure_v1.0.safetensors",
+  "revision": "f38c6abc8b9399ad43aaea75681629c1dfd23e4d",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Slide-film portrait look: more contrast, less noise. The card samples with euler / sgm_uniform",
+  "use_when": "A slide-film photographic portrait",
+  "trigger": "Reversal Film Gravure, analog film photography",
+  "scale": {
+    "default": 0.5
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "film",
+    "photo",
+    "portrait"
+  ]
+}

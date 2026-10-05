@@ -1,0 +1,22 @@
+{
+  "model_name": "ML-Intern-lab/Qwen-Image-2.1-doodle-in-LoRA",
+  "weight_name": "doodle_in_lora_qwen21_gate_up_split.safetensors",
+  "revision": "cd3fe4d2d568d7224e18d06a732c3b49e55defad",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: turns a magenta (255,0,255) scribble 3-7 px wide on a photo into the described object. Prompt '<doodle> Turn the magenta scribble into {caption}.'; 40 steps, cfg 1. Best stacked with viggle-turbo (both 1.0, 6 steps) - alone it only matches the base. Use this gate_up-split file: the repo's other files keep img_mlp.gate_up fused, which diffusers drops",
+  "use_when": "Add an object to a photo where a magenta scribble is drawn",
+  "trigger": "<doodle>",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "insert",
+    "scribble"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "model_name": "ostris/z_image_turbo_childrens_drawings",
+  "weight_name": "z_image_turbo_childrens_drawings.safetensors",
+  "revision": "7fcd66a99149c58741990fca28562a4a581af7a9",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Makes any prompt look like a child's drawing. No trigger, scale not stated; ostris's tutorial LoRA",
+  "use_when": "A picture that looks drawn by a child",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "style",
+    "drawing",
+    "naive"
+  ]
+}

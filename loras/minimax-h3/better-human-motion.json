@@ -1,0 +1,28 @@
+{
+  "model_name": "vpakarinen/better-human-motion-h3-lora",
+  "weight_name": "better_motion_h3_lora_v1_500.safetensors",
+  "revision": "659eba44ffc9f1c7563ebd2a848a2447432e89c5",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "More realistic human motion and temporal consistency. No trigger. ai-toolkit format, attention and MLP, r32; 500 steps, thin card",
+  "use_when": "People moving unnaturally or inconsistently",
+  "scale": {
+    "default": 0.6,
+    "range": [
+      0.4,
+      0.8
+    ]
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "motion",
+    "people",
+    "quality"
+  ]
+}

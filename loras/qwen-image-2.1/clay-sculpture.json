@@ -1,0 +1,22 @@
+{
+  "model_name": "prithivMLmods/Qwen-Image-2.1-Clay-Sculpture-Style",
+  "weight_name": "Qwen-Image-2.1-Clay-Sculpture-Style-3000.safetensors",
+  "revision": "0168d4806d9c5f0fc3067ed24c56df8fa2a8dca2",
+  "base_models": [
+    "Qwen/Qwen-Image-2.1"
+  ],
+  "workflow": null,
+  "description": "Edit: restyles an image as a clay sculpture. The latest of the repo's 1000/2000/3000 checkpoints; the card names none",
+  "use_when": "Restyle an image as a clay sculpture",
+  "trigger": "Transform the image into a clay sculpture style",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "edit",
+    "style",
+    "clay"
+  ]
+}

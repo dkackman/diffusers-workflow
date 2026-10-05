@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate",
+  "weight_name": "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors",
+  "revision": "5403b2b77e9994e0ae2e549e9933d06c9e8df26f",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that removes people and vehicles from a clip and keeps the static background - a clean plate. The original clip is the reference video; no mask. Describe the empty scene rather than giving removal commands, and name what to remove in the negative prompt too. Trained at 1024x576 / 576x1024, 49 frames @ 25 fps. The reference needs an audio track (add a silent one); works for partial or edge occluders, not a subject filling the frame",
+  "use_when": "Remove passers-by or vehicles to get an empty background plate",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "remove",
+    "clean-plate",
+    "edit"
+  ]
+}

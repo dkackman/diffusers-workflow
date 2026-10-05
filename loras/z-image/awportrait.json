@@ -1,0 +1,21 @@
+{
+  "model_name": "Shakker-Labs/AWPortrait-Z",
+  "weight_name": "AWPortrait-Z.safetensors",
+  "revision": "9f264c4784cf3a9be4ba4769b9bb516d84905365",
+  "base_models": [
+    "Tongyi-MAI/Z-Image-Turbo"
+  ],
+  "workflow": null,
+  "description": "Portrait quality: removes Turbo's skin grain, tones down the excess HDR, widens face diversity. No trigger, scale not stated; r128",
+  "use_when": "Portraits with cleaner skin and more natural tone",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "apache-2.0",
+  "tags": [
+    "portrait",
+    "quality",
+    "realism"
+  ]
+}

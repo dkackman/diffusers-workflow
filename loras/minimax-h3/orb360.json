@@ -1,0 +1,23 @@
+{
+  "model_name": "MATLOWAI/MiniMax-H3-ORB360-CardSpin",
+  "weight_name": "minimax_h3_orb360_step1500.safetensors",
+  "revision": "de8aa4db6f9a0d949855f3dc62948ffc691aa6ce",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "ref2va",
+  "description": "Clockwise 360-degree camera orbit around a frozen subject from 1-4 reference photos. Use the structured Ref2VA prompts in the repo's prompts/*.txt verbatim - their timestamps assume 124 frames; about 20 steps. Trained on the adaln-pruned base but carries no adaln keys, so it loads on the full one; quality there is unproven. The repo's cardspin_v2 file (trigger ORB360_CARDSPIN) spins the photo like a card instead",
+  "use_when": "Orbit the camera all the way round a subject from reference photos",
+  "trigger": "ORB360_CW",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "camera",
+    "orbit",
+    "360",
+    "reference"
+  ]
+}

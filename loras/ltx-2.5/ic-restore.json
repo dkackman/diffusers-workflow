@@ -1,0 +1,21 @@
+{
+  "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Restore",
+  "weight_name": "ltx-2.5-22b-ic-lora-restore-1.0.safetensors",
+  "revision": "ed04134f5512bca3f7f36118d36737da09569c35",
+  "base_models": [
+    "Lightricks/LTX-2.5-Diffusers"
+  ],
+  "workflow": null,
+  "description": "IC-LoRA that restores archive footage - compression damage, tape and sepia casts, flicker, dirt, scratches - and colorizes it as a clean modern capture. The archive clip is the reference video; describe period, place, lighting and materials, and use the negative prompt against modern objects. Trained at 960x544, 49 or 97 frames @ 24 fps on the distilled transformer; deinterlace first. Scale is a switch: below 0.7 it does nothing. The card runs it tiled at 960x544, which dw does not do. Broader than restore-deblur / restore-decompression, which each invert one defect",
+  "use_when": "Restore and colorize old archive or tape footage",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "license": "other",
+  "tags": [
+    "restore",
+    "archive",
+    "color"
+  ]
+}
