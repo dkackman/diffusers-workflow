@@ -340,6 +340,33 @@ def _driver_comparable(value):
     return json.dumps(value, sort_keys=True, default=str)
 
 
+def _numeric_fields(entries):
+    """{field: {values}} over the numeric fields of a list's dict entries."""
+    fields = {}
+    if not isinstance(entries, list):
+        return fields
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for key, value in entry.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                fields.setdefault(key, set()).add(float(value))
+    return fields
+
+
+def _list_entry_field_shifted(default_entries, effective_entries):
+    """Whether a list driver's entries carry a numeric field (a per-shot
+    `num_frames`, say) with a value none of the default entries had. The
+    curated figure was measured over the default entries' values, so a value
+    outside them has no matching bucket - the #267 rule applied inside a
+    list driver (#593)."""
+    measured = _numeric_fields(default_entries)
+    for field, values in _numeric_fields(effective_entries).items():
+        if field in measured and not values <= measured[field]:
+            return True
+    return False
+
+
 def _scalar_driver_shifted(definition, expanded, list_entries):
     """Whether a declared, non-list `cost_driver` was overridden away from
     the default value the curated `cost` was measured against (#267).
@@ -352,10 +379,12 @@ def _scalar_driver_shifted(definition, expanded, list_entries):
     defaults = definition.get("variables") or {}
     effective = expanded.get("variables") or {}
     for name in _declared_drivers(definition):
-        if name in list_entries:
-            continue
         default_value = defaults.get(name)
         if isinstance(default_value, list):
+            if _list_entry_field_shifted(default_value, effective.get(name)):
+                return True
+            continue
+        if name in list_entries:
             continue
         if _driver_comparable(effective.get(name)) != _driver_comparable(default_value):
             return True
@@ -458,6 +487,7 @@ class _ChildTotals:
         self.all_observed = True
         self.runs = []
         self.measured_on = set()
+        self.bases = []
 
     def add(self, path, child, observed):
         self.had_child = True
@@ -469,7 +499,9 @@ class _ChildTotals:
         if child["minutes"] is None:
             self.partial = True
             self.unpriced.append(path)
-        elif self.minutes is not None:
+            return
+        self.bases.append((child["basis"], child.get("measured_on")))
+        if self.minutes is not None:
             self.minutes += child["minutes"]
         else:
             self.minutes = child["minutes"]
@@ -509,6 +541,20 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
         top_measured_on = (
             next(iter(totals.measured_on)) if len(totals.measured_on) == 1 else None
         )
+    if top_basis == UNKNOWN and minutes is not None and totals.bases:
+        # A number must not carry the basis a caller reads as "no number":
+        # the parent has no cost of its own, but its priced children do, so
+        # the sum takes their basis (#593)
+        kinds = {basis for basis, _ in totals.bases}
+        if OTHER_DEVICE in kinds:
+            top_basis = OTHER_DEVICE
+        elif kinds == {CATALOG}:
+            top_basis = CATALOG
+        else:
+            top_basis = DERIVED
+        devices = {on for _, on in totals.bases}
+        if len(devices) == 1:
+            top_measured_on = next(iter(devices))
     rounded = round(minutes, 1) if minutes is not None else None
     result = {
         "minutes": rounded,

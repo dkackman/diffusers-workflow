@@ -444,6 +444,23 @@ class TestEstimate:
         answer = plan(spec, arguments={"shots": shots})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
 
+    def test_a_shifted_per_entry_field_in_a_list_driver_is_unknown(self, plan):
+        """#593: a per-shot num_frames outside the values the default entries
+        were measured with has no matching bucket, same as a scalar (#267)."""
+        spec = definition()
+        spec["cost"] = [cost("mps", 40, name="M2")]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": "a", "num_frames": 124},
+            {"name": "b", "num_frames": 141},
+        ]
+        same = [{"name": "x", "num_frames": 124}, {"name": "y", "num_frames": 124}]
+        long = [{"name": "x", "num_frames": 243}, {"name": "y", "num_frames": 243}]
+        kept = plan(spec, arguments={"shots": same})["estimate"]
+        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        moved = plan(spec, arguments={"shots": long})["estimate"]
+        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+
     def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
         """Only a declared cost_driver triggers the fallback - any other
         variable overridden away from its default is none of this rule's
@@ -616,6 +633,17 @@ class TestSubWorkflowEstimate:
         answer = plan(composing("child.json"))["estimate"]
         assert (answer["minutes"], answer["partial"]) == (7.0, False)
         assert answer["unpriced"] == []
+
+    def test_a_number_never_carries_the_unknown_basis(self, plan, tmp_path):
+        """#593: an uncosted parent that only composes priced children sums
+        to a figure, which takes the children's basis rather than `unknown`."""
+        child = {"id": "child", "cost": [cost("cuda", 5)], "steps": []}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = composing("child.json")
+        del parent["cost"]
+        parent["steps"] = parent["steps"][1:]
+        answer = plan(parent)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (5.0, "catalog")
 
     def test_a_child_without_a_cost_makes_the_estimate_partial(self, plan, tmp_path):
         (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
