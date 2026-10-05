@@ -32,7 +32,7 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 import logging
 import numbers
 
-from .references import GATHER, MEMBER_SEPARATOR, author_index, is_ref, render_path
+from .references import DEFERRED, GATHER, MEMBER_SEPARATOR, author_index, is_ref, render_path
 
 logger = logging.getLogger("dw")
 
@@ -201,10 +201,19 @@ TASK_ARGUMENT_CHOICES = {
 INGREDIENTS_DEFAULT_MAX_IMAGES = 12
 
 
-def _is_reference(value):
-    """A string that names a reference (`variable:x`, `asset:y`) rather than a
-    literal - run time is the right place to check those."""
-    return isinstance(value, str) and ":" in value and not value.startswith("#")
+def ingredients_background(background):
+    """The RGB tuple for an ingredients_grid `background`, or ValueError worded
+    as the command's refusal. The one parse, shared by the static check and
+    the run."""
+    from PIL import ImageColor
+
+    try:
+        return ImageColor.getrgb(background)
+    except (ValueError, AttributeError):
+        raise ValueError(
+            "ingredients_grid needs 'background' as a colour name or "
+            f"#hex, got {background!r}"
+        )
 
 
 def choice_errors(command, arguments):
@@ -213,7 +222,7 @@ def choice_errors(command, arguments):
     errors = []
     for name, choices in TASK_ARGUMENT_CHOICES.get(command, {}).items():
         value = arguments.get(name)
-        if name not in arguments or _is_reference(value):
+        if name not in arguments or is_ref(DEFERRED, value):
             continue
         if value not in choices:
             errors.append(
@@ -231,19 +240,11 @@ def ingredients_grid_errors(arguments):
     a literal `images` list longer than a literal `max_images`."""
     errors = choice_errors("ingredients_grid", arguments)
     background = arguments.get("background")
-    if isinstance(background, str) and not (_is_reference(background)):
-        from PIL import ImageColor
-
+    if isinstance(background, str) and not is_ref(DEFERRED, background):
         try:
-            ImageColor.getrgb(background)
-        except ValueError:
-            errors.append(
-                (
-                    "background",
-                    "ingredients_grid needs 'background' as a colour name or "
-                    f"#hex, got {background!r}",
-                )
-            )
+            ingredients_background(background)
+        except ValueError as error:
+            errors.append(("background", str(error)))
     images = arguments.get("images")
     limit = arguments.get("max_images", INGREDIENTS_DEFAULT_MAX_IMAGES)
     if isinstance(images, list) and not any(is_ref(GATHER, item) for item in images):

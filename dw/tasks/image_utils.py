@@ -1,12 +1,14 @@
 from itertools import combinations
 
-from PIL import Image, ImageColor, ImageOps
+from PIL import Image, ImageOps
 import numpy as np
 from ..argument_media import fetch_image
 from ..task_domains import (
+    INGREDIENTS_DEFAULT_MAX_IMAGES,
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
     check_arguments,
+    ingredients_background,
 )
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
@@ -808,7 +810,7 @@ def ingredients_grid(
     fit="contain",
     gap=8,
     background="white",
-    max_images=12,
+    max_images=INGREDIENTS_DEFAULT_MAX_IMAGES,
 ):
     """Task command: lay out several images on one canvas as a reference sheet.
 
@@ -846,12 +848,7 @@ def ingredients_grid(
         raise ValueError(
             f"ingredients_grid needs 'fit' as one of {list(FITS)}, got {fit!r}"
         )
-    try:
-        color = ImageColor.getrgb(background)
-    except (ValueError, AttributeError):
-        raise ValueError(
-            f"ingredients_grid needs 'background' as a colour name or #hex, got {background!r}"
-        )
+    color = ingredients_background(background)
 
     sources = _grid_load(images)
     if not sources:
