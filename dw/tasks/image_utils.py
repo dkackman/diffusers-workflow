@@ -3,6 +3,7 @@ from itertools import combinations
 from PIL import Image, ImageColor, ImageOps
 import numpy as np
 from ..argument_media import fetch_image
+from ..task_domains import check_arguments
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
 import torch
@@ -826,10 +827,13 @@ def ingredients_grid(
     Returns:
         One RGB PIL image of exactly width x height
     """
-    width = _grid_whole_number(width, "width", 1)
-    height = _grid_whole_number(height, "height", 1)
-    gap = _grid_whole_number(gap, "gap", 0)
-    max_images = _grid_whole_number(max_images, "max_images", 1)
+    width = _grid_whole_number(width, "width")
+    height = _grid_whole_number(height, "height")
+    gap = _grid_whole_number(gap, "gap")
+    max_images = _grid_whole_number(max_images, "max_images")
+    check_arguments(
+        "ingredients_grid", width=width, height=height, gap=gap, max_images=max_images
+    )
     if layout not in LAYOUTS:
         raise ValueError(
             f"ingredients_grid needs 'layout' as one of {list(LAYOUTS)}, got {layout!r}"
@@ -876,7 +880,7 @@ def ingredients_grid(
     return canvas
 
 
-def _grid_whole_number(value, name, minimum):
+def _grid_whole_number(value, name):
     if isinstance(value, str):
         try:
             value = int(value)
@@ -887,10 +891,6 @@ def _grid_whole_number(value, name, minimum):
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(
             f"ingredients_grid needs '{name}' as a whole number, got {value!r}"
-        )
-    if value < minimum:
-        raise ValueError(
-            f"ingredients_grid needs '{name}' of at least {minimum}, got {value}"
         )
     return value
 
@@ -1008,11 +1008,4 @@ def _grid_centered(rects, width, height):
 def _grid_fit_to_cell(image, width, height, fit, background):
     if fit == "cover":
         return ImageOps.fit(image, (width, height), Image.LANCZOS)
-    scale = min(width / image.width, height / image.height)
-    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
-    cell = Image.new("RGB", (width, height), background)
-    cell.paste(
-        image.resize(size, Image.LANCZOS),
-        ((width - size[0]) // 2, (height - size[1]) // 2),
-    )
-    return cell
+    return ImageOps.pad(image, (width, height), Image.LANCZOS, color=background)
