@@ -250,7 +250,13 @@ def reclaim_after_step(step_data, step_name):
 
 
 def wrap_resident(
-    cached_pipeline, step_definition, default_seed, device, output_dir, file_prefix
+    cached_pipeline,
+    step_definition,
+    default_seed,
+    device,
+    output_dir,
+    file_prefix,
+    base_dir=None,
 ):
     """A new Pipeline wrapper for a step around a model already resident
     under its key, whose shared components the caller has already
@@ -266,6 +272,7 @@ def wrap_resident(
         cached_pipeline.pipeline,  # Reuse the actual loaded model
         output_dir=output_dir,
         file_prefix=file_prefix,
+        base_dir=base_dir,
     )
     # Set up generator with potentially new seed. no_generator is a
     # boolean - only an explicit true disables the generator - and the
@@ -286,7 +293,13 @@ def wrap_resident(
 
 
 def load_fresh(
-    step_definition, shared_components, default_seed, device, output_dir, file_prefix
+    step_definition,
+    shared_components,
+    default_seed,
+    device,
+    output_dir,
+    file_prefix,
+    base_dir=None,
 ):
     """A step's pipeline loaded from scratch, behind the trust gate."""
     pipeline = Pipeline(
@@ -295,6 +308,7 @@ def load_fresh(
         device,
         output_dir=output_dir,
         file_prefix=file_prefix,
+        base_dir=base_dir,
     )
     # Before the marker, not after it: a definition refused by the
     # trust gate must not have announced a load it never began, or a

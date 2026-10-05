@@ -141,6 +141,7 @@ class Pipeline:
         pipeline=None,
         output_dir=None,
         file_prefix=None,
+        base_dir=None,
     ):
         """
         Initialize pipeline with configuration and device settings.
@@ -155,6 +156,8 @@ class Pipeline:
                 with save_segments writes its segment files
             file_prefix: Naming prefix for those files, matching the step's
                 result naming (workflow id + step name)
+            base_dir: The workflow file's directory - what a relative media path
+                in a call argument resolves against at run time
         """
         self.pipeline_definition = _loading_copy(pipeline_definition)
         self.default_seed = default_seed
@@ -165,6 +168,7 @@ class Pipeline:
         self.pipeline = pipeline
         self.output_dir = output_dir
         self.file_prefix = file_prefix
+        self.base_dir = base_dir
         # What a chained run calls the segment it is on, so progress can say
         # which one the denoise counter belongs to - it restarts per segment
         self.segment_label = None
@@ -625,7 +629,7 @@ class Pipeline:
                 f"cannot hold a soundtrack"
             )
         arguments = dict(arguments)
-        arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held)
+        arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held, self.base_dir)
         output = arguments.get("output")
         if isinstance(output, (list, tuple)) and "audio" in output:
             arguments["output"] = list(output) + [

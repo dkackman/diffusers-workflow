@@ -135,11 +135,7 @@ class StepLoop:
 def run_base_dir(workflow):
     """The directory file paths in the workflow resolve against - the
     workflow file's own."""
-    return (
-        os.path.dirname(os.path.abspath(workflow.file_spec))
-        if workflow.file_spec
-        else None
-    )
+    return workflow.base_dir
 
 
 def owns_run_dir(workflow):

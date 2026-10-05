@@ -468,11 +468,72 @@ class TestHoldAudioReference:
         assert reference.audio.shape == (2, 100)
 
 
+class TestHoldAudioLocation:
+    """A hold_audio path goes through the location owner (dw/locations.py)
+    at the call, not just at validation."""
+
+    @pytest.fixture
+    def opened(self, monkeypatch):
+        opened = []
+
+        def from_file(cls, location):
+            opened.append(location)
+            return cls(audio=torch.zeros(2, 10), sample_rate=8000)
+
+        monkeypatch.setattr(
+            MiniMaxH3AudioReference, "from_file", classmethod(from_file)
+        )
+        return opened
+
+    def test_a_relative_path_resolves_against_the_workflow_directory(
+        self, tmp_path, opened
+    ):
+        (tmp_path / "track.wav").write_bytes(b"")
+
+        hold_audio_reference("track.wav", str(tmp_path))
+
+        assert opened == [os.path.realpath(tmp_path / "track.wav")]
+
+    def test_a_path_outside_the_roots_is_refused_at_the_call(
+        self, tmp_path, opened, monkeypatch
+    ):
+        from dw.security import SecurityError
+
+        monkeypatch.delenv("DW_TRUST_WORKFLOWS")  # conftest trusts by default
+
+        workflow_dir = tmp_path / "workflow"
+        workflow_dir.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "track.wav").write_bytes(b"")
+
+        with pytest.raises(SecurityError, match="outside every directory"):
+            hold_audio_reference(str(elsewhere / "track.wav"), str(workflow_dir))
+        assert opened == []
+
+    def test_the_step_hands_its_base_dir_to_the_check(self, tmp_path, opened):
+        (tmp_path / "track.wav").write_bytes(b"")
+        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+        insert_audio_hold(pipeline)
+
+        Pipeline._with_held_audio(
+            ns(pipeline, str(tmp_path)), {"hold_audio": "track.wav"}
+        )
+
+        assert opened == [os.path.realpath(tmp_path / "track.wav")]
+
+    def test_a_workflow_gives_its_pipelines_its_own_directory(self, tmp_path):
+        workflow = workflow_from_definition(
+            {"id": "w", "steps": []}, str(tmp_path / "out"), base_dir=str(tmp_path)
+        )
+        assert workflow.base_dir == os.path.realpath(tmp_path)
+
+
 # 6. _with_held_audio
 
 
-def ns(pipeline):
-    return SimpleNamespace(name="video", pipeline=pipeline)
+def ns(pipeline, base_dir=None):
+    return SimpleNamespace(name="video", pipeline=pipeline, base_dir=base_dir)
 
 
 class TestWithHeldAudio:

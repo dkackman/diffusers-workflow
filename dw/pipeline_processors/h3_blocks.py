@@ -362,30 +362,51 @@ def holds_audio(pipeline):
     )
 
 
-def hold_audio_reference(value):
+def hold_audio_reference(value, base_dir=None):
     """A `hold_audio` argument as the MiniMaxH3AudioReference the hold block takes.
 
     Whatever an argument can hold audio as: a file path (an `asset:` or `output:`
     reference arrives resolved to one), a step's artifact - an AudioTrack, an
-    AudioVideo, a bare waveform - or a reference already built.
+    AudioVideo, a bare waveform - or a reference already built. A path or URL goes
+    through the location owner (dw/locations.py) before anything opens it, the
+    run-time half of the check validation makes on the same argument.
+
+    Args:
+        value: The argument's value
+        base_dir: Directory a relative path resolves against - the workflow
+            file's directory
 
     Raises:
         ValueError: If the value is not audio
+        SecurityError: If the path or URL is outside what the workflow may read
     """
     from ..arguments import media_arguments
-    from ..security import ALLOWED_AUDIO_EXTENSIONS
+    from ..locations import is_http_url, validate_media_path, validate_media_url
+    from ..security import (
+        ALLOWED_AUDIO_EXTENSIONS,
+        InvalidInputError,
+        validate_file_extension,
+    )
 
     audio_reference = _diffusers()[2]
     if isinstance(value, audio_reference):
         return value
     if isinstance(value, str):
-        extension = "." + value.rsplit(".", 1)[-1].lower() if "." in value else ""
-        if extension not in ALLOWED_AUDIO_EXTENSIONS:
+        try:
+            validate_file_extension(value, ALLOWED_AUDIO_EXTENSIONS)
+        except InvalidInputError as error:
             raise ValueError(
                 f"hold_audio holds a soundtrack, and '{value}' is not an audio file "
                 f"({', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))})"
+            ) from error
+        if is_http_url(value):
+            location = validate_media_url(value, "hold_audio")
+        else:
+            location = validate_file_extension(
+                validate_media_path(value, base_dir, "hold_audio"),
+                ALLOWED_AUDIO_EXTENSIONS,
             )
-        return audio_reference.from_file(value)
+        return audio_reference.from_file(location)
     try:
         return audio_reference(**media_arguments(audio_reference, value))
     except ValueError as error:
