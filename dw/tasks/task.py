@@ -555,6 +555,14 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     image = arguments.pop("image")
     model_name = arguments.pop("model_name")
     from .restore_faces import restore_faces
+    from .video_utils import is_video
+
+    if is_video(image) and arguments.get("upsample_img") is not None:
+        raise ValueError(
+            "restore_faces: 'upsample_img' is a single background image and "
+            "cannot be used with a video input (it would be pasted under "
+            "every frame). Remove 'upsample_img' or pass a single image."
+        )
 
     device = task.device_for(arguments)
     return _per_frame(
