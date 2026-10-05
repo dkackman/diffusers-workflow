@@ -24,6 +24,13 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
+from .h3_blocks import (
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HOLD_AUDIO_INPUT,
+    hold_audio_reference,
+    holds_audio,
+)
 from .progress import reported_blocks, reported_progress_bars
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
@@ -576,6 +583,7 @@ class Pipeline:
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
+        arguments = self._with_held_audio(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -599,6 +607,32 @@ class Pipeline:
                 )
 
             return self.pipeline(**arguments)
+
+    def _with_held_audio(self, arguments):
+        """`hold_audio` as the reference the H3 hold block takes, and the
+        held track asked for alongside `audio` (dw/pipeline_processors/h3_blocks.py).
+
+        Raises:
+            ValueError: If this pipeline cannot hold audio, or the value is not audio
+        """
+        held = arguments.get(HOLD_AUDIO_INPUT)
+        if held is None:
+            return arguments
+        if not holds_audio(self.pipeline):
+            raise ValueError(
+                f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "
+                f"(t2va, fl2va or ref2va), and {type(self.pipeline).__name__} "
+                f"cannot hold a soundtrack"
+            )
+        arguments = dict(arguments)
+        arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held)
+        output = arguments.get("output")
+        if isinstance(output, (list, tuple)) and "audio" in output:
+            arguments["output"] = list(output) + [
+                HELD_AUDIO_OUTPUT,
+                HELD_AUDIO_RATE_OUTPUT,
+            ]
+        return arguments
 
     def _takes_step_callback(self):
         """Whether this pipeline names `callback_on_step_end` in its own
