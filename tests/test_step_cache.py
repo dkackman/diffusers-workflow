@@ -662,6 +662,12 @@ TEMPLATE_PIPELINE_KEYS = {
     "ip-adapter.json": {
         "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
     },
+    "kandinsky6/image-to-video.json": {
+        "image_to_video": "2f5278a780c4f3dc108286635640e0add11a5eba71ca6e10d1949dddeb425e7a"
+    },
+    "kandinsky6/text-to-video.json": {
+        "text_to_video": "2f5278a780c4f3dc108286635640e0add11a5eba71ca6e10d1949dddeb425e7a"
+    },
     "lora-styles.json": {
         "couple": "e0d4d24cbe4caec22ee9e2afc43e9cfd772971430ed633cd289ff362e8213816",
         "font-design": "8f28fcccd557b862030508fa1db006f365afbf9b394f981488673df4c46eb548",

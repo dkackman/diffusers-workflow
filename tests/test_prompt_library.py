@@ -31,6 +31,7 @@ INTENDED_MODELS = frozenset(
         "minimax-h3",
         "minimax-music3",
         "ltx-2.5",
+        "kandinsky-6",
         "z-image",
         "flux",
     }
