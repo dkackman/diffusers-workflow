@@ -344,6 +344,45 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
     return stabilize_video(**arguments)
 
 
+@register_command(
+    "crop_face_track",
+    implementation="dw.tasks.face_track.crop_face_track",
+    consumes_device=True,
+    summary=(
+        "Follow one face through a clip and crop a steady square around it, "
+        "with a per-frame record of the box and a face-detail strength."
+    ),
+    parameter_descriptions={
+        "clip": (
+            "Video to track - a file path, an asset:/output: reference, or an "
+            "earlier step's video. A clip that records its shots resets the "
+            "track at each boundary."
+        ),
+        "crop_size": "Side of every crop in pixels; a multiple of 32.",
+        "padding": (
+            "Space added around the face on each side, as a fraction of its "
+            "size (0 to 3)."
+        ),
+        "gate_full": (
+            "Face width over frame width at or below which a frame's strength is 1."
+        ),
+        "gate_zero": (
+            "Face width over frame width at or above which a frame's strength "
+            "is 0; must exceed gate_full."
+        ),
+        "min_confidence": "Detector score below which a detection is ignored.",
+        "detector_repo": "Hugging Face repo holding the YuNet face detector.",
+        "detector_file": "The .onnx file in detector_repo.",
+    },
+)
+def _handle_crop_face_track(task, arguments, previous_pipelines):
+    """Crop a steady square around the one face a clip follows"""
+    logger.debug("Tracking a face")
+    from .face_track import crop_face_track
+
+    return crop_face_track(device=task.device_for(arguments), **arguments)
+
+
 @register_command("mix_audio", implementation="dw.tasks.audio_utils.mix_audio")
 def _handle_mix_audio(task, arguments, previous_pipelines):
     """Layer audio tracks on top of one another, rather than end to end"""

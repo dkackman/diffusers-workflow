@@ -22,6 +22,7 @@ from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AudioTrack,
     AudioVideo,
+    JsonRecord,
     Selected,
     fit_codec_padding,
     sample_axis,
@@ -390,6 +391,15 @@ class Result:
             return []
 
         _refuse_scalar_artifact(artifact, file_base_name)
+
+        if isinstance(artifact, JsonRecord):
+            # Data riding beside the step's media, saved whole whatever the
+            # step's content type - never exploded key by key below
+            output_path = output_file_path(output_dir, f"{file_base_name}.json")
+            logger.info(f"Saving JSON record to {output_path}")
+            with open(output_path, "w") as file:
+                file.write(json.dumps(artifact, indent=4))
+            return [output_path]
 
         if isinstance(artifact, dict):
             return self._save_mapping_artifact(

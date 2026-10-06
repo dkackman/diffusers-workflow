@@ -185,6 +185,13 @@ TASK_ARGUMENT_DOMAINS = {
         "temperature": CLOSED_UNIT,
         "tint": CLOSED_UNIT,
     },
+    "crop_face_track": {
+        "crop_size": POSITIVE,
+        "padding": NON_NEGATIVE,
+        "gate_full": POSITIVE,
+        "gate_zero": POSITIVE,
+        "min_confidence": POSITIVE,
+    },
 }
 
 
@@ -257,6 +264,123 @@ def ingredients_grid_errors(arguments):
                     f"'max_images' is {limit} - raise it, or pass fewer images",
                 )
             )
+    return errors
+
+
+# crop_face_track's rules past a plain domain. The crop feeds a video model
+# whose latent grid is 32 pixels, the padding is a multiple of the face's own
+# size added on each side, and the gate is a ramp from gate_full to gate_zero,
+# so the two must be in that order. Owned here so the static pass and the
+# command's run-time refusal read one rule
+FACE_CROP_MULTIPLE = 32
+FACE_PADDING_MAX = 3.0
+FACE_DETECTOR_SUFFIX = ".onnx"
+
+
+def face_track_problems(
+    crop_size=None, padding=None, gate_full=None, gate_zero=None, min_confidence=None
+):
+    """[(argument, message)] for each crop_face_track rule these values break.
+
+    A value that is None or not a number is skipped - the domain check, or
+    another pass, owns that complaint.
+    """
+    problems = []
+    size = as_number(crop_size)
+    if size is not None and size > 0:
+        if size != int(size) or int(size) % FACE_CROP_MULTIPLE:
+            problems.append(
+                (
+                    "crop_size",
+                    f"crop_face_track needs 'crop_size' as a multiple of "
+                    f"{FACE_CROP_MULTIPLE}, got {crop_size!r} - the crops feed a "
+                    f"video model whose frame size moves in steps of "
+                    f"{FACE_CROP_MULTIPLE}",
+                )
+            )
+    pad = as_number(padding)
+    if pad is not None and pad > FACE_PADDING_MAX:
+        problems.append(
+            (
+                "padding",
+                f"crop_face_track needs 'padding' from 0 to {FACE_PADDING_MAX} "
+                f"(the face's size added on each side), got {padding!r}",
+            )
+        )
+    full, zero = as_number(gate_full), as_number(gate_zero)
+    for name, value, number in (
+        ("gate_full", gate_full, full),
+        ("gate_zero", gate_zero, zero),
+    ):
+        if number is not None and number > 1:
+            problems.append(
+                (
+                    name,
+                    f"crop_face_track needs '{name}' as a fraction of the frame "
+                    f"width, at most 1.0, got {value!r}",
+                )
+            )
+    if full is not None and zero is not None and zero <= full:
+        problems.append(
+            (
+                "gate_zero",
+                f"crop_face_track needs 'gate_zero' above 'gate_full' - "
+                f"strength ramps from full at gate_full down to 0 at gate_zero "
+                f"- got gate_full {gate_full!r} and gate_zero {gate_zero!r}",
+            )
+        )
+    confidence = as_number(min_confidence)
+    if confidence is not None and confidence >= 1:
+        problems.append(
+            (
+                "min_confidence",
+                f"crop_face_track needs 'min_confidence' below 1.0, got "
+                f"{min_confidence!r}",
+            )
+        )
+    return problems
+
+
+def check_face_detector_source(repo, filename):
+    """Refuse a detector source that is not a Hub repo id and a bare .onnx
+    file name in it - before anything is downloaded."""
+    from .locations import validate_hub_repo_id, validate_weight_name
+
+    validate_hub_repo_id(repo, what="detector_repo")
+    validate_weight_name(
+        filename, (FACE_DETECTOR_SUFFIX,), what="detector_file", subfolders=False
+    )
+
+
+def face_track_errors(arguments):
+    """[(argument, message)] for the crop_face_track rules a literal workflow
+    can break before it runs: the crop, padding and gate rules, and a detector
+    source that is not a Hub repo and an .onnx file."""
+    literal = {
+        name: arguments.get(name)
+        for name in ("crop_size", "padding", "gate_full", "gate_zero", "min_confidence")
+        if not is_ref(DEFERRED, arguments.get(name))
+    }
+    errors = face_track_problems(**literal)
+    from .locations import validate_hub_repo_id, validate_weight_name
+    from .security import SecurityError
+
+    for name, check in (
+        ("detector_repo", lambda v: validate_hub_repo_id(v, what=name)),
+        (
+            "detector_file",
+            lambda v: validate_weight_name(
+                v, (FACE_DETECTOR_SUFFIX,), what=name, subfolders=False
+            ),
+        ),
+    ):
+        value = arguments.get(name)
+        if name not in arguments or is_ref(DEFERRED, value):
+            continue
+        try:
+            check(value)
+        except (SecurityError, ValueError) as error:
+            errors.append((name, str(error).rstrip(".")))
     return errors
 
 
@@ -404,8 +528,12 @@ def task_argument_errors(workflow_definition, source_indices=None):
                     "message": f"{message}{where}.",
                 }
             )
-        if command == "ingredients_grid":
-            for key, message in ingredients_grid_errors(arguments):
+        extra = {
+            "ingredients_grid": ingredients_grid_errors,
+            "crop_face_track": face_track_errors,
+        }.get(command)
+        if extra is not None:
+            for key, message in extra(arguments):
                 path = ("steps", source, "task", "arguments", key)
                 errors.append(
                     {"path": render_path(path), "message": f"{message}{where}."}
