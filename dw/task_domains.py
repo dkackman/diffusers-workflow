@@ -66,6 +66,10 @@ AT_LEAST_ONE = "at_least_one"
 # An 8-bit channel level - sharpen's threshold, a difference between 0 and
 # full scale in 0..255 levels (#603)
 CHANNEL_LEVEL = "channel_level"
+# A random generator's seed - film_grain's seed, which numpy only takes as a
+# whole number at or above zero, so anything else would fail the run after
+# it was queued (#634)
+SEED = "seed"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
@@ -75,6 +79,7 @@ _DOMAIN_TEXT = {
     UNIT: "between 0.0 and 1.0",
     AT_LEAST_ONE: "1 or above",
     CHANNEL_LEVEL: "between 0 and 255",
+    SEED: "a whole number, 0 or above",
 }
 
 _SCALE_REASON = (
@@ -229,6 +234,7 @@ TASK_ARGUMENT_DOMAINS = {
         "amount": UNIT,
         "size": AT_LEAST_ONE,
         "chroma": UNIT,
+        "seed": SEED,
     },
     "crop_face_track": {
         "crop_size": POSITIVE,
@@ -658,6 +664,8 @@ def in_domain(value, domain):
         return number >= 1.0
     if domain == CHANNEL_LEVEL:
         return 0.0 <= number <= 255.0
+    if domain == SEED:
+        return number >= 0 and number.is_integer()
     return number >= 0
 
 

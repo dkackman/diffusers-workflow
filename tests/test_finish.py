@@ -318,6 +318,9 @@ class TestFilmGrainDomains:
             ("amount", -0.1, "between 0.0 and 1.0"),
             ("chroma", 2, "between 0.0 and 1.0"),
             ("size", 0.5, "1 or above"),
+            ("seed", "abc", "a whole number, 0 or above"),
+            ("seed", 1.5, "a whole number, 0 or above"),
+            ("seed", -1, "a whole number, 0 or above"),
         ],
     )
     def test_refused_at_validate_time_naming_the_argument_and_range(
@@ -330,11 +333,49 @@ class TestFilmGrainDomains:
 
     @pytest.mark.parametrize(
         "name,value",
-        [("amount", 1.5), ("amount", -0.1), ("chroma", 2), ("size", 0.5)],
+        [
+            ("amount", 1.5),
+            ("amount", -0.1),
+            ("chroma", 2),
+            ("size", 0.5),
+            ("seed", "abc"),
+            ("seed", -1),
+        ],
     )
     def test_refused_at_run_time(self, name, value):
         with pytest.raises(ValueError, match=name):
             _run("film_grain", _grey(), workflow_seed=1, **{name: value})
+
+    def test_validate_workflow_refuses_a_non_integer_seed_before_a_run(self):
+        # The #634 bounce: "abc" validated clean and failed only once queued
+        workflow = Workflow(
+            {
+                "id": "film-grain-seed",
+                "steps": [
+                    {
+                        "name": "film_grain",
+                        "task": {
+                            "command": "film_grain",
+                            "arguments": {
+                                "media": "asset:a.png",
+                                "amount": 0.4,
+                                "seed": "abc",
+                            },
+                        },
+                        "result": {"content_type": "image/png"},
+                    }
+                ],
+            },
+            "outputs",
+            None,
+        )
+        errors = workflow.validation_errors()
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.seed"]
+        assert "a whole number, 0 or above" in errors[0]["message"]
+
+    @pytest.mark.parametrize("seed", [0, 1108670404077236, "42", None])
+    def test_a_whole_number_seed_is_legitimate(self, seed):
+        assert _errors("film_grain", {"media": "asset:a.png", "seed": seed}) == []
 
 
 class TestIntrospection:
