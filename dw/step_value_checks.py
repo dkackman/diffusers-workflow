@@ -1,6 +1,7 @@
-"""Three step-value checkers: `fps_errors` (a result's `fps`),
-`null_media_errors` (a bare object description whose media resolved null) and
-`select_errors` (a `select` step's arguments).
+"""Four step-value checkers: `fps_errors` (a result's `fps`),
+`null_media_errors` (a bare object description whose media resolved null),
+`select_errors` (a `select` step's arguments) and `chain_prompts_errors` (a
+chain's `prompts` that is not a list).
 
 Each is a pure function of an expanded definition (and the source step
 indices that map an expanded step back to the one the author wrote) returning
@@ -306,4 +307,39 @@ def select_errors(workflow_definition, source_indices=None):
                         f"{len(candidates)} entries, scores has {len(scores)}",
                     )
 
+    return errors
+
+
+# --- A chain's 'prompts' (#653) ---------------------------------------------
+#
+# The schema lets `chain.prompts` hold a string so a `variable:` reference
+# validates, but the resolved value has to be a list: a bare string would be
+# walked character by character (dw/previous_results.py), giving each segment
+# one letter of it as its prompt.
+
+
+def chain_prompts_errors(workflow_definition, source_indices=None):
+    """Every chain whose resolved 'prompts' is a string, as [{path, message}]."""
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        chain = pipeline.get("chain") if isinstance(pipeline, dict) else None
+        if not isinstance(chain, dict) or not isinstance(chain.get("prompts"), str):
+            continue
+        source = references.author_index(source_indices, index)
+        path = render_path(("steps", source, "pipeline", "chain", "prompts"))
+        errors.append(
+            {
+                "path": path,
+                "message": (
+                    "chain 'prompts' must be a list with one prompt per segment, "
+                    f"got the string {chain['prompts']!r} - to give every segment "
+                    "one prompt, set 'prompt' instead, or pass a one-element list"
+                ),
+            }
+        )
     return errors

@@ -193,6 +193,7 @@ ERROR_ORDER = [
     "dissolve_frames",
     "video_sizes",
     "select",
+    "chain_prompts",
     "task_signatures",
     "component_types",
     "component_names",
