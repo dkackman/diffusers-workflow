@@ -446,7 +446,11 @@ def test_no_stale_entry_in_the_allowlist():
 # 2026-10-06), measured at 9_981: about 160 tokens, its tuned `padding` and
 # `gate_full`/`gate_zero` exposed beside `strength` and `crop_size` - the
 # catalog's only repair of one region of a clip, leaving the rest as it came.
-COMPACT_BUDGET = 10_000
+# Then to 10_250 for `templates/kandinsky6/text-to-video` and `image-to-video`
+# (#663, 2026-10-06), measured at 10_209 before their curated `cost`: about
+# 105 tokens each, a new family's first two templates - the only 3B
+# video-with-audio route, and the only one that fits a 64GB Mac unquantized.
+COMPACT_BUDGET = 10_250
 FILTERED_BUDGET = 1_500
 
 

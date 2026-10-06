@@ -1,0 +1,9 @@
+{
+  "text": "A wide shot inside a sunlit cave, continuing from the image: the red dragon lies curled on the mound of gold coins. The camera slowly pushes in toward the dragon's head. The dragon's scales are deep red with darker ridges along the spine, its horns are curved and pale, and its folded wings rest against its flanks over the heaped coins, goblets and scattered jewels. A shaft of sunlight falls from an opening in the cave roof on the left, lighting the gold and the stream of water that runs along the bottom of the frame. The dragon opens its amber eyes, lifts its head from its forelegs and turns it to the right, then slowly unfolds its wings upward and outward until they span the frame, coins sliding down the mound toward the water as its weight shifts. It lowers its head toward the stream, its breath rippling the surface, and holds still while dust drifts down through the beam of light. Warm golden light against cool shadow in the cave, photorealistic fantasy, fine detail on the scales and the metal of the coins.\n<AUDCAP>Gold coins slide and clink loudly down the pile, the dragon's leathery wings creak and flap open, the dragon breathes out in a low rumble, and water trickles in the stream.<ENDAUDCAP>",
+  "description": "Image-to-video+audio prompt for the Kandinsky 6.0 Lite-distill image-to-video template: what happens next in the vendor card's dragon image, in the beautifier's trained shape - the image is the first frame, the paragraph states the action from it, and one closing audio caption tag",
+  "intended_model": "kandinsky-6",
+  "tags": [
+    "i2v",
+    "audio"
+  ]
+}

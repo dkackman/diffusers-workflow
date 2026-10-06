@@ -1,0 +1,65 @@
+{
+    "id": "Kandinsky6T2V",
+    "description": "Kandinsky 6.0 Lite-distill: text to a five-second video with a soundtrack generated alongside it. The family's baseline, on the 3B checkpoint. The distilled transformer runs ten PiFlow steps with guidance off - the scheduler is part of the checkpoint and refuses custom sigmas - and model offload moves the 16.6GB Qwen2.5-VL text encoder off the accelerator before the transformer runs. The pipeline's own defaults are 512x768 at guidance 5.0, so the native 480x864 and guidance 1.0 are set here, not inherited.",
+    "cost_drivers": ["num_frames", "width", "height"],
+    "variables": {
+        "prompt": "prompt:kandinsky6/mountain_steam_train",
+        "width": 864,
+        "height": 480,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a width not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a height not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 4,
+            "remainder": 1,
+            "min_frames": 5,
+            "max_frames": 509,
+            "reason": "Kandinsky 6.0's video VAE encodes 4 * n + 1 frames, and the pipeline floors an off-grid count rather than refusing it - a shorter clip than the one asked for - so it is refused here instead. 509 is the transformer's rotary table (128 latent frames); every checkpoint is trained at 121 frames, five seconds at 24 fps"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_video",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Kandinsky6TI2VAPipeline",
+                    "offload": "model"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+                    "revision": "e056a84f34d9617e86b3ae47c792fe626cbe53f8",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "num_inference_steps": 10,
+                    "guidance_scale": 1.0,
+                    "sample_audio": true,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}
