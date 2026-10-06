@@ -62,7 +62,10 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 "word" instead returns a dict of {text, chunks}, chunks
                 being a list of {start, end, text}, every time a number of
                 seconds (a chunk the clip ends inside ends at the clip's
-                duration) - the step's result
+                duration). Word bounds are Whisper's attention timestamps
+                tightened to the waveform's energy, so a word does not
+                absorb the silence before, after or inside it (#661); a
+                word with no audible energy keeps Whisper's bounds - the step's result
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
 
@@ -129,6 +132,8 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
 
     duration = len(mono) / _ASR_SAMPLE_RATE
     chunks = _numeric_chunks(result.get("chunks", []), duration)
+    if timestamps == "word":
+        chunks = _trim_to_speech(chunks, mono)
     return {"text": text, "chunks": chunks}
 
 
@@ -154,3 +159,46 @@ def _numeric_chunks(raw_chunks, duration):
         )
         previous_end = end
     return chunks
+
+
+_FRAME_SECONDS = 0.02
+# A frame is speech when its RMS is above this fraction of the clip's loud
+# (95th percentile) frames, about -26 dB: clear of room tone, under soft speech.
+_SPEECH_RELATIVE_LEVEL = 0.05
+
+
+def _trim_to_speech(chunks, mono):
+    """Chunks with each span narrowed to the audible part of the waveform.
+
+    Whisper's word timestamps come from cross-attention and absorb silence:
+    the first word starts at 0 and the last ends at the clip's end however
+    long the lead-in or tail, and a word after a pause swallows the pause
+    (#661). Each chunk's start moves up to its first speech frame and its end
+    back to its last, never outside its original span, so order is kept. A
+    chunk with no speech frame in it is left as Whisper gave it.
+    """
+    frame = int(_FRAME_SECONDS * _ASR_SAMPLE_RATE)
+    count = len(mono) // frame
+    if count == 0:
+        return chunks
+    frames = mono[: count * frame].astype(numpy.float64).reshape(count, frame)
+    rms = numpy.sqrt((frames**2).mean(axis=1))
+    loud = float(numpy.percentile(rms, 95))
+    if loud <= 0.0:
+        return chunks
+    active = rms > loud * _SPEECH_RELATIVE_LEVEL
+
+    trimmed = []
+    for chunk in chunks:
+        first = int(chunk["start"] / _FRAME_SECONDS)
+        last = min(count, int(numpy.ceil(chunk["end"] / _FRAME_SECONDS)))
+        hits = numpy.flatnonzero(active[first:last])
+        if len(hits) == 0:
+            trimmed.append(chunk)
+            continue
+        start = max(chunk["start"], (first + hits[0]) * _FRAME_SECONDS)
+        end = min(chunk["end"], (first + hits[-1] + 1) * _FRAME_SECONDS)
+        trimmed.append(
+            {**chunk, "start": round(float(start), 3), "end": round(float(end), 3)}
+        )
+    return trimmed

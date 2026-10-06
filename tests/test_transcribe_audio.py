@@ -199,6 +199,51 @@ class TestTranscribeAudio(unittest.TestCase):
         )
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_word_bounds_exclude_leading_inner_and_trailing_silence(
+        self, mock_pipeline
+    ):
+        # #661: Whisper's word times absorb silence - first word from 0.0,
+        # last to the clip end, a word after a pause swallowing the pause.
+        # Real waveform: speech at 1.0-1.4 s and 2.4-2.8 s in a 4 s clip.
+        waveform, rate = self._waveform(seconds=4.0)
+        t = numpy.arange(int(0.4 * rate)) / rate
+        burst = (0.3 * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+        waveform[0, 16000 : 16000 + len(burst)] = burst
+        waveform[0, 38400 : 38400 + len(burst)] = burst
+        self._mock_pipe(
+            mock_pipeline,
+            "I please",
+            chunks=[
+                {"text": " I", "timestamp": (0.0, 2.0)},
+                {"text": " please", "timestamp": (2.0, 4.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        first, last = result["chunks"]
+        self.assertAlmostEqual(first["start"], 1.0, delta=0.05)
+        self.assertAlmostEqual(first["end"], 1.4, delta=0.05)
+        self.assertAlmostEqual(last["start"], 2.4, delta=0.05)
+        self.assertAlmostEqual(last["end"], 2.8, delta=0.05)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_segment_bounds_are_left_as_whisper_gave_them(self, mock_pipeline):
+        waveform, rate = self._waveform(seconds=2.0)
+        waveform[0, 16000:20000] = 0.3
+        self._mock_pipe(
+            mock_pipeline, "x", chunks=[{"text": "x", "timestamp": (0.0, 2.0)}]
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"], [{"start": 0.0, "end": 2.0, "text": "x"}])
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_timestamps_segment_requests_true_and_returns_chunks(self, mock_pipeline):
         pipe = self._mock_pipe(
             mock_pipeline,
