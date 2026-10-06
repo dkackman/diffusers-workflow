@@ -41,6 +41,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Music-video timing stack: `analyze_beats`, `plan_cuts` and
+  pad-then-trim shots** (#600, stages #625-#627), shipped 2026-10-06. Record,
+  including what was deferred (per-shot `kind`/`singer`, stage D, and Q4's
+  optional `for_each` entry fields):
+  `complete/music-video-timing-complete.md`.
+
 - **Closing the xfail security tests** (#407, stages #409-#413), shipped
   2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
   Playwright in CI): `complete/xfail-security-tests-complete.md`.
@@ -108,9 +114,9 @@ remaining deferred fix is recorded in
 - **H3 audio-hold and a refine pass after latent upscale** (#598, stages
   #618-#621), shipped 2026-10-06. It adds `hold_audio` (opt-in: the
   templates keep the audio reference after an A/B went against hold) and
-  `refine_strength`, plus `templates/minimax/upscale-refine`. The template
-  measured 11.53 min, against 9.59 for a native 768p render, which is
-  sharper. Record, including what was deferred (a re-measure of hold, the
+  `refine_strength` (opt-in engine surface). `templates/minimax/upscale-refine`
+  failed Don's gate: 11.53 min against 9.59 for a native 768p render, which
+  is sharper, so it is reverted (#664). Record, including what was deferred (a re-measure of hold, the
   3-pass variant, #612's arm of the A/B):
   `complete/h3-audio-hold-refine-complete.md`.
 - **`templates/ltx2/refine-in-place`, a same-size LTX refine with a
@@ -119,6 +125,14 @@ remaining deferred fix is recorded in
   selected by `strength` 0-4. Record, including what was deferred
   (per-segment strength decay in `chained-segments`, with its triggers):
   `complete/ltx2-refine-in-place-complete.md`.
+- **Temporal face repair, `templates/ltx2/face-repair`** (#599, stages
+  #622-#624), shipped 2026-10-06. It adds the `crop_face_track` and
+  `paste_face_track` tasks (YuNet over tiles, one tracked face, a
+  distance gate, 8n+1 crops, feathered strength-scaled paste-back) and a
+  same-size LTX refine of the crop with five lem-tuned ladders. Record,
+  including what was deferred (rotation passes, landmark-affine paste,
+  multi-face tracking, with their triggers):
+  `complete/face-repair-complete.md`.
 
 ## Declined
 

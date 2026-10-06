@@ -136,9 +136,16 @@ M-F086: the crowd-faces prompt from #500, seed 42, 124 frames, on lem.
   must be kept at 768p. For a fresh 768p clip, (c) is faster and sharper.
   The SKILL row says this.
 
-The template shipped. No ruling from Don on the gate is recorded on #621.
-If he says no, the template and its SKILL row are reverted. The engine
-surface stays as guide surface, as with #499.
+**Don's ruling (2026-10-06, on #598): no.** Refine spends about 20% more
+GPU time than native (11.53 against 9.59 min) to reach the same 1344x768,
+and comes out softer. Its 768p decode is native's decode, so it saves no
+VRAM either. The template, its SKILL row, its README and checkpoint-table
+rows, the guide paragraph naming it and the `COMPACT_BUDGET` raise are
+reverted by fix-forward stage #664. The engine stays: `refine_strength` is
+opt-in surface, with the guide's *Refining the upscaled latents* section
+and its example, as with #499. A cheaper base-plus-upscale route (e.g.
+#612's LMS upscaler) that could bring refine in under native would be a new
+idea with its own A/B.
 
 ## Bounces per stage
 
@@ -167,7 +174,8 @@ No `usage:` figures were recorded on the stages, so cost is left out.
   sync failing where hold might help.
 - **The 3-pass (2 MP) variant**, LTX-2 changes, persisted latents, and
   task weights in `downloads_required`: non-goals.
-- **#612's LMS upscaler arm** of the A/B: not landed.
+- **#612's LMS upscaler arm** of the A/B: not landed. A refine route on it
+  is a new idea, not a reopening of this one.
 - **M-F077's fixture** `asset:h3-hold/vwa-seed42-baseline.mp4` was never
   seeded. It can only come from a pre-#618 build, so that case was skipped.
 - **dkackman/harnest#62** asks to retire M-F084 and M-F082's stale cost
