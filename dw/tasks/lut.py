@@ -6,6 +6,9 @@ and refuses anything else, naming the file and the line, rather than guessing
 at what a file it does not understand meant. A file is untrusted user input -
 an uploaded asset - so it is size-capped before it is read.
 
+The lookup itself is Pillow's (ImageFilter.Color3DLUT, trilinear); this module
+owns only the parse that feeds it.
+
 A refusal names the file by its base name only: the path an asset: or
 output: reference resolves to is the server's filesystem layout, and the
 message reaches API and MCP callers.
@@ -15,6 +18,7 @@ import math
 import os
 
 import numpy as np
+from PIL import ImageFilter
 
 from .finish import _join_alpha, _split_alpha
 
@@ -23,7 +27,6 @@ from .finish import _join_alpha, _split_alpha
 MAX_CUBE_BYTES = 16 * 1024 * 1024
 MIN_LUT_SIZE = 2
 MAX_LUT_SIZE = 65
-CUBE_EXTENSIONS = {".cube"}
 
 # The keywords a 3D .cube may carry. LUT_1D_SIZE is refused by name, every
 # other keyword as unknown
@@ -183,7 +186,11 @@ def load_lut(lut):
     an absolute path the caller did not write.
     """
     from ..locations import validate_media_path
-    from ..security import InvalidInputError, validate_file_extension
+    from ..security import (
+        ALLOWED_LUT_EXTENSIONS,
+        InvalidInputError,
+        validate_file_extension,
+    )
 
     if not isinstance(lut, str):
         raise ValueError(
@@ -192,7 +199,7 @@ def load_lut(lut):
         )
     path = validate_media_path(lut, None, "a LUT", require_exists=False)
     try:
-        validate_file_extension(path, CUBE_EXTENSIONS)
+        validate_file_extension(path, ALLOWED_LUT_EXTENSIONS)
     except InvalidInputError:
         extension = os.path.splitext(path)[1] or "no extension"
         raise InvalidInputError(
@@ -206,29 +213,13 @@ def load_lut(lut):
     return read_cube(path)
 
 
-def _lookup(rgb, table):
-    """Trilinear lookup of 0..1 RGB values (..., 3) through a table indexed
-    [blue, green, red]."""
-    size = table.shape[0]
-    scaled = np.clip(rgb, 0.0, 1.0) * (size - 1)
-    # The lower corner stops one short of the top, so a value of exactly 1.0
-    # interpolates to the last entry with a weight of 1
-    lower = np.minimum(np.floor(scaled).astype(np.intp), size - 2)
-    fraction = scaled - lower
-    r0, g0, b0 = lower[..., 0], lower[..., 1], lower[..., 2]
-    fr, fg, fb = (fraction[..., i : i + 1] for i in range(3))
+def color_lut(table):
+    """Pillow's trilinear 3D lookup filter for a parsed table.
 
-    def corner(db, dg, dr):
-        return table[b0 + db, g0 + dg, r0 + dr]
-
-    # Along red, then green, then blue
-    c00 = corner(0, 0, 0) * (1 - fr) + corner(0, 0, 1) * fr
-    c01 = corner(0, 1, 0) * (1 - fr) + corner(0, 1, 1) * fr
-    c10 = corner(1, 0, 0) * (1 - fr) + corner(1, 0, 1) * fr
-    c11 = corner(1, 1, 0) * (1 - fr) + corner(1, 1, 1) * fr
-    c0 = c00 * (1 - fg) + c01 * fg
-    c1 = c10 * (1 - fg) + c11 * fg
-    return c0 * (1 - fb) + c1 * fb
+    Pillow takes the table indexed [blue, green, red] with red fastest - the
+    .cube row order parse_cube already returns - and the same 2..65 sizes.
+    """
+    return ImageFilter.Color3DLUT(table.shape[0], table)
 
 
 def apply_lut(media, lut, strength=1.0):
@@ -243,8 +234,8 @@ def apply_lut(media, lut, strength=1.0):
             inside the workflow's directory, the asset libraries or the
             output root. A strict 3D .cube - LUT_3D_SIZE 2..65, domain 0..1,
             values in 0..1 - or the step refuses, naming the file and line.
-            (Also an already-parsed table, which is how the command handler
-            reads the file once for a whole video)
+            (Also an already-built color_lut, which is how the command
+            handler reads the file once for a whole video)
         strength: 0.0 returns the original, 1.0 the full LUT result; values
             between blend the two
 
@@ -252,10 +243,10 @@ def apply_lut(media, lut, strength=1.0):
         PIL Image, the same size, RGB (RGBA when the input had alpha, which
         passes through untouched)
     """
-    table = lut if isinstance(lut, np.ndarray) else load_lut(lut)
+    if not isinstance(lut, ImageFilter.Color3DLUT):
+        lut = color_lut(load_lut(lut))
     rgb, alpha = _split_alpha(media)
     if strength != 0:
-        original = rgb / 255.0
-        looked_up = _lookup(original, table)
-        rgb = (original + float(strength) * (looked_up - original)) * 255.0
+        looked_up = np.asarray(media.convert("RGB").filter(lut), dtype=np.float32)
+        rgb = rgb + float(strength) * (looked_up - rgb)
     return _join_alpha(rgb, alpha)

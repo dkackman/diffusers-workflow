@@ -27,6 +27,7 @@ from ...runs import record_kept_shots, recorded_shots
 from ...security import (
     ALLOWED_AUDIO_EXTENSIONS,
     ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_LUT_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
     SecurityError,
     validate_asset_reference,
@@ -74,7 +75,7 @@ ALLOWED_UPLOAD_EXTENSIONS = (
     ALLOWED_IMAGE_EXTENSIONS
     | ALLOWED_VIDEO_EXTENSIONS
     | ALLOWED_AUDIO_EXTENSIONS
-    | {".cube"}
+    | ALLOWED_LUT_EXTENSIONS
 )
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
