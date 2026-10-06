@@ -202,6 +202,12 @@ TASK_ARGUMENT_DOMAINS = {
     "paste_face_track": {
         "feather": NON_NEGATIVE,
     },
+    "analyze_beats": {
+        "sample_rate": POSITIVE,
+        "tempo_bpm": POSITIVE,
+        "min_bpm": POSITIVE,
+        "max_bpm": POSITIVE,
+    },
 }
 
 
@@ -418,6 +424,120 @@ def face_track_errors(arguments):
     return errors
 
 
+def beats_problems(min_bpm=None, max_bpm=None, anchors=None):
+    """[(argument, message)] for each analyze_beats rule these values break:
+    a tempo range that is empty, and anchors that are not one kind of mark
+    in time order.
+
+    An anchor is a time in seconds, or {beat_index, seconds} placing the
+    beat at that index; a list holds one kind or the other. A value that is
+    a reference, or not a number, is skipped - the domain check or the run
+    owns that complaint. An anchor past the song's end is the run's to find:
+    only it has the song.
+    """
+    problems = []
+    low, high = as_number(min_bpm), as_number(max_bpm)
+    if low is not None and high is not None and low >= high:
+        problems.append(
+            (
+                "min_bpm",
+                f"analyze_beats needs 'min_bpm' ({low:g}) below 'max_bpm' "
+                f"({high:g}) - the range is where the tempo is searched for",
+            )
+        )
+    if anchors is None or is_ref(DEFERRED, anchors):
+        return problems
+    if not isinstance(anchors, (list, tuple)):
+        return problems + [
+            (
+                "anchors",
+                "analyze_beats' 'anchors' is a list of times in seconds or of "
+                f"{{beat_index, seconds}} marks, not {type(anchors).__name__}",
+            )
+        ]
+    kinds, marks = set(), []
+    for index, anchor in enumerate(anchors):
+        if is_ref(DEFERRED, anchor):
+            marks.append(None)
+            continue
+        if isinstance(anchor, dict):
+            kinds.add("dict")
+            beat, seconds = anchor.get("beat_index"), anchor.get("seconds")
+            if (
+                isinstance(beat, bool)
+                or not isinstance(beat, (int, float, str))
+                or as_number(beat) is None
+                or as_number(beat) != int(as_number(beat))
+                or as_number(beat) < 0
+            ):
+                if not is_ref(DEFERRED, beat):
+                    problems.append(
+                        (
+                            "anchors",
+                            f"analyze_beats' anchors[{index}] needs a whole "
+                            f"'beat_index' at or above zero, not {beat!r}",
+                        )
+                    )
+                beat = None
+            else:
+                beat = as_number(beat)
+        else:
+            kinds.add("seconds")
+            beat, seconds = None, anchor
+        number = as_number(seconds)
+        if number is None or number < 0:
+            if not is_ref(DEFERRED, seconds):
+                problems.append(
+                    (
+                        "anchors",
+                        f"analyze_beats' anchors[{index}] needs a time in "
+                        f"seconds at or above zero, not {seconds!r}",
+                    )
+                )
+            number = None
+        marks.append((index, beat, number))
+    if len(kinds) > 1:
+        problems.append(
+            (
+                "anchors",
+                "analyze_beats' 'anchors' mixes bare times with "
+                "{beat_index, seconds} marks - give one kind or the other",
+            )
+        )
+        return problems
+    known = [mark for mark in marks if mark is not None]
+    for (_, beat_a, time_a), (index, beat_b, time_b) in zip(known, known[1:]):
+        if time_a is not None and time_b is not None and time_b <= time_a:
+            problems.append(
+                (
+                    "anchors",
+                    f"analyze_beats' anchors[{index}] ({time_b:g} s) is not "
+                    f"after the anchor before it ({time_a:g} s) - anchors are "
+                    "given in time order, each at a different time",
+                )
+            )
+        elif beat_a is not None and beat_b is not None and beat_b <= beat_a:
+            problems.append(
+                (
+                    "anchors",
+                    f"analyze_beats' anchors[{index}] places beat {beat_b:g} "
+                    f"after beat {beat_a:g} - beat indexes rise with time",
+                )
+            )
+    return problems
+
+
+def beats_errors(arguments):
+    """[(argument, message)] for the analyze_beats rules a literal workflow
+    can break before it runs (`beats_problems`)."""
+    literal = {
+        name: arguments.get(name)
+        for name in ("min_bpm", "max_bpm", "anchors")
+        if not is_ref(DEFERRED, arguments.get(name))
+    }
+    return beats_problems(**literal)
+
+
 def in_domain(value, domain):
     """Whether a number satisfies a domain. Anything unmeasurable is True -
     a value this cannot read is not this check's to refuse."""
@@ -566,6 +686,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "ingredients_grid": ingredients_grid_errors,
             "crop_face_track": face_track_errors,
             "paste_face_track": paste_face_track_errors,
+            "analyze_beats": beats_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):

@@ -1255,6 +1255,63 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
 
+### analyze_beats
+
+Find where a song's beats fall, to cut picture to them - a Music 3 song
+carries no tempo map, and a cut that lands on the beat needs one. An onset
+envelope gives the tempo and the beats are tracked through it; the result is
+JSON and nothing is built:
+
+```json
+{
+    "name": "beats",
+    "task": {
+        "command": "analyze_beats",
+        "arguments": {
+            "audio": "previous_result:song",
+            "anchors": [0.52, 31.9]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path, `asset:`/`output:` reference of an audio or video file, a waveform from a previous step, or an earlier step's generated audio or video |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+| `tempo_bpm` | No | The tempo, when known. With exactly one anchor it lays an exact grid and nothing is detected; otherwise it steers detection toward that tempo |
+| `anchors` | No | Where beats are known to fall, ascending: a list of times in seconds, or of `{beat_index, seconds}` marks placing detected beat `beat_index` (from 0) at `seconds`. One kind per list |
+| `min_bpm` / `max_bpm` | No | The tempo range searched (default `60` / `200`); `min_bpm` must be below `max_bpm` |
+
+Returns `{bpm, beats, downbeat_phase, method, calibration, duration_seconds,
+warnings}`: `beats` ascend, in seconds. `method` is `onset` (tracked from the
+onsets), `rms_peaks` or `grid`. `downbeat_phase` is which of the first four
+beats starts a bar, `null` when none stands out. `calibration` is
+`{offset_s, drift, anchors_used}`, the anchors' shift at the first mark and
+how much it changes by the last. `warnings` repeats what was emitted.
+
+Anchors correct the detection three ways:
+
+- Two or more warp the detected beats piecewise-linearly through them, so a
+  detection that starts late or drifts lands on the marks.
+- One alone shifts every beat by the same amount.
+- One plus `tempo_bpm` lays an exact grid through it, with no detection:
+  `method` is `grid`.
+
+A bare-seconds anchor snaps to the nearest detected beat, so it corrects a
+drift of under half a beat; where the detection is further off than that, use
+`{beat_index, seconds}` marks, which name the beat instead of guessing it.
+
+A track with no clear onsets - a pad, a swell - falls back to the peaks of its
+loudness (`method` `rms_peaks`, with a warning that they follow swells rather
+than a pulse). A silent track returns empty `beats` and a warning.
+
+Refused: `min_bpm` at or above `max_bpm`, and malformed anchors (mixed kinds,
+out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past
+the song's end, or a `beat_index` past the detected count, at run start.
+It returns JSON, so `result` may only be `application/json`.
+
 ## Assessment Probes
 
 Three read-only commands measure a finished cut and say where to look -
