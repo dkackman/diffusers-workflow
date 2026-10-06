@@ -10,7 +10,7 @@
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
-        "source_video": "asset:long-blurry.mp4",
+        "source_video": "asset:qa-cast/ep13-episode.mp4",
         "windows": [
             {
                 "name": "w0",
