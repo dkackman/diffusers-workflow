@@ -212,6 +212,24 @@ class TestGeneratedAudioJoining:
         assert result.audio[0, 174] == pytest.approx(1.0)
         assert result.audio[0, 200] == pytest.approx(2.0)
 
+    def test_each_seam_records_its_trim_and_realized_crossfade(self):
+        pipeline = FakePipeline(modular_output)
+        chain = {"segments": 2, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        result = run_chain(pipeline, chain, {"num_frames": 8})
+
+        assert "crossfade_ms" not in result.shots[0]
+        assert result.shots[1]["trim_frames"] == 2
+        assert result.shots[1]["crossfade_ms"] == 250.0
+
+    def test_the_recorded_crossfade_is_clamped_to_the_head(self):
+        pipeline = FakePipeline(modular_output)
+        chain = {"segments": 2, "trim_frames": 1, "fps": 4, "crossfade_ms": 900}
+
+        result = run_chain(pipeline, chain, {"num_frames": 8})
+
+        assert result.shots[1]["crossfade_ms"] == 250.0
+
     def test_mismatched_sample_rates_raise(self):
         def output(arguments, index):
             return modular_output(arguments, index, sample_rate=100 + index)

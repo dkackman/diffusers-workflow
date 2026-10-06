@@ -31,6 +31,10 @@ A shot is a dict:
   realized (clamped to the material, so it can be under the ask), so
   `seam_hole` (`dw/assessment_rules.py`) does not blame content for the dip
   that was asked for (#659). Absent where no fade was requested or applied
+- `crossfade_ms`, `trim_frames` - set on each shot a chain's seam opens: the
+  head frames trimmed and the equal-power crossfade as realized (clamped to the
+  trimmed head's audio; absent when no audio was blended). `seam_hole` reads
+  `crossfade_ms` as it does `seam_fade_ms` (#660)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new

@@ -361,6 +361,17 @@ class TestSeamFadeIsRecorded:
         assert answer["seams"][0]["seam_fade_ms"] == 1000
         assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
 
+    def test_a_chain_crossfade_on_the_shot_is_no_hole_finding(self):
+        joined = self._joined(seam_fade_ms=1000)
+        shots = [
+            {k: v for k, v in shot.items() if k != "seam_fade_ms"}
+            for shot in joined.shots
+        ]
+        shots[1]["crossfade_ms"] = 80.0
+        answer = analyze_seams(joined, shots=shots)
+        assert answer["seams"][0]["crossfade_ms"] == 80.0
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
+
     def test_an_unrequested_hole_still_fires(self):
         # Same material and the same dip, but the fade is only in the
         # shot record's absence: the probe reads the record, not the audio

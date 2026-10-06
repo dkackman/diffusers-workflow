@@ -291,7 +291,9 @@ def equal_power_crossfade_join(
 
     With no head material (nothing was trimmed), the seam gets a fade-out and
     fade-in in place instead, of seam_fade_ms - a few milliseconds by default,
-    just enough not to click. `applied` is passed to `_declick_join`.
+    just enough not to click. `applied` is passed to `_declick_join`, and gets
+    `crossfade_ms` - the blend as realized, clamped to the head material - when
+    the crossfade ran.
     """
     previous, head, following = matched_channels(previous, head, following)
 
@@ -308,6 +310,8 @@ def equal_power_crossfade_join(
 
     fade_out, fade_in = equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
+    if applied is not None:
+        applied["crossfade_ms"] = round(window / sample_rate * 1000, 1)
     return numpy.concatenate([previous[:, :-window], blended, following], axis=1)
 
 

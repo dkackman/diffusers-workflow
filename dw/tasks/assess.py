@@ -681,7 +681,7 @@ def analyze_seams(video, shots=None):
         video: A video file's path, or the video an earlier step returned
         shots: Shot records to measure by, overriding any the video carries.
             A shot marked `hard_cut: true` opens a seam meant as a cut;
-            one with `seam_fade_ms` opens a seam faded on request
+            one with `seam_fade_ms` or `crossfade_ms` opens a seam faded on request
 
     Returns:
         {seams: [{seam, between, seconds, kind, level_step_db,
@@ -722,6 +722,8 @@ def seams_answer(media, records, source):
         }
         if shot.get("seam_fade_ms") is not None:
             record["seam_fade_ms"] = shot["seam_fade_ms"]
+        if shot.get("crossfade_ms") is not None:
+            record["crossfade_ms"] = shot["crossfade_ms"]
         skip = set()
         if media.audio is not None and media.sample_rate:
             start, _count, _source = _sample_span(shot, media)
@@ -753,8 +755,8 @@ def seams_answer(media, records, source):
             record.update(_seam_video(media, previous, shot, fade))
         if record["hard_cut"]:
             skip.add("seam_frame_jump")
-        if "seam_fade_ms" in record:
-            # A fade the caller asked for dips the join by design (#659)
+        if "seam_fade_ms" in record or "crossfade_ms" in record:
+            # A fade or chain crossfade dips the join by design (#659, #660)
             skip.add("seam_hole")
         seams.append(record)
         findings.extend(

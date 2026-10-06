@@ -398,9 +398,31 @@ def run_chain(pipeline, chain_definition, arguments):
             frames.extend(kept_frames)
 
         if config.source_audio is None and segment_audio is not None:
+            applied = {}
             audio, audio_rate = _joined_audio(
-                audio, audio_rate, segment_audio, segment_rate, segment, config
+                audio,
+                audio_rate,
+                segment_audio,
+                segment_rate,
+                segment,
+                config,
+                applied,
             )
+            if segment.index > 0:
+                # The seam's own blend, so assess_output can tell it from a
+                # dropout in the content (#660)
+                shots[-1]["trim_frames"] = segment.head_trim
+                if "crossfade_ms" in applied:
+                    shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
+                logger.info(
+                    f"Chain seam {segment.index}/{segment.index + 1}: trimmed "
+                    f"{segment.head_trim} head frame(s), crossfade "
+                    + (
+                        f"{applied['crossfade_ms']} ms"
+                        if "crossfade_ms" in applied
+                        else "none (no head material)"
+                    )
+                )
 
         shots[-1]["num_samples"] = (
             audio.shape[1] if audio is not None else 0
@@ -817,7 +839,9 @@ def _on_timeline_audio(segment_audio, segment, config, segment_rate):
     return segment_audio[:, trim_samples:]
 
 
-def _joined_audio(audio, audio_rate, segment_audio, segment_rate, segment, config):
+def _joined_audio(
+    audio, audio_rate, segment_audio, segment_rate, segment, config, applied=None
+):
     """Fold one segment's generated audio into the accumulated track.
 
     The samples matching the segment's trimmed head frames are cut off and
@@ -847,6 +871,8 @@ def _joined_audio(audio, audio_rate, segment_audio, segment_rate, segment, confi
     head = segment_audio[:, :trim_samples]
     body = segment_audio[:, trim_samples:]
     return (
-        equal_power_crossfade_join(audio, head, body, audio_rate, config.crossfade_ms),
+        equal_power_crossfade_join(
+            audio, head, body, audio_rate, config.crossfade_ms, applied=applied
+        ),
         audio_rate,
     )
