@@ -425,7 +425,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 9_400 for `templates/minimax/music-video-cuts` (#600), measured at
 # 9_296: about 115 tokens, the transcribe -> analyze_beats -> plan_cuts chain
 # that plans a music video's shots from its lyrics.
-COMPACT_BUDGET = 9_400
+# Then to 9_550 for `templates/ltx2/refine-in-place` (#639), measured at
+# 9_460: about 65 tokens, the only same-size refine of a clip the caller
+# brings, and the only LTX template with a strength knob (`strength` 0-4).
+COMPACT_BUDGET = 9_550
 FILTERED_BUDGET = 1_500
 
 
@@ -571,6 +574,81 @@ class TestLtxTwoStage:
 
         assert base_cache_key == refine_cache_key
         assert not _step(definition, "base").get("release_pipeline", False)
+
+
+class TestLtxRefineInPlace:
+    """refine-clip's route without the 2x: one `strength` index picks a
+    preserve-to-reinterpret ladder of three-sigma schedules, and the source's
+    own soundtrack is read first so a silent source fails before any load."""
+
+    def _definition(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "refine-in-place.json"
+        )
+        return json.load(open(path, encoding="utf-8"))
+
+    def _ladder(self):
+        step = _step(self._definition(), "ladder")
+        assert step["task"]["command"] == "select"
+        return step["task"]["arguments"]
+
+    def test_the_ladder_is_an_index_select_over_the_strength_variable(self):
+        arguments = self._ladder()
+
+        assert arguments["rule"] == "index"
+        assert arguments["index"] == "variable:strength"
+        assert 3 <= len(arguments["candidates"]) <= 5
+        assert len(arguments["scores"]) == len(arguments["candidates"])
+
+    def test_each_rung_renoises_at_its_first_sigma_over_three_falling_sigmas(self):
+        for rung in self._ladder()["candidates"]:
+            sigmas = rung["sigmas"]
+
+            assert rung["noise_scale"] == sigmas[0]
+            assert len(sigmas) == 3
+            assert all(s > 0 for s in sigmas)
+            assert all(a > b for a, b in zip(sigmas, sigmas[1:]))
+
+    def test_the_rungs_run_from_preserve_to_reinterpret(self):
+        firsts = [rung["sigmas"][0] for rung in self._ladder()["candidates"]]
+
+        assert all(a < b for a, b in zip(firsts, firsts[1:]))
+
+    def test_strength_defaults_to_the_middle_rung(self):
+        count = len(self._ladder()["candidates"])
+        default = self._definition()["variables"]["strength"]
+
+        assert isinstance(default, int) and not isinstance(default, bool)
+        assert 0 <= default < count
+        assert default == count // 2
+
+    def test_the_refine_step_reads_the_fitted_clip_and_the_chosen_rung(self):
+        refine = _step(self._definition(), "refine")
+        arguments = refine["pipeline"]["arguments"]
+
+        assert (
+            refine["pipeline"]["configuration"]["component_type"]
+            == "dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline"
+        )
+        assert arguments["video"] == "previous_result:fitted.video"
+        assert arguments["noise_scale"] == "previous_result:ladder.noise_scale"
+        assert arguments["sigmas"] == "previous_result:ladder.sigmas"
+        assert refine["result"]["subfolder"] == "intermediate"
+
+    def test_the_source_soundtrack_is_read_before_the_pipeline_loads(self):
+        steps = self._definition()["steps"]
+        names = [step["name"] for step in steps]
+
+        assert _step(self._definition(), "source_audio")["task"]["command"] == (
+            "normalize_audio"
+        )
+        assert names.index("source_audio") < names.index("refine")
+
+    def test_the_last_step_pairs_the_source_audio_into_final(self):
+        last = self._definition()["steps"][-1]
+
+        assert last["task"]["command"] == "pair_audio"
+        assert last["result"]["subfolder"] == "final"
 
 
 class TestLtxRefineClip:

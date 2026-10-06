@@ -1,0 +1,295 @@
+{
+    "id": "LTX2RefineInPlace",
+    "description": "Refines a clip from the asset library at its own size and length: 'fitted' fits the source into the model's working 'width' x 'height' x 'num_frames' (letterboxed by default; 'fit_mode' stretch or crop), 'refine' (LTX2RefinePipeline) VAE-encodes those frames and renoises them over a three-sigma schedule, and 'restored' puts the result back at the source's own size and frame count. 'strength' is the one knob: an integer 0-4 that picks one of five schedules lem-tuned for this route, from 0 (preserve - close to the source, light retexture) to 4 (reinterpret - framing and identity hold, skin texture, tone and expression are re-rendered); default 2, a subtle retexture. Each schedule's noise_scale is its first sigma, and all five denoise three sigmas, so run time is the same at every strength; an out-of-range 'strength' is refused by the first step, before any pipeline loads. This route is not a vendor recipe: Lightricks' own route for sharpening a clip is the Refine-Details IC-LoRA - use this to restyle detail at a chosen strength, not as a faithful sharpen. 'width'/'height' (each divisible by 32) and 'num_frames' (8 * n + 1) are the model's working size, not the source's: a longer source is cut to 'num_frames' and the restore keeps that cut length; a shorter one is held on its last frame and trimmed back. Replace the default prompt with a description of the source's subject, setting, motion and lighting. The soundtrack is the source's own, not generated: it is read and normalized to -3 dBFS first, so a source with no soundtrack is refused before any pipeline loads; the refined picture at the model's size is saved to intermediate/, and the restored picture paired with the source's track to final/. Versus refine-clip: that template always doubles the size at refine-clip's one fixed strength (0.909375); this one keeps the size and lets you choose the strength.",
+    "summary": "Same-size refine of your own clip at strength 0-4 (preserve to reinterpret), soundtrack kept.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 1.5
+        }
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:clip.mp4",
+        "prompt": "A high-resolution rendering of the source footage, with the same subject, framing, motion and lighting, and sharp, fine detail.",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "strength": 2,
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "fit_mode": "letterbox",
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline loads rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline loads rather than after it"
+        },
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "ladder",
+            "task": {
+                "command": "select",
+                "arguments": {
+                    "candidates": [
+                        {
+                            "sigmas": [
+                                0.4,
+                                0.25,
+                                0.1
+                            ],
+                            "noise_scale": 0.4
+                        },
+                        {
+                            "sigmas": [
+                                0.55,
+                                0.4,
+                                0.2
+                            ],
+                            "noise_scale": 0.55
+                        },
+                        {
+                            "sigmas": [
+                                0.7,
+                                0.5,
+                                0.3
+                            ],
+                            "noise_scale": 0.7
+                        },
+                        {
+                            "sigmas": [
+                                0.8,
+                                0.6,
+                                0.35
+                            ],
+                            "noise_scale": 0.8
+                        },
+                        {
+                            "sigmas": [
+                                0.85,
+                                0.65,
+                                0.4
+                            ],
+                            "noise_scale": 0.85
+                        }
+                    ],
+                    "scores": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
+                    "rule": "index",
+                    "index": "variable:strength"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "save": false
+            }
+        },
+        {
+            "name": "source_audio",
+            "task": {
+                "command": "normalize_audio",
+                "arguments": {
+                    "audio": "variable:source_video",
+                    "peak_dbfs": -3.0
+                }
+            }
+        },
+        {
+            "name": "fitted",
+            "task": {
+                "command": "fit_to_model",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "variable:fit_mode"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false
+            }
+        },
+        {
+            "name": "refine",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        },
+                        "duration_head": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "video": "previous_result:fitted.video",
+                    "noise_scale": "previous_result:ladder.noise_scale",
+                    "sigmas": "previous_result:ladder.sigmas",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "restored",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:refine",
+                    "fit": "previous_result:fitted.fit"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": "variable:frame_rate"
+            }
+        },
+        {
+            "name": "with_source_audio",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:restored",
+                    "audio": "previous_result:source_audio",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

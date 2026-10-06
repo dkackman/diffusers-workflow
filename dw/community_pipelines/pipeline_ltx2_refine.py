@@ -23,6 +23,8 @@ import textwrap
 import torch
 from diffusers import LTX2Pipeline
 
+from ..media_types import AudioVideo
+
 
 def retrieve_latents(encoder_output, generator=None):
     """The sampled latents of a VAE encode - the upsample pipeline's own
@@ -36,8 +38,9 @@ def retrieve_latents(encoder_output, generator=None):
 
 _PARENT_SIGNATURE = inspect.signature(LTX2Pipeline.__call__)
 
-VIDEO_DOC = """    video (`list[PIL.Image.Image]`, `np.ndarray` or `torch.Tensor`, *optional*):
-        A clip to refine at its own size. It is resized to `width` x `height`, VAE-encoded and passed to
+VIDEO_DOC = """    video (`list[PIL.Image.Image]`, `np.ndarray`, `torch.Tensor` or a dw video, *optional*):
+        A clip to refine at its own size; a dw video (an `AudioVideo`, e.g. `fit_to_model`'s) is taken as its
+        frames. It is resized to `width` x `height`, VAE-encoded and passed to
         `LTX2Pipeline` as `latents`, which renoises it at `noise_scale` and denoises it over `sigmas`.
         `num_frames` defaults to the clip's length floored to the 8 * n + 1 grid; an explicit `num_frames` must
         be on that grid and no longer than the clip, which is trimmed to it. Cannot be combined with `latents`.
@@ -69,8 +72,11 @@ class LTX2RefinePipeline(LTX2Pipeline):
 
         `num_frames` None takes the clip's length floored to the VAE's
         8 * n + 1 grid. An explicit one must be on that grid and no longer
-        than the clip; the clip is trimmed to it.
+        than the clip; the clip is trimmed to it. A dw `AudioVideo` is
+        taken as its frames: it has no length of its own to slice.
         """
+        if isinstance(video, AudioVideo):
+            video = video.frames
         ratio = self.vae_temporal_compression_ratio
         available = len(video)
         if num_frames is None:

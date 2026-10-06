@@ -100,6 +100,41 @@ class TestEncode:
         _, channels, frames, height, width = latents.shape
         assert tuple(packed.shape) == (1, frames * height * width, channels)
 
+    def test_an_audio_video_is_unwrapped_to_its_frames(self, pipe):
+        import numpy as np
+
+        from dw.media_types import AudioVideo
+
+        frames = np.random.default_rng(0).random((20, 64, 96, 3)).astype(np.float32)
+        wrapped = AudioVideo(frames, None, None, fps=24)
+        expected = pipe.encode_video(
+            frames, width=96, height=64, generator=torch.Generator().manual_seed(1)
+        )
+        with patch.object(
+            pipe.video_processor,
+            "preprocess_video",
+            wraps=pipe.video_processor.preprocess_video,
+        ) as preprocess:
+            latents = pipe.encode_video(
+                wrapped, width=96, height=64, generator=torch.Generator().manual_seed(1)
+            )
+        np.testing.assert_array_equal(preprocess.call_args.args[0], frames[:17])
+        # 20 frames floored to 8n + 1 = 17, same as the bare array
+        assert tuple(latents.shape) == expected_shape(96, 64, 17)
+        torch.testing.assert_close(latents, expected)
+
+    def test_an_audio_video_is_held_to_the_same_length_checks(self, pipe):
+        import numpy as np
+
+        from dw.media_types import AudioVideo
+
+        short = AudioVideo(np.zeros((5, 64, 96, 3), np.float32), None, None, fps=24)
+        with pytest.raises(ValueError, match="at least 9"):
+            pipe.encode_video(short, width=96, height=64)
+        nine = AudioVideo(np.zeros((9, 64, 96, 3), np.float32), None, None, fps=24)
+        with pytest.raises(ValueError, match="only 9 frames"):
+            pipe.encode_video(nine, width=96, height=64, num_frames=17)
+
     def test_an_off_grid_num_frames_is_refused(self, pipe):
         with pytest.raises(ValueError, match="8 \\* n \\+ 1"):
             pipe.encode_video(clip(20), width=96, height=64, num_frames=16)
