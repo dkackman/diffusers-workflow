@@ -627,6 +627,10 @@ ONSET_LOG_GAIN = 1000.0
 TEMPO_PRIOR_BPM = 120.0
 TEMPO_PRIOR_OCTAVES = 1.0
 TEMPO_HINT_OCTAVES = 0.5
+# When the caller's range holds no clear pulse, the pulse is looked for over
+# this range and folded into the caller's by octaves - an 86 BPM song asked
+# for at 140-200 is tracked at 172
+TEMPO_SEARCH_BPM = (30.0, 300.0)
 # How strongly the programme holds an interval to the period: the penalty is
 # BEAT_TIGHTNESS * log(interval / period)^2
 BEAT_TIGHTNESS = 100.0
@@ -639,6 +643,17 @@ TRACKABLE_MIN_CREST = 3.0
 # fraction of the RMS onset at the beats: the programme keeps stepping
 # through an intro's silence at the period, onto nothing
 BEAT_TRIM_FRACTION = 0.5
+# An end beat further than this fraction of the period (or two frames) off
+# the period from its neighbour is dropped, and the ends re-extended one
+# period at a time onto an onset within that distance: the programme's ends
+# have a neighbour on one side only, and settle on a tone's release or a
+# late transient instead of the beat
+BEAT_EDGE_TOLERANCE = 0.06
+# ...onto an onset standing at least this fraction of the weaker beats'
+# prominence (the 10th percentile's) above the envelope around it: a soft
+# end beat a period from its neighbour counts, a bump in a noise bed
+# after the music stops does not
+BEAT_EXTEND_FRACTION = 0.75
 # The RMS-peak fallback: 50 ms windows on the onset hop, peaks at least this
 # prominent relative to the envelope's range
 RMS_PEAK_WINDOW_SECONDS = 0.05
@@ -666,40 +681,74 @@ def onset_envelope(mono, sample_rate):
         mono, sample_rate, nperseg=window, noverlap=window - hop, padded=True
     )
     magnitude = numpy.log1p(ONSET_LOG_GAIN * numpy.abs(spectrum))
-    flux = numpy.maximum(0.0, numpy.diff(magnitude, axis=1)).mean(axis=0)
-    return numpy.concatenate([[0.0], flux]), sample_rate / hop
+    # Frame 0 rises from silence, so a hit at 0 s is an onset
+    flux = numpy.maximum(0.0, numpy.diff(magnitude, axis=1, prepend=0.0))
+    return flux.mean(axis=0), sample_rate / hop
+
+
+def fold_bpm(bpm, min_bpm, max_bpm, centre=TEMPO_PRIOR_BPM):
+    """bpm moved by octaves into [min_bpm, max_bpm], the octave nearest
+    `centre` when more than one fits; None when none does."""
+    if bpm is None or bpm <= 0:
+        return None
+    if min_bpm <= bpm <= max_bpm:
+        return bpm
+    fits = [
+        bpm * 2.0**octave
+        for octave in range(-4, 5)
+        if min_bpm <= bpm * 2.0**octave <= max_bpm
+    ]
+    return min(fits, key=lambda fit: abs(math.log2(fit / centre)), default=None)
 
 
 def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
-    """(bpm, periodicity) from the envelope's autocorrelation in the range.
+    """(bpm, periodicity, missed_pulse_bpm) from the envelope's autocorrelation.
 
-    `periodicity` is the normalized autocorrelation at the chosen lag, 0 to
-    1; (None, 0.0) when the envelope holds no energy or the range no lag.
+    The tempo is searched for in the range first. When nothing there is
+    periodic enough to track, the pulse is searched for over
+    TEMPO_SEARCH_BPM and folded into the range by octaves. When no octave of
+    it fits, the range's best tempo is kept and `missed_pulse_bpm` is the
+    pulse it misses; otherwise that is None. `periodicity` is the normalized
+    autocorrelation at the pulse, 0 to 1. (None, 0.0, None) when the envelope
+    holds no energy or the range no lag; a bpm is always in the range.
     """
     centred = envelope - envelope.mean() if envelope.size else envelope
     count = centred.shape[0]
     if count < 2:
-        return None, 0.0
+        return None, 0.0, None
     correlation = scipy.signal.correlate(centred, centred, mode="full", method="fft")
     correlation = correlation[count - 1 :]
     if correlation[0] <= 0:
-        return None, 0.0
+        return None, 0.0, None
     correlation = correlation / correlation[0]
-    low = max(1, int(math.floor(rate * 60.0 / max_bpm)))
-    high = min(count - 2, int(math.ceil(rate * 60.0 / min_bpm)))
-    if high < low:
-        return None, 0.0
-    lags = numpy.arange(low, high + 1)
     centre = TEMPO_PRIOR_BPM if hint_bpm is None else hint_bpm
     width = TEMPO_PRIOR_OCTAVES if hint_bpm is None else TEMPO_HINT_OCTAVES
-    prior = numpy.exp(-0.5 * (numpy.log2(60.0 * rate / lags / centre) / width) ** 2)
-    best = int(numpy.argmax(correlation[lags] * prior))
-    lag = lags[best]
-    # Parabolic interpolation between the lags either side
-    before, at, after = correlation[lag - 1], correlation[lag], correlation[lag + 1]
-    curvature = before - 2.0 * at + after
-    shift = 0.5 * (before - after) / curvature if curvature < 0 else 0.0
-    return 60.0 * rate / (lag + shift), float(max(at, 0.0))
+
+    def best(low_bpm, high_bpm):
+        low = max(1, int(math.floor(rate * 60.0 / high_bpm)))
+        high = min(count - 2, int(math.ceil(rate * 60.0 / low_bpm)))
+        if high < low:
+            return None, 0.0
+        lags = numpy.arange(low, high + 1)
+        prior = numpy.exp(-0.5 * (numpy.log2(60.0 * rate / lags / centre) / width) ** 2)
+        lag = lags[int(numpy.argmax(correlation[lags] * prior))]
+        # Parabolic interpolation between the lags either side
+        before, at, after = correlation[lag - 1], correlation[lag], correlation[lag + 1]
+        curvature = before - 2.0 * at + after
+        shift = 0.5 * (before - after) / curvature if curvature < 0 else 0.0
+        bpm = min(max(60.0 * rate / (lag + shift), low_bpm), high_bpm)
+        return bpm, float(max(at, 0.0))
+
+    bpm, periodicity = best(min_bpm, max_bpm)
+    if bpm is None or periodicity >= TRACKABLE_MIN_PERIODICITY:
+        return bpm, periodicity, None
+    pulse, pulse_periodicity = best(*TEMPO_SEARCH_BPM)
+    if pulse is None or pulse_periodicity <= periodicity:
+        return bpm, periodicity, None
+    folded = fold_bpm(pulse, min_bpm, max_bpm, centre)
+    if folded is None:
+        return bpm, pulse_periodicity, pulse
+    return folded, pulse_periodicity, None
 
 
 def is_trackable(envelope, periodicity):
@@ -712,13 +761,18 @@ def is_trackable(envelope, periodicity):
 
 def track_beats(envelope, rate, bpm, tightness=BEAT_TIGHTNESS):
     """Beat frame indices by dynamic programming, leading and trailing beats
-    that land on next to nothing trimmed."""
+    that land on next to nothing trimmed and the ends settled on the period.
+
+    Frame 0 is left out of the programme: it holds the track's rise from
+    silence whether or not a beat falls there, so only settling the ends
+    can put a beat on it, and only when it is a period from the next.
+    """
     count = envelope.shape[0]
     period = rate * 60.0 / bpm
-    spread = envelope.std()
-    if count == 0 or spread <= 0:
+    if count < 2 or envelope[1:].std() <= 0:
         return numpy.zeros(0, dtype=int)
-    local = envelope / spread
+    local = envelope / envelope[1:].std()
+    local[0] = 0.0
     score = local.copy()
     backlink = numpy.full(count, -1, dtype=int)
     steps = numpy.arange(max(1, int(round(period / 2))), int(round(2 * period)) + 1)
@@ -744,7 +798,45 @@ def track_beats(envelope, rate, bpm, tightness=BEAT_TIGHTNESS):
     kept = numpy.nonzero(strength >= floor)[0]
     if not kept.size:
         return numpy.zeros(0, dtype=int)
-    return beats[kept[0] : kept[-1] + 1]
+    kept = beats[kept[0] : kept[-1] + 1]
+    floor = BEAT_EXTEND_FRACTION * float(
+        numpy.percentile([_prominence(envelope, frame, period) for frame in kept], 10)
+    )
+    return _settle_ends(list(kept), envelope, period, floor)
+
+
+def _prominence(envelope, frame, period):
+    """How far the envelope at frame stands above its median over the half
+    period either side."""
+    half = max(1, int(round(period / 2)))
+    around = envelope[max(0, frame - half) : frame + half + 1]
+    return float(envelope[frame] - numpy.median(around))
+
+
+def _settle_ends(beats, envelope, period, floor):
+    """The beat frames with off-period end beats dropped, then the ends
+    extended a period at a time while an onset of at least `floor`
+    prominence is there."""
+    tolerance = max(2.0, BEAT_EDGE_TOLERANCE * period)
+    while len(beats) >= 3 and abs(beats[-1] - beats[-2] - period) > tolerance:
+        beats.pop()
+    while len(beats) >= 3 and abs(beats[1] - beats[0] - period) > tolerance:
+        beats.pop(0)
+    reach = int(round(tolerance))
+
+    def onset_near(centre):
+        low = max(0, int(round(centre)) - reach)
+        high = min(envelope.shape[0], int(round(centre)) + reach + 1)
+        if low >= high:
+            return None
+        frame = low + int(numpy.argmax(envelope[low:high]))
+        return frame if _prominence(envelope, frame, period) >= floor else None
+
+    while (frame := onset_near(beats[-1] + period)) is not None and frame > beats[-1]:
+        beats.append(frame)
+    while (frame := onset_near(beats[0] - period)) is not None and frame < beats[0]:
+        beats.insert(0, frame)
+    return numpy.array(beats, dtype=int)
 
 
 def rms_peaks(mono, sample_rate, max_bpm):

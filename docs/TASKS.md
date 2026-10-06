@@ -1305,7 +1305,17 @@ drift of under half a beat; where the detection is further off than that, use
 
 A track with no clear onsets - a pad, a swell - falls back to the peaks of its
 loudness (`method` `rms_peaks`, with a warning that they follow swells rather
-than a pulse). A silent track returns empty `beats` and a warning.
+than a pulse). A silent track returns empty `beats` and a warning. So does a
+near-silent one whose loudest 50 ms is under -40 dBFS - room tone, hiss, or a
+song mixed far too low - since the log-compressed onset envelope would find a
+pulse in it. Raise a real song's level first (`gain_audio`).
+
+`bpm` is always within `min_bpm`-`max_bpm`, or `null`. A pulse found outside the
+range is folded by octaves into it (85.7 BPM searched at 140-200 reports 171.4,
+beating every half pulse). Where no octave fits, the beats keep to a tempo in
+the range and a warning names the pulse. Where the `rms_peaks` peaks have no
+octave in the range, `bpm` is `null` with a warning. The beats run to the
+song's ends: a hit at 0 s is a beat, and a noise bed starting at 0 s is not.
 
 Refused: `min_bpm` at or above `max_bpm`, and malformed anchors (mixed kinds,
 out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past

@@ -75,7 +75,110 @@ class TestOnsetTracking:
             assert numpy.abs(mains - time).min() <= 0.02
 
 
+def burst(name):
+    t = numpy.arange(int(0.05 * SR)) / SR
+    if name == "tone":
+        # A hard-gated tone: its release splatters a second, later onset
+        return 0.5 * numpy.sin(2 * numpy.pi * 880 * t)
+    return click()
+
+
+def backbeat(bpm=85.71, seconds=30.0, first=0.3):
+    """Kick and snare alternating on the beat over a noise bed from 0 s - a
+    pulse strongest at the bar, with a weak kick at each end."""
+    rng = numpy.random.default_rng(2)
+    signal = 0.05 * rng.standard_normal(int(seconds * SR))
+    t = numpy.arange(int(0.2 * SR)) / SR
+    kick = numpy.sin(2 * numpy.pi * 60 * t) * numpy.exp(-t / 0.05)
+    snare = (
+        0.4 * rng.standard_normal(int(0.1 * SR)) * numpy.exp(-t[: int(0.1 * SR)] / 0.03)
+    )
+    times = numpy.arange(first, seconds - 0.3, 60.0 / bpm)
+    for index, time in enumerate(times):
+        place(signal, time, kick if index % 2 == 0 else snare)
+    return signal.astype(numpy.float32)[None, :], times
+
+
+class TestEdges:
+    """The first and last beats, which the programme sees from one side."""
+
+    @pytest.mark.parametrize("bpm", [100, 120, 128])
+    @pytest.mark.parametrize("shape", ["click", "tone"])
+    @pytest.mark.parametrize("first", [0.0, 0.5])
+    def test_every_click_to_the_ends(self, bpm, shape, first):
+        signal = numpy.zeros(SR * 20)
+        times = numpy.arange(first, 20.0 - 0.02, 60.0 / bpm)
+        for time in times:
+            place(signal, time, burst(shape))
+        result = run(signal.astype(numpy.float32)[None, :])
+        assert result["method"] == "onset"
+        assert len(result["beats"]) == len(times)
+        assert_beats_match(result["beats"], times)
+
+    def test_a_bed_from_zero_puts_no_beat_at_zero(self):
+        waveform, times = backbeat()
+        result = run(waveform)
+        assert result["beats"][0] == pytest.approx(times[0], abs=0.02)
+        assert_beats_match(result["beats"], times)
+
+
+class TestRange:
+    def test_a_range_above_the_pulse_folds_it_up(self):
+        waveform, times = backbeat()
+        result = run(waveform, min_bpm=140, max_bpm=200)
+        assert result["method"] == "onset"
+        assert result["bpm"] == pytest.approx(171.4, abs=1)
+        assert result["warnings"] == []
+        for time in times:
+            assert numpy.abs(numpy.array(result["beats"]) - time).min() <= 0.02
+
+    def test_a_range_missing_every_octave_keeps_to_the_range_and_says_so(self):
+        waveform, _ = backbeat()
+        result = run(waveform, min_bpm=119, max_bpm=120)
+        assert 119 <= result["bpm"] <= 120
+        assert any("no octave" in warning for warning in result["warnings"])
+
+    def test_the_fallback_bpm_is_in_the_range(self):
+        rng = numpy.random.default_rng(0)
+        t = numpy.arange(SR * 20) / SR
+        signal = rng.standard_normal(t.shape[0]) * (
+            0.5 - 0.5 * numpy.cos(2 * numpy.pi * t)
+        )
+        result = run(
+            (0.3 * signal).astype(numpy.float32)[None, :], min_bpm=100, max_bpm=140
+        )
+        assert result["method"] == "rms_peaks"
+        assert result["bpm"] == pytest.approx(120, abs=6)
+        result = run(
+            (0.3 * signal).astype(numpy.float32)[None, :], min_bpm=70, max_bpm=80
+        )
+        assert result["bpm"] is None
+        assert any("no octave" in warning for warning in result["warnings"])
+
+    def test_fold_bpm(self):
+        assert dsp.fold_bpm(85.7, 140, 200) == pytest.approx(171.4)
+        assert dsp.fold_bpm(85.7, 119, 120) is None
+        assert dsp.fold_bpm(240, 60, 200, centre=120) == 120
+
+
 class TestFallback:
+    @pytest.mark.parametrize("gain_db", [-120, -50])
+    def test_a_quiet_song_is_not_tracked(self, gain_db):
+        waveform, _ = backbeat()
+        scale = 10 ** (gain_db / 20) / numpy.abs(waveform).max()
+        result = run(waveform * scale)
+        assert result["beats"] == []
+        assert result["bpm"] is None
+        assert result["method"] == "rms_peaks"
+        assert result["warnings"]
+
+    def test_room_tone_is_not_tracked(self):
+        rng = numpy.random.default_rng(3)
+        tone = 10 ** (-50 / 20) * rng.standard_normal(SR * 20)
+        result = run(tone.astype(numpy.float32)[None, :])
+        assert result["beats"] == []
+        assert "near-silent" in result["warnings"][0]
+
     def test_silence(self, monkeypatch):
         seen = []
         monkeypatch.setattr(
