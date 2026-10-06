@@ -27,6 +27,9 @@ COMMAND = "analyze_beats"
 
 # A track whose loudest 50 ms is under this has nothing to track
 SILENT_DBFS = -60.0
+# ...and one under this is near-silence - room tone, hiss - whose onset
+# envelope, log-compressed, can still look like a pulse
+QUIET_DBFS = -40.0
 # Seconds and BPM as reported
 TIME_PLACES = 4
 BPM_PLACES = 2
@@ -146,26 +149,42 @@ def _detect(mono, rate, args, warnings):
 
     from .. import dsp
 
-    envelope, frame_rate = dsp.onset_envelope(mono, rate)
-    bpm, periodicity = dsp.estimate_tempo(
-        envelope, frame_rate, args.min_bpm, args.max_bpm, hint_bpm=args.tempo_bpm
-    )
-    if bpm is not None and dsp.is_trackable(envelope, periodicity):
-        frames = dsp.track_beats(envelope, frame_rate, bpm)
-        if frames.shape[0] >= 2:
-            return (
-                frames / frame_rate,
-                bpm,
-                dsp.downbeat_phase(envelope, frames),
-                "onset",
-            )
     peaks, loudest = dsp.rms_peaks(mono, rate, args.max_bpm)
+    # The onset envelope is log-compressed, so it finds the same pulse in a
+    # song at -120 dB as at full scale: the level is checked first
     if loudest < SILENT_DBFS:
         warnings.append(
             f"{COMMAND}: the track is silent (loudest {loudest:.1f} dBFS) - "
             "no beats to find"
         )
         return numpy.zeros(0), None, None, "rms_peaks"
+    if loudest < QUIET_DBFS:
+        warnings.append(
+            f"{COMMAND}: the track is near-silent (loudest {loudest:.1f} dBFS, "
+            f"under {QUIET_DBFS:g}) - room tone or noise, no pulse to track; "
+            "raise its level first (gain_audio) if it is a real song"
+        )
+        return numpy.zeros(0), None, None, "rms_peaks"
+
+    envelope, frame_rate = dsp.onset_envelope(mono, rate)
+    bpm, periodicity, missed = dsp.estimate_tempo(
+        envelope, frame_rate, args.min_bpm, args.max_bpm, hint_bpm=args.tempo_bpm
+    )
+    if bpm is not None and dsp.is_trackable(envelope, periodicity):
+        frames = dsp.track_beats(envelope, frame_rate, bpm)
+        if frames.shape[0] >= 2:
+            if missed is not None:
+                warnings.append(
+                    f"{COMMAND}: the track's pulse is {missed:.1f} BPM, and no "
+                    f"octave of it is within {args.min_bpm:g}-{args.max_bpm:g} "
+                    f"BPM - these beats keep to {bpm:.1f} BPM, not the pulse"
+                )
+            return (
+                frames / frame_rate,
+                bpm,
+                dsp.downbeat_phase(envelope, frames),
+                "onset",
+            )
     if peaks.shape[0] < 2:
         warnings.append(
             f"{COMMAND}: the track has no clear onsets and too few loudness "
@@ -176,7 +195,15 @@ def _detect(mono, rate, args, warnings):
         f"{COMMAND}: the track has no clear onsets to track - these beats are "
         "its loudness peaks, which follow swells rather than a pulse"
     )
-    return peaks, 60.0 / float(numpy.median(numpy.diff(peaks))), None, "rms_peaks"
+    rate_bpm = 60.0 / float(numpy.median(numpy.diff(peaks)))
+    folded = dsp.fold_bpm(rate_bpm, args.min_bpm, args.max_bpm)
+    if folded is None:
+        warnings.append(
+            f"{COMMAND}: the loudness peaks come at {rate_bpm:.1f} BPM, and no "
+            f"octave of that is within {args.min_bpm:g}-{args.max_bpm:g} BPM, "
+            "so no bpm is reported"
+        )
+    return peaks, folded, None, "rms_peaks"
 
 
 def analyze_beats(
@@ -236,6 +263,9 @@ def analyze_beats(
                 phase = (phase - dropped) % 4
         if method == "onset" and len(beats) >= 2:
             bpm = 60.0 / float(numpy.median(numpy.diff(beats)))
+            if not calibration["anchors_used"]:
+                # Frame rounding can carry the median a hair past the range
+                bpm = min(max(bpm, args.min_bpm), args.max_bpm)
 
     for message in warnings:
         emit_warning(message, kind="analyze_beats", command=COMMAND)
