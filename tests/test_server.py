@@ -556,6 +556,25 @@ def test_job_workflow_reports_whether_it_is_realized(server):
     assert body["definition"]["id"] == "server_test"
 
 
+def test_unrealized_job_workflow_folds_recorded_arguments_and_says_why(server):
+    """A job whose run copy is gone (workspace deleted) still comes back with
+    the caller's arguments in its variables and a note, not the declared
+    defaults under a "predates run tracking" reading."""
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": valid_workflow(), "arguments": {"prompt": "a cat"}},
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["prompt"] == "a cat"
+    assert "prompt" in body["note"] and "deleted" in body["note"]
+
+
 def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
     """workflow_path is confined to --workflow-dir, the same as the
     /api/workflows CRUD routes - a real, existing file elsewhere on disk
