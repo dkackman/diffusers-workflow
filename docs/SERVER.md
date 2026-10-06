@@ -545,9 +545,11 @@ The editor's forms come from these; they are just as usable from scripts:
   caller waits through for nothing. Everything else - `.json`, `.md`,
   `.txt`, an unrecognized extension - deflates; so does the export zip's
   text files (`workflow.json`, `manifest.json`, `job.json`, the README)
-- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
+- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file,
+  or a `.cube` 3D LUT for `apply_lut`
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
-  again on the body; extension held to the allowed image/video list), saved
+  again on the body; extension held to the allowed image, video, audio and
+  `.cube` list), saved
   into the asset library's `uploads/` subfolder - the shared library at
   `<root>/common/assets` when `shared=true`, this workspace's own otherwise -
   under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,

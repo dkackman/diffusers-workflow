@@ -234,6 +234,7 @@ TASK_ARGUMENT_DOMAINS = {
         "radius": POSITIVE,
         "threshold": CHANNEL_LEVEL,
     },
+    "apply_lut": {"strength": UNIT},
     "film_grain": {
         "amount": UNIT,
         "size": AT_LEAST_ONE,

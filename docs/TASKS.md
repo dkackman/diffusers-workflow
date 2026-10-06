@@ -308,6 +308,57 @@ A value outside its range is refused by `validate_workflow`, naming the
 argument and the range, and again at run time when it arrives from a
 `variable:` or an earlier step. `get_task("film_grain")` reports each range.
 
+### apply_lut
+
+`apply_lut` colours an image or a video through a 3D lookup table (LUT) read
+from a `.cube` file, on CPU. Its input is `media`, as in `grade`: a video is
+processed one frame at a time and keeps its frame count, frame rate and audio,
+and an alpha channel passes through untouched. Each pixel's colour is looked up
+with trilinear interpolation, and the result is blended with the original by
+`strength`.
+
+```json
+{
+    "task": {
+        "command": "apply_lut",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "lut": "asset:looks/teal-orange.cube",
+            "strength": 0.7
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `lut` | a `.cube` file | required | The LUT: an `asset:` reference (upload one with `upload_asset`, or `POST /api/uploads`), an `output:` reference, or a path inside the workflow's directory, the asset libraries or the output root |
+| `strength` | 0.0..1.0 | 1.0 | 0 returns the original, 1 the full LUT result; values between blend the two |
+
+**Where the file may be.** A literal path is held to the same roots as any
+media argument, and must end in `.cube`; anything else is refused, naming only
+what the workflow wrote. The file is read and parsed once per step, not once
+per frame.
+
+**The `.cube` the parser takes** is the 3D subset of the format, read strictly.
+Anything else refuses the step, naming the file and the line:
+
+- at most 16 MiB of UTF-8 text;
+- only `TITLE`, `LUT_3D_SIZE`, `DOMAIN_MIN`, `DOMAIN_MAX`, `#` comment lines,
+  blank lines and data rows. `LUT_1D_SIZE` (a 1D LUT) and every other keyword
+  refuse;
+- every keyword before the data, and `LUT_3D_SIZE` exactly once, 2..65;
+- a domain of exactly `0 0 0` to `1 1 1` (the default when the file names
+  none);
+- exactly size³ data rows of three finite numbers, each in 0..1, listed red
+  fastest, then green, then blue, as the format specifies.
+
+Some grading applications write values slightly outside 0..1 or a wider domain;
+those files are refused rather than clipped. `strength` outside 0..1 is refused
+by `validate_workflow` and again at run time when it arrives from a `variable:`
+or an earlier step.
+
 ### A finishing chain
 
 The three finishing commands chain through `previous_result:`, each taking the

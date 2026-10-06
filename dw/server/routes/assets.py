@@ -67,9 +67,14 @@ def _write_bytes(path, data):
 UPLOADS_SUBDIR = "uploads"
 # Audio included: the asset library holds it and workflows read it (an
 # H3 audio reference is built from a .wav), so refusing it here would
-# leave one input kind with no way onto the machine
+# leave one input kind with no way onto the machine. A .cube is a 3D colour
+# lookup table apply_lut reads (#603) - the one non-media kind, parsed
+# strictly when a step reads it, never at upload
 ALLOWED_UPLOAD_EXTENSIONS = (
-    ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
+    ALLOWED_IMAGE_EXTENSIONS
+    | ALLOWED_VIDEO_EXTENSIONS
+    | ALLOWED_AUDIO_EXTENSIONS
+    | {".cube"}
 )
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
