@@ -355,6 +355,7 @@ class JobWorkflow(ApiModel):
         description="The variable a new-seed rerun would draw into, null when the "
         "workflow has none - the cue for whether to offer that at all."
     )
+    note: str = sometimes("Present when `realized` is false: why, and what was folded.")
 
 
 class ExportedFile(ApiModel):

@@ -93,8 +93,8 @@ class JobTools:
         variables, the seed the run used, stored prompt text inlined, and any
         `output:.../latest/...` rewritten to the run it resolved to - so the
         definition reproduces that run however the library changes. When it is
-        false the job predates run tracking and this is the definition as
-        submitted. After a long inline run worth keeping, this then
+        false the run's copy is gone (old job, or its workspace was deleted)
+        and `note` says what was folded in from the recorded arguments. After a long inline run worth keeping, this then
         `save_workflow` is how it gets a name."""
         return diagnose.get_job_workflow(self.client, job_id)
 

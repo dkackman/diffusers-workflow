@@ -7,6 +7,7 @@ closes over an app, so two apps in one process never share a job manager.
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -311,9 +312,11 @@ def get_job_workflow(request: Request, job_id: str):
     and for `get_job_workflow` over MCP.
 
     `realized: true` means every mutable input is pinned - the copy the
-    run itself wrote. `false` means the job predates run tracking (or its
-    run directory is gone) and this is the definition as submitted. 404
-    when neither is readable - the job itself still is."""
+    run itself wrote. `false` means the run's copy is not there (the job
+    predates run tracking, or its run directory or workspace was deleted)
+    and this is the definition as submitted, with the arguments on record
+    laid over its variables and a `note` saying so. 404 when neither is
+    readable - the job itself still is."""
     manager = request.app.state.job_manager
     if manager.get(job_id) is None:
         raise HTTPException(status_code=404, detail="Unknown job")
@@ -323,7 +326,31 @@ def get_job_workflow(request: Request, job_id: str):
         raise HTTPException(
             status_code=404, detail="No workflow definition for this job"
         )
+    extra = {}
+    if realized is None:
+        definition = copy.deepcopy(definition)
+        arguments = manager.arguments(job_id)
+        variables = definition.get("variables")
+        if isinstance(variables, dict):
+            folded = [name for name in arguments if name in variables]
+            for name in folded:
+                variables[name] = arguments[name]
+        else:
+            folded = []
+        extra["note"] = (
+            "The run's realized copy is gone (the job predates run tracking, "
+            "or its run directory or workspace was deleted). This is the "
+            "definition as submitted"
+            + (
+                f", with the recorded arguments folded into its variables "
+                f"({', '.join(folded)}); seed, stored prompts and "
+                "output:latest references are not pinned."
+                if folded
+                else "; get_job.arguments holds what the caller passed."
+            )
+        )
     return {
+        **extra,
         "id": job_id,
         "definition": definition,
         "realized": realized is not None,

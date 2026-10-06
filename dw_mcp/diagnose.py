@@ -175,13 +175,16 @@ def get_job(client, job_id):
 def get_job_workflow(client, job_id):
     """The workflow a job ran. `realized: true` means every mutable input
     is pinned (arguments, seed, prompts, output:latest); false means the
-    job predates run tracking and this is the definition as submitted.
+    run's copy is gone (old job, or its run directory or workspace was
+    deleted) and `note` says what was folded from the recorded arguments.
     Pass it to save_workflow to rerun it by name, or edit it and pass it
     to run_workflow as inline_workflow."""
     body = client.get_json(api_path("api", "jobs", job_id, "workflow"))
+    extra = {"note": body["note"]} if body.get("note") else {}
     return {
         "job_id": job_id,
         "realized": bool(body.get("realized")),
+        **extra,
         "workflow": body.get("definition"),
         # Which variable rerun_job(new_seed=True) would draw into, null when
         # the workflow has none - see rerun_job on why that matters

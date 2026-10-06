@@ -303,6 +303,15 @@ class JobManager:
             logger.debug(f"No realized workflow for job {job_id}: {e}")
             return None
 
+    def arguments(self, job_id):
+        """The arguments a job was submitted with, or {} when none are on
+        record."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            return job.spec.get("arguments") or {}
+        historical = self.history.get(job_id)
+        return (historical or {}).get("arguments") or {}
+
     def seed_variable(self, job_id):
         """The variable this job's workflow draws its seed from, or None.
 
