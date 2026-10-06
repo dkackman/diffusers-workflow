@@ -2858,7 +2858,7 @@ To compare a take against the lines it was meant to speak, use [`check_script`](
 
 Whether a dialogue take speaks its script. Confirming it used to mean transcribing the take and comparing the transcript to the script by eye, which missed a word Whisper dropped, an H3 tag read aloud, and a last word cut off by the end of the file. `check_script` does the comparison and reports where to look.
 
-It transcribes the take with [`transcribe_audio`](#speech-transcription) word timestamps - the same code and model cache, no second ASR path. Every heard word is measured, and one at or below the dead-air floor is discarded as unheard, because Whisper invents words over silence. H3 markup is stripped from each expected line, and the heard words are aligned to the expected words in order (`difflib`). Each line scores the similarity of its own expected and heard words. It decides nothing: findings are places to look, not verdicts. It is not an assessment probe (`assessment=True`); like [`attribute_voices`](#voice-attribution) it answers a JSON document.
+It transcribes the take with [`transcribe_audio`](#speech-transcription) word timestamps - the same code and model cache, no second ASR path. Every heard word is measured, and one at or below the dead-air floor is discarded as unheard, because Whisper invents words over silence. So is every word of a repetition loop - the same words over and over (`Pre-pre-pre-...`), which Whisper invents over music or room tone loud enough to pass the floor. H3 markup is stripped from each expected line, and the heard words are aligned to the expected words in order (`difflib`). Each line scores the similarity of its own expected and heard words. It decides nothing: findings are places to look, not verdicts. It is not an assessment probe (`assessment=True`); like [`attribute_voices`](#voice-attribution) it answers a JSON document.
 
 ```json
 {
@@ -2884,14 +2884,14 @@ The step's `result.content_type` must be `"application/json"`; read the answer w
 | `sample_rate` | No | Sample rate of a waveform passed directly |
 | `device` | No | Where the ASR model runs |
 
-Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, `<cutoff>`, `[unclear]`, speaker IDs `(S1)` and `(S1,S2)`, and any other `<tag>` or `[tag]`. A plain parenthetical stays dialogue. The words of the stripped tokens (`cutoff`, `unclear`, `english`, `s1`) are what `tag_spoken` listens for.
+Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, `<cutoff>`, `[unclear]`, speaker IDs `(S1)` and `(S1,S2)`, and any other `<tag>` or `[tag]`. A plain parenthetical stays dialogue. The words of the stripped tokens (`cutoff`, `unclear`, `english`, `s1`) are what `tag_spoken` listens for; a tag word heard is reported there and left out of the line's similarity, so it is never a `line_mismatch` too.
 
 | Rule | Fires when | `value` / `threshold` | `at` |
 | ---- | ---------- | --------------------- | ---- |
 | `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
 | `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
 | `line_clipped_at_end` | A line's last heard word ends inside the file's final `CLIP_TAIL_SECONDS` and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word}` |
-| `speech_where_silent` | `lines` is `[]` and words were heard above the floor | Number of words heard / 0 | `{line: null, seconds, word}` - the first |
+| `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first |
 
 Every finding is severity `warn`. A rule that does not apply to the call is listed in `rules_skipped` with its reason.
 
@@ -2903,8 +2903,10 @@ The thresholds are module constants in `dw/tasks/script_check.py`, deliberately 
 | `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
 | `GUARD_WINDOW_SECONDS` | 0.05 s (= `DEAD_AIR_WINDOW`, `shot_dead_air`'s window) | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
 | `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
+| `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
+| `REPEAT_MAX_PERIOD` | 4 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
 
-The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot` - null for now), `discarded[]` (`text`, `start`, `end`, `level_dbfs`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`.
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot` - null for now), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor` or `repetition`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`.
 
 How the alignment reads a take:
 
