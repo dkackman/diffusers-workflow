@@ -23,6 +23,11 @@ Each frame also carries a strength from 0 to 1: how much a face-detail pass
 should change it. A face already large in the frame has the pixels it needs,
 so strength falls from 1 at `gate_full` (face width over frame width) to 0 at
 `gate_zero`.
+
+`paste_face_track` is the other half: given the clip, the crops after a
+face-detail pass, and the track, it puts each repaired crop back over its
+square with a feathered round mask scaled by that frame's strength, so the
+change fades out at the edges and is absent where the strength is 0.
 """
 
 import logging
@@ -32,7 +37,12 @@ from PIL import Image
 
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo, JsonRecord
-from ..task_domains import check_face_detector_source, face_track_problems
+from ..shots import carried_shots
+from ..task_domains import (
+    check_face_detector_source,
+    face_track_problems,
+    paste_feather_problems,
+)
 from .video_utils import frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -494,3 +504,183 @@ def crop_face_track(
         f"({before} before, {after} after for 8n+1)"
     )
     return {"crops": AudioVideo(crops, None, None, fps=fps), "track": record}
+
+
+def feather_mask(side, feather):
+    """The alpha a pasted square is blended with: radial, 1 at the centre.
+
+    The mask is the circle inscribed in the square. Its outer `feather`
+    fraction of the radius falls from 1 to 0 along a smoothstep, so the
+    square's corners - and everything past the circle - keep the source.
+    """
+    radius = side / 2
+    coords = np.arange(side, dtype=np.float32) + 0.5 - radius
+    distance = np.hypot(coords[None, :], coords[:, None]) / radius
+    if feather <= 0:
+        return (distance < 1).astype(np.float32)
+    t = np.clip((1 - distance) / feather, 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def paste_crop(source_rgb, crop, square, strength, feather, color_match):
+    """One frame with a repaired crop blended back over its square.
+
+    Args:
+        source_rgb: The source frame, an RGB uint8 array
+        crop: The repaired crop, a PIL image of any size
+        square: [x, y, side, side] the crop was cut from; it may run past the
+            frame's edges, where the crop replicated the border
+        strength: 0 to 1, scaling the whole mask
+        feather: Fraction of the mask's radius that fades (feather_mask)
+        color_match: Shift the crop's mean colour, inside the mask, onto the
+            source's before blending
+    """
+    x, y, side, _ = (int(v) for v in square)
+    height, width = source_rgb.shape[:2]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(width, x + side), min(height, y + side)
+    if x1 <= x0 or y1 <= y0:
+        return source_rgb
+
+    patch = np.asarray(
+        crop.convert("RGB").resize((side, side), Image.LANCZOS), dtype=np.float32
+    )
+    mask = feather_mask(side, feather)
+    inside = (slice(y0 - y, y1 - y), slice(x0 - x, x1 - x))
+    patch, mask = patch[inside], mask[inside]
+    region = source_rgb[y0:y1, x0:x1].astype(np.float32)
+
+    if color_match:
+        weight = float(mask.sum())
+        if weight > 0:
+            patch = patch + ((region - patch) * mask[..., None]).sum((0, 1)) / weight
+
+    alpha = (mask * strength)[..., None]
+    out = source_rgb.copy()
+    out[y0:y1, x0:x1] = np.clip(
+        np.rint(region * (1 - alpha) + patch * alpha), 0, 255
+    ).astype(np.uint8)
+    return out
+
+
+def _read_track(track):
+    """The track record, from the dict a step handed on or its saved .json."""
+    if isinstance(track, str):
+        import json
+
+        from ..locations import validate_media_path
+        from ..security import (
+            ALLOWED_JSON_EXTENSIONS,
+            validate_file_extension,
+            validate_json_size,
+        )
+
+        path = validate_media_path(track, None, "a track argument")
+        validate_file_extension(path, ALLOWED_JSON_EXTENSIONS)
+        validate_json_size(path)
+        with open(path, encoding="utf-8") as handle:
+            track = json.load(handle)
+    if not (
+        isinstance(track, dict)
+        and isinstance(track.get("source"), dict)
+        and isinstance(track.get("frames"), list)
+        and "crop_frames" in track
+        and "pad_before" in track
+    ):
+        raise ValueError(
+            "paste_face_track needs 'track' as the track record crop_face_track "
+            "returned (previous_result:<step>.track, or its saved .json)"
+        )
+    return track
+
+
+def paste_face_track(clip, repaired, track, feather=0.3, color_match=True):
+    """Task command: put repaired face crops back into the clip they came from.
+
+    Args:
+        clip: The source video crop_face_track read - frames, an AudioVideo,
+            or the path or URL of a video file. Its audio, frame rate and
+            shots come through unchanged
+        repaired: The crops after a face-detail pass, still padded to the
+            8n+1 count crop_face_track produced; any frame size
+        track: The `track` record crop_face_track returned, or its .json file
+        feather: Fraction of the paste's radius that fades out, 0 to 1
+        color_match: Match each crop's mean colour to the source's inside the
+            mask before blending
+    Returns:
+        An AudioVideo: the source frames with the face pasted back where the
+        strength is above 0, and the source frame itself where it is 0
+    """
+    problems = paste_feather_problems(feather)
+    if problems:
+        raise ValueError("; ".join(message for _, message in problems))
+    feather = float(feather)
+    track = _read_track(track)
+
+    if isinstance(clip, str):
+        clip = load_audio_video(clip)
+    if isinstance(repaired, str):
+        repaired = load_audio_video(repaired)
+    frames = frames_as_pil_list(clip)
+    crops = frames_as_pil_list(repaired)
+    if not frames:
+        raise ValueError("paste_face_track needs a clip with at least one frame")
+
+    source = track["source"]
+    width, height = frames[0].size
+    if source.get("frames") != len(frames) or len(track["frames"]) != len(frames):
+        raise ValueError(
+            f"paste_face_track: the track was made from a clip of "
+            f"{source.get('frames')} frames but this clip has {len(frames)} - "
+            f"pass the clip crop_face_track tracked"
+        )
+    if (source.get("width"), source.get("height")) != (width, height):
+        raise ValueError(
+            f"paste_face_track: the track was made from a "
+            f"{source.get('width')}x{source.get('height')} clip but this clip "
+            f"is {width}x{height} - pass the clip crop_face_track tracked"
+        )
+    needed = int(track["crop_frames"])
+    if len(crops) < needed:
+        raise ValueError(
+            f"paste_face_track: 'repaired' has {len(crops)} frames but the "
+            f"track's padded crops number {needed} (pad_before "
+            f"{track['pad_before']}, {len(frames)} frames, pad_after "
+            f"{track.get('pad_after')}) - a repair pass must keep every crop"
+        )
+
+    before = int(track["pad_before"])
+    out, pasted = [], 0
+    for index, (frame, entry) in enumerate(zip(frames, track["frames"])):
+        strength = float(entry.get("strength") or 0.0)
+        square = entry.get("crop")
+        if strength <= 0 or not square:
+            out.append(frame)
+            continue
+        rgb = np.asarray(frame.convert("RGB"))
+        out.append(
+            Image.fromarray(
+                paste_crop(
+                    rgb,
+                    crops[before + index],
+                    square,
+                    min(strength, 1.0),
+                    feather,
+                    color_match,
+                )
+            )
+        )
+        pasted += 1
+
+    emit_log(
+        f"paste_face_track: pasted into {pasted} of {len(frames)} frames "
+        f"(feather {feather}, color_match {bool(color_match)})"
+    )
+    # Same frames, one for one, so the clip's sound and shots still hold
+    return AudioVideo(
+        out,
+        getattr(clip, "audio", None),
+        getattr(clip, "sample_rate", None),
+        fps=getattr(clip, "fps", None),
+        shots=carried_shots(clip),
+    )

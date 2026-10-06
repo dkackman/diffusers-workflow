@@ -383,6 +383,42 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     return crop_face_track(device=task.device_for(arguments), **arguments)
 
 
+@register_command(
+    "paste_face_track",
+    implementation="dw.tasks.face_track.paste_face_track",
+    summary=(
+        "Blend repaired face crops back into the clip crop_face_track tracked, "
+        "feathered and scaled by each frame's strength, keeping its audio."
+    ),
+    parameter_descriptions={
+        "clip": (
+            "The source video crop_face_track tracked - a file path, an "
+            "asset:/output: reference, or an earlier step's video. Its audio, "
+            "frame rate and shots are kept."
+        ),
+        "repaired": (
+            "The crops after a face-detail pass, still padded to the 8n+1 "
+            "count crop_face_track produced."
+        ),
+        "track": (
+            "The track record crop_face_track returned - "
+            "previous_result:<step>.track, or its saved .json."
+        ),
+        "feather": "Fraction of the paste's radius that fades out (0 to 1).",
+        "color_match": (
+            "Match each crop's mean colour to the source inside the mask "
+            "before blending."
+        ),
+    },
+)
+def _handle_paste_face_track(task, arguments, previous_pipelines):
+    """Blend repaired face crops back into the clip they were cut from"""
+    logger.debug("Pasting a face track")
+    from .face_track import paste_face_track
+
+    return paste_face_track(**arguments)
+
+
 @register_command("mix_audio", implementation="dw.tasks.audio_utils.mix_audio")
 def _handle_mix_audio(task, arguments, previous_pipelines):
     """Layer audio tracks on top of one another, rather than end to end"""
