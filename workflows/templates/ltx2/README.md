@@ -66,6 +66,7 @@ generating far above that bucket weakens the effect.
 | ------- | ------------------ |
 | [restore-deblur.json](restore-deblur.json) | Spatial defocus only - not motion blur, not noise, not low resolution. Lower `lora_scale` toward 0.8 if it over-sharpens into haloing (#152) |
 | [restore-decompression.json](restore-decompression.json) | Macroblocking, chroma bleed, ringing and banding from a low bit-rate source. Not a deblur and not an upscale (#152) |
+| [restore-long.json](restore-long.json) | `restore-deblur` over a source longer than one bucket: `window_video` slices it, a `for_each` restores each window, `join_windows` cross-fades them back to the source's length. `windows` is `ceil(source_frames / (num_frames - overlap))` entries, checked by `validate_workflow` (#601) |
 
 ## Going long
 

@@ -80,6 +80,7 @@ from .variables import (
 )
 from .video_extensions import video_extension_errors
 from .video_size_errors import video_size_errors
+from .window_count_errors import window_count_errors
 from .vram_estimate import vram_estimate_errors
 from .vram_inheritance import inherited_vram_warnings
 
@@ -382,6 +383,14 @@ ERROR_CHECKS = [
     Check(
         "dissolve_frames",
         lambda c: dissolve_frame_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # A join_windows list not the length its statically-resolvable source
+    # needs (dw/window_count_errors.py, #601)
+    Check(
+        "window_count",
+        lambda c: window_count_errors(
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
     ),
