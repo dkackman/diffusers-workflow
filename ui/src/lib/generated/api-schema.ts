@@ -823,9 +823,11 @@ export interface paths {
          *     and for `get_job_workflow` over MCP.
          *
          *     `realized: true` means every mutable input is pinned - the copy the
-         *     run itself wrote. `false` means the job predates run tracking (or its
-         *     run directory is gone) and this is the definition as submitted. 404
-         *     when neither is readable - the job itself still is.
+         *     run itself wrote. `false` means the run's copy is not there (the job
+         *     predates run tracking, or its run directory or workspace was deleted)
+         *     and this is the definition as submitted, with the arguments on record
+         *     laid over its variables and a `note` saying so. 404 when neither is
+         *     readable - the job itself still is.
          */
         get: operations["get_job_workflow_api_jobs__job_id__workflow_get"];
         put?: never;
@@ -2299,6 +2301,11 @@ export interface components {
             };
             /** Id */
             id: string;
+            /**
+             * Note
+             * @description Present when `realized` is false: why, and what was folded.
+             */
+            note?: string;
             /**
              * Realized
              * @description Every mutable input is pinned - the copy the run itself wrote.
