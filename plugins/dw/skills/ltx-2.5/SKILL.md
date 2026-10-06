@@ -6,7 +6,8 @@ description: Use when a dw MCP server is connected and the user wants LTX-2.5 vi
 # LTX-2.5 on a dw server
 
 LTX-2.5 generates video and a soundtrack together, 24 fps, on a distilled
-schedule that is not a knob. Every template here fits a 24 GB card.
+schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
+.. 4 reinterpret). Every template here fits a 24 GB card.
 
 ## Before anything
 
@@ -53,7 +54,8 @@ schedule that is not a knob. Every template here fits a 24 GB card.
   (IC-LoRA re-render), `width`/`height` 2x the source's, or `refine-clip`
   (its own latents, no LoRA), `width`/`height` the source's and output 2x,
   other ratios stretched. Both: `num_frames` at most its length, soundtrack
-  kept, silent source refused.
+  kept, silent source refused. Same size and length, no 2x:
+  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2).
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
@@ -78,6 +80,8 @@ LoRAs: `list_loras` first.
   template ships them.
 - Stage two of the two-stage flow: renoise at 0.909375 (the first
   `STAGE_2_DISTILLED_SIGMA_VALUES` entry), three sigmas at full size.
+- A hand-authored ladder: three sigmas, no trailing 0 (the scheduler appends
+  it), `noise_scale = sigmas[0]`.
 - An image condition is re-compressed at CRF 18 to match training and needs a
   PIL image; a multi-frame video condition is not.
 - Audio is generated in the first pass and nothing refines it, so carry the
@@ -111,10 +115,11 @@ caption spec, verbatim from the pipeline, which the caption must follow.
 1. `validate_workflow` first - free, and catches bad arguments.
 2. Quote `plan.estimate` from the validate answer (wall clock, loading
    included) and name any `downloads_required` - an IC-LoRA template pulls a
-   gated weight the box may not have. Only `text-to-video`, `two-stage`
-   and `refine-clip` carry a `cost`; for the rest give the shape - a 121-frame clip at 960x544
-   is under two minutes cold on a 24 GB card, a minute loading; extend
-   and chain multiply by their passes.
+   gated weight the box may not have. Only `text-to-video`, `two-stage`,
+   `refine-clip` and `refine-in-place` (~1.5 min, RTX 3090) carry a `cost`;
+   for the rest give the shape - a 121-frame clip at 960x544 is under two
+   minutes cold on a 24 GB card, a minute loading; extend and chain
+   multiply by their passes.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` set to the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, `timeout_seconds` = estimate plus margin;

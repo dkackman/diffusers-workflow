@@ -708,6 +708,9 @@ TEMPLATE_PIPELINE_KEYS = {
         "refine": "cdc51f4b605ee60ec9359390b4a9fb7f60762b419637699527f5a7b1457c1f22",
         "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
     },
+    "ltx2/refine-in-place.json": {
+        "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
+    },
     "ltx2/restore-deblur.json": {
         "restored": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396"
     },

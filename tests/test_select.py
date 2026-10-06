@@ -96,6 +96,28 @@ class TestSelect:
         with pytest.raises(ValueError, match="index 5"):
             select(candidates=["a", "b"], scores=[0.1, 0.2], rule="index", index=5)
 
+    @pytest.mark.parametrize("index", [2, 2.0, "2"])
+    def test_a_whole_number_index_selects_that_position(self, index):
+        result = select(
+            candidates=list("abcde"), scores=[0, 1, 2, 3, 4], rule="index", index=index
+        )
+        assert result.position == 2
+        assert result.value == "c"
+
+    @pytest.mark.parametrize("index", [2.5, "two", True, [1], {}])
+    def test_a_non_whole_index_is_refused_by_name(self, index):
+        with pytest.raises(ValueError, match="whole number"):
+            select(candidates=list("abcde"), scores=[0] * 5, rule="index", index=index)
+
+    def test_a_missing_index_is_refused(self):
+        with pytest.raises(ValueError, match="requires an index"):
+            select(candidates=["a", "b"], scores=[0, 1], rule="index")
+
+    @pytest.mark.parametrize("index", [5, -1, "7"])
+    def test_an_out_of_range_index_names_the_valid_span(self, index):
+        with pytest.raises(ValueError, match=r"\(0 to 4\)"):
+            select(candidates=list("abcde"), scores=[0] * 5, rule="index", index=index)
+
     def test_an_unknown_rule_is_an_error(self):
         with pytest.raises(ValueError, match="unknown rule"):
             select(candidates=["a", "b"], scores=[0.1, 0.2], rule="top_k")
