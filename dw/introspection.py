@@ -6,15 +6,17 @@ no code change here), and a pipeline's argument schema comes from its
 __call__ signature and docstring. Nothing here executes a pipeline.
 
 Only bare class names resolved against the diffusers namespace - plus an
-explicit allowlist of companion packages (sdnq) - are accepted from callers;
-never arbitrary dotted import paths, which would let an HTTP client import
-any module on the system.
+explicit allowlist of companion packages (sdnq) and the modules shipped in
+`dw/community_pipelines/` - are accepted from callers; never arbitrary dotted
+import paths, which would let an HTTP client import any module on the system.
 """
 
 import re
+import ast
 import inspect
 import math
 import logging
+from pathlib import Path
 from . import references
 
 logger = logging.getLogger("dw")
@@ -32,6 +34,40 @@ _DOC_PARAM_PATTERN = re.compile(r"^(\*{0,2}[A-Za-z_]\w*)(?: \((.+?)\))?:\s*(.*)$
 # Companion packages whose classes workflows commonly name. Extending this
 # is a deliberate act; nothing else outside diffusers ever resolves.
 ALLOWED_MODULES = ("sdnq",)
+
+# The pipelines this repo ships, which a workflow names by dotted path
+# ('dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline'). The
+# allowed modules are exactly the files in that directory, so no caller-chosen
+# name reaches an import.
+COMMUNITY_PIPELINES_PACKAGE = "dw.community_pipelines"
+_COMMUNITY_PIPELINES_DIR = Path(__file__).parent / "community_pipelines"
+
+
+def community_pipeline_modules():
+    """Dotted names of the modules in dw/community_pipelines/."""
+    return sorted(
+        f"{COMMUNITY_PIPELINES_PACKAGE}.{path.stem}"
+        for path in _COMMUNITY_PIPELINES_DIR.glob("pipeline_*.py")
+    )
+
+
+def community_pipelines():
+    """Dotted names of the pipeline classes dw/community_pipelines/ defines.
+
+    Read from each module's syntax tree rather than by importing it, so the
+    listing stays as cheap as the diffusers one.
+    """
+    names = []
+    for module_name in community_pipeline_modules():
+        path = _COMMUNITY_PIPELINES_DIR / f"{module_name.rpartition('.')[2]}.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names += [
+            f"{module_name}.{node.name}"
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Pipeline")
+        ]
+    return sorted(names)
+
 
 # from_pretrained is **kwargs-based on ModelMixin, so these generic loading
 # knobs are curated rather than discovered - merged with whatever a
@@ -78,12 +114,15 @@ def _filtered_exports(predicate):
 
 
 def list_pipelines():
-    """Names of every pipeline class the installed diffusers exports.
+    """Names of every pipeline class the installed diffusers exports, then
+    the dotted names of dw's community pipelines.
 
     Reads the export list without importing each pipeline's module -
     diffusers is lazy and enumerating hundreds of classes must stay cheap.
     """
-    return _filtered_exports(lambda name: name.endswith("Pipeline"))
+    return _filtered_exports(lambda name: name.endswith("Pipeline")) + (
+        community_pipelines()
+    )
 
 
 def list_classes(kind):
@@ -113,14 +152,19 @@ def list_classes(kind):
 
 def load_allowed_class(name):
     """Resolve a class name: bare against diffusers, or module.Class where
-    the module is on the explicit allowlist.
+    the module is on the explicit allowlist or is one of dw's community
+    pipeline modules.
 
     Raises:
         ValueError: for a malformed name, a module outside the allowlist,
             or a name the module does not export
     """
     module_name, _, class_name = (name or "").rpartition(".")
-    if module_name and module_name not in ALLOWED_MODULES:
+    if (
+        module_name
+        and module_name not in ALLOWED_MODULES
+        and module_name not in community_pipeline_modules()
+    ):
         raise ValueError(f"Module {module_name!r} is not on the allowlist")
     if not CLASS_NAME_PATTERN.match(class_name):
         raise ValueError(f"Not a valid class name: {name!r}")
