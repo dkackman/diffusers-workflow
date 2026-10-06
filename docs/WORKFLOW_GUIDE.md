@@ -634,7 +634,10 @@ own path, with the member it failed in named in the message.
 
 `templates/minimax/dialogue-short` and `templates/minimax/music-video` are
 this shape: each takes one `shots` list, and `get_workflow` on either shows
-the entry an item needs.
+the entry an item needs. `templates/ltx2/restore-long` runs two `for_each`
+steps over one `windows` list - a `window_video` slice, then a restore of it
+- and `gather:`s the restores into `join_windows`; its list length is fixed
+by the source, and `validate_workflow` names the entries to add or drop.
 
 ### The loop
 

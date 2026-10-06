@@ -428,7 +428,12 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 9_550 for `templates/ltx2/refine-in-place` (#639), measured at
 # 9_460: about 65 tokens, the only same-size refine of a clip the caller
 # brings, and the only LTX template with a strength knob (`strength` 0-4).
-COMPACT_BUDGET = 9_550
+# Then to 9_700 for `templates/ltx2/restore-long` (#601, stage #630,
+# 2026-10-06), measured at 9_638: about 180 tokens over 9_460 (its own
+# description and summary, its `windows` list and `overlap`/`curve` as
+# compact `variable_names`), the only catalog route through a source longer
+# than one LTX-2.5 bucket.
+COMPACT_BUDGET = 9_700
 FILTERED_BUDGET = 1_500
 
 

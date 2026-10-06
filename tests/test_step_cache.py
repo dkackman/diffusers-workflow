@@ -717,6 +717,11 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/restore-decompression.json": {
         "restored": "afcb2e67a7c03447b5860bfe19f4785480e214eb54a39a61a53ccbf0e51717f6"
     },
+    "ltx2/restore-long.json": {
+        "restore@w0": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+        "restore@w1": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+        "restore@w2": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+    },
     "ltx2/text-to-video.json": {
         "text_to_video": "c4da9234234392f4df1a76b9d3ffb2cbff735540e278709da11e43f9b4bc7313"
     },

@@ -55,7 +55,13 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   (its own latents, no LoRA), `width`/`height` the source's and output 2x,
   other ratios stretched. Both: `num_frames` at most its length, soundtrack
   kept, silent source refused. Same size and length, no 2x:
-  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2).
+  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). Footage
+  longer than `num_frames`: `templates/ltx2/restore-long` restores it window
+  by window. Its `windows` list needs `ceil(source_frames / (num_frames -
+  overlap))` entries, `index` 0 up - read `source_frames` from
+  `get_gallery_metadata`, keep `num_frames` 121 and `overlap` 16 (105 new
+  frames per window), and let `validate_workflow` name any entry to add or
+  drop. At most 32 windows.
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
