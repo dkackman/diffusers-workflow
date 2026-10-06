@@ -628,12 +628,36 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     )
 
 
+def _load_media(media):
+    """An image-or-video argument as something _per_frame takes.
+
+    A string is a file path (an asset:/output: reference already resolved):
+    a video extension is read with its audio, anything else as an image. A
+    value that is not a string - a PIL Image, an AudioVideo, a frame list -
+    is already loaded and comes back as itself. Shared by the finishing
+    commands that take `media` (#603).
+    """
+    if not isinstance(media, str):
+        return media
+    import os
+
+    from ..security import ALLOWED_VIDEO_EXTENSIONS
+    from .video_utils import load_audio_video
+
+    if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
+        return load_audio_video(media)
+    from ..argument_media import fetch_image
+
+    return fetch_image(media)
+
+
 @register_command(
     "grade",
     implementation="dw.tasks.grade.grade_image",
     summary=(
-        "Adjust exposure, contrast, saturation and white balance of an "
-        "image or a video."
+        "Adjust exposure, contrast, tonal range (highlights, shadows, whites, "
+        "blacks), clarity, white balance, saturation, fade and vignette of "
+        "an image or a video."
     ),
     parameter_descriptions={
         "media": (
@@ -645,30 +669,22 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
     },
 )
 def _handle_grade(task, arguments, previous_pipelines):
-    """Adjust exposure, contrast, saturation and white balance of an image or a video"""
+    """Adjust the exposure, tone, white balance and colour of an image or a video"""
     logger.debug("Grading media")
-    media = arguments.pop("media")
+    media = _load_media(arguments.pop("media"))
+    import inspect
+
+    from ..task_domains import check_arguments
     from .grade import grade_image
 
-    if isinstance(media, str):
-        import os
-
-        from ..security import ALLOWED_VIDEO_EXTENSIONS
-        from .video_utils import load_audio_video
-
-        if os.path.splitext(media)[1].lower() in ALLOWED_VIDEO_EXTENSIONS:
-            media = load_audio_video(media)
-        else:
-            from ..argument_media import fetch_image
-
-            media = fetch_image(media)
-
+    # A value from a variable or an earlier step never met the static pass
+    check_arguments("grade", **arguments)
+    # Read off the signature, so a parameter added there cannot drop out of
+    # the log (#603)
     defaults = {
-        "exposure": 0.0,
-        "contrast": 1.0,
-        "saturation": 1.0,
-        "temperature": 0.0,
-        "tint": 0.0,
+        name: parameter.default
+        for name, parameter in inspect.signature(grade_image).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
     }
     applied = {
         name: arguments.get(name, default)

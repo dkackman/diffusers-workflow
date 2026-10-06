@@ -57,20 +57,23 @@ NON_POSITIVE = "non_positive"
 # it the same formula still runs and produces a value, just not the one the
 # documented scale promised
 CLOSED_UNIT = "closed_unit"
+# A strength or mix documented from 0.0 to 1.0 - grade's fade, where 0 is no
+# effect and 1 the strongest the documented scale defines (#603)
+UNIT = "unit"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
     NON_NEGATIVE: "zero or above",
     NON_POSITIVE: "at or below full scale (0)",
     CLOSED_UNIT: "between -1.0 and 1.0",
+    UNIT: "between 0.0 and 1.0",
 }
 
-_DOMAIN_REASON = {
-    CLOSED_UNIT: (
-        "A value outside that range is refused rather than extrapolated - "
-        "the documented scale is only defined inside it"
-    ),
-}
+_SCALE_REASON = (
+    "A value outside that range is refused rather than extrapolated - "
+    "the documented scale is only defined inside it"
+)
+_DOMAIN_REASON = {CLOSED_UNIT: _SCALE_REASON, UNIT: _SCALE_REASON}
 # Shared by POSITIVE, NON_NEGATIVE and NON_POSITIVE, which span both counts/
 # rates (audio, frame) and multipliers (grade's contrast, saturation) - kept
 # neutral rather than naming either, since a wording specific to one reads as
@@ -199,6 +202,13 @@ TASK_ARGUMENT_DOMAINS = {
         "saturation": NON_NEGATIVE,
         "temperature": CLOSED_UNIT,
         "tint": CLOSED_UNIT,
+        "highlights": CLOSED_UNIT,
+        "shadows": CLOSED_UNIT,
+        "whites": CLOSED_UNIT,
+        "blacks": CLOSED_UNIT,
+        "clarity": CLOSED_UNIT,
+        "vignette": CLOSED_UNIT,
+        "fade": UNIT,
     },
     "crop_face_track": {
         "crop_size": POSITIVE,
@@ -622,6 +632,8 @@ def in_domain(value, domain):
         return number <= 0
     if domain == CLOSED_UNIT:
         return -1.0 <= number <= 1.0
+    if domain == UNIT:
+        return 0.0 <= number <= 1.0
     return number >= 0
 
 
@@ -655,6 +667,11 @@ def _domain_candidates(value):
     if isinstance(value, list):
         return list(enumerate(value))
     return [(None, value)]
+
+
+def domain_text(domain):
+    """A domain in words - "between 0.0 and 1.0" - as its refusal says it."""
+    return _DOMAIN_TEXT[domain]
 
 
 def domain_violation(command, name, value, domain):
