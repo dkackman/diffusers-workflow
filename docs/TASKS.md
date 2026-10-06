@@ -185,6 +185,8 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
+| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -534,6 +536,64 @@ with `for_each` over `{name, index}` entries as above. It refuses an
 - `validate_workflow` catches these on literal values - and, at run time, an
 `index` whose window would start at or past the source's last frame, naming
 the source's frame count and the last valid index.
+
+### fit_to_model and restore_to_source
+
+A video-to-video model works at its own size and frame count, not the
+source's. `fit_to_model` fits the source into the model's `width` x `height`
+and exactly `num_frames`, the pipeline runs on the fitted video, and
+`restore_to_source` puts the output back at the source's size and length:
+
+```json
+[
+    {
+        "name": "fit",
+        "task": {
+            "command": "fit_to_model",
+            "arguments": {
+                "video": "asset:clip.mp4",
+                "width": 768,
+                "height": 512,
+                "num_frames": 121,
+                "mode": "letterbox"
+            }
+        }
+    },
+    {"name": "upscale", "pipeline": {"...": "reads previous_result:fit.video"}},
+    {
+        "name": "restore",
+        "task": {
+            "command": "restore_to_source",
+            "arguments": {
+                "video": "previous_result:upscale",
+                "fit": "previous_result:fit.fit"
+            }
+        }
+    }
+]
+```
+
+`mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
+(resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
+count is exact: a longer source is cut to its first `num_frames` frames and a
+shorter one holds its last frame. The step returns `{video, fit}`, read as
+`previous_result:<step>.video` and `previous_result:<step>.fit`. The `fit`
+record holds `mode`, `source_width`, `source_height`, `source_frames`,
+`model_width`, `model_height`, `model_frames`, `content_box` (where the source
+sits in the model frame) and `source_box` (the part of the source kept - all
+of it unless `mode` is `crop`), each box `{x, y, w, h}`.
+
+`restore_to_source` takes the pipeline's output and that record; it has no
+`scale` argument. The scale is the output's size over the fitted size and must
+be the same across and down, so a 2x upscaler restores to twice the source.
+Letterbox bars are cropped off, and frames are trimmed to the source's count,
+dropping the held ones (an output shorter than that is returned as it is).
+`crop` cannot bring back the edges it cut, so it returns the kept region at
+the source's pixel density times the scale: 640x480 fitted into 512x288
+restores to 640x360.
+
+Neither task carries a soundtrack. Pair the source's with `pair_audio` after
+the restore.
 
 ### crop_face_track
 
