@@ -31,7 +31,7 @@ from .h3_blocks import (
     REFINE_STRENGTH_INPUT,
     hold_audio_reference,
     holds_audio,
-    refine_sigmas,
+    refine_problems,
     refines,
 )
 from .progress import reported_blocks, reported_progress_bars
@@ -659,19 +659,9 @@ class Pipeline:
                 f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
                 f"{type(self.pipeline).__name__} cannot refine"
             )
-        if arguments.get("latents") is None:
-            raise ValueError(
-                f"{where} re-denoises the 'latents' it is passed, and there are none"
-            )
-        if arguments.get(HOLD_AUDIO_INPUT) is None:
-            raise ValueError(
-                f"{where} re-denoises the video only, so it needs 'hold_audio' to keep a soundtrack"
-            )
-        try:
-            # The scheduler's shift doesn't change what is refused
-            refine_sigmas(strength, arguments.get("num_inference_steps", 50), 1.0)
-        except ValueError as error:
-            raise ValueError(f"Step '{self.name}': {error}") from error
+        problems = refine_problems(arguments)
+        if problems:
+            raise ValueError(f"Step '{self.name}': {problems[0]}")
 
     def _takes_step_callback(self):
         """Whether this pipeline names `callback_on_step_end` in its own

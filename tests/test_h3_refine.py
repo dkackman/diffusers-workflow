@@ -19,6 +19,7 @@ from dw.pipeline_processors.h3_blocks import (
     blocks,
     core_denoise_sequences,
     insert_audio_hold,
+    refine_problems,
     refine_sigmas,
     refines,
 )
@@ -541,3 +542,26 @@ class TestNoRefine:
         state = make_state(strength=None, condition_audio=0)
         run(comps, state)
         assert len(state.get("timesteps")) == 4
+
+
+class TestOneOwnerOfTheRules:
+    """The run-time check raises what `refine_problems` says, the same rules
+    the static check reports - so a rule changed there reaches both."""
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"latents": None},
+            {"hold_audio": None},
+            {"refine_strength": 1.5},
+            {"refine_strength": "0.2"},
+            {"num_inference_steps": 1},
+        ],
+    )
+    def test_the_runtime_message_is_the_owners(self, refining, overrides):
+        arguments = runtime_arguments(**overrides)
+        problems = refine_problems(arguments)
+        assert problems
+        with pytest.raises(ValueError) as raised:
+            Pipeline._check_refine(refining, arguments)
+        assert str(raised.value) == f"Step 'video': {problems[0]}"
