@@ -48,21 +48,12 @@ def _luma(array):
 
 
 def _gaussian_blur(plane, sigma):
-    """A separable Gaussian blur of a 2-D float plane, edges extended. PIL
-    only blurs integer modes, which would quantize the plane it is given."""
+    """A Gaussian blur of a 2-D float plane, edges extended, truncated at 3
+    sigma. PIL only blurs integer modes, which would quantize the plane."""
+    import scipy.ndimage
+
     radius = max(1, int(round(3.0 * sigma)))
-    offsets = np.arange(-radius, radius + 1, dtype=np.float32)
-    kernel = np.exp(-0.5 * (offsets / sigma) ** 2)
-    kernel /= kernel.sum()
-    for _ in range(2):
-        # Blur along rows, then transpose so the second pass takes columns
-        padded = np.pad(plane, ((0, 0), (radius, radius)), mode="edge")
-        length = plane.shape[1]
-        blurred = np.zeros_like(plane)
-        for offset, weight in enumerate(kernel):
-            blurred += weight * padded[:, offset : offset + length]
-        plane = blurred.T
-    return plane
+    return scipy.ndimage.gaussian_filter(plane, sigma, mode="nearest", radius=radius)
 
 
 @lru_cache(maxsize=4)
