@@ -697,7 +697,7 @@ def _is_literal_text(value):
     letting in_domain pass it as unmeasurable."""
     return (
         isinstance(value, str)
-        and not value.startswith(DEFERRED)
+        and not is_ref(DEFERRED, value)
         and as_number(value) is None
     )
 
