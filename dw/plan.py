@@ -487,6 +487,7 @@ class _ChildTotals:
         self.minutes = minutes
         self.partial = partial
         self.unpriced = unpriced
+        self.unpriced_children = []
         self.had_child = False
         self.all_observed = True
         self.runs = []
@@ -503,6 +504,7 @@ class _ChildTotals:
         if child["minutes"] is None:
             self.partial = True
             self.unpriced.append(path)
+            self.unpriced_children.append(path)
             return
         self.bases.append((child["basis"], child.get("measured_on")))
         if self.minutes is not None:
@@ -517,8 +519,12 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
     partial = totals.partial
     unpriced = totals.unpriced
     if minutes is None:
+        # No number to be partial about - but a composed child that went
+        # unpriced is the reason there is none, and an empty list gave the
+        # caller nothing to act on (#655). The parent's own id is dropped:
+        # it is only ever a contributor to a total that exists.
         partial = False
-        unpriced = []
+        unpriced = list(totals.unpriced_children)
     top_basis = own["basis"]
     top_measured_on = own["measured_on"]
     top_runs = None

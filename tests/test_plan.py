@@ -1435,3 +1435,19 @@ class TestAnAdapterIsADownloadToo:
             "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
             "Lightricks/LTX-2.5-Diffusers",
         ]
+
+
+class TestUnpricedNamesTheChildren:
+    def test_an_unpriced_pure_composition_names_its_child(self, plan, tmp_path):
+        """#655: no number and no reason gave a caller nothing to act on."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        definition = {
+            "id": "parent",
+            "steps": [
+                {"name": "shot", "workflow": {"path": "child.json", "arguments": {}}}
+            ],
+        }
+        answer = plan(definition)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert answer["partial"] is False
+        assert [name for name in answer["unpriced"]] == ["child.json"]

@@ -427,7 +427,9 @@ class PlanEstimate(ApiModel):
     unpriced: list[str] = Field(
         description="What contributed nothing to `minutes` when `partial` is true - "
         "the workflow's own id when its own steps went unpriced, else the path of "
-        "each composed child with no cost block. Empty when `partial` is false."
+        "each composed child with no cost block or observed history. When `minutes` is null "
+        "it still names the composed children that left it unpriced (`partial` is then "
+        "false); empty when nothing composed went unpriced."
     )
     runs: int | None
     cached_minutes: int | float | None
