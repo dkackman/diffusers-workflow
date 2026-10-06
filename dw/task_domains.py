@@ -173,7 +173,6 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
     },
     "loop_frames": {"num_frames": POSITIVE},
-    "select": {"index": NON_NEGATIVE},
     "window_video": {
         "index": NON_NEGATIVE,
         "num_frames": POSITIVE,
@@ -1083,26 +1082,38 @@ SELECT_RULES = frozenset({"argmax", "argmin", "first_above", "first_below", "ind
 SELECT_THRESHOLD_RULES = frozenset({"first_above", "first_below"})
 
 
-def select_index_problem(index):
-    """The refusal sentence for a select `index` that is not a whole number,
-    or None. A whole number may arrive as a float or a numeric string (2.0,
-    "2"): a variable declared null carries a command-line value as a string.
-    A deferred reference is the run's to resolve. A negative index is the
-    domain's (TASK_ARGUMENT_DOMAINS), and one past the last candidate is the
-    run's, which alone knows how many there are."""
+def select_index_problem(index, count=None):
+    """The refusal sentence for a select `index` that is not a whole number
+    or is out of range, or None. A whole number may arrive as a float or a
+    numeric string (2.0, "2"): a variable declared null carries a
+    command-line value as a string. A deferred reference is the run's to
+    resolve.
+
+    `count` is how many candidates there are, when the caller knows: the run
+    always does, and validation does when `candidates` is a list. With it,
+    one sentence names both ends of the range, whichever end was missed;
+    without it only a negative index can be refused."""
     if index is None or is_ref(DEFERRED, index):
         return None
     number = as_number(index)
-    if number is not None and number.is_integer():
-        return None
-    return f"select: index must be a whole number, got {index!r}"
+    if number is None or not number.is_integer():
+        return f"select: index must be a whole number, got {index!r}"
+    if count is not None and not 0 <= number < count:
+        return (
+            f"select: index {index} is out of range for {count} candidates "
+            f"(0 to {count - 1})"
+        )
+    if number < 0:
+        return f"select: index {index} is out of range: it must be zero or above"
+    return None
 
 
-def select_rule_problems(rule, threshold, index):
+def select_rule_problems(rule, threshold, index, count=None):
     """Why `select` cannot run this rule with these arguments, one sentence
     each: an unknown rule, a threshold rule with no threshold, or the index
-    rule with no index or one that is not a whole number. Empty when the rule
-    has what it needs.
+    rule with no index or one that is not a whole number in range
+    (select_index_problem; `count` is the number of candidates, when known).
+    Empty when the rule has what it needs.
 
     Only what the run itself refuses - an argument a rule does not use is
     validation's own complaint, since the run ignores it.
@@ -1114,7 +1125,7 @@ def select_rule_problems(rule, threshold, index):
     if rule == "index":
         if index is None:
             return ["select rule 'index' requires an index"]
-        problem = select_index_problem(index)
+        problem = select_index_problem(index, count)
         if problem is not None:
             return [problem]
     return []

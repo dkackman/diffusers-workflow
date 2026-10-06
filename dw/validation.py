@@ -395,7 +395,10 @@ ERROR_CHECKS = [
     ),
     # A select step whose rule is misspelled, or whose threshold/index does
     # not match its rule (select_errors, above)
-    Check("select", lambda c: select_errors(c.expanded, c.source_indices)),
+    Check(
+        "select",
+        lambda c: select_errors(c.expanded, c.source_indices, written=c.definition),
+    ),
     # A chain 'prompts' that resolved to a bare string, which the run would
     # index a character per segment (#653)
     Check(

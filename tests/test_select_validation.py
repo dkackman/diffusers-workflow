@@ -109,11 +109,86 @@ class TestSelectErrors(unittest.TestCase):
             with self.subTest(index=index):
                 definition = {
                     "steps": [
-                        _step(rule="index", candidates=["a"], scores=[1], index=index)
+                        _step(
+                            rule="index",
+                            candidates=["a", "b", "c"],
+                            scores=[0, 1, 2],
+                            index=index,
+                        )
                     ]
                 }
 
                 self.assertEqual(select_errors(definition, source_indices=[0]), [])
+
+    def test_an_out_of_range_literal_index_names_both_ends(self):
+        # The run's own sentence, refused before the queue: a negative index
+        # gives the upper bound as well as the lower (#639)
+        for index in (-1, 5, "-1"):
+            with self.subTest(index=index):
+                definition = {
+                    "steps": [
+                        _step(
+                            rule="index",
+                            candidates=list("abcde"),
+                            scores=[0] * 5,
+                            index=index,
+                        )
+                    ]
+                }
+
+                errors = select_errors(definition, source_indices=[0])
+
+                self.assertEqual(len(errors), 1)
+                self.assertIn("(0 to 4)", errors[0]["message"])
+                self.assertEqual(errors[0]["path"], "steps[0].task.arguments.index")
+
+    def test_a_negative_index_with_unknown_candidates_is_still_refused(self):
+        definition = {
+            "steps": [
+                _step(
+                    rule="index",
+                    candidates="previous_result:many",
+                    scores="previous_result:scores",
+                    index=-1,
+                )
+            ]
+        }
+
+        errors = select_errors(definition, source_indices=[0])
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("zero or above", errors[0]["message"])
+        self.assertEqual(errors[0]["path"], "steps[0].task.arguments.index")
+
+    def test_a_list_a_variable_resolved_to_is_not_counted(self):
+        # A composed child is validated with its default; the parent's list
+        # arrives at run time
+        definition = {
+            "steps": [_step(rule="index", candidates=[], scores=[1], index=0)]
+        }
+        written = {
+            "steps": [
+                _step(rule="index", candidates="variable:clips", scores=[1], index=0)
+            ]
+        }
+
+        self.assertEqual(
+            select_errors(definition, source_indices=[0], written=written), []
+        )
+
+    def test_an_index_past_unknown_candidates_is_left_to_the_run(self):
+        definition = {
+            "steps": [
+                _step(
+                    rule="index",
+                    candidates="previous_result:many",
+                    scores="previous_result:scores",
+                    index=9,
+                )
+            ]
+        }
+
+        self.assertEqual(select_errors(definition, source_indices=[0]), [])
 
     def test_a_deferred_index_is_left_to_the_run(self):
         definition = {
