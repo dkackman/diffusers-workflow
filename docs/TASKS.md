@@ -1787,7 +1787,8 @@ Three read-only commands measure a finished cut and say where to look -
 `analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each is registered
 with `assessment=True` (`register_command`, `dw/tasks/task.py`), which is
 what makes a command a probe - not merely answering JSON, since
-[`attribute_voices`](#voice-attribution) answers JSON too and is not one.
+[`attribute_voices`](#voice-attribution) and [`check_script`](#script-check)
+answer JSON too and are not probes.
 Each takes a video
 (a stored file - `asset:`, `output:` or a path, read straight from disk
 rather than decoded first - or the video an earlier step returned; not a
@@ -2679,7 +2680,71 @@ Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcri
 
 Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
 
+To compare a take against the lines it was meant to speak, use [`check_script`](#script-check) rather than reading the transcript by eye.
+
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
+
+## Script check
+
+Whether a dialogue take speaks its script. Confirming it used to mean transcribing the take and comparing the transcript to the script by eye, which missed a word Whisper dropped, an H3 tag read aloud, and a last word cut off by the end of the file. `check_script` does the comparison and reports where to look.
+
+It transcribes the take with [`transcribe_audio`](#speech-transcription) word timestamps - the same code and model cache, no second ASR path. Every heard word is measured, and one at or below the dead-air floor is discarded as unheard, because Whisper invents words over silence. H3 markup is stripped from each expected line, and the heard words are aligned to the expected words in order (`difflib`). Each line scores the similarity of its own expected and heard words. It decides nothing: findings are places to look, not verdicts. It is not an assessment probe (`assessment=True`); like [`attribute_voices`](#voice-attribution) it answers a JSON document.
+
+```json
+{
+    "task": {
+        "command": "check_script",
+        "arguments": {
+            "audio": "output:take.wav",
+            "lines": ["<d>[English] Where were you?</d>", "I was at the station."]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+The step's `result.content_type` must be `"application/json"`; read the answer with MCP's `get_output_text`.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The take - a path, `asset:`/`output:` reference, or an earlier step's audio or video (its soundtrack is taken) |
+| `lines` | Yes | The expected lines in order: a list of strings or `{text}` objects. Markup is stripped (below). `[]` means no speech is expected |
+| `similarity` | No | Least similarity, 0..1, of a line's heard words to its expected words before it is a `line_mismatch` (default `0.85`) |
+| `model_name` | No | HuggingFace ID of a Whisper-class ASR model (default `openai/whisper-base`) |
+| `sample_rate` | No | Sample rate of a waveform passed directly |
+| `device` | No | Where the ASR model runs |
+
+Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, `<cutoff>`, `[unclear]`, speaker IDs `(S1)` and `(S1,S2)`, and any other `<tag>` or `[tag]`. A plain parenthetical stays dialogue. The words of the stripped tokens (`cutoff`, `unclear`, `english`, `s1`) are what `tag_spoken` listens for.
+
+| Rule | Fires when | `value` / `threshold` | `at` |
+| ---- | ---------- | --------------------- | ---- |
+| `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
+| `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
+| `line_clipped_at_end` | A line's last heard word ends inside the file's final `CLIP_TAIL_SECONDS` and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word}` |
+| `speech_where_silent` | `lines` is `[]` and words were heard above the floor | Number of words heard / 0 | `{line: null, seconds, word}` - the first |
+
+Every finding is severity `warn`. A rule that does not apply to the call is listed in `rules_skipped` with its reason.
+
+The thresholds are module constants in `dw/tasks/script_check.py`, deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
+
+| Constant | Value | What crossing it does |
+| -------- | ----- | --------------------- |
+| `DEFAULT_SIMILARITY` | 0.85 | A line below this similarity is a `line_mismatch` (the `similarity` argument overrides it) |
+| `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
+| `GUARD_WINDOW_SECONDS` | 0.05 s | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
+| `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
+
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot` - null for now), `discarded[]` (`text`, `start`, `end`, `level_dbfs`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`.
+
+How the alignment reads a take:
+
+- A dropped line comes back with `heard: ""` and a `line_mismatch` at where it should have been.
+- An added line's words go to `unmatched` and lower no line's similarity.
+- A line spoken out of order reads as a mismatch on that line.
+- Whisper mishears names and numbers (`2` for `two`), so listen before re-rolling a take on a mismatch.
+- A quiet line can be discarded by the guard. Discarded words are reported under `discarded`, not hidden.
+
+A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1.
 
 ## Frame Interpolation
 
