@@ -185,6 +185,7 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
+| `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 | `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
@@ -536,6 +537,82 @@ with `for_each` over `{name, index}` entries as above. It refuses an
 - `validate_workflow` catches these on literal values - and, at run time, an
 `index` whose window would start at or past the source's last frame, naming
 the source's frame count and the last valid index.
+
+### join_windows
+
+The other half of `window_video`: blend the processed windows back into one
+video the source's length. Give it the windows in order, the source they were
+cut from, and the same `num_frames` and `overlap`:
+
+```json
+[
+    {
+        "name": "window",
+        "for_each": "variable:windows",
+        "task": {
+            "command": "window_video",
+            "arguments": {
+                "video": "variable:source_video",
+                "index": "item:index",
+                "num_frames": 121,
+                "overlap": 16
+            }
+        }
+    },
+    {
+        "name": "joined",
+        "task": {
+            "command": "join_windows",
+            "arguments": {
+                "videos": "gather:window",
+                "source": "variable:source_video",
+                "num_frames": 121,
+                "overlap": 16
+            }
+        }
+    }
+]
+```
+
+with `"windows": [{"name": "w0", "index": 0}, {"name": "w1", "index": 1}, ...]`.
+A step that processes each window goes between the two, and `videos` gathers
+that step instead.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `videos` | Yes | The processed windows, in window order: `gather:<step>` over the step that processed them |
+| `source` | Yes | The video the windows were cut from, as for `window_video`'s `video`. Its frame count sets the plan and its track is the output's |
+| `num_frames` | Yes | Frames per window, as given to `window_video` |
+| `overlap` | Yes | Frames each window shares with the one before, as given to `window_video` |
+| `curve` | No | The blend's shape across a seam: `cosine` (the default, `(1 - cos πt) / 2`), `smoothstep` (`3t² - 2t³`) or `linear` (`t`) |
+| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to put its audio back |
+
+The result has exactly the source's frame count, each source frame once:
+window 0's real frames, then each later window's first `overlap` frames
+blended over the previous window's last `overlap` frames, and the last
+window's pad dropped. The incoming weight is `w(t)` at `t = (k + 1) /
+(overlap + 1)` for seam frame `k` - the open ramp `dissolve_videos` uses, so
+no seam frame is a bare copy of either side. The windows may be at a
+different size from the source (a 2x upscale); the output is at the windows'
+size.
+
+The window count must be exactly `ceil(source_frames / (num_frames -
+overlap))` - the rule has one home, `window_count` in `dw/task_domains.py`,
+and `window_video`'s last valid `index` is one below it. A different count is
+refused at run time, naming both numbers and the list entries (by index) to
+add or drop. It also refuses a window whose frame count is not `num_frames`
+(named by position) and windows of different sizes. An unknown `curve` and an
+`overlap` that is not below `num_frames` are refused by `validate_workflow`
+on literal values as well.
+
+The output's audio is the source's own track over exactly
+`frames_to_samples(source_frames)`, and none when the source has none; the
+windows' audio is discarded. Its shot records are one per window over the
+frames it owns (window `i > 0` starts at its blended head), with
+`overlap_frames` on every seam and cumulative `frames_to_samples` sample spans
+(#401), so `assess_output` reads the seams as dissolves and its sync check
+measures against the source's timeline. Like `concat_videos` and
+`dissolve_videos`, its catalog shape is a cut task.
 
 ### fit_to_model and restore_to_source
 
