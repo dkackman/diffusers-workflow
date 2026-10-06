@@ -31,6 +31,18 @@ Read them in this order and each introduces one new idea on top of the last.
 | [text-to-video.json](text-to-video.json) | The baseline: text to video plus soundtrack on the 3B Lite-distill checkpoint. Ten PiFlow steps at guidance 1.0, and both are part of the checkpoint: the scheduler refuses custom sigmas. Width and height are set explicitly, because the pipeline's defaults (512x768 at guidance 5.0) are not the model's. The repo is pinned to a revision because the vendor has re-keyed the weights as diffusers' module names changed |
 | [image-to-video.json](image-to-video.json) | A supplied still becomes the first frame, and the prompt describes what happens next. The pipeline resizes and center-crops the still to `width` x `height`, so a portrait still wants `480x864` |
 
+## Apple Silicon: parked
+
+These templates do not run on MPS yet (measured on a 64GB Mac, torch 2.14.1,
+2026-10-06). The ten denoising steps are fine there (about 54 s each), but the
+HunyuanVideo VAE's decode is not. Tiled or not, MPS keeps about 2 GiB of driver
+memory per decode tile, and neither `torch.mps.empty_cache()` nor
+`PYTORCH_MPS_LOW_WATERMARK_RATIO` frees it. Live tensors stay under 1 GiB, yet
+3 latent frames (9 video frames) hold about 30 GiB in bf16 or fp16, and about
+58 GiB in fp32. The full 31 latent frames get the worker killed. The audio
+decode is about 1 GiB. A CPU decode of the same 3 latent frames had not finished
+after 10 minutes.
+
 ## Not here yet
 
 These follow-ups are dated 2026-10-06 and are in the audit's reading order:
