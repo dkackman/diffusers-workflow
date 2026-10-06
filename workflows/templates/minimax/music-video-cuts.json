@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxMusicVideoCuts",
-    "description": "Plans a music video's cuts from a song and its lyrics. It transcribes the song with timestamps ('transcribe', a Whisper-class model) and finds its beats ('beats'), then 'plan_cuts' turns the two into a shot list ('plan') covering the whole song, to the length 'beats' measured. Nothing is generated: the result is one JSON document of shots, each {name, start_frame, num_frames, cut_frames, lead_frames, lyric, kind}, tiling the song exactly at 'fps', so the agent writes one prompt per shot and renders the list with music-video.json, whose entries are {name, start_frame, prompt}. 'lyrics' is the song's own words, one line per line with a blank line or a lone section tag such as [Chorus] between stanzas: the shots carry those lines verbatim and the transcript only times them, since Whisper mishears sung words. Left null, the shots carry the transcript's text. 'segment_by' is 'line' (a shot per sung line), 'stanza' or 'beat' (a cut every few beats). 'min_scene_s' merges a shot that is too short into its neighbour and 'max_scene_s' splits one that is too long, on a beat. 'vocal_tail_s' holds a sung shot past its last word, 'include_instrumental_gaps' gives a long silence its own instrumental shot, and 'snap_to_beats' moves every cut to its nearest beat. 'timestamps' must stay 'segment' (a Whisper segment per line) or be 'word'; plan_cuts refuses a transcript without timings.",
+    "description": "Plans a music video's cuts from a song and its lyrics. It transcribes the song with timestamps ('transcribe', a Whisper-class model) and finds its beats ('beats'), then 'plan_cuts' turns the two into a shot list ('plan') covering the whole song, to the length 'beats' measured. Nothing is generated: the result is one JSON document of shots, each {name, start_frame, num_frames, lead_frames, cut_frames, lyric, kind}, tiling the song exactly at 'fps', so the agent writes one prompt per shot and renders the list with music-video.json, whose entries are {name, prompt, start_frame, num_frames, lead_frames, cut_frames}: add a 'prompt' to each entry and drop 'lyric' and 'kind' to render the plan as it stands. The shots are sized for H3 - 'num_frames' on its 17n+5 grid between 124 and 345 frames, with 'lead_s' seconds of run-up before each cut that music-video trims off - and the result's 'render_frames' is the total frames that will be generated, lead included, for quoting the cost. 'lyrics' is the song's own words, one line per line with a blank line or a lone section tag such as [Chorus] between stanzas: the shots carry those lines verbatim and the transcript only times them, since Whisper mishears sung words. Left null, the shots carry the transcript's text. 'segment_by' is 'line' (a shot per sung line), 'stanza' or 'beat' (a cut every few beats). 'min_scene_s' merges a shot that is too short into its neighbour and 'max_scene_s' splits one that is too long, on a beat. 'vocal_tail_s' holds a sung shot past its last word, 'include_instrumental_gaps' gives a long silence its own instrumental shot, and 'snap_to_beats' moves every cut to its nearest beat. 'timestamps' must stay 'segment' (a Whisper segment per line) or be 'word'; plan_cuts refuses a transcript without timings.",
     "cost_drivers": [
         "fps"
     ],
@@ -15,7 +15,8 @@
         "include_instrumental_gaps": true,
         "snap_to_beats": true,
         "timestamps": "segment",
-        "model_name": "openai/whisper-base"
+        "model_name": "openai/whisper-base",
+        "lead_s": 0.5
     },
     "steps": [
         {
@@ -61,7 +62,12 @@
                     "max_scene_s": "variable:max_scene_s",
                     "vocal_tail_s": "variable:vocal_tail_s",
                     "include_instrumental_gaps": "variable:include_instrumental_gaps",
-                    "snap_to_beats": "variable:snap_to_beats"
+                    "snap_to_beats": "variable:snap_to_beats",
+                    "modulus": 17,
+                    "remainder": 5,
+                    "min_frames": 124,
+                    "max_frames": 345,
+                    "lead_s": "variable:lead_s"
                 }
             },
             "result": {

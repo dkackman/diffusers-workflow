@@ -554,3 +554,148 @@ class TestBounceFixes:
         assert not any("duration_s" in w for w in result["warnings"])
         assert sung(result) == LINES
         assert_tiles(result)
+
+
+GRID = {
+    "modulus": 17,
+    "remainder": 5,
+    "min_frames": 124,
+    "max_frames": 345,
+    "lead_s": 0.5,
+}
+GRID_TRANSCRIPT = {
+    "text": "one two three four",
+    "chunks": [
+        {"start": 0.0, "end": 2.9, "text": "one"},
+        {"start": 3.0, "end": 4.9, "text": "two"},
+        {"start": 5.0, "end": 19.0, "text": "three"},
+        {"start": 20.0, "end": 29.0, "text": "four"},
+    ],
+}
+
+
+def grid_plan(**kwargs):
+    return plan(transcript=GRID_TRANSCRIPT, **{**GRID, **kwargs})
+
+
+class TestRenderGrid:
+    def test_no_grid_arguments_leave_the_plan_as_it_was(self):
+        result = plan(lyrics=LYRICS)
+        for shot in result["shots"]:
+            assert shot["num_frames"] == shot["cut_frames"]
+            assert shot["lead_frames"] == 0
+        assert result["render_frames"] == result["total_frames"]
+
+    def test_a_short_cut_renders_the_minimum_with_its_lead(self):
+        result = grid_plan()
+        first, second = result["shots"][:2]
+        assert first["lead_frames"] == 0
+        assert (second["start_frame"], second["cut_frames"]) == (72, 48)
+        assert second["lead_frames"] == 12
+        assert second["num_frames"] == 124
+
+    def test_the_first_shot_has_no_lead_to_take(self):
+        first = grid_plan(lead_s=5)["shots"][0]
+        assert first["start_frame"] == 0
+        assert first["lead_frames"] == 0
+
+    def test_a_lead_is_no_longer_than_the_song_before_the_shot(self):
+        second = grid_plan(lead_s=5)["shots"][1]
+        assert second["lead_frames"] == second["start_frame"] == 72
+
+    def test_every_render_is_on_the_grid_and_at_least_the_minimum(self):
+        result = grid_plan()
+        for shot in result["shots"]:
+            assert (shot["num_frames"] - 5) % 17 == 0
+            assert 124 <= shot["num_frames"] <= 345
+            assert shot["num_frames"] >= shot["lead_frames"] + shot["cut_frames"]
+
+    def test_a_span_past_max_frames_splits_and_warns(self, captured_warnings):
+        result = grid_plan()
+        # shot three is 360 frames, 372 with its lead: over 345
+        assert len(result["shots"]) > 4
+        assert any("max_frames" in w for w in result["warnings"])
+        assert captured_warnings == result["warnings"]
+        assert_tiles(result)
+        lyrics = [s["lyric"] for s in result["shots"]]
+        assert lyrics.count("three") >= 2
+
+    def test_a_split_cuts_on_a_beat(self):
+        beats = [12.0 + 0.5 * i for i in range(16)]
+        result = grid_plan(beats=beats)
+        starts = {s["start_frame"] for s in result["shots"]}
+        beat_frames = {round(b * FPS) for b in beats}
+        assert starts & beat_frames
+
+    def test_render_frames_is_the_sum_of_the_renders(self):
+        result = grid_plan()
+        assert result["render_frames"] == sum(s["num_frames"] for s in result["shots"])
+        assert_tiles(result)
+
+    def test_without_a_modulus_a_render_is_lead_plus_cut_or_the_minimum(self):
+        result = grid_plan(modulus=None, remainder=None, min_frames=100)
+        for shot in result["shots"]:
+            assert shot["num_frames"] == max(
+                100, shot["lead_frames"] + shot["cut_frames"]
+            )
+
+    def test_max_frames_alone_bounds_every_shot(self):
+        result = plan(transcript=GRID_TRANSCRIPT, max_frames=100)
+        assert all(s["num_frames"] <= 100 for s in result["shots"])
+        assert_tiles(result)
+
+    def test_integer_valued_strings_are_read(self):
+        assert grid_plan(modulus="17", remainder="5") == grid_plan()
+
+
+class TestRenderGridRefusals:
+    @pytest.mark.parametrize(
+        "bad, match",
+        [
+            ({"modulus": 0}, "modulus"),
+            ({"modulus": 2.5}, "whole number"),
+            ({"remainder": 17}, "below 'modulus'"),
+            ({"remainder": -1}, "remainder"),
+            ({"min_frames": 0}, "min_frames"),
+            ({"max_frames": 0}, "max_frames"),
+            ({"min_frames": 400}, "at or below"),
+            ({"lead_s": -1}, "lead_s"),
+            ({"lead_s": 20}, "lead_s"),
+            ({"min_frames": 125, "max_frames": 128}, "no shot could fit"),
+            ({"modulus": None}, "needs 'modulus'"),
+        ],
+    )
+    def test_a_bad_grid_is_refused(self, bad, match):
+        with pytest.raises(ValueError, match=match):
+            grid_plan(**bad)
+
+    def test_a_remainder_without_a_modulus_is_refused_statically(self):
+        errors = cuts_errors({"remainder": 5})
+        assert any(name == "remainder" for name, _ in errors), errors
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"modulus": 17, "remainder": 17},
+            {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 100},
+            {"modulus": 17, "remainder": 5, "min_frames": 125, "max_frames": 128},
+            {"modulus": 1.5},
+        ],
+    )
+    def test_the_static_check_refuses_a_bad_literal_grid(self, bad):
+        assert cuts_errors(bad)
+        assert workflow_errors({"transcript": "previous_result:t", **bad})
+
+    def test_the_domains_refuse_a_nonpositive_literal(self):
+        for name in ("modulus", "min_frames", "max_frames"):
+            assert workflow_errors({"transcript": "previous_result:t", name: 0})
+        assert workflow_errors({"transcript": "previous_result:t", "lead_s": -1})
+
+    def test_a_good_or_deferred_grid_passes(self):
+        assert cuts_errors(dict(GRID, remainder=5)) == []
+        assert (
+            cuts_errors(
+                {"modulus": "variable:m", "remainder": 5, "max_frames": "variable:x"}
+            )
+            == []
+        )

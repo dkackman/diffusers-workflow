@@ -37,7 +37,9 @@ rescales it (`interpolate_frames`), re-measures the sample side for a new
 track (`pair_audio`, and `join_windows`, which builds its frame side from the
 windows and puts the source's track back whole, #601), or builds a video with
 no shots at all (a decode, a face-track crop, or `window_video`'s one window
-of a longer source, #601).
+of a longer source, #601), or clips the list to a kept span
+(`trim_video`, via `trimmed_shots(shots, head_trim, keep_frames)`, sample side
+cleared; a clip with no shots carries none, #627).
 `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
@@ -144,7 +146,7 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
     ]
 
 
-def trimmed_shots(shots, head_trim):
+def trimmed_shots(shots, head_trim, keep_frames=None):
     """The shots of a video after dropping `head_trim` frames off its start.
 
     concat_videos trims the head of every video after the first before
@@ -154,15 +156,23 @@ def trimmed_shots(shots, head_trim):
     correctly. The crossfade drawn from the trimmed material makes the
     surviving samples' position in the joined track unmeasurable, so the
     sample side is cleared regardless of rate.
+
+    `keep_frames` also clips the tail (`trim_video`): only the frames
+    `[head_trim, head_trim + keep_frames)` remain, a shot wholly past them is
+    dropped and one straddling the end is cut short. The sample side is
+    cleared the same way.
     """
-    if not head_trim:
+    if not shots or (not head_trim and keep_frames is None):
         return shots
+    limit = None if keep_frames is None else head_trim + keep_frames
     clipped = []
     for shot in shots:
         end = shot["start_frame"] + shot["num_frames"]
-        if end <= head_trim:
-            continue
+        if limit is not None:
+            end = min(end, limit)
         start = max(shot["start_frame"], head_trim)
+        if end <= start:
+            continue
         clipped.append(
             {
                 **shot,

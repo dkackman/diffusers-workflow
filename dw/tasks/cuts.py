@@ -19,6 +19,11 @@ The shape of it:
   shot still outside the range is warned about by name.
 - Frames. Every boundary is rounded once, from its absolute time, so the
   shots' frame counts sum to the song's and no rounding drifts.
+- Render grid. A model renders only some lengths (a modulus and remainder),
+  never fewer than `min_frames` or more than `max_frames`, and a shot may
+  start `lead_s` early to give the model a run-up to trim off. All of it
+  comes in as arguments: a shot's `num_frames` is its lead plus its cut,
+  raised to the grid, and a shot too long for `max_frames` splits.
 
 It answers JSON - a dict, since a list result would become one artifact per
 shot - and builds nothing.
@@ -62,6 +67,35 @@ def _number(value, name, required=False):
     if not math.isfinite(number):
         raise ValueError(f"{COMMAND} needs a finite number for '{name}'")
     return number
+
+
+def _integer(value, name):
+    """An int from a whole number or numeric string; None stays None."""
+    number = _number(value, name)
+    if number is None:
+        return None
+    if number != int(number):
+        raise ValueError(f"{COMMAND} needs a whole number for '{name}', got {value!r}")
+    return int(number)
+
+
+def grid_up(frames, modulus, remainder):
+    """The smallest render length on the grid (modulus * n + remainder, n >= 0)
+    at or above `frames`; `frames` itself when there is no modulus."""
+    if modulus is None:
+        return frames
+    steps = max(0, -(-(frames - remainder) // modulus))
+    return modulus * steps + remainder
+
+
+def grid_down(frames, modulus, remainder):
+    """The largest render length on the grid at or below `frames`, or None
+    when none fits."""
+    if modulus is None:
+        return frames
+    if frames < remainder:
+        return None
+    return modulus * ((frames - remainder) // modulus) + remainder
 
 
 def transcript_problem(transcript):
@@ -551,6 +585,59 @@ def _frames(scenes, fps, total_frames, warnings):
     return framed
 
 
+def _render_length(grid, lead, cut):
+    """Frames to render for a cut with this lead: lead + cut, no fewer than
+    min_frames, raised to the grid."""
+    return grid_up(
+        max(grid["min_frames"] or 0, lead + cut), grid["modulus"], grid["remainder"]
+    )
+
+
+def _split_over_max(framed, grid, beat_frames, warnings):
+    """Each (scene, start, cut) whose render would pass max_frames cut into
+    pieces that fit, each cut on the beat nearest an even split when one lies
+    in reach. The longest cut a piece may have is the longest grid length at
+    or under max_frames, less the piece's own lead (a piece starting early in
+    the song has less). A piece of a sung scene keeps its lyric, and the split
+    is warned about, since the same words then carry several shots."""
+    if grid["max_frames"] is None:
+        return framed
+    ceiling = grid_down(grid["max_frames"], grid["modulus"], grid["remainder"])
+
+    def reach(start):
+        return ceiling - min(grid["lead_frames"], start)
+
+    result = []
+    for scene, start, cut in framed:
+        end = start + cut
+        if cut <= reach(start):
+            result.append((scene, start, cut))
+            continue
+        needed = _render_length(grid, min(grid["lead_frames"], start), cut)
+        pieces, at = [], start
+        while end - at > reach(at):
+            room = reach(at)
+            count = math.ceil((end - at) / room)
+            target = at + (end - at) / count
+            inside = [b for b in beat_frames if at < b <= at + room]
+            if inside:
+                cut_at = min(inside, key=lambda beat: abs(beat - target))
+            else:
+                cut_at = min(at + room, max(at + 1, int(round(target))))
+            pieces.append((at, cut_at - at))
+            at = cut_at
+        pieces.append((at, end - at))
+        label = " / ".join(scene["lyrics"]) or f"frames {start}-{end}"
+        warnings.append(
+            f"{COMMAND}: {label!r} needs {needed} rendered frames, over "
+            f"max_frames ({grid['max_frames']}) - split into {len(pieces)} shots"
+        )
+        for piece_start, piece_cut in pieces:
+            piece = _scene(scene["start"], scene["end"], scene["kind"], scene["lyrics"])
+            result.append((piece, piece_start, piece_cut))
+    return result
+
+
 def plan_cuts(
     transcript,
     lyrics=None,
@@ -564,6 +651,11 @@ def plan_cuts(
     include_instrumental_gaps=True,
     min_gap_seconds=2.0,
     snap_to_beats=False,
+    modulus=None,
+    remainder=None,
+    min_frames=None,
+    max_frames=None,
+    lead_s=None,
 ):
     """Plan a music video's cuts from a song's transcript, lyrics and beats.
 
@@ -595,14 +687,32 @@ def plan_cuts(
             it holding over it
         min_gap_seconds: The shortest silence that becomes its own shot
         snap_to_beats: Whether every cut moves to its nearest beat
+        modulus: The render grid's step: a shot renders 'modulus * n +
+            remainder' frames. Omitted, any length renders
+        remainder: The grid's offset, a whole number from 0 below modulus
+            (0 when omitted); needs modulus
+        min_frames: The fewest frames a shot renders. A shot shorter than its
+            lead plus cut renders this many, then the grid raises it, so
+            num_frames is always on the grid even when min_frames is not
+        max_frames: The most frames a shot renders; a shot needing more
+            splits (on a beat when one is in reach) and is warned about. It
+            must allow at least the smallest grid length at or above
+            min_frames
+        lead_s: Seconds a shot starts before its cut, as a run-up the render
+            is trimmed of; the first shot has none, and no shot leads past
+            the song's start. Omitted, none
 
     Returns:
-        {shots, bpm, fps, duration_s, total_frames, warnings}: `shots` tile
-        the song in order, each {name, start_frame, num_frames, cut_frames,
-        lead_frames, lyric, kind} - `cut_frames` its length on the timeline
-        and `num_frames` the length to render (the same here; lead_frames
-        0), `lyric` the lines sung in it joined by newlines or null, `kind`
-        "vocal" or "instrumental"
+        {shots, bpm, fps, duration_s, total_frames, render_frames, warnings}:
+        `shots` tile the song in order, each {name, start_frame, num_frames,
+        cut_frames, lead_frames, lyric, kind} - `start_frame` and
+        `cut_frames` the cut on the timeline, `lead_frames` the run-up
+        before it (min(round(lead_s * fps), start_frame)) and `num_frames`
+        the length to render: lead_frames + cut_frames, no less than
+        min_frames, raised to the grid. With no grid arguments that is
+        cut_frames and lead_frames is 0. `lyric` is the lines sung in it
+        joined by newlines or null, `kind` "vocal" or "instrumental".
+        `render_frames` is the sum of the shots' num_frames
     """
     import types
 
@@ -617,6 +727,11 @@ def plan_cuts(
         vocal_tail_s=_number(vocal_tail_s, "vocal_tail_s") or 0.0,
         min_gap_seconds=_number(min_gap_seconds, "min_gap_seconds") or 0.0,
         include_instrumental_gaps=bool(include_instrumental_gaps),
+        modulus=_integer(modulus, "modulus"),
+        remainder=_integer(remainder, "remainder"),
+        min_frames=_integer(min_frames, "min_frames"),
+        max_frames=_integer(max_frames, "max_frames"),
+        lead_s=_number(lead_s, "lead_s"),
     )
     check_arguments(
         COMMAND,
@@ -626,6 +741,11 @@ def plan_cuts(
         max_scene_s=args.max_scene_s,
         vocal_tail_s=args.vocal_tail_s,
         min_gap_seconds=args.min_gap_seconds,
+        modulus=args.modulus,
+        remainder=args.remainder,
+        min_frames=args.min_frames,
+        max_frames=args.max_frames,
+        lead_s=args.lead_s,
     )
     if segment_by not in SEGMENT_BY:
         raise ValueError(
@@ -638,6 +758,10 @@ def plan_cuts(
         min_scene_s=args.min_scene_s,
         max_scene_s=args.max_scene_s,
         beats=beats,
+        modulus=args.modulus,
+        remainder=args.remainder,
+        min_frames=args.min_frames,
+        max_frames=args.max_frames,
     )
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
@@ -698,6 +822,23 @@ def plan_cuts(
 
     total_frames = int(round(duration * args.fps))
     framed = _frames(scenes, args.fps, total_frames, warnings)
+    grid = {
+        "modulus": args.modulus,
+        "remainder": args.remainder or 0,
+        "min_frames": args.min_frames,
+        "max_frames": args.max_frames,
+        "lead_frames": int(round((args.lead_s or 0.0) * args.fps)),
+    }
+    if args.max_frames is not None and grid["lead_frames"] >= grid_down(
+        args.max_frames, args.modulus, grid["remainder"]
+    ):
+        raise ValueError(
+            f"{COMMAND}'s 'lead_s' ({args.lead_s:g} s, {grid['lead_frames']} "
+            f"frames) leaves no room under 'max_frames' ({args.max_frames}) "
+            "for a shot's own frames"
+        )
+    beat_frames = [int(round(beat * args.fps)) for beat in beat_times]
+    framed = _split_over_max(framed, grid, beat_frames, warnings)
     width = max(2, len(str(len(framed))))
     shots = []
     for number, (scene, start, cut) in enumerate(framed, start=1):
@@ -714,13 +855,14 @@ def plan_cuts(
                 f"({args.max_scene_s:g} s) - merging a shorter neighbour into "
                 "it left it long"
             )
+        lead = min(grid["lead_frames"], start)
         shots.append(
             {
                 "name": name,
                 "start_frame": start,
-                "num_frames": cut,
+                "num_frames": _render_length(grid, lead, cut),
                 "cut_frames": cut,
-                "lead_frames": 0,
+                "lead_frames": lead,
                 "lyric": "\n".join(scene["lyrics"]) or None,
                 "kind": scene["kind"],
             }
@@ -734,6 +876,7 @@ def plan_cuts(
         "fps": args.fps,
         "duration_s": round(duration, TIME_PLACES),
         "total_frames": total_frames,
+        "render_frames": sum(shot["num_frames"] for shot in shots),
         "warnings": warnings,
     }
 

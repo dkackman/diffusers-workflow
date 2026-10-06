@@ -192,9 +192,8 @@ class TestTheTemplateItself:
         arguments = steps["music_video"]["task"]["arguments"]
         # The whole song, by way of the gain step that gives the mux headroom (#159)
         assert arguments["audio"] == "previous_result:balanced"
-        assert steps["balanced"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
-        )
+        assert steps["balanced"]["task"]["arguments"]["audio"] == "variable:song"
+        assert definition["variables"]["song"] == "previous_result:write_song"
         assert arguments["fit"] == "video"
 
     def test_no_template_hardcodes_a_soundtrack_length(self):

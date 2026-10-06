@@ -27,6 +27,7 @@ from ..task_domains import (
     as_number,
     check_arguments,
     frames_to_samples,
+    slice_lead_problem,
     slice_padding,
     slice_region,
 )
@@ -147,11 +148,18 @@ def slice_audio(
     num_frames=None,
     fps=None,
     sample_rate=None,
+    lead_frames=0,
 ):
     """Task command: cut a slice out of an audio track.
 
     The slice is addressed either in seconds (start_seconds + duration_seconds)
     or in video frames (start_frame + num_frames + fps).
+
+    In the frame form 'lead_frames' (default 0) adds audio before the cut: the
+    slice starts at start_frame - lead_frames and runs num_frames frames, so a
+    later trim of the head can land exactly on start_frame. A lead-in reaching
+    before the head of the track (start_frame - lead_frames below zero) is
+    refused, as is 'lead_frames' together with the seconds form.
 
     A slice reaching past the end of the track is zero-padded to the length
     asked for - it does not fail and it is not shortened - and the padding is
@@ -186,6 +194,7 @@ def slice_audio(
     start_frame = coerce_number(start_frame, int, "start_frame")
     num_frames = coerce_number(num_frames, int, "num_frames")
     fps = coerce_number(fps, Fraction, "fps")
+    lead_frames = coerce_number(lead_frames, int, "lead_frames")
 
     # A count or an offset outside its domain is refused rather than handed to
     # Python's slice semantics, which answered a negative 'num_frames' with
@@ -200,7 +209,13 @@ def slice_audio(
         num_frames=num_frames,
         fps=fps,
         sample_rate=sample_rate,
+        lead_frames=lead_frames,
     )
+    problem = slice_lead_problem(
+        start_frame, lead_frames, start_seconds, duration_seconds
+    )
+    if problem:
+        raise ValueError(problem)
 
     waveform, sample_rate = waveform_and_rate(audio, sample_rate, "slice_audio")
     total = waveform.shape[1]
@@ -213,6 +228,7 @@ def slice_audio(
         num_frames=num_frames,
         fps=fps,
         total=total,
+        lead_frames=lead_frames or 0,
     )
     if region is None:
         in_seconds = start_seconds is not None or duration_seconds is not None

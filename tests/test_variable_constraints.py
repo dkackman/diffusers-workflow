@@ -481,8 +481,14 @@ class TestTheCatalogsNumbersAreTheLibrarys:
             assert rule["min_frames"] == low, path
             assert rule["max_frames"] == high, path
             # The pipeline rounds up and warns; the constraint says so too,
-            # so the caller hears it before the run rather than in a log
-            assert rule["snap"] == "up", path
+            # so the caller hears it before the run rather than in a log.
+            # music-video is the named exception: its entries lay out
+            # start_frame, lead_frames and cut_frames against num_frames,
+            # so a rounded length would move the cuts - refused instead.
+            if path.endswith("music-video.json"):
+                assert "snap" not in rule, path
+            else:
+                assert rule["snap"] == "up", path
 
     def test_the_ltx2_frame_rule_is_the_pipelines(self):
         ltx = pytest.importorskip(
@@ -586,8 +592,17 @@ class TestTheCatalogReportsAnEntrysBound:
         )
 
     def test_a_list_with_no_constrained_field_carries_no_block(self):
-        """`music-video`'s entries take `prompt` and `start_frame`, neither
-        of which any rule reaches - so the key is absent rather than empty."""
+        """A list whose entries' fields no rule reaches carries no
+        `constraints` key rather than an empty one."""
+        from dw.server.catalog_shape import derive_catalog_metadata
+
+        definition = self.definition()
+        definition.pop("variable_constraints")
+        lists = derive_catalog_metadata(definition)["lists"]
+
+        assert "constraints" not in lists["shots"]
+
+    def test_music_video_reports_its_rule_without_a_snap(self):
         from dw.server.catalog_shape import derive_catalog_metadata
 
         path = os.path.join(
@@ -596,7 +611,7 @@ class TestTheCatalogReportsAnEntrysBound:
         with open(path, encoding="utf-8") as handle:
             lists = derive_catalog_metadata(json.load(handle))["lists"]
 
-        assert "constraints" not in lists["shots"]
+        assert lists["shots"]["constraints"]["num_frames"] == "17*n+5, 124-345"
 
 
 class TestValidationSeesTheSnappedValue:

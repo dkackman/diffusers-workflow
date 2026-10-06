@@ -85,6 +85,23 @@ class TestTheCheck:
         assert len(warnings) == 1
         assert "1.00 s past the end of a 2.00 s source" in warnings[0]
 
+    def test_the_lead_frames_move_the_requested_region(self, monkeypatch):
+        # 24 + 120 frames would end at 6.00 s; a 12-frame lead starts half a
+        # second earlier and ends at 5.50 s, 0.54 s past a 4.96 s source
+        base_dir = workflow_dir_with_asset(monkeypatch, "score.wav", seconds=4.96)
+        definition = slice_workflow(
+            "asset:score.wav",
+            start_frame=24,
+            lead_frames=12,
+            num_frames=120,
+            fps=24,
+        )
+
+        warnings = slice_past_end_warnings(definition, base_dir=base_dir)
+
+        assert len(warnings) == 1
+        assert "0.54 s past the end" in warnings[0]
+
     def test_a_seconds_based_slice_past_a_short_asset_is_warned(self, monkeypatch):
         base_dir = workflow_dir_with_asset(monkeypatch, "voice.wav", seconds=2.0)
         definition = slice_workflow(

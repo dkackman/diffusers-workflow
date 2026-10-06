@@ -297,8 +297,10 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
-    # pair_audio's argument, not the 2x LTX templates' variable of that name
-    "workflows/templates/minimax/music-video.json": {"fit"},
+    # pair_audio's 'fit' argument, and the per-entry 'num_frames' of a shot
+    "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
+    # fields of the plan's entries, which music-video's shots then take
+    "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
 }
 
 

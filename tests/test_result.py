@@ -2316,15 +2316,20 @@ class TestTheMusicTemplatesLeaveHeadroom:
     @pytest.mark.parametrize(
         "path,source,target",
         [
-            ("workflows/templates/minimax/music.json", "generate_music", -3.0),
-            ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
+            (
+                "workflows/templates/minimax/music.json",
+                "previous_result:generate_music",
+                -3.0,
+            ),
+            # music-video reads its 'song' variable, which defaults to write_song
+            ("workflows/templates/minimax/music-video.json", "variable:song", -3.0),
         ],
     )
     def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):
         steps = self.steps_of(path)
         balanced = steps["balanced"]["task"]
         assert balanced["command"] == "normalize_audio"
-        assert balanced["arguments"]["audio"] == f"previous_result:{source}"
+        assert balanced["arguments"]["audio"] == source
         assert balanced["arguments"]["peak_dbfs"] == target
 
     @pytest.mark.parametrize(
@@ -2348,9 +2353,7 @@ class TestTheMusicTemplatesLeaveHeadroom:
         """Only the mux is normalized. The slices condition the shots, so a
         gain change there would change the picture rather than its level."""
         steps = self.steps_of("workflows/templates/minimax/music-video.json")
-        assert steps["slice"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
-        )
+        assert steps["slice"]["task"]["arguments"]["audio"] == "variable:song"
         assert steps["music_video"]["task"]["arguments"]["audio"] == (
             "previous_result:balanced"
         )

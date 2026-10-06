@@ -140,7 +140,16 @@ def _walk(value):
             yield from _walk(item)
 
 
-def _needs_input_media(steps):
+def _filled_inside(name, variables):
+    """Whether a `variable:` reference's default is a step of this workflow's
+    own (`previous_result:`), so the media is made here unless the caller
+    overrides it - music-video's `song` (#627)."""
+    default = variables.get(references.ref_name(references.VARIABLE, name))
+    return references.is_ref(references.PREVIOUS_RESULT, default)
+
+
+def _needs_input_media(steps, variables=None):
+    variables = variables or {}
     for step in steps:
         arguments = _arguments(step)
         for name, value in arguments.items():
@@ -149,7 +158,11 @@ def _needs_input_media(steps):
             # A list argument (gather_images' `urls`) carries the same fact
             # one level in.
             candidates = value if isinstance(value, list) else [value]
-            if any(references.is_ref(references.VARIABLE, item) for item in candidates):
+            if any(
+                references.is_ref(references.VARIABLE, item)
+                and not _filled_inside(item, variables)
+                for item in candidates
+            ):
                 return True
         for value in _walk(arguments):
             if references.is_ref(references.ASSET, value):
@@ -227,7 +240,7 @@ def _derive_shape(steps, kind):
     return "image"
 
 
-def _derive_traits(steps):
+def _derive_traits(steps, variables=None):
     """The independent facts about how the output is made or what it needs.
 
     `has-audio` says the workflow emits a generated audio track - a step
@@ -265,7 +278,7 @@ def _derive_traits(steps):
             traits.add("identity-referenced")
         if key == "workflow":
             traits.add("composes-workflows")
-    if _needs_input_media(steps):
+    if _needs_input_media(steps, variables):
         traits.add("needs-input-media")
     return sorted(traits)
 
@@ -313,7 +326,8 @@ def derive_catalog_metadata(definition):
     if definition.get("shape") in SHAPES:
         shape = definition["shape"]
         declared.add("shape")
-    traits = _derive_traits(steps)
+    variables = definition.get("variables")
+    traits = _derive_traits(steps, variables if isinstance(variables, dict) else None)
     if isinstance(definition.get("traits"), list):
         traits = sorted(t for t in definition["traits"] if t in TRAITS)
         declared.add("traits")

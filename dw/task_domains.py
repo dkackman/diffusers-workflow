@@ -105,6 +105,7 @@ TASK_ARGUMENT_DOMAINS = {
         "start_seconds": NON_NEGATIVE,
         "duration_seconds": POSITIVE,
         "start_frame": NON_NEGATIVE,
+        "lead_frames": SEED,
         "num_frames": POSITIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
@@ -177,6 +178,11 @@ TASK_ARGUMENT_DOMAINS = {
         "index": NON_NEGATIVE,
         "num_frames": POSITIVE,
         "overlap": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
+    "trim_video": {
+        "start_frame": NON_NEGATIVE,
+        "num_frames": POSITIVE,
         "fps": POSITIVE,
     },
     "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
@@ -264,6 +270,11 @@ TASK_ARGUMENT_DOMAINS = {
         "max_scene_s": POSITIVE,
         "vocal_tail_s": NON_NEGATIVE,
         "min_gap_seconds": NON_NEGATIVE,
+        "modulus": POSITIVE,
+        "remainder": NON_NEGATIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "lead_s": NON_NEGATIVE,
     },
 }
 
@@ -604,12 +615,22 @@ def beats_errors(arguments):
 
 
 def cuts_problems(
-    transcript=None, segment_by=None, min_scene_s=None, max_scene_s=None, beats=None
+    transcript=None,
+    segment_by=None,
+    min_scene_s=None,
+    max_scene_s=None,
+    beats=None,
+    modulus=None,
+    remainder=None,
+    min_frames=None,
+    max_frames=None,
 ):
     """[(argument, message)] for each plan_cuts rule these values break: a
     transcript that is plain text (no timings), a scene range that is empty,
-    and cutting by beat with no beats. A reference is skipped - only the run
-    has its value."""
+    cutting by beat with no beats, and a render grid (modulus, remainder,
+    min_frames, max_frames) that is not whole numbers, has a remainder with no
+    modulus or past it, or leaves no length a shot could render at. A
+    reference is skipped - only the run has its value."""
     from .tasks.cuts import transcript_problem
 
     problems = []
@@ -634,6 +655,78 @@ def cuts_problems(
                 "analyze_beats' result or a list of beat times",
             )
         )
+    return problems + grid_problems(modulus, remainder, min_frames, max_frames)
+
+
+def grid_problems(modulus, remainder, min_frames, max_frames):
+    """[(argument, message)] for the plan_cuts render grid rules these values
+    break. A value that is absent or not a number is skipped."""
+    problems = []
+    whole = {}
+    modulus_given = modulus is not None
+    for name, value in (
+        ("modulus", modulus),
+        ("remainder", remainder),
+        ("min_frames", min_frames),
+        ("max_frames", max_frames),
+    ):
+        number = as_number(value)
+        if number is None:
+            continue
+        if number != int(number):
+            problems.append(
+                (
+                    name,
+                    f"plan_cuts needs a whole number of frames for '{name}', got {value!r}",
+                )
+            )
+        else:
+            whole[name] = int(number)
+    modulus, remainder = whole.get("modulus"), whole.get("remainder")
+    low, high = whole.get("min_frames"), whole.get("max_frames")
+    if remainder is not None and not modulus_given:
+        problems.append(
+            (
+                "remainder",
+                "plan_cuts needs 'modulus' with 'remainder' - a remainder is "
+                "of a modulus",
+            )
+        )
+    if modulus is not None and remainder is not None and remainder >= modulus > 0:
+        problems.append(
+            (
+                "remainder",
+                f"plan_cuts needs 'remainder' ({remainder}) below 'modulus' "
+                f"({modulus})",
+            )
+        )
+    if low is not None and high is not None and low > high:
+        problems.append(
+            (
+                "min_frames",
+                f"plan_cuts needs 'min_frames' ({low}) at or below "
+                f"'max_frames' ({high}) - no shot could be both",
+            )
+        )
+    elif (
+        high is not None
+        and not problems
+        and (modulus is None or modulus > 0)
+        and (remainder or 0) >= 0
+        and (low or 1) > 0
+    ):
+        from .tasks.cuts import grid_up
+
+        smallest = grid_up(max(low or 0, 1), modulus, remainder or 0)
+        if smallest > high:
+            problems.append(
+                (
+                    "max_frames",
+                    f"plan_cuts needs 'max_frames' ({high}) at or above the "
+                    f"smallest render length on the grid ({smallest}) - no "
+                    "shot could fit",
+                )
+            )
     return problems
 
 
@@ -648,6 +741,13 @@ def cuts_errors(arguments):
     }
     beats = arguments.get("beats")
     literal["beats"] = "deferred" if is_ref(DEFERRED, beats) else beats
+    grid = ("modulus", "remainder", "min_frames", "max_frames")
+    if not is_ref(DEFERRED, arguments.get("modulus")):
+        # A grid with a value yet to come can't be judged; a deferred modulus
+        # hides what a remainder or the frame bounds are measured against
+        for name in grid:
+            if not is_ref(DEFERRED, arguments.get(name)):
+                literal[name] = arguments.get(name)
     return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
 
 
@@ -833,6 +933,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "window_video": window_video_errors,
             "join_windows": join_windows_errors,
             "fit_to_model": fit_to_model_errors,
+            "slice_audio": slice_audio_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
@@ -867,6 +968,57 @@ def window_overlap_problem(num_frames, overlap, command="window_video"):
             f"no frames of its own to advance by"
         )
     return None
+
+
+def slice_lead_problem(start_frame, lead_frames, start_seconds, duration_seconds):
+    """The refusal sentence for a `slice_audio` lead-in that cannot apply, or
+    None: `lead_frames` given with the seconds form (it is extra audio before
+    a frame-addressed cut), or one that reaches before the head of the track
+    (`start_frame - lead_frames` below zero, `start_frame` defaulting to 0).
+    Arguments are already numbers, None where not given.
+    """
+    if not lead_frames:
+        return None
+    if start_seconds is not None or duration_seconds is not None:
+        return (
+            "slice_audio takes 'lead_frames' only with the frame form "
+            "('start_frame'/'num_frames'/'fps'), not with 'start_seconds' "
+            "or 'duration_seconds'"
+        )
+    start = start_frame or 0
+    if start - lead_frames < 0:
+        return (
+            f"slice_audio 'lead_frames' ({lead_frames}) reaches before the "
+            f"head of the track: 'start_frame' ({start}) minus 'lead_frames' "
+            f"would start at frame {start - lead_frames}"
+        )
+    return None
+
+
+def slice_audio_errors(arguments):
+    """[(argument, message)] for the slice_audio lead rule a literal workflow
+    can break before it runs. A value that is not a literal number (a
+    reference, a string) is unknown and says nothing."""
+
+    def literal(name):
+        value = arguments.get(name)
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return None
+        return value
+
+    lead_frames = literal("lead_frames")
+    if lead_frames is None or lead_frames < 0 or lead_frames != int(lead_frames):
+        return []
+    for name in ("start_frame", "start_seconds", "duration_seconds"):
+        if arguments.get(name) is not None and literal(name) is None:
+            return []
+    problem = slice_lead_problem(
+        literal("start_frame"),
+        lead_frames,
+        literal("start_seconds"),
+        literal("duration_seconds"),
+    )
+    return [] if problem is None else [("lead_frames", problem)]
 
 
 def window_video_errors(arguments, command="window_video"):
@@ -1056,6 +1208,7 @@ def slice_region(
     num_frames=None,
     fps=None,
     total=None,
+    lead_frames=0,
 ):
     """The region a `slice_audio` call asks for, as `(start, length)` in
     samples, or None when it cannot be worked out.
@@ -1066,6 +1219,8 @@ def slice_region(
     runs to the source's end, which takes `total`, the source's length in
     samples: validation does not know it and gets None, the run does. None
     is also an unusable shape - frames with no `fps`, or nothing addressed.
+    `lead_frames` is extra audio before the cut in the frame form: the slice
+    starts at `start_frame - lead_frames` and still runs `num_frames`.
     Arguments are already numbers (the caller coerces them).
     """
     if start_seconds is not None or duration_seconds is not None:
@@ -1075,9 +1230,10 @@ def slice_region(
     elif start_frame is not None or num_frames is not None:
         if not fps:
             return None
-        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        first = (start_frame or 0) - (lead_frames or 0)
+        start = frames_to_samples(first, fps, sample_rate)
         if num_frames is not None:
-            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            end = frames_to_samples(first + num_frames, fps, sample_rate)
             return start, end - start
     else:
         return None
