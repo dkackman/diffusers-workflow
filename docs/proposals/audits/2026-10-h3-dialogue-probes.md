@@ -24,7 +24,8 @@ the effect, and **inconclusive** when the seeds disagree.
 | 3 | "'soft / gentle / whisper / lullaby' in a male line's delivery can flip the voice female." | **refuted** | 6f588db1f043, 3a29df186aac | The voice stayed male on both arms and both seeds, with median pitch 85–103 Hz (a female voice sits around 165–255 Hz). In seed 1001 the soft-delivery wording made the delivery breathier (fewer voiced frames, a wider pitch spread) but not female. See *Probe 3*. |
 | 4 | "Every silent on-screen person needs their own 'lips stay pressed together' sentence." | **refuted** | 04a238ab66d4, 0934c1b76fef | Without the sentence, the silent listener kept her mouth closed on both seeds while the speaker talked. See *Probe 4*. |
 | 5 | "A voice-only source (a radio, a phone) gets lip-synced by whoever is holding it." | **refuted** | 04a238ab66d4, 0934c1b76fef | Without the sentence, the man holding the speakerphone kept his lips closed through the caller's line on both seeds. See *Probe 5*. |
-| 6 | "`<pause>` and `<softer>` are spoken aloud; a bare '...' produces invented words." | **refuted** | 6f588db1f043, 3a29df186aac | Neither seed spoke `pause`, `softer` or `breath`, and the bare `…` produced no invented words. Both seeds spoke the line as written. Seed 1001 put a 0.56 s gap where `<breath>` sat. See *Probe 6*. |
+| 6 | "`<pause>` and `<softer>` are spoken aloud; a bare '...' produces invented words." | **refuted** | 6f588db1f043, 3a29df186aac | Neither seed spoke `pause`, `softer` or `breath`, and the bare `…` produced no invented words. Both seeds spoke the line as written. See *Probe 6*. |
+| 6b | "`<breath>` is honoured as a silent beat." (the condition for the budget's `<breath>` term coming back) | **not spoken aloud**: refuted. **Silent beat: inconclusive** | 6f588db1f043, 3a29df186aac | `<breath>` is never spoken and no breath sound was transcribed. Both broken seeds pause where it sat (1.00 s and 0.75 s), but both followed seeds, with no tag, pause at the same sentence break (0.70 s and 0.30 s). The tag may lengthen the pause, but it doesn't create one. The `<breath>` budget term stays cut. See *Probe 6*. |
 | 7 | "Prompt length budget: about 7,000 characters." (meant as the encoder's `max_sequence_length`) | **refuted** (from source, no GPU) | — | The H3 text encoder doesn't truncate. See *Probe 7*. |
 | 8 | "A continuation should start from rest, open on `<breath>`, and begin no new words inside the discarded warm-up prefix." | **not run**: GPU budget (Don's decision) | — | Its prompt design is kept in *Not run*. |
 
@@ -131,10 +132,28 @@ Prompt: a woman in a hallway, facing the camera. The arms:
 | followed s2002 | I waited up all night. You never called. I was so worried. Just come home. |
 
 Neither broken seed spoke a tag word or added a word, so the rule is
-refuted on this line. The only trace the tags left was in timing. In seed
-1001 there is a 0.56 s gap after "worried", where `<breath>` sat. Whisper
-heard no breath sound there, and in seed 2002 the gap is closed. No tag
-reliably produced a pause.
+refuted on this line.
+
+**`<breath>` (row 6b).** It sat between "worried…" and "Just". The silence
+there was measured the same way as probe 1 (50 ms RMS windows, speech
+within 25 dB of the clip's peak), on all four clips:
+
+| Run | Silence before "Just" | Whisper's "worried" / "Just" (s) |
+| --- | --- | --- |
+| broken s1001 | 1.00 s, from 3.25 s | 2.66–3.56 / 4.12 |
+| followed s1001 | 0.70 s, from 3.55 s | 2.88–3.80 / 3.80 |
+| broken s2002 | 0.75 s, from 3.55 s | 2.98–3.84 / 3.84 |
+| followed s2002 | 0.30 s, from 3.60 s | 3.00–3.78 / 3.78 |
+
+Both broken seeds pause there, but so do both followed seeds, which have no
+tag, at the same sentence break. The broken pause is 0.30–0.45 s longer on
+each seed, so the tag may lengthen a pause H3 already takes. It doesn't
+create a beat that wouldn't otherwise be there, and no breath sound was
+transcribed. By the confirm bar (neither followed seed shows the effect),
+"honoured as a silent beat" is **inconclusive**, so the plan's `<breath>`
+budget term stays cut. (An earlier draft of this doc gave 0.56 s for seed
+1001 and called seed 2002's gap closed. That came from a looser reading.
+The table above replaces it.)
 
 One limit: Whisper-base could drop a very soft spoken tag word. The finding
 is "not transcribed", not "proved silent".
