@@ -684,6 +684,17 @@ def as_number(value):
     return None
 
 
+def _is_literal_text(value):
+    """A string that is no number and no reference - "abc" - which no
+    command can coerce, so refusing it names the real problem instead of
+    letting in_domain pass it as unmeasurable."""
+    return (
+        isinstance(value, str)
+        and not value.startswith(DEFERRED)
+        and as_number(value) is None
+    )
+
+
 def _domain_candidates(value):
     """(index, item) pairs to check - one per element of a list argument
     (mix_audio's 'gains', one multiplier per track), else the value itself
@@ -707,9 +718,14 @@ def domain_violation(command, name, value, domain):
     two cannot word the same refusal differently.
     """
     for index, item in _domain_candidates(value):
+        label = f"{name}[{index}]" if index is not None else name
+        if _is_literal_text(item):
+            return index, (
+                f"{command} needs '{label}' to be a number "
+                f"({_DOMAIN_TEXT[domain]}), got {item!r}."
+            )
         if in_domain(item, domain):
             continue
-        label = f"{name}[{index}]" if index is not None else name
         reason = _DOMAIN_REASON.get(domain, _DEFAULT_REASON)
         message = (
             f"{command} needs '{label}' {_DOMAIN_TEXT[domain]}, got {item!r}. {reason}"

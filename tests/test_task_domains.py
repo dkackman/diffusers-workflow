@@ -121,6 +121,20 @@ class TestTheStaticPass:
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.target_lufs"
 
+    @pytest.mark.parametrize("name", ["shadows", "temperature"])
+    def test_a_non_numeric_string_is_refused_as_not_a_number(self, name):
+        errors = errors_for("grade", {"media": "asset:a.png", name: "abc"})
+        assert len(errors) == 1
+        assert errors[0]["path"] == f"steps[0].task.arguments.{name}"
+        assert "to be a number" in errors[0]["message"]
+
+    def test_a_numeric_string_and_a_reference_are_still_left_alone(self):
+        assert errors_for("grade", {"media": "asset:a.png", "shadows": "0.5"}) == []
+        assert (
+            errors_for("grade", {"media": "asset:a.png", "shadows": "variable:s"})
+            == []
+        )
+
     def test_an_out_of_range_temperature_is_refused(self):
         errors = errors_for("grade", {"media": "asset:a.png", "temperature": 5.0})
         assert len(errors) == 1
