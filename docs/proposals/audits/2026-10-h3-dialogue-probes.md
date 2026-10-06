@@ -20,13 +20,13 @@ the effect, and **inconclusive** when the seeds disagree.
 | # | Rule (as stated on #608) | Verdict | Jobs | Observation |
 | --- | --- | --- | --- | --- |
 | 1 | "about 2.6 words/s … leaving about 1 s of tail. H3 stretches dialogue to fill the clip and clips the last word." | **refuted** (clipping and stretching). The tail is real but usually smaller than 1 s. | be681f38d5a8, 3541c1b0a79c | No word was lost at any written rate from 1.55 to 4.06 words/s at 124 frames (both seeds), or at 2.2 and 4.0 words/s at 345 frames. Short lines aren't stretched: they get a 2–3.4 s silent lead-in and are then spoken fast (5–6 words/s). Tails ran 0.12–1.22 s, median about 0.4 s. See *Probe 1* below. |
-| 2 | "At most one male and one female speaker per scene, or the voices mix." | **not run**: GPU budget | — | See *Not run*. |
+| 2 | "At most one male and one female speaker per scene, or the voices mix." | **refuted** | 04a238ab66d4, 0934c1b76fef | With two men and one woman, both seeds gave each line its own voice: the woman at 222–229 Hz, the two men clearly apart by speaker embedding (cosine about 0, against 0.52–0.55 when one man speaks two lines). The lines were spoken in the right order by the right person. See *Probe 2*. |
 | 3 | "'soft / gentle / whisper / lullaby' in a male line's delivery can flip the voice female." | **refuted** | 6f588db1f043, 3a29df186aac | The voice stayed male on both arms and both seeds, with median pitch 85–103 Hz (a female voice sits around 165–255 Hz). In seed 1001 the soft-delivery wording made the delivery breathier (fewer voiced frames, a wider pitch spread) but not female. See *Probe 3*. |
-| 4 | "Every silent on-screen person needs their own 'lips stay pressed together' sentence." | **not run**: GPU budget | — | See *Not run*. |
-| 5 | "A voice-only source (a radio, a phone) gets lip-synced by whoever is holding it." | **not run**: GPU budget | — | See *Not run*. |
+| 4 | "Every silent on-screen person needs their own 'lips stay pressed together' sentence." | **refuted** | 04a238ab66d4, 0934c1b76fef | Without the sentence, the silent listener kept her mouth closed on both seeds while the speaker talked. See *Probe 4*. |
+| 5 | "A voice-only source (a radio, a phone) gets lip-synced by whoever is holding it." | **refuted** | 04a238ab66d4, 0934c1b76fef | Without the sentence, the man holding the speakerphone kept his lips closed through the caller's line on both seeds. See *Probe 5*. |
 | 6 | "`<pause>` and `<softer>` are spoken aloud; a bare '...' produces invented words." | **refuted** | 6f588db1f043, 3a29df186aac | Neither seed spoke `pause`, `softer` or `breath`, and the bare `…` produced no invented words. Both seeds spoke the line as written. Seed 1001 put a 0.56 s gap where `<breath>` sat. See *Probe 6*. |
 | 7 | "Prompt length budget: about 7,000 characters." (meant as the encoder's `max_sequence_length`) | **refuted** (from source, no GPU) | — | The H3 text encoder doesn't truncate. See *Probe 7*. |
-| 8 | "A continuation should start from rest, open on `<breath>`, and begin no new words inside the discarded warm-up prefix." | **not run**: GPU budget | — | See *Not run*. |
+| 8 | "A continuation should start from rest, open on `<breath>`, and begin no new words inside the discarded warm-up prefix." | **not run**: GPU budget (Don's decision) | — | Its prompt design is kept in *Not run*. |
 
 ## Probe 1: rate, tail and clipping
 
@@ -163,27 +163,77 @@ reaches the transformer whole. Any budget would be about quality (attention
 spread over a long prompt) or memory, not truncation. This probe didn't
 measure either.
 
+## Probe 2: three speakers in one scene
+
+Prompt: three people at a kitchen table, each line in its own `<d>`:
+- an older man, "a deep gravelly bass": "The bakery closes early today.";
+- a woman, "a bright high soprano": "Then we leave before noon.";
+- a young man, "a light tenor": "I will drive us."
+
+The **followed** arm removes the young man, and the older man says line 3.
+
+Each line was cut out of the audio at Whisper's end-of-line word ("today",
+"noon", "us"). Per line: median pitch (as in *Probe 3*) and a speechbrain
+ECAPA speaker embedding, compared by cosine.
+
+| Run | F0 L1 / L2 / L3 (Hz) | cos L1–L2 | cos L1–L3 | cos L2–L3 |
+| --- | --- | --- | --- | --- |
+| broken s1001 | 91 / 222 / 130 | 0.08 | 0.08 | -0.03 |
+| broken s2002 | 144 / 229 / 144 | 0.14 | -0.00 | -0.01 |
+| followed s1001 | 98 / 184 / 103 | ~0 | **0.55** | ~0 |
+| followed s2002 | 91 / 211 / 108 | 0.12 | **0.52** | 0.02 |
+
+The followed arm is the method's control: the same man speaking lines 1
+and 3 scores 0.52–0.55, while different people score about 0. On the
+broken arm every pair is about 0, so the three lines are three voices on
+both seeds. In seed 2002 the two men share a median pitch (144 Hz) but not
+a voice. The frames of broken s1001 show the old man, the woman and the
+young man gesturing and speaking in turn, in line order. Every transcript
+was exact. The rule's effect (voices mixing) didn't appear.
+
+## Probe 4: a silent listener in shot
+
+Prompt: two women on a park bench. The older woman ("a warm low alto")
+says "Your grandfather proposed to me on this very bench, fifty years
+ago." The young woman listens and nods. The **followed** arm adds "The
+young woman stays silent the whole time; her lips stay pressed together."
+
+On both broken seeds, frames from 0.5 s to 5 s show the young woman with a
+closed-mouth smile throughout, while the older woman's mouth moves with
+the line. The listener never lip-syncs, so the rule's effect is absent
+without the sentence. Every transcript was exact.
+
+## Probe 5: a voice from a phone
+
+Prompt: a man at an office desk holds a phone on speaker. A woman's voice
+from the phone (off-screen, "thin and tinny") says "The flight has been
+delayed, so I will land around midnight." The **followed** arm adds "The
+man only listens and stays silent; his lips stay pressed together the
+whole time."
+
+On both broken seeds the man's lips stay closed from 0.8 s to 4.8 s while
+the line plays. He frowns and looks at the phone; he doesn't mouth the
+words. Every transcript was exact. Seed 2002's broken clip was quiet
+(mean -40 dBFS, peak -19), which fits a voice coming from a phone, and
+was still transcribed in full.
+
+Probes 2, 4 and 5 ran as jobs 04a238ab66d4 (run 20261006-123950-799ef10c,
+seed 1001) and 0934c1b76fef (run 20261006-130008-42cf313b, seed 2002),
+entries `p2_*`, `p4_*` and `p5_*`. For probes 4 and 5 the verdict rests on
+the broken arm, which lacked the effect on both seeds; the followed arm
+can't change a refutation, so its frames were not reviewed in detail.
+
 ## Not run
 
-Probes 2, 4, 5 and 8 weren't run. Don approved 2.5 GPU hours for A1 and A2
-together, and A1's share was about 90 minutes. Probe 1 used 59 minutes at
-measured cost:
-- the 7-entry batch took 42 min;
-- each 124-frame entry takes about 3.4 min.
+Probe 8 wasn't run, by Don's decision on #640 (accept it as not run;
+run probes 2, 4 and 5 instead). GPU spent on A1, at measured cost:
+- probe 1: 59 min (its 7-entry batch took 42 min);
+- probes 3 and 6: 28 min;
+- probes 2, 4 and 5: 40 min (two 6-entry batches, about 20 min each).
 
-Probes 3 and 6 took 28 minutes (87 in all). At two seeds per arm, the four
-skipped probes need about:
-- 3 probes × 2 arms × 2 seeds × 3.4 min ≈ 41 min for probes 2, 4 and 5;
-- 2 chains × 2 segments × 2 seeds ≈ 30 min for probe 8.
-
-That is about 70–90 GPU minutes in total. They are prompt designs, ready to
-run:
-- **2:** two men and one woman exchanging lines, against one man and one
-  woman. Judged on whether a line is spoken in the wrong voice.
-- **4:** a speaker plus a silent listener in shot, with and without "his lips
-  stay pressed together" for the listener.
-- **5:** a phone call heard on speaker, held by an on-screen person, with and
-  without a sentence keeping the holder's lips closed.
+That is about 127 minutes in all, inside the raised A1+A2 cap of about
+3.25 hours. Probe 8 would need about 30 more (2 chains × 2 segments × 2
+seeds). Its prompt design, ready to run:
 - **8:** one 2-segment `chain-video-continuity` chain per arm. One arm starts
   the second segment mid-word, with no `<breath>`; the other starts from
   rest, opens on `<breath>`, and has no words in the warm-up prefix.
@@ -210,3 +260,8 @@ run:
   clipping.
 - **Probe 7** was answered from the encoder source rather than a GPU run
   (see above).
+- **Probes 2, 4 and 5** ran after the first hand-off, on Don's approval of
+  about 41 more GPU minutes (#640). Probe 2's voice comparison uses
+  speechbrain's ECAPA speaker embedding (`spkrec-ecapa-voxceleb`), with
+  lines split at Whisper's word end times and line 1 starting at the
+  audio onset, since Whisper's first-word start is unreliable (above).
