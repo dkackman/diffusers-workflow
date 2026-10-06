@@ -222,6 +222,18 @@ class TestGeneratedAudioJoining:
         assert result.shots[1]["trim_frames"] == 2
         assert result.shots[1]["crossfade_ms"] == 250.0
 
+    def test_each_seam_reaches_the_job_event_stream(self, monkeypatch):
+        logs = []
+        monkeypatch.setattr(
+            "dw.pipeline_processors.chain.emit_log", lambda m, **d: logs.append(m)
+        )
+        chain = {"segments": 2, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        run_chain(FakePipeline(modular_output), chain, {"num_frames": 8})
+
+        assert len(logs) == 1 and logs[0].startswith("Chain seam 1/2: trimmed 2")
+        assert "crossfade 250.0 ms" in logs[0]
+
     def test_the_recorded_crossfade_is_clamped_to_the_head(self):
         pipeline = FakePipeline(modular_output)
         chain = {"segments": 2, "trim_frames": 1, "fps": 4, "crossfade_ms": 900}

@@ -40,6 +40,7 @@ from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
 from ..writers import frames_for_encoding, output_file_path
+from ..events import emit_log
 from ..shots import shot_record, without_samples
 from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
@@ -414,7 +415,7 @@ def run_chain(pipeline, chain_definition, arguments):
                 shots[-1]["trim_frames"] = segment.head_trim
                 if "crossfade_ms" in applied:
                     shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
-                logger.info(
+                emit_log(
                     f"Chain seam {segment.index}/{segment.index + 1}: trimmed "
                     f"{segment.head_trim} head frame(s), crossfade "
                     + (

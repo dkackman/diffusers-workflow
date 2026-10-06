@@ -706,6 +706,7 @@ def seams_answer(media, records, source):
         )
 
     seams = []
+    blended = set()
     findings = _shot_span_findings("analyze_seams", records, media)
     for index in range(1, len(records)):
         previous, shot = records[index - 1], records[index]
@@ -758,6 +759,7 @@ def seams_answer(media, records, source):
         if "seam_fade_ms" in record or "crossfade_ms" in record:
             # A fade or chain crossfade dips the join by design (#659, #660)
             skip.add("seam_hole")
+            blended.add(index)
         seams.append(record)
         findings.extend(
             _findings(
@@ -771,9 +773,19 @@ def seams_answer(media, records, source):
                 skip,
             )
         )
-    return _answer(
+    answer = _answer(
         "analyze_seams", {"seams": seams}, findings, source, shot_dependent=True
     )
+    if blended and "seam_hole" in answer["rules_applied"]:
+        # Skipped at those seams only, but say so (#660)
+        answer["rules_skipped"].append(
+            {
+                "rule": "seam_hole",
+                "reason": "seam carries its own fade/crossfade",
+                "seams": sorted(blended),
+            }
+        )
+    return answer
 
 
 def analyze_sync_drift(video, shots=None):
