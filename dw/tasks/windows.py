@@ -27,7 +27,7 @@ import numbers
 import numpy
 
 from ..media_types import AudioVideo
-from ..dsp import as_channels_samples
+from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import check_arguments, frames_to_samples, window_overlap_problem
 from .audio_utils import coerce_number
 from .video_utils import VideoFileReference, frames_as_array, load_audio_video
@@ -161,16 +161,15 @@ def _window_audio(video, start, end, total, fps):
     real_start, real_end = max(start, 0), min(end, total)
     head = f2s(real_start) - f2s(start)
     tail = f2s(end) - f2s(real_end)
-    body = waveform[:, f2s(real_start) : f2s(real_end)]
-    # A track a sample or two short of its frames' length is padded, so a
-    # window's length depends only on its frames
-    short = (f2s(real_end) - f2s(real_start)) - body.shape[1]
+    # slice_samples pads a track a sample or two short of its frames' length,
+    # so a window's length depends only on its frames
+    body = slice_samples(waveform, f2s(real_start), f2s(real_end) - f2s(real_start))
     channels = waveform.shape[0]
     audio = numpy.concatenate(
         [
             numpy.zeros((channels, head), dtype=numpy.float32),
             body,
-            numpy.zeros((channels, tail + max(short, 0)), dtype=numpy.float32),
+            numpy.zeros((channels, tail), dtype=numpy.float32),
         ],
         axis=1,
     )
