@@ -35,6 +35,7 @@ Read them in this order and each introduces one new idea on top of the last.
 | [music.json](music.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
 | [video-with-audio.json](video-with-audio.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
 | [video-with-audio-768p.json](video-with-audio-768p.json) | The same run at 1344x768 on the 768p turbo LoRA's own schedule: what a checkpoint swap costs in arguments (shift, alpha, canvas) |
+| [upscale-refine.json](upscale-refine.json) | The 960x544 run promoted to 1344x768 in latent space (`upscale_h3_latents`) and refined there at `refine_strength` 0.2 on the 768p LoRA, holding the base pass's audio: two checkpoints, so the base step has its own `base_` shift, steps and LoRA |
 
 A note on `audio_duration`: Music3 reads it as a ceiling rather than a target.
 The language model stops when the song ends, so the track is usually shorter
@@ -69,7 +70,7 @@ than a new file. Three combinations are known good:
 | Checkpoint | Canvas | Shift (video/audio) | Alpha | Steps | Where |
 | --- | --- | --- | --- | --- | --- |
 | `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | the text- and frame-conditioned templates |
-| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | the file's own 8 | 9 | [video-with-audio-768p.json](video-with-audio-768p.json) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | the file's own 8 | 9 | [video-with-audio-768p.json](video-with-audio-768p.json), and 5 for [upscale-refine.json](upscale-refine.json)'s refine |
 | `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | every `ref2va` template |
 
 The shift differs between the two 768p LoRAs; do not generalise from one to the

@@ -437,7 +437,12 @@ def test_no_stale_entry_in_the_allowlist():
 # description and summary, its `windows` list and `overlap`/`curve` as
 # compact `variable_names`), the only catalog route through a source longer
 # than one LTX-2.5 bucket.
-COMPACT_BUDGET = 9_700
+# Then to 9_850 for `templates/minimax/upscale-refine` (#598, stage #621,
+# 2026-10-06), measured at 9_823: about 185 tokens, more than the plan's 100,
+# because it names a base and a refine checkpoint and so carries three
+# `base_` variables beside the H3 template's usual eleven - the catalog's only
+# route to 1344x768 through a 544p take, held behind its A/B.
+COMPACT_BUDGET = 9_850
 FILTERED_BUDGET = 1_500
 
 

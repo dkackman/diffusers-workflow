@@ -2221,6 +2221,12 @@ evaluations. The time a refine takes scales with `num_inference_steps`. `refine_
 sets where it starts, not how many steps run: a higher strength moves the picture further
 from the upscaled take, a lower one stays closer to it.
 
+`templates/minimax/upscale-refine` is this workflow with the refine on its own
+checkpoint: the 768p turbo LoRA at shift 6, 5 points and strength 0.2, while the base pass
+keeps the 544p LoRA at shift 12 (`base_video_shift`, `base_num_inference_steps`,
+`base_lora_weight_name`). Its base pass is `video-with-audio`'s, so the same prompt and seed
+promote a take already reviewed there.
+
 Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive), a
 refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
