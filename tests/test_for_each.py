@@ -657,14 +657,13 @@ class TestMusicVideoTemplate:
         ]
         assert starts == [0, 124, 248, 372]
 
-    def test_each_shot_holds_its_own_slice_and_reads_the_one_portrait(self):
-        """The slice is the shot's held soundtrack, not an audio reference (#619)."""
+    def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
         got = steps_by_name(self.expanded())
         for key in self.KEYS:
-            arguments = got[f"shot@{key}"]["pipeline"]["arguments"]
-            assert arguments["hold_audio"] == f"previous_result:slice@{key}"
-            assert [r["from_previous_result"] for r in arguments["references"]] == [
-                "draw_singer"
+            references = got[f"shot@{key}"]["pipeline"]["arguments"]["references"]
+            assert [r["from_previous_result"] for r in references] == [
+                "draw_singer",
+                f"slice@{key}",
             ]
 
     def test_each_shot_carries_its_entry_s_prompt(self):
