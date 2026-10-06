@@ -912,10 +912,13 @@ def warn_if_safety_checker_blanked(output):
 
 # Where an audio pipeline's components record the rate they generate at, in
 # the order they are tried. LTX-2's vocoder names it output_sampling_rate,
-# AudioLDM2's vocoder and StableAudio's VAE name it sampling_rate
+# AudioLDM2's vocoder and StableAudio's VAE name it sampling_rate, and
+# Kandinsky 6's MMAudioVAE names it sample_rate (its vocoder carries none).
+# A vocoder's rate comes first: LTX-2's audio VAE works below it
 _SAMPLE_RATE_SOURCES = (
     ("vocoder", "output_sampling_rate"),
     ("vocoder", "sampling_rate"),
+    ("audio_vae", "sample_rate"),
     ("vae", "sampling_rate"),
 )
 
