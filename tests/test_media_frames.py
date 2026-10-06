@@ -557,3 +557,13 @@ def test_seam_tiles_crop_box_is_cut_from_each_source_frame_before_pairing(tmp_pa
     # split frame, so the whole paired image reads near 200 - a stray crop
     # of the left half, or of the assembled pair, would not.
     assert grey_of(tiles[0]["image"]) == pytest.approx(200, abs=6)
+
+
+@pytest.mark.parametrize("frames", [17, 124])
+def test_last_two_adjacent_frames_decode_together(tmp_path, frames):
+    """#654: asking for the final two frames at once raised EOFError (a 500)
+    because each target opened a fresh decode over an exhausted demuxer."""
+    path = tmp_path / "ramp.mp4"
+    write_ramp_mp4(path, frames=frames, fps=24)
+    tiles = frames_at(str(path), [f"frame:{frames - 2}", f"frame:{frames - 1}"])
+    assert [tile["frame"] for tile in tiles] == [frames - 2, frames - 1]

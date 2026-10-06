@@ -375,6 +375,10 @@ def read_frames(path, indexes, fit=None):
         fps = float(stream.average_rate) if stream.average_rate else None
         start_pts = stream.start_time if stream.start_time is not None else 0
         position = 0  # index of the next frame decode() will yield
+        # One decode generator for every target: a fresh `decode()` per
+        # target restarts from a demuxer already at EOF when the previous
+        # target sat on the last packets, and raises EOFError (#654)
+        decoded = container.decode(stream)
         for target in wanted:
             if target < position or target - position > 2 * (int(fps) if fps else 24):
                 # seek back or a long way forward: land on the keyframe at
@@ -388,7 +392,7 @@ def read_frames(path, indexes, fit=None):
                 )
                 position = None
             recovered = False
-            for frame in container.decode(stream):
+            for frame in decoded:
                 if position is None:
                     # first frame after a seek says where we landed
                     position = (
