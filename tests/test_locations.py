@@ -559,3 +559,63 @@ class TestValidationTimeErrors:
             definition, source_indices=[0, 0], base_dir=workflow_dir
         )
         assert errors[0]["path"].startswith("steps[0]")
+
+
+class TestTaskMediaArguments:
+    """A task argument that reads a file under a generic name - join_windows'
+    'source' - is refused at validation like a media key (#630, SE-F042),
+    rather than only when the run reaches the join."""
+
+    @staticmethod
+    def _join(source):
+        return {
+            "steps": [
+                {"name": "first", "task": {"command": "gather_inputs"}},
+                {
+                    "name": "join",
+                    "task": {
+                        "command": "join_windows",
+                        "arguments": {
+                            "videos": ["previous_result:first"],
+                            "source": source,
+                            "num_frames": 17,
+                            "overlap": 4,
+                        },
+                    },
+                },
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "/etc/passwd",
+            "/nonexistent-dw-probe/x.mp4",
+            "file:///etc/passwd",
+            "../../../../etc/passwd",
+        ],
+    )
+    def test_an_unreadable_source_is_an_error_at_its_path(
+        self, untrusted, workflow_dir, source
+    ):
+        errors = location_errors(self._join(source), base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == ["steps[1].task.arguments.source"]
+        assert "'source'" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "source", ["asset:long.mp4", "variable:source_video", "previous_result:x"]
+    )
+    def test_a_reference_is_left_alone(self, untrusted, workflow_dir, source):
+        assert location_errors(self._join(source), base_dir=workflow_dir) == []
+
+    def test_a_path_inside_the_workflow_directory_is_allowed(
+        self, untrusted, workflow_dir
+    ):
+        inside = os.path.join(workflow_dir, "long.mp4")
+        assert location_errors(self._join(inside), base_dir=workflow_dir) == []
+
+    def test_another_command_s_source_is_not_a_location(self, untrusted, workflow_dir):
+        definition = self._join("/etc/passwd")
+        definition["steps"][1]["task"]["command"] = "gather_inputs"
+        assert location_errors(definition, base_dir=workflow_dir) == []

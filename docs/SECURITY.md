@@ -143,7 +143,11 @@ One policy now answers all of it, untrusted:
   rather than one of them three seconds into a queued job (#124). The remedy
   for a file outside is to put it in the asset library and use an `asset:`
   reference. Containment is checked **before** existence, so the refusal
-  cannot be used as a file-existence oracle.
+  cannot be used as a file-existence oracle. Validation finds a path by its
+  argument's name (`image`, `*_video`, `location`, ...); a task argument
+  that reads a file under a generic name, like `join_windows`' `source`, is
+  listed in `TASK_MEDIA_ARGUMENTS` so it is refused at the same moment
+  (#630).
 - **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
   validation and at the loader, whatever the trust posture. No loader opens
   one, but as a relative path it joined onto the workflow directory and
