@@ -147,7 +147,9 @@ One policy now answers all of it, untrusted:
   argument's name (`image`, `*_video`, `location`, ...); a task argument
   that reads a file under a generic name, like `join_windows`' `source`, is
   listed in `TASK_MEDIA_ARGUMENTS` so it is refused at the same moment
-  (#630).
+  (#630), as are the finishing tasks' `media` and `apply_lut`'s `lut`
+  (#635). `lut` is only ever read from a file on the server, so an http(s)
+  URL there is refused as a URL (`LOCAL_ONLY_TASK_ARGUMENTS`).
 - **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
   validation and at the loader, whatever the trust posture. No loader opens
   one, but as a relative path it joined onto the workflow directory and

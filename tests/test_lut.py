@@ -326,6 +326,11 @@ class TestPathContainment:
         with pytest.raises(PathTraversalError):
             load_lut("../look.cube")
 
+    def test_a_url_refuses_as_a_url(self, roots):
+        # A lut from a variable never met validation; it gets the same reason
+        with pytest.raises(InvalidInputError, match="never fetched from a URL"):
+            load_lut("https://example.com/look.cube")
+
     def test_the_command_refuses_too(self, roots, tmp_path):
         path = _write(tmp_path, "look.cube", _cube(_identity))
         with pytest.raises(PathTraversalError):

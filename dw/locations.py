@@ -61,8 +61,19 @@ MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 # Task arguments that name a file to read but not by the conventions above -
 # a generic name the key match would miss, so it is listed per command. Each
 # gets the same validate-time refusal as a media key, rather than only the
-# loader's one at run time (#630)
-TASK_MEDIA_ARGUMENTS = {"join_windows": ("source",)}
+# loader's one at run time (#630). The finishing commands' `media` and
+# apply_lut's `lut` likewise (#635, SE-F044)
+TASK_MEDIA_ARGUMENTS = {
+    "join_windows": ("source",),
+    "grade": ("media",),
+    "sharpen": ("media",),
+    "film_grain": ("media",),
+    "apply_lut": ("media", "lut"),
+}
+
+# Of those, the arguments read from a local file only: no loader fetches
+# them, so an http(s) URL is refused rather than passed on as a location
+LOCAL_ONLY_TASK_ARGUMENTS = {"apply_lut": ("lut",)}
 
 # The tasks whose arguments name a filesystem pattern rather than one file
 GLOB_ARGUMENT = "glob"
@@ -631,6 +642,20 @@ def location_errors(definition, source_indices=None, base_dir=None):
     return errors
 
 
+def refuse_url_for_local_file(value, what):
+    """Refuse an http(s) URL where only a file on the server is read.
+
+    Containment would refuse it too, but as a path "outside every directory",
+    which misnames the problem; this names it.
+    """
+    if is_http_url(value):
+        raise InvalidInputError(
+            f"Refusing to read {what} at '{value}': it is read from a file on "
+            f"the server, never fetched from a URL. Upload it with "
+            f"upload_asset and name it with an 'asset:' reference."
+        )
+
+
 def _task_media_errors(step, path, base_dir, errors):
     """The TASK_MEDIA_ARGUMENTS of a step's task, checked like a media key.
     A `{"location": ...}` value is already the walk's, through its key."""
@@ -640,10 +665,15 @@ def _task_media_errors(step, path, base_dir, errors):
     arguments = task.get("arguments")
     if not isinstance(arguments, dict):
         return
-    for key in TASK_MEDIA_ARGUMENTS.get(task.get("command"), ()):
+    command = task.get("command")
+    local_only = LOCAL_ONLY_TASK_ARGUMENTS.get(command, ())
+    for key in TASK_MEDIA_ARGUMENTS.get(command, ()):
         here = f"{path}.task.arguments.{key}"
         for sub_path, item in _each(arguments.get(key), here):
-            message = _check(item, base_dir, f"'{key}'")
+            message = None
+            if key in local_only:
+                message = _refusal(refuse_url_for_local_file, item, f"'{key}'")
+            message = message or _check(item, base_dir, f"'{key}'")
             if message:
                 errors.append({"path": sub_path, "message": message})
 
