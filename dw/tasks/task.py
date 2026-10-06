@@ -774,6 +774,34 @@ def _handle_film_grain(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "apply_lut",
+    implementation="dw.tasks.lut.apply_lut",
+    summary=(
+        "Colour an image or a video through a 3D lookup table from a .cube "
+        "file, blended with the original by strength."
+    ),
+    parameter_descriptions={"media": _MEDIA_DESCRIPTION},
+)
+def _handle_apply_lut(task, arguments, previous_pipelines):
+    """Apply a .cube 3D lookup table to an image or a video"""
+    logger.debug("Applying a LUT")
+    media = _load_media(arguments.pop("media"))
+    if arguments.get("lut") is None:
+        raise ValueError(
+            "apply_lut: 'lut' is required - a .cube file, as an asset: or "
+            "output: reference or a path"
+        )
+    from ..task_domains import check_arguments
+    from .lut import apply_lut, load_lut
+
+    # A value from a variable or an earlier step never met the static pass
+    check_arguments("apply_lut", **arguments)
+    # Read and parsed once, not once per video frame
+    table = load_lut(arguments.pop("lut"))
+    return _per_frame(media, lambda frame: apply_lut(frame, table, **arguments))
+
+
+@register_command(
     "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
 )
 def _handle_segment(task, arguments, previous_pipelines):
