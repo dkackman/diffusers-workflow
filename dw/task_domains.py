@@ -32,7 +32,14 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 import logging
 import numbers
 
-from .references import DEFERRED, GATHER, MEMBER_SEPARATOR, author_index, is_ref, render_path
+from .references import (
+    DEFERRED,
+    GATHER,
+    MEMBER_SEPARATOR,
+    author_index,
+    is_ref,
+    render_path,
+)
 
 logger = logging.getLogger("dw")
 
