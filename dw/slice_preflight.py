@@ -90,6 +90,7 @@ def _requested_region(task_args, sample_rate):
         start_frame=_as_number(task_args.get("start_frame"), int),
         num_frames=_as_number(task_args.get("num_frames"), int),
         fps=_as_number(task_args.get("fps"), Fraction),
+        lead_frames=_as_number(task_args.get("lead_frames"), int) or 0,
     )
 
 
