@@ -446,7 +446,10 @@ def test_no_stale_entry_in_the_allowlist():
 # 2026-10-06), measured at 9_981: about 160 tokens, its tuned `padding` and
 # `gate_full`/`gate_zero` exposed beside `strength` and `crop_size` - the
 # catalog's only repair of one region of a clip, leaving the rest as it came.
-COMPACT_BUDGET = 10_000
+# Then to 10_050 for `templates/ltx2/restore-long`'s measured `cost` (#601,
+# stage #658, 2026-10-06), measured at 10_016: about 35 tokens, its total and
+# a `per_entry` rate over `windows`, so a longer source is quoted per window.
+COMPACT_BUDGET = 10_050
 FILTERED_BUDGET = 1_500
 
 
