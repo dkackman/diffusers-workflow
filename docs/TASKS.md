@@ -2892,7 +2892,7 @@ The thresholds are module constants in `dw/tasks/script_check.py`, deliberately 
 | -------- | ----- | --------------------- |
 | `DEFAULT_SIMILARITY` | 0.85 | A line below this similarity is a `line_mismatch` (the `similarity` argument overrides it) |
 | `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
-| `GUARD_WINDOW_SECONDS` | 0.05 s | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
+| `GUARD_WINDOW_SECONDS` | 0.05 s (= `DEAD_AIR_WINDOW`, `shot_dead_air`'s window) | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
 | `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
 
 The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot` - null for now), `discarded[]` (`text`, `start`, `end`, `level_dbfs`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`.

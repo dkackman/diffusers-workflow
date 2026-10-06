@@ -832,6 +832,21 @@ def lut_errors(arguments):
     return [] if found is None else [("palette", found[1])]
 
 
+def script_lines_errors(arguments):
+    """[(argument, message)] for a literal check_script `lines` the task's
+    `parse_lines` would refuse. A reference is left to the run, which refuses
+    one that resolves to no list."""
+    if "lines" not in arguments or is_ref(DEFERRED, arguments["lines"]):
+        return []
+    from .tasks.script_check import parse_lines
+
+    try:
+        parse_lines(arguments["lines"])
+    except ValueError as error:
+        return [("lines", str(error))]
+    return []
+
+
 def in_domain(value, domain):
     """Whether a number satisfies a domain. Anything unmeasurable is True -
     a value this cannot read is not this check's to refuse."""
@@ -1016,6 +1031,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "fit_to_model": fit_to_model_errors,
             "slice_audio": slice_audio_errors,
             "apply_lut": lut_errors,
+            "check_script": script_lines_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):

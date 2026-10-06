@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy
 
 from dw.introspection import list_tasks
+from dw.task_domains import script_lines_errors, task_argument_errors
 from dw.tasks import script_check
 from dw.tasks.script_check import (
     align,
@@ -17,7 +18,6 @@ from dw.tasks.script_check import (
     check_script,
     guard_words,
     line_similarity,
-    lines_errors,
     normalize_words,
     parse_lines,
     strip_markup,
@@ -129,34 +129,41 @@ class TestParseLines(unittest.TestCase):
 
 
 class TestLinesErrors(unittest.TestCase):
+    """The validate-time `lines` check, through task_domains' one walk."""
+
     @staticmethod
-    def definition(lines):
-        return {
-            "steps": [
-                {
-                    "name": "c",
-                    "task": {
-                        "command": "check_script",
-                        "arguments": {"audio": "x.wav", "lines": lines},
-                    },
-                }
-            ]
-        }
+    def errors(lines):
+        return task_argument_errors(
+            {
+                "steps": [
+                    {
+                        "name": "c",
+                        "task": {
+                            "command": "check_script",
+                            "arguments": {"audio": "x.wav", "lines": lines},
+                        },
+                    }
+                ]
+            }
+        )
 
     def test_malformed_lines_is_one_error_at_lines(self):
-        errors = lines_errors(self.definition("oops"))
+        errors = self.errors("oops")
         self.assertEqual(len(errors), 1)
         self.assertTrue(errors[0]["path"].endswith(".lines"), errors[0]["path"])
+        self.assertTrue(errors[0]["message"].endswith("."), errors[0]["message"])
 
     def test_valid_list_has_no_errors(self):
-        self.assertEqual(lines_errors(self.definition(["a b", {"text": "c"}])), [])
+        self.assertEqual(self.errors(["a b", {"text": "c"}]), [])
 
     def test_reference_string_is_skipped(self):
-        self.assertEqual(lines_errors(self.definition("variable:lines")), [])
+        self.assertEqual(self.errors("variable:lines"), [])
 
-    def test_other_commands_and_odd_documents_are_ignored(self):
-        self.assertEqual(lines_errors({}), [])
-        self.assertEqual(lines_errors({"steps": ["x", {"task": None}]}), [])
+    def test_literal_with_a_colon_is_not_a_reference(self):
+        self.assertEqual(len(self.errors("Hello: world")), 1)
+
+    def test_lines_omitted_is_left_to_the_signature(self):
+        self.assertEqual(script_lines_errors({"audio": "x.wav"}), [])
 
 
 class TestWorkflowValidation(unittest.TestCase):
