@@ -1837,12 +1837,21 @@ the list rendered. The result is JSON and nothing is built:
 | `include_instrumental_gaps` | No | Whether a long silence becomes its own instrumental shot (default `true`) |
 | `min_gap_seconds` | No | The shortest silence that becomes its own shot (default `2.0`) |
 | `snap_to_beats` | No | Whether every cut moves to its nearest beat (default `false`) |
+| `modulus` / `remainder` | No | The model's render grid: a shot renders `modulus * n + remainder` frames (H3: `17`, `5`). With none, a shot renders exactly its cut |
+| `min_frames` / `max_frames` | No | The fewest and most frames a shot may render (H3: `124`, `345`) |
+| `lead_s` | No | Seconds a shot starts before its cut, as a run-up the model renders and `trim_video` drops. Each shot's `lead_frames` is `min(round(lead_s * fps), start_frame)`, so the first shot has none (default `0`) |
 
-Returns `{shots, bpm, fps, duration_s, total_frames, warnings}`. `shots` tile
-the song in order, each `{name, start_frame, num_frames, cut_frames,
-lead_frames, lyric, kind}`: `cut_frames` is its length on the timeline and
-`num_frames` the length to render (the same here, with `lead_frames` `0`),
-`lyric` the lines sung in it joined by newlines or `null`, and `kind`
+Returns `{shots, bpm, fps, duration_s, total_frames, render_frames,
+warnings}`. `shots` tile the song in order, each `{name, start_frame,
+num_frames, cut_frames, lead_frames, lyric, kind}`: `start_frame` and
+`cut_frames` are the cut's start and length on the timeline (the `cut_frames`
+sum to `round(duration_s * fps)`), `lead_frames` the run-up before the cut,
+and `num_frames` the length to render: `max(min_frames, lead_frames +
+cut_frames)` raised to the grid, so the render starts at `start_frame -
+lead_frames` and its cut is frames `[lead_frames, lead_frames + cut_frames)`.
+With no grid arguments `num_frames` is `cut_frames` and `lead_frames` `0`.
+`render_frames` is the sum of the `num_frames` - what the render costs, which
+is more than `total_frames` when shots lead or round up. `lyric` the lines sung in it joined by newlines or `null`, and `kind`
 `"vocal"` or `"instrumental"`. A dict rather than a list, since a list result
 would become one artifact per shot. Its `result` may only be
 `application/json`.
@@ -1868,6 +1877,8 @@ How the plan is made:
   lyric, which every piece carries; one under `min_scene_s` merges into its
   shorter neighbour.
   A shot still outside the range is warned about by name.
+- A shot whose render would pass `max_frames` is split, on a beat when
+  there is one, and warned about.
 - `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
   and leaves the cuts where the lines put them.
 - Every boundary is rounded once, from its absolute time, so the frame counts
@@ -1878,11 +1889,18 @@ otherwise: a bare-string `transcript` (the message names `timestamps` /
 `return_timestamps`), `segment_by` not one of the three, `segment_by: "beat"`
 without `beats`, `min_scene_s` above `max_scene_s`, and `fps`, `duration_s`,
 `max_scene_s` at or below zero or `min_scene_s`, `vocal_tail_s`,
-`min_gap_seconds` below zero. Also refused at run start: a song whose length
+`min_gap_seconds` below zero, and a `remainder` outside `0` to below `modulus` (or one with no
+`modulus`) or a `max_frames` below the smallest grid length at or above
+`min_frames`. Also refused at run start: a song whose length
 can't be known (no `duration_s`, no `beats` result, and no transcript to end
 on) and `lyrics` with no sung lines.
 [music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
-chains `transcribe_audio`, `analyze_beats` and `plan_cuts`.
+chains `transcribe_audio`, `analyze_beats` and `plan_cuts`, passing H3's
+grid (`17`, `5`, `124`, `345`) and a `lead_s` variable (default `0.5`, 12
+frames at 24 fps). Its shots are what
+[music-video.json](../workflows/templates/minimax/music-video.json) renders:
+the agent writes a prompt per shot, drops `lyric` and `kind`, and passes the
+list as `shots`.
 
 ## Assessment Probes
 
@@ -2188,8 +2206,9 @@ it was given; the frames are read from the cut. The offset between the two
 depends on how the piece was assembled:
 
 - `minimax/music-video`: song time is cut time unless `trim_frames > 0`. The
-  template slices the song at each shot's `start_frame`, joins the shots with
-  `concat_videos` at `trim_frames: 0`, and lays the whole song back with
+  template slices the song `lead_frames` before each shot's `start_frame`,
+  renders `num_frames`, keeps the shot's `cut_frames` with `trim_video`, joins
+  the trims with `concat_videos` at `trim_frames: 0`, and lays the whole song back with
   `pair_audio` at `fit: video`, so no offset applies. A trim drops frames at
   every seam, and the song no longer lines up past the first one.
 - `join_into_song`: add `start_frame / fps − cue_seconds` to every line time,

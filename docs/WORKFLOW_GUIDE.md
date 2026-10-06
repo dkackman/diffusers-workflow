@@ -784,7 +784,8 @@ section="join_into_song")`), and the recipe is four parts:
    frame 0. The song enters that long before the cut, under the last line;
    `0` starts it exactly at the cut. It may not be longer than the dialogue.
 2. **Generate the sung shots against `slice_audio` slices of the song**, as
-   `templates/minimax/music-video` does (its `slice` and `shot` steps). The
+   `templates/minimax/music-video` does (its `slice`, `shot` and `trim` steps; it slices
+   `lead_frames` early and trims the run-up off). The
    first slice starts at `cue_seconds`, and each next one starts where the one
    before it ended, so the slices tile the song with no gap: `start_seconds`
    is `cue_seconds` plus the length of every sung shot before it
@@ -2798,7 +2799,8 @@ hand. `"fit": "video"` derives one from the other instead: the track is cut to
 exactly the frames it is laid over, or padded with silence and warned about when it
 is shorter than they are. That is what a soundtrack over a cut whose length is an
 argument needs - nothing in a workflow can multiply a list's length by a frame
-count, so `music-video.json` sliced a fixed 496 frames of song while its cut
+count, so `music-video.json` sliced a fixed 496 frames of song (it now cuts
+each shot to its own `cut_frames`) while its cut
 followed a `shots` list, and a two-shot run wrote 10.3 s of picture into a 20.7 s
 container and reported `succeeded` with no warnings (#142). Left unset the track is
 used as it is and a disagreement is warned about rather than passing in silence.
