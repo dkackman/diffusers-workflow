@@ -6,7 +6,8 @@ read this.
 ## The cuts templates
 
 `shots` is one list: a dialogue entry is `name`, `prompt`, `references`
-and `num_frames`; a music-video entry is `name`, `prompt`, `start_frame`.
+and `num_frames`; a music-video entry is `name`, `prompt`, `start_frame`, `num_frames`,
+`lead_frames` and `cut_frames`, all required.
 The listing's `lists`
 block says what an entry carries; its `cost` carries `per_entry` when one
 shot was measured - scale from that, else quote the default list's total.
@@ -28,11 +29,19 @@ enters that long before the cut), each next where the last ended; then
 
 ## Planning a music video's cuts
 
-Plan, read, prompt, render. Run `templates/minimax/music-video-cuts` on
-the song with its `lyrics` (it chains `transcribe_audio`, `analyze_beats`
-and the `plan_cuts` task); read the plan's `shots` (`lyric`, `kind`,
-`start_frame`, `num_frames`); write one prompt per shot, a vocal shot to its
-`lyric`, an instrumental one to the mood; render with `music-video`, one
-`{name, start_frame, prompt}` entry per shot. `music-video` slices every
-shot to one shared `num_frames` (default 124), not the plan's per-shot
-length: set it to the shortest shot's, or the cuts drift from the plan.
+Plan, read, prompt, render. Run `templates/minimax/music-video-cuts`
+on the song with its `lyrics` (it chains `transcribe_audio`, `analyze_beats`
+and the `plan_cuts` task, on H3's grid with a `lead_s` run-up, default 0.5 s);
+read the plan's `shots` (`lyric`, `kind`, `start_frame`, `num_frames`,
+`lead_frames`, `cut_frames`) and quote its `render_frames` for the cost: it is
+what renders, more than the song's length. Write one prompt per shot, a vocal
+shot to its `lyric`, an instrumental one to the mood. Render with
+`music-video`: each entry is the plan's shot with `prompt` added and `lyric`
+and `kind` dropped (unread, they only warn). Each shot renders `num_frames`
+from the song sliced at `start_frame - lead_frames`, then `trim_video` keeps
+`cut_frames` after the lead, so the video is the plan's length and the song
+fits it. `music-video` does not snap `num_frames`: it must be on `17n + 5`
+from 124 to 345, and an off-grid entry (130) is refused. A hand-written entry
+with no run-up has `lead_frames` 0 and `cut_frames` equal to `num_frames`.
+`music-video`'s `song` variable defaults to the song it writes; pass
+`asset:...` to cut to an existing one and skip writing.

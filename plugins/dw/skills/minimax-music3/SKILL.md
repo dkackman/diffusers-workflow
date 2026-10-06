@@ -52,8 +52,10 @@ shapes; do not author a new workflow until the shape decision below fails.
   `minimax-h3` skill's ducking recipe: `gain_audio` regions on the score
   itself, one per voice-over shot, applied before it's passed as `score`.
 - **A music video**: `templates/minimax/music-video`. The song is written
-  first, `slice_audio` deals frame-exact pieces to lip-synced H3 shots, and
-  `pair_audio` lays the unbroken track back over the edit. The ceiling must
+  first, `slice_audio` deals frame-exact pieces to lip-synced H3 shots (each
+  rendered with a short run-up that `trim_video` drops), and `pair_audio`
+  lays the unbroken track back over the edit. `song` overrides the written
+  song with an `asset:`. The ceiling must
   exceed the total sliced length by a real margin, not a fraction of a
   second, since the model may stop early.
 
@@ -175,7 +177,8 @@ Control" section.
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
    To cut picture to the song, `analyze_beats` on it returns its bpm and beat
    times; with the tempo known, `tempo_bpm` plus one anchor lays an exact grid.
-   `templates/minimax/music-video-cuts` plans the cuts from its lyrics.
+   `templates/minimax/music-video-cuts` plans the cuts from its lyrics (the
+   `minimax-h3` skill: plan, read, prompt, render).
 6. A run worth keeping: `references/keeping-a-run.md` saves it by name
    and exports it.
 

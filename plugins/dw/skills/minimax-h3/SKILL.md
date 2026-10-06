@@ -52,10 +52,11 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
-  (a song, one slice and one lip-synced shot per entry - `from_file` reuses
-  an existing cast portrait and skips drawing).
-  Before composing one, read `references/cuts.md`: the `shots` list,
-  cost per entry, scoring and one voice across cuts.
+  (a song, one slice and one lip-synced shot per entry, padded then trimmed
+  to its cut - `from_file` reuses an existing cast portrait and skips
+  drawing).
+  Before composing one, read `references/cuts.md`: the `shots` list (a music
+  video's six fields, plan then render), cost per entry, scoring and one voice across cuts.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
