@@ -276,7 +276,9 @@ seeds). Its prompt design, ready to run:
 - **Probe 1 at 345 frames** ran two rates (2.2 and 4.0 words/s) on seed
   1001 only, not all five rates on both seeds. 345 frames costs about three
   times as much as 124, and the 124-frame sweep had already shown no
-  clipping.
+  clipping. Don accepted this reduced arm as recorded on 2026-10-06 (#640,
+  option 3): the clipping verdict rests on the 124-frame sweep (5 rates x 2
+  seeds) plus these two one-seed 345-frame checks, with no further GPU.
 - **Probe 7** was answered from the encoder source rather than a GPU run
   (see above).
 - **Probes 2, 4 and 5** ran after the first hand-off, on Don's approval of
