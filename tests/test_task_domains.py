@@ -15,6 +15,8 @@ import pytest
 
 from dw.task_domains import (
     TASK_ARGUMENT_DOMAINS,
+    AT_LEAST_ONE,
+    CHANNEL_LEVEL,
     CLOSED_UNIT,
     NON_NEGATIVE,
     NON_POSITIVE,
@@ -71,6 +73,8 @@ class TestTheRegistryNamesRealArguments:
                 NON_POSITIVE,
                 CLOSED_UNIT,
                 UNIT,
+                AT_LEAST_ONE,
+                CHANNEL_LEVEL,
             }
 
 
