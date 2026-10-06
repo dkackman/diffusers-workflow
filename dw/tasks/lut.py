@@ -6,8 +6,16 @@ and refuses anything else, naming the file and the line, rather than guessing
 at what a file it does not understand meant. A file is untrusted user input -
 an uploaded asset - so it is size-capped before it is read.
 
+A `palette` builds the table in memory instead (#603 stage D): a list of
+#rrggbb colours, dark to light, laid evenly along the luma axis. Each table
+entry keeps its own luma and takes its hue and chroma - its offset from grey -
+from the palette at that luma's position, scaled down only as far as it must
+be to stay inside 0..1. Luma is linear in the colour, so every entry keeping
+its luma means the trilinear lookup between entries keeps it too. Nothing is
+written to disk.
+
 The lookup itself is Pillow's (ImageFilter.Color3DLUT, trilinear); this module
-owns only the parse that feeds it.
+owns only the tables that feed it.
 
 A refusal names the file by its base name only: the path an asset: or
 output: reference resolves to is the server's filesystem layout, and the
@@ -223,11 +231,74 @@ def color_lut(table):
     return ImageFilter.Color3DLUT(table.shape[0], table)
 
 
-def apply_lut(media, lut, strength=1.0):
-    """Apply a 3D lookup table from a .cube file to an image.
+# Rec. 709 luma weights, on the encoded values: the luminance a palette
+# lookup keeps
+LUMA_WEIGHTS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float64)
+PALETTE_LUT_SIZE = 33
+
+
+def _palette_colours(palette):
+    """The palette as a (n, 3) float array in 0..1, refused if malformed."""
+    from ..task_domains import check_lut_source
+
+    check_lut_source(palette=palette)
+    return np.array(
+        [[int(colour[i : i + 2], 16) / 255.0 for i in (1, 3, 5)] for colour in palette],
+        dtype=np.float64,
+    )
+
+
+def palette_table(palette, size=PALETTE_LUT_SIZE):
+    """The size³ lookup table a palette describes, indexed [blue, green, red]
+    as parse_cube returns one.
+
+    An input's luma picks a position along the palette, its colours spaced
+    evenly from luma 0 (the first) to luma 1 (the last) and interpolated
+    linearly between. The output is the input's luma plus that position's
+    offset from grey - its hue and chroma - scaled down where needed so no
+    channel leaves 0..1. The scale keeps the luma exact and the hue's
+    direction; only the chroma shrinks, toward black and white.
+    """
+    colours = _palette_colours(palette)
+    offsets = colours - (colours @ LUMA_WEIGHTS)[:, None]
+
+    steps = np.linspace(0.0, 1.0, size)
+    blue, green, red = np.meshgrid(steps, steps, steps, indexing="ij")
+    rgb = np.stack([red, green, blue], axis=-1)
+    luma = rgb @ LUMA_WEIGHTS
+
+    stops = np.linspace(0.0, 1.0, len(colours))
+    offset = np.stack(
+        [np.interp(luma, stops, offsets[:, channel]) for channel in range(3)],
+        axis=-1,
+    )
+    # The largest scale in 0..1 that keeps every channel of luma + scale *
+    # offset inside 0..1, per entry
+    with np.errstate(divide="ignore", invalid="ignore"):
+        up = np.where(offset > 0, (1.0 - luma[..., None]) / offset, np.inf)
+        down = np.where(offset < 0, -luma[..., None] / offset, np.inf)
+    scale = np.clip(np.minimum(up, down).min(axis=-1), 0.0, 1.0)
+    out = luma[..., None] + scale[..., None] * offset
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
+
+
+def lookup_for(lut=None, palette=None):
+    """The Pillow lookup filter for exactly one of a .cube `lut` or a
+    `palette`, refusing both or neither."""
+    from ..task_domains import check_lut_source
+
+    check_lut_source(lut, palette)
+    if palette is not None:
+        return color_lut(palette_table(palette))
+    return color_lut(load_lut(lut))
+
+
+def apply_lut(media, lut=None, palette=None, strength=1.0):
+    """Apply a 3D lookup table, from a .cube file or a palette, to an image.
 
     Each pixel's colour is looked up in the table with trilinear
     interpolation, and the result blended with the original by `strength`.
+    Exactly one of `lut` or `palette` is given; both or neither refuses.
 
     Args:
         media: PIL Image to colour
@@ -236,7 +307,12 @@ def apply_lut(media, lut, strength=1.0):
             output root. A strict 3D .cube - LUT_3D_SIZE 2..65, domain 0..1,
             values in 0..1 - or the step refuses, naming the file and line.
             (Also an already-built color_lut, which is how the command
-            handler reads the file once for a whole video)
+            handler builds the table once for a whole video)
+        palette: Instead of a .cube, a list of 2 to 16 "#rrggbb" colours,
+            dark to light. Each pixel keeps its luminance and takes its hue
+            and chroma from the palette at that luminance: dark pixels from
+            the first colour, light ones from the last. The same palette
+            always gives the same look
         strength: 0.0 returns the original, 1.0 the full LUT result; values
             between blend the two
 
@@ -245,7 +321,7 @@ def apply_lut(media, lut, strength=1.0):
         passes through untouched)
     """
     if not isinstance(lut, ImageFilter.Color3DLUT):
-        lut = color_lut(load_lut(lut))
+        lut = lookup_for(lut, palette)
     rgb, alpha = _split_alpha(media)
     if strength != 0:
         looked_up = np.asarray(media.convert("RGB").filter(lut), dtype=np.float32)
