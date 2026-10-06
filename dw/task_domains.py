@@ -60,6 +60,12 @@ CLOSED_UNIT = "closed_unit"
 # A strength or mix documented from 0.0 to 1.0 - grade's fade, where 0 is no
 # effect and 1 the strongest the documented scale defines (#603)
 UNIT = "unit"
+# A size of at least one whole unit - film_grain's size, where a grain
+# smaller than a pixel is not drawable (#603)
+AT_LEAST_ONE = "at_least_one"
+# An 8-bit channel level - sharpen's threshold, a difference between 0 and
+# full scale in 0..255 levels (#603)
+CHANNEL_LEVEL = "channel_level"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
@@ -67,6 +73,8 @@ _DOMAIN_TEXT = {
     NON_POSITIVE: "at or below full scale (0)",
     CLOSED_UNIT: "between -1.0 and 1.0",
     UNIT: "between 0.0 and 1.0",
+    AT_LEAST_ONE: "1 or above",
+    CHANNEL_LEVEL: "between 0 and 255",
 }
 
 _SCALE_REASON = (
@@ -209,6 +217,16 @@ TASK_ARGUMENT_DOMAINS = {
         "clarity": CLOSED_UNIT,
         "vignette": CLOSED_UNIT,
         "fade": UNIT,
+    },
+    "sharpen": {
+        "amount": NON_NEGATIVE,
+        "radius": POSITIVE,
+        "threshold": CHANNEL_LEVEL,
+    },
+    "film_grain": {
+        "amount": UNIT,
+        "size": AT_LEAST_ONE,
+        "chroma": UNIT,
     },
     "crop_face_track": {
         "crop_size": POSITIVE,
@@ -634,6 +652,10 @@ def in_domain(value, domain):
         return -1.0 <= number <= 1.0
     if domain == UNIT:
         return 0.0 <= number <= 1.0
+    if domain == AT_LEAST_ONE:
+        return number >= 1.0
+    if domain == CHANNEL_LEVEL:
+        return 0.0 <= number <= 255.0
     return number >= 0
 
 
