@@ -1,5 +1,7 @@
 # `ltx2/upscale-clip`: LTX-2.5 generative 2x upscale of an existing mp4 (#542)
 
+**Superseded in part (2026-10-06, #602):** the template's centre-crop rule was replaced by a `fit_to_model` → `restore_to_source` round trip. See `fit-to-model-restore-complete.md`.
+
 Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 2026-10-02). Plan v2 was approved by Don on 2026-09-27. He answered Q1-Q4:
 build, the default prompt, `pair_audio` for the source's track, and

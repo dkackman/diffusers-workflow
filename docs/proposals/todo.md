@@ -75,6 +75,11 @@ remaining deferred fix is recorded in
   the source's soundtrack. Record, including what was deferred (probing
   the source at validate, source audio for the restore templates, the
   vendor's Refine-Details IC-LoRA): `complete/ltx2-upscale-clip-complete.md`.
+- **`fit_to_model` / `restore_to_source`, an exact size and frame-count
+  round trip for v2v** (#602, stages #631-#632), shipped 2026-10-06, with
+  `upscale-clip` and `refine-clip` rewired to letterbox and restore. Record,
+  including what was deferred (the pair in the restore templates, the blend,
+  the anchors in #613): `complete/fit-to-model-restore-complete.md`.
 - **One `wait_for_job` call that covers a long render** (#377, stage
   #546), shipped 2026-09-28: `DW_MCP_MAX_WAIT_SECONDS=1800` on lem's unit
   and one wait rule in the guide and skills, with no code change. Record,
