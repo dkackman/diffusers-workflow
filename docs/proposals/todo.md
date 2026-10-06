@@ -100,6 +100,14 @@ remaining deferred fix is recorded in
   `attribute_voices`, and the loop in `docs/TASKS.md`. Record, including
   what was deferred (the VLM probe, anatomy and travel-direction checks, a
   real two-singer round): `complete/lip-sync-target-check-complete.md`.
+- **H3 audio-hold and a refine pass after latent upscale** (#598, stages
+  #618-#621), shipped 2026-10-06. It adds `hold_audio` (opt-in: the
+  templates keep the audio reference after an A/B went against hold) and
+  `refine_strength`, plus `templates/minimax/upscale-refine`. The template
+  measured 11.53 min, against 9.59 for a native 768p render, which is
+  sharper. Record, including what was deferred (a re-measure of hold, the
+  3-pass variant, #612's arm of the A/B):
+  `complete/h3-audio-hold-refine-complete.md`.
 
 ## Declined
 
