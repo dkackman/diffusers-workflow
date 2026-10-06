@@ -177,6 +177,61 @@ The `resize_bucket` command snaps an image to the closest model-native aspect ra
 
 For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800x600 photo (4:3) becomes 1344x1024.
 
+### grade
+
+`grade` is the finishing pass: exposure, contrast, tonal range, local contrast,
+white balance, colour and a matte or vignette look, on CPU, for an image or a
+video. A video is graded one frame at a time and keeps its frame count, frame
+rate and audio. Unlike the other image commands, its input is named `media`,
+and a file path or `asset:`/`output:` reference to a video is accepted
+directly. An alpha channel passes through untouched.
+
+```json
+{
+    "task": {
+        "command": "grade",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "highlights": -0.3,
+            "shadows": 0.2,
+            "clarity": 0.25,
+            "fade": 0.15,
+            "vignette": 0.3
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+Every argument is optional and defaults to identity, so a step with none
+returns the input pixels. The step's job events carry one "applied" log naming
+every argument that is not at its identity value.
+
+| Argument | Range | Identity | Effect |
+| -------- | ----- | -------- | ------ |
+| `exposure` | any | 0.0 | Stops to brighten (positive) or darken (negative): a multiply by 2^exposure |
+| `contrast` | 0 or above | 1.0 | Multiplier around mid grey; below 1 flattens |
+| `whites` | -1.0..1.0 | 0.0 | Moves the white point: the top of the curve up or down, black held |
+| `blacks` | -1.0..1.0 | 0.0 | Moves the black point: the bottom of the curve up (lift) or down (crush), white held |
+| `highlights` | -1.0..1.0 | 0.0 | Lifts or pulls down tones above mid grey, by a smooth luma mask; tones at and below mid grey are untouched |
+| `shadows` | -1.0..1.0 | 0.0 | The same for tones below mid grey; tones at and above mid grey are untouched |
+| `clarity` | -1.0..1.0 | 0.0 | Adds (positive) or removes (negative) medium-detail local contrast in the midtones |
+| `temperature` | -1.0..1.0 | 0.0 | Warmer (toward red) or cooler (toward blue) |
+| `tint` | -1.0..1.0 | 0.0 | Toward magenta (positive) or green (negative) |
+| `saturation` | 0 or above | 1.0 | Multiplier around each pixel's luma; 0 is greyscale |
+| `fade` | 0.0..1.0 | 0.0 | Lifts the black floor and flattens the shadows toward it, white kept: a matte look |
+| `vignette` | -1.0..1.0 | 0.0 | Darkens (positive) or lightens (negative) toward the corners; the centre is untouched |
+
+**Order of operations:** exposure, contrast, whites/blacks,
+highlights/shadows, clarity, temperature/tint, saturation, fade, vignette. The
+order is fixed whatever order the arguments are written in: fade comes after
+the tonal controls so `blacks` cannot pull its floor back down, and vignette is
+last so it darkens the finished picture.
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("grade")` reports each range.
+
 ## Video Processing
 
 | Command | Description | Extra Arguments |
@@ -2063,8 +2118,8 @@ can be upscaled without losing what was generated alongside it:
 Captioning (`image_to_text`) is the exception - describe a frame, taken with
 `get_first_frame`, rather than a video.
 
-A file path or `asset:`/`output:` reference to a video is not accepted here,
-even though the route above takes a video from a step - route it through
+A file path or `asset:`/`output:` reference to a video is not accepted here
+(`grade`, whose input is `media`, is the exception), even though the route above takes a video from a step - route it through
 `video_frames` first: an image command's `image` argument must be an
 `AudioVideo`, a frame array, or a still image.
 

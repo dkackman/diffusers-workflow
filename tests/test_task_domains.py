@@ -19,6 +19,7 @@ from dw.task_domains import (
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
+    UNIT,
     as_number,
     task_argument_errors,
 )
@@ -69,6 +70,7 @@ class TestTheRegistryNamesRealArguments:
                 NON_NEGATIVE,
                 NON_POSITIVE,
                 CLOSED_UNIT,
+                UNIT,
             }
 
 
@@ -125,6 +127,18 @@ class TestTheStaticPass:
         errors = errors_for("grade", {"media": "asset:a.png", "tint": -1.5})
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.tint"
+
+    def test_the_unit_domain_accepts_its_ends_and_refuses_outside_them(self):
+        from dw.task_domains import in_domain
+
+        assert in_domain(0, UNIT) and in_domain(1, UNIT)
+        assert not in_domain(-0.1, UNIT) and not in_domain(1.1, UNIT)
+        for value in (0, 1, 0.5):
+            assert errors_for("grade", {"media": "asset:a.png", "fade": value}) == []
+        for value in (-0.1, 1.1):
+            errors = errors_for("grade", {"media": "asset:a.png", "fade": value})
+            assert [e["path"] for e in errors] == ["steps[0].task.arguments.fade"]
+            assert "between 0.0 and 1.0" in errors[0]["message"]
 
     def test_a_boundary_temperature_is_fine(self):
         assert errors_for("grade", {"media": "asset:a.png", "temperature": 1.0}) == []
@@ -309,6 +323,17 @@ class TestTheDomainIsVisibleOverTheApi:
 
         parameters = {p["name"]: p for p in describe_task("slice_audio")["parameters"]}
         assert "domain" not in parameters["audio"]
+
+    def test_get_task_reports_the_range_in_words_beside_the_domain(self):
+        from dw.introspection import describe_task
+
+        parameters = {p["name"]: p for p in describe_task("grade")["parameters"]}
+        assert parameters["fade"]["domain"] == UNIT
+        assert parameters["fade"]["range"] == "between 0.0 and 1.0"
+        assert parameters["tint"]["range"] == "between -1.0 and 1.0"
+        parameters = {p["name"]: p for p in describe_task("slice_audio")["parameters"]}
+        assert parameters["num_frames"]["range"] == "above zero"
+        assert "range" not in parameters["audio"]
 
 
 if __name__ == "__main__":
