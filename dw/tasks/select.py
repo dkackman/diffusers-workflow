@@ -11,7 +11,7 @@ import logging
 import numbers
 
 from ..media_types import Selected
-from ..task_domains import SELECT_THRESHOLD_RULES, select_rule_problems
+from ..task_domains import SELECT_THRESHOLD_RULES, as_number, select_rule_problems
 
 logger = logging.getLogger("dw")
 
@@ -32,21 +32,6 @@ def _parse_score(index, score):
         return float(score)
     except (TypeError, ValueError):
         raise ValueError(f"select: score {index} is not a number: {score!r}")
-
-
-def _whole_index(index):
-    """The index as an int: a whole number, or a numeric string or float
-    holding one (2, "2", 2.0) - anything else is refused by name."""
-    if not isinstance(index, bool):
-        if isinstance(index, numbers.Integral):
-            return int(index)
-        try:
-            value = float(index)
-        except (TypeError, ValueError):
-            value = None
-        if value is not None and value.is_integer():
-            return int(value)
-    raise ValueError(f"select: index must be a whole number, got {index!r}")
 
 
 def select(candidates, scores, rule, threshold=None, index=None):
@@ -92,8 +77,12 @@ def select(candidates, scores, rule, threshold=None, index=None):
             raise ValueError(
                 f"select: no candidate passes rule '{rule}' at threshold {threshold}"
             )
-    else:  # "index" - select_rule_problems has refused anything else
-        position = _whole_index(index)
+    else:  # "index" - select_rule_problems has refused a non-whole index
+        # The range is checked here rather than by the domain alone: only the
+        # run knows the candidate count, so one sentence names both ends
+        position = (
+            int(index) if isinstance(index, numbers.Integral) else int(as_number(index))
+        )
         if position < 0 or position >= len(candidates):
             raise ValueError(
                 f"select: index {index} is out of range for {len(candidates)} "
