@@ -190,6 +190,7 @@ ERROR_ORDER = [
     "adapters",
     "task_argument_domains",
     "voices",
+    "script_lines",
     "dissolve_frames",
     "video_sizes",
     "select",

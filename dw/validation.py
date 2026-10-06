@@ -62,6 +62,7 @@ from .step_value_checks import (
 )
 from .task_domains import task_argument_errors
 from .tasks.voice_attribution import voices_errors
+from .tasks.script_check import lines_errors as script_lines_errors
 from .type_references import component_name_errors, component_type_errors
 from .variable_constraints import (
     ConstraintReferenceError,
@@ -374,6 +375,8 @@ ERROR_CHECKS = [
     ),
     # An attribute_voices `voices` it would refuse (#494)
     Check("voices", lambda c: voices_errors(c.expanded, c.source_indices)),
+    # A check_script `lines` it would refuse (#609)
+    Check("script_lines", lambda c: script_lines_errors(c.expanded, c.source_indices)),
     # A dissolve_videos overlap wider than a statically-resolvable input's
     # real frame count (dw/dissolve_frame_errors.py, #400)
     Check(

@@ -494,6 +494,19 @@ def _handle_attribute_voices(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "check_script",
+    implementation="dw.tasks.script_check.check_script",
+    consumes_device=True,
+    returns="json",
+)
+def _handle_check_script(task, arguments, previous_pipelines):
+    """Check that a take speaks its script, line by line"""
+    from .script_check import check_script
+
+    return check_script(device=task.device_for(arguments), **arguments)
+
+
+@register_command(
     "separate_stems",
     implementation="dw.tasks.voice_attribution.separate_stems",
     consumes_device=True,
