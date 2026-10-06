@@ -98,6 +98,20 @@ class TestSharpen:
         changed = sharpen_image(source, amount=2.0, radius=2, threshold=0)
         assert not numpy.array_equal(_array(changed), _array(source))
 
+    def test_the_mask_is_pillows_unsharp_mask(self):
+        source = _soft_step()
+        expected = source.filter(
+            ImageFilter.UnsharpMask(radius=1.5, percent=80, threshold=3)
+        )
+        result = sharpen_image(source, amount=0.8, radius=1.5, threshold=3)
+        assert numpy.array_equal(_array(result), _array(expected))
+
+    def test_a_fractional_threshold_is_rounded_to_whole_levels(self):
+        source = _low_contrast()
+        rounded = sharpen_image(source, amount=2.0, radius=2, threshold=6.4)
+        whole = sharpen_image(source, amount=2.0, radius=2, threshold=6)
+        assert numpy.array_equal(_array(rounded), _array(whole))
+
     def test_alpha_passes_through_untouched_at_a_positive_amount(self):
         source = _with_alpha(_soft_step())
         result = sharpen_image(source, amount=1.5)
