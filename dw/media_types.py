@@ -103,6 +103,18 @@ class Selected:
         return f"Selected(value={self.value!r}, position={self.position}, score={self.score!r})"
 
 
+class JsonRecord(dict):
+    """A JSON-safe dict a step hands on as data, and saves as a .json file.
+
+    A dict artifact is otherwise saved one entry per file under the step's
+    declared content type, so a record riding beside a video (a face track
+    beside its crops) would be exploded key by key into files that are not
+    video. Marking it says what it is: the writer saves it whole, as JSON,
+    whatever the step's content type, and `previous_result:<step>.<key>`
+    still reads it as the dict it is.
+    """
+
+
 # How far a decoded track may be off the frames' own duration and still be
 # treated as codec padding rather than a track of its own length. AAC codes
 # 1024 samples at a time, so a file's audio runs up to one such block long -
