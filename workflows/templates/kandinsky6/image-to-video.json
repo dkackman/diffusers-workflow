@@ -39,7 +39,10 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "Kandinsky6TI2VAPipeline",
-                    "offload": "model"
+                    "offload": "model",
+                    "vae": {
+                        "enable_tiling": true
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",

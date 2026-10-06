@@ -1,6 +1,6 @@
 {
     "id": "Kandinsky6T2V",
-    "description": "Kandinsky 6.0 Lite-distill: text to a five-second video with a soundtrack generated alongside it. The family's baseline, on the 3B checkpoint. The distilled transformer runs ten PiFlow steps with guidance off - the scheduler is part of the checkpoint and refuses custom sigmas - and model offload moves the 16.6GB Qwen2.5-VL text encoder off the accelerator before the transformer runs. The pipeline's own defaults are 512x768 at guidance 5.0, so the native 480x864 and guidance 1.0 are set here, not inherited.",
+    "description": "Kandinsky 6.0 Lite-distill: text to a five-second video with a soundtrack generated alongside it. The family's baseline, on the 3B checkpoint. The distilled transformer runs ten PiFlow steps with guidance off - the scheduler is part of the checkpoint and refuses custom sigmas - and model offload moves the 16.6GB Qwen2.5-VL text encoder off the accelerator before the transformer runs, and the HunyuanVideo VAE decodes in tiles - untiled, its decode of the 121 frames was killed for memory on a 64GB Mac. The pipeline's own defaults are 512x768 at guidance 5.0, so the native 480x864 and guidance 1.0 are set here, not inherited.",
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "prompt": "prompt:kandinsky6/mountain_steam_train",
@@ -36,7 +36,10 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "Kandinsky6TI2VAPipeline",
-                    "offload": "model"
+                    "offload": "model",
+                    "vae": {
+                        "enable_tiling": true
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
