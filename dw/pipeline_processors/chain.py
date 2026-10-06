@@ -416,7 +416,7 @@ def run_chain(pipeline, chain_definition, arguments):
                 if "crossfade_ms" in applied:
                     shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
                 emit_log(
-                    f"Chain seam {segment.index}/{segment.index + 1}: trimmed "
+                    f"Chain seam {segment.index}/{len(config.plan) - 1}: trimmed "
                     f"{segment.head_trim} head frame(s), crossfade "
                     + (
                         f"{applied['crossfade_ms']} ms"
