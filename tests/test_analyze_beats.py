@@ -7,7 +7,7 @@ import pytest
 
 from dw import dsp
 from dw.task_domains import beats_problems, task_argument_errors
-from dw.tasks.beats import analyze_beats
+from dw.tasks.beats import QUIET_DBFS, analyze_beats
 
 SR = 44100
 
@@ -49,6 +49,28 @@ def assert_beats_match(beats, truth, tolerance=0.02):
 def track128():
     waveform, times = click_track(128)
     return waveform, times, run(waveform)
+
+
+class TestPulseConfidence:
+    def test_detrending_removes_drift_and_keeps_a_pulse(self):
+        rate = 100.0
+        frames = numpy.arange(1000)
+        pulse = (frames % 50 == 0).astype(float)
+        detrended = dsp.detrended(pulse + numpy.linspace(0, 5, 1000), rate)
+        assert abs(detrended[100:900].mean()) < 0.05
+        peaks = numpy.nonzero(detrended > 0.5)[0]
+        assert set(peaks) <= set(frames[frames % 50 == 0])
+
+    def test_salience_of_beats_on_clicks_and_on_noise(self):
+        rng = numpy.random.default_rng(0)
+        envelope = numpy.abs(rng.standard_normal(1000))
+        clicks = numpy.arange(25, 1000, 50)
+        envelope[clicks] += 20
+        assert dsp.beat_salience(envelope, clicks) > 10
+        noise = numpy.arange(10, 1000, 50)
+        assert dsp.beat_salience(envelope, noise) < dsp.CONFIDENT_SALIENCE
+        assert dsp.is_confident(envelope, noise, dsp.CONFIDENT_PERIODICITY)
+        assert not dsp.is_confident(envelope, noise, 0.1)
 
 
 class TestOnsetTracking:
@@ -178,6 +200,35 @@ class TestFallback:
         result = run(tone.astype(numpy.float32)[None, :])
         assert result["beats"] == []
         assert "near-silent" in result["warnings"][0]
+
+    @pytest.mark.parametrize("seed", [0, 1, 2])
+    @pytest.mark.parametrize(
+        "shape", ["loud_head", "fade", "swell", "full_scale", "transient"]
+    )
+    def test_a_noise_bed_above_the_level_gate_is_not_a_pulse(self, seed, shape):
+        # Room tone loud enough to pass the near-silent gate: a drifting level
+        # once read as a confident grid (C-F208, #625)
+        rng = numpy.random.default_rng(seed)
+        count = int(4.96 * SR)
+        spectrum = numpy.fft.rfft(rng.standard_normal(count))
+        spectrum /= numpy.sqrt(numpy.maximum(numpy.arange(spectrum.shape[0]), 1))
+        bed = numpy.fft.irfft(spectrum, count)
+        bed *= 10 ** (-50 / 20) / numpy.sqrt(numpy.mean(bed**2))
+        if shape == "loud_head":
+            bed[: int(0.3 * SR)] *= 4
+        elif shape == "fade":
+            bed *= numpy.linspace(1.6, 0.6, count)
+        elif shape == "swell":
+            bed *= 1 + 0.5 * numpy.sin(2 * numpy.pi * 0.3 * numpy.arange(count) / SR)
+        elif shape == "full_scale":
+            bed *= 10 ** (35 / 20)
+        else:
+            bed[SR : SR + 400] += 0.05 * rng.standard_normal(400)
+        result = run(bed.astype(numpy.float32)[None, :])
+        assert result["method"] == "rms_peaks"
+        assert result["warnings"]
+        if dsp.rms_peaks(bed, SR, 200)[1] >= QUIET_DBFS:
+            assert "no reliable beat" in result["warnings"][0]
 
     def test_silence(self, monkeypatch):
         seen = []

@@ -172,7 +172,7 @@ def _detect(mono, rate, args, warnings):
     )
     if bpm is not None and dsp.is_trackable(envelope, periodicity):
         frames = dsp.track_beats(envelope, frame_rate, bpm)
-        if frames.shape[0] >= 2:
+        if frames.shape[0] >= 2 and dsp.is_confident(envelope, frames, periodicity):
             if missed is not None:
                 warnings.append(
                     f"{COMMAND}: the track's pulse is {missed:.1f} BPM, and no "
@@ -192,8 +192,9 @@ def _detect(mono, rate, args, warnings):
         )
         return numpy.zeros(0), None, None, "rms_peaks"
     warnings.append(
-        f"{COMMAND}: the track has no clear onsets to track - these beats are "
-        "its loudness peaks, which follow swells rather than a pulse"
+        f"{COMMAND}: no reliable beat was found - the track has no clear, "
+        "regular onsets to track; these beats are its loudness peaks, which "
+        "follow swells rather than a pulse"
     )
     rate_bpm = 60.0 / float(numpy.median(numpy.diff(peaks)))
     folded = dsp.fold_bpm(rate_bpm, args.min_bpm, args.max_bpm)

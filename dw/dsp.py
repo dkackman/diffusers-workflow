@@ -631,6 +631,9 @@ TEMPO_HINT_OCTAVES = 0.5
 # this range and folded into the caller's by octaves - an 86 BPM song asked
 # for at 140-200 is tracked at 172
 TEMPO_SEARCH_BPM = (30.0, 300.0)
+# The envelope's drift is taken out over this window before its
+# autocorrelation: a level change slower than this is not a pulse
+TEMPO_DETREND_SECONDS = 1.0
 # How strongly the programme holds an interval to the period: the penalty is
 # BEAT_TIGHTNESS * log(interval / period)^2
 BEAT_TIGHTNESS = 100.0
@@ -639,6 +642,13 @@ BEAT_TIGHTNESS = 100.0
 # under this many times its mean (swells with no attack)
 TRACKABLE_MIN_PERIODICITY = 0.2
 TRACKABLE_MIN_CREST = 3.0
+# A tracked pulse is believed when its periodicity is at least this, or when
+# its beats stand clear of the envelope's noise floor: their median onset at
+# least this many robust deviations (1.4826 MAD) above the envelope's median.
+# A noise bed, however loud, gives the programme only its own bumps to land
+# on - about 2 deviations - and a weak periodicity; a song has one or the other
+CONFIDENT_PERIODICITY = 0.3
+CONFIDENT_SALIENCE = 3.0
 # A beat at the head or tail is trimmed while its onset is under this
 # fraction of the RMS onset at the beats: the programme keeps stepping
 # through an intro's silence at the period, onto nothing
@@ -701,6 +711,23 @@ def fold_bpm(bpm, min_bpm, max_bpm, centre=TEMPO_PRIOR_BPM):
     return min(fits, key=lambda fit: abs(math.log2(fit / centre)), default=None)
 
 
+def detrended(envelope, rate):
+    """The envelope less its moving mean over TEMPO_DETREND_SECONDS.
+
+    A level that drifts - a fade, a swell, a loud first second of room tone -
+    correlates with itself at every lag, which reads as a pulse at whatever
+    lag the prior favours. A moving mean is a linear filter, so a pulse
+    stays periodic at its own period and only the drift goes.
+    """
+    if envelope.size < 2:
+        return envelope - envelope.mean() if envelope.size else envelope
+    # Frame 0 is the rise from silence, not part of the drift
+    envelope = envelope.copy()
+    envelope[0] = numpy.median(envelope[1:])
+    width = max(1, min(envelope.size, int(round(TEMPO_DETREND_SECONDS * rate))))
+    return envelope - scipy.ndimage.uniform_filter1d(envelope, width, mode="reflect")
+
+
 def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
     """(bpm, periodicity, missed_pulse_bpm) from the envelope's autocorrelation.
 
@@ -712,7 +739,7 @@ def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
     autocorrelation at the pulse, 0 to 1. (None, 0.0, None) when the envelope
     holds no energy or the range no lag; a bpm is always in the range.
     """
-    centred = envelope - envelope.mean() if envelope.size else envelope
+    centred = detrended(envelope, rate)
     count = centred.shape[0]
     if count < 2:
         return None, 0.0, None
@@ -757,6 +784,29 @@ def is_trackable(envelope, periodicity):
         return False
     mean = envelope.mean()
     return mean > 0 and envelope.max() / mean >= TRACKABLE_MIN_CREST
+
+
+def beat_salience(envelope, beat_frames):
+    """How far the beats' median onset stands above the envelope's median, in
+    robust deviations (1.4826 MAD); frame 0, the rise from silence, is left
+    out of the floor. Infinite when the envelope off the beats is flat."""
+    if not beat_frames.shape[0] or envelope.shape[0] < 2:
+        return 0.0
+    rest = envelope[1:]
+    median = float(numpy.median(rest))
+    spread = 1.4826 * float(numpy.median(numpy.abs(rest - median)))
+    lift = float(numpy.median(envelope[beat_frames])) - median
+    if spread <= 0:
+        return math.inf if lift > 0 else 0.0
+    return lift / spread
+
+
+def is_confident(envelope, beat_frames, periodicity):
+    """Whether tracked beats are a pulse rather than a noise bed's bumps."""
+    return (
+        periodicity >= CONFIDENT_PERIODICITY
+        or beat_salience(envelope, beat_frames) >= CONFIDENT_SALIENCE
+    )
 
 
 def track_beats(envelope, rate, bpm, tightness=BEAT_TIGHTNESS):

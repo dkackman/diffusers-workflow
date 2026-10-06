@@ -1303,9 +1303,12 @@ A bare-seconds anchor snaps to the nearest detected beat, so it corrects a
 drift of under half a beat; where the detection is further off than that, use
 `{beat_index, seconds}` marks, which name the beat instead of guessing it.
 
-A track with no clear onsets - a pad, a swell - falls back to the peaks of its
-loudness (`method` `rms_peaks`, with a warning that they follow swells rather
-than a pulse). A silent track returns empty `beats` and a warning. So does a
+A track with no clear, regular onsets - a pad, a swell, a noise bed at any
+level - falls back to the peaks of its loudness (`method` `rms_peaks`, with a
+warning that no reliable beat was found and the peaks follow swells rather
+than a pulse). A tracked pulse is kept only when its onsets repeat strongly at
+the period or its beats stand well clear of the envelope's noise floor; a
+level that drifts (a fade, a loud first second) is not a pulse. A silent track returns empty `beats` and a warning. So does a
 near-silent one whose loudest 50 ms is under -40 dBFS - room tone, hiss, or a
 song mixed far too low - since the log-compressed onset envelope would find a
 pulse in it. Raise a real song's level first (`gain_audio`).
