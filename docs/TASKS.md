@@ -232,6 +232,119 @@ A value outside its range is refused by `validate_workflow`, naming the
 argument and the range, and again at run time when it arrives from a
 `variable:` or an earlier step. `get_task("grade")` reports each range.
 
+### sharpen
+
+`sharpen` is an unsharp mask, on CPU, for an image or a video: the image is
+blurred with a Gaussian, and the difference between the image and its blur (the
+detail) is added back, scaled by `amount`. Like `grade`, its input is named
+`media`, and a file path or `asset:`/`output:` reference to a video is read with
+its audio. A video is sharpened one frame at a time and keeps its frame count,
+frame rate and audio. An alpha channel passes through untouched.
+
+```json
+{
+    "task": {
+        "command": "sharpen",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "amount": 0.8,
+            "radius": 1.5,
+            "threshold": 3
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `amount` | 0 or above | 1.0 | How much of the detail is added back; 0 is identity |
+| `radius` | above zero | 2.0 | The Gaussian blur's standard deviation in pixels: the scale of the detail that is sharpened |
+| `threshold` | 0..255 | 0 | The smallest difference, in channel levels, between a pixel and its blur that gets sharpened; smaller differences are left alone |
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("sharpen")` reports each range.
+
+### film_grain
+
+`film_grain` adds seeded film grain, on CPU, to an image or a video. Its input
+is `media`, as in `grade` and `sharpen`: a video is processed one frame at a
+time and keeps its frame count, frame rate and audio, and an alpha channel
+passes through untouched. The grain is Gaussian noise, strongest in the
+midtones and weaker toward black and white.
+
+```json
+{
+    "task": {
+        "command": "film_grain",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "amount": 0.15,
+            "size": 1.5,
+            "chroma": 0.2
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `amount` | 0.0..1.0 | 0.1 | Grain strength; 0 is identity |
+| `size` | 1 or above | 1.0 | Grain size in pixels: the noise is generated at 1/size resolution and upsampled |
+| `chroma` | 0.0..1.0 | 0.0 | 0 puts the same grain on every channel (brightness only, hue unchanged); 1 draws independent grain per channel; values between mix the two |
+| `seed` | integer | the workflow's or step's seed | Seeds the grain |
+
+**Seeding:** one generator is made per step from the seed and consumed frame by
+frame, so every frame of a video gets different grain and the same seed
+reproduces the whole output byte for byte. A workflow run always has a seed (a
+random one is drawn when the workflow names none, and recorded in the run's
+manifest), so rerunning a job reproduces its grain. An explicit `seed`
+argument overrides the workflow's or step's seed. The step's job events carry
+a log naming the seed used.
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("film_grain")` reports each range.
+
+### A finishing chain
+
+The three finishing commands chain through `previous_result:`, each taking the
+last one's output as its `media`. Grade first, sharpen the graded picture, and
+add grain last so it is not itself sharpened:
+
+```json
+{
+    "steps": [
+        {
+            "name": "graded",
+            "task": {
+                "command": "grade",
+                "arguments": { "media": "previous_result:generate_video", "fade": 0.15, "vignette": 0.3 }
+            },
+            "result": { "content_type": "video/mp4" }
+        },
+        {
+            "name": "sharpened",
+            "task": {
+                "command": "sharpen",
+                "arguments": { "media": "previous_result:graded", "amount": 0.6 }
+            },
+            "result": { "content_type": "video/mp4" }
+        },
+        {
+            "name": "grainy",
+            "task": {
+                "command": "film_grain",
+                "arguments": { "media": "previous_result:sharpened", "amount": 0.12, "size": 1.5 }
+            },
+            "result": { "content_type": "video/mp4" }
+        }
+    ]
+}
+```
+
 ## Video Processing
 
 | Command | Description | Extra Arguments |

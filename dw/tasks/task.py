@@ -701,6 +701,60 @@ def _handle_grade(task, arguments, previous_pipelines):
     return _per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
+_MEDIA_DESCRIPTION = (
+    "Image or video. An image is a PIL Image; a video is a file path or an "
+    "asset:/output: reference, read with its audio and processed frame by "
+    "frame, keeping its frame count, frame rate and audio unchanged."
+)
+
+
+@register_command(
+    "sharpen",
+    implementation="dw.tasks.finish.sharpen_image",
+    summary="Sharpen an image or a video with an unsharp mask.",
+    parameter_descriptions={"media": _MEDIA_DESCRIPTION},
+)
+def _handle_sharpen(task, arguments, previous_pipelines):
+    """Sharpen an image or a video with an unsharp mask"""
+    logger.debug("Sharpening media")
+    media = _load_media(arguments.pop("media"))
+    from ..task_domains import check_arguments
+    from .finish import sharpen_image
+
+    # A value from a variable or an earlier step never met the static pass
+    check_arguments("sharpen", **arguments)
+    return _per_frame(media, lambda frame: sharpen_image(frame, **arguments))
+
+
+@register_command(
+    "film_grain",
+    implementation="dw.tasks.finish.film_grain",
+    summary=(
+        "Add seeded film grain to an image or a video, strongest in the "
+        "midtones; every video frame gets different grain."
+    ),
+    parameter_descriptions={
+        "media": _MEDIA_DESCRIPTION,
+        "seed": (
+            "The grain's seed. Defaults to the workflow's or step's seed, "
+            "which a run always has (a random one when the workflow names "
+            "none, recorded in the manifest), so a rerun reproduces the grain."
+        ),
+    },
+)
+def _handle_film_grain(task, arguments, previous_pipelines):
+    """Add film grain to an image or a video, reproducibly from a seed"""
+    logger.debug("Adding film grain")
+    media = _load_media(arguments.pop("media"))
+    seed = task.seed_for(arguments)
+    from ..task_domains import check_arguments
+    from .finish import film_grain
+
+    check_arguments("film_grain", **arguments)
+    emit_log(f"film_grain: seed {seed}", command="film_grain", seed=seed)
+    return film_grain(media, seed=seed, **arguments)
+
+
 @register_command(
     "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
 )
