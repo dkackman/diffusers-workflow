@@ -51,10 +51,11 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   artefacts. Each inverts one defect and no other - neither upscales or
   removes motion blur or grain - so name the defect and let the user
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
-  (IC-LoRA re-render), `width`/`height` 2x the source's, or `refine-clip`
-  (its own latents, no LoRA), `width`/`height` the source's and output 2x,
-  other ratios stretched. Both: `num_frames` at most its length, soundtrack
-  kept, silent source refused. Same size and length, no 2x:
+  (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
+  (its own latents, no LoRA), `width`/`height` the working size. Both fit
+  the source first and restore after: output exactly 2x the source at its
+  length, any aspect ratio letterboxed and cut back (`fit`), a short source
+  held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
   `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). Footage
   longer than `num_frames`: `templates/ltx2/restore-long` restores it window
   by window. Its `windows` list needs `ceil(source_frames / (num_frames -

@@ -297,6 +297,8 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
+    # pair_audio's argument, not the 2x LTX templates' variable of that name
+    "workflows/templates/minimax/music-video.json": {"fit"},
 }
 
 
@@ -658,9 +660,10 @@ class TestLtxRefineInPlace:
 
 class TestLtxRefineClip:
     """two-stage's refine pass fed a clip dw did not make (#543): the latent
-    upsampler encodes the source itself (its `video` argument), so the refine
-    starts from the source's own latents, and the soundtrack is the source's,
-    read first so a silent source fails before any pipeline loads."""
+    upsampler encodes the source itself (its `video` argument, fitted to the
+    working size first, #602), so the refine starts from the source's own
+    latents, and the soundtrack is the source's, read first so a silent source
+    fails before any pipeline loads."""
 
     def _definition(self):
         path = os.path.join(
@@ -682,21 +685,28 @@ class TestLtxRefineClip:
             == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
         )
 
-    def test_the_upsampler_encodes_the_source_and_refine_reads_its_latents(self):
+    def test_the_upsampler_encodes_the_fitted_source_and_refine_reads_its_latents(
+        self,
+    ):
         definition = self._definition()
         upscale = _step(definition, "upscale")["pipeline"]
         refine = _step(definition, "refine")["pipeline"]
 
-        trim = _step(definition, "source_frames")["task"]
+        fit = _step(definition, "fit")["task"]
 
         # The upsampler encodes every frame it is handed (num_frames is
-        # overwritten by len(video)), so the source is trimmed first (#549)
-        assert trim["command"] == "loop_frames"
-        assert trim["arguments"] == {
+        # overwritten by len(video)), so the source is fitted to the working
+        # size and length first (#549, #602)
+        assert fit["command"] == "fit_to_model"
+        assert fit["arguments"] == {
             "video": "variable:source_video",
+            "width": "variable:width",
+            "height": "variable:height",
             "num_frames": "variable:num_frames",
+            "mode": "variable:fit",
         }
-        assert upscale["arguments"]["video"] == "previous_result:source_frames"
+        assert definition["variables"]["fit"] == "letterbox"
+        assert upscale["arguments"]["video"] == "previous_result:fit.video"
         assert upscale["arguments"]["output_type"] == "{latent}"
         assert refine["arguments"]["latents"] == "previous_result:upscale.frames"
         # No audio latents: the source's track is paired back instead
@@ -704,21 +714,21 @@ class TestLtxRefineClip:
         assert upscale["configuration"]["shared_components"] == ["vae"]
         assert refine["configuration"]["reused_components"] == ["vae"]
 
-    def test_the_trim_keeps_the_sources_opening_frames_in_order(self):
+    def test_the_fit_keeps_the_sources_opening_frames_in_order(self):
         # The short arm of #549's bounce: a 130-frame source asked for 97
         # must reach the upsampler as its first 97 frames, not all 130
         import numpy
 
-        from dw.tasks.video_utils import loop_frames
+        from dw.tasks.fit import fit_to_model
 
         source = numpy.arange(130, dtype=numpy.uint8)[:, None, None, None]
         source = numpy.broadcast_to(source, (130, 4, 4, 3)).copy()
 
-        trimmed = loop_frames(source, 97)
+        fitted = fit_to_model(source, 4, 4, 97, mode="stretch")["video"]
 
-        assert trimmed.shape == (97, 4, 4, 3)
+        assert fitted.shape == (97, 4, 4, 3)
         assert numpy.array_equal(
-            (trimmed[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
+            (fitted[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
             numpy.arange(97, dtype=numpy.uint8),
         )
 
@@ -731,7 +741,7 @@ class TestLtxRefineClip:
         assert first["task"]["arguments"]["audio"] == "variable:source_video"
         assert first["task"]["arguments"]["peak_dbfs"] == -3.0
         assert final["task"]["command"] == "pair_audio"
-        assert final["task"]["arguments"]["video"] == "previous_result:refine"
+        assert final["task"]["arguments"]["video"] == "previous_result:restore"
         assert final["task"]["arguments"]["audio"] == (
             f"previous_result:{first['name']}"
         )

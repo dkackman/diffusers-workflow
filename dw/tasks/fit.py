@@ -31,8 +31,8 @@ import numpy
 import torch
 import torch.nn.functional as F
 
-from ..media_types import AudioVideo, JsonRecord
-from ..task_domains import check_arguments, fit_mode_problem
+from ..media_types import AudioVideo, FittedVideo, JsonRecord
+from ..task_domains import check_arguments, fit_downscale_problem, fit_mode_problem
 from .audio_utils import coerce_number
 from .video_utils import _frames_of, frames_as_array, load_audio_video
 
@@ -97,7 +97,7 @@ def _centred(outer, inner):
     return (outer - inner) // 2
 
 
-def fit_to_model(video, width, height, num_frames, mode="letterbox"):
+def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1):
     """Task command: fit a video into a model's working size and frame count.
 
     Every frame is resized into `width`x`height` (bicubic, antialiased) and the
@@ -105,6 +105,11 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox"):
     first `num_frames` frames, a shorter one holds its last frame. Hand the
     `fit` record to restore_to_source with the model's output to get the
     source's own size and length back.
+
+    `downscale` fits into `width`/downscale x `height`/downscale instead, so
+    a template can keep `width`/`height` as a 2x model's output size and
+    still fit the source to the model's input; the record's model size is
+    the divided one.
 
     Args:
         video: The source - an earlier step's video, or an `asset:`/`output:`
@@ -114,10 +119,13 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox"):
         num_frames: The model's frame count, e.g. an 8n+1 LTX length
         mode: "letterbox" (scale to fit, centred on black), "stretch" (resize
             to fill exactly) or "crop" (scale to fill, centre-crop)
+        downscale: Divides `width` and `height` before fitting - 2 for a 2x
+            model whose output size they are. Both must be divisible by it
 
     Returns:
-        {"video": the fitted frames, float [0, 1], at the source's fps and
-        with no soundtrack, "fit": the record restore_to_source reads - mode,
+        {"video": the fitted frames as a FittedVideo - one float32 array in
+        [0, 1] that a pipeline's `video` or a reference condition's `frames`
+        takes as it is - at the source's fps and with no soundtrack, "fit": the record restore_to_source reads - mode,
         source_width/height/frames, model_width/height/frames, content_box
         (where the source sits in the model frame) and source_box (the part
         of the source kept; all of it unless mode is "crop"), each box
@@ -127,10 +135,21 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox"):
     width = _whole(width, "width", command)
     height = _whole(height, "height", command)
     num_frames = _whole(num_frames, "num_frames", command)
-    check_arguments(command, width=width, height=height, num_frames=num_frames)
-    problem = fit_mode_problem(mode)
-    if problem is not None:
-        raise ValueError(problem)
+    downscale = _whole(downscale, "downscale", command)
+    check_arguments(
+        command,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        downscale=downscale,
+    )
+    for problem in (
+        fit_mode_problem(mode),
+        fit_downscale_problem(width, height, downscale),
+    ):
+        if problem is not None:
+            raise ValueError(problem)
+    width, height = width // downscale, height // downscale
 
     if isinstance(video, str):
         video = load_audio_video(video)
@@ -180,8 +199,7 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox"):
         f"{width}x{height}x{num_frames} ({mode}, content {content_box}, "
         f"{max(0, num_frames - total)} held frames)"
     )
-    video = AudioVideo(fitted.astype(numpy.float32), None, None, fps=fps)
-    return {"video": video, "fit": record}
+    return {"video": FittedVideo(fitted, fps=fps), "fit": record}
 
 
 def _read_fit(fit):

@@ -171,9 +171,7 @@ class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
     by `source_video`. `reference-sheet` and `generative-upscale` condition
     on an earlier step's output instead."""
 
-    @pytest.mark.parametrize(
-        "name", ["restore-deblur", "restore-decompression", "upscale-clip"]
-    )
+    @pytest.mark.parametrize("name", ["restore-deblur", "restore-decompression"])
     def test_the_reference_is_the_callers_own_clip(self, name):
         (reference,) = conditioned_step(name)["pipeline"]["arguments"][
             "reference_conditions"
@@ -183,6 +181,32 @@ class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
         assert frames["media_type"] == "video"
         assert frames["location"] == "variable:source_video"
         assert definition(name)["variables"]["source_video"].startswith("asset:")
+
+    def test_the_upscaler_references_the_callers_clip_fitted_to_half_size(self):
+        """#602: the source is fitted to width/2 x height/2 first, so a
+        different aspect ratio is letterboxed rather than cropped by the
+        pipeline's own preprocess, and restored after."""
+        workflow = definition("upscale-clip")
+        (reference,) = conditioned_step("upscale-clip")["pipeline"]["arguments"][
+            "reference_conditions"
+        ]
+        fit = workflow["steps"][0]
+
+        assert reference["from_arguments"]["frames"] == "previous_result:fit.video"
+        assert fit["name"] == "fit"
+        assert fit["task"] == {
+            "command": "fit_to_model",
+            "arguments": {
+                "video": "variable:source_video",
+                "width": "variable:width",
+                "height": "variable:height",
+                "num_frames": "variable:num_frames",
+                "mode": "variable:fit",
+                "downscale": 2,
+            },
+        }
+        assert workflow["variables"]["fit"] == "letterbox"
+        assert workflow["variables"]["source_video"].startswith("asset:")
 
     @pytest.mark.parametrize(
         "name,marker",
@@ -209,12 +233,18 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
     output's length, not the one the IC-LoRA pass generates beside it."""
 
     def test_the_deliverable_pairs_the_upscale_with_the_source(self):
-        upscaled, paired = definition("upscale-clip")["steps"]
+        fit, upscaled, restore, paired = definition("upscale-clip")["steps"]
 
+        assert fit["name"] == "fit"
         assert upscaled["result"]["subfolder"] == "intermediate"
+        assert restore["task"]["command"] == "restore_to_source"
+        assert restore["task"]["arguments"] == {
+            "video": "previous_result:upscaled",
+            "fit": "previous_result:fit.fit",
+        }
         assert paired["task"]["command"] == "pair_audio"
         assert paired["task"]["arguments"] == {
-            "video": "previous_result:upscaled",
+            "video": "previous_result:restore",
             "audio": "variable:source_video",
             "fit": "video",
         }

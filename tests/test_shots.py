@@ -85,7 +85,6 @@ EXPECTED_SITES = {
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
     ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
-    ("dw/tasks/fit.py", "fit_to_model"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
 }
