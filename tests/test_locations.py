@@ -18,6 +18,7 @@ from PIL import Image
 
 from dw.argument_media import fetch_image
 from dw.locations import (
+    _refuse_other_url,
     contained_matches,
     location_errors,
     token_host_allowed,
@@ -30,6 +31,7 @@ from dw.locations import (
 from dw.security import (
     InvalidInputError,
     PathTraversalError,
+    validate_url,
 )
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.tasks.gather import gather_images
@@ -119,6 +121,13 @@ class TestMediaPathContainment:
         whatever the trust posture - no loader opens one as a path."""
         with pytest.raises(InvalidInputError, match="only http\\(s\\) URLs"):
             validate_media_path(location, workflow_dir, "an audio argument")
+
+    def test_an_upper_case_https_url_is_not_refused_as_another_scheme(self):
+        """The scheme decision is validate_url's: urlparse lowercases it, so
+        'HTTPS://' is an http(s) URL there and must not be refused here as an
+        'HTTPS' URL (#618 arch review)."""
+        assert validate_url("HTTPS://example.com/x.wav")
+        _refuse_other_url("HTTPS://example.com/x.wav", "an audio argument")
 
     def test_fetch_image_refuses_an_out_of_root_absolute_path(
         self, untrusted, workflow_dir
@@ -363,6 +372,30 @@ class TestValidationTimeErrors:
             f"steps[0].pipeline.arguments.{key}"
         ]
         assert "'file' URL" in errors[0]["message"]
+
+    def test_an_upper_case_https_url_is_checked_as_a_url(self, untrusted, workflow_dir):
+        """Not refused for its scheme, and still sent through the host policy."""
+        definition = {
+            "steps": [
+                {
+                    "name": "edit",
+                    "pipeline": {
+                        "arguments": {"hold_audio": "HTTPS://example.com/x.wav"}
+                    },
+                }
+            ]
+        }
+        with patch(
+            "dw.locations.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 443))],
+        ):
+            assert location_errors(definition, base_dir=workflow_dir) == []
+        with patch(
+            "dw.locations.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("127.0.0.1", 443))],
+        ):
+            errors = location_errors(definition, base_dir=workflow_dir)
+        assert "inside this deployment" in errors[0]["message"]
 
     def test_a_loopback_url_is_an_error(self, untrusted, workflow_dir):
         definition = {
