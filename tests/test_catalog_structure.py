@@ -710,7 +710,9 @@ def _ltx2_chain_after_substitution(**overrides):
 
     from dw.variables import replace_variables
 
-    path = Path(__file__).parent.parent / "workflows/templates/ltx2/chained-segments.json"
+    path = (
+        Path(__file__).parent.parent / "workflows/templates/ltx2/chained-segments.json"
+    )
     workflow = json.loads(path.read_text())
     variables = {**workflow["variables"], **overrides}
     step = replace_variables(workflow["steps"][0], variables)
