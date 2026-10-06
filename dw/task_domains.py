@@ -163,6 +163,7 @@ TASK_ARGUMENT_DOMAINS = {
         "overlap": NON_NEGATIVE,
         "fps": POSITIVE,
     },
+    "fit_to_model": {"width": POSITIVE, "height": POSITIVE, "num_frames": POSITIVE},
     "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "ingredients_grid": {
@@ -229,7 +230,10 @@ TASK_ARGUMENT_DOMAINS = {
 # command's run-time refusal and the static pass read one list
 INGREDIENTS_LAYOUTS = ("auto", "rows", "panels")
 INGREDIENTS_FITS = ("contain", "cover")
+# How fit_to_model puts a source into the model's frame (#602)
+FIT_MODES = ("letterbox", "stretch", "crop")
 TASK_ARGUMENT_CHOICES = {
+    "fit_to_model": {"mode": FIT_MODES},
     "ingredients_grid": {
         "layout": INGREDIENTS_LAYOUTS,
         "fit": INGREDIENTS_FITS,
@@ -754,6 +758,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "analyze_beats": beats_errors,
             "plan_cuts": cuts_errors,
             "window_video": window_video_errors,
+            "fit_to_model": fit_to_model_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
@@ -805,6 +810,35 @@ def window_video_errors(arguments):
             return []
     problem = window_overlap_problem(num_frames, overlap)
     return [] if problem is None else [("overlap", problem)]
+
+
+def fit_mode_problem(mode):
+    """The refusal sentence for a fit_to_model `mode` it does not know, or
+    None."""
+    if isinstance(mode, str) and mode in FIT_MODES:
+        return None
+    return f"fit_to_model needs 'mode' as one of {list(FIT_MODES)}, got {mode!r}"
+
+
+def fit_to_model_errors(arguments):
+    """[(argument, message)] for the fit_to_model rules a literal workflow
+    can break before it runs: an unknown `mode`, and a size or frame count
+    that is a number but not a whole one (the domains catch zero and
+    negatives)."""
+    errors = choice_errors("fit_to_model", arguments)
+    for name in ("width", "height", "num_frames"):
+        value = arguments.get(name)
+        number = as_number(value)
+        if (
+            number is not None
+            and number > 0
+            and not number.is_integer()
+            and not is_ref(DEFERRED, value)
+        ):
+            errors.append(
+                (name, f"fit_to_model needs '{name}' as a whole number, got {value!r}")
+            )
+    return errors
 
 
 def dissolve_shortfalls(frame_counts, dissolve_frames):

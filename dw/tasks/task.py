@@ -187,6 +187,65 @@ def _handle_window_video(task, arguments, previous_pipelines):
     return window_video(**arguments)
 
 
+@register_command(
+    "fit_to_model",
+    implementation="dw.tasks.fit.fit_to_model",
+    summary=(
+        "Fit a video into a model's working size and frame count - letterbox, "
+        "stretch or crop - with a record restore_to_source reads to undo it."
+    ),
+    parameter_descriptions={
+        "video": (
+            "The source - an earlier step's video, or an asset:/output: "
+            "reference. Its fps is kept; its soundtrack is not."
+        ),
+        "width": "The model's working width in pixels.",
+        "height": "The model's working height in pixels.",
+        "num_frames": (
+            "The model's frame count. A longer source is cut to its first "
+            "num_frames frames; a shorter one holds its last frame."
+        ),
+        "mode": (
+            "letterbox (scale to fit, centred on black), stretch (resize to "
+            "fill exactly) or crop (scale to fill, centre-crop)."
+        ),
+    },
+)
+def _handle_fit_to_model(task, arguments, previous_pipelines):
+    """Fit a video into a model's working size and frame count"""
+    logger.debug("Fitting a video to the model")
+    from .fit import fit_to_model
+
+    return fit_to_model(**arguments)
+
+
+@register_command(
+    "restore_to_source",
+    implementation="dw.tasks.fit.restore_to_source",
+    summary=(
+        "Put a model's output for a fit_to_model video back at the source's "
+        "size (times the model's scale, inferred) and frame count."
+    ),
+    parameter_descriptions={
+        "video": (
+            "The model's output for the fitted video, at the fitted size or a "
+            "uniform multiple of it - 2x restores to twice the source."
+        ),
+        "fit": (
+            "The record fit_to_model returned - previous_result:<step>.fit, or "
+            "its saved .json. A crop fit restores only the part it kept, at "
+            "the source's pixel density."
+        ),
+    },
+)
+def _handle_restore_to_source(task, arguments, previous_pipelines):
+    """Put a fitted video back at its source's size and length"""
+    logger.debug("Restoring a video to its source")
+    from .fit import restore_to_source
+
+    return restore_to_source(**arguments)
+
+
 @register_command("frame_grid", implementation="dw.tasks.video_utils.frame_grid")
 def _handle_frame_grid(task, arguments, previous_pipelines):
     """Tile evenly sampled frames of a video into one contact-sheet image"""

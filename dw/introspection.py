@@ -578,13 +578,18 @@ def describe_task(command):
     # the parameter it constrains - an agent reading get_task saw
     # 'annotation: null' and no domain at all, and wrote the negative frame
     # count validation now refuses (dw/task_domains.py, #139, #140)
-    from .task_domains import TASK_ARGUMENT_DOMAINS
+    from .task_domains import TASK_ARGUMENT_CHOICES, TASK_ARGUMENT_DOMAINS
 
     domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+    # A string argument's accepted values, the same way (#602)
+    choices = TASK_ARGUMENT_CHOICES.get(command, {})
     for parameter in parameters:
         domain = domains.get(parameter["name"])
         if domain is not None:
             parameter["domain"] = domain
+        accepted = choices.get(parameter["name"])
+        if accepted is not None:
+            parameter["choices"] = list(accepted)
 
     parameter_descriptions = info.get("parameter_descriptions") or {}
     for parameter in parameters:
