@@ -87,6 +87,7 @@ EXPECTED_SITES = {
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
+    ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
 }
 
 _SHOTS_HELPER_BY_DECISION = {
@@ -94,6 +95,7 @@ _SHOTS_HELPER_BY_DECISION = {
     "carries": "carried_shots",
     "rescales": "rescaled_shots",
     "remeasures": "remeasured_shots",
+    "trims": "trimmed_shots",
 }
 
 

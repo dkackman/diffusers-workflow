@@ -703,6 +703,44 @@ assembly templates once did and what made their output visibly wider than
 the source. The join tasks refuse shots of different sizes, so no
 normalization step is needed before them.
 
+### trim_video
+
+Keep one span of a video's frames, and its audio over the same span:
+
+```json
+{
+    "task": {
+        "command": "trim_video",
+        "arguments": {
+            "video": "previous_result:shot",
+            "start_frame": 12,
+            "num_frames": 72
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as it is. A URL is fetched as frames only |
+| `start_frame` | Yes | The first frame kept, from `0` |
+| `num_frames` | Yes | How many frames are kept: `1` or more |
+| `fps` | No | The clip's frame rate. Defaults to the rate the clip carries; needed only to cut its audio, which is refused without one |
+
+Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
+the same span at the track's own sample rate: each end is `frames_to_samples`
+of a frame index, rounded on its own, so consecutive trims tile the track with
+no sample lost or repeated. A clip with audio (or an audio+video pair) comes
+back as an audio+video pair with its frame rate and sample rate kept; a bare
+frame list comes back as frames.
+
+The shots the clip carries are clipped to the span and re-based to start at
+`0`, with their sample side cleared; a clip that carries none comes back with
+none. A span that reaches past the clip's end is refused, naming the clip's
+frame count - it is never shortened or padded - and so is a `num_frames` of
+`0` or less or a negative `start_frame`; `validate_workflow` catches these on
+literal values.
+
 ### window_video
 
 Cut one overlapping, fixed-length window out of a long video, so a
