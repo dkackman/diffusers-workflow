@@ -442,7 +442,11 @@ def test_no_stale_entry_in_the_allowlist():
 # because it names a base and a refine checkpoint and so carries three
 # `base_` variables beside the H3 template's usual eleven - the catalog's only
 # route to 1344x768 through a 544p take, held behind its A/B.
-COMPACT_BUDGET = 9_850
+# Then to 10_000 for `templates/ltx2/face-repair` (#599, stage #624,
+# 2026-10-06), measured at 9_981: about 160 tokens, its tuned `padding` and
+# `gate_full`/`gate_zero` exposed beside `strength` and `crop_size` - the
+# catalog's only repair of one region of a clip, leaving the rest as it came.
+COMPACT_BUDGET = 10_000
 FILTERED_BUDGET = 1_500
 
 

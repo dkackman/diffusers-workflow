@@ -317,7 +317,7 @@ class TestTheRealDocs:
             assert f"`{shape}`" in content, shape
 
     def test_the_tasks_guide_carries_the_catalog_path_note(self):
-        """TASKS.md links 48 example workflows by repo path - the most of any
+        """TASKS.md links 49 example workflows by repo path - the most of any
         served guide."""
         body = guides.get_guide("tasks", "Examples")
 
