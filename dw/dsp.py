@@ -3,7 +3,8 @@
 Everything the audio tasks, the media probe and the chain's seam joins
 compute from a waveform lives here - level conversion, BS.1770 loudness and
 true peak, the limiter, the filters and envelope followers, the spectral
-readings and the resampler. It emits no events and checks no arguments: a
+readings, the resampler and the beat tracker (onset envelope, tempo
+and beats). It emits no events and checks no arguments: a
 task decides what a measurement means and what to say about it, and this
 module only measures.
 

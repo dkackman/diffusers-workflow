@@ -173,6 +173,8 @@ Control" section.
    `url` (`list_gallery`, or the manifest's file name).
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
+   To cut picture to the song, `analyze_beats` on it returns its bpm and beat
+   times; with the tempo known, `tempo_bpm` plus one anchor lays an exact grid.
 6. A run worth keeping: `references/keeping-a-run.md` saves it by name
    and exports it.
 

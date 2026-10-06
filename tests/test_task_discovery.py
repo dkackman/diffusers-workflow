@@ -172,3 +172,13 @@ class TestDocumentedKwargs:
         # the kwargs block says
         names = self.names(describe_task("text_generation"))
         assert names.count("device") == 1
+
+
+class TestAnalyzeBeatsRegistration:
+    def test_analyze_beats_is_registered_as_a_json_answer(self):
+        from dw.tasks.task import task_command_info
+
+        info = task_command_info("analyze_beats")
+        assert info["implementation"] == "dw.tasks.beats.analyze_beats"
+        assert info["returns"] == "json"
+        assert "assessment" not in info
