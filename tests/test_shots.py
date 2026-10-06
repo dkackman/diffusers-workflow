@@ -83,6 +83,7 @@ EXPECTED_SITES = {
     ("dw/output_extraction.py", "pair_audio_with_frames"): ("none", 1),
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
     ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),
+    ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
 }
 

@@ -157,6 +157,12 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
     },
     "loop_frames": {"num_frames": POSITIVE},
+    "window_video": {
+        "index": NON_NEGATIVE,
+        "num_frames": POSITIVE,
+        "overlap": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
     "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "ingredients_grid": {
@@ -747,6 +753,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "paste_face_track": paste_face_track_errors,
             "analyze_beats": beats_errors,
             "plan_cuts": cuts_errors,
+            "window_video": window_video_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
@@ -764,6 +771,40 @@ def task_argument_errors(workflow_definition, source_indices=None):
 # checker's slice arithmetic lacked #557's end rounding). Each now has one
 # home here, and both sides call it: the checker for the inputs it can know
 # before the run, the task for the ones it is actually handed.
+
+
+def window_overlap_problem(num_frames, overlap):
+    """The refusal sentence for a window that is all overlap, or None.
+
+    A window of `num_frames` frames advances by `num_frames - overlap`, so an
+    overlap of `num_frames` or more never advances at all. Both numbers are
+    whole numbers already inside their own domains.
+    """
+    if overlap >= num_frames:
+        return (
+            f"window_video needs 'overlap' below 'num_frames' - got overlap "
+            f"{overlap} with num_frames {num_frames}, which leaves a window "
+            f"no frames of its own to advance by"
+        )
+    return None
+
+
+def window_video_errors(arguments):
+    """[(argument, message)] for the window_video rule a literal workflow can
+    break before it runs: an overlap that is not below the window length.
+    Whether `index` falls inside the source needs the source's frame count,
+    which is the run's to measure."""
+    num_frames = arguments.get("num_frames")
+    overlap = arguments.get("overlap")
+    for value in (num_frames, overlap):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, numbers.Integral)
+            or value < 0
+        ):
+            return []
+    problem = window_overlap_problem(num_frames, overlap)
+    return [] if problem is None else [("overlap", problem)]
 
 
 def dissolve_shortfalls(frame_counts, dissolve_frames):
