@@ -29,7 +29,8 @@ enters that long before the cut), each next where the last ended; then
 ## Planning a music video's cuts
 
 Plan, read, prompt, render. Run `templates/minimax/music-video-cuts` on
-the song with its `lyrics`; read the plan's `shots` (`lyric`, `kind`,
+the song with its `lyrics` (it chains `transcribe_audio`, `analyze_beats`
+and the `plan_cuts` task); read the plan's `shots` (`lyric`, `kind`,
 `start_frame`, `num_frames`); write one prompt per shot, a vocal shot to its
 `lyric`, an instrumental one to the mood; render with `music-video`, one
 `{name, start_frame, prompt}` entry per shot. `music-video` slices every
