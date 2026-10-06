@@ -72,9 +72,7 @@ def nms(detections, threshold=NMS_IOU):
     The tiles overlap and the whole frame is searched too, so one face is
     usually found more than once; the most confident copy is kept.
     """
-    ordered = sorted(
-        (list(map(float, d[:5])) for d in detections), key=lambda d: -d[4]
-    )
+    ordered = sorted((list(map(float, d[:5])) for d in detections), key=lambda d: -d[4])
     kept = []
     for detection in ordered:
         if all(_iou(detection, other) < threshold for other in kept):
@@ -426,7 +424,12 @@ def crop_face_track(
 
     record = JsonRecord(
         {
-            "source": {"width": width, "height": height, "frames": len(frames), "fps": fps},
+            "source": {
+                "width": width,
+                "height": height,
+                "frames": len(frames),
+                "fps": fps,
+            },
             "crop_size": crop_size,
             "padding": padding,
             "gate_full": gate_full,

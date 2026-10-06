@@ -1,6 +1,6 @@
 # Task Commands
 
-Tasks are utility operations that run outside of pipeline inference. Use them for image preprocessing, data gathering, and other non-model operations.
+Tasks are utility operations that run outside of a pipeline step. Use them for preprocessing, assembly, data gathering, and analysis - most are plain code, and some run a small helper model (an upscaler, a face detector, a stem separator).
 
 ```json
 {
@@ -479,6 +479,74 @@ as its own step; do not run it on every shot before a cut, which is what the
 assembly templates once did and what made their output visibly wider than
 the source. The join tasks refuse shots of different sizes, so no
 normalization step is needed before them.
+
+### crop_face_track
+
+Follow one face through a clip and cut a steady square around it, for a
+face-detail pass that needs the face large and still:
+
+```json
+{
+    "name": "face_crops",
+    "task": {
+        "command": "crop_face_track",
+        "arguments": {
+            "clip": "asset:interview.mp4",
+            "crop_size": 512
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `clip` | Yes | The video - frames, an audio+video pair, or the path or URL of a video file. Named `clip` so the engine hands it over as read, with the shots it records |
+| `crop_size` | No | Side of every crop in pixels, a multiple of 32. Default `512` |
+| `padding` | No | Space added around the face on each side, as a fraction of its size, `0` to `3`. Default `0.6` |
+| `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
+| `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
+| `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
+| `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
+| `device` | No | Where detection runs |
+
+The gate defaults are provisional; tune them against real footage.
+
+Detection is OpenCV's YuNet, run on the full frame and on four overlapping
+enlarged tiles, merged by non-maximum suppression, so a face only a few dozen
+pixels wide is still seen. One track is kept and smoothed with an exponential
+moving average; across a short detector miss the last box is held at a decaying
+strength. The track restarts at each shot boundary the clip records, or, for a
+clip that records none, at an abrupt colour-histogram change. A padded square
+around the smoothed box is cut from every frame and resized to `crop_size`, then
+the crops are padded to 8n+1 frames with mirrored warm-up and cool-down frames.
+
+Each frame carries a strength from 0 to 1: how much a face-detail pass should
+change it. It is 1 when face width over frame width is at or below `gate_full`,
+0 at or above `gate_zero`, linear between, and multiplied by the hold decay on
+frames the detector missed.
+
+It returns `{crops, track}`. `crops` is a video (no audio) at the clip's frame
+rate. `track` is a JSON record saved as its own `.json` file, readable by
+`previous_result:<step>.track`:
+
+| Field | Description |
+| ----- | ----------- |
+| `source` | `{width, height, frames, fps}` of the input |
+| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence` | The parameters used |
+| `detector` | `{repo, file}` |
+| `pad_before`, `pad_after` | Mirrored frames added to the start and end |
+| `crop_frames` | Frames in `crops`, including the padding |
+| `face_found` | Whether any frame had a face |
+| `message` | Present only when no face was found |
+| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held` or `none`) |
+| `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost` |
+
+A clip with no face still succeeds: every strength is 0, the crops are the
+centre square, and a `no_face_found` warning is raised. `validate_workflow`
+refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
+`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
+and a `detector_file` that is not a `.onnx` name, before anything downloads.
 
 ### video_frames
 
