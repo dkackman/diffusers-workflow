@@ -2,6 +2,19 @@
     "id": "LTX2DeblurLong",
     "description": "Restores sharpness to an out-of-focus source longer than one LTX-2.5 bucket by cutting it into overlapping windows, running restore-deblur's in-context pass on each, and blending them back into one video of exactly the source's length. 'window' (window_video) cuts window i of 'num_frames' frames, sharing 'overlap' frames with the one before; 'restore' regenerates each window in focus with the window attached as the IC-LoRA reference; 'join' (join_windows) blends each seam's 'overlap' frames on the 'curve' ramp and puts the source's own soundtrack back over the whole result, so the model's generated audio is discarded. 'windows' is a list of {name, index} entries, one per window, and must be exactly ceil(source_frames / (num_frames - overlap)) long, indexes 0 upward: read the source's frame count first with get_gallery_metadata('asset:...'). The defaults (121-frame windows, overlap 16, stride 105) take 3 windows for a source of 211 to 315 frames - about 9 to 13 s at 24 fps; 2 windows cover up to 210 frames, 4 up to 420. validate_workflow refuses a list of the wrong length when the source is an asset: or output: reference, naming the count it needs, before any GPU time. At most 32 windows (for_each's limit), about 140 s at these defaults. 'num_frames' is LTX's 8 * n + 1 bucket and is the window length, not the output's: the output is the source's frame count. A larger 'overlap' hides per-window drift in colour or detail better and costs more windows. Everything else - the trained 960x544 / 24 fps bucket, 'lora_scale', the dual-panel prompt, spatial defocus only - is restore-deblur's; set 'width'/'height' to the source's own size.",
     "summary": "Sharpens out-of-focus footage longer than one bucket, a window at a time, joined back to the source's length.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 12.2,
+            "per_entry": {
+                "variable": "windows",
+                "minutes": 1.56,
+                "entries": 3
+            }
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "width",
