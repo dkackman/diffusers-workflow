@@ -27,7 +27,8 @@ A shot is a dict:
   reads to stay quiet there. A chained pipeline's inner segments leave it
   unset, since continuity is expected between them
 - `seam_fade_ms` - set beside `hard_cut` on the shot that opens a seam
-  `concat_videos` butt-joined with the caller's `seam_fade_ms` fade, so
+  `concat_videos` butt-joined with the caller's `seam_fade_ms` fade, as the fade `joins`
+  realized (clamped to the material, so it can be under the ask), so
   `seam_hole` (`dw/assessment_rules.py`) does not blame content for the dip
   that was asked for (#659). Absent where no fade was requested or applied
 

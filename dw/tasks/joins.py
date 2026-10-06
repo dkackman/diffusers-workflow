@@ -233,12 +233,19 @@ def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
     return audio
 
 
-def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
+def _declick_join(
+    previous, following, sample_rate, fade_ms=None, seam=None, applied=None
+):
     """Butt-join two waveforms with a fade on each side of the seam.
 
     The default is the few milliseconds that keep a butt-join from clicking.
     A longer fade is a deliberate edit - the graceful hard cut you want when
     neither a crossfade nor a bleed applies.
+
+    `applied`, when given, is a dict that gets `seam_fade_ms` set to the fade
+    realized on each side (ramp clamped to the material) when a caller's
+    fade_ms took effect - the one place that knows, so callers record it
+    rather than re-derive the decision (#659).
     """
     ramp = int((DECLICK_MS if fade_ms is None else fade_ms) / 1000.0 * sample_rate)
     ramp = min(ramp, previous.shape[1], following.shape[1])
@@ -248,6 +255,8 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
         following = following.copy()
         previous[:, -ramp:] *= fade_out  # cos: 1 down to ~0
         following[:, :ramp] *= fade_in  # sin: ~0 up to 1
+    if fade_ms is not None and ramp > 0 and applied is not None:
+        applied["seam_fade_ms"] = round(ramp / sample_rate * 1000, 1)
     if fade_ms is not None:
         # A deliberate fade leaves a trace; the default declick is not asked for
         where = "a seam" if seam is None else f"seam {seam}"
@@ -263,7 +272,14 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
 
 
 def equal_power_crossfade_join(
-    previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None, seam=None
+    previous,
+    head,
+    following,
+    sample_rate,
+    crossfade_ms,
+    seam_fade_ms=None,
+    seam=None,
+    applied=None,
 ):
     """Join two segments' audio at a seam without changing the total duration.
 
@@ -275,7 +291,7 @@ def equal_power_crossfade_join(
 
     With no head material (nothing was trimmed), the seam gets a fade-out and
     fade-in in place instead, of seam_fade_ms - a few milliseconds by default,
-    just enough not to click.
+    just enough not to click. `applied` is passed to `_declick_join`.
     """
     previous, head, following = matched_channels(previous, head, following)
 
@@ -286,7 +302,9 @@ def equal_power_crossfade_join(
     )
 
     if window == 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
+        return _declick_join(
+            previous, following, sample_rate, seam_fade_ms, seam, applied
+        )
 
     fade_out, fade_in = equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
@@ -316,6 +334,7 @@ def bleed_join(
     native_sample_rate=None,
     seam=None,
     between=None,
+    applied=None,
 ):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
@@ -355,6 +374,8 @@ def bleed_join(
             already at its native rate
         seam: The seam's index, named in the log line and the tonal warning
         between: What the seam joins ("a -> b"), named beside the index
+        applied: A dict that gets `seam_fade_ms` when the no-material
+            fallback applied the caller's fade (see `_declick_join`)
 
     Returns:
         The two waveforms joined, of their full combined length
@@ -370,7 +391,9 @@ def bleed_join(
         following.shape[1],
     )
     if window <= 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
+        return _declick_join(
+            previous, following, sample_rate, seam_fade_ms, seam, applied
+        )
 
     tail = previous[:, ::-1][:, :window]
 

@@ -164,13 +164,7 @@ def concat_videos(
         if audio is None:
             audio = waveform
         else:
-            if _seam_fade_applies(
-                seam_fade_ms, head_trim, fps, sample_rate, crossfade_ms, audio_bleed_ms
-            ):
-                # The fade is the caller's own edit: recorded beside
-                # hard_cut so analyze_seams can tell a requested dip from a
-                # fault (#659)
-                shots[first_shot[index]]["seam_fade_ms"] = seam_fade_ms
+            applied = {}
             audio = _join_seam(
                 audio,
                 waveform,
@@ -184,7 +178,13 @@ def concat_videos(
                 audio_bleed_ms,
                 audio_bleed_gain_db,
                 seam_fade_ms,
+                applied,
             )
+            if applied:
+                # The fade the join realized is the caller's own edit:
+                # recorded beside hard_cut so analyze_seams can tell a
+                # requested dip from a fault (#659)
+                shots[first_shot[index]].update(applied)
         audio_native_rate = getattr(video, "sample_rate", None)
 
     audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
@@ -342,19 +342,6 @@ def _input_waveform(waveform, video, clip, name, fps, sample_rate, silence_chann
     )
 
 
-def _seam_fade_applies(
-    seam_fade_ms, head_trim, fps, sample_rate, crossfade_ms, audio_bleed_ms
-):
-    """Whether `_join_seam` will butt-join this seam with seam_fade_ms - the
-    seam has neither a bleed nor trimmed head material to crossfade over."""
-    if seam_fade_ms is None:
-        return False
-    trim_samples = frames_to_samples(head_trim, fps, sample_rate) if head_trim else 0
-    if trim_samples == 0:
-        return not audio_bleed_ms
-    return int(crossfade_ms / 1000.0 * sample_rate) == 0
-
-
 def _join_seam(
     audio,
     waveform,
@@ -368,6 +355,7 @@ def _join_seam(
     audio_bleed_ms,
     audio_bleed_gain_db,
     seam_fade_ms,
+    applied,
 ):
     """The joined track so far with the next input's track seamed on: a
     bleed at a plain cut, else an equal-power crossfade over what the trim
@@ -388,6 +376,7 @@ def _join_seam(
             native_sample_rate=audio_native_rate,
             seam=index,
             between=f"{names[index - 1]} -> {names[index]}",
+            applied=applied,
         )
     return equal_power_crossfade_join(
         audio,
@@ -397,6 +386,7 @@ def _join_seam(
         crossfade_ms,
         seam_fade_ms,
         seam=index,
+        applied=applied,
     )
 
 

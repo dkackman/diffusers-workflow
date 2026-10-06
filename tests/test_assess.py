@@ -378,6 +378,17 @@ class TestSeamFadeIsRecorded:
         bled = self._joined(seam_fade_ms=1000, audio_bleed_ms=100)
         assert "seam_fade_ms" not in bled.shots[1]
 
+    def test_the_record_is_the_fade_the_join_applied(self):
+        # Each input holds 3 s; a 10 s ask is clamped to the material, and
+        # the record says what was applied
+        joined = self._joined(seam_fade_ms=10000)
+        assert joined.shots[1]["seam_fade_ms"] == 3000.0
+
+    def test_a_bleed_that_clamps_to_nothing_still_records_the_fade(self):
+        # bleed_ms rounds to 0 samples, so bleed_join falls back to the fade
+        joined = self._joined(seam_fade_ms=500, audio_bleed_ms=0.01)
+        assert joined.shots[1]["seam_fade_ms"] == 500.0
+
 
 # ---------------------------------------------------------------------------
 # 3b. concat_videos marks its own seam hard_cut, so a real join's jump is
