@@ -331,7 +331,8 @@ def _make_blocks():
             block_state = self.get_block_state(state)
             strength = block_state.refine_strength
             if strength is None:
-                self.set_block_state(state, block_state)
+                # Leaves the state as set_timesteps left it: the timesteps are
+                # outputs here, not inputs, so set_block_state would refuse them
                 return components, state
 
             audio_rows = block_state.audio_latents.shape[0]

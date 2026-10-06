@@ -181,6 +181,7 @@ ERROR_ORDER = [
     "reference_names",
     "video_extensions",
     "hold_audio",
+    "refine_strength",
     "content_types",
     "scalar_results",
     "locations",
