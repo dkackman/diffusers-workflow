@@ -199,6 +199,9 @@ TASK_ARGUMENT_DOMAINS = {
         "gate_zero": POSITIVE,
         "min_confidence": POSITIVE,
     },
+    "paste_face_track": {
+        "feather": NON_NEGATIVE,
+    },
 }
 
 
@@ -346,6 +349,30 @@ def face_track_problems(
             )
         )
     return problems
+
+
+def paste_feather_problems(feather=None):
+    """[(argument, message)] when paste_face_track's feather is past 1 - the
+    fraction of the mask's radius that fades, so more than all of it is none."""
+    number = as_number(feather)
+    if number is not None and number > 1:
+        return [
+            (
+                "feather",
+                f"paste_face_track needs 'feather' from 0 to 1 (the fraction "
+                f"of the paste's radius that fades out), got {feather!r}",
+            )
+        ]
+    return []
+
+
+def paste_face_track_errors(arguments):
+    """[(argument, message)] for the paste_face_track rules a literal
+    workflow can break before it runs."""
+    feather = arguments.get("feather")
+    if is_ref(DEFERRED, feather):
+        return []
+    return paste_feather_problems(feather)
 
 
 def check_face_detector_source(repo, filename):
@@ -538,6 +565,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
         extra = {
             "ingredients_grid": ingredients_grid_errors,
             "crop_face_track": face_track_errors,
+            "paste_face_track": paste_face_track_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
