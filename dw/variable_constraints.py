@@ -141,6 +141,15 @@ def _as_integer(value):
     return None
 
 
+def _grid(constraint):
+    """The constraint's (modulus, remainder) with the remainder brought into
+    [0, modulus), or None when there is no grid."""
+    modulus = constraint.get("modulus")
+    if not modulus:
+        return None
+    return modulus, constraint.get("remainder", 0) % modulus
+
+
 def aligned(value, constraint):
     """The smallest value on the constraint's grid that is not below `value`,
     ignoring the range, or None when there is no grid to align to.
@@ -152,15 +161,30 @@ def aligned(value, constraint):
     108 is accepted (it becomes 124).
     """
     number = _as_integer(value)
-    modulus = constraint.get("modulus")
-    if number is None or not modulus:
+    grid = _grid(constraint)
+    if number is None or grid is None:
         return None
-    remainder = constraint.get("remainder", 0) % modulus
+    modulus, remainder = grid
     steps = math.ceil((number - remainder) / modulus)
     target = steps * modulus + remainder
     while target < number:
         target += modulus
     return target
+
+
+def aligned_down(value, constraint):
+    """The largest value on the constraint's grid that is not above `value`
+    and not below the remainder (n >= 0), or None when there is no grid or no
+    grid value fits. The floor that matches `aligned`: `plan_cuts` uses it for
+    the longest render a shot may have under `max_frames`."""
+    number = _as_integer(value)
+    grid = _grid(constraint)
+    if number is None or grid is None:
+        return None
+    modulus, remainder = grid
+    if number < remainder:
+        return None
+    return modulus * ((number - remainder) // modulus) + remainder
 
 
 def effective(value, constraint):

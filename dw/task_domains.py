@@ -715,9 +715,12 @@ def grid_problems(modulus, remainder, min_frames, max_frames):
         and (remainder or 0) >= 0
         and (low or 1) > 0
     ):
-        from .tasks.cuts import grid_up
+        from .variable_constraints import aligned
 
-        smallest = grid_up(max(low or 0, 1), modulus, remainder or 0)
+        floor = max(low or 0, 1)
+        smallest = aligned(floor, {"modulus": modulus, "remainder": remainder or 0})
+        if smallest is None:
+            smallest = floor
         if smallest > high:
             problems.append(
                 (
