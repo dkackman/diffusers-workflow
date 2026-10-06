@@ -113,6 +113,12 @@ remaining deferred fix is recorded in
   sharper. Record, including what was deferred (a re-measure of hold, the
   3-pass variant, #612's arm of the A/B):
   `complete/h3-audio-hold-refine-complete.md`.
+- **`templates/ltx2/refine-in-place`, a same-size LTX refine with a
+  strength knob** (#606, stages #638-#639), shipped 2026-10-06. It adds the
+  `LTX2RefinePipeline` community pipeline and five lem-tuned sigma ladders
+  selected by `strength` 0-4. Record, including what was deferred
+  (per-segment strength decay in `chained-segments`, with its triggers):
+  `complete/ltx2-refine-in-place-complete.md`.
 
 ## Declined
 
