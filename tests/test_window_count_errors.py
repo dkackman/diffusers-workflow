@@ -110,6 +110,27 @@ class TestThroughValidation:
         assert "got 5" in problems[0]["message"]
         assert "drop 1 entry (index 4)" in problems[0]["message"]
 
+    def test_an_unreadable_literal_source_is_refused_at_its_path(
+        self, monkeypatch, tmp_path
+    ):
+        """SE-F042 (#630): the source the join reads is path-gated here, the
+        same as window_video's video, rather than only when the run joins."""
+        import os
+
+        from dw.trust import TRUST_WORKFLOWS_ENV_VAR
+
+        base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("long.mp4", 50))
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+        definition = window_workflow(4)
+        definition["steps"][1]["task"]["arguments"]["source"] = "/etc/passwd"
+        workflow = workflow_from_definition(
+            definition, os.path.join(base_dir, "workflow.json")
+        )
+
+        paths = [problem["path"] for problem in workflow.validation_errors()]
+
+        assert "steps[1].task.arguments.source" in paths
+
 
 class TestDirectCalls:
     def test_a_short_list_is_reported(self, monkeypatch, tmp_path):

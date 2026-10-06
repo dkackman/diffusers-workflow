@@ -58,6 +58,12 @@ logger = logging.getLogger("dw")
 MEDIA_KEY_SUFFIXES = ("_image", "_video", "_audio")
 MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 
+# Task arguments that name a file to read but not by the conventions above -
+# a generic name the key match would miss, so it is listed per command. Each
+# gets the same validate-time refusal as a media key, rather than only the
+# loader's one at run time (#630)
+TASK_MEDIA_ARGUMENTS = {"join_windows": ("source",)}
+
 # The tasks whose arguments name a filesystem pattern rather than one file
 GLOB_ARGUMENT = "glob"
 
@@ -621,7 +627,25 @@ def location_errors(definition, source_indices=None, base_dir=None):
             continue
         source = references.author_index(source_indices, index)
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_rules(step))
+        _task_media_errors(step, f"steps[{source}]", base_dir, errors)
     return errors
+
+
+def _task_media_errors(step, path, base_dir, errors):
+    """The TASK_MEDIA_ARGUMENTS of a step's task, checked like a media key.
+    A `{"location": ...}` value is already the walk's, through its key."""
+    task = step.get("task")
+    if not isinstance(task, dict):
+        return
+    arguments = task.get("arguments")
+    if not isinstance(arguments, dict):
+        return
+    for key in TASK_MEDIA_ARGUMENTS.get(task.get("command"), ()):
+        here = f"{path}.task.arguments.{key}"
+        for sub_path, item in _each(arguments.get(key), here):
+            message = _check(item, base_dir, f"'{key}'")
+            if message:
+                errors.append({"path": sub_path, "message": message})
 
 
 def _weight_rules(step):
