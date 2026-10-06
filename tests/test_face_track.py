@@ -194,12 +194,12 @@ class TestHistogramCuts:
     def test_cut_at_a_colour_change(self):
         a = make_frame((100, 100, 16), background=(40, 160, 60))
         b = make_frame((100, 100, 16), background=(200, 40, 200))
-        cuts = ft.histogram_cuts([a, a, a, b, b])
+        cuts = ft.content_cuts([a, a, a, b, b])
         assert [index for index, _ in cuts] == [3]
 
     def test_no_spurious_cut_on_a_steady_clip(self):
         frame = make_frame((100, 100, 16))
-        assert ft.histogram_cuts([frame] * 6) == []
+        assert ft.content_cuts([frame] * 6) == []
 
     def test_end_to_end_cut_is_recorded_as_a_reset(self, stub_detector):
         a = make_frame((100, 100, 16), background=(40, 160, 60))
@@ -207,6 +207,61 @@ class TestHistogramCuts:
         result = ft.crop_face_track(clip_of([a, a, a, b, b]))
         resets = result["track"]["resets"]
         assert [(r["frame"], r["reason"]) for r in resets] == [(3, "cut")]
+
+
+def framed_portrait(scale):
+    """A textured portrait with a face square, shrunk by scale and letterboxed
+    into a black W x H frame - two scales are two framings of one picture."""
+    ph, pw = H, int(H * 0.75)
+    y, x = np.mgrid[0:ph, 0:pw]
+    portrait = np.stack(
+        [
+            90 + 60 * np.sin(x / 20),
+            70 + 50 * np.cos(y / 16),
+            60 + 40 * np.sin((x + y) / 30),
+        ],
+        axis=-1,
+    ).astype(np.uint8)
+    portrait[30:78, pw // 2 - 24 : pw // 2 + 24] = FACE
+    small = np.asarray(
+        Image.fromarray(portrait).resize(
+            (int(pw * scale), int(ph * scale)), Image.Resampling.NEAREST
+        )
+    )
+    frame = np.zeros((H, W, 3), dtype=np.uint8)
+    y0, x0 = (H - small.shape[0]) // 2, (W - small.shape[1]) // 2
+    frame[y0 : y0 + small.shape[0], x0 : x0 + small.shape[1]] = small
+    return frame
+
+
+class TestFramingCut:
+    """A cut between two framings of one picture keeps its colours: the
+    histogram barely moves, and the thumbnail difference spike finds it."""
+
+    def test_zoom_cut_is_found_though_the_histogram_holds(self):
+        far, near = framed_portrait(1 / 3.2), framed_portrait(1.0)
+        cuts = ft.content_cuts([far] * 6 + [near] * 6)
+        assert [index for index, _ in cuts] == [6]
+        assert cuts[0][1]["histogram_correlation"] > ft.HISTOGRAM_CUT
+        assert cuts[0][1]["frame_change"] >= ft.CUT_MIN_CHANGE
+
+    def test_steady_pan_is_not_a_cut(self):
+        near = framed_portrait(1.0)
+        pan = [np.roll(near, 3 * i, axis=1) for i in range(20)]
+        assert ft.content_cuts(pan) == []
+
+    def test_zoom_cut_resets_the_track_with_no_held_frames(self, stub_detector):
+        far, near = framed_portrait(1 / 3.2), framed_portrait(1.0)
+        result = ft.crop_face_track(clip_of([far] * 6 + [near] * 6))
+        track = result["track"]
+        assert [(r["frame"], r["reason"]) for r in track["resets"]] == [(6, "cut")]
+        states = [f["state"] for f in track["frames"]]
+        assert states == ["tracked"] * 12
+        far_width, near_width = (
+            track["frames"][5]["box"][2],
+            track["frames"][6]["box"][2],
+        )
+        assert near_width > 2.5 * far_width
 
 
 class TestShotReset:
