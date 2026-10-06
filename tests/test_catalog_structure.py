@@ -77,8 +77,7 @@ EXPECTED_SHAPES = {
     ),
     "workflows/templates/minimax/music-video.json": (
         "sequence",
-        # 'song' defaults to the written one but is a supplied-media variable
-        ["has-audio", "identity-referenced", "needs-input-media"],
+        ["has-audio", "identity-referenced"],
     ),
     "workflows/templates/minimax/chained-segments.json": (
         "shot",
