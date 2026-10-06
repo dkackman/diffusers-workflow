@@ -209,6 +209,11 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "letterbox (scale to fit, centred on black), stretch (resize to "
             "fill exactly) or crop (scale to fill, centre-crop)."
         ),
+        "downscale": (
+            "Fit into width/downscale x height/downscale instead, default 1 - "
+            "2 when width/height are a 2x model's output size. Both must be "
+            "divisible by it; the fit record's model size is the divided one."
+        ),
     },
 )
 def _handle_fit_to_model(task, arguments, previous_pipelines):

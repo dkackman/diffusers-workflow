@@ -180,7 +180,12 @@ TASK_ARGUMENT_DOMAINS = {
         "fps": POSITIVE,
     },
     "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
-    "fit_to_model": {"width": POSITIVE, "height": POSITIVE, "num_frames": POSITIVE},
+    "fit_to_model": {
+        "width": POSITIVE,
+        "height": POSITIVE,
+        "num_frames": POSITIVE,
+        "downscale": POSITIVE,
+    },
     "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
     "ingredients_grid": {
@@ -932,13 +937,28 @@ def fit_mode_problem(mode):
     return f"fit_to_model needs 'mode' as one of {list(FIT_MODES)}, got {mode!r}"
 
 
+def fit_downscale_problem(width, height, downscale):
+    """The refusal sentence for a size `downscale` does not divide, or None.
+
+    fit_to_model fits into width/downscale x height/downscale, so a template
+    can keep `width`/`height` as the output size of a 2x model and still fit
+    the source to the model's input (#602). All three are whole numbers
+    already inside their domains."""
+    if width % downscale or height % downscale:
+        return (
+            f"fit_to_model needs 'width' and 'height' divisible by "
+            f"'downscale' {downscale}, got {width}x{height}"
+        )
+    return None
+
+
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
-    can break before it runs: an unknown `mode`, and a size or frame count
-    that is a number but not a whole one (the domains catch zero and
-    negatives)."""
+    can break before it runs: an unknown `mode`, a size, frame count or
+    downscale that is a number but not a whole one (the domains catch zero
+    and negatives), and a size the downscale does not divide."""
     errors = choice_errors("fit_to_model", arguments)
-    for name in ("width", "height", "num_frames"):
+    for name in ("width", "height", "num_frames", "downscale"):
         value = arguments.get(name)
         number = as_number(value)
         if (
@@ -950,6 +970,16 @@ def fit_to_model_errors(arguments):
             errors.append(
                 (name, f"fit_to_model needs '{name}' as a whole number, got {value!r}")
             )
+    sizes = [as_number(arguments.get(name)) for name in ("width", "height")]
+    downscale = as_number(arguments.get("downscale", 1))
+    if not errors and all(
+        n is not None and n > 0 and n.is_integer() for n in [*sizes, downscale]
+    ):
+        problem = fit_downscale_problem(
+            int(sizes[0]), int(sizes[1]), int(downscale)
+        )
+        if problem is not None:
+            errors.append(("downscale", problem))
     return errors
 
 

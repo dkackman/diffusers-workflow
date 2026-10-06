@@ -17,6 +17,7 @@
         "height": 544,
         "num_frames": 121,
         "frame_rate": 24.0,
+        "fit": "letterbox",
         "lora_scale": 1.0,
         "seed": 42
     },
@@ -40,6 +41,24 @@
     },
     "seed": "variable:seed",
     "steps": [
+        {
+            "name": "fit",
+            "task": {
+                "command": "fit_to_model",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "variable:fit",
+                    "downscale": 2
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false
+            }
+        },
         {
             "name": "upscaled",
             "pipeline": {
@@ -151,10 +170,7 @@
                         {
                             "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
                             "from_arguments": {
-                                "frames": {
-                                    "media_type": "video",
-                                    "location": "variable:source_video"
-                                },
+                                "frames": "previous_result:fit.video",
                                 "strength": 1.0
                             }
                         }
@@ -178,11 +194,26 @@
             }
         },
         {
+            "name": "restore",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:upscaled",
+                    "fit": "previous_result:fit.fit"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": "variable:frame_rate"
+            }
+        },
+        {
             "name": "with_source_audio",
             "task": {
                 "command": "pair_audio",
                 "arguments": {
-                    "video": "previous_result:upscaled",
+                    "video": "previous_result:restore",
                     "audio": "variable:source_video",
                     "fit": "video"
                 }

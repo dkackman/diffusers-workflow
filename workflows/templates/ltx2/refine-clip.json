@@ -25,6 +25,7 @@
         "height": 288,
         "num_frames": 121,
         "frame_rate": 24.0,
+        "fit": "letterbox",
         "seed": 42
     },
     "variable_constraints": {
@@ -58,12 +59,15 @@
             }
         },
         {
-            "name": "source_frames",
+            "name": "fit",
             "task": {
-                "command": "loop_frames",
+                "command": "fit_to_model",
                 "arguments": {
                     "video": "variable:source_video",
-                    "num_frames": "variable:num_frames"
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "variable:fit"
                 }
             },
             "result": {
@@ -105,7 +109,7 @@
                     }
                 },
                 "arguments": {
-                    "video": "previous_result:source_frames",
+                    "video": "previous_result:fit.video",
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_frames": "variable:num_frames",
@@ -242,11 +246,26 @@
             }
         },
         {
+            "name": "restore",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:refine",
+                    "fit": "previous_result:fit.fit"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": "variable:frame_rate"
+            }
+        },
+        {
             "name": "with_source_audio",
             "task": {
                 "command": "pair_audio",
                 "arguments": {
-                    "video": "previous_result:refine",
+                    "video": "previous_result:restore",
                     "audio": "previous_result:source_audio",
                     "fit": "video"
                 }
