@@ -175,6 +175,9 @@ def _trim_to_speech(chunks, mono):
     long the lead-in or tail, and a word after a pause swallows the pause
     (#661). Each chunk's start moves up to its first speech frame and its end
     back to its last, never outside its original span, so order is kept. A
+    speech run lying mostly outside the span is a neighbour's, bled in; it
+    is ignored unless the span has no run of its own, so a word whose span
+    covers its neighbour's onset across a pause shrinks to its own sound. A
     chunk with no speech frame in it is left as Whisper gave it.
     """
     frame = int(_FRAME_SECONDS * _ASR_SAMPLE_RATE)
@@ -187,17 +190,28 @@ def _trim_to_speech(chunks, mono):
     if loud <= 0.0:
         return chunks
     active = rms > loud * _SPEECH_RELATIVE_LEVEL
+    edges = numpy.diff(numpy.concatenate(([0], active.astype(numpy.int8), [0])))
+    runs = list(zip(numpy.flatnonzero(edges == 1), numpy.flatnonzero(edges == -1)))
 
     trimmed = []
     for chunk in chunks:
         first = int(chunk["start"] / _FRAME_SECONDS)
         last = min(count, int(numpy.ceil(chunk["end"] / _FRAME_SECONDS)))
-        hits = numpy.flatnonzero(active[first:last])
-        if len(hits) == 0:
+        # Speech runs touching the span, clipped to it. A run mostly outside the
+        # span belongs to a neighbouring word whose edge bled in; drop it when
+        # the span holds a run of its own (the pause-then-word case).
+        touching = [(lo, hi) for lo, hi in runs if lo < last and hi > first]
+        own = [
+            (max(lo, first), min(hi, last))
+            for lo, hi in touching
+            if (min(hi, last) - max(lo, first)) * 2 >= hi - lo
+        ]
+        spans = own or [(max(lo, first), min(hi, last)) for lo, hi in touching]
+        if not spans:
             trimmed.append(chunk)
             continue
-        start = max(chunk["start"], (first + hits[0]) * _FRAME_SECONDS)
-        end = min(chunk["end"], (first + hits[-1] + 1) * _FRAME_SECONDS)
+        start = max(chunk["start"], spans[0][0] * _FRAME_SECONDS)
+        end = min(chunk["end"], spans[-1][1] * _FRAME_SECONDS)
         trimmed.append(
             {**chunk, "start": round(float(start), 3), "end": round(float(end), 3)}
         )

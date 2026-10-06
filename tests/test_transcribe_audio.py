@@ -230,6 +230,36 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertAlmostEqual(last["end"], 2.8, delta=0.05)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_word_span_covering_its_neighbours_onset_shrinks_to_its_own_sound(
+        self, mock_pipeline
+    ):
+        # #661 "please": the span runs from the tail of "so" across a pause
+        # and a short sound to the onset of the next word. Speech at 0.5-1.0
+        # (so), 1.5-1.7 (please), 2.2-3.0 (next); the word spans 0.8-2.3.
+        waveform, rate = self._waveform(seconds=3.0)
+        for lo, hi in ((0.5, 1.0), (1.5, 1.7), (2.2, 3.0)):
+            t = numpy.arange(int((hi - lo) * rate)) / rate
+            tone = (0.3 * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+            waveform[0, int(lo * rate) : int(lo * rate) + len(tone)] = tone
+        self._mock_pipe(
+            mock_pipeline,
+            "so please next",
+            chunks=[
+                {"text": " so", "timestamp": (0.0, 0.8)},
+                {"text": " please", "timestamp": (0.8, 2.3)},
+                {"text": " next", "timestamp": (2.3, 3.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        please = result["chunks"][1]
+        self.assertAlmostEqual(please["start"], 1.5, delta=0.05)
+        self.assertAlmostEqual(please["end"], 1.7, delta=0.05)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_segment_bounds_are_left_as_whisper_gave_them(self, mock_pipeline):
         waveform, rate = self._waveform(seconds=2.0)
         waveform[0, 16000:20000] = 0.3
