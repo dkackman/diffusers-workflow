@@ -631,3 +631,557 @@ def hold_audio_reference(value, base_dir=None):
         return audio_reference(**media_arguments(audio_reference, value))
     except ValueError as error:
         raise ValueError(f"hold_audio: {error}") from error
+
+
+# Guides (#611): earlier clips held as multi-frame condition rows.
+#
+# H3 already conditions on rows it never steps: a `fl2va` keyframe is one encoded
+# latent frame in front of the target, noised to `keyframe_noise_aug` and given
+# the target's own rotary time at its anchor. A guide is the same thing for a
+# clip - every latent frame of its encode, timed from the target latent it lands
+# on, appended after the keyframe rows. Only the layout knows one frame per
+# keyframe, so the layout is the step dw replaces; the condition noise, the
+# denoise loop and `after_denoise` already work on any prefix of condition rows.
+#
+# `t2va` has no condition steps, so it gets two thin ones that run diffusers' own
+# `prepare_condition_latents` / `prepare_latents_fl2va` only when there is
+# conditioning to pack - the stock step cannot take an empty list.
+
+# The call argument, and the most guides one call may carry - a VRAM guard: every
+# guide frame is another frame of rows for attention to cover (#648)
+GUIDES_INPUT = "guides"
+GUIDE_LIMIT = 4
+
+# The diffusers step the layout replaces, and the ones t2va borrows from fl2va
+LAYOUT_STEP = "prepare_layout"
+GUIDE_CONDITION_BLOCK = "dw_guide_condition_latents"
+GUIDE_LATENTS_BLOCK = "dw_guide_latents"
+LAYOUT_ANCHORS = (
+    "MiniMaxH3PrepareLayoutStep",
+    "MiniMaxH3PrepareLayoutStep.build_packed_sequence",
+    "MiniMaxH3PrepareConditionLatentsStep",
+    "MiniMaxH3FL2VAPrepareLatentsStep",
+    "_temporal_position_grid",
+    "_frame_position_grid",
+)
+
+# Pixel frames per VAE chunk and latent frames per chunk - a clip encodes to whole
+# latents at 1, 5 or 17m + 5 frames, and lines up with the target's latent grid
+# only at a chunk boundary, frame 17j (latent 5j)
+GUIDE_FRAMES_PER_CHUNK = 17
+GUIDE_LATENTS_PER_CHUNK = 5
+
+
+def snap_guide_length(num_frames):
+    """The longest whole-latent clip length - 1, 5 or 17m + 5 - not over
+    `num_frames`. 23 -> 22, 40 -> 39, 3 -> 1."""
+    if num_frames < 5:
+        return 1
+    if num_frames < 17 + 5:
+        return 5
+    return (num_frames - 5) // GUIDE_FRAMES_PER_CHUNK * GUIDE_FRAMES_PER_CHUNK + 5
+
+
+def guide_latent_frames(num_frames):
+    """Latent frames an aligned clip encodes to: 1, 2, or 5m + 2."""
+    if num_frames == 1:
+        return 1
+    return (num_frames - 5) // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK + 2
+
+
+def guide_frame_problem(frame):
+    """Why `frame` cannot place a guide, or None - a whole, non-negative pixel
+    frame on a chunk boundary (17j)."""
+    if isinstance(frame, bool) or not isinstance(frame, int):
+        return f"'frame' must be a whole pixel frame, got {frame!r}"
+    if frame < 0:
+        return f"'frame' cannot be negative, got {frame}"
+    if frame % GUIDE_FRAMES_PER_CHUNK:
+        below = frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_FRAMES_PER_CHUNK
+        return (
+            f"'frame' must be a multiple of {GUIDE_FRAMES_PER_CHUNK} (a VAE chunk "
+            f"boundary, where a guide lines up with the generated frames), got "
+            f"{frame} - use {below} or {below + GUIDE_FRAMES_PER_CHUNK}"
+        )
+    return None
+
+
+def guide_end_problem(frame, length, num_frames):
+    """Why a guide of `length` frames at `frame` runs past a `num_frames` render,
+    or None. Ending exactly at `num_frames` fits."""
+    if frame + length > num_frames:
+        return (
+            f"a {length}-frame guide at frame {frame} runs to frame "
+            f"{frame + length}, past the end of the {num_frames}-frame render"
+        )
+    return None
+
+
+def layout_anchor_problem():
+    """The first diffusers name the guide layout is built on that the installed
+    diffusers lacks, or None."""
+    try:
+        from diffusers.modular_pipelines.minimax_h3 import before_denoise
+    except ImportError:
+        return "diffusers.modular_pipelines.minimax_h3.before_denoise"
+    for anchor in LAYOUT_ANCHORS:
+        owner = before_denoise
+        for part in anchor.split("."):
+            owner = getattr(owner, part, None)
+            if owner is None:
+                return anchor
+    return None
+
+
+def guide_position_ids(target_time, frame_grid, latent_index, num_latent_frames):
+    """`(num_latent_frames * rows_per_frame, 3)` rotary positions of one guide.
+
+    Time runs from the target's own time at `latent_index`, with the target's
+    spacing (`_temporal_position_grid`); every frame carries the target's (h, w)
+    grid. Rows are frame-major, the order `patchify_video_latents` packs them in.
+    """
+    from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+        _temporal_position_grid,
+    )
+
+    times = _temporal_position_grid(num_latent_frames, float(target_time[latent_index]))
+    rows_per_frame = frame_grid.shape[0]
+    positions = torch.empty(num_latent_frames, rows_per_frame, 3, dtype=torch.float64)
+    positions[:, :, 0] = times[:, None]
+    positions[:, :, 1:] = frame_grid[None]
+    return positions.reshape(-1, 3)
+
+
+def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
+    """The packed layout with guide rows inserted after the existing condition rows.
+
+    `layout` is `(position_ids, token_tags, video_indices, audio_indices,
+    text_indices, num_condition_video_rows)` as the stock layout built it, on the
+    CPU. Returns the same six, widened by `len(guide_positions)` video rows that
+    sit between the keyframe rows and the target audio.
+    """
+    position_ids, token_tags, video_indices, audio_indices, text_indices, rows = layout
+    count = guide_positions.shape[0]
+    if not count:
+        return layout
+    at = num_text_tokens + rows
+    sequence_length = position_ids.shape[0] + count
+    position_ids = torch.cat(
+        [position_ids[:at], guide_positions.to(position_ids.dtype), position_ids[at:]]
+    )
+    token_tags = torch.cat(
+        [
+            token_tags[:at],
+            torch.full((count,), video_tag, dtype=token_tags.dtype),
+            token_tags[at:],
+        ]
+    )
+    audio_start = int(audio_indices[0]) if audio_indices.numel() else at
+    video_start = audio_start + audio_indices.numel()
+    video_indices = torch.cat(
+        [
+            torch.arange(num_text_tokens, audio_start + count),
+            torch.arange(video_start + count, sequence_length),
+        ]
+    )
+    audio_indices = audio_indices + count
+    return (
+        position_ids,
+        token_tags,
+        video_indices,
+        audio_indices,
+        text_indices,
+        rows + count,
+    )
+
+
+def fit_guide_frames(frames, height, width):
+    """`(n, height, width, 3)` uint8 frames covering the canvas: scaled to cover
+    it and centre-cropped, with the arithmetic H3 fits a follower keyframe with
+    (diffusers' `MiniMaxH3BeforeEncodeStep`). A clip already at the canvas
+    passes through untouched."""
+    import numpy as np
+    from PIL import Image
+
+    if frames.shape[1:3] == (height, width):
+        return frames
+    source_height, source_width = frames.shape[1:3]
+    scale = max(width / source_width, height / source_height)
+    size = (
+        max(width, round(source_width * scale)),
+        max(height, round(source_height * scale)),
+    )
+    left = max(0, (size[0] - width) // 2)
+    top = max(0, (size[1] - height) // 2)
+    box = (left, top, left + width, top + height)
+    return np.stack(
+        [
+            np.asarray(
+                Image.fromarray(frame).resize(size, Image.Resampling.LANCZOS).crop(box)
+            )
+            for frame in frames
+        ]
+    )
+
+
+def guide_frames_array(value):
+    """A guide's video as `(n, h, w, 3)` uint8 frames - from a list of PIL images
+    or arrays (what a `video` argument loads to), or one array or tensor of
+    frames, float in [0, 1] or uint8.
+
+    Raises:
+        ValueError: If the value is not frames of a video
+    """
+    import numpy as np
+    from PIL import Image
+
+    # A step's result: a Selected pick, a one-video list, a clip with its audio
+    while True:
+        if hasattr(value, "value") and hasattr(value, "position"):
+            value = value.value
+        elif hasattr(value, "frames") and hasattr(value, "audio"):
+            value = value.frames
+        elif (
+            isinstance(value, (list, tuple))
+            and len(value) == 1
+            and not isinstance(value[0], (str, Image.Image))
+            and getattr(value[0], "ndim", 4) != 3
+        ):
+            value = value[0]
+        else:
+            break
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().float().numpy()
+    if isinstance(value, (list, tuple)):
+        if not value:
+            raise ValueError("a guide's video has no frames")
+        if isinstance(value[0], str):
+            raise ValueError(f"a guide's video did not load: {value[0]!r}")
+        value = np.stack(
+            [
+                np.asarray(f.convert("RGB")) if isinstance(f, Image.Image) else f
+                for f in value
+            ]
+        )
+    if not isinstance(value, np.ndarray):
+        raise ValueError(f"a guide's video must be a video, got {type(value).__name__}")
+    if value.ndim == 5 and value.shape[0] == 1:
+        value = value[0]
+    if value.ndim != 4 or value.shape[-1] not in (3, 4):
+        raise ValueError(
+            f"a guide's video must be (frames, height, width, 3), got {value.shape}"
+        )
+    value = value[..., :3]
+    if value.dtype != np.uint8:
+        value = (np.clip(value.astype(np.float32), 0.0, 1.0) * 255.0).round()
+        value = value.astype(np.uint8)
+    return np.ascontiguousarray(value)
+
+
+def _make_guide_blocks():
+    """The guide layout and the two t2va condition steps, defined against the
+    installed diffusers."""
+    import numpy as np
+    from diffusers.models import AutoencoderKLMiniMaxH3
+    from diffusers.modular_pipelines.minimax_h3 import before_denoise
+    from diffusers.modular_pipelines.minimax_h3.encoders import encode_vae_condition
+    from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks
+    from diffusers.modular_pipelines.modular_pipeline_utils import (
+        ComponentSpec,
+        InputParam,
+        OutputParam,
+    )
+
+    stock_layout = before_denoise.MiniMaxH3PrepareLayoutStep
+    stock_condition = before_denoise.MiniMaxH3PrepareConditionLatentsStep
+    stock_latents = before_denoise.MiniMaxH3FL2VAPrepareLatentsStep
+
+    class DwH3GuideLayoutStep(ModularPipelineBlocks):
+        model_name = "minimax-h3"
+
+        def __init__(self):
+            super().__init__()
+            # Called, not copied: the stock layout resolves the canvas and builds
+            # the sequence, and the guides are spliced into what it built
+            self._layout = stock_layout()
+
+        @property
+        def description(self):
+            return (
+                "dw: the stock layout, plus `guides` - each guide clip VAE-encoded on the canvas and appended as "
+                "condition rows timed from the target frame it lands on. Without `guides` it is the stock layout."
+            )
+
+        @property
+        def expected_components(self):
+            return list(self._layout.expected_components) + [
+                ComponentSpec("vae", AutoencoderKLMiniMaxH3)
+            ]
+
+        @property
+        def expected_configs(self):
+            return self._layout.expected_configs
+
+        @property
+        def inputs(self):
+            return list(self._layout.inputs) + [
+                InputParam(
+                    name=GUIDES_INPUT,
+                    type_hint=list,
+                    default=None,
+                    description=(
+                        "Clips to hold the generated video to: a list of {'video': (n, h, w, 3) uint8 frames, "
+                        "'frame': pixel frame, a multiple of 17}, n one of 1, 5 or 17m + 5."
+                    ),
+                ),
+                InputParam(name="condition_latents", type_hint=list, default=None),
+            ]
+
+        @property
+        def intermediate_outputs(self):
+            return list(self._layout.intermediate_outputs) + [
+                OutputParam("condition_latents", type_hint=list)
+            ]
+
+        @torch.no_grad()
+        def __call__(self, components, state):
+            components, state = self._layout(components, state)
+            block_state = self.get_block_state(state)
+            guides = block_state.guides or []
+            if not guides:
+                self.set_block_state(state, block_state)
+                return components, state
+
+            device = components._execution_device
+            height, width = block_state.height, block_state.width
+            num_frames = block_state.num_frames
+            num_text = block_state.text_token_tags.shape[0]
+            _, patch_h, patch_w = components.patch_size
+            frame_grid, _ = before_denoise._frame_position_grid(
+                block_state.latent_height, block_state.latent_width, patch_h, patch_w
+            )
+            target_time = before_denoise._temporal_position_grid(
+                block_state.num_latent_frames, float(num_text)
+            )
+
+            latents, positions = [], []
+            for index, guide in enumerate(guides):
+                frame, frames = guide["frame"], guide["video"]
+                problem = guide_frame_problem(frame) or guide_end_problem(
+                    frame, frames.shape[0], num_frames
+                )
+                if problem:
+                    raise ValueError(f"guides[{index}]: {problem}")
+                pixels = fit_guide_frames(frames, height, width)
+                pixels = torch.from_numpy(np.ascontiguousarray(pixels))
+                encoded = encode_vae_condition(
+                    components.vae,
+                    pixels.to(device).permute(3, 0, 1, 2)[None],
+                    components.pixel_mean,
+                    components.pixel_std,
+                    components.keyframe_encode_seed,
+                )
+                latents.append(encoded)
+                positions.append(
+                    guide_position_ids(
+                        target_time,
+                        frame_grid,
+                        frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK,
+                        encoded.shape[2],
+                    )
+                )
+                logger.info(
+                    f"Guide {index}: {frames.shape[0]} frames at frame {frame} "
+                    f"({encoded.shape[2]} latent frames)"
+                )
+
+            layout = splice_guide_rows(
+                (
+                    block_state.position_ids.cpu(),
+                    block_state.token_tags.cpu(),
+                    block_state.video_indices.cpu(),
+                    block_state.audio_indices.cpu(),
+                    block_state.text_indices.cpu(),
+                    block_state.num_condition_video_rows,
+                ),
+                num_text,
+                torch.cat(positions),
+                components.video_tag,
+            )
+            (
+                position_ids,
+                token_tags,
+                video_indices,
+                audio_indices,
+                text_indices,
+                block_state.num_condition_video_rows,
+            ) = layout
+            block_state.position_ids = position_ids.to(device)
+            block_state.token_tags = token_tags.to(device)
+            block_state.video_indices = video_indices.to(device)
+            block_state.audio_indices = audio_indices.to(device)
+            block_state.text_indices = text_indices.to(device)
+            # Keyframes first, then guides: the order the rows were laid out in
+            block_state.condition_latents = list(block_state.condition_latents or [])
+            block_state.condition_latents += latents
+            self.set_block_state(state, block_state)
+            return components, state
+
+    def _when_conditioned(stock, description):
+        """A t2va step that runs the stock `fl2va` one only with conditioning
+        to pack - the stock step refuses an empty list."""
+
+        class DwH3WhenConditionedStep(ModularPipelineBlocks):
+            model_name = "minimax-h3"
+
+            def __init__(self):
+                super().__init__()
+                self._stock = stock()
+
+            @property
+            def description(self):
+                return description
+
+            @property
+            def expected_components(self):
+                return self._stock.expected_components
+
+            @property
+            def inputs(self):
+                inputs = []
+                for param in self._stock.inputs:
+                    if param.name == "condition_latents":
+                        param = InputParam(
+                            name="condition_latents", type_hint=list, default=None
+                        )
+                    elif param.name == "condition_rows":
+                        param = InputParam(
+                            name="condition_rows",
+                            type_hint=torch.Tensor,
+                            default=None,
+                        )
+                    inputs.append(param)
+                return inputs
+
+            @property
+            def intermediate_outputs(self):
+                return self._stock.intermediate_outputs
+
+            def __call__(self, components, state):
+                block_state = self.get_block_state(state)
+                if not block_state.condition_latents:
+                    return components, state
+                return self._stock(components, state)
+
+        return DwH3WhenConditionedStep
+
+    condition_step = _when_conditioned(
+        stock_condition,
+        "dw: diffusers' `prepare_condition_latents`, run in `t2va` only when `guides` gave it condition latents.",
+    )
+    latents_step = _when_conditioned(
+        stock_latents,
+        "dw: diffusers' `prepare_latents_fl2va`, run in `t2va` only when `guides` gave it condition rows.",
+    )
+    return DwH3GuideLayoutStep, condition_step, latents_step
+
+
+_GUIDE_BLOCKS = None
+
+
+def guide_blocks():
+    """(DwH3GuideLayoutStep, the t2va condition step, the t2va latents step),
+    built once."""
+    global _GUIDE_BLOCKS
+    if _GUIDE_BLOCKS is None:
+        _GUIDE_BLOCKS = _make_guide_blocks()
+    return _GUIDE_BLOCKS
+
+
+def _layout_sequences(pipeline):
+    """[(prefix, sequence)] for the core-denoise sequences that lay out their own
+    keyframes - every one but `ref2va`, whose layout is a different step."""
+    from diffusers.modular_pipelines.minimax_h3 import before_denoise
+
+    stock = before_denoise.MiniMaxH3PrepareLayoutStep
+    layout = guide_blocks()[0]
+    found = []
+    for prefix, sequence in core_denoise_sequences(pipeline):
+        step = sequence.sub_blocks.get(prefix + LAYOUT_STEP)
+        if type(step) in (stock, layout):
+            found.append((prefix, sequence))
+    return found
+
+
+def insert_guides(pipeline):
+    """Swap `prepare_layout` for the guide layout in every `t2va`/`fl2va`
+    core-denoise sequence, and give `t2va` the condition steps it lacks.
+
+    Idempotent. Returns whether the pipeline now takes `guides`. A diffusers
+    missing a name the layout is built on gets nothing, with a warning naming it,
+    and `guides` is refused at the call (`guides_refusal`).
+    """
+    missing = layout_anchor_problem()
+    if missing:
+        if core_denoise_sequences(pipeline):
+            logger.warning(
+                f"MiniMax-H3 guides are built on diffusers' '{missing}', which the "
+                f"installed diffusers does not have, so this pipeline cannot take guides"
+            )
+        return False
+    layout_block, condition_block, latents_block = guide_blocks()
+    inserted = False
+    for prefix, sequence in _layout_sequences(pipeline):
+        sub_blocks = sequence.sub_blocks
+        name = prefix + LAYOUT_STEP
+        if not isinstance(sub_blocks[name], layout_block):
+            sub_blocks[name] = layout_block()
+        names = list(sub_blocks)
+        latents_name = prefix + "prepare_latents"
+        if prefix + "prepare_condition_latents" not in names and (
+            latents_name in names
+        ):
+            # t2va: condition noise is drawn before the generated rows' noise,
+            # and the condition rows go in front of them after - fl2va's order
+            if prefix + GUIDE_CONDITION_BLOCK not in names:
+                sub_blocks.insert(
+                    prefix + GUIDE_CONDITION_BLOCK,
+                    condition_block(),
+                    names.index(latents_name),
+                )
+                names = list(sub_blocks)
+            if prefix + GUIDE_LATENTS_BLOCK not in names:
+                sub_blocks.insert(
+                    prefix + GUIDE_LATENTS_BLOCK,
+                    latents_block(),
+                    names.index(latents_name) + 1,
+                )
+        inserted = True
+    return inserted
+
+
+def takes_guides(pipeline):
+    """Whether a pipeline's block graph carries the guide layout."""
+    if layout_anchor_problem():
+        return False
+    layout_block = guide_blocks()[0]
+    return any(
+        isinstance(sequence.sub_blocks.get(prefix + LAYOUT_STEP), layout_block)
+        for prefix, sequence in core_denoise_sequences(pipeline)
+    )
+
+
+def guides_refusal(pipeline):
+    """Why this pipeline cannot take `guides`, or None."""
+    missing = layout_anchor_problem()
+    if missing:
+        return (
+            f"guides need diffusers' MiniMax-H3 '{missing}', which the installed "
+            f"diffusers does not have"
+        )
+    if not takes_guides(pipeline):
+        return (
+            f"guides is a MiniMax-H3 t2va/fl2va argument, and "
+            f"{type(pipeline).__name__} has no '{LAYOUT_STEP}' step to take them"
+        )
+    return None
