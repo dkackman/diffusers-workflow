@@ -1012,7 +1012,12 @@ face-detail pass that needs the face large and still:
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
 
-The gate defaults are provisional; tune them against real footage.
+These defaults are the task's own. The `face-repair` template tunes them on
+lem for LTX-2.5 at `padding` 1.5, `gate_full` 0.03 and `gate_zero` 0.06: a
+medium face (7.5% of the frame's width when tuned) already renders cleanly, and the wider
+context keeps the refine from re-inventing hair and clothing.
+
+**Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — find, refine and paste back a wide shot's far face.
 
 Detection is OpenCV's YuNet, run on the full frame and on four overlapping
 enlarged tiles, merged by non-maximum suppression, so a face only a few dozen
@@ -1097,6 +1102,8 @@ same frames one for one. It refuses a track whose frame count or frame size
 does not match the clip, a `repaired` with fewer frames than the track's
 `crop_frames`, and a `track` that is not a `crop_face_track` record.
 `validate_workflow` refuses a `feather` past `1` before the job runs.
+
+**Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — the repaired crops pasted back over the source, its soundtrack kept.
 
 ### video_frames
 
@@ -3121,3 +3128,4 @@ Canny edge detection followed by ControlNet generation:
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
+- [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face

@@ -691,6 +691,9 @@ TEMPLATE_PIPELINE_KEYS = {
         "extended": "7102a40f1655f06fd5173c45ea4989b877dc336221c4ab219fa0d0d9d845a69b",
         "opening": "9c52ab1464a239a6e192ec36ffb4687b3dd61a66363886f38bb7ab5ceb83d638",
     },
+    "ltx2/face-repair.json": {
+        "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
+    },
     "ltx2/generative-upscale.json": {
         "low_resolution": "fab6e3ec8feb0909dc44660990636418bdccbbb045154e1a56b26f235435acf0",
         "upscaled": "eb12a8878241511cecd56d4c41a168e9b59a11803656bef3948c704d18fba112",
