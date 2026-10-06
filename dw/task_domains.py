@@ -105,6 +105,7 @@ TASK_ARGUMENT_DOMAINS = {
         "start_seconds": NON_NEGATIVE,
         "duration_seconds": POSITIVE,
         "start_frame": NON_NEGATIVE,
+        "lead_frames": SEED,
         "num_frames": POSITIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
@@ -833,6 +834,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "window_video": window_video_errors,
             "join_windows": join_windows_errors,
             "fit_to_model": fit_to_model_errors,
+            "slice_audio": slice_audio_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
@@ -867,6 +869,57 @@ def window_overlap_problem(num_frames, overlap, command="window_video"):
             f"no frames of its own to advance by"
         )
     return None
+
+
+def slice_lead_problem(start_frame, lead_frames, start_seconds, duration_seconds):
+    """The refusal sentence for a `slice_audio` lead-in that cannot apply, or
+    None: `lead_frames` given with the seconds form (it is extra audio before
+    a frame-addressed cut), or one that reaches before the head of the track
+    (`start_frame - lead_frames` below zero, `start_frame` defaulting to 0).
+    Arguments are already numbers, None where not given.
+    """
+    if not lead_frames:
+        return None
+    if start_seconds is not None or duration_seconds is not None:
+        return (
+            "slice_audio takes 'lead_frames' only with the frame form "
+            "('start_frame'/'num_frames'/'fps'), not with 'start_seconds' "
+            "or 'duration_seconds'"
+        )
+    start = start_frame or 0
+    if start - lead_frames < 0:
+        return (
+            f"slice_audio 'lead_frames' ({lead_frames}) reaches before the "
+            f"head of the track: 'start_frame' ({start}) minus 'lead_frames' "
+            f"would start at frame {start - lead_frames}"
+        )
+    return None
+
+
+def slice_audio_errors(arguments):
+    """[(argument, message)] for the slice_audio lead rule a literal workflow
+    can break before it runs. A value that is not a literal number (a
+    reference, a string) is unknown and says nothing."""
+
+    def literal(name):
+        value = arguments.get(name)
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return None
+        return value
+
+    lead_frames = literal("lead_frames")
+    if lead_frames is None or lead_frames < 0 or lead_frames != int(lead_frames):
+        return []
+    for name in ("start_frame", "start_seconds", "duration_seconds"):
+        if arguments.get(name) is not None and literal(name) is None:
+            return []
+    problem = slice_lead_problem(
+        literal("start_frame"),
+        lead_frames,
+        literal("start_seconds"),
+        literal("duration_seconds"),
+    )
+    return [] if problem is None else [("lead_frames", problem)]
 
 
 def window_video_errors(arguments, command="window_video"):
@@ -1056,6 +1109,7 @@ def slice_region(
     num_frames=None,
     fps=None,
     total=None,
+    lead_frames=0,
 ):
     """The region a `slice_audio` call asks for, as `(start, length)` in
     samples, or None when it cannot be worked out.
@@ -1066,6 +1120,8 @@ def slice_region(
     runs to the source's end, which takes `total`, the source's length in
     samples: validation does not know it and gets None, the run does. None
     is also an unusable shape - frames with no `fps`, or nothing addressed.
+    `lead_frames` is extra audio before the cut in the frame form: the slice
+    starts at `start_frame - lead_frames` and still runs `num_frames`.
     Arguments are already numbers (the caller coerces them).
     """
     if start_seconds is not None or duration_seconds is not None:
@@ -1075,9 +1131,10 @@ def slice_region(
     elif start_frame is not None or num_frames is not None:
         if not fps:
             return None
-        start = frames_to_samples(start_frame or 0, fps, sample_rate)
+        first = (start_frame or 0) - (lead_frames or 0)
+        start = frames_to_samples(first, fps, sample_rate)
         if num_frames is not None:
-            end = frames_to_samples((start_frame or 0) + num_frames, fps, sample_rate)
+            end = frames_to_samples(first + num_frames, fps, sample_rate)
             return start, end - start
     else:
         return None

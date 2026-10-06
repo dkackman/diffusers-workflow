@@ -24,6 +24,7 @@ from dw.task_domains import (
     POSITIVE,
     UNIT,
     as_number,
+    slice_region,
     task_argument_errors,
 )
 from dw.dsp import resample_waveform
@@ -216,6 +217,98 @@ class TestTheStaticPass:
             "num_frames",
             "fps",
         }
+
+
+class TestSliceLeadFrames:
+    """#627: lead_frames is extra audio before the cut, frame form only."""
+
+    FRAMES = {"audio": "asset:bed.wav", "num_frames": 24, "fps": 24}
+
+    def test_a_lead_reaching_before_the_head_is_refused_statically(self):
+        errors = errors_for(
+            "slice_audio", {**self.FRAMES, "start_frame": 6, "lead_frames": 12}
+        )
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.lead_frames"]
+        assert "start_frame" in errors[0]["message"]
+
+    def test_a_lead_with_no_start_is_refused_statically(self):
+        errors = errors_for("slice_audio", {**self.FRAMES, "lead_frames": 1})
+        assert len(errors) == 1
+
+    def test_a_lead_with_the_seconds_form_is_refused_statically(self):
+        errors = errors_for(
+            "slice_audio",
+            {"audio": "asset:bed.wav", "start_seconds": 1, "lead_frames": 2},
+        )
+        assert len(errors) == 1
+        assert "start_seconds" in errors[0]["message"]
+
+    def test_a_lead_inside_the_track_is_accepted(self):
+        assert (
+            errors_for(
+                "slice_audio", {**self.FRAMES, "start_frame": 48, "lead_frames": 12}
+            )
+            == []
+        )
+
+    def test_a_reference_is_unknown_and_says_nothing(self):
+        assert (
+            errors_for(
+                "slice_audio",
+                {**self.FRAMES, "start_frame": "variable:s", "lead_frames": 12},
+            )
+            == []
+        )
+
+    def test_a_fractional_lead_is_refused(self):
+        errors = errors_for("slice_audio", {**self.FRAMES, "lead_frames": 1.5})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.lead_frames"]
+
+    def test_the_run_refuses_a_negative_start(self):
+        with pytest.raises(ValueError, match="start_frame.*lead_frames"):
+            slice_audio(
+                tone(),
+                start_frame=6,
+                lead_frames=12,
+                num_frames=24,
+                fps=24,
+                sample_rate=32000,
+            )
+
+    def test_the_run_refuses_a_lead_with_seconds(self):
+        with pytest.raises(ValueError, match="lead_frames"):
+            slice_audio(
+                tone(),
+                start_seconds=0.5,
+                duration_seconds=0.25,
+                lead_frames=2,
+                sample_rate=32000,
+            )
+
+    def test_the_run_starts_the_slice_lead_frames_earlier(self):
+        rate = 24000
+        ramp = numpy.arange(rate * 4, dtype=numpy.float32).reshape(1, -1)
+        track = slice_audio(
+            ramp,
+            start_frame=48,
+            lead_frames=12,
+            num_frames=24,
+            fps=24,
+            sample_rate=rate,
+        )
+        expected = ramp[:, 36 * 1000 : 60 * 1000]
+        assert track.audio.shape == (1, 24 * 1000)
+        assert numpy.array_equal(numpy.asarray(track.audio), expected)
+
+    def test_slice_region_starts_at_start_minus_lead(self):
+        lead = slice_region(
+            24000, start_frame=48, lead_frames=12, num_frames=24, fps=24
+        )
+        assert lead == (36000, 24000)
+        assert slice_region(24000, start_frame=48, num_frames=24, fps=24) == (
+            48000,
+            24000,
+        )
 
 
 class TestThroughValidateWorkflow:
