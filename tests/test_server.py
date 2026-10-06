@@ -2937,6 +2937,26 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         assert fetched.content == b"not-really-png-bytes"
 
 
+def test_a_cube_lut_uploads_and_its_reference_resolves(asset_server, tmp_path):
+    """A .cube is the one non-media kind the library takes: apply_lut reads
+    it through an asset: reference (#603)."""
+    from dw.assets import resolve_asset_reference
+
+    cube = b"LUT_3D_SIZE 2\n" + b"0 0 0\n" * 8
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "teal.cube", "asset_name": "looks/teal"},
+            content=cube,
+        )
+        assert response.status_code == 201
+        reference = response.json()["reference"]
+    assert reference == "asset:uploads/looks/teal.cube"
+    resolved = resolve_asset_reference(reference, asset_dir=str(tmp_path / "assets"))
+    with open(resolved, "rb") as handle:
+        assert handle.read() == cube
+
+
 def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
     """A recurring cast stored as 'uploads/084eaecc....wav' cannot be told
     apart in the workflows that carry it - asset_name is what makes the
