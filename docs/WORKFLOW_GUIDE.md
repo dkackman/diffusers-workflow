@@ -1644,6 +1644,50 @@ motion cut to music, not yet for lip sync. `refine_strength` also uses hold, to 
 base pass's own audio, which was generated jointly with that video - a different case from
 lip sync to supplied audio (see the refine section below).
 
+### H3: holding a clip with `guides`
+
+A MiniMax-H3 `t2va` or `fl2va` step takes a pipeline argument `guides`: a list of
+`{"video": <reference>, "frame": <pixel frame>}`, where the video is an `asset:`,
+`output:` or `previous_result:` reference. Each guide clip is VAE-encoded on the
+generation canvas and placed as condition rows, timed from the target frame it lands on,
+that are never denoised, so the generated video is held to earlier footage. On `fl2va`
+the `image` / `last_image` keyframes combine with guides. The clip is fitted to the
+canvas (scaled to cover, centre-cropped). Guides take video only; a guide's own audio is
+not used.
+
+```json
+"pipeline": {
+    "arguments": {
+        "prompt": "variable:prompt",
+        "num_frames": "variable:num_frames",
+        "width": "variable:width",
+        "height": "variable:height",
+        "num_inference_steps": "variable:num_inference_steps",
+        "guides": [
+            {"video": "asset:opening.mp4", "frame": 0},
+            {"video": "asset:closing.mp4", "frame": 85}
+        ],
+        "output": ["videos", "audio", "sampling_rate"]
+    }
+}
+```
+
+This is the `text_to_video_audio` step of
+[workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
+with `guides` added. As with `hold_audio`, `run_workflow`'s `arguments` can set only a
+declared variable, so reference a `guides` variable or edit the argument.
+
+| Rule | Value |
+|---|---|
+| `frame` | a multiple of 17 (a VAE chunk boundary): 0, 17, 34, ... |
+| clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
+| extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
+| count | at most 4 guides per step (a VRAM limit: each guide frame adds attention rows); `guides: []` is the same as none |
+| where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
+
+Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
+guide is checked at run time, when its clip exists.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and

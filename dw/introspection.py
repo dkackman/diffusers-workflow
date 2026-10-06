@@ -357,7 +357,7 @@ def _modular_block_parameters(cls):
     A modular pipeline's __call__ is `(state, output, **kwargs)`: what it
     takes is whatever its blocks declare as inputs, so those are the honest
     answer. The graph is built without weights (`init_pipeline()` with no
-    repository), and carries dw's own blocks - the H3 audio hold
+    repository), and carries dw's own blocks - the H3 audio hold and guides
     (dw/pipeline_processors/h3_blocks.py) - as a loaded one does. Empty for
     a class with no default blocks, the bare `ModularPipeline` among them.
     """
@@ -366,7 +366,7 @@ def _modular_block_parameters(cls):
         return []
     import importlib
 
-    from .pipeline_processors.h3_blocks import insert_audio_hold
+    from .pipeline_processors.h3_blocks import insert_audio_hold, insert_guides
 
     blocks_class = getattr(importlib.import_module(cls.__module__), blocks_name, None)
     if blocks_class is None:
@@ -378,6 +378,7 @@ def _modular_block_parameters(cls):
     try:
         pipeline = blocks_class().init_pipeline()
         insert_audio_hold(pipeline)
+        insert_guides(pipeline)
         block_inputs = pipeline._blocks.inputs
     except Exception as error:
         # The signature still answers without them

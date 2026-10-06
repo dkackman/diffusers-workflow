@@ -25,14 +25,20 @@ from .placement import (
     place_component,
 )
 from .h3_blocks import (
+    GUIDE_LIMIT,
+    GUIDES_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
+    guide_frame_problem,
+    guide_frames_array,
+    guides_refusal,
     hold_audio_reference,
     holds_audio,
     refine_problems,
     refines,
+    snap_guide_length,
 )
 from .progress import reported_blocks, reported_progress_bars
 from .remote import remote_text_encoder
@@ -47,6 +53,7 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
+from ..argument_media import fetch_video
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
@@ -592,6 +599,7 @@ class Pipeline:
         arguments = self._with_step_callback(arguments)
         self._check_refine(arguments)
         arguments = self._with_held_audio(arguments)
+        arguments = self._with_guides(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -640,6 +648,75 @@ class Pipeline:
                 HELD_AUDIO_OUTPUT,
                 HELD_AUDIO_RATE_OUTPUT,
             ]
+        return arguments
+
+    def _with_guides(self, arguments):
+        """`guides` as the H3 guide layout takes them - each clip as uint8
+        frames cut to a whole-latent length (dw/pipeline_processors/h3_blocks.py).
+        An empty list is no guides.
+
+        Raises:
+            ValueError: If this pipeline cannot take guides, the step also passes
+                `references`, or a guide is not `{video, frame}` with a video
+        """
+        guides = arguments.get(GUIDES_INPUT)
+        if guides is None:
+            return arguments
+        arguments = dict(arguments)
+        if isinstance(guides, (list, tuple)) and not guides:
+            del arguments[GUIDES_INPUT]
+            return arguments
+        where = f"Step '{self.name}': guides"
+        refusal = guides_refusal(self.pipeline)
+        if refusal:
+            raise ValueError(f"{where}: {refusal}")
+        if arguments.get("references") is not None:
+            raise ValueError(
+                f"{where} cannot be combined with references - ref2va lays out "
+                f"its own conditioning; use guides on t2va or fl2va"
+            )
+        if not isinstance(guides, (list, tuple)):
+            raise ValueError(
+                f"{where} must be a list of {{video, frame}}, got {type(guides).__name__}"
+            )
+        if len(guides) > GUIDE_LIMIT:
+            raise ValueError(
+                f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
+            )
+        prepared = []
+        for index, guide in enumerate(guides):
+            if not isinstance(guide, dict):
+                raise ValueError(
+                    f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
+                )
+            unknown = sorted(set(guide) - {"video", "frame"})
+            if unknown:
+                raise ValueError(
+                    f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
+                    f"{{video, frame}}"
+                )
+            if "video" not in guide or "frame" not in guide:
+                raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
+            problem = guide_frame_problem(guide["frame"])
+            if problem:
+                raise ValueError(f"{where}[{index}]: {problem}")
+            video = guide["video"]
+            if isinstance(video, str):
+                video = fetch_video(video, self.base_dir)
+            try:
+                frames = guide_frames_array(video)
+            except ValueError as error:
+                raise ValueError(f"{where}[{index}]: {error}") from error
+            length = snap_guide_length(frames.shape[0])
+            if length != frames.shape[0]:
+                emit_warning(
+                    f"{where}[{index}]: a guide clip encodes to whole latents only at "
+                    f"1, 5 or 17m + 5 frames, so its {frames.shape[0]} frames are cut "
+                    f"to the first {length}"
+                )
+                frames = frames[:length]
+            prepared.append({"video": frames, "frame": guide["frame"]})
+        arguments[GUIDES_INPUT] = prepared
         return arguments
 
     def _check_refine(self, arguments):

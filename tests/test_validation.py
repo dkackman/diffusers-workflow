@@ -182,6 +182,7 @@ ERROR_ORDER = [
     "video_extensions",
     "hold_audio",
     "refine_strength",
+    "guides",
     "content_types",
     "scalar_results",
     "locations",
