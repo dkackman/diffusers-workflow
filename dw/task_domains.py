@@ -163,6 +163,7 @@ TASK_ARGUMENT_DOMAINS = {
         "overlap": NON_NEGATIVE,
         "fps": POSITIVE,
     },
+    "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
     "fit_to_model": {"width": POSITIVE, "height": POSITIVE, "num_frames": POSITIVE},
     "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
     "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
@@ -232,8 +233,10 @@ INGREDIENTS_LAYOUTS = ("auto", "rows", "panels")
 INGREDIENTS_FITS = ("contain", "cover")
 # How fit_to_model puts a source into the model's frame (#602)
 FIT_MODES = ("letterbox", "stretch", "crop")
+JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
 TASK_ARGUMENT_CHOICES = {
     "fit_to_model": {"mode": FIT_MODES},
+    "join_windows": {"curve": JOIN_WINDOWS_CURVES},
     "ingredients_grid": {
         "layout": INGREDIENTS_LAYOUTS,
         "fit": INGREDIENTS_FITS,
@@ -758,6 +761,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "analyze_beats": beats_errors,
             "plan_cuts": cuts_errors,
             "window_video": window_video_errors,
+            "join_windows": join_windows_errors,
             "fit_to_model": fit_to_model_errors,
         }.get(command)
         if extra is not None:
@@ -778,23 +782,24 @@ def task_argument_errors(workflow_definition, source_indices=None):
 # before the run, the task for the ones it is actually handed.
 
 
-def window_overlap_problem(num_frames, overlap):
+def window_overlap_problem(num_frames, overlap, command="window_video"):
     """The refusal sentence for a window that is all overlap, or None.
 
     A window of `num_frames` frames advances by `num_frames - overlap`, so an
     overlap of `num_frames` or more never advances at all. Both numbers are
-    whole numbers already inside their own domains.
+    whole numbers already inside their own domains. `command` is whichever of
+    window_video and join_windows is refusing.
     """
     if overlap >= num_frames:
         return (
-            f"window_video needs 'overlap' below 'num_frames' - got overlap "
+            f"{command} needs 'overlap' below 'num_frames' - got overlap "
             f"{overlap} with num_frames {num_frames}, which leaves a window "
             f"no frames of its own to advance by"
         )
     return None
 
 
-def window_video_errors(arguments):
+def window_video_errors(arguments, command="window_video"):
     """[(argument, message)] for the window_video rule a literal workflow can
     break before it runs: an overlap that is not below the window length.
     Whether `index` falls inside the source needs the source's frame count,
@@ -808,8 +813,51 @@ def window_video_errors(arguments):
             or value < 0
         ):
             return []
-    problem = window_overlap_problem(num_frames, overlap)
+    problem = window_overlap_problem(num_frames, overlap, command)
     return [] if problem is None else [("overlap", problem)]
+
+
+def join_windows_errors(arguments):
+    """[(argument, message)] for the join_windows rules a literal workflow
+    can break before it runs: an unknown `curve`, and the overlap rule it
+    shares with window_video. The window count needs the source's frame
+    count, which the run measures."""
+    return choice_errors("join_windows", arguments) + window_video_errors(
+        arguments, "join_windows"
+    )
+
+
+def window_count(source_frames, num_frames, overlap):
+    """How many windows of `num_frames` frames, each sharing `overlap` with
+    the one before, cover a source of `source_frames` frames:
+    `ceil(source_frames / (num_frames - overlap))`.
+
+    The one home of the rule (#601): window_video's last valid index is one
+    below it, join_windows refuses any other count at run time, and its
+    static check refuses one at validate time.
+    """
+    stride = num_frames - overlap
+    return -(-source_frames // stride)
+
+
+def window_count_problem(given, source_frames, num_frames, overlap):
+    """The refusal sentence for a join_windows list of `given` windows, or
+    None when it is the count `window_count` requires. It names both numbers
+    and which list entries to add or drop, by position from 0 - the same
+    number as each entry's window_video `index`."""
+    needed = window_count(source_frames, num_frames, overlap)
+    if given == needed:
+        return None
+    low, high = sorted((given, needed))
+    count = high - low
+    entries = f"{count} entr{'y' if count == 1 else 'ies'}"
+    span = str(low) if count == 1 else f"{low}..{high - 1}"
+    fix = f"{'add' if given < needed else 'drop'} {entries} (index {span})"
+    return (
+        f"join_windows needs {needed} windows for a {source_frames}-frame "
+        f"source with num_frames {num_frames} and overlap {overlap} (stride "
+        f"{num_frames - overlap}), got {given} - {fix}"
+    )
 
 
 def fit_mode_problem(mode):
