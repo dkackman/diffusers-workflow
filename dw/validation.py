@@ -54,7 +54,12 @@ from .security import InvalidInputError, SecurityError
 from .shot_span_preflight import shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
-from .step_value_checks import fps_errors, null_media_errors, select_errors
+from .step_value_checks import (
+    chain_prompts_errors,
+    fps_errors,
+    null_media_errors,
+    select_errors,
+)
 from .task_domains import task_argument_errors
 from .tasks.voice_attribution import voices_errors
 from .type_references import component_name_errors, component_type_errors
@@ -388,6 +393,12 @@ ERROR_CHECKS = [
     # A select step whose rule is misspelled, or whose threshold/index does
     # not match its rule (select_errors, above)
     Check("select", lambda c: select_errors(c.expanded, c.source_indices)),
+    # A chain 'prompts' that resolved to a bare string, which the run would
+    # index a character per segment (#653)
+    Check(
+        "chain_prompts",
+        lambda c: chain_prompts_errors(c.expanded, c.source_indices),
+    ),
     Check("task_signatures", _task_errors),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)

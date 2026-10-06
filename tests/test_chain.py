@@ -876,3 +876,40 @@ class TestSnapFrames:
     def test_validate_rejects_wrong_modulus(self):
         with pytest.raises(ValueError):
             validate_frame_snap(125, MINIMAX_SNAP)
+
+
+class TestChainPromptsMustBeAList:
+    """#653: a bare string for chain 'prompts' used to validate and then be
+    indexed a character per segment."""
+
+    @staticmethod
+    def _definition(prompts):
+        return {
+            "steps": [
+                {
+                    "name": "video",
+                    "pipeline": {"chain": {"segments": 2, "prompts": prompts}},
+                }
+            ]
+        }
+
+    def test_string_prompts_is_an_error(self):
+        from dw.step_value_checks import chain_prompts_errors
+
+        errors = chain_prompts_errors(self._definition("one literal string"))
+        assert len(errors) == 1
+        assert "one prompt per segment" in errors[0]["message"]
+        assert "prompts" in errors[0]["path"]
+
+    def test_list_and_missing_prompts_pass(self):
+        from dw.step_value_checks import chain_prompts_errors
+
+        assert chain_prompts_errors(self._definition(["a", "b"])) == []
+        assert chain_prompts_errors(self._definition(None)) == []
+
+    def test_run_refuses_string_prompts(self):
+        from dw.previous_results import resolve_chain_prompts
+
+        action = SimpleNamespace(pipeline_definition={"chain": {"prompts": "abc"}})
+        with pytest.raises(ValueError, match="one prompt per segment"):
+            resolve_chain_prompts(action, {})

@@ -191,6 +191,11 @@ def resolve_chain_prompts(step_action, previous_results):
     prompts = chain.get("prompts", None)
     if not prompts:
         return
+    if isinstance(prompts, str):
+        raise ValueError(
+            "chain 'prompts' must be a list with one prompt per segment, "
+            f"got the string {prompts!r}"
+        )
 
     resolved = []
     for entry in prompts:
