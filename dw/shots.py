@@ -1,7 +1,7 @@
 """Shot boundaries a joined video carries: where each input landed in it.
 
-A step that joins shots - `concat_videos`, `dissolve_videos`, a chained
-pipeline - knows exactly where every seam fell, in frames and in samples, and
+A step that joins shots - `concat_videos`, `dissolve_videos`, `join_windows`,
+a chained pipeline - knows exactly where every seam fell, in frames and in samples, and
 used to throw that away: a consumer checking a cut had to re-derive the seams
 from arguments, and a shot whose track ran 267 samples long drifted the rest
 of the cut with nothing saying where (#378). The join now records one entry

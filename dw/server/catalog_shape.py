@@ -58,7 +58,7 @@ _CHAIN_ARGUMENTS = frozenset(
 _MEDIA_ARGUMENTS = frozenset(
     {"image", "video", "audio", "mask_image", "urls", "videos", "clip"}
 )
-_CUT_TASKS = frozenset({"concat_videos", "dissolve_videos"})
+_CUT_TASKS = frozenset({"concat_videos", "dissolve_videos", "join_windows"})
 # Components that exist only to synthesise a waveform. A video pipeline
 # carrying one emits an audio track whether or not it says so in `output`.
 _AUDIO_COMPONENTS = frozenset({"vocoder", "audio_vae"})

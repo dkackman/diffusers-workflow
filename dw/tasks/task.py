@@ -246,6 +246,15 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
     return restore_to_source(**arguments)
 
 
+@register_command("join_windows", implementation="dw.tasks.windows.join_windows")
+def _handle_join_windows(task, arguments, previous_pipelines):
+    """Blend processed overlapping windows back into one video the source's length"""
+    logger.debug("Joining video windows")
+    from .windows import join_windows
+
+    return join_windows(**arguments)
+
+
 @register_command("frame_grid", implementation="dw.tasks.video_utils.frame_grid")
 def _handle_frame_grid(task, arguments, previous_pipelines):
     """Tile evenly sampled frames of a video into one contact-sheet image"""
