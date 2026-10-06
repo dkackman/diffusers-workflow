@@ -1,7 +1,7 @@
 """Shot boundaries a joined video carries: where each input landed in it.
 
-A step that joins shots - `concat_videos`, `dissolve_videos`, `join_windows`,
-a chained pipeline - knows exactly where every seam fell, in frames and in samples, and
+A step that joins shots - `concat_videos`, `dissolve_videos`, a chained
+pipeline - knows exactly where every seam fell, in frames and in samples, and
 used to throw that away: a consumer checking a cut had to re-derive the seams
 from arguments, and a shot whose track ran 267 samples long drifted the rest
 of the cut with nothing saying where (#378). The join now records one entry
@@ -29,8 +29,10 @@ A shot is a dict:
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
-track (`pair_audio`), or builds a video with no shots at all (a decode, a
-face-track crop, or `window_video`'s one window of a longer source, #601).
+track (`pair_audio`, and `join_windows`, which builds its frame side from the
+windows and puts the source's track back whole, #601), or builds a video with
+no shots at all (a decode, a face-track crop, or `window_video`'s one window
+of a longer source, #601).
 `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->

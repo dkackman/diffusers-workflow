@@ -37,7 +37,7 @@ from ..media_types import AudioVideo
 from ..dsp import as_channels_samples, slice_samples
 from PIL import Image
 
-from ..shots import shot_record
+from ..shots import remeasured_shots, shot_record
 from ..task_domains import (
     JOIN_WINDOWS_CURVES,
     check_arguments,
@@ -343,7 +343,12 @@ def join_windows(videos, source, num_frames, overlap, curve="cosine", fps=None):
 
     fps = fps or getattr(source, "fps", None)
     audio, sample_rate = _source_audio(source, total, fps)
-    shots = _window_shots(names, starts, blended, total, fps, sample_rate, audio)
+    shots = remeasured_shots(
+        _window_shots(names, starts, blended, total),
+        fps,
+        sample_rate,
+        None if audio is None else audio.shape[-1],
+    )
     logger.info(
         f"Joined {len(windows)} windows of {num_frames} frames ({overlap}-frame "
         f"{curve} seams) into {total} frames"
@@ -374,22 +379,14 @@ def _source_audio(source, total, fps):
     ), sample_rate
 
 
-def _window_shots(names, starts, blended, total, fps, sample_rate, audio):
+def _window_shots(names, starts, blended, total):
     """One shot per window, over the frames it owns: from the start of its
     blended head (`overlap_frames`, the seam's dissolve) to the next window's.
-    Sample spans are `frames_to_samples` of those frame boundaries, so they
-    tile the track (#401)."""
+    The frame side only: the track is the source's, put back whole rather
+    than built window by window, so `remeasured_shots` lays these over it."""
     shots = []
     for index, (name, start, head) in enumerate(zip(names, starts, blended)):
         end = starts[index + 1] if index + 1 < len(starts) else total
-        if audio is not None:
-            first = frames_to_samples(start, fps, sample_rate)
-            samples = {
-                "start_sample": first,
-                "num_samples": frames_to_samples(end, fps, sample_rate) - first,
-            }
-        else:
-            samples = {}
         extra = {"overlap_frames": head} if index > 0 and head else {}
-        shots.append(shot_record(name, start, end - start, **samples, **extra))
+        shots.append(shot_record(name, start, end - start, **extra))
     return shots
