@@ -77,6 +77,15 @@ class TestNms:
         assert len(kept) == 2
         assert kept[0][4] == 0.9
 
+    def test_no_detections_is_empty(self):
+        assert ft.nms([]) == []
+
+    def test_float_boxes_are_suppressed_by_their_overlap(self):
+        # cv2.dnn.NMSBoxes reads float rows as Rect2d, so sub-pixel boxes
+        # from the enlarged tiles still merge with the whole-frame copy
+        kept = ft.nms([[10.25, 10.5, 20.0, 20.0, 0.8], [10.0, 10.0, 20.5, 20.0, 0.6]])
+        assert kept == [[10.25, 10.5, 20.0, 20.0, 0.8]]
+
 
 class TestDetectTiled:
     def test_one_face_found_once_near_its_true_box(self):

@@ -67,17 +67,18 @@ def _iou(a, b):
 
 
 def nms(detections, threshold=NMS_IOU):
-    """Greedy non-maximum suppression over [x, y, w, h, score] rows.
+    """Non-maximum suppression over [x, y, w, h, score] rows (`cv2.dnn.NMSBoxes`).
 
     The tiles overlap and the whole frame is searched too, so one face is
     usually found more than once; the most confident copy is kept.
     """
-    ordered = sorted((list(map(float, d[:5])) for d in detections), key=lambda d: -d[4])
-    kept = []
-    for detection in ordered:
-        if all(_iou(detection, other) < threshold for other in kept):
-            kept.append(detection)
-    return kept
+    import cv2
+
+    rows = [list(map(float, d[:5])) for d in detections]
+    if not rows:
+        return []
+    keep = cv2.dnn.NMSBoxes([r[:4] for r in rows], [r[4] for r in rows], 0.0, threshold)
+    return [rows[i] for i in np.asarray(keep, dtype=int).reshape(-1)]
 
 
 def _tiles(width, height):
@@ -280,19 +281,8 @@ def padding_to_8n1(count):
 
 def pad_frames(crops, before, after):
     """Warm-up and cool-down frames, reflected off each end of the crops."""
-    count = len(crops)
-
-    def reflected(offset):
-        # offset counts outward from the end, 1 = the frame next to it
-        period = 2 * (count - 1)
-        if period == 0:
-            return 0
-        position = offset % period
-        return position if position < count else period - position
-
-    head = [crops[reflected(before - i)] for i in range(before)]
-    tail = [crops[count - 1 - reflected(i + 1)] for i in range(after)]
-    return head + crops + tail
+    indices = np.pad(np.arange(len(crops)), (before, after), mode="reflect")
+    return [crops[i] for i in indices]
 
 
 def _detector(repo, filename, min_confidence, device):
