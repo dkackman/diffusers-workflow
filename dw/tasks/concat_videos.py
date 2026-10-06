@@ -127,6 +127,7 @@ def concat_videos(
     # they grow - never derived from the frame count, so a track that runs
     # long shows up here as the samples it actually took (#378)
     shots = []
+    first_shot = {}
 
     silence_channels = _silence_channels(waveforms)
     has_audio = silence_channels is not None
@@ -135,6 +136,7 @@ def concat_videos(
         start_frame = len(frames)
         start_sample = audio.shape[1] if audio is not None else 0
         frames.extend(clip[head_trim:])
+        first_shot[index] = len(shots)
         shots.extend(
             _shot_records_for(
                 video,
@@ -162,6 +164,13 @@ def concat_videos(
         if audio is None:
             audio = waveform
         else:
+            if _seam_fade_applies(
+                seam_fade_ms, head_trim, fps, sample_rate, crossfade_ms, audio_bleed_ms
+            ):
+                # The fade is the caller's own edit: recorded beside
+                # hard_cut so analyze_seams can tell a requested dip from a
+                # fault (#659)
+                shots[first_shot[index]]["seam_fade_ms"] = seam_fade_ms
             audio = _join_seam(
                 audio,
                 waveform,
@@ -331,6 +340,19 @@ def _input_waveform(waveform, video, clip, name, fps, sample_rate, silence_chann
     return fit_audio_to_frames(
         waveform, sample_rate, len(clip), input_fps, "concat_videos"
     )
+
+
+def _seam_fade_applies(
+    seam_fade_ms, head_trim, fps, sample_rate, crossfade_ms, audio_bleed_ms
+):
+    """Whether `_join_seam` will butt-join this seam with seam_fade_ms - the
+    seam has neither a bleed nor trimmed head material to crossfade over."""
+    if seam_fade_ms is None:
+        return False
+    trim_samples = frames_to_samples(head_trim, fps, sample_rate) if head_trim else 0
+    if trim_samples == 0:
+        return not audio_bleed_ms
+    return int(crossfade_ms / 1000.0 * sample_rate) == 0
 
 
 def _join_seam(

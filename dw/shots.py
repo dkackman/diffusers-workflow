@@ -26,6 +26,10 @@ A shot is a dict:
   a cut meant as a cut, which `seam_frame_jump` (`dw/assessment_rules.py`)
   reads to stay quiet there. A chained pipeline's inner segments leave it
   unset, since continuity is expected between them
+- `seam_fade_ms` - set beside `hard_cut` on the shot that opens a seam
+  `concat_videos` butt-joined with the caller's `seam_fade_ms` fade, so
+  `seam_hole` (`dw/assessment_rules.py`) does not blame content for the dip
+  that was asked for (#659). Absent where no fade was requested or applied
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
