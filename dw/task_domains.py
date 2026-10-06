@@ -264,6 +264,11 @@ TASK_ARGUMENT_DOMAINS = {
         "max_scene_s": POSITIVE,
         "vocal_tail_s": NON_NEGATIVE,
         "min_gap_seconds": NON_NEGATIVE,
+        "modulus": POSITIVE,
+        "remainder": NON_NEGATIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "lead_s": NON_NEGATIVE,
     },
 }
 
@@ -604,12 +609,22 @@ def beats_errors(arguments):
 
 
 def cuts_problems(
-    transcript=None, segment_by=None, min_scene_s=None, max_scene_s=None, beats=None
+    transcript=None,
+    segment_by=None,
+    min_scene_s=None,
+    max_scene_s=None,
+    beats=None,
+    modulus=None,
+    remainder=None,
+    min_frames=None,
+    max_frames=None,
 ):
     """[(argument, message)] for each plan_cuts rule these values break: a
     transcript that is plain text (no timings), a scene range that is empty,
-    and cutting by beat with no beats. A reference is skipped - only the run
-    has its value."""
+    cutting by beat with no beats, and a render grid (modulus, remainder,
+    min_frames, max_frames) that is not whole numbers, has a remainder with no
+    modulus or past it, or leaves no length a shot could render at. A
+    reference is skipped - only the run has its value."""
     from .tasks.cuts import transcript_problem
 
     problems = []
@@ -634,6 +649,78 @@ def cuts_problems(
                 "analyze_beats' result or a list of beat times",
             )
         )
+    return problems + grid_problems(modulus, remainder, min_frames, max_frames)
+
+
+def grid_problems(modulus, remainder, min_frames, max_frames):
+    """[(argument, message)] for the plan_cuts render grid rules these values
+    break. A value that is absent or not a number is skipped."""
+    problems = []
+    whole = {}
+    modulus_given = modulus is not None
+    for name, value in (
+        ("modulus", modulus),
+        ("remainder", remainder),
+        ("min_frames", min_frames),
+        ("max_frames", max_frames),
+    ):
+        number = as_number(value)
+        if number is None:
+            continue
+        if number != int(number):
+            problems.append(
+                (
+                    name,
+                    f"plan_cuts needs a whole number of frames for '{name}', got {value!r}",
+                )
+            )
+        else:
+            whole[name] = int(number)
+    modulus, remainder = whole.get("modulus"), whole.get("remainder")
+    low, high = whole.get("min_frames"), whole.get("max_frames")
+    if remainder is not None and not modulus_given:
+        problems.append(
+            (
+                "remainder",
+                "plan_cuts needs 'modulus' with 'remainder' - a remainder is "
+                "of a modulus",
+            )
+        )
+    if modulus is not None and remainder is not None and remainder >= modulus > 0:
+        problems.append(
+            (
+                "remainder",
+                f"plan_cuts needs 'remainder' ({remainder}) below 'modulus' "
+                f"({modulus})",
+            )
+        )
+    if low is not None and high is not None and low > high:
+        problems.append(
+            (
+                "min_frames",
+                f"plan_cuts needs 'min_frames' ({low}) at or below "
+                f"'max_frames' ({high}) - no shot could be both",
+            )
+        )
+    elif (
+        high is not None
+        and not problems
+        and (modulus is None or modulus > 0)
+        and (remainder or 0) >= 0
+        and (low or 1) > 0
+    ):
+        from .tasks.cuts import grid_up
+
+        smallest = grid_up(max(low or 0, 1), modulus, remainder or 0)
+        if smallest > high:
+            problems.append(
+                (
+                    "max_frames",
+                    f"plan_cuts needs 'max_frames' ({high}) at or above the "
+                    f"smallest render length on the grid ({smallest}) - no "
+                    "shot could fit",
+                )
+            )
     return problems
 
 
@@ -648,6 +735,13 @@ def cuts_errors(arguments):
     }
     beats = arguments.get("beats")
     literal["beats"] = "deferred" if is_ref(DEFERRED, beats) else beats
+    grid = ("modulus", "remainder", "min_frames", "max_frames")
+    if not is_ref(DEFERRED, arguments.get("modulus")):
+        # A grid with a value yet to come can't be judged; a deferred modulus
+        # hides what a remainder or the frame bounds are measured against
+        for name in grid:
+            if not is_ref(DEFERRED, arguments.get(name)):
+                literal[name] = arguments.get(name)
     return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
 
 
