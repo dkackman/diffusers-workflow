@@ -75,15 +75,23 @@ def _refuse_other_url(location, what):
     passed containment - a refusal at run time only because no such directory
     existed, and none at validation (#618). The rule `validate_model_name`
     applies to a model_name (#117), applied to every media location.
+
+    "://" is what makes a location a URL; whether its scheme is allowed is
+    `validate_url`'s decision, so the two never disagree (`HTTPS://` is a
+    URL it accepts, not a refusal here).
     """
     text = str(location)
-    if "://" in text and not is_http_url(text):
-        scheme = text.split("://", 1)[0]
+    if "://" not in text:
+        return
+    try:
+        validate_url(text)
+    except InvalidInputError as e:
+        scheme = urlparse(text).scheme or text.split("://", 1)[0]
         raise InvalidInputError(
             f"Refusing to read {what} at '{location}': it is a '{scheme}' URL, "
-            f"and only http(s) URLs are fetched. Name a local file by its path "
-            f"or with an 'asset:' reference."
-        )
+            f"and only http(s) URLs are fetched ({e}). Name a local file by "
+            f"its path or with an 'asset:' reference."
+        ) from e
 
 
 def media_roots(base_dir=None):
@@ -568,6 +576,7 @@ def _check(value, base_dir, what):
             validate_media_url(value, what)
         elif "://" in value:
             _refuse_other_url(value, what)
+            validate_media_url(value, what)
         elif os.path.isabs(value):
             validate_media_path(value, base_dir, what, require_exists=False)
         elif ".." in value.replace("\\", "/").split("/"):
