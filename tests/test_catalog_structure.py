@@ -286,6 +286,8 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/generate-speech.json": {"sample_rate"},
     # arguments of the image_to_text step, edited into the file rather than passed
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
+    # a field of the step's 'chain' block, which this workflow writes inline
+    "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
     # fields of a 'shots' list entry, not this workflow's own variables
@@ -699,3 +701,34 @@ def test_the_cut_templates_quote_a_measured_cost(path, minutes):
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"
     assert entry["minutes"] == minutes
+
+
+def _ltx2_chain_after_substitution(**overrides):
+    """The ltx2 chained template's chain block, as the engine sees it after variables resolve."""
+    import json
+    from pathlib import Path
+
+    from dw.variables import replace_variables
+
+    path = Path(__file__).parent.parent / "workflows/templates/ltx2/chained-segments.json"
+    workflow = json.loads(path.read_text())
+    variables = {**workflow["variables"], **overrides}
+    step = replace_variables(workflow["steps"][0], variables)
+    return step["pipeline"]["chain"]
+
+
+def test_ltx2_chained_segments_prompts_variable_reaches_the_chain():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    lines = ["She says hello.", "She nods and leaves."]
+    chain = _ltx2_chain_after_substitution(prompts=lines, segments=2)
+    config = ChainConfig(chain, {"prompt": "x"})
+    assert config.prompts == lines
+
+
+def test_ltx2_chained_segments_prompts_absent_falls_back_to_prompt():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2)
+    config = ChainConfig(chain, {"prompt": "x"})
+    assert not config.prompts
