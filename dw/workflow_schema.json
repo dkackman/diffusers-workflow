@@ -402,8 +402,12 @@
                     ]
                 },
                 "prompts": {
-                    "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)].",
-                    "type": "array",
+                    "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)]. Accepts a 'variable:' reference; a variable left null leaves every segment on the step's own 'prompt'.",
+                    "type": [
+                        "array",
+                        "string",
+                        "null"
+                    ],
                     "items": {
                         "type": "string"
                     },

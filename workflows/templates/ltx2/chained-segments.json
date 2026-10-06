@@ -1,12 +1,13 @@
 {
     "id": "LTX2I2VChained",
-    "description": "A long clip built from short ones. The chain re-runs the pipeline per segment, handing each the last frame of the one before, and stitches the frames and the generated audio back into a single video.",
+    "description": "A long clip built from short ones. The chain re-runs the pipeline per segment, handing each the last frame of the one before, and stitches the frames and the generated audio back into a single video. `prompt` is used for every segment, so any line of dialogue in it is spoken again in each one; to give each segment its own action or line, pass `prompts`, a list with one prompt per segment (segment i uses prompts[min(i, len - 1)]).",
     "summary": "A long LTX-2.5 clip with audio, chained from short segments that each start on the previous one's last frame.",
     "cost_drivers": ["segments", "num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
         "text_encoder_weights_dtype": "{int8}",
         "prompt": "prompt:ltx2/marmot_robot_overlords",
+        "prompts": null,
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 768,
         "height": 768,
@@ -135,6 +136,7 @@
                 },
                 "chain": {
                     "segments": "variable:segments",
+                    "prompts": "variable:prompts",
                     "continuity": "last_frame",
                     "segment_argument": "image",
                     "trim_frames": 2,
