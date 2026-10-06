@@ -427,6 +427,60 @@ def template(*parts):
         return json.load(f)
 
 
+HELD_TEMPLATES = {
+    "chain-matched-to-audio.json": "variable:voice",
+    "chain-matched-and-aligned.json": "variable:voice",
+    "music-video.json": "previous_result:slice",
+}
+
+
+def h3_steps(definition):
+    return [
+        step
+        for step in definition["steps"]
+        if step.get("pipeline", {})
+        .get("from_pretrained_arguments", {})
+        .get("model_name")
+        == "MiniMaxAI/MiniMax-H3"
+    ]
+
+
+class TestHeldTemplates:
+    """The templates that follow supplied audio hold it rather than pass it as an
+    audio reference (#619, D4: hold replaces the reference, no both-arm)."""
+
+    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
+    def test_the_h3_step_holds_the_track(self, name):
+        steps = h3_steps(template("minimax", name))
+
+        assert [step["pipeline"]["arguments"]["hold_audio"] for step in steps] == [
+            HELD_TEMPLATES[name]
+        ]
+
+    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
+    def test_no_audio_reference_is_left_beside_the_hold(self, name):
+        text = json.dumps(template("minimax", name))
+
+        assert "MiniMaxH3AudioReference" not in text
+        assert "audio_reference_type" not in text
+        # Ref2VA labels references in order; with no audio reference there is
+        # no <Audio 1> for a prompt to name
+        assert "<Audio 1>" not in text
+        assert "audio reuse" not in text
+
+    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
+    def test_validation_accepts_the_hold(self, name):
+        assert hold_errors(copy.deepcopy(template("minimax", name))) == []
+
+    def test_music_video_still_drops_the_whole_song_over_the_edit(self):
+        definition = template("minimax", "music-video.json")
+        tasks = [
+            step["task"]["command"] for step in definition["steps"] if "task" in step
+        ]
+
+        assert "pair_audio" in tasks
+
+
 class TestSignature:
     """`get_pipeline_signature` reads a modular pipeline's block inputs, so the
     hold dw inserts shows up where a caller looks for H3's arguments."""
