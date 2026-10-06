@@ -36,9 +36,8 @@ import re
 
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
-from ..for_each import MEMBER_SEPARATOR, render_path
-from ..references import author_index
 from ..task_domains import check_arguments
+from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
@@ -53,12 +52,12 @@ DEFAULT_SIMILARITY = 0.85
 DEFAULT_MODEL = "openai/whisper-base"
 # A heard word is guarded (discarded as unheard) when its loudest
 # GUARD_WINDOW_SECONDS window sits at or below GUARD_FLOOR_DBFS. The floor is
-# the assessment probes' dead-air floor, read, not copied; the window is the
-# one `shot_dead_air` measures in. The loudest window rather than the whole
+# the assessment probes' dead-air floor and the window is the one
+# `shot_dead_air` measures in (`DEAD_AIR_WINDOW`), both read, not copied. The loudest window rather than the whole
 # span, because a word timestamp is approximate (+-0.1-0.3 s) and a span
 # that overhangs the pause after a word must not average a real word away
 GUARD_FLOOR_DBFS = DEAD_AIR_FLOOR_DBFS
-GUARD_WINDOW_SECONDS = 0.05
+GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # A line is clipped at the end when its last heard word ends inside the
 # file's final CLIP_TAIL_SECONDS and that tail measures above
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
@@ -182,39 +181,6 @@ def parse_lines(lines):
         stripped, tokens = strip_markup(text)
         parsed.append({"text": stripped, "tokens": tokens})
     return parsed
-
-
-def lines_errors(workflow_definition, source_indices=None):
-    """Every check_script step whose literal `lines` parse_lines would refuse,
-    as [{path, message}]. A `lines` still spelled as a reference string is
-    left to the run, which refuses a string that resolves to no list."""
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-    errors = []
-    for index, step in enumerate(steps):
-        task = step.get("task") if isinstance(step, dict) else None
-        if not isinstance(task, dict) or task.get("command") != COMMAND:
-            continue
-        arguments = task.get("arguments")
-        if not isinstance(arguments, dict) or "lines" not in arguments:
-            continue
-        lines = arguments["lines"]
-        if isinstance(lines, str) and ":" in lines:
-            continue
-        try:
-            parse_lines(lines)
-        except ValueError as error:
-            source = author_index(source_indices, index)
-            name = step.get("name")
-            where = (
-                f" in member '{name}'"
-                if isinstance(name, str) and MEMBER_SEPARATOR in name
-                else ""
-            )
-            path = ("steps", source, "task", "arguments", "lines")
-            errors.append({"path": render_path(path), "message": f"{error}{where}"})
-    return errors
 
 
 def word_level(mono, sample_rate, start, end):
