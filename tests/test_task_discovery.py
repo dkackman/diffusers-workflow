@@ -55,6 +55,19 @@ class TestDescribeTask:
         assert by_name["height"]["default"] == 768
         assert not description["accepts_kwargs"]
 
+    def test_fit_to_model_lists_its_arguments_and_the_mode_choices(self):
+        description = describe_task("fit_to_model")
+        by_name = {p["name"]: p for p in description["parameters"]}
+        for name in ("video", "width", "height", "num_frames", "mode"):
+            assert name in by_name
+        assert by_name["mode"]["choices"] == ["letterbox", "stretch", "crop"]
+        assert by_name["mode"]["default"] == "letterbox"
+
+    def test_restore_to_source_lists_video_and_fit(self):
+        names = self.names(describe_task("restore_to_source"))
+        assert "video" in names
+        assert "fit" in names
+
     def test_provided_parameters_are_hidden(self):
         # get_last_frame pins frame_index itself; batch_decode gets its
         # processor from a pipeline reference, not from arguments
