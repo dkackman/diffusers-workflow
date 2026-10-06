@@ -15,7 +15,9 @@ to it by overlap, confidence and distance, the box is smoothed by an
 exponential moving average, and a frame the detector misses holds the last box
 at a decaying strength for a few frames. The track starts again at each shot
 boundary the clip records, or - for a clip that records none - where the
-picture's colour histogram changes abruptly.
+picture changes abruptly: its colour histogram drops, or the difference from
+the previous frame spikes (a cut between two framings of the same picture keeps
+its colours, so the histogram alone misses it).
 
 Each frame also carries a strength from 0 to 1: how much a face-detail pass
 should change it. A face already large in the frame has the pixels it needs,
@@ -53,6 +55,13 @@ HOLD_DECAY = 0.7  # strength kept per frame the detector misses
 MAX_GAP = 6  # missed frames before the track counts as lost
 MATCH_DISTANCE = 1.5  # centre distance, in face widths, a match may move
 HISTOGRAM_CUT = 0.5  # HSV histogram correlation below which frames are a cut
+# A cut that keeps the colours (a zoom between two framings of one picture):
+# the mean difference of small thumbnails, as a fraction of full scale, must
+# reach CUT_MIN_CHANGE and CUT_SPIKE times the median of the frames around it
+THUMBNAIL_SIZE = (32, 18)
+CUT_MIN_CHANGE = 0.06
+CUT_SPIKE = 4.0
+CUT_WINDOW = 8  # frames each side whose differences form that median
 
 
 def _iou(a, b):
@@ -124,19 +133,54 @@ def _hsv_histogram(rgb):
     return cv2.normalize(histogram, histogram).flatten()
 
 
-def histogram_cuts(frames_rgb, threshold=HISTOGRAM_CUT):
-    """Frame indices where the picture changes abruptly - a cut nobody recorded."""
+def _thumbnail(rgb):
     import cv2
 
-    cuts = []
+    return cv2.resize(rgb, THUMBNAIL_SIZE, interpolation=cv2.INTER_AREA).astype(
+        np.float32
+    )
+
+
+def content_cuts(frames_rgb):
+    """Cuts nobody recorded: [(frame index, detail)] where the picture jumps.
+
+    A frame is a cut when its HSV histogram correlates with the previous
+    frame's below HISTOGRAM_CUT, or when its thumbnail difference from the
+    previous frame is a spike: at least CUT_MIN_CHANGE, and CUT_SPIKE times
+    the median difference of the CUT_WINDOW frames either side.
+    """
+    import cv2
+
+    correlations, changes = [None], [0.0]
     previous = None
-    for index, rgb in enumerate(frames_rgb):
-        current = _hsv_histogram(rgb)
+    for rgb in frames_rgb:
+        current = (_hsv_histogram(rgb), _thumbnail(rgb))
         if previous is not None:
-            correlation = cv2.compareHist(previous, current, cv2.HISTCMP_CORREL)
-            if correlation < threshold:
-                cuts.append((index, float(correlation)))
+            correlations.append(
+                float(cv2.compareHist(previous[0], current[0], cv2.HISTCMP_CORREL))
+            )
+            changes.append(float(np.mean(np.abs(current[1] - previous[1]))) / 255)
         previous = current
+
+    cuts = []
+    for index in range(1, len(changes)):
+        change = changes[index]
+        around = (
+            changes[max(1, index - CUT_WINDOW) : index]
+            + changes[index + 1 : index + 1 + CUT_WINDOW]
+        )
+        baseline = float(np.median(around)) if around else 0.0
+        spike = change >= CUT_MIN_CHANGE and change >= CUT_SPIKE * baseline
+        if correlations[index] < HISTOGRAM_CUT or spike:
+            cuts.append(
+                (
+                    index,
+                    {
+                        "histogram_correlation": round(correlations[index], 4),
+                        "frame_change": round(change, 4),
+                    },
+                )
+            )
     return cuts
 
 
@@ -384,10 +428,7 @@ def crop_face_track(
     if starts:
         resets_at = {frame: ("shot", name) for frame, name in starts.items()}
     else:
-        resets_at = {
-            frame: ("cut", {"histogram_correlation": round(correlation, 4)})
-            for frame, correlation in histogram_cuts(rgb)
-        }
+        resets_at = {frame: ("cut", detail) for frame, detail in content_cuts(rgb)}
 
     detections = [
         [d for d in detect_tiled(detector, frame) if d[4] >= min_confidence]

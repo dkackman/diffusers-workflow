@@ -517,7 +517,9 @@ enlarged tiles, merged by non-maximum suppression, so a face only a few dozen
 pixels wide is still seen. One track is kept and smoothed with an exponential
 moving average; across a short detector miss the last box is held at a decaying
 strength. The track restarts at each shot boundary the clip records, or, for a
-clip that records none, at an abrupt colour-histogram change. A padded square
+clip that records none, where the picture jumps: a sharp drop in its HSV
+colour histogram, or a spike in its difference from the previous frame (a cut
+between two framings of one picture keeps its colours). A padded square
 around the smoothed box is cut from every frame and resized to `crop_size`, then
 the crops are padded to 8n+1 frames with mirrored warm-up and cool-down frames.
 
@@ -540,7 +542,7 @@ rate. `track` is a JSON record saved as its own `.json` file, readable by
 | `face_found` | Whether any frame had a face |
 | `message` | Present only when no face was found |
 | `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held` or `none`) |
-| `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost` |
+| `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost`; a `cut`'s `detail` is `{histogram_correlation, frame_change}` |
 
 A clip with no face still succeeds: every strength is 0, the crops are the
 centre square, and a `no_face_found` warning is raised. `validate_workflow`
