@@ -590,7 +590,8 @@ Letterbox bars are cropped off, and frames are trimmed to the source's count,
 dropping the held ones (an output shorter than that is returned as it is).
 `crop` cannot bring back the edges it cut, so it returns the kept region at
 the source's pixel density times the scale: 640x480 fitted into 512x288
-restores to 640x360.
+restores to 640x360. A saved video keeps its exact size; only an odd side
+grows by one pixel, since the encoder needs even sides.
 
 Neither task carries a soundtrack. Pair the source's with `pair_audio` after
 the restore.
