@@ -731,11 +731,11 @@ def detrended(envelope, rate):
 def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
     """(bpm, periodicity, missed_pulse_bpm) from the envelope's autocorrelation.
 
-    The tempo is searched for in the range first. When nothing there is
-    periodic enough to track, the pulse is searched for over
-    TEMPO_SEARCH_BPM and folded into the range by octaves. When no octave of
-    it fits, the range's best tempo is kept and `missed_pulse_bpm` is the
-    pulse it misses; otherwise that is None. `periodicity` is the normalized
+    The tempo is searched for in the range, and the pulse over
+    TEMPO_SEARCH_BPM; when the pulse is the more periodic of the two it is
+    folded into the range by octaves and wins. When no octave of it fits, the
+    range's best tempo is kept and `missed_pulse_bpm` is the pulse it misses;
+    otherwise that is None. `periodicity` is the normalized
     autocorrelation at the pulse, 0 to 1. (None, 0.0, None) when the envelope
     holds no energy or the range no lag; a bpm is always in the range.
     """
@@ -767,8 +767,12 @@ def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
         return bpm, float(max(at, 0.0))
 
     bpm, periodicity = best(min_bpm, max_bpm)
-    if bpm is None or periodicity >= TRACKABLE_MIN_PERIODICITY:
+    if bpm is None:
         return bpm, periodicity, None
+    # The range's best is held against the pulse found over the wide range:
+    # a half-time song's strongest period is under 60 BPM, and its octaves
+    # in the range share the field with the song's other repeats - a
+    # subdivision, a riff - which the prior alone can pick instead
     pulse, pulse_periodicity = best(*TEMPO_SEARCH_BPM)
     if pulse is None or pulse_periodicity <= periodicity:
         return bpm, periodicity, None
