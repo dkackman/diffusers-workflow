@@ -258,9 +258,9 @@ frame rate and audio. An alpha channel passes through untouched.
 
 | Argument | Range | Default | Effect |
 | -------- | ----- | ------- | ------ |
-| `amount` | 0 or above | 1.0 | How much of the detail is added back; 0 is identity |
-| `radius` | above zero | 2.0 | The Gaussian blur's standard deviation in pixels: the scale of the detail that is sharpened |
-| `threshold` | 0..255 | 0 | The smallest difference, in channel levels, between a pixel and its blur that gets sharpened; smaller differences are left alone |
+| `amount` | 0 or above | 1.0 | How much of the detail is added back; 0 is identity. Applied in whole percent, so it is rounded to 0.01 |
+| `radius` | above zero | 2.0 | The Gaussian blur's radius in pixels: the scale of the detail that is sharpened |
+| `threshold` | 0..255 | 0 | The smallest difference, in channel levels, between a pixel and its blur that gets sharpened; smaller differences are left alone. A whole number of levels: a fractional value is rounded |
 
 A value outside its range is refused by `validate_workflow`, naming the
 argument and the range, and again at run time when it arrives from a

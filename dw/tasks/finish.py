@@ -1,7 +1,7 @@
 """
 CPU finishing passes beside grade: an unsharp-mask sharpen and film grain.
 
-Pure numpy/PIL/scipy - no model, no GPU. A video goes through the command
+Pure numpy/PIL - no model, no GPU. A video goes through the command
 handler's _per_frame (task.py), so sharpen_image only ever sees a single PIL
 Image. film_grain runs the frames itself, because one generator has to be
 consumed across all of them: every frame gets different grain, and the whole
@@ -40,7 +40,7 @@ def _join_alpha(array, alpha):
 
 
 def sharpen_image(media, amount=1.0, radius=2.0, threshold=0):
-    """Sharpen an image with an unsharp mask.
+    """Sharpen an image with an unsharp mask (Pillow's ImageFilter.UnsharpMask).
 
     The image is blurred with a Gaussian of `radius` pixels, and the
     difference between the image and its blur - the detail - is added back,
@@ -50,29 +50,34 @@ def sharpen_image(media, amount=1.0, radius=2.0, threshold=0):
     Args:
         media: PIL Image to sharpen
         amount: How much of the detail to add back; 0 is identity, 1 doubles
-            the edge contrast at the blur's scale. 0 or above
-        radius: The blur's standard deviation in pixels: the scale of the
-            detail that is sharpened. Above zero
+            the edge contrast at the blur's scale. 0 or above, applied in
+            whole percent (Pillow's `percent`), so it is rounded to 0.01
+        radius: The blur's radius in pixels: the scale of the detail that is
+            sharpened. Above zero
         threshold: The smallest difference, in 0..255 channel levels, between
-            a pixel and its blur that is sharpened. 0 sharpens everything
+            a pixel and its blur that is sharpened. 0 sharpens everything. A
+            whole number of levels; a fractional value is rounded
 
     Returns:
         PIL Image, the same size, RGB (RGBA when the input had alpha, which
         passes through untouched)
     """
-    import scipy.ndimage
+    from PIL import ImageFilter
 
-    rgb, alpha = _split_alpha(media)
-    if amount == 0:
-        return _join_alpha(rgb, alpha)
-    sigma = float(radius)
-    blurred = scipy.ndimage.gaussian_filter(
-        rgb, sigma=(sigma, sigma, 0), mode="nearest"
-    )
-    detail = rgb - blurred
-    if threshold > 0:
-        detail = np.where(np.abs(detail) >= float(threshold), detail, 0.0)
-    return _join_alpha(rgb + float(amount) * detail, alpha)
+    alpha = media.getchannel("A") if media.mode in ("RGBA", "LA") else None
+    rgb = media.convert("RGB")
+    if amount != 0:
+        rgb = rgb.filter(
+            ImageFilter.UnsharpMask(
+                radius=float(radius),
+                percent=round(float(amount) * 100),
+                threshold=round(float(threshold)),
+            )
+        )
+    if alpha is not None:
+        rgb = rgb.convert("RGBA")
+        rgb.putalpha(alpha)
+    return rgb
 
 
 def _noise_field(rng, height, width, size, channels):
