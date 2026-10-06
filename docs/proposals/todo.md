@@ -41,6 +41,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Music-video timing stack: `analyze_beats`, `plan_cuts` and
+  pad-then-trim shots** (#600, stages #625-#627), shipped 2026-10-06. Record,
+  including what was deferred (per-shot `kind`/`singer`, stage D, and Q4's
+  optional `for_each` entry fields):
+  `complete/music-video-timing-complete.md`.
+
 - **Closing the xfail security tests** (#407, stages #409-#413), shipped
   2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
   Playwright in CI): `complete/xfail-security-tests-complete.md`.
