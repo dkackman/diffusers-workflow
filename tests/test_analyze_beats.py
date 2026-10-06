@@ -73,6 +73,21 @@ class TestPulseConfidence:
         assert not dsp.is_confident(envelope, noise, 0.1)
 
 
+class TestFaintPulse:
+    def test_a_faint_pulse_is_kept_and_warned_about(self, monkeypatch, track128):
+        # Periodicity under CONFIDENT_PERIODICITY and salience under
+        # CONFIDENT_SALIENCE together mean faint, not absent (a song with a
+        # long quiet build, 2026-10-06): the beats stay, the caller is told
+        monkeypatch.setattr(dsp, "is_confident", lambda *_: False)
+        waveform, times, confident = track128
+        result = run(waveform)
+        assert result["method"] == "onset"
+        assert result["beats"] == confident["beats"]
+        assert len(result["warnings"]) == 1
+        assert "faint" in result["warnings"][0]
+        assert "anchors" in result["warnings"][0]
+
+
 class TestOnsetTracking:
     @pytest.mark.parametrize("bpm", [90, 128])
     def test_click_tracks(self, bpm):
@@ -152,6 +167,21 @@ class TestRange:
         assert result["bpm"] == pytest.approx(171.4, abs=1)
         assert result["warnings"] == []
         for time in times:
+            assert numpy.abs(numpy.array(result["beats"]) - time).min() <= 0.02
+
+    def test_a_weak_tempo_in_the_range_yields_to_a_strong_pulse_outside_it(self):
+        # A half-time song: its strongest pulse is 50 BPM, under the range,
+        # and a soft non-octave train inside the range repeats just well
+        # enough to track on its own (periodicity about 0.22). The pulse's
+        # octave (100 BPM) wins, not the train (acorn-wars, 2026-10-06)
+        waveform, strong = click_track(50, seconds=40.0, first=0.5)
+        signal = waveform[0].astype(numpy.float64)
+        for time in numpy.arange(0.65, 39.9, 60.0 / 190.0):
+            place(signal, time, click(amplitude=0.15))
+        result = run(signal.astype(numpy.float32)[None, :])
+        assert result["method"] == "onset"
+        assert result["bpm"] == pytest.approx(100, abs=1)
+        for time in strong:
             assert numpy.abs(numpy.array(result["beats"]) - time).min() <= 0.02
 
     def test_a_range_missing_every_octave_keeps_to_the_range_and_says_so(self):

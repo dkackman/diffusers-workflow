@@ -172,7 +172,19 @@ def _detect(mono, rate, args, warnings):
     )
     if bpm is not None and dsp.is_trackable(envelope, periodicity):
         frames = dsp.track_beats(envelope, frame_rate, bpm)
-        if frames.shape[0] >= 2 and dsp.is_confident(envelope, frames, periodicity):
+        if frames.shape[0] >= 2:
+            if not dsp.is_confident(envelope, frames, periodicity):
+                # Faint, not absent: a song with a long quiet build keeps its
+                # beats low against its own loud end, and a noise bed's
+                # bumps can repeat about this well - the caller is told, and
+                # keeps the beats (a wrong grid is checked against the song;
+                # a missing one cannot be)
+                warnings.append(
+                    f"{COMMAND}: the pulse is faint (periodicity "
+                    f"{periodicity:.2f}) - these beats may follow the track's "
+                    "texture rather than its beat; check a few against the "
+                    "song, and pass anchors or tempo_bpm if they are off"
+                )
             if missed is not None:
                 warnings.append(
                     f"{COMMAND}: the track's pulse is {missed:.1f} BPM, and no "

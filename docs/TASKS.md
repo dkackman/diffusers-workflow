@@ -1306,9 +1306,13 @@ drift of under half a beat; where the detection is further off than that, use
 A track with no clear, regular onsets - a pad, a swell, a noise bed at any
 level - falls back to the peaks of its loudness (`method` `rms_peaks`, with a
 warning that no reliable beat was found and the peaks follow swells rather
-than a pulse). A tracked pulse is kept only when its onsets repeat strongly at
-the period or its beats stand well clear of the envelope's noise floor; a
-level that drifts (a fade, a loud first second) is not a pulse. A silent track returns empty `beats` and a warning. So does a
+than a pulse). A level that drifts (a fade, a loud first second) is not a
+pulse. A pulse that tracks but is faint - its onsets repeat weakly at the
+period and its beats sit low against the rest of the envelope, as in a song
+with a long quiet build - is kept, with a warning to check a few beats against
+the song and pass `anchors` or `tempo_bpm` if they are off. The tempo is the
+track's strongest period, folded into the range: a half-time song whose pulse
+is 50 BPM reports 100, not a riff that happens to repeat at 95. A silent track returns empty `beats` and a warning. So does a
 near-silent one whose loudest 50 ms is under -40 dBFS - room tone, hiss, or a
 song mixed far too low - since the log-compressed onset envelope would find a
 pulse in it. Raise a real song's level first (`gain_audio`).
