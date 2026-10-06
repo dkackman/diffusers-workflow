@@ -571,7 +571,10 @@ The editor's forms come from these; they are just as usable from scripts:
   installed diffusers version/commit, and a background diffusers install/
   update (refused while a job is running or queued). The POST body is
   optional JSON, `{"commit": ..., "revert": ...}`: with neither, it
-  `pip install --upgrade`s from GitHub HEAD; `commit` (7-40 hex characters,
+  installs from GitHub HEAD - forced in with `--force-reinstall --no-deps`,
+  since main keeps one dev version string for a release cycle and a plain
+  upgrade would keep an older commit, then a plain `pip install diffusers`
+  for any dependency the new commit adds; `commit` (7-40 hex characters,
   validated before it reaches the command line) pins the git install to
   that commit instead of HEAD; `revert: true` pins back to the known-good
   published release instead of installing from git - the diffusers floor
