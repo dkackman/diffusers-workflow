@@ -60,7 +60,7 @@ def select(candidates, scores, rule, threshold=None, index=None):
 
     parsed_scores = [_parse_score(i, s) for i, s in enumerate(scores)]
 
-    problems = select_rule_problems(rule, threshold, index)
+    problems = select_rule_problems(rule, threshold, index, len(candidates))
     if problems:
         raise ValueError(problems[0])
 
@@ -77,17 +77,10 @@ def select(candidates, scores, rule, threshold=None, index=None):
             raise ValueError(
                 f"select: no candidate passes rule '{rule}' at threshold {threshold}"
             )
-    else:  # "index" - select_rule_problems has refused a non-whole index
-        # The range is checked here rather than by the domain alone: only the
-        # run knows the candidate count, so one sentence names both ends
+    else:  # "index" - select_rule_problems has refused one not whole or in range
         position = (
             int(index) if isinstance(index, numbers.Integral) else int(as_number(index))
         )
-        if position < 0 or position >= len(candidates):
-            raise ValueError(
-                f"select: index {index} is out of range for {len(candidates)} "
-                f"candidates (0 to {len(candidates) - 1})"
-            )
 
     logger.debug(f"select: rule={rule} chose position {position}")
     return Selected(
