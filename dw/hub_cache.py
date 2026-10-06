@@ -402,6 +402,9 @@ def _tracker_class(manager, entry, cancel_event):
         def set_description(self, *args, **kwargs):
             pass
 
+        def set_description_str(self, *args, **kwargs):
+            pass
+
         def set_postfix(self, *args, **kwargs):
             pass
 
