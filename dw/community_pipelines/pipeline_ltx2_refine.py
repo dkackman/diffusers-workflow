@@ -44,7 +44,10 @@ VIDEO_DOC = """    video (`list[PIL.Image.Image]`, `np.ndarray` or `torch.Tensor
 
 def _call_doc():
     """The parent's call docstring with `video` added at the head of Args."""
-    doc = inspect.getdoc(LTX2Pipeline.__call__) or "Args:\n"
+    # cleandoc, not getdoc: on some Pythons the parent's __call__ is wrapped
+    # (torch.no_grad) and getdoc leaves its indent, which would put the parent's
+    # entries at a different indent than `video` and fold them into its text.
+    doc = inspect.cleandoc(LTX2Pipeline.__call__.__doc__ or "") or "Args:\n"
     head, args, rest = doc.partition("Args:\n")
     return head + args + VIDEO_DOC + rest
 

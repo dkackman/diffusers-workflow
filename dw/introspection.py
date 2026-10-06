@@ -178,8 +178,17 @@ def load_allowed_class(name):
     try:
         cls = getattr(module, class_name)
     except AttributeError:
+        hint = ""
+        if not module_name:
+            matches = [
+                dotted
+                for dotted in community_pipelines()
+                if dotted.rpartition(".")[2] == class_name
+            ]
+            if matches:
+                hint = f"; did you mean {' or '.join(repr(m) for m in matches)}?"
         raise ValueError(
-            f"{module_name or 'diffusers'} exports no class named {class_name!r}"
+            f"{module_name or 'diffusers'} exports no class named {class_name!r}{hint}"
         )
     if not isinstance(cls, type):
         raise ValueError(f"{name!r} is not a class")

@@ -191,3 +191,34 @@ class TestIntrospection:
         ):
             with pytest.raises(ValueError):
                 load_allowed_class(blocked)
+
+
+def test_call_doc_survives_an_indented_parent_docstring():
+    """A parent __call__ docstring that still carries its source indent (an
+    older Python, or a wrapped call) must not fold into `video`'s entry."""
+    from dw.community_pipelines import pipeline_ltx2_refine as module
+    from dw.introspection import _parse_docstring_args
+
+    class Parent:
+        def __call__(self):
+            pass
+
+    Parent.__call__.__doc__ = (
+        "\n    Summary.\n\n    Args:\n"
+        "        prompt (`str`):\n            The prompt.\n"
+        "        height (`int`):\n            The height.\n"
+    )
+    with patch.object(module, "LTX2Pipeline", Parent):
+        documented, _ = _parse_docstring_args(module._call_doc())
+    assert documented["prompt"]["description"] == "The prompt."
+    assert documented["height"]["description"] == "The height."
+    assert "The prompt" not in documented["video"]["description"]
+
+
+def test_bare_community_name_hints_at_its_dotted_path():
+    from dw.introspection import load_allowed_class
+
+    with pytest.raises(
+        ValueError, match="did you mean.*pipeline_ltx2_refine.LTX2RefinePipeline"
+    ):
+        load_allowed_class("LTX2RefinePipeline")
