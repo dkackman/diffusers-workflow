@@ -610,3 +610,195 @@ def biquad_coefficients(kind, cutoff_hz, q, sample_rate):
         numpy.array([b0, b1, b2], dtype=numpy.float64) / a0,
         numpy.array([a1, a2], dtype=numpy.float64) / a0,
     )
+
+
+# Beat tracking (#600). The onset envelope is spectral flux - the positive
+# frame-to-frame rise of the log-compressed magnitude spectrum - on a 10 ms
+# hop over a ~23 ms window; tempo is the autocorrelation peak of that
+# envelope under a log-normal prior; the beats are Ellis's dynamic programme
+# (2007), which trades onset strength against keeping each interval near the
+# tempo's period
+ONSET_HOP_SECONDS = 0.01
+ONSET_WINDOW_SECONDS = 0.023
+ONSET_LOG_GAIN = 1000.0
+# The tempo prior: centred on 120 BPM an octave wide, or on a caller's hint
+# half an octave wide
+TEMPO_PRIOR_BPM = 120.0
+TEMPO_PRIOR_OCTAVES = 1.0
+TEMPO_HINT_OCTAVES = 0.5
+# How strongly the programme holds an interval to the period: the penalty is
+# BEAT_TIGHTNESS * log(interval / period)^2
+BEAT_TIGHTNESS = 100.0
+# An envelope is too flat to track when its autocorrelation at the tempo lag
+# is under this fraction of its energy (noise, a held tone) or its peak is
+# under this many times its mean (swells with no attack)
+TRACKABLE_MIN_PERIODICITY = 0.2
+TRACKABLE_MIN_CREST = 3.0
+# A beat at the head or tail is trimmed while its onset is under this
+# fraction of the RMS onset at the beats: the programme keeps stepping
+# through an intro's silence at the period, onto nothing
+BEAT_TRIM_FRACTION = 0.5
+# The RMS-peak fallback: 50 ms windows on the onset hop, peaks at least this
+# prominent relative to the envelope's range
+RMS_PEAK_WINDOW_SECONDS = 0.05
+RMS_PEAK_PROMINENCE = 0.1
+
+
+def mono_float64(waveform):
+    """A (channels, samples) or 1-D waveform as one float64 channel."""
+    mono = numpy.asarray(waveform, dtype=numpy.float64)
+    return mono.mean(axis=0) if mono.ndim == 2 else mono
+
+
+def onset_envelope(mono, sample_rate):
+    """(envelope, frames per second): spectral flux on a 10 ms hop.
+
+    Frame k is centred on k / rate seconds, so a frame index divided by the
+    rate is a time in the track.
+    """
+    hop = max(1, int(round(sample_rate * ONSET_HOP_SECONDS)))
+    window = 1 << int(math.ceil(math.log2(ONSET_WINDOW_SECONDS * sample_rate)))
+    window = max(window, hop + 1)
+    if mono.shape[0] < window:
+        return numpy.zeros(0), sample_rate / hop
+    _, _, spectrum = scipy.signal.stft(
+        mono, sample_rate, nperseg=window, noverlap=window - hop, padded=True
+    )
+    magnitude = numpy.log1p(ONSET_LOG_GAIN * numpy.abs(spectrum))
+    flux = numpy.maximum(0.0, numpy.diff(magnitude, axis=1)).mean(axis=0)
+    return numpy.concatenate([[0.0], flux]), sample_rate / hop
+
+
+def estimate_tempo(envelope, rate, min_bpm, max_bpm, hint_bpm=None):
+    """(bpm, periodicity) from the envelope's autocorrelation in the range.
+
+    `periodicity` is the normalized autocorrelation at the chosen lag, 0 to
+    1; (None, 0.0) when the envelope holds no energy or the range no lag.
+    """
+    centred = envelope - envelope.mean() if envelope.size else envelope
+    count = centred.shape[0]
+    if count < 2:
+        return None, 0.0
+    correlation = scipy.signal.correlate(centred, centred, mode="full", method="fft")
+    correlation = correlation[count - 1 :]
+    if correlation[0] <= 0:
+        return None, 0.0
+    correlation = correlation / correlation[0]
+    low = max(1, int(math.floor(rate * 60.0 / max_bpm)))
+    high = min(count - 2, int(math.ceil(rate * 60.0 / min_bpm)))
+    if high < low:
+        return None, 0.0
+    lags = numpy.arange(low, high + 1)
+    centre = TEMPO_PRIOR_BPM if hint_bpm is None else hint_bpm
+    width = TEMPO_PRIOR_OCTAVES if hint_bpm is None else TEMPO_HINT_OCTAVES
+    prior = numpy.exp(-0.5 * (numpy.log2(60.0 * rate / lags / centre) / width) ** 2)
+    best = int(numpy.argmax(correlation[lags] * prior))
+    lag = lags[best]
+    # Parabolic interpolation between the lags either side
+    before, at, after = correlation[lag - 1], correlation[lag], correlation[lag + 1]
+    curvature = before - 2.0 * at + after
+    shift = 0.5 * (before - after) / curvature if curvature < 0 else 0.0
+    return 60.0 * rate / (lag + shift), float(max(at, 0.0))
+
+
+def is_trackable(envelope, periodicity):
+    """Whether an onset envelope has the attacks and the periodicity to track."""
+    if not envelope.size or periodicity < TRACKABLE_MIN_PERIODICITY:
+        return False
+    mean = envelope.mean()
+    return mean > 0 and envelope.max() / mean >= TRACKABLE_MIN_CREST
+
+
+def track_beats(envelope, rate, bpm, tightness=BEAT_TIGHTNESS):
+    """Beat frame indices by dynamic programming, leading and trailing beats
+    that land on next to nothing trimmed."""
+    count = envelope.shape[0]
+    period = rate * 60.0 / bpm
+    spread = envelope.std()
+    if count == 0 or spread <= 0:
+        return numpy.zeros(0, dtype=int)
+    local = envelope / spread
+    score = local.copy()
+    backlink = numpy.full(count, -1, dtype=int)
+    steps = numpy.arange(max(1, int(round(period / 2))), int(round(2 * period)) + 1)
+    penalty = -tightness * numpy.log(steps / period) ** 2
+    for frame in range(int(steps[0]), count):
+        reachable = steps <= frame
+        previous = frame - steps[reachable]
+        candidates = score[previous] + penalty[reachable]
+        best = int(numpy.argmax(candidates))
+        if candidates[best] > 0:
+            score[frame] = local[frame] + candidates[best]
+            backlink[frame] = previous[best]
+    peaks = scipy.signal.argrelmax(score)[0]
+    if not peaks.size:
+        return numpy.zeros(0, dtype=int)
+    last = peaks[score[peaks] >= 0.5 * numpy.median(score[peaks])][-1]
+    beats = [int(last)]
+    while backlink[beats[-1]] >= 0:
+        beats.append(int(backlink[beats[-1]]))
+    beats = numpy.array(beats[::-1], dtype=int)
+    strength = envelope[beats]
+    floor = BEAT_TRIM_FRACTION * math.sqrt(float(numpy.mean(strength**2)))
+    kept = numpy.nonzero(strength >= floor)[0]
+    if not kept.size:
+        return numpy.zeros(0, dtype=int)
+    return beats[kept[0] : kept[-1] + 1]
+
+
+def rms_peaks(mono, sample_rate, max_bpm):
+    """(peak times in seconds, peak level in dBFS) of a 50 ms RMS envelope,
+    peaks at least one max_bpm period apart - the fallback for a track with
+    no attacks to find onsets in."""
+    hop = max(1, int(round(sample_rate * ONSET_HOP_SECONDS)))
+    window = max(hop, int(round(sample_rate * RMS_PEAK_WINDOW_SECONDS)))
+    if mono.shape[0] < window:
+        return numpy.zeros(0), SILENCE_DBFS
+    frames = numpy.lib.stride_tricks.sliding_window_view(mono, window)[::hop]
+    envelope = numpy.sqrt(numpy.mean(frames**2, axis=1))
+    loudest = float(envelope.max())
+    span = loudest - float(envelope.min())
+    if span <= 0:
+        return numpy.zeros(0), dbfs(loudest, floor=SILENCE_DBFS)
+    peaks, _ = scipy.signal.find_peaks(
+        envelope,
+        distance=max(1, int(round(sample_rate / hop * 60.0 / max_bpm))),
+        prominence=RMS_PEAK_PROMINENCE * span,
+    )
+    return (peaks * hop + window / 2.0) / sample_rate, dbfs(loudest, floor=SILENCE_DBFS)
+
+
+def downbeat_phase(envelope, beat_frames, meter=4, margin=1.1):
+    """Which of `meter` beat positions (0 to meter-1) the bars start on: the
+    phase whose beats carry the most onset, when it beats the next by
+    `margin`; None when no phase stands out or there are under two bars."""
+    if beat_frames.shape[0] < 2 * meter:
+        return None
+    strength = envelope[beat_frames]
+    means = sorted(
+        ((float(strength[phase::meter].mean()), phase) for phase in range(meter)),
+        reverse=True,
+    )
+    if means[0][0] <= 0 or means[0][0] < margin * means[1][0]:
+        return None
+    return means[0][1]
+
+
+def warp_times(times, knots_from, knots_to):
+    """Map times piecewise-linearly through (knots_from -> knots_to), the end
+    segments extended past the first and last knot; a single knot is a shift.
+    """
+    times = numpy.asarray(times, dtype=numpy.float64)
+    knots_from = numpy.asarray(knots_from, dtype=numpy.float64)
+    knots_to = numpy.asarray(knots_to, dtype=numpy.float64)
+    if knots_from.shape[0] == 1:
+        return times + (knots_to[0] - knots_from[0])
+    warped = numpy.interp(times, knots_from, knots_to)
+    for end, (a, b) in (
+        (times < knots_from[0], (0, 1)),
+        (times > knots_from[-1], (-2, -1)),
+    ):
+        slope = (knots_to[b] - knots_to[a]) / (knots_from[b] - knots_from[a])
+        anchor = 0 if a == 0 else -1
+        warped[end] = knots_to[anchor] + (times[end] - knots_from[anchor]) * slope
+    return warped
