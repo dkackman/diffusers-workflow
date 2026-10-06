@@ -31,6 +31,7 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 
 import logging
 import numbers
+import re
 
 from .references import (
     DEFERRED,
@@ -754,6 +755,83 @@ def cuts_errors(arguments):
     return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
 
 
+# apply_lut's palette: 2..16 colours, each #rrggbb (#603 stage D)
+MIN_PALETTE_COLOURS = 2
+MAX_PALETTE_COLOURS = 16
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{6}\Z")
+
+
+def lut_source_problem(lut=None, palette=None):
+    """The refusal when apply_lut is given both or neither of 'lut' and
+    'palette', else None. A null value counts as not given."""
+    if (lut is None) == (palette is None):
+        given = "both" if lut is not None else "neither"
+        return (
+            f"apply_lut takes exactly one of 'lut' (a .cube file) or "
+            f"'palette' (a list of #rrggbb colours) - {given} given"
+        )
+    return None
+
+
+def palette_problem(palette):
+    """(entry index or None, message) for the first thing wrong with an
+    apply_lut palette, else None. The index points at the bad entry; None
+    means the palette as a whole (not a list, or too few colours)."""
+    if not isinstance(palette, (list, tuple)):
+        return None, (
+            f"apply_lut needs 'palette' as a list of {MIN_PALETTE_COLOURS} "
+            f"to {MAX_PALETTE_COLOURS} #rrggbb colours, dark to light, not "
+            f"{type(palette).__name__}"
+        )
+    for index, colour in enumerate(palette):
+        if not isinstance(colour, str) or not _HEX_COLOUR.match(colour):
+            return index, (
+                f"apply_lut 'palette' entry {index} ({str(colour)[:40]!r}) "
+                f"is not a #rrggbb colour"
+            )
+    if len(palette) < MIN_PALETTE_COLOURS:
+        listed = f" ({palette[0]!r})" if palette else ""
+        return None, (
+            f"apply_lut 'palette' has {len(palette)} colour{listed}; it "
+            f"takes {MIN_PALETTE_COLOURS} to {MAX_PALETTE_COLOURS}, dark to light"
+        )
+    if len(palette) > MAX_PALETTE_COLOURS:
+        index = MAX_PALETTE_COLOURS
+        return index, (
+            f"apply_lut 'palette' has {len(palette)} colours; it takes at "
+            f"most {MAX_PALETTE_COLOURS}, so entry {index} "
+            f"({palette[index]!r}) onward is too many"
+        )
+    return None
+
+
+def check_lut_source(lut=None, palette=None):
+    """lut_source_problem and palette_problem at run time, as ValueError."""
+    problem = lut_source_problem(lut, palette)
+    if problem is not None:
+        raise ValueError(problem)
+    if palette is not None:
+        found = palette_problem(palette)
+        if found is not None:
+            raise ValueError(found[1])
+
+
+def lut_errors(arguments):
+    """[(argument, message)] for the apply_lut source rules a literal
+    workflow can break before it runs. A reference counts as given - which
+    one was named is known now - but a palette's colours are judged only
+    when they are literal."""
+    lut = arguments.get("lut")
+    palette = arguments.get("palette")
+    problem = lut_source_problem(lut, palette)
+    if problem is not None:
+        return [("palette" if palette is not None else "lut", problem)]
+    if palette is None or is_ref(DEFERRED, palette):
+        return []
+    found = palette_problem(palette)
+    return [] if found is None else [("palette", found[1])]
+
+
 def in_domain(value, domain):
     """Whether a number satisfies a domain. Anything unmeasurable is True -
     a value this cannot read is not this check's to refuse."""
@@ -937,6 +1015,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "join_windows": join_windows_errors,
             "fit_to_model": fit_to_model_errors,
             "slice_audio": slice_audio_errors,
+            "apply_lut": lut_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):

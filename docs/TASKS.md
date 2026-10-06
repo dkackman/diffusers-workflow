@@ -310,8 +310,8 @@ argument and the range, and again at run time when it arrives from a
 
 ### apply_lut
 
-`apply_lut` colours an image or a video through a 3D lookup table (LUT) read
-from a `.cube` file, on CPU. Its input is `media`, as in `grade`: a video is
+`apply_lut` colours an image or a video through a 3D lookup table (LUT), read
+from a `.cube` file or built from a `palette`, on CPU. Its input is `media`, as in `grade`: a video is
 processed one frame at a time and keeps its frame count, frame rate and audio,
 and an alpha channel passes through untouched. Each pixel's colour is looked up
 with trilinear interpolation, and the result is blended with the original by
@@ -333,8 +333,47 @@ with trilinear interpolation, and the result is blended with the original by
 
 | Argument | Range | Default | Effect |
 | -------- | ----- | ------- | ------ |
-| `lut` | a `.cube` file | required | The LUT: an `asset:` reference (upload one with `upload_asset`, or `POST /api/uploads`), an `output:` reference, or a path inside the workflow's directory, the asset libraries or the output root |
+| `lut` | a `.cube` file | none | The LUT: an `asset:` reference (upload one with `upload_asset`, or `POST /api/uploads`), an `output:` reference, or a path inside the workflow's directory, the asset libraries or the output root |
+| `palette` | 2..16 `#rrggbb` colours | none | Instead of a `.cube`, a look built from colours ordered dark to light (below) |
 | `strength` | 0.0..1.0 | 1.0 | 0 returns the original, 1 the full LUT result; values between blend the two |
+
+Exactly one of `lut` or `palette` is given; both or neither refuses, naming
+the two.
+
+**A palette.** `palette` is a list of 2 to 16 `#rrggbb` colours, ordered dark
+to light, spaced evenly along the luminance axis: the first colour sits at
+black, the last at white. Each pixel keeps its own luminance (Rec. 709 luma)
+and takes its hue and chroma from the palette at that luminance, interpolated
+between neighbouring colours, so shadows lean toward the first colour and
+highlights toward the last. Near black and white the chroma shrinks as far as
+it must to stay in range. The 33³ table is built in memory, never written to
+disk, and applied exactly as a `.cube` is (same interpolation, same `strength`
+blend). The same palette always gives the same result, so one palette passed
+as a `variable:` to every shot of a series gives them one look:
+
+```json
+{
+    "variables": { "look": ["#102030", "#e0c090"] },
+    "steps": [
+        {
+            "name": "look",
+            "task": {
+                "command": "apply_lut",
+                "arguments": {
+                    "media": "previous_result:generate_video",
+                    "palette": "variable:look",
+                    "strength": 0.6
+                }
+            },
+            "result": { "content_type": "video/mp4" }
+        }
+    ]
+}
+```
+
+A palette that is not a list, a colour that is not `#rrggbb`, or fewer than 2
+or more than 16 colours refuses, naming the bad entry - at `validate_workflow`,
+and again at run time for a palette that arrives from an earlier step.
 
 **Where the file may be.** A literal path is held to the same roots as any
 media argument, and must end in `.cube`; anything else is refused, naming only

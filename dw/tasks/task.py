@@ -778,27 +778,24 @@ def _handle_film_grain(task, arguments, previous_pipelines):
     "apply_lut",
     implementation="dw.tasks.lut.apply_lut",
     summary=(
-        "Colour an image or a video through a 3D lookup table from a .cube "
-        "file, blended with the original by strength."
+        "Colour an image or a video through a 3D lookup table - from a .cube "
+        "file or built from a palette - blended with the original by strength."
     ),
     parameter_descriptions={"media": _MEDIA_DESCRIPTION},
 )
 def _handle_apply_lut(task, arguments, previous_pipelines):
-    """Apply a .cube 3D lookup table to an image or a video"""
+    """Apply a .cube or palette 3D lookup table to an image or a video"""
     logger.debug("Applying a LUT")
     media = _load_media(arguments.pop("media"))
-    if arguments.get("lut") is None:
-        raise ValueError(
-            "apply_lut: 'lut' is required - a .cube file, as an asset: or "
-            "output: reference or a path"
-        )
     from ..task_domains import check_arguments
-    from .lut import apply_lut, color_lut, load_lut
+    from .lut import apply_lut, lookup_for
 
+    lut = arguments.pop("lut", None)
+    palette = arguments.pop("palette", None)
     # A value from a variable or an earlier step never met the static pass
     check_arguments("apply_lut", **arguments)
-    # Read and parsed once, not once per video frame
-    lookup = color_lut(load_lut(arguments.pop("lut")))
+    # Read or built once, not once per video frame
+    lookup = lookup_for(lut, palette)
     return _per_frame(media, lambda frame: apply_lut(frame, lookup, **arguments))
 
 

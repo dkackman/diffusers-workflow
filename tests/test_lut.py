@@ -10,7 +10,15 @@ from PIL import Image
 from dw.media_types import AudioVideo
 from dw.security import InvalidInputError, PathTraversalError
 from dw.task_domains import task_argument_errors
-from dw.tasks.lut import MAX_CUBE_BYTES, CubeError, apply_lut, load_lut, parse_cube
+from dw.tasks.lut import (
+    LUMA_WEIGHTS,
+    MAX_CUBE_BYTES,
+    CubeError,
+    apply_lut,
+    load_lut,
+    palette_table,
+    parse_cube,
+)
 from dw.tasks.task import Task
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 
@@ -138,7 +146,7 @@ class TestApply:
         assert numpy.array_equal(numpy.asarray(out), numpy.asarray(image))
 
     def test_the_command_refuses_a_missing_lut(self):
-        with pytest.raises(ValueError, match="'lut' is required"):
+        with pytest.raises(ValueError, match="exactly one of 'lut'.*'palette'"):
             Task({"command": "apply_lut", "arguments": {}}, "cpu").run(
                 {"media": _gradient()}
             )
@@ -337,3 +345,136 @@ class TestPathContainment:
             Task({"command": "apply_lut", "arguments": {}}, "cpu").run(
                 {"media": _gradient(), "lut": path}
             )
+
+
+PALETTE = ["#102030", "#e0c090"]
+
+
+def _grey_ramp(width=256, height=4):
+    ramp = numpy.linspace(0, 255, width).round().astype(numpy.uint8)
+    array = numpy.repeat(numpy.tile(ramp, (height, 1))[:, :, None], 3, axis=2)
+    return Image.fromarray(array, mode="RGB")
+
+
+def _hue(rgb):
+    import colorsys
+
+    return colorsys.rgb_to_hsv(*(numpy.asarray(rgb, dtype=float) / 255))[0] * 360
+
+
+def _luma(image):
+    return numpy.asarray(image, dtype=float)[..., :3] @ LUMA_WEIGHTS
+
+
+class TestPalette:
+    def test_greyscale_maps_dark_to_the_first_colour_and_light_to_the_last(self):
+        out = numpy.asarray(apply_lut(_grey_ramp(), palette=PALETTE))
+        # #102030 is a blue (hue 210), #e0c090 a warm tan (hue 40)
+        assert abs(_hue(out[0, 30]) - _hue((0x10, 0x20, 0x30))) < 10
+        assert abs(_hue(out[0, 220]) - _hue((0xE0, 0xC0, 0x90))) < 10
+        # Shadows lean blue, highlights warm
+        assert out[0, 30, 2] > out[0, 30, 0]
+        assert out[0, 220, 0] > out[0, 220, 2]
+
+    def test_luminance_is_kept_at_full_strength(self):
+        for image in (_grey_ramp(), _gradient()):
+            out = apply_lut(image, palette=PALETTE, strength=1.0)
+            assert numpy.abs(_luma(out) - _luma(image)).max() <= 1.0
+
+    def test_the_table_keeps_every_entrys_luma_exactly(self):
+        table = palette_table(["#ff0000", "#00ff00", "#0000ff"])
+        steps = numpy.linspace(0, 1, table.shape[0])
+        blue, green, red = numpy.meshgrid(steps, steps, steps, indexing="ij")
+        luma = numpy.stack([red, green, blue], axis=-1) @ LUMA_WEIGHTS
+        assert numpy.abs(table @ LUMA_WEIGHTS - luma).max() < 1e-5
+        assert table.min() >= 0 and table.max() <= 1
+
+    def test_strength_zero_returns_the_input(self):
+        image = _gradient()
+        out = apply_lut(image, palette=PALETTE, strength=0)
+        assert numpy.array_equal(numpy.asarray(out), numpy.asarray(image))
+
+    def test_the_same_palette_gives_identical_output(self):
+        image = _gradient()
+        first = apply_lut(image, palette=list(PALETTE), strength=0.8)
+        second = apply_lut(image, palette=list(PALETTE), strength=0.8)
+        assert first.tobytes() == second.tobytes()
+
+    def test_alpha_passes_through(self):
+        image = _gradient().convert("RGBA")
+        image.putalpha(77)
+        out = apply_lut(image, palette=PALETTE)
+        assert out.mode == "RGBA"
+        assert set(numpy.asarray(out.getchannel("A")).ravel()) == {77}
+
+    def test_the_command_runs_with_a_palette(self):
+        image = _gradient()
+        out = Task({"command": "apply_lut", "arguments": {}}, "cpu").run(
+            {"media": image, "palette": PALETTE}
+        )
+        assert out.tobytes() == apply_lut(image, palette=PALETTE).tobytes()
+
+    @pytest.mark.parametrize(
+        "palette, match",
+        [
+            (["#12345", "#ffffff"], "entry 0 \\('#12345'\\)"),
+            (["#000000", "fff000"], "entry 1 \\('fff000'\\)"),
+            (["#000000", "#gg0000"], "entry 1 \\('#gg0000'\\)"),
+            (["#000000", 7], "entry 1"),
+            (["#102030"], "1 colour \\('#102030'\\)"),
+            ([], "0 colour"),
+            (
+                [f"#{i:02x}{i:02x}{i:02x}" for i in range(17)],
+                "entry 16 \\('#101010'\\)",
+            ),
+            ("#102030", "a list"),
+        ],
+    )
+    def test_a_bad_palette_refuses_naming_the_entry(self, palette, match):
+        with pytest.raises(ValueError, match=match):
+            apply_lut(_gradient(), palette=palette)
+
+    def test_sixteen_colours_are_taken(self):
+        palette = [f"#{i * 16:02x}{i * 16:02x}{i * 16:02x}" for i in range(16)]
+        apply_lut(_gradient(), palette=palette)
+
+    def test_both_lut_and_palette_refuse(self, tmp_path):
+        path = _write(tmp_path, "identity.cube", _cube(_identity))
+        with pytest.raises(ValueError, match="'lut'.*'palette'.*both"):
+            apply_lut(_gradient(), lut=path, palette=PALETTE)
+
+    def test_neither_refuses(self):
+        with pytest.raises(ValueError, match="'lut'.*'palette'.*neither"):
+            apply_lut(_gradient())
+
+
+class TestPaletteAtValidate:
+    def test_a_good_palette_refuses_nothing(self):
+        assert not _errors({"media": "asset:a.png", "palette": PALETTE})
+
+    def test_a_bad_entry_refuses(self):
+        errors = _errors({"media": "asset:a.png", "palette": ["#12345", "#ffffff"]})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.palette"]
+        assert "'#12345'" in errors[0]["message"]
+
+    def test_too_many_colours_refuse(self):
+        palette = ["#000000"] * 17
+        errors = _errors({"media": "asset:a.png", "palette": palette})
+        assert "17 colours" in errors[0]["message"]
+
+    def test_both_refuse_naming_the_two(self):
+        errors = _errors(
+            {"media": "asset:a.png", "lut": "asset:a.cube", "palette": PALETTE}
+        )
+        assert len(errors) == 1
+        assert "'lut'" in errors[0]["message"]
+        assert "'palette'" in errors[0]["message"]
+
+    def test_neither_refuses_naming_the_two(self):
+        errors = _errors({"media": "asset:a.png"})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.lut"]
+        assert "'lut'" in errors[0]["message"]
+        assert "'palette'" in errors[0]["message"]
+
+    def test_a_palette_from_a_variable_is_judged_at_run_time(self):
+        assert not _errors({"media": "asset:a.png", "palette": "variable:look"})
