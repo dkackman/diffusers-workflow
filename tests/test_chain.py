@@ -231,7 +231,7 @@ class TestGeneratedAudioJoining:
 
         run_chain(FakePipeline(modular_output), chain, {"num_frames": 8})
 
-        assert len(logs) == 1 and logs[0].startswith("Chain seam 1/2: trimmed 2")
+        assert len(logs) == 1 and logs[0].startswith("Chain seam 1/1: trimmed 2")
         assert "crossfade 250.0 ms" in logs[0]
 
     def test_seam_log_total_is_stable_across_a_three_segment_chain(self, monkeypatch):
