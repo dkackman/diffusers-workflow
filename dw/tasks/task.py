@@ -793,13 +793,13 @@ def _handle_apply_lut(task, arguments, previous_pipelines):
             "output: reference or a path"
         )
     from ..task_domains import check_arguments
-    from .lut import apply_lut, load_lut
+    from .lut import apply_lut, color_lut, load_lut
 
     # A value from a variable or an earlier step never met the static pass
     check_arguments("apply_lut", **arguments)
     # Read and parsed once, not once per video frame
-    table = load_lut(arguments.pop("lut"))
-    return _per_frame(media, lambda frame: apply_lut(frame, table, **arguments))
+    lookup = color_lut(load_lut(arguments.pop("lut")))
+    return _per_frame(media, lambda frame: apply_lut(frame, lookup, **arguments))
 
 
 @register_command(
