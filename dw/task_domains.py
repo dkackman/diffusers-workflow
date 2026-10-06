@@ -594,7 +594,7 @@ def cuts_errors(arguments):
     }
     beats = arguments.get("beats")
     literal["beats"] = "deferred" if is_ref(DEFERRED, beats) else beats
-    return cuts_problems(**literal)
+    return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
 
 
 def in_domain(value, domain):

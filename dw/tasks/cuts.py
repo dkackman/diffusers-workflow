@@ -339,7 +339,7 @@ def _scene(start, end, kind, lyrics):
     return {"start": start, "end": end, "kind": kind, "lyrics": list(lyrics)}
 
 
-def _scenes_by_units(units, duration, args):
+def _scenes_by_units(units, duration, args, warnings):
     """Scenes tiling [0, duration): a vocal scene per unit, its tail and the
     silence after it held until the next unit starts - unless that silence
     is long enough to be its own instrumental scene and gaps were asked for."""
@@ -363,11 +363,9 @@ def _scenes_by_units(units, duration, args):
         else:
             scenes.append(_scene(cursor, following, "vocal", unit["lyrics"]))
         cursor = following
-    return [scene for scene in scenes if scene["end"] > scene["start"]] or [
-        _scene(
-            0.0, duration, "vocal", [line for unit in units for line in unit["lyrics"]]
-        )
-    ]
+    # A line squeezed to no time between touching neighbours keeps its place
+    # in the next scene rather than leaving the lyrics
+    return _merge_empty(scenes, warnings, "placing the lines")
 
 
 def _scenes_by_beats(lines, beats, duration, args):
@@ -506,20 +504,25 @@ def _frames(scenes, fps, total_frames, warnings):
     its absolute time. A scene rounding to no frames joins its neighbour."""
     starts = [int(round(scene["start"] * fps)) for scene in scenes] + [total_frames]
     starts[0] = 0
-    framed = []
+    framed, carried = [], []
     for scene, start, end in zip(scenes, starts, starts[1:]):
         end = min(end, total_frames)
         if end <= start:
-            if framed and scene["lyrics"]:
-                framed[-1][0]["lyrics"] = _joined(
-                    framed[-1][0]["lyrics"], scene["lyrics"]
-                )
             if scene["lyrics"]:
                 warnings.append(
                     f"{COMMAND}: {' / '.join(scene['lyrics'])!r} is shorter than "
-                    "a frame and joins the scene before it"
+                    "a frame and joins a neighbouring shot"
                 )
+                if framed:
+                    framed[-1][0]["lyrics"] = _joined(
+                        framed[-1][0]["lyrics"], scene["lyrics"]
+                    )
+                else:
+                    carried = _joined(carried, scene["lyrics"])
             continue
+        if carried:
+            scene["lyrics"] = _joined(carried, scene["lyrics"])
+            scene["kind"], carried = "vocal", []
         framed.append((scene, start, end - start))
     return framed
 
@@ -650,7 +653,7 @@ def plan_cuts(
     if segment_by == "beat":
         scenes = _scenes_by_beats(lines, beat_times, duration, args)
     else:
-        scenes = _scenes_by_units(_units(lines, segment_by), duration, args)
+        scenes = _scenes_by_units(_units(lines, segment_by), duration, args, warnings)
     scenes = _split_long(scenes, beat_times, args.max_scene_s)
     if snap_to_beats:
         scenes = _snap(scenes, beat_times, warnings)

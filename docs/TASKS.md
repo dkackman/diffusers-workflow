@@ -1325,6 +1325,92 @@ out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past
 the song's end, or a `beat_index` past the detected count, at run start.
 It returns JSON, so `result` may only be `application/json`.
 
+### plan_cuts
+
+Plan a music video's cuts from a song's lyrics and beats. `transcribe_audio`
+(with timestamps) says when each line is sung and `analyze_beats` says where
+the beats fall; this turns the two into shots - each a start frame and a
+length - that tile the song exactly, so one prompt per shot can be written and
+the list rendered. The result is JSON and nothing is built:
+
+```json
+{
+    "name": "plan",
+    "task": {
+        "command": "plan_cuts",
+        "arguments": {
+            "transcript": "previous_result:transcribe",
+            "beats": "previous_result:beats",
+            "lyrics": "variable:lyrics",
+            "segment_by": "line",
+            "fps": 24,
+            "min_scene_s": 1.5,
+            "max_scene_s": 10,
+            "vocal_tail_s": 0.5,
+            "snap_to_beats": true
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json` |
+| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them. `null` or `""` means none: the transcript's text is used |
+| `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
+| `segment_by` | No | `line` (default), `stanza` or `beat` |
+| `fps` | No | Frames per second the shots are counted in (default `24`) |
+| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when omitted, else the transcript's last end (with a warning) |
+| `min_scene_s` | No | The shortest a shot may be (default `1.0`) |
+| `max_scene_s` | No | The longest a shot may be (default none) |
+| `vocal_tail_s` | No | Seconds a sung shot holds past its last word (default `0`) |
+| `include_instrumental_gaps` | No | Whether a long silence becomes its own instrumental shot (default `true`) |
+| `min_gap_seconds` | No | The shortest silence that becomes its own shot (default `2.0`) |
+| `snap_to_beats` | No | Whether every cut moves to its nearest beat (default `false`) |
+
+Returns `{shots, bpm, fps, duration_s, total_frames, warnings}`. `shots` tile
+the song in order, each `{name, start_frame, num_frames, cut_frames,
+lead_frames, lyric, kind}`: `cut_frames` is its length on the timeline and
+`num_frames` the length to render (the same here, with `lead_frames` `0`),
+`lyric` the lines sung in it joined by newlines or `null`, and `kind`
+`"vocal"` or `"instrumental"`. A dict rather than a list, since a list result
+would become one artifact per shot. Its `result` may only be
+`application/json`.
+
+How the plan is made:
+
+- With `lyrics`, those lines are the lines, and the transcript only lends them
+  timings: they are aligned to it word by word, since Whisper mishears sung
+  words and splits lines where it likes. A line never heard is placed between
+  its neighbours with a warning. Blank lines and section tags are stanza
+  breaks, not sung lines. Without `lyrics`, each transcript chunk is a line.
+- `segment_by` makes a shot per line, per stanza (the lyrics' blank-line
+  groups, or lines without a `min_gap_seconds` silence between them) or per
+  few beats (a cut on the first beat at least `min_scene_s` after the last).
+- The silence between lines goes to the shot before it, or - when it lasts
+  `min_gap_seconds` and `include_instrumental_gaps` is on - becomes its own
+  instrumental shot, as can the silence before the first line and after the
+  last.
+- A shot over `max_scene_s` splits evenly, each cut on its nearest beat when
+  there are beats; one under `min_scene_s` merges into its shorter neighbour.
+  A shot still outside the range is warned about by name.
+- `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
+  and leaves the cuts where the lines put them.
+- Every boundary is rounded once, from its absolute time, so the frame counts
+  sum to the song's and no rounding drifts.
+
+Refused, at `validate_workflow` where the value is a literal and at run start
+otherwise: a bare-string `transcript` (the message names `timestamps` /
+`return_timestamps`), `segment_by` not one of the three, `segment_by: "beat"`
+without `beats`, `min_scene_s` above `max_scene_s`, and `fps`, `duration_s`,
+`max_scene_s` at or below zero or `min_scene_s`, `vocal_tail_s`,
+`min_gap_seconds` below zero. Also refused at run start: a song whose length
+can't be known (no `duration_s`, no `beats` result, and no transcript to end
+on) and `lyrics` with no sung lines.
+[music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
+chains `transcribe_audio`, `analyze_beats` and `plan_cuts`.
+
 ## Assessment Probes
 
 Three read-only commands measure a finished cut and say where to look -

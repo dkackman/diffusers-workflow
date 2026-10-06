@@ -175,6 +175,7 @@ Control" section.
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
    To cut picture to the song, `analyze_beats` on it returns its bpm and beat
    times; with the tempo known, `tempo_bpm` plus one anchor lays an exact grid.
+   `templates/minimax/music-video-cuts` plans the cuts from its lyrics.
 6. A run worth keeping: `references/keeping-a-run.md` saves it by name
    and exports it.
 

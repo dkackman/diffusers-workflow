@@ -1,0 +1,72 @@
+{
+    "id": "MiniMaxMusicVideoCuts",
+    "description": "Plans a music video's cuts from a song and its lyrics. It transcribes the song with timestamps ('transcribe', a Whisper-class model) and finds its beats ('beats'), then 'plan_cuts' turns the two into a shot list ('plan'). Nothing is generated: the result is one JSON document of shots, each {name, start_frame, num_frames, cut_frames, lead_frames, lyric, kind}, tiling the song exactly at 'fps', so the agent writes one prompt per shot and renders the list with music-video.json, whose entries are {name, start_frame, prompt}. 'lyrics' is the song's own words, one line per line with a blank line or a lone section tag such as [Chorus] between stanzas: the shots carry those lines verbatim and the transcript only times them, since Whisper mishears sung words. Left null, the shots carry the transcript's text. 'segment_by' is 'line' (a shot per sung line), 'stanza' or 'beat' (a cut every few beats). 'min_scene_s' merges a shot that is too short into its neighbour and 'max_scene_s' splits one that is too long, on a beat. 'vocal_tail_s' holds a sung shot past its last word, 'include_instrumental_gaps' gives a long silence its own instrumental shot, and 'snap_to_beats' moves every cut to its nearest beat. 'timestamps' must stay 'segment' (a Whisper segment per line) or be 'word'; plan_cuts refuses a transcript without timings.",
+    "cost_drivers": [
+        "fps"
+    ],
+    "variables": {
+        "song": "asset:song.wav",
+        "lyrics": null,
+        "segment_by": "line",
+        "fps": 24,
+        "min_scene_s": 1.5,
+        "max_scene_s": 10,
+        "vocal_tail_s": 0.5,
+        "include_instrumental_gaps": true,
+        "snap_to_beats": true,
+        "timestamps": "segment",
+        "model_name": "openai/whisper-base"
+    },
+    "steps": [
+        {
+            "name": "transcribe",
+            "task": {
+                "command": "transcribe_audio",
+                "arguments": {
+                    "audio": "variable:song",
+                    "timestamps": "variable:timestamps",
+                    "model_name": "variable:model_name"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "beats",
+            "task": {
+                "command": "analyze_beats",
+                "arguments": {
+                    "audio": "variable:song"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "plan",
+            "task": {
+                "command": "plan_cuts",
+                "arguments": {
+                    "transcript": "previous_result:transcribe",
+                    "beats": "previous_result:beats",
+                    "lyrics": "variable:lyrics",
+                    "segment_by": "variable:segment_by",
+                    "fps": "variable:fps",
+                    "min_scene_s": "variable:min_scene_s",
+                    "max_scene_s": "variable:max_scene_s",
+                    "vocal_tail_s": "variable:vocal_tail_s",
+                    "include_instrumental_gaps": "variable:include_instrumental_gaps",
+                    "snap_to_beats": "variable:snap_to_beats"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

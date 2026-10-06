@@ -768,6 +768,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/last-frame-only.json": {
         "last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
     },
+    "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
         "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "shot@closeup": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
