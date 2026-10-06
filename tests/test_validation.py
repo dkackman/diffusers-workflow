@@ -192,6 +192,7 @@ ERROR_ORDER = [
     "voices",
     "script_lines",
     "dissolve_frames",
+    "window_count",
     "video_sizes",
     "select",
     "chain_prompts",

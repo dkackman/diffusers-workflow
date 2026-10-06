@@ -141,7 +141,7 @@ def admit(
 
     # validation_errors() and the warnings resolve 'asset:' references
     # themselves (dissolve_frame_errors, video_size_errors,
-    # slice_past_end_warnings, shot_span_warnings) through dw.assets' default
+    # window_count_errors, slice_past_end_warnings, shot_span_warnings) through dw.assets' default
     # discovery, which a real deployment's DW_ASSET_DIR pins to the default
     # workspace - so this request's own workspace is the active library for
     # every check, the same ContextVar the worker activates before it runs

@@ -767,8 +767,14 @@ size.
 The window count must be exactly `ceil(source_frames / (num_frames -
 overlap))` - the rule has one home, `window_count` in `dw/task_domains.py`,
 and `window_video`'s last valid `index` is one below it. A different count is
-refused at run time, naming both numbers and the list entries (by index) to
-add or drop. It also refuses a window whose frame count is not `num_frames`
+refused naming both numbers and the list entries (by index) to add or drop:
+by `validate_workflow`, before any window renders, when the count is
+knowable from the document - `source` an `asset:`/`output:` reference or a
+literal path (probed header-only), `num_frames` and `overlap` literal after
+substitution, `videos` a list (a `gather:` over a `for_each` step is one) -
+and otherwise at run time, once the source is decoded. The validate-time
+check is the task's (`dw/window_count_errors.py`), so any `join_windows`
+step gets it, and it applies the same `window_count_problem` the task does. It also refuses a window whose frame count is not `num_frames`
 (named by position) and windows of different sizes. An unknown `curve` and an
 `overlap` that is not below `num_frames` are refused by `validate_workflow`
 on literal values as well.
