@@ -1487,6 +1487,25 @@ class TestSegmentBackedSave:
         with av.open(str(path)) as container:
             return sum(1 for _ in container.decode(video=0))
 
+    def test_size_narration_counts_frames_not_segment_files(self, tmp_path):
+        from dw.pipeline_processors.chain import SegmentedFrames
+        from dw.writers import _artifact_size
+
+        files = self.make_segments(tmp_path)
+        frames = SegmentedFrames(files.paths, stored_frames=7)
+        assert len(frames) == 2
+
+        class Artifact:
+            pass
+
+        artifact = Artifact()
+        artifact.frames = frames
+        assert _artifact_size(artifact) == "7 frames"
+
+        trimmed = SegmentedFrames(files.paths, total_frames=5, stored_frames=7)
+        artifact.frames = trimmed
+        assert _artifact_size(artifact) == "5 frames"
+
     def test_streams_segments_into_one_video(self, tmp_path):
         frames = self.make_segments(tmp_path)
         result = Result({"content_type": "video/mp4", "fps": 4})

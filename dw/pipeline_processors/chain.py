@@ -156,15 +156,18 @@ class SegmentedFrames:
     video is written holding only one segment in memory at a time.
     """
 
-    def __init__(self, paths, total_frames=None, keep_files=False):
+    def __init__(self, paths, total_frames=None, keep_files=False, stored_frames=None):
         """
         Args:
             paths: The segment files, in output order
             total_frames: Frames to yield in total - the match_audio tail trim.
                 None yields every stored frame
             keep_files: Leave the segment files in place after cleanup()
+            stored_frames: Frames across all the files, when known - what
+                frame_count reports, since len() counts files
         """
         self.paths = list(paths)
+        self.stored_frames = stored_frames
         self.total_frames = total_frames
         self.keep_files = keep_files
         # True once cleanup() has actually removed the files (not when
@@ -176,6 +179,15 @@ class SegmentedFrames:
     def __len__(self):
         """Chunk count - one per segment file."""
         return len(self.paths)
+
+    @property
+    def frame_count(self):
+        """Frames the replay yields, or None when the files were not counted."""
+        if self.stored_frames is None:
+            return None
+        if self.total_frames is None:
+            return self.stored_frames
+        return min(self.stored_frames, self.total_frames)
 
     def __iter__(self):
         remaining = self.total_frames
@@ -237,6 +249,7 @@ class SegmentSpill:
         self.base_name = f"{file_prefix}.{iteration}"
         self.fps = config.fps
         self.paths = []
+        self.frame_count = 0
 
     def write(self, frames, audio, sample_rate):
         """Encode one trimmed segment to disk and record its path.
@@ -270,6 +283,7 @@ class SegmentSpill:
             audio_sample_rate=sample_rate if audio_track is not None else None,
         )
         self.paths.append(path)
+        self.frame_count += len(frames)
         logger.info(f"Saved chain segment to {path}")
 
 
@@ -408,6 +422,7 @@ def run_chain(pipeline, chain_definition, arguments):
             spill.paths,
             config.total_frames if config.source_audio is not None else None,
             config.keep_segments,
+            spill.frame_count,
         )
 
     if config.source_audio is not None:

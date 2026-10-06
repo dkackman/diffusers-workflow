@@ -28,6 +28,10 @@ def _artifact_size(artifact):
     try:
         frames = getattr(artifact, "frames", None)
         if frames is not None:
+            # Segment-backed frames: len() counts files, not frames
+            counted = getattr(frames, "frame_count", None)
+            if counted is not None:
+                return f"{counted} frames"
             return f"{len(frames)} frames"
         if hasattr(artifact, "__len__") and not isinstance(artifact, (str, bytes)):
             return f"{len(artifact)} frames"
