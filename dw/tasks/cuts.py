@@ -236,10 +236,11 @@ def _align_words(lyric_words, heard_words):
     return pairs
 
 
-def _align_lyrics(lyric_lines, chunks, duration, warnings):
+def _align_lyrics(lyric_lines, chunks, duration, warnings, min_line_s):
     """[{start, end, text, stanza}] - the lyrics' lines in their order, timed
     from the transcript. A line none of whose words were heard is placed
-    between its neighbours, and warned about."""
+    between its neighbours, and warned about; when they touch it takes
+    min_line_s from them, so it is still a shot of its own."""
     heard = _timed_words(chunks)
     lyric_words, owner = [], []
     for index, (text, _) in enumerate(lyric_lines):
@@ -286,6 +287,22 @@ def _align_lyrics(lyric_lines, chunks, duration, warnings):
             low = vocal_start if following is None else min(vocal_start, following)
         high = following if following is not None else max(vocal_end, low)
         count = run_end - index
+        # The neighbours took the unheard line's time with its misheard words:
+        # give it back from each side, never more than half a neighbour
+        short = count * min_line_s - (high - low)
+        if short > 1e-9:
+            before = timed[index - 1] if index > 0 else None
+            after = timed[run_end] if run_end < len(timed) else None
+            spare_before = (before[1] - before[0]) / 2 if before else 0.0
+            spare_after = (after[1] - after[0]) / 2 if after else 0.0
+            take_before = min(spare_before, max(short / 2, short - spare_after))
+            take_after = min(spare_after, short - take_before)
+            low -= take_before
+            high += take_after
+            if before:
+                before[1] = low
+            if after:
+                after[0] = high
         step = (high - low) / count
         for offset in range(count):
             timed[index + offset] = [low + offset * step, low + (offset + 1) * step]
@@ -400,10 +417,11 @@ def _scenes_by_beats(lines, beats, duration, args):
     return scenes
 
 
-def _split_long(scenes, beats, max_scene_s):
+def _split_long(scenes, beats, max_scene_s, warnings):
     """Each scene over max_scene_s cut into the fewest even pieces under it,
     each cut moved to the nearest beat inside the scene when there are beats.
-    A piece of a sung scene keeps its lyric."""
+    A piece of a sung scene keeps its lyric, and the split is warned about,
+    since the same words then carry several shots."""
     if max_scene_s is None:
         return scenes
     result = []
@@ -423,6 +441,12 @@ def _split_long(scenes, beats, max_scene_s):
                 cuts.append(target)
                 previous = target
         edges = [scene["start"], *cuts, scene["end"]]
+        if scene["lyrics"] and len(edges) > 2:
+            warnings.append(
+                f"{COMMAND}: {' / '.join(scene['lyrics'])!r} lasts {length:.2f} s, "
+                f"over max_scene_s ({max_scene_s:g} s) - split into "
+                f"{len(edges) - 1} shots, each carrying its lyric"
+            )
         for start, end in zip(edges, edges[1:]):
             result.append(_scene(start, end, scene["kind"], scene["lyrics"]))
     return result
@@ -631,14 +655,27 @@ def plan_cuts(
                 "or the analyze_beats result as 'beats'"
             )
         duration = max(chunk["end"] for chunk in chunks)
+        if beats is None:
+            why = "no 'duration_s' or beats"
+        else:
+            # 'previous_result:<step>' into 'beats' hands over only the
+            # analyze_beats result's 'beats' list, the key the argument names
+            why = (
+                "no 'duration_s', and 'beats' is a bare list of times with no "
+                "duration_seconds (a previous_result: into 'beats' passes only "
+                "the list - pass 'previous_result:<step>.duration_seconds' as "
+                "'duration_s')"
+            )
         warnings.append(
-            f"{COMMAND}: no 'duration_s' or beats - the plan ends with the "
-            f"transcript's last line, at {duration:.2f} s"
+            f"{COMMAND}: {why} - the plan ends with the transcript's last line, "
+            f"at {duration:.2f} s"
         )
     beat_times = [beat for beat in beat_times if 0.0 < beat < duration]
 
     if lyrics is not None and not (isinstance(lyrics, str) and not lyrics.strip()):
-        lines = _align_lyrics(_lyric_lines(lyrics), chunks, duration, warnings)
+        lines = _align_lyrics(
+            _lyric_lines(lyrics), chunks, duration, warnings, max(args.min_scene_s, 0.5)
+        )
     else:
         lines = _transcript_lines(chunks, args.min_gap_seconds or 2.0)
         if not lines:
@@ -654,7 +691,7 @@ def plan_cuts(
         scenes = _scenes_by_beats(lines, beat_times, duration, args)
     else:
         scenes = _scenes_by_units(_units(lines, segment_by), duration, args, warnings)
-    scenes = _split_long(scenes, beat_times, args.max_scene_s)
+    scenes = _split_long(scenes, beat_times, args.max_scene_s, warnings)
     if snap_to_beats:
         scenes = _snap(scenes, beat_times, warnings)
     scenes = _merge_short(scenes, args.min_scene_s)

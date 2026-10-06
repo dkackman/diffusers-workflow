@@ -1460,6 +1460,7 @@ the list rendered. The result is JSON and nothing is built:
         "arguments": {
             "transcript": "previous_result:transcribe",
             "beats": "previous_result:beats",
+            "duration_s": "previous_result:beats.duration_seconds",
             "lyrics": "variable:lyrics",
             "segment_by": "line",
             "fps": 24,
@@ -1480,7 +1481,7 @@ the list rendered. The result is JSON and nothing is built:
 | `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
 | `segment_by` | No | `line` (default), `stanza` or `beat` |
 | `fps` | No | Frames per second the shots are counted in (default `24`) |
-| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when omitted, else the transcript's last end (with a warning) |
+| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
 | `min_scene_s` | No | The shortest a shot may be (default `1.0`) |
 | `max_scene_s` | No | The longest a shot may be (default none) |
 | `vocal_tail_s` | No | Seconds a sung shot holds past its last word (default `0`) |
@@ -1502,7 +1503,9 @@ How the plan is made:
 - With `lyrics`, those lines are the lines, and the transcript only lends them
   timings: they are aligned to it word by word, since Whisper mishears sung
   words and splits lines where it likes. A line never heard is placed between
-  its neighbours with a warning. Blank lines and section tags are stanza
+  its neighbours with a warning, as a shot of its own: when its neighbours
+  touch, it takes `min_scene_s` (at least half a second) from them, never
+  more than half of either. Blank lines and section tags are stanza
   breaks, not sung lines. Without `lyrics`, each transcript chunk is a line.
 - `segment_by` makes a shot per line, per stanza (the lyrics' blank-line
   groups, or lines without a `min_gap_seconds` silence between them) or per
@@ -1512,7 +1515,9 @@ How the plan is made:
   instrumental shot, as can the silence before the first line and after the
   last.
 - A shot over `max_scene_s` splits evenly, each cut on its nearest beat when
-  there are beats; one under `min_scene_s` merges into its shorter neighbour.
+  there are beats, and a sung shot split this way is warned about by its
+  lyric, which every piece carries; one under `min_scene_s` merges into its
+  shorter neighbour.
   A shot still outside the range is warned about by name.
 - `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
   and leaves the cuts where the lines put them.

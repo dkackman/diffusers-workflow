@@ -456,3 +456,101 @@ class TestStaticValidation:
             )
             == []
         )
+
+
+class TestBounceFixes:
+    """The tester's bounce of #626: the template's plan stopped at the last
+    lyric, an unheard line between touching lines lost its shot, and a split
+    stanza went unannounced."""
+
+    TOUCHING = {
+        "chunks": [
+            {"start": 2.0, "end": 6.0, "text": "Hello there my old friend"},
+            {"start": 6.0, "end": 9.0, "text": "We were burning bright"},
+        ]
+    }
+
+    def test_an_unheard_line_between_touching_lines_is_its_own_shot(self):
+        lyrics = (
+            "Hello there my old friend\nZebra quartz xylophone\nWe were burning bright"
+        )
+        result = plan_cuts(self.TOUCHING, lyrics=lyrics, duration_s=12.0)
+        lyrics_by_shot = [s["lyric"] for s in result["shots"] if s["lyric"]]
+        assert lyrics_by_shot == lyrics.split("\n")
+        unheard = next(
+            s for s in result["shots"] if s["lyric"] == "Zebra quartz xylophone"
+        )
+        assert unheard["cut_frames"] >= FPS  # min_scene_s, 1 s by default
+        assert any("Zebra quartz xylophone" in w for w in result["warnings"])
+        assert not any("left no time" in w for w in result["warnings"])
+        assert_tiles(result)
+
+    def test_a_split_stanza_is_warned_about_by_its_lyric(self):
+        chunks = [
+            {"start": 0.0, "end": 2.0, "text": "first stanza line"},
+            {"start": 6.2, "end": 11.0, "text": "we were burning bright"},
+            {"start": 11.0, "end": 17.2, "text": "never let it go"},
+        ]
+        lyrics = "first stanza line\n\nwe were burning bright\nnever let it go"
+        result = plan_cuts(
+            {"chunks": chunks},
+            lyrics=lyrics,
+            segment_by="stanza",
+            duration_s=20.0,
+            max_scene_s=10.0,
+        )
+        split = [
+            s
+            for s in result["shots"]
+            if s["lyric"] == "we were burning bright\nnever let it go"
+        ]
+        assert len(split) == 2
+        assert any(
+            "we were burning bright / never let it go" in w and "max_scene_s" in w
+            for w in result["warnings"]
+        )
+
+    def test_a_bare_beat_list_without_duration_says_why(self):
+        result = plan_cuts(TRANSCRIPT, beats=beat_list(0.5))
+        assert any("duration_seconds" in w for w in result["warnings"])
+
+    def test_the_template_plans_to_the_songs_end(self):
+        """The template's plan step, resolved the way the engine resolves it:
+        'previous_result:beats' into 'beats' passes only the beats list, so
+        the song's length has to come through 'duration_s'."""
+        from pathlib import Path
+
+        from dw.previous_results import get_iterations
+        from dw.result import Result
+
+        template = json.loads(
+            (
+                Path(__file__).parent.parent
+                / "workflows/templates/minimax/music-video-cuts.json"
+            ).read_text()
+        )
+        step = next(s for s in template["steps"] if s["name"] == "plan")
+        variables = dict(template["variables"], lyrics=LYRICS)
+        arguments = {
+            key: variables[value[len("variable:") :]]
+            if isinstance(value, str) and value.startswith("variable:")
+            else value
+            for key, value in step["task"]["arguments"].items()
+        }
+        transcribe = Result({"content_type": "application/json"})
+        transcribe.add_result(TRANSCRIPT)
+        beats = Result({"content_type": "application/json"})
+        beats.add_result(
+            {"bpm": 120.0, "beats": beat_list(0.5), "duration_seconds": DURATION}
+        )
+        (iteration,) = get_iterations(
+            arguments, {"transcribe": transcribe, "beats": beats}
+        )
+        assert isinstance(iteration["beats"], list)  # the engine's key pick
+        result = plan_cuts(**iteration)
+        assert result["duration_s"] == DURATION
+        assert result["total_frames"] == round(DURATION * FPS)
+        assert result["shots"][-1]["kind"] == "instrumental"  # the outro
+        assert not any("duration_s" in w for w in result["warnings"])
+        assert sung(result) == LINES
+        assert_tiles(result)
