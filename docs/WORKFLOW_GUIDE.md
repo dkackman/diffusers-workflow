@@ -81,6 +81,14 @@ Run a HuggingFace Diffusers model:
 }
 ```
 
+A `component_type` can also name a **community pipeline** that dw ships in `dw/community_pipelines/`, by its
+dotted path; `list_pipelines` lists them after the diffusers ones. `RFInversionFluxPipeline`
+(`dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline`) inverts an image into FLUX
+latents (below). `LTX2RefinePipeline` (`dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline`) is
+`LTX2Pipeline` plus a `video` argument: the clip is VAE-encoded at `width` x `height` and renoised at
+`noise_scale` over `sigmas`, a refine at the clip's own size rather than `refine-clip`'s 2x. `num_frames`
+(8 * n + 1, no longer than the clip) defaults to the clip's length; `video` and `latents` are exclusive.
+
 ### Pipeline Reference Steps
 
 Re-run an already-loaded pipeline from an earlier step with a fresh set of arguments,
