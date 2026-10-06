@@ -18,6 +18,7 @@ from .format_messages import (
 # the names the rest of dw and the tests read
 from .registry import _COMMAND_INFO, _COMMAND_REGISTRY, register_command  # noqa: F401
 from . import beats  # noqa: F401 - registers analyze_beats
+from . import cuts  # noqa: F401 - registers plan_cuts
 
 # The model-backed handlers (upscale, restore_faces, segment, interpolate_frames,
 # image_to_text, text_generation, diffusion_upscale) are imported inside their

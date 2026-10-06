@@ -115,6 +115,7 @@ UTILITIES = {
     "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/image-processors.json",
+    "workflows/templates/minimax/music-video-cuts.json",
     "workflows/templates/recenter-crop.json",
     "workflows/templates/segment.json",
     "workflows/templates/transcribe-audio.json",
@@ -421,7 +422,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 9_200 for `templates/attribute-lines` (#617, 2026-10-05), measured
 # at 9_180: about 30 tokens, the transcribe -> attribute_voices chain a
 # lip-sync target check starts from (#488).
-COMPACT_BUDGET = 9_200
+# Then to 9_400 for `templates/minimax/music-video-cuts` (#600), measured at
+# 9_296: about 115 tokens, the transcribe -> analyze_beats -> plan_cuts chain
+# that plans a music video's shots from its lyrics.
+COMPACT_BUDGET = 9_400
 FILTERED_BUDGET = 1_500
 
 

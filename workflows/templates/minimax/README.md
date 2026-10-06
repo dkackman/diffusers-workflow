@@ -160,6 +160,7 @@ same clip as an audio reference in each shot, as
 | ------- | ------------------ |
 | [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, one `for_each` step over a `shots` list generates a shot per entry - its prompt, its references, its length - on one loaded model, and `concat_videos` gathers the episode |
 | [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit, cut to the length of the edit by `fit: "video"` so the soundtrack follows the list rather than a constant |
+| [music-video-cuts.json](music-video-cuts.json) | Plans a music video's cuts without generating anything: `transcribe_audio` times the song's lines, `analyze_beats` finds its beats, and `plan_cuts` aligns the song's own `lyrics` to them and answers a `shots` list of `start_frame`, length, lyric and kind, ready to write prompts against and render with `music-video.json` |
 
 ## Field notes from a 24-shot musical
 
