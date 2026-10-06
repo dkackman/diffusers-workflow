@@ -185,7 +185,7 @@ def load_lut(lut):
     must be a .cube, the precedent load_audio_video set. No refusal names
     an absolute path the caller did not write.
     """
-    from ..locations import validate_media_path
+    from ..locations import refuse_url_for_local_file, validate_media_path
     from ..security import (
         ALLOWED_LUT_EXTENSIONS,
         InvalidInputError,
@@ -197,6 +197,7 @@ def load_lut(lut):
             f"apply_lut: 'lut' is a .cube file - an asset: or output: "
             f"reference or a path - not {type(lut).__name__}"
         )
+    refuse_url_for_local_file(lut, "a LUT")
     path = validate_media_path(lut, None, "a LUT", require_exists=False)
     try:
         validate_file_extension(path, ALLOWED_LUT_EXTENSIONS)

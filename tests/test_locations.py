@@ -619,3 +619,74 @@ class TestTaskMediaArguments:
         definition = self._join("/etc/passwd")
         definition["steps"][1]["task"]["command"] = "gather_inputs"
         assert location_errors(definition, base_dir=workflow_dir) == []
+
+
+class TestApplyLutArguments:
+    """apply_lut's `lut` and `media` are refused at validation, at their own
+    argument paths, rather than only when the run reaches the step (#635,
+    SE-F044) - and `lut`, which is never fetched, refuses a URL as a URL."""
+
+    @staticmethod
+    def _apply(lut, media="asset:portrait.jpg"):
+        return {
+            "steps": [
+                {
+                    "name": "lut",
+                    "task": {
+                        "command": "apply_lut",
+                        "arguments": {"media": media, "lut": lut},
+                    },
+                }
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "lut",
+        [
+            "/etc/passwd",
+            "/etc/passwd.cube",
+            "/nonexistent-dw-probe/x.cube",
+            "../../../../etc/passwd",
+            "../../../../tmp/x.cube",
+            "file:///etc/passwd.cube",
+            "https://example.com/x.cube",
+        ],
+    )
+    def test_an_unreadable_lut_is_an_error_at_its_path(
+        self, untrusted, workflow_dir, lut
+    ):
+        errors = location_errors(self._apply(lut), base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == ["steps[0].task.arguments.lut"]
+        assert "'lut'" in errors[0]["message"]
+
+    def test_a_url_lut_is_refused_as_a_url(self, untrusted, workflow_dir):
+        errors = location_errors(
+            self._apply("https://example.com/x.cube"), base_dir=workflow_dir
+        )
+
+        assert "never fetched from a URL" in errors[0]["message"]
+        assert "outside" not in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "lut", ["asset:look.cube", "output:look.cube", "variable:look"]
+    )
+    def test_a_reference_is_left_alone(self, untrusted, workflow_dir, lut):
+        assert location_errors(self._apply(lut), base_dir=workflow_dir) == []
+
+    def test_a_lut_inside_the_workflow_directory_is_allowed(
+        self, untrusted, workflow_dir
+    ):
+        inside = os.path.join(workflow_dir, "look.cube")
+        assert location_errors(self._apply(inside), base_dir=workflow_dir) == []
+
+    @pytest.mark.parametrize("command", ["apply_lut", "grade", "sharpen", "film_grain"])
+    def test_a_literal_media_outside_the_roots_is_an_error(
+        self, untrusted, workflow_dir, command
+    ):
+        definition = self._apply("asset:look.cube", media="/etc/passwd.jpg")
+        definition["steps"][0]["task"]["command"] = command
+
+        errors = location_errors(definition, base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == ["steps[0].task.arguments.media"]
