@@ -1099,11 +1099,17 @@ def fit_downscale_problem(width, height, downscale):
     fit_to_model fits into width/downscale x height/downscale, so a template
     can keep `width`/`height` as the output size of a 2x model and still fit
     the source to the model's input (#602). All three are whole numbers
-    already inside their domains."""
-    if width % downscale or height % downscale:
+    already inside their domains. It names only the side or sides that fail,
+    so the caller knows which to change."""
+    failing = [
+        f"'{name}' {value}"
+        for name, value in (("width", width), ("height", height))
+        if value % downscale
+    ]
+    if failing:
         return (
-            f"fit_to_model needs 'width' and 'height' divisible by "
-            f"'downscale' {downscale}, got {width}x{height}"
+            f"fit_to_model needs {' and '.join(failing)} to be divisible "
+            f"by 'downscale' {downscale}"
         )
     return None
 

@@ -324,10 +324,25 @@ class TestDownscale:
         record = fit(width=512, height=288)["fit"]
         assert (record["model_width"], record["model_height"]) == (512, 288)
 
-    def test_a_size_not_divisible_names_both(self):
-        with pytest.raises(ValueError, match="downscale") as raised:
+    def test_a_width_not_divisible_names_width_only(self):
+        with pytest.raises(ValueError) as raised:
             fit(width=512, height=288, downscale=3)
-        assert "3" in str(raised.value) and "512x288" in str(raised.value)
+        message = str(raised.value)
+        assert "'width' 512" in message and "'downscale' 3" in message
+        assert "height" not in message and "288" not in message
+
+    def test_a_height_not_divisible_names_height_only(self):
+        with pytest.raises(ValueError) as raised:
+            fit(width=515, height=288, downscale=5)
+        message = str(raised.value)
+        assert "'height' 288" in message and "'downscale' 5" in message
+        assert "width" not in message and "515" not in message
+
+    def test_both_sides_not_divisible_names_both(self):
+        with pytest.raises(ValueError) as raised:
+            fit(width=512, height=290, downscale=3)
+        message = str(raised.value)
+        assert "'width' 512" in message and "'height' 290" in message
 
     @pytest.mark.parametrize("bad", [0, -2, 1.5, True, "abc"])
     def test_a_bad_downscale_is_refused(self, bad):
@@ -403,7 +418,14 @@ class TestStaticValidation:
     def test_a_size_downscale_does_not_divide(self):
         errors = _validate(dict(GOOD, downscale=3))
         assert self.names(errors) == ["downscale"], errors
-        assert "512x288" in errors[0][1]
+        assert "'width' 512" in errors[0][1]
+        assert "height" not in errors[0][1]
+
+    def test_a_height_downscale_does_not_divide_names_height_only(self):
+        errors = _validate(dict(GOOD, width=515, downscale=5))
+        assert self.names(errors) == ["downscale"], errors
+        assert "'height' 288" in errors[0][1]
+        assert "width" not in errors[0][1] and "515" not in errors[0][1]
 
     @pytest.mark.parametrize("bad", [0, 1.5])
     def test_a_bad_literal_downscale(self, bad):
