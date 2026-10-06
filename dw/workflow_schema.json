@@ -310,7 +310,7 @@
                     "minimum": 1
                 },
                 "match_audio": {
-                    "description": "Derive the segment count from the duration of the audio reference in this step's arguments, slicing it into frame-aligned per-segment chunks; the final video is muxed with the original, unsliced audio track.",
+                    "description": "Derive the segment count from the duration of this step's hold_audio track, or else its one audio reference, slicing it into frame-aligned per-segment chunks (each segment's hold_audio, or its audio reference); the final video is muxed with the original, unsliced audio track.",
                     "type": "boolean"
                 },
                 "continuity": {

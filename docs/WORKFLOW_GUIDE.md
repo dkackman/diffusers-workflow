@@ -1884,10 +1884,12 @@ joined into a single file:
 
 - `segments` — how many times the pipeline runs. Total length is roughly
   `segments * num_frames`, minus `trim_frames` per seam.
-- `match_audio` — instead of a count, derive the length from the audio reference in
-  the step's arguments. The audio is sliced into frame-aligned per-segment chunks,
-  each segment is generated against its slice, and the final video is muxed with the
-  **original, unsliced track** - so the soundtrack has no seams at all. Requires
+- `match_audio` — instead of a count, derive the length from the step's `hold_audio`
+  track, or else the one audio reference in its `references`. The audio is sliced into
+  frame-aligned per-segment chunks, each segment is generated against its slice - a
+  held track's slice is that segment's `hold_audio`, a reference's replaces the
+  reference - and the final video is muxed with the **original, unsliced track** - so
+  the soundtrack has no seams at all. Requires
   `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
   or `match_audio` must be given.
 - `continuity` — how continuity carries across segments. `last_frame` (the default)

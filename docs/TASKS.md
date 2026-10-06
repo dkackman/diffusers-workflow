@@ -2173,7 +2173,7 @@ The result needs no `sample_rate`. A generated track carries the rate its model 
 
 ### Generating a voice to condition on
 
-The role this earns its place in is voice *timbre reference*, not the track a mouth follows. MiniMax H3 lip-syncs well when it generates the speech itself and poorly when it must follow supplied audio, so its `MiniMaxH3AudioReference` takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
+The role this earns its place in is voice *timbre reference*, not the track a mouth follows. A `MiniMaxH3AudioReference` is audio H3 reads, not audio it plays: it takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line, and a mouth asked to follow a whole track through a reference follows it loosely. A track the picture must follow is held instead, with `hold_audio` (the `workflows` guide, "H3: generating to a held soundtrack"): the track is the step's audio, and the video is drawn to it. `music-video` and the `match_audio` chain templates hold their track that way. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
 
 ```json
 "references": [
