@@ -354,7 +354,7 @@ add grain last so it is not itself sharpened:
 | `get_frame` | Extract frame at index | `frame_index` |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
-| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 | `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
@@ -827,8 +827,15 @@ and exactly `num_frames`, the pipeline runs on the fitted video, and
 `mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
 (resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
 count is exact: a longer source is cut to its first `num_frames` frames and a
-shorter one holds its last frame. The step returns `{video, fit}`, read as
-`previous_result:<step>.video` and `previous_result:<step>.fit`. The `fit`
+shorter one holds its last frame. `downscale` (default 1) divides `width` and
+`height`, which must both be divisible by it: a 2x upscaler whose `width` x
+`height` is the output it renders takes its reference at half that, so it fits
+with `downscale: 2` and passes the same `width`/`height` to the pipeline
+(`templates/ltx2/upscale-clip`). The step returns `{video, fit}`, read as
+`previous_result:<step>.video` and `previous_result:<step>.fit`. `video` is a
+float32 array of frames, height, width, RGB in 0-1 that carries its `fps`, so
+it goes straight to a pipeline's `video` or a reference condition's `frames`;
+saved, it is written as an mp4 at that rate. The `fit`
 record holds `mode`, `source_width`, `source_height`, `source_frames`,
 `model_width`, `model_height`, `model_frames`, `content_box` (where the source
 sits in the model frame) and `source_box` (the part of the source kept - all

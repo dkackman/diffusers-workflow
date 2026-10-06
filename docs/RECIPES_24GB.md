@@ -185,7 +185,8 @@ same seed: fur, branches and snow texture resolve where the upsample-only frame 
 soft blur. About eight warm minutes, three and a half of them writing the full-size clip.
 The same refine on a clip dw did not make is
 [refine-clip.json](../workflows/templates/ltx2/refine-clip.json): the upsampler encodes
-the source itself, and the source's soundtrack is paired back on.
+the source itself, fitted to the working size first and restored to exactly twice the
+source's size and length after, and the source's soundtrack is paired back on.
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json) (t2v),
 [two-stage.json](../workflows/templates/ltx2/two-stage.json) (base -> latent upsample -> refine),

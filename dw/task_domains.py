@@ -975,9 +975,7 @@ def fit_to_model_errors(arguments):
     if not errors and all(
         n is not None and n > 0 and n.is_integer() for n in [*sizes, downscale]
     ):
-        problem = fit_downscale_problem(
-            int(sizes[0]), int(sizes[1]), int(downscale)
-        )
+        problem = fit_downscale_problem(int(sizes[0]), int(sizes[1]), int(downscale))
         if problem is not None:
             errors.append(("downscale", problem))
     return errors
