@@ -14,10 +14,12 @@ Two ways to carry continuity:
 
 Two ways to specify the length:
 - segments: N - run the pipeline N times as configured
-- match_audio: true - derive the total frame count from the audio reference
-  in the step's arguments, slice that audio into frame-aligned per-segment
-  chunks, and mux the final video with the original, unsliced track - so the
-  soundtrack has no seams at all
+- match_audio: true - derive the total frame count from the step's
+  `hold_audio` track, or else its one audio reference, slice that audio into
+  frame-aligned per-segment chunks, and mux the final video with the original,
+  unsliced track - so the soundtrack has no seams at all. A held track is
+  sliced into each segment's `hold_audio`, so every segment generates to its
+  own piece of it (dw/pipeline_processors/h3_blocks.py)
 
 The chain runs inside one cartesian iteration, so it composes with
 previous_result fan-out: three keyframes in, three chained videos out.
@@ -43,6 +45,7 @@ from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
+from .h3_blocks import HOLD_AUDIO_INPUT, hold_audio_reference
 
 logger = logging.getLogger("dw")
 
@@ -293,7 +296,10 @@ def run_chain(pipeline, chain_definition, arguments):
     # Step.run resolved any previous_result references in the chain's prompts,
     # which the chain block cannot express on its own
     config = ChainConfig(
-        chain_definition, arguments, getattr(pipeline, "chain_prompts", None)
+        chain_definition,
+        arguments,
+        getattr(pipeline, "chain_prompts", None),
+        getattr(pipeline, "base_dir", None),
     )
     continuity = CONTINUITY_MODES[config.continuity](config)
 
@@ -322,9 +328,12 @@ def run_chain(pipeline, chain_definition, arguments):
 
         if config.source_audio is not None:
             segment_arguments["num_frames"] = segment.num_frames
-            segment_arguments["references"] = _sliced_references(
-                config, segment, arguments["references"]
-            )
+            if config.holds_audio:
+                segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
+            else:
+                segment_arguments["references"] = _sliced_references(
+                    config, segment, arguments["references"]
+                )
 
         if segment.index > 0:
             continuity.inject(segment_arguments, carry, config.segment_argument)
@@ -438,7 +447,9 @@ def _trimmed_shots(shots, total_frames):
 class ChainConfig:
     """Validated chain settings plus the planned segments for one run."""
 
-    def __init__(self, chain_definition, arguments, resolved_prompts=None):
+    def __init__(
+        self, chain_definition, arguments, resolved_prompts=None, base_dir=None
+    ):
         segments = chain_definition.get("segments", None)
         match_audio = bool(chain_definition.get("match_audio", False))
         if (segments is not None) == match_audio:
@@ -471,10 +482,11 @@ class ChainConfig:
         self.source_audio = None
         self.source_rate = None
         self.audio_reference = None
+        self.holds_audio = False
         self.total_frames = None
 
         if match_audio:
-            self._plan_from_audio(arguments)
+            self._plan_from_audio(arguments, base_dir)
         else:
             segments = int(segments)
             if not 1 <= segments <= MAX_SEGMENTS:
@@ -494,8 +506,9 @@ class ChainConfig:
                 for index in range(segments)
             ]
 
-    def _plan_from_audio(self, arguments):
-        """Derive the segment plan from the audio reference's duration."""
+    def _plan_from_audio(self, arguments, base_dir=None):
+        """Derive the segment plan from the matched track's duration - the
+        step's `hold_audio` when it names one, else its audio reference."""
         if self.fps is None:
             raise ValueError(
                 "A match_audio chain needs the frame rate - set 'fps' on the "
@@ -509,12 +522,19 @@ class ChainConfig:
                 "as the per-segment length"
             )
 
-        reference = _find_audio_reference(arguments)
+        held = arguments.get(HOLD_AUDIO_INPUT)
+        if held is not None:
+            # Read once here, sliced per segment - each slice is a reference
+            # already built, which the segment's own hold takes as it is
+            reference = hold_audio_reference(held, base_dir)
+            self.holds_audio = True
+        else:
+            reference = _find_audio_reference(arguments)
         self.audio_reference = reference
         self.source_audio = as_channels_samples(reference.audio)
         self.source_rate = reference.sample_rate
         if self.source_rate is None:
-            raise ValueError("The chain's audio reference has no sample rate")
+            raise ValueError("The chain's matched audio has no sample rate")
 
         total_samples = self.source_audio.shape[1]
         self.total_frames = max(1, round(total_samples / self.source_rate * self.fps))
@@ -628,12 +648,13 @@ def _resolve_fps(chain_definition, arguments):
 
 
 def _find_audio_reference(arguments):
-    """The single audio reference a match_audio chain slices per segment."""
+    """The single audio reference a match_audio chain with no `hold_audio`
+    slices per segment."""
     references = arguments.get("references", None)
     if not isinstance(references, list):
         raise ValueError(
-            "A match_audio chain needs a 'references' argument holding the "
-            "audio reference to match"
+            "A match_audio chain needs a 'hold_audio' track, or a 'references' "
+            "argument holding the audio reference to match"
         )
 
     audio_references = [
@@ -649,19 +670,24 @@ def _find_audio_reference(arguments):
     return audio_references[0]
 
 
+def _audio_slice(config, segment):
+    """The segment's piece of the matched track, as a new reference of the
+    matched one's type - the original is never touched."""
+    start = frames_to_samples(segment.audio_start_frame, config.fps, config.source_rate)
+    length = frames_to_samples(segment.num_frames, config.fps, config.source_rate)
+    piece = slice_samples(config.source_audio, start, length)
+    return type(config.audio_reference)(
+        audio=torch.from_numpy(piece), sample_rate=config.source_rate
+    )
+
+
 def _sliced_references(config, segment, references):
     """A copy of the references list with the segment's audio slice swapped in.
 
     The original list and reference objects are never touched - iteration
     arguments share nested values, so they must not be mutated in place.
     """
-    start = frames_to_samples(segment.audio_start_frame, config.fps, config.source_rate)
-    length = frames_to_samples(segment.num_frames, config.fps, config.source_rate)
-    piece = slice_samples(config.source_audio, start, length)
-
-    sliced = type(config.audio_reference)(
-        audio=torch.from_numpy(piece), sample_rate=config.source_rate
-    )
+    sliced = _audio_slice(config, segment)
     return [
         sliced if reference is config.audio_reference else reference
         for reference in references

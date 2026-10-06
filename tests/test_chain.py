@@ -7,6 +7,7 @@ with .frames, LTX-2 style objects with audio attributes, and modular dicts
 keyed videos/audio/sampling_rate. No GPU is involved.
 """
 
+import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -390,6 +391,144 @@ class TestMatchAudioMode:
 
         with pytest.raises(ValueError, match="sample rate"):
             run_chain(pipeline, self.chain(), arguments)
+
+
+class TestMatchAudioHold:
+    """A match_audio chain whose step names `hold_audio` slices that track into
+    each segment's own `hold_audio` - the references are left alone (#619)."""
+
+    @pytest.fixture(autouse=True)
+    def reference_type(self):
+        references = pytest.importorskip(
+            "diffusers.modular_pipelines.minimax_h3.references"
+        )
+        self.reference = references.MiniMaxH3AudioReference
+
+    def make_arguments(self, held, num_frames=8):
+        return {
+            "prompt": "test",
+            "num_frames": num_frames,
+            "references": [FakeImageReference(solid_frame((9, 9, 9)))],
+            "hold_audio": held,
+        }
+
+    def chain(self, **overrides):
+        return {
+            "match_audio": True,
+            "fps": 4,
+            "trim_frames": 2,
+            "segment_argument": "references",
+        } | overrides
+
+    def ramp(self, samples=500):
+        """A track whose every sample says where it came from."""
+        return torch.arange(samples, dtype=torch.float32).repeat(2, 1)
+
+    def test_each_segment_holds_its_frame_aligned_slice(self):
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        # 5s at 4 fps -> 20 frames: segments of 8 frames, 2 trimmed per seam
+        assert len(result.frames) == 20
+        assert len(pipeline.calls) == 3
+        slices = [call["hold_audio"] for call in pipeline.calls]
+        assert all(isinstance(piece, self.reference) for piece in slices)
+        assert all(piece is not held for piece in slices)
+        assert all(piece.sample_rate == 100 for piece in slices)
+        # 8 frames at 4 fps and 100Hz -> 200 samples, starting at output
+        # frames 0, 6 and 12 - each later slice backs up by the 2-frame trim
+        assert [int(piece.audio[0, 0]) for piece in slices] == [0, 150, 300]
+        assert all(piece.audio.shape == (2, 200) for piece in slices)
+
+    def test_no_audio_reference_is_added_or_needed(self):
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        for call in pipeline.calls:
+            assert not [r for r in call["references"] if r.kind == "audio"]
+        # the workflow's own image, then the carried frame beside it
+        assert len(pipeline.calls[0]["references"]) == 1
+        assert len(pipeline.calls[1]["references"]) == 2
+
+    def test_the_final_audio_is_the_original_held_track(self):
+        track = self.ramp()
+        held = self.reference(audio=track, sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        assert result.sample_rate == 100
+        assert torch.equal(torch.as_tensor(result.audio), track)
+
+    def test_the_held_reference_is_never_mutated(self):
+        track = self.ramp()
+        held = self.reference(audio=track, sample_rate=100)
+        arguments = self.make_arguments(held)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        assert arguments["hold_audio"] is held
+        assert torch.equal(held.audio, self.ramp())
+
+    def test_a_track_artifact_is_held_too(self):
+        from dw.media_types import AudioTrack
+
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(
+            pipeline, self.chain(), self.make_arguments(AudioTrack(self.ramp(), 100))
+        )
+
+        assert len(result.frames) == 20
+        assert all(
+            isinstance(call["hold_audio"], self.reference) for call in pipeline.calls
+        )
+
+    def test_a_held_file_is_read_once_against_the_workflow_directory(
+        self, tmp_path, monkeypatch
+    ):
+        (tmp_path / "song.wav").write_bytes(b"")
+        opened = []
+
+        def from_file(cls, location):
+            opened.append(location)
+            return cls(audio=self.ramp(), sample_rate=100)
+
+        monkeypatch.setattr(self.reference, "from_file", classmethod(from_file))
+        pipeline = FakePipeline(modular_output)
+        pipeline.base_dir = str(tmp_path)
+
+        run_chain(pipeline, self.chain(), self.make_arguments("song.wav"))
+
+        assert opened == [os.path.realpath(tmp_path / "song.wav")]
+        assert len(pipeline.calls) == 3
+
+    def test_a_held_value_that_is_not_audio_raises(self):
+        pipeline = FakePipeline(modular_output)
+
+        with pytest.raises(ValueError, match="hold_audio"):
+            run_chain(pipeline, self.chain(), self.make_arguments("cover.png"))
+
+        assert pipeline.calls == []
+
+    def test_an_audio_reference_beside_the_hold_is_passed_through(self):
+        # The hold is what is matched; a voice reference beside it is the
+        # caller's, carried to every segment as it is
+        voice = FakeAudioReference(torch.zeros(2, 50), 100)
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        arguments = self.make_arguments(held)
+        arguments["references"].append(voice)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        for call in pipeline.calls:
+            assert [r for r in call["references"] if r.kind == "audio"] == [voice]
 
 
 class TestSaveSegments:
