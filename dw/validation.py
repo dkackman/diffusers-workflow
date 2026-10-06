@@ -39,7 +39,7 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
-from .hold_audio import hold_audio_errors
+from .hold_audio import hold_audio_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
@@ -316,6 +316,12 @@ ERROR_CHECKS = [
     # hold_audio on a pipeline with no H3 hold blocks, or holding something
     # that is not audio, costs a checkpoint load otherwise (dw/hold_audio.py)
     Check("hold_audio", lambda c: hold_audio_errors(c.expanded, c.source_indices)),
+    # refine_strength with nothing to refine, no held soundtrack or a one-point
+    # schedule fails after the checkpoint load just the same
+    Check(
+        "refine_strength",
+        lambda c: refine_strength_errors(c.expanded, c.source_indices),
+    ),
     # A result content_type no writer will accept - a bare word like "video"
     # validated clean and then died inside the writer (dw/content_types.py,
     # #168)

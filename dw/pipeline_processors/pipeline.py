@@ -28,8 +28,11 @@ from .h3_blocks import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
+    REFINE_STRENGTH_INPUT,
     hold_audio_reference,
     holds_audio,
+    refine_sigmas,
+    refines,
 )
 from .progress import reported_blocks, reported_progress_bars
 from .remote import remote_text_encoder
@@ -587,6 +590,7 @@ class Pipeline:
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
+        self._check_refine(arguments)
         arguments = self._with_held_audio(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
@@ -637,6 +641,37 @@ class Pipeline:
                 HELD_AUDIO_RATE_OUTPUT,
             ]
         return arguments
+
+    def _check_refine(self, arguments):
+        """Refuse a `refine_strength` the H3 refine block cannot run, before the
+        call (dw/pipeline_processors/h3_blocks.py).
+
+        Raises:
+            ValueError: If this pipeline cannot refine, the strength or step count
+                is out of range, or the step passes no `latents` or `hold_audio`
+        """
+        strength = arguments.get(REFINE_STRENGTH_INPUT)
+        if strength is None:
+            return
+        where = f"Step '{self.name}': refine_strength"
+        if not refines(self.pipeline):
+            raise ValueError(
+                f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
+                f"{type(self.pipeline).__name__} cannot refine"
+            )
+        if arguments.get("latents") is None:
+            raise ValueError(
+                f"{where} re-denoises the 'latents' it is passed, and there are none"
+            )
+        if arguments.get(HOLD_AUDIO_INPUT) is None:
+            raise ValueError(
+                f"{where} re-denoises the video only, so it needs 'hold_audio' to keep a soundtrack"
+            )
+        try:
+            # The scheduler's shift doesn't change what is refused
+            refine_sigmas(strength, arguments.get("num_inference_steps", 50), 1.0)
+        except ValueError as error:
+            raise ValueError(f"Step '{self.name}': {error}") from error
 
     def _takes_step_callback(self):
         """Whether this pipeline names `callback_on_step_end` in its own
