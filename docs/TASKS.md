@@ -184,6 +184,7 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_first_frame` | Extract first video frame | |
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
+| `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -479,6 +480,60 @@ as its own step; do not run it on every shot before a cut, which is what the
 assembly templates once did and what made their output visibly wider than
 the source. The join tasks refuse shots of different sizes, so no
 normalization step is needed before them.
+
+### window_video
+
+Cut one overlapping, fixed-length window out of a long video, so a
+video-to-video model that reads at most one bucket of frames (121 for LTX)
+can work through a longer source a window at a time:
+
+```json
+{
+    "name": "window",
+    "for_each": [
+        {"name": "w0", "index": 0},
+        {"name": "w1", "index": 1},
+        {"name": "w2", "index": 2}
+    ],
+    "task": {
+        "command": "window_video",
+        "arguments": {
+            "video": "asset:long-take.mp4",
+            "index": "item:index",
+            "num_frames": 121,
+            "overlap": 16
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The long source. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as it is. A URL is fetched as frames only, so its window is silent |
+| `index` | Yes | Which window, from `0` |
+| `num_frames` | Yes | Frames per window - the model's bucket, e.g. an 8n+1 LTX length |
+| `overlap` | Yes | Frames each window shares with the one before it; `0` or more, and below `num_frames` |
+| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to cut its audio |
+
+With `stride = num_frames - overlap`, window `i` covers source frames
+`i*stride - overlap` up to (not including) `i*stride + stride`. The first
+window starts `overlap` frames before the source and repeats its first frame
+there; the last may run past the source's end and repeats its last frame.
+Every window is exactly `num_frames` frames, float32 in `[0, 1]` like
+`loop_frames`' output. A source of `N` frames takes `ceil(N / stride)`
+windows, indexes `0` to `(N - 1) // stride`.
+
+The window's audio is the source's samples for its real frames, cut on the
+source's own frame boundaries (`frames_to_samples`, #401), so adjacent
+windows' strides tile the track exactly; the repeated frames carry silence of
+the length they would have had. A source with no track gives a silent window.
+
+One step makes one window: a task cannot return a list of them, so drive it
+with `for_each` over `{name, index}` entries as above. It refuses an
+`overlap` that is not below `num_frames`, and a negative `overlap` or `index`
+- `validate_workflow` catches these on literal values - and, at run time, an
+`index` whose window would start at or past the source's last frame, naming
+the source's frame count and the last valid index.
 
 ### crop_face_track
 

@@ -29,7 +29,8 @@ A shot is a dict:
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
-track (`pair_audio`), or builds a video with no shots at all.
+track (`pair_audio`), or builds a video with no shots at all (a decode, a
+face-track crop, or `window_video`'s one window of a longer source, #601).
 `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->

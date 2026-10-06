@@ -51,7 +51,8 @@ class VideoFileReference:
     clip - built by dw/arguments.py's _realize_lazy_frame_arguments so
     get_frame can seek to the one frame it needs instead of decoding the
     whole file (#367), and so an assessment probe streams the file, soundtrack
-    and all (#387). Not a public shape; nothing else constructs or consumes
+    and all (#387), and so window_video reads its source with the audio it
+    cuts (#601). Not a public shape; nothing else constructs or consumes
     one."""
 
     __slots__ = ("path",)

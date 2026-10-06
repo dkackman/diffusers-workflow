@@ -906,7 +906,9 @@ def resolve_relative_path(path, base_dir):
 # get_frame and its two fixed-index siblings, and the assessment probes
 # (dw/tasks/assess.py), which stream the file themselves - decoding it to a
 # frame list first dropped the soundtrack they measure and failed every probe
-# on an asset:/output: video (#387) - see _realize_lazy_frame_arguments
+# on an asset:/output: video (#387) - and window_video, which cuts the
+# source's soundtrack with its frames and so reads the file with its audio
+# (#601) - see _realize_lazy_frame_arguments
 _LAZY_FRAME_COMMANDS = frozenset(
     {
         "get_frame",
@@ -915,6 +917,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_shots",
         "analyze_seams",
         "analyze_sync_drift",
+        "window_video",
     }
 )
 

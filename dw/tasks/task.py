@@ -178,6 +178,15 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     return loop_frames(**arguments)
 
 
+@register_command("window_video", implementation="dw.tasks.windows.window_video")
+def _handle_window_video(task, arguments, previous_pipelines):
+    """Cut one overlapping, fixed-length window out of a long video"""
+    logger.debug("Cutting a video window")
+    from .windows import window_video
+
+    return window_video(**arguments)
+
+
 @register_command("frame_grid", implementation="dw.tasks.video_utils.frame_grid")
 def _handle_frame_grid(task, arguments, previous_pipelines):
     """Tile evenly sampled frames of a video into one contact-sheet image"""
