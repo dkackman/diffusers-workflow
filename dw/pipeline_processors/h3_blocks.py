@@ -1,4 +1,5 @@
-"""MiniMax-H3 audio hold: generating a video to a soundtrack the caller already has.
+"""MiniMax-H3 audio hold and refine: generating a video to a soundtrack the caller
+already has, and re-denoising an upscaled latent from a low sigma.
 
 The one place dw modifies a diffusers modular pipeline's block graph. H3 denoises
 video and audio rows in one packed sequence, and the rows it treats as conditioning
@@ -10,12 +11,19 @@ through diffusers' own Ref2VA reference encode, written over the target audio ro
 and the count is widened to cover them, so the denoiser generates video that fits a
 soundtrack it is not allowed to change.
 
-Two blocks go into each of H3's three core-denoise sequences (`t2va`, `fl2va`,
-`ref2va`), always, as no-ops when `hold_audio` is not passed:
+Three blocks go into each of H3's three core-denoise sequences (`t2va`, `fl2va`,
+`ref2va`), always, as no-ops when their argument is not passed:
 
 - `DwH3HoldAudioStep`, before `set_timesteps` - after every `prepare_latents*`
   step, so Ref2VA's reference rows are already in front and its reference-row
   count check has already run against the count it expects;
+- `DwH3RefineScheduleStep`, before `denoise` - after `set_timesteps`, whose
+  schedule it replaces when `refine_strength` is passed: σ₀ = `refine_strength`,
+  then `num_inference_steps` points down to 0 spaced by the scheduler's shift
+  (`refine_sigmas`), so `num_inference_steps - 1` evaluations. It re-noises the
+  generated video rows of a passed `latents` to σ₀. Every audio row has to be a
+  held one (`hold_audio`): the audio scheduler gets the same list only so the
+  loop's audio step finds its timesteps, and steps no row;
 - `DwH3ReleaseAudioStep`, before `after_denoise` - which slices
   `audio_latents[num_condition_audio_rows:]` as the generated track, so the count
   has to be back to what it was for the held rows to be decoded as the target.
@@ -38,10 +46,15 @@ HELD_ROWS = "dw_held_audio_rows"
 HELD_AUDIO_OUTPUT = "dw_held_audio"
 HELD_AUDIO_RATE_OUTPUT = "dw_held_audio_sampling_rate"
 
+# The refine call argument
+REFINE_STRENGTH_INPUT = "refine_strength"
+
 # The block names dw inserts, and the diffusers block each goes in front of
 HOLD_BLOCK = "dw_hold_audio"
+REFINE_BLOCK = "dw_refine_schedule"
 RELEASE_BLOCK = "dw_release_audio"
 HOLD_BEFORE = "set_timesteps"
+REFINE_BEFORE = "denoise"
 RELEASE_BEFORE = "after_denoise"
 
 # MiniMaxH3Blocks: the top-level step holding the auto denoise step, and the three
@@ -52,6 +65,31 @@ CORE_DENOISE_SEQUENCES = ("t2va", "fl2va", "ref2va")
 # Encoded silence pads a track shorter than the video: this many latents of zeros
 # are encoded and the middle one taken, clear of any edge effect of the VAE's
 SILENCE_LATENTS = 4
+
+
+def refine_sigmas(strength, num_points, shift):
+    """The refine schedule: σ₀ = `strength`, then `num_points` points in all down
+    to 0, linear in the unshifted coordinate u and mapped through the scheduler's
+    shift σ = shift·u / (1 + (shift−1)·u) - the spacing `set_timesteps` gives a
+    full grid, which `set_timesteps(sigmas=...)` does not apply itself.
+
+    Raises:
+        ValueError: If `strength` is not in (0, 1) or `num_points` is below 2
+    """
+    if isinstance(strength, bool) or not isinstance(strength, (int, float)):
+        raise ValueError(f"refine_strength must be a number, got {strength!r}")
+    if not 0 < strength < 1:
+        raise ValueError(f"refine_strength must be in (0, 1), got {strength}")
+    if num_points is None or num_points < 2:
+        raise ValueError(
+            f"refine_strength needs num_inference_steps of 2 or more, got {num_points}"
+        )
+    shift = float(shift)
+    start = strength / (shift - (shift - 1) * strength)
+    u = torch.linspace(start, 0.0, int(num_points), dtype=torch.float64)
+    sigmas = shift * u / (1 + (shift - 1) * u)
+    sigmas[0], sigmas[-1] = strength, 0.0
+    return sigmas.float()
 
 
 def _diffusers():
@@ -103,7 +141,10 @@ def fit_latents(latents, num_latents, silence):
 
 
 def _make_blocks():
-    """The two block classes, defined against the installed diffusers."""
+    """The three block classes, defined against the installed diffusers."""
+    from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+        MiniMaxH3SetTimestepsStep,
+    )
     from diffusers.modular_pipelines.modular_pipeline import (
         ModularPipelineBlocks,
         PipelineState,
@@ -112,6 +153,7 @@ def _make_blocks():
         InputParam,
         OutputParam,
     )
+    from diffusers.utils.torch_utils import randn_tensor
 
     (
         setup_step,
@@ -240,6 +282,117 @@ def _make_blocks():
             self.set_block_state(state, block_state)
             return components, state
 
+    class DwH3RefineScheduleStep(ModularPipelineBlocks):
+        model_name = "minimax-h3"
+
+        @property
+        def description(self):
+            return (
+                "dw: with `refine_strength`, re-denoises the passed `latents` from that sigma - replaces both "
+                "schedules with `num_inference_steps` shift-spaced points from it down to 0 and re-noises the "
+                "generated video rows to it. Needs every audio row held (`hold_audio`). Does nothing without "
+                "`refine_strength`."
+            )
+
+        @property
+        def inputs(self):
+            return [
+                InputParam(
+                    name=REFINE_STRENGTH_INPUT,
+                    type_hint=float,
+                    default=None,
+                    description=(
+                        "The sigma in (0, 1) to re-denoise a passed `latents` from - an upscaled take refined at "
+                        "about 0.2. Runs num_inference_steps - 1 evaluations."
+                    ),
+                ),
+                InputParam(name="num_inference_steps", type_hint=int, default=50),
+                InputParam.template("generator"),
+                InputParam(name="latents", type_hint=torch.Tensor, required=True),
+                InputParam(name="audio_latents", type_hint=torch.Tensor, required=True),
+                InputParam(name="video_indices", type_hint=torch.Tensor, required=True),
+                InputParam(name="audio_indices", type_hint=torch.Tensor, required=True),
+                InputParam(name="text_indices", type_hint=torch.Tensor, required=True),
+                InputParam(name="num_condition_video_rows", type_hint=int, default=0),
+                InputParam(name="num_condition_audio_rows", type_hint=int, default=0),
+            ]
+
+        @property
+        def intermediate_outputs(self):
+            return [
+                OutputParam("latents", type_hint=torch.Tensor),
+                OutputParam("timesteps", type_hint=torch.Tensor),
+                OutputParam("audio_timesteps", type_hint=torch.Tensor),
+                OutputParam("row_timestep_plan", type_hint=list),
+            ]
+
+        @torch.no_grad()
+        def __call__(self, components, state):
+            block_state = self.get_block_state(state)
+            strength = block_state.refine_strength
+            if strength is None:
+                self.set_block_state(state, block_state)
+                return components, state
+
+            audio_rows = block_state.audio_latents.shape[0]
+            held = block_state.num_condition_audio_rows or 0
+            if held != audio_rows:
+                raise ValueError(
+                    f"refine_strength re-denoises the video only, and {audio_rows - held} of "
+                    f"{audio_rows} audio rows are not held - pass hold_audio with it"
+                )
+
+            device = components._execution_device
+            sigmas = refine_sigmas(
+                strength, block_state.num_inference_steps, components.scheduler.shift
+            )
+            # Verbatim: set_timesteps(sigmas=...) applies no shift. The audio
+            # schedule only has to match the video's for the loop's audio step,
+            # which steps no row when every one is held
+            components.scheduler.set_timesteps(sigmas=sigmas, device=device)
+            components.audio_scheduler.set_timesteps(sigmas=sigmas, device=device)
+            block_state.timesteps = components.scheduler.timesteps
+            block_state.audio_timesteps = components.audio_scheduler.timesteps
+            block_state.row_timestep_plan = [
+                tuple(
+                    tensor.to(device)
+                    for tensor in MiniMaxH3SetTimestepsStep.build_row_timesteps(
+                        block_state.video_indices,
+                        block_state.audio_indices,
+                        block_state.num_condition_video_rows,
+                        block_state.num_condition_audio_rows,
+                        block_state.text_indices.numel(),
+                        float(timestep),
+                        float(audio_timestep),
+                        max(float(timestep), components.keyframe_noise_aug),
+                        1.0,
+                    )
+                )
+                for timestep, audio_timestep in zip(
+                    block_state.timesteps, block_state.audio_timesteps
+                )
+            ]
+
+            # Only the generated rows: FL2VA and Ref2VA conditioning rows lead
+            latents = block_state.latents
+            start = block_state.num_condition_video_rows or 0
+            clean = latents[start:]
+            noise = randn_tensor(
+                clean.shape,
+                generator=block_state.generator,
+                device=clean.device,
+                dtype=clean.dtype,
+            )
+            block_state.latents = torch.cat(
+                [latents[:start], (1 - strength) * clean + strength * noise]
+            )
+
+            logger.info(
+                f"Refining from sigma {strength} over {len(block_state.timesteps)} steps"
+            )
+            self.set_block_state(state, block_state)
+            return components, state
+
     class DwH3ReleaseAudioStep(ModularPipelineBlocks):
         model_name = "minimax-h3"
 
@@ -274,14 +427,15 @@ def _make_blocks():
             self.set_block_state(state, block_state)
             return components, state
 
-    return DwH3HoldAudioStep, DwH3ReleaseAudioStep
+    return DwH3HoldAudioStep, DwH3RefineScheduleStep, DwH3ReleaseAudioStep
 
 
 _BLOCKS = None
 
 
 def blocks():
-    """(DwH3HoldAudioStep, DwH3ReleaseAudioStep), built once."""
+    """(DwH3HoldAudioStep, DwH3RefineScheduleStep, DwH3ReleaseAudioStep), built
+    once."""
     global _BLOCKS
     if _BLOCKS is None:
         _BLOCKS = _make_blocks()
@@ -323,34 +477,48 @@ def core_denoise_sequences(pipeline):
 
 
 def insert_audio_hold(pipeline):
-    """Put the hold and release blocks into every H3 core-denoise sequence.
+    """Put the hold, refine and release blocks into every H3 core-denoise sequence.
 
-    Idempotent - a sequence already holding them is left alone. Returns whether
-    the pipeline now holds audio; a sequence missing an anchor (a diffusers that
-    renamed `set_timesteps` or `after_denoise`) is skipped with a warning, and a
-    pipeline left with none refuses `hold_audio` at the call.
+    Idempotent - a block a sequence already holds is left alone. Returns whether
+    the pipeline now holds audio. Hold and release go in as a pair: a sequence
+    missing either anchor (a diffusers that renamed `set_timesteps` or
+    `after_denoise`) gets neither, and refine needs its own anchor, `denoise`.
+    A sequence that cannot take a block is skipped with a warning, and a
+    pipeline left with none refuses that block's argument at the call.
     """
-    hold_block, release_block = blocks()
+    hold_block, refine_block, release_block = blocks()
     inserted = False
     for prefix, sequence in core_denoise_sequences(pipeline):
         sub_blocks = sequence.sub_blocks
         hold_name, release_name = prefix + HOLD_BLOCK, prefix + RELEASE_BLOCK
         hold_before, release_before = prefix + HOLD_BEFORE, prefix + RELEASE_BEFORE
-        if hold_name in sub_blocks:
-            inserted = True
-            continue
+        refine_name, refine_before = prefix + REFINE_BLOCK, prefix + REFINE_BEFORE
         names = list(sub_blocks)
-        if hold_before not in names or release_before not in names:
+        if hold_name in names:
+            inserted = True
+        elif hold_before not in names or release_before not in names:
             logger.warning(
                 f"MiniMax-H3 has a denoise sequence with no '{hold_before}'/"
                 f"'{release_before}' step to anchor the audio hold to, so it "
                 f"cannot hold audio"
             )
-            continue
-        sub_blocks.insert(hold_name, hold_block(), names.index(hold_before))
+        else:
+            sub_blocks.insert(hold_name, hold_block(), names.index(hold_before))
+            names = list(sub_blocks)
+            sub_blocks.insert(
+                release_name, release_block(), names.index(release_before)
+            )
+            inserted = True
         names = list(sub_blocks)
-        sub_blocks.insert(release_name, release_block(), names.index(release_before))
-        inserted = True
+        if refine_name in names:
+            continue
+        if refine_before not in names:
+            logger.warning(
+                f"MiniMax-H3 has a denoise sequence with no '{refine_before}' "
+                f"step to anchor the refine schedule to, so it cannot refine"
+            )
+            continue
+        sub_blocks.insert(refine_name, refine_block(), names.index(refine_before))
     return inserted
 
 
@@ -358,6 +526,14 @@ def holds_audio(pipeline):
     """Whether a pipeline's block graph carries the audio hold."""
     return any(
         prefix + HOLD_BLOCK in sequence.sub_blocks
+        for prefix, sequence in core_denoise_sequences(pipeline)
+    )
+
+
+def refines(pipeline):
+    """Whether a pipeline's block graph carries the refine schedule."""
+    return any(
+        prefix + REFINE_BLOCK in sequence.sub_blocks
         for prefix, sequence in core_denoise_sequences(pipeline)
     )
 

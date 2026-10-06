@@ -228,7 +228,7 @@ class TestHoldBlock:
         wave = torch.randn(2, 3 * RATE, generator=torch.manual_seed(2))
         state = make_state(MiniMaxH3AudioReference(audio=wave, sample_rate=RATE))
         comps = components()
-        hold, _ = blocks()
+        hold = blocks()[0]
         hold()(comps, state)
 
         latents = state.get("audio_latents")
@@ -285,7 +285,7 @@ class TestHoldBlock:
             MiniMaxH3AudioReference(audio=wave, sample_rate=RATE), reference_rows=k
         )
         comps = components()
-        hold, release = blocks()
+        hold, _, release = blocks()
         hold()(comps, state)
 
         latents = state.get("audio_latents")
@@ -303,7 +303,7 @@ class TestHoldBlock:
         wave = torch.randn(2, 2 * RATE, generator=torch.manual_seed(6))
         state = make_state(MiniMaxH3AudioReference(audio=wave, sample_rate=RATE))
         comps = components()
-        hold, release = blocks()
+        hold, _, release = blocks()
         hold()(comps, state)
         assert state.get("num_condition_audio_rows") > 0
         release()(comps, state)
@@ -328,7 +328,7 @@ class TestNoHold:
         state = make_state(reference_rows=3)
         before = state.get("audio_latents").clone()
         comps = components()
-        hold, release = blocks()
+        hold, _, release = blocks()
         hold()(comps, state)
         release()(comps, state)
 
