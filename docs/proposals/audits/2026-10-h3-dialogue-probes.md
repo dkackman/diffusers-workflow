@@ -21,10 +21,10 @@ the effect, and **inconclusive** when the seeds disagree.
 | --- | --- | --- | --- | --- |
 | 1 | "about 2.6 words/s … leaving about 1 s of tail. H3 stretches dialogue to fill the clip and clips the last word." | **refuted** (clipping and stretching). The tail is real but usually smaller than 1 s. | be681f38d5a8, 3541c1b0a79c | No word was lost at any written rate from 1.55 to 4.06 words/s at 124 frames (both seeds), or at 2.2 and 4.0 words/s at 345 frames. Short lines aren't stretched: they get a 2–3.4 s silent lead-in and are then spoken fast (5–6 words/s). Tails ran 0.12–1.22 s, median about 0.4 s. See *Probe 1* below. |
 | 2 | "At most one male and one female speaker per scene, or the voices mix." | **not run**: GPU budget | — | See *Not run*. |
-| 3 | "'soft / gentle / whisper / lullaby' in a male line's delivery can flip the voice female." | P3_VERDICT | 6f588db1f043, 3a29df186aac | P3_OBS |
+| 3 | "'soft / gentle / whisper / lullaby' in a male line's delivery can flip the voice female." | **refuted** | 6f588db1f043, 3a29df186aac | The voice stayed male on both arms and both seeds, with median pitch 85–103 Hz (a female voice sits around 165–255 Hz). In seed 1001 the soft-delivery wording made the delivery breathier (fewer voiced frames, a wider pitch spread) but not female. See *Probe 3*. |
 | 4 | "Every silent on-screen person needs their own 'lips stay pressed together' sentence." | **not run**: GPU budget | — | See *Not run*. |
 | 5 | "A voice-only source (a radio, a phone) gets lip-synced by whoever is holding it." | **not run**: GPU budget | — | See *Not run*. |
-| 6 | "`<pause>` and `<softer>` are spoken aloud; a bare '...' produces invented words." | P6_VERDICT | 6f588db1f043, 3a29df186aac | P6_OBS |
+| 6 | "`<pause>` and `<softer>` are spoken aloud; a bare '...' produces invented words." | **refuted** | 6f588db1f043, 3a29df186aac | Neither seed spoke `pause`, `softer` or `breath`, and the bare `…` produced no invented words. Both seeds spoke the line as written. Seed 1001 put a 0.56 s gap where `<breath>` sat. See *Probe 6*. |
 | 7 | "Prompt length budget: about 7,000 characters." (meant as the encoder's `max_sequence_length`) | **refuted** (from source, no GPU) | — | The H3 text encoder doesn't truncate. See *Probe 7*. |
 | 8 | "A continuation should start from rest, open on `<breath>`, and begin no new words inside the discarded warm-up prefix." | **not run**: GPU budget | — | See *Not run*. |
 
@@ -88,11 +88,59 @@ not this rule.
 
 ## Probe 3: soft-delivery words on a male voice
 
-P3_SECTION
+Prompt: a bearded man beside a crib in a dim nursery, "an adult male with a
+deep bass voice", saying "Go to sleep now, little one. The storm has passed,
+and everyone is safe." The arms change only the delivery clause:
+- **broken:** "speaking in a soft, gentle whisper, like a lullaby";
+- **followed:** "speaking slowly and quietly, low and steady in his deep
+  male register".
+
+Pitch was estimated by autocorrelation over 40 ms windows (60–400 Hz), on
+frames within 20 dB of the clip's peak:
+
+| Run | Median F0 (Hz) | IQR (Hz) | Voiced share of loud frames |
+| --- | --- | --- | --- |
+| broken s1001 | 103 | 86–141 | 47% |
+| followed s1001 | 94 | 87–105 | 54% |
+| broken s2002 | 85 | 82–88 | 66% |
+| followed s2002 | 85 | 80–89 | 68% |
+
+All four are in the adult male range. The rule's effect (the voice flipping
+female) didn't appear on either broken seed, so the rule is refuted for
+these words on a voice already described as male and deep. The probe
+doesn't cover a male line whose voice description is unspecified. The rule
+may come from such prompts.
+
+Jobs: 6f588db1f043 (run 20261006-104355-033b4212, seed 1001) and
+3a29df186aac (run 20261006-105807-b68bc035, seed 2002), entries
+`p3_broken_s*` and `p3_followed_s*`.
 
 ## Probe 6: control tags and a bare ellipsis inside `<d>`
 
-P6_SECTION
+Prompt: a woman in a hallway, facing the camera. The arms:
+- **broken:** `<d>[English] I waited up all night. <pause> You never called.
+  <softer> I was so worried… <breath> Just come home.</d>`
+- **followed:** the same line with the tags removed and the `…` replaced by a
+  full stop.
+
+| Run | Transcript |
+| --- | --- |
+| broken s1001 | I waited up all night, you never called. I was so worried. Just come home. |
+| broken s2002 | I waited up all night, you never called, I was so worried, just come home. |
+| followed s1001 | I waited up all night, you never called. I was so worried. Just come home. |
+| followed s2002 | I waited up all night. You never called. I was so worried. Just come home. |
+
+Neither broken seed spoke a tag word or added a word, so the rule is
+refuted on this line. The only trace the tags left was in timing. In seed
+1001 there is a 0.56 s gap after "worried", where `<breath>` sat. Whisper
+heard no breath sound there, and in seed 2002 the gap is closed. No tag
+reliably produced a pause.
+
+One limit: Whisper-base could drop a very soft spoken tag word. The finding
+is "not transcribed", not "proved silent".
+
+Jobs: 6f588db1f043 and 3a29df186aac, entries `p6_broken_s*` and
+`p6_followed_s*`.
 
 ## Probe 7: prompt length
 
@@ -123,7 +171,7 @@ measured cost:
 - the 7-entry batch took 42 min;
 - each 124-frame entry takes about 3.4 min.
 
-Probes 3 and 6 took the remaining budget. At two seeds per arm, the four
+Probes 3 and 6 took 28 minutes (87 in all). At two seeds per arm, the four
 skipped probes need about:
 - 3 probes × 2 arms × 2 seeds × 3.4 min ≈ 41 min for probes 2, 4 and 5;
 - 2 chains × 2 segments × 2 seeds ≈ 30 min for probe 8.
