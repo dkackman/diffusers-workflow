@@ -575,6 +575,24 @@ def test_unrealized_job_workflow_folds_recorded_arguments_and_says_why(server):
     assert "prompt" in body["note"] and "deleted" in body["note"]
 
 
+def test_unrealized_job_workflow_folds_arguments_coerced_like_the_run(server):
+    """The fold goes through set_variables, so a numeric variable passed as
+    a string comes back as the number the run used."""
+    workflow = valid_workflow()
+    workflow["variables"]["steps"] = 20
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"steps": "30"}},
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        client.app.state.job_manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["steps"] == 30
+
+
 def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
     """workflow_path is confined to --workflow-dir, the same as the
     /api/workflows CRUD routes - a real, existing file elsewhere on disk

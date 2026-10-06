@@ -33,6 +33,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
+from ...variables import set_variables
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -331,12 +332,20 @@ def get_job_workflow(request: Request, job_id: str):
         definition = copy.deepcopy(definition)
         arguments = manager.arguments(job_id)
         variables = definition.get("variables")
+        folded = []
+        failure = None
         if isinstance(variables, dict):
-            folded = [name for name in arguments if name in variables]
-            for name in folded:
-                variables[name] = arguments[name]
-        else:
-            folded = []
+            declared = {
+                name: arguments[name] for name in arguments if name in variables
+            }
+            # Fold through the owner, so a value is validated and coerced to
+            # the default's type exactly as it was when the run started
+            try:
+                set_variables(declared, variables)
+                folded = list(declared)
+            except (SecurityError, TypeError, ValueError) as exc:
+                definition = copy.deepcopy(manager.definition(job_id))
+                failure = str(exc)
         extra["note"] = (
             "The run's realized copy is gone (the job predates run tracking, "
             "or its run directory or workspace was deleted). This is the "
@@ -346,7 +355,12 @@ def get_job_workflow(request: Request, job_id: str):
                 f"({', '.join(folded)}); seed, stored prompts and "
                 "output:latest references are not pinned."
                 if folded
-                else "; get_job.arguments holds what the caller passed."
+                else (
+                    f"; the recorded arguments could not be folded ({failure}): "
+                    "see get_job.arguments."
+                    if failure
+                    else "; get_job.arguments holds what the caller passed."
+                )
             )
         )
     return {
