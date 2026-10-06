@@ -119,6 +119,14 @@ remaining deferred fix is recorded in
   selected by `strength` 0-4. Record, including what was deferred
   (per-segment strength decay in `chained-segments`, with its triggers):
   `complete/ltx2-refine-in-place-complete.md`.
+- **Temporal face repair, `templates/ltx2/face-repair`** (#599, stages
+  #622-#624), shipped 2026-10-06. It adds the `crop_face_track` and
+  `paste_face_track` tasks (YuNet over tiles, one tracked face, a
+  distance gate, 8n+1 crops, feathered strength-scaled paste-back) and a
+  same-size LTX refine of the crop with five lem-tuned ladders. Record,
+  including what was deferred (rotation passes, landmark-affine paste,
+  multi-face tracking, with their triggers):
+  `complete/face-repair-complete.md`.
 
 ## Declined
 
