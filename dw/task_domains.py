@@ -180,6 +180,11 @@ TASK_ARGUMENT_DOMAINS = {
         "overlap": NON_NEGATIVE,
         "fps": POSITIVE,
     },
+    "trim_video": {
+        "start_frame": NON_NEGATIVE,
+        "num_frames": POSITIVE,
+        "fps": POSITIVE,
+    },
     "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
     "fit_to_model": {
         "width": POSITIVE,
