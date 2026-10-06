@@ -32,6 +32,14 @@ The decoded `audio` is still the VAE round trip of the held rows. The step's res
 uses `dw_held_audio` instead - the caller's own waveform fitted to the video's
 duration (dw/output_extraction.py), which `HELD_AUDIO_OUTPUT` names for the call
 (dw/pipeline_processors/pipeline.py).
+
+Guides (`guides=[{video, frame}]`) hold clips of an existing video as video
+condition rows. Unlike the three blocks above they are added only to a pipeline
+built to take them (`insert_guides`): `DwH3GuideLayoutStep` wraps the stock layout
+step, runs it, then VAE-encodes each clip on the target canvas and splices its rows
+after any keyframe rows, timed from the target frame it lands on, widening
+`num_condition_video_rows` so `after_denoise` slices them off. On `t2va` two more
+blocks run the stock `fl2va` condition-latent steps only when there are guides.
 """
 
 import logging
@@ -946,33 +954,49 @@ def _make_guide_blocks():
         @torch.no_grad()
         def __call__(self, components, state):
             components, state = self._layout(components, state)
-            block_state = self.get_block_state(state)
-            guides = block_state.guides or []
+            guides = state.get(GUIDES_INPUT) or []
             if not guides:
-                self.set_block_state(state, block_state)
                 return components, state
+            # What the stock layout set is its output, not this block's input,
+            # so it is read off the state rather than a block state
+            laid = state.get(
+                [
+                    "height",
+                    "width",
+                    "num_frames",
+                    "text_token_tags",
+                    "latent_height",
+                    "latent_width",
+                    "num_latent_frames",
+                    "position_ids",
+                    "token_tags",
+                    "video_indices",
+                    "audio_indices",
+                    "text_indices",
+                    "num_condition_video_rows",
+                    "condition_latents",
+                ]
+            )
 
             device = components._execution_device
-            height, width = block_state.height, block_state.width
-            num_frames = block_state.num_frames
-            num_text = block_state.text_token_tags.shape[0]
+            num_text = laid["text_token_tags"].shape[0]
             _, patch_h, patch_w = components.patch_size
             frame_grid, _ = before_denoise._frame_position_grid(
-                block_state.latent_height, block_state.latent_width, patch_h, patch_w
+                laid["latent_height"], laid["latent_width"], patch_h, patch_w
             )
             target_time = before_denoise._temporal_position_grid(
-                block_state.num_latent_frames, float(num_text)
+                laid["num_latent_frames"], float(num_text)
             )
 
             latents, positions = [], []
             for index, guide in enumerate(guides):
                 frame, frames = guide["frame"], guide["video"]
                 problem = guide_frame_problem(frame) or guide_end_problem(
-                    frame, frames.shape[0], num_frames
+                    frame, frames.shape[0], laid["num_frames"]
                 )
                 if problem:
                     raise ValueError(f"guides[{index}]: {problem}")
-                pixels = fit_guide_frames(frames, height, width)
+                pixels = fit_guide_frames(frames, laid["height"], laid["width"])
                 pixels = torch.from_numpy(np.ascontiguousarray(pixels))
                 encoded = encode_vae_condition(
                     components.vae,
@@ -995,36 +1019,27 @@ def _make_guide_blocks():
                     f"({encoded.shape[2]} latent frames)"
                 )
 
+            names = (
+                "position_ids",
+                "token_tags",
+                "video_indices",
+                "audio_indices",
+                "text_indices",
+            )
             layout = splice_guide_rows(
-                (
-                    block_state.position_ids.cpu(),
-                    block_state.token_tags.cpu(),
-                    block_state.video_indices.cpu(),
-                    block_state.audio_indices.cpu(),
-                    block_state.text_indices.cpu(),
-                    block_state.num_condition_video_rows,
-                ),
+                tuple(laid[name].cpu() for name in names)
+                + (laid["num_condition_video_rows"],),
                 num_text,
                 torch.cat(positions),
                 components.video_tag,
             )
-            (
-                position_ids,
-                token_tags,
-                video_indices,
-                audio_indices,
-                text_indices,
-                block_state.num_condition_video_rows,
-            ) = layout
-            block_state.position_ids = position_ids.to(device)
-            block_state.token_tags = token_tags.to(device)
-            block_state.video_indices = video_indices.to(device)
-            block_state.audio_indices = audio_indices.to(device)
-            block_state.text_indices = text_indices.to(device)
+            for name, value in zip(names, layout):
+                state.set(name, value.to(device))
+            state.set("num_condition_video_rows", layout[5])
             # Keyframes first, then guides: the order the rows were laid out in
-            block_state.condition_latents = list(block_state.condition_latents or [])
-            block_state.condition_latents += latents
-            self.set_block_state(state, block_state)
+            state.set(
+                "condition_latents", list(laid["condition_latents"] or []) + latents
+            )
             return components, state
 
     def _when_conditioned(stock, description):
@@ -1068,8 +1083,8 @@ def _make_guide_blocks():
                 return self._stock.intermediate_outputs
 
             def __call__(self, components, state):
-                block_state = self.get_block_state(state)
-                if not block_state.condition_latents:
+                # Read off the state: the latents step does not declare it
+                if not state.get("condition_latents"):
                     return components, state
                 return self._stock(components, state)
 
