@@ -144,6 +144,14 @@ class TestTheStaticPass:
             assert [e["path"] for e in errors] == ["steps[0].task.arguments.fade"]
             assert "between 0.0 and 1.0" in errors[0]["message"]
 
+    def test_a_negative_select_index_is_refused(self):
+        errors = errors_for(
+            "select",
+            {"candidates": ["a"], "scores": [1], "rule": "index", "index": -1},
+        )
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.index"]
+        assert "zero or above" in errors[0]["message"]
+
     def test_a_boundary_temperature_is_fine(self):
         assert errors_for("grade", {"media": "asset:a.png", "temperature": 1.0}) == []
 

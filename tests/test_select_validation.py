@@ -89,6 +89,46 @@ class TestSelectErrors(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
+    def test_a_non_whole_literal_index_is_refused_at_its_path(self):
+        for index in (2.5, "abc", True):
+            with self.subTest(index=index):
+                definition = {
+                    "steps": [
+                        _step(rule="index", candidates=["a"], scores=[1], index=index)
+                    ]
+                }
+
+                errors = select_errors(definition, source_indices=[0])
+
+                self.assertEqual(len(errors), 1)
+                self.assertIn("whole number", errors[0]["message"])
+                self.assertEqual(errors[0]["path"], "steps[0].task.arguments.index")
+
+    def test_a_whole_index_as_a_float_or_string_is_fine(self):
+        for index in (2.0, "2"):
+            with self.subTest(index=index):
+                definition = {
+                    "steps": [
+                        _step(rule="index", candidates=["a"], scores=[1], index=index)
+                    ]
+                }
+
+                self.assertEqual(select_errors(definition, source_indices=[0]), [])
+
+    def test_a_deferred_index_is_left_to_the_run(self):
+        definition = {
+            "steps": [
+                _step(
+                    rule="index",
+                    candidates=["a"],
+                    scores=[1],
+                    index="previous_result:pick_position",
+                )
+            ]
+        }
+
+        self.assertEqual(select_errors(definition, source_indices=[0]), [])
+
     def test_non_index_rule_with_index_is_an_error(self):
         definition = {
             "steps": [_step(rule="argmax", candidates=["a"], scores=[1], index=0)]
