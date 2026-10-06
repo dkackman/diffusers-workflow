@@ -550,6 +550,52 @@ refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
 `gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
 and a `detector_file` that is not a `.onnx` name, before anything downloads.
 
+### paste_face_track
+
+Put the crops of a face-detail pass back into the clip they were cut from,
+using the `track` record `crop_face_track` returned:
+
+```json
+{
+    "name": "pasted",
+    "task": {
+        "command": "paste_face_track",
+        "arguments": {
+            "clip": "asset:interview.mp4",
+            "repaired": "previous_result:face_repair",
+            "track": "previous_result:face_crops.track"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `clip` | Yes | The video `crop_face_track` tracked - frames, an audio+video pair, or the path or URL of a video file |
+| `repaired` | Yes | The crops after a face-detail pass, still padded to the count `crop_face_track` produced; any frame size |
+| `track` | Yes | The `track` record `crop_face_track` returned (`previous_result:<step>.track`), or the path of its saved `.json`, such as an `output:` reference |
+| `feather` | No | Fraction of the paste's radius that fades out, `0` to `1`. Default `0.3` |
+| `color_match` | No | Shift each crop's mean colour onto the source's inside the mask before blending. Default `true` |
+
+The pad frames are dropped: the crop at `pad_before + i` goes back on source
+frame `i`. Each crop is resized to the square it was cut from, then blended
+over the frame with a radial feathered mask times that frame's strength. The
+mask is the circle inscribed in the square; its outer `feather` fraction fades
+from 1 to 0 along a smoothstep, so the square's corners and everything past
+the circle keep the source. A square that ran past the frame's edge is
+clipped to the frame.
+
+A frame with strength 0 (no face, or a face too large for the gate) is passed
+through exactly. With `color_match`, the crop's mean colour is shifted onto the
+source's inside the mask, so a repair pass that drifted in tone does not show
+as a patch.
+
+It returns the source clip with its audio, frame rate and shots carried, the
+same frames one for one. It refuses a track whose frame count or frame size
+does not match the clip, a `repaired` with fewer frames than the track's
+`crop_frames`, and a `track` that is not a `crop_face_track` record.
+`validate_workflow` refuses a `feather` past `1` before the job runs.
+
 ### video_frames
 
 The frames of a generated video, as one `(frames, height, width, channels)`

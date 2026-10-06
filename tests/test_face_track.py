@@ -474,3 +474,255 @@ def test_the_task_result_saves_crops_as_video_and_track_as_one_json():
         assert [os.path.splitext(n)[1] for n in names] == [".mp4", ".json"]
         with open(os.path.join(temp_dir, names[1])) as file:
             assert json.load(file) == {"a": {"b": 1}}
+
+
+# ---- paste_face_track ----------------------------------------------------
+
+
+def gradient_frame(face=None):
+    """Smooth content (a gradient) with an optional red face square."""
+    xs = np.linspace(20, 180, W, dtype=np.float32)[None, :]
+    ys = np.linspace(20, 120, H, dtype=np.float32)[:, None]
+    frame = np.stack([xs + 0 * ys, ys + 0 * xs, (xs + ys) / 2], axis=-1).astype(
+        np.uint8
+    )
+    if face is not None:
+        x, y, s = face
+        frame[y : y + s, x : x + s] = FACE
+    return frame
+
+
+def tracked(frames, **clip_kwargs):
+    clip = clip_of(frames, **clip_kwargs)
+    result = ft.crop_face_track(clip)
+    return clip, result["crops"], result["track"]
+
+
+def diffs(out, source_arrays):
+    return [
+        np.abs(np.asarray(f).astype(int) - s.astype(int))
+        for f, s in zip(out.frames, source_arrays)
+    ]
+
+
+SQUARE = [60, 60, 100, 100]
+
+
+def crop_of(region):
+    return Image.fromarray(region)
+
+
+class TestFeatherMask:
+    def test_centre_one_corners_zero(self):
+        mask = ft.feather_mask(101, 0.3)
+        assert mask[50, 50] == pytest.approx(1.0)
+        for corner in ((0, 0), (0, -1), (-1, 0), (-1, -1)):
+            assert mask[corner] == 0
+
+    def test_non_increasing_along_radius(self):
+        mask = ft.feather_mask(101, 0.3)
+        row = mask[50, 50:]
+        assert np.all(np.diff(row) <= 1e-6)
+        diagonal = np.array([mask[50 + i, 50 + i] for i in range(51)])
+        assert np.all(np.diff(diagonal) <= 1e-6)
+
+    def test_symmetric(self):
+        mask = ft.feather_mask(64, 0.4)
+        assert np.allclose(mask, mask[::-1, :])
+        assert np.allclose(mask, mask[:, ::-1])
+        assert np.allclose(mask, mask.T)
+
+    def test_zero_feather_is_a_hard_disc(self):
+        mask = ft.feather_mask(64, 0)
+        assert set(np.unique(mask)) == {0.0, 1.0}
+        assert mask[32, 32] == 1 and mask[0, 0] == 0
+
+    def test_inner_part_is_exactly_one(self):
+        side = 128
+        mask = ft.feather_mask(side, 0.3)
+        radius = side / 2
+        coords = np.arange(side) + 0.5 - radius
+        distance = np.hypot(coords[None, :], coords[:, None]) / radius
+        inner = distance <= 0.7 - 1e-6
+        assert inner.any()
+        assert np.all(mask[inner] == 1.0)
+        assert mask[(distance > 0.75) & (distance < 0.99)].max() < 1.0
+
+
+class TestPasteCrop:
+    def source_and_region(self):
+        source = gradient_frame()
+        x, y, side, _ = SQUARE
+        return source, source[y : y + side, x : x + side].copy()
+
+    def test_color_match_removes_a_constant_shift(self):
+        source, region = self.source_and_region()
+        shifted = region.copy()
+        shifted[..., 0] += 40
+        out = ft.paste_crop(source, crop_of(shifted), SQUARE, 1.0, 0.3, True)
+        x, y, side, _ = SQUARE
+        mask = ft.feather_mask(side, 0.3) > 0
+        diff = np.abs(out[y : y + side, x : x + side].astype(int) - region.astype(int))
+        assert diff[mask].max() <= 2
+
+    def test_no_color_match_shows_the_shift(self):
+        source, region = self.source_and_region()
+        shifted = region.copy()
+        shifted[..., 0] += 40
+        out = ft.paste_crop(source, crop_of(shifted), SQUARE, 1.0, 0.3, False)
+        centre = out[110, 110, 0].astype(int) - source[110, 110, 0].astype(int)
+        assert centre == 40
+
+    def test_altered_repair_only_around_the_face_without_a_seam(self):
+        source = gradient_frame()
+        white = np.full((100, 100, 3), 255, np.uint8)
+        out = ft.paste_crop(source, crop_of(white), SQUARE, 1.0, 0.3, False)
+        changed = np.any(out != source, axis=-1)
+        x, y, side, _ = SQUARE
+        # nothing outside the square moves
+        outside = changed.copy()
+        outside[y : y + side, x : x + side] = False
+        assert not outside.any()
+        # the corners of the square keep the source
+        assert not changed[y, x] and not changed[y + side - 1, x + side - 1]
+        # the centre is fully the repair
+        assert tuple(out[110, 110]) == (255, 255, 255)
+        # alpha ramps: no step between neighbours bigger than the ramp allows
+        step = np.abs(np.diff(out[110, x : x + side, 0].astype(int)))
+        assert step.max() <= 20
+
+    def test_strength_scales_the_blend(self):
+        source = gradient_frame()
+        white = np.full((100, 100, 3), 255, np.uint8)
+        out = ft.paste_crop(source, crop_of(white), SQUARE, 0.5, 0.3, False)
+        expected = (int(source[110, 110, 0]) + 255) / 2
+        assert abs(int(out[110, 110, 0]) - expected) <= 1
+
+
+class TestPasteFaceTrack:
+    def frames(self, count=5):
+        return [gradient_frame((140 + i, 100, 16)) for i in range(count)]
+
+    def test_identity_round_trip(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        assert track["frames"][0]["strength"] > 0
+        out = ft.paste_face_track(clip, crops, track)
+        assert len(out.frames) == len(arrays)
+        assert all(f.size == (W, H) for f in out.frames)
+        d = diffs(out, arrays)
+        assert max(x.mean() for x in d) < 0.1
+        assert max(x.max() for x in d) <= 32
+
+    def test_strength_zero_is_an_exact_passthrough(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        for entry in track["frames"]:
+            entry["strength"] = 0
+        white = AudioVideo(
+            [Image.new("RGB", (512, 512), (255, 255, 255)) for _ in crops.frames],
+            None,
+            None,
+        )
+        out = ft.paste_face_track(clip, white, track)
+        for frame, source in zip(out.frames, arrays):
+            assert np.array_equal(np.asarray(frame), source)
+
+    def test_audio_fps_and_shots_are_carried(self, stub_detector):
+        arrays = self.frames()
+        shots = [
+            {"name": "one", "start_frame": 0},
+            {"name": "two", "start_frame": 3},
+        ]
+        clip, crops, track = tracked(arrays, shots=shots, fps=24)
+        clip.audio = np.zeros((2, 48000), np.float32)
+        clip.sample_rate = 48000
+        out = ft.paste_face_track(clip, crops, track)
+        assert np.array_equal(out.audio, clip.audio)
+        assert out.sample_rate == 48000
+        assert out.fps == 24
+        assert out.shots == shots
+        assert out.shots is not clip.shots
+
+    def test_altered_repair_changes_the_face_only(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        white = AudioVideo(
+            [Image.new("RGB", f.size, (255, 255, 255)) for f in crops.frames],
+            None,
+            None,
+        )
+        out = ft.paste_face_track(clip, white, track, color_match=False)
+        x, y, side, _ = (int(v) for v in track["frames"][0]["crop"])
+        frame = np.asarray(out.frames[0])
+        assert np.array_equal(frame[:10], arrays[0][:10])
+        assert not np.array_equal(
+            frame[y + side // 2, x + side // 2], arrays[0][y + side // 2, x + side // 2]
+        )
+
+    def test_track_read_from_saved_json(self, stub_detector, tmp_path):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        path = tmp_path / "track.json"
+        path.write_text(json.dumps(track))
+        from_dict = ft.paste_face_track(clip, crops, track)
+        from_file = ft.paste_face_track(clip, crops, str(path))
+        for a, b in zip(from_dict.frames, from_file.frames):
+            assert np.array_equal(np.asarray(a), np.asarray(b))
+
+    def test_refusals(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+
+        with pytest.raises(ValueError, match="frames but this clip has"):
+            ft.paste_face_track(clip_of(arrays[:3]), crops, track)
+
+        small = clip_of([a[:200, :300] for a in arrays])
+        with pytest.raises(ValueError, match="clip but this clip is"):
+            ft.paste_face_track(small, crops, track)
+
+        short = AudioVideo(crops.frames[:-1], None, None)
+        with pytest.raises(ValueError, match="must keep every crop"):
+            ft.paste_face_track(clip, short, track)
+
+        with pytest.raises(ValueError, match="track record"):
+            ft.paste_face_track(clip, crops, {})
+
+        with pytest.raises(ValueError, match="feather"):
+            ft.paste_face_track(clip, crops, track, feather=1.5)
+
+
+class TestPasteValidation:
+    @staticmethod
+    def paste_workflow(feather):
+        return {
+            "id": "x",
+            "steps": [
+                {
+                    "name": "s",
+                    "task": {
+                        "command": "paste_face_track",
+                        "arguments": {
+                            "clip": "v.mp4",
+                            "repaired": "r.mp4",
+                            "track": "t.json",
+                            "feather": feather,
+                        },
+                    },
+                }
+            ],
+        }
+
+    @pytest.mark.parametrize("feather", [1.5, -0.1])
+    def test_bad_feather_is_refused(self, feather):
+        errors = task_argument_errors(self.paste_workflow(feather))
+        assert any(e["path"] == "steps[0].task.arguments.feather" for e in errors)
+
+    def test_good_feather_is_accepted(self):
+        assert task_argument_errors(self.paste_workflow(0.3)) == []
+
+
+def test_paste_command_is_registered():
+    from dw.tasks.task import _COMMAND_REGISTRY
+
+    assert "paste_face_track" in _COMMAND_REGISTRY
