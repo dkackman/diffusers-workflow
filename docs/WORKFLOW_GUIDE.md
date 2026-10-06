@@ -1621,6 +1621,15 @@ extension is not `.wav`, `.mp3`, `.flac` or `.ogg`, and on any `{"media_type": .
 dict; a run refuses a pipeline with no hold blocks or a value that is not audio. Without
 `hold_audio` the output is unchanged.
 
+Hold is opt-in: the catalog's audio-driven templates (`music-video` and the `match_audio`
+chains) pass the track as a `MiniMaxH3AudioReference` instead. Measured on lem (#619:
+`chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm), a held track
+kept the soundtrack exact but the mouth was open at about 3 of 6 sung-word onsets, and
+closed through much of the second segment, against 6 of 6 with the reference; the
+held arm read as speech to camera rather than singing. Both arms took about the same
+time (19.8 and 18.3 min). Hold is for picture that must fit audio exactly, such as
+motion cut to music, not yet for lip sync.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and

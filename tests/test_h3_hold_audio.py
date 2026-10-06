@@ -427,11 +427,11 @@ def template(*parts):
         return json.load(f)
 
 
-HELD_TEMPLATES = {
-    "chain-matched-to-audio.json": "variable:voice",
-    "chain-matched-and-aligned.json": "variable:voice",
-    "music-video.json": "previous_result:slice",
-}
+AUDIO_DRIVEN_TEMPLATES = [
+    "chain-matched-to-audio.json",
+    "chain-matched-and-aligned.json",
+    "music-video.json",
+]
 
 
 def h3_steps(definition):
@@ -445,32 +445,25 @@ def h3_steps(definition):
     ]
 
 
-class TestHeldTemplates:
-    """The templates that follow supplied audio hold it rather than pass it as an
-    audio reference (#619, D4: hold replaces the reference, no both-arm)."""
+class TestAudioDrivenTemplates:
+    """The templates that follow supplied audio keep it as an audio reference:
+    #619's lip-sync A/B measured hold worse on a sung track, so the plan's
+    fallback applies and hold is opt-in."""
 
-    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
-    def test_the_h3_step_holds_the_track(self, name):
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_the_h3_step_references_the_track_and_does_not_hold_it(self, name):
         steps = h3_steps(template("minimax", name))
 
-        assert [step["pipeline"]["arguments"]["hold_audio"] for step in steps] == [
-            HELD_TEMPLATES[name]
-        ]
+        assert len(steps) == 1
+        assert "hold_audio" not in steps[0]["pipeline"]["arguments"]
+        assert "MiniMaxH3AudioReference" in json.dumps(template("minimax", name))
 
-    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
-    def test_no_audio_reference_is_left_beside_the_hold(self, name):
-        text = json.dumps(template("minimax", name))
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_opting_in_to_hold_validates(self, name):
+        definition = copy.deepcopy(template("minimax", name))
+        h3_steps(definition)[0]["pipeline"]["arguments"]["hold_audio"] = "asset:t.wav"
 
-        assert "MiniMaxH3AudioReference" not in text
-        assert "audio_reference_type" not in text
-        # Ref2VA labels references in order; with no audio reference there is
-        # no <Audio 1> for a prompt to name
-        assert "<Audio 1>" not in text
-        assert "audio reuse" not in text
-
-    @pytest.mark.parametrize("name", sorted(HELD_TEMPLATES))
-    def test_validation_accepts_the_hold(self, name):
-        assert hold_errors(copy.deepcopy(template("minimax", name))) == []
+        assert hold_errors(definition) == []
 
     def test_music_video_still_drops_the_whole_song_over_the_edit(self):
         definition = template("minimax", "music-video.json")
