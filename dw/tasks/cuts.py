@@ -34,6 +34,7 @@ import logging
 import math
 import re
 
+from ..variable_constraints import aligned, aligned_down
 from .registry import register_command
 
 logger = logging.getLogger("dw")
@@ -79,23 +80,21 @@ def _integer(value, name):
     return int(number)
 
 
-def grid_up(frames, modulus, remainder):
-    """The smallest render length on the grid (modulus * n + remainder, n >= 0)
-    at or above `frames`; `frames` itself when there is no modulus."""
-    if modulus is None:
-        return frames
-    steps = max(0, -(-(frames - remainder) // modulus))
-    return modulus * steps + remainder
+def _grid_up(frames, grid):
+    """The smallest render length on the grid at or above `frames`; `frames`
+    itself when there is no modulus. The arithmetic is the template
+    constraint's own (`variable_constraints.aligned`), so a planned
+    `num_frames` is one the template's constraint accepts."""
+    target = aligned(frames, grid)
+    return frames if target is None else target
 
 
-def grid_down(frames, modulus, remainder):
-    """The largest render length on the grid at or below `frames`, or None
-    when none fits."""
-    if modulus is None:
+def _grid_down(frames, grid):
+    """The largest render length on the grid at or below `frames` (`frames`
+    itself when there is no modulus), or None when none fits."""
+    if not grid["modulus"]:
         return frames
-    if frames < remainder:
-        return None
-    return modulus * ((frames - remainder) // modulus) + remainder
+    return aligned_down(frames, grid)
 
 
 def transcript_problem(transcript):
@@ -588,9 +587,7 @@ def _frames(scenes, fps, total_frames, warnings):
 def _render_length(grid, lead, cut):
     """Frames to render for a cut with this lead: lead + cut, no fewer than
     min_frames, raised to the grid."""
-    return grid_up(
-        max(grid["min_frames"] or 0, lead + cut), grid["modulus"], grid["remainder"]
-    )
+    return _grid_up(max(grid["min_frames"] or 0, lead + cut), grid)
 
 
 def _split_over_max(framed, grid, beat_frames, warnings):
@@ -602,7 +599,7 @@ def _split_over_max(framed, grid, beat_frames, warnings):
     is warned about, since the same words then carry several shots."""
     if grid["max_frames"] is None:
         return framed
-    ceiling = grid_down(grid["max_frames"], grid["modulus"], grid["remainder"])
+    ceiling = _grid_down(grid["max_frames"], grid)
 
     def reach(start):
         return ceiling - min(grid["lead_frames"], start)
@@ -829,8 +826,8 @@ def plan_cuts(
         "max_frames": args.max_frames,
         "lead_frames": int(round((args.lead_s or 0.0) * args.fps)),
     }
-    if args.max_frames is not None and grid["lead_frames"] >= grid_down(
-        args.max_frames, args.modulus, grid["remainder"]
+    if args.max_frames is not None and grid["lead_frames"] >= _grid_down(
+        args.max_frames, grid
     ):
         raise ValueError(
             f"{COMMAND}'s 'lead_s' ({args.lead_s:g} s, {grid['lead_frames']} "

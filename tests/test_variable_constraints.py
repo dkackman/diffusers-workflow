@@ -21,6 +21,7 @@ import pytest
 
 from dw.variable_constraints import (
     aligned,
+    aligned_down,
     entry_constraint_fields,
     apply_constraints,
     constraint_errors,
@@ -62,6 +63,30 @@ class TestTheGrid:
         assert aligned(130, H3) == 141
         assert snapped(130, H3) == 141
         assert violations(130, H3) == []
+
+    def test_the_floor_is_the_largest_grid_value_at_or_below(self):
+        """`aligned_down` is `aligned`'s floor - the longest render that
+        fits under a ceiling, which `plan_cuts` reads `max_frames` through."""
+        assert aligned_down(345, H3) == 345
+        assert aligned_down(344, H3) == 328
+        assert aligned_down(5, H3) == 5
+        assert aligned_down(4, H3) is None
+        assert aligned_down(100, {}) is None
+        # the remainder is normalised the same way `aligned` normalises it
+        odd = {"modulus": 17, "remainder": 22}
+        assert aligned(130, odd) == aligned(130, H3)
+        assert aligned_down(344, odd) == aligned_down(344, H3)
+
+    def test_plan_cuts_rounds_through_the_constraint_owner(self):
+        """`plan_cuts` gets its grid arithmetic from here, so a planned
+        `num_frames` is one the template's own constraint accepts."""
+        from dw.tasks import cuts
+
+        grid = {"modulus": 17, "remainder": 5, "min_frames": 124}
+        for lead, cut in ((0, 48), (12, 48), (12, 130), (0, 1)):
+            planned = cuts._render_length(grid, lead, cut)
+            assert planned == aligned(max(124, lead + cut), H3)
+            assert violations(planned, {**H3, "snap": None}) == []
 
     def test_the_range_holds_for_the_rounded_value(self):
         """What the pipeline does: `align_num_frames` snaps first and the
