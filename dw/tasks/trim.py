@@ -12,10 +12,11 @@ import numbers
 
 from ..dsp import as_channels_samples
 from ..media_types import AudioVideo
-from ..shots import trimmed_shots
+from ..shots import shot_record, trimmed_shots
 from ..task_domains import check_arguments, frames_to_samples
 from .registry import register_command
 from .audio_utils import coerce_number
+from .joins import video_names
 from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -40,7 +41,8 @@ def trim_video(video, start_frame, num_frames, fps=None):
         The kept frames - an AudioVideo when the clip came in as one (its
         track cut to the same span, at its own rate, fps and sample rate
         kept), else a frame list. The shots the clip carried are clipped to
-        the span (sample side cleared); a clip with none carries none
+        the span (sample side cleared); a clip with none carries one shot
+        spanning the kept frames, named after the file it was read from
     """
     start_frame = coerce_number(start_frame, int, "start_frame", COMMAND)
     num_frames = coerce_number(num_frames, int, "num_frames", COMMAND)
@@ -53,7 +55,9 @@ def trim_video(video, start_frame, num_frames, fps=None):
     start_frame, num_frames = int(start_frame), int(num_frames)
     check_arguments(COMMAND, start_frame=start_frame, num_frames=num_frames, fps=fps)
 
+    name = video_names([video])[0]
     if isinstance(video, VideoFileReference):
+        name = video_names([video.path])[0]
         video = load_audio_video(video.path)
     elif isinstance(video, str):
         video = load_audio_video(video)
@@ -77,13 +81,20 @@ def trim_video(video, start_frame, num_frames, fps=None):
     if audio is not None:
         audio = _span_of_audio(audio, sample_rate, fps, start_frame, end)
     shots = trimmed_shots(video.shots, start_frame, keep_frames=num_frames)
-    return AudioVideo(
-        kept,
-        audio,
-        sample_rate,
-        fps=fps,
-        shots=shots or None,
-    )
+    if not shots:
+        # A clip with no shots record is one shot: the trim is still a clip
+        # a consumer reads spans from (#627). The track was cut at its own
+        # rate, so its samples are measured here, not derived
+        shots = [
+            shot_record(
+                name,
+                0,
+                num_frames,
+                None if audio is None else 0,
+                None if audio is None else audio.shape[1],
+            )
+        ]
+    return AudioVideo(kept, audio, sample_rate, fps=fps, shots=shots)
 
 
 def _span_of_audio(audio, sample_rate, fps, start_frame, end):

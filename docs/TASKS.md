@@ -774,8 +774,10 @@ back as an audio+video pair with its frame rate and sample rate kept; a bare
 frame list comes back as frames.
 
 The shots the clip carries are clipped to the span and re-based to start at
-`0`, with their sample side cleared; a clip that carries none comes back with
-none. A span that reaches past the clip's end is refused, naming the clip's
+`0`, with their sample side cleared. A clip that carries none (a decoded file,
+a fresh render) comes back as one shot spanning the kept frames, named after
+the file it was read from (else `video 1`), its samples measured off the cut
+track. A span that reaches past the clip's end is refused, naming the clip's
 frame count - it is never shortened or padded - and so is a `num_frames` of
 `0` or less or a negative `start_frame`; `validate_workflow` catches these on
 literal values.

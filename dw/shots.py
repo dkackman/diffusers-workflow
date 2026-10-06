@@ -43,7 +43,7 @@ windows and puts the source's track back whole, #601), or builds a video with
 no shots at all (a decode, a face-track crop, or `window_video`'s one window
 of a longer source, #601), or clips the list to a kept span
 (`trim_video`, via `trimmed_shots(shots, head_trim, keep_frames)`, sample side
-cleared; a clip with no shots carries none, #627).
+cleared; a clip with no shots carries one spanning the kept frames, #627).
 `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->

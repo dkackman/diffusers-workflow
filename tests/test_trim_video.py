@@ -1,11 +1,14 @@
 """trim_video: keep a span of a video's frames and its audio (#627)."""
 
+from unittest.mock import patch
+
 import numpy
 import pytest
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.shots import shot_record, trimmed_shots
+from dw.shots import named_shots, shot_record, trimmed_shots
+from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import _COMMAND_REGISTRY
 from dw.tasks.trim import trim_video
 from dw.task_domains import frames_to_samples
@@ -107,8 +110,57 @@ class TestShots:
         result = trim_video(clip(24, shots=shots), 0, 10)
         assert [s["name"] for s in result.shots] == ["a"]
 
-    def test_no_shots_in_none_out(self):
-        assert trim_video(clip(24), 0, 5).shots is None
+    def test_no_shots_in_one_shot_out(self):
+        """A clip with no shots record is one shot: the trim spans it, its
+        samples measured off the track it cut (#627 bounce, C-F220)."""
+        result = trim_video(clip(24), 12, 8)
+        assert result.shots == [shot_record("video 1", 0, 8, 0, result.audio.shape[1])]
+        assert result.audio.shape[1] == frames_to_samples(8, 24, 48000)
+
+    def test_whole_clip_and_last_frame_carry_one_shot(self):
+        assert [
+            (s["start_frame"], s["num_frames"])
+            for s in trim_video(clip(24), 0, 24).shots
+        ] == [(0, 24)]
+        assert [
+            (s["start_frame"], s["num_frames"])
+            for s in trim_video(clip(24), 23, 1).shots
+        ] == [(0, 1)]
+
+    def test_silent_clip_shot_has_no_sample_side(self):
+        result = trim_video(AudioVideo(frames(6), None, None), 1, 2)
+        assert result.shots == [shot_record("video 1", 0, 2)]
+
+    def test_a_file_names_its_shot(self, tmp_path):
+        path = str(tmp_path / "ep6-cold-open.mp4")
+        with patch("dw.tasks.trim.load_audio_video", return_value=clip(124)):
+            result = trim_video(path, 12, 48)
+        assert result.shots == [
+            shot_record("ep6-cold-open.mp4", 0, 48, 0, result.audio.shape[1])
+        ]
+
+    def test_the_join_of_trims_places_shots_as_before(self):
+        """music-video's edit joins the trims: the one-shot record each now
+        carries lands where concat_videos placed a shotless input - same
+        frames, same measured samples, and the step's names still win."""
+        sources = [clip(30), clip(30)]
+        trims = [trim_video(sources[0], 0, 12), trim_video(sources[1], 6, 18)]
+        bare = [AudioVideo(t.frames, t.audio, t.sample_rate, fps=t.fps) for t in trims]
+        joined = concat_videos(trims, trim_frames=0, fps=24)
+        expected = concat_videos(bare, trim_frames=0, fps=24)
+        keys = (
+            "start_frame",
+            "num_frames",
+            "start_sample",
+            "num_samples",
+            "hard_cut",
+            "source_index",
+        )
+        assert [{k: s.get(k) for k in keys} for s in joined.shots] == [
+            {k: s.get(k) for k in keys} for s in expected.shots
+        ]
+        names = ["shot@a", "shot@b"]
+        assert [s["name"] for s in named_shots(joined.shots, names)] == names
 
     def test_input_shots_are_not_mutated(self):
         shots = [shot_record("a", 0, 24, 0, 48000)]
