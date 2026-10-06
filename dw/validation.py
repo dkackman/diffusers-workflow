@@ -381,7 +381,6 @@ ERROR_CHECKS = [
     ),
     # An attribute_voices `voices` it would refuse (#494)
     Check("voices", lambda c: voices_errors(c.expanded, c.source_indices)),
-    # A check_script `lines` it would refuse (#609)
     # A dissolve_videos overlap wider than a statically-resolvable input's
     # real frame count (dw/dissolve_frame_errors.py, #400)
     Check(

@@ -13,7 +13,9 @@ file. This task does the comparison and reports where to look:
    `shot_dead_air`'s level, #465) is discarded as unheard - Whisper invents
    words over silence, and the HF pipeline returns no `no_speech_prob` to
    catch them by. Discarded words are reported under `discarded`, never
-   raised as a finding;
+   raised as a finding. So is every word of a repetition loop - the same
+   words over and over, which Whisper invents over music or room tone loud
+   enough to pass the floor;
 3. both sides are normalized - lowercase, punctuation stripped, apostrophes
    kept - and H3 markup (`<d>[English] ...</d>`, `<scenetrans>`, `<cutoff>`,
    `[unclear]`, `(S1)`, any `<tag>` or `[tag]`) is stripped from each
@@ -63,12 +65,21 @@ GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
 # finished into a quiet tail
 CLIP_TAIL_SECONDS = 0.25
+# A run of heard words that repeats with a period of at most
+# REPEAT_MAX_PERIOD words, REPEAT_RUN_MIN or more times over, is discarded
+# as a decoding loop - Whisper's hallucination over music or room tone
+# ('Pre-pre-pre-...', 'thank you thank you ...'), loud enough to pass the
+# energy guard. Speech repeats a word a few times; it does not loop
+REPEAT_RUN_MIN = 6
+REPEAT_MAX_PERIOD = 4
 
 THRESHOLDS = {
     "similarity": DEFAULT_SIMILARITY,
     "guard_floor_dbfs": GUARD_FLOOR_DBFS,
     "guard_window_seconds": GUARD_WINDOW_SECONDS,
     "clip_tail_seconds": CLIP_TAIL_SECONDS,
+    "repeat_run_min": REPEAT_RUN_MIN,
+    "repeat_max_period": REPEAT_MAX_PERIOD,
 }
 
 LINE_RULES = ("line_mismatch", "tag_spoken", "line_clipped_at_end")
@@ -98,7 +109,8 @@ TAG_SPOKEN = _rule(
 SPEECH_WHERE_SILENT = _rule(
     "speech_where_silent",
     0,
-    "no line was expected, and this many words were heard above the dead-air floor",
+    "no line was expected, and this many words were heard above the dead-air floor"
+    " and outside a repetition loop",
 )
 CLIPPED_AT_END = _rule(
     "line_clipped_at_end",
@@ -206,27 +218,61 @@ def _round(value, places=3):
     return None if value is None else round(float(value), places)
 
 
+def repetition_loops(keys):
+    """The indices of `keys` (heard words) that sit in a repetition loop: a stretch that
+    repeats with a period of 1 to REPEAT_MAX_PERIOD and spans at least
+    REPEAT_RUN_MIN periods."""
+    looped = set()
+    for period in range(1, REPEAT_MAX_PERIOD + 1):
+        k = period
+        while k < len(keys):
+            if keys[k] != keys[k - period]:
+                k += 1
+                continue
+            first = k - period
+            while k < len(keys) and keys[k] == keys[k - period]:
+                k += 1
+            if k - first >= REPEAT_RUN_MIN * period:
+                looped.update(range(first, k))
+    return looped
+
+
 def guard_words(chunks, mono, sample_rate):
     """Split transcribe_audio's word chunks into (heard, discarded).
 
     `heard` is [{word, text, start, end}], one per normalized word - a chunk
     that normalizes to nothing ('♪', '...') is neither; `discarded` is
-    [{text, start, end, level_dbfs}] for a chunk at or below the floor.
+    [{text, start, end, level_dbfs, reason}] for a chunk in a repetition loop
+    (`reason` "repetition") or at or below the floor ("below_floor").
     """
-    heard, discarded = [], []
+    spoken, sequence, owner = [], [], []
     for chunk in chunks:
         words = normalize_words(chunk.get("text", ""))
-        if not words:
-            continue
+        if words:
+            owner.extend([len(spoken)] * len(words))
+            sequence.extend(words)
+            spoken.append((chunk, words))
+    # Over words, not chunks: one chunk can hold a whole loop ('Pre-pre-pre')
+    looped = {owner[k] for k in repetition_loops(sequence)}
+
+    heard, discarded = [], []
+    for index, (chunk, words) in enumerate(spoken):
         start, end = chunk["start"], chunk["end"]
         level = word_level(mono, sample_rate, start, end)
-        if level is None or level <= GUARD_FLOOR_DBFS:
+        if index in looped:
+            reason = "repetition"
+        elif level is None or level <= GUARD_FLOOR_DBFS:
+            reason = "below_floor"
+        else:
+            reason = None
+        if reason:
             discarded.append(
                 {
                     "text": chunk.get("text", "").strip(),
                     "start": _round(start),
                     "end": _round(end),
                     "level_dbfs": _round(level, 2),
+                    "reason": reason,
                 }
             )
             continue
@@ -346,7 +392,12 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
         zip(parsed_lines, expected, assigned)
     ):
         own = [heard[j] for j in indices]
-        score = line_similarity(words, [word["word"] for word in own])
+        # A markup word spoken aloud is tag_spoken's to report, not a
+        # mismatch too: it is left out of the line's score
+        tokens = set(line["tokens"]) - set(words)
+        score = line_similarity(
+            words, [word["word"] for word in own if word["word"] not in tokens]
+        )
         start = own[0]["start"] if own else None
         end = own[-1]["end"] if own else None
         lines.append(
@@ -363,7 +414,6 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
             at = _at(index, own[0]) if own else _at(index, seconds=previous_end)
             findings.append(finding(mismatch, round(score, 4), at))
 
-        tokens = set(line["tokens"]) - set(words)
         for word in own:
             if word["word"] in tokens:
                 findings.append(finding(TAG_SPOKEN, word["word"], _at(index, word)))
@@ -456,7 +506,7 @@ def check_script(
         A JSON document: 'findings' (line_mismatch, tag_spoken,
         line_clipped_at_end, speech_where_silent), 'lines' (expected, heard,
         similarity, start, end, shot), 'discarded' (guarded words with their
-        level), 'unmatched' (heard words aligned to no line), 'transcript',
+        level and reason), 'unmatched' (heard words aligned to no line), 'transcript',
         'model_name', 'rules_applied', 'rules_skipped' and the 'thresholds'
         used.
     """

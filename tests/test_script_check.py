@@ -251,6 +251,68 @@ class TestGuardWords(unittest.TestCase):
         self.assertEqual(len(answer["discarded"]), 1)
 
 
+class TestRepetitionGuard(unittest.TestCase):
+    def test_loud_loop_is_discarded_as_repetition(self):
+        chunks = [
+            {"start": i * 0.1, "end": i * 0.1, "text": " Pre" if i == 0 else "-pre"}
+            for i in range(40)
+        ]
+        heard, discarded = guard_words(chunks, voiced(5.0), RATE)
+        self.assertEqual(heard, [])
+        self.assertEqual(len(discarded), 40)
+        self.assertEqual({d["reason"] for d in discarded}, {"repetition"})
+
+    def test_loop_over_music_is_not_speech_where_silent(self):
+        chunks = words(" ".join(["pre"] * 30), step=0.1, length=0.0)
+        answer = run([], chunks, voiced(5.0))
+        self.assertEqual(answer["findings"], [])
+        self.assertEqual(len(answer["discarded"]), 30)
+
+    def test_short_real_repetition_stays_heard(self):
+        chunks = words("no no no no no stop")
+        heard, discarded = guard_words(chunks, voiced(4.0), RATE)
+        self.assertEqual(len(heard), 6)
+        self.assertEqual(discarded, [])
+
+    def test_period_two_loop_is_discarded(self):
+        chunks = words(" ".join(["thank you"] * 6), step=0.3, length=0.2)
+        heard, discarded = guard_words(chunks, voiced(5.0), RATE)
+        self.assertEqual(heard, [])
+        self.assertEqual(len(discarded), 12)
+
+    def test_loop_does_not_take_the_speech_around_it(self):
+        chunks = (
+            words("hello there", 0.0)
+            + words(" ".join(["pre"] * 10), 1.0, step=0.1, length=0.05)
+            + words("good night", 2.5)
+        )
+        heard, discarded = guard_words(chunks, voiced(4.0), RATE)
+        self.assertEqual(
+            [h["word"] for h in heard], ["hello", "there", "good", "night"]
+        )
+        self.assertEqual(len(discarded), 10)
+
+    def test_loop_inside_one_chunk_is_discarded(self):
+        chunks = [{"start": 0.0, "end": 3.0, "text": " Pre-pre-pre-pre-pre-pre-pre"}]
+        heard, discarded = guard_words(chunks, voiced(4.0), RATE)
+        self.assertEqual(heard, [])
+        self.assertEqual(discarded[0]["reason"], "repetition")
+
+    def test_below_floor_reason(self):
+        mono = numpy.concatenate([voiced(1.0), silent(1.0)])
+        _, discarded = guard_words(words("real", 0.0) + words("ghost", 1.2), mono, RATE)
+        self.assertEqual(discarded[0]["reason"], "below_floor")
+
+    def test_repeat_thresholds_reported(self):
+        self.assertEqual(
+            script_check.THRESHOLDS["repeat_run_min"], script_check.REPEAT_RUN_MIN
+        )
+        self.assertEqual(
+            script_check.THRESHOLDS["repeat_max_period"],
+            script_check.REPEAT_MAX_PERIOD,
+        )
+
+
 class TestAlignAndSimilarity(unittest.TestCase):
     @staticmethod
     def heard(text):
@@ -347,6 +409,16 @@ class TestCheckMarkup(unittest.TestCase):
                 answer = run([line], words("hello there"))
                 self.assertEqual(answer["lines"][0]["similarity"], 1.0)
                 self.assertEqual(answer["findings"], [])
+
+    def test_spoken_tag_does_not_lower_similarity(self):
+        plain = "We should and call the landlord before dark"
+        tagged = "We should <pause> and call the landlord before dark."
+        heard = words("we should pause and call the landlord before dark")
+        answer = run([tagged], heard)
+        self.assertEqual(answer["lines"][0]["similarity"], 1.0)
+        self.assertEqual(rules(answer, "line_mismatch"), [])
+        self.assertEqual(len(rules(answer, "tag_spoken")), 1)
+        self.assertLess(run([plain], heard)["lines"][0]["similarity"], 1.0)
 
     def test_tag_spoken_inside_a_line(self):
         answer = run(["Hello [unclear] there"], words("hello unclear there"))
