@@ -804,6 +804,10 @@ TEMPLATE_PIPELINE_KEYS = {
         "board_3_shore": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "voyage": "ee8e8884e8f049bf7de6aabe053a8c389ab6cd0c42108a04cc6fd1049e671300",
     },
+    "minimax/upscale-refine.json": {
+        "base": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "refine": "748d703dd1745057386c6a167578c2f1b31ddad3df102364a5ec5389bcc5b001",
+    },
     "minimax/video-with-audio-768p.json": {
         "text_to_video_audio": "748d703dd1745057386c6a167578c2f1b31ddad3df102364a5ec5389bcc5b001"
     },
