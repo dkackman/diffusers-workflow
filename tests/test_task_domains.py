@@ -131,8 +131,7 @@ class TestTheStaticPass:
     def test_a_numeric_string_and_a_reference_are_still_left_alone(self):
         assert errors_for("grade", {"media": "asset:a.png", "shadows": "0.5"}) == []
         assert (
-            errors_for("grade", {"media": "asset:a.png", "shadows": "variable:s"})
-            == []
+            errors_for("grade", {"media": "asset:a.png", "shadows": "variable:s"}) == []
         )
 
     def test_an_out_of_range_temperature_is_refused(self):
