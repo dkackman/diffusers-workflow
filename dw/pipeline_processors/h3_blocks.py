@@ -38,6 +38,8 @@ import logging
 
 import torch
 
+from .. import references
+
 logger = logging.getLogger("dw")
 
 # The call argument, and the names the hold block leaves in the pipeline state
@@ -90,6 +92,43 @@ def refine_sigmas(strength, num_points, shift):
     sigmas = shift * u / (1 + (shift - 1) * u)
     sigmas[0], sigmas[-1] = strength, 0.0
     return sigmas.float()
+
+
+def refine_problems(arguments):
+    """Why this step's `refine_strength` cannot run, as a list - empty when it
+    can, or cannot be told yet. The one owner of the per-argument rules: the
+    static check (dw/hold_audio.py) and the run-time check before the call
+    (`Pipeline._check_refine`) both ask it."""
+    problems = []
+    strength = arguments[REFINE_STRENGTH_INPUT]
+    if isinstance(strength, str) and references.is_ref(references.UNRESOLVED, strength):
+        pass
+    elif isinstance(strength, bool) or not isinstance(strength, (int, float)):
+        problems.append(
+            f"refine_strength is a number in (0, 1), and {strength!r} is not a number"
+        )
+    elif not 0 < strength < 1:
+        problems.append(
+            f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
+            f"upscaled take - and {strength} is outside it"
+        )
+    if arguments.get("latents") is None:
+        problems.append(
+            "refine_strength re-denoises the 'latents' it is passed - pass the "
+            "upscaled latents, e.g. 'previous_result:up'"
+        )
+    if arguments.get(HOLD_AUDIO_INPUT) is None:
+        problems.append(
+            "refine_strength re-denoises the video only, so it needs 'hold_audio' "
+            "to keep a soundtrack - e.g. the base pass's 'previous_result:base.audio'"
+        )
+    steps = arguments.get("num_inference_steps")
+    if isinstance(steps, (int, float)) and not isinstance(steps, bool) and steps < 2:
+        problems.append(
+            f"refine_strength runs num_inference_steps - 1 denoise steps, so "
+            f"num_inference_steps must be 2 or more, not {steps}"
+        )
+    return problems
 
 
 def _diffusers():
@@ -384,8 +423,12 @@ def _make_blocks():
                 device=clean.device,
                 dtype=clean.dtype,
             )
+            # The scheduler's own forward process, in H3's t = 1 - σ convention
             block_state.latents = torch.cat(
-                [latents[:start], (1 - strength) * clean + strength * noise]
+                [
+                    latents[:start],
+                    components.scheduler.scale_noise(clean, 1 - strength, noise),
+                ]
             )
 
             logger.info(
