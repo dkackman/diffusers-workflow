@@ -58,6 +58,11 @@ DEFAULT_AUDIO_SAMPLE_RATE = 44100
 # says - a diffusers convention old enough that changing it would restate
 # every existing workflow's output
 DEFAULT_VIDEO_FPS = 8
+# imageio's default macroblock (16) rescales a frame whose sides aren't
+# multiples of 16 - a 640x360 video was written 640x368. yuv420p needs only
+# even sides, so a frame is saved at its own size and an odd side grows by
+# one pixel
+VIDEO_MACRO_BLOCK = 2
 
 
 # Result definition keys passed through to soundfile - encoding quality controls
@@ -544,7 +549,12 @@ class Result:
         if isinstance(artifact, AudioVideo):
             self.save_audio_video(artifact, output_path, content_type)
         else:
-            export_to_video(artifact, output_path, fps=self.video_fps(artifact))
+            export_to_video(
+                artifact,
+                output_path,
+                fps=self.video_fps(artifact),
+                macro_block_size=VIDEO_MACRO_BLOCK,
+            )
 
     def _write_audio_file(
         self, output_dir, artifact, file_base_name, content_type, extension, output_path
@@ -819,7 +829,12 @@ class Result:
             # concatenations - so it logs quietly; losing audio we do have warns
             log = logger.debug if audio is None else logger.warning
             log(f"Saving {output_path} without its audio because {reason}")
-            export_to_video(artifact.frames, output_path, fps=fps)
+            export_to_video(
+                artifact.frames,
+                output_path,
+                fps=fps,
+                macro_block_size=VIDEO_MACRO_BLOCK,
+            )
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")

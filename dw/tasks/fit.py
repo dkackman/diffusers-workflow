@@ -64,7 +64,7 @@ def _float_frames(video, command):
         frames = _frames_of(video)
     except TypeError:
         raise ValueError(
-            f"{command} needs 'video' as a video, got a {type(video).__name__}"
+            f"{command} needs 'video' as a video, not {type(video).__name__}"
         )
     if len(frames) == 0:
         raise ValueError(f"{command} needs 'video' with at least one frame")

@@ -366,3 +366,21 @@ class TestRealPath:
         assert [os.path.splitext(n)[1] for n in names] == [".mp4", ".json"]
         with open(tmp_path / names[1]) as handle:
             assert json.load(handle) == fitted["fit"]
+
+    def test_a_crop_restore_is_saved_at_its_own_size(self, tmp_path):
+        """640x360 is not a multiple of 16 high; the written file keeps it
+        rather than growing to 640x368 (#631's bounce)."""
+        from dw.media import video_shape
+
+        fitted = fit(clip(12), num_frames=17, mode="crop")
+        restored = restore_to_source(fitted["video"], fitted["fit"])
+        result = Result({"content_type": "video/mp4", "save": True})
+        result.add_result(restored)
+        result.save(str(tmp_path), "wf-restore.0")
+        (name,) = os.listdir(tmp_path)
+        shape = video_shape(str(tmp_path / name))
+        assert (shape["width"], shape["height"], shape["frame_count"]) == (
+            640,
+            360,
+            12,
+        )
