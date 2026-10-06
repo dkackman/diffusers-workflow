@@ -616,8 +616,9 @@ class TestSameKeySiblings:
 
 
 class TestMusicVideoTemplate:
-    """music-video's slices and shots are two for_each groups over one
-    'shots' list, paired by entry name: shot@closeup reads slice@closeup."""
+    """music-video's slices, shots and trims are three for_each groups over
+    one 'shots' list, paired by entry name: shot@closeup reads slice@closeup
+    and trim@closeup reads shot@closeup."""
 
     KEYS = ["wide_open", "closeup", "room", "finale"]
 
@@ -633,6 +634,7 @@ class TestMusicVideoTemplate:
             ["draw_singer", "write_song"]
             + [f"slice@{k}" for k in self.KEYS]
             + [f"shot@{k}" for k in self.KEYS]
+            + [f"trim@{k}" for k in self.KEYS]
             + ["edit", "balanced", "music_video"]
         )
 
@@ -645,10 +647,21 @@ class TestMusicVideoTemplate:
         got = steps_by_name(self.expanded())
         arguments = got["music_video"]["task"]["arguments"]
         assert arguments["audio"] == "previous_result:balanced"
+        # 'song' is substituted: the expanded run still reads the written song
         assert got["balanced"]["task"]["arguments"]["audio"] == (
             "previous_result:write_song"
         )
         assert arguments["fit"] == "video"
+
+    def test_the_song_is_a_variable_defaulting_to_the_written_one(self):
+        template = load_template("music-video.json")
+        assert template["variables"]["song"] == "previous_result:write_song"
+        assert "num_frames" not in template["variables"]
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            assert got[f"slice@{key}"]["task"]["arguments"]["audio"] == (
+                "previous_result:write_song"
+            )
 
     def test_each_slice_starts_where_its_entry_says(self):
         got = steps_by_name(self.expanded())
@@ -656,6 +669,29 @@ class TestMusicVideoTemplate:
             got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS
         ]
         assert starts == [0, 124, 248, 372]
+
+    def test_each_slice_leads_and_each_shot_runs_its_entry_s_length(self):
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            key = entry["name"]
+            slice_args = got[f"slice@{key}"]["task"]["arguments"]
+            assert slice_args["lead_frames"] == entry["lead_frames"] == 0
+            assert slice_args["num_frames"] == entry["num_frames"] == 124
+            shot_args = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert shot_args["num_frames"] == entry["num_frames"]
+
+    def test_each_trim_cuts_the_lead_off_its_own_shot(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            task = got[f"trim@{key}"]["task"]
+            assert task["command"] == "trim_video"
+            assert task["arguments"] == {
+                "video": f"previous_result:shot@{key}",
+                "start_frame": 0,
+                "num_frames": 124,
+            }
+            assert got[f"trim@{key}"]["result"]["subfolder"] == "intermediate"
 
     def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
         got = steps_by_name(self.expanded())
@@ -686,7 +722,7 @@ class TestMusicVideoTemplate:
     def test_the_edit_gathers_the_shots_in_order(self):
         got = steps_by_name(self.expanded())
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}" for k in self.KEYS
+            f"previous_result:trim@{k}" for k in self.KEYS
         ]
 
     def test_the_template_keeps_the_list(self):
@@ -699,6 +735,7 @@ class TestMusicVideoTemplate:
         assert [s["name"] for s in template["steps"] if "for_each" in s] == [
             "slice",
             "shot",
+            "trim",
         ]
 
     def test_each_shot_keeps_the_generation_settings(self):
@@ -713,6 +750,76 @@ class TestMusicVideoTemplate:
             loras = got[f"shot@{key}"]["pipeline"]["loras"]
             assert len(loras) == 1
             assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
+
+
+class TestMusicVideoEntries:
+    """music-video's entries are {name, prompt, start_frame, num_frames,
+    lead_frames, cut_frames}, all required, and the length rule applies to
+    each entry rather than to a top-level variable."""
+
+    def workflow(self):
+        return load_workflow("music-video.json")
+
+    def shots(self):
+        return copy.deepcopy(load_template("music-video.json")["variables"]["shots"])
+
+    def paths(self, arguments):
+        return [
+            (e["path"], e["message"])
+            for e in self.workflow().validation_errors(arguments)
+        ]
+
+    def test_a_top_level_num_frames_is_an_unknown_variable(self):
+        from dw.variables import argument_errors
+
+        problems = argument_errors(
+            load_template("music-video.json"), {"num_frames": 124}
+        )
+        assert [p["path"] for p in problems] == ["arguments.num_frames"]
+        assert "Unknown variable 'num_frames'" in problems[0]["message"]
+
+    def test_an_entry_without_lead_frames_is_refused_naming_the_field(self):
+        shots = self.shots()
+        del shots[1]["lead_frames"]
+        problems = self.paths({"shots": shots})
+        assert any("lead_frames" in message for _path, message in problems)
+
+    def test_an_off_grid_entry_length_is_refused_not_snapped(self):
+        shots = self.shots()
+        shots[2]["num_frames"] = 130
+        problems = self.paths({"shots": shots})
+        assert [
+            message
+            for path, message in problems
+            if path == "arguments.shots[2].num_frames"
+        ]
+
+    def test_a_cuts_plan_with_prompts_validates_with_only_an_unread_field_warning(
+        self,
+    ):
+        from dw.for_each import entry_field_warnings
+
+        shots = [
+            {
+                "name": "verse",
+                "prompt": "p",
+                "start_frame": 24,
+                "num_frames": 124,
+                "lead_frames": 12,
+                "cut_frames": 112,
+                "lyric": "words",
+                "kind": "sung",
+            }
+        ]
+        arguments = {"shots": shots}
+        assert [
+            e
+            for e in self.workflow().validation_errors(arguments)
+            if "VRAM" not in e["message"]
+        ] == []
+        (warning,) = entry_field_warnings(load_template("music-video.json"), arguments)
+        assert "'kind', 'lyric'" in warning
+        assert "num_frames" in warning
 
 
 class TestDialogueShortTemplate:

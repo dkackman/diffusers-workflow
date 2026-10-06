@@ -342,7 +342,17 @@ class TestMiniMaxH3Skill:
         assert "shot_1_" not in text and "shot_2_" not in text
         for name, fields in (
             ("dialogue-short", {"name", "prompt", "references", "num_frames"}),
-            ("music-video", {"name", "prompt", "start_frame"}),
+            (
+                "music-video",
+                {
+                    "name",
+                    "prompt",
+                    "start_frame",
+                    "num_frames",
+                    "lead_frames",
+                    "cut_frames",
+                },
+            ),
         ):
             path = os.path.join(
                 REPO_ROOT, "workflows", "templates", "minimax", name + ".json"

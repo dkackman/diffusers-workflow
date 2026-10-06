@@ -479,6 +479,26 @@ class TestMusicVideo:
     def expanded(self, definition):
         return Workflow(definition, "outputs", self.PATH).expanded_definition()
 
+    def test_a_supplied_song_elides_write_song(self):
+        """'song' defaults to the written one; overriding it with an asset
+        leaves write_song unreferenced, and it saves nothing, so it is
+        dropped the way draw_singer is when a portrait is supplied."""
+        written = self.definition()
+        assert written["variables"]["song"] == "previous_result:write_song"
+        definition = copy.deepcopy(written)
+        definition["variables"]["song"] = "asset:song.wav"
+        expanded = self.expanded(definition)
+
+        elided = elide_definition(expanded, written)
+
+        assert [e["step"] for e in elided] == ["write_song"]
+        assert elided[0]["overridden_by"] == "song"
+
+    def test_a_supplied_song_validates(self):
+        workflow = Workflow(self.definition(), "outputs", self.PATH)
+        errors = workflow.validation_errors({"song": "asset:song.wav"})
+        assert [e for e in errors if "VRAM" not in e["message"]] == []
+
     def test_the_singer_reference_is_one_argument(self):
         """The shot step reads it from a variable, so `arguments` reaches it.
 
