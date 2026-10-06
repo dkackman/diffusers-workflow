@@ -9,7 +9,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.media_types import AudioVideo, JsonRecord
+from dw.media_types import AudioVideo, FittedVideo, JsonRecord
 from dw.result import Result
 from dw.task_domains import task_argument_errors
 from dw.tasks.fit import fit_to_model, restore_to_source
@@ -50,7 +50,7 @@ def fit(video=None, **overrides):
 
 
 def frames_of(video):
-    return numpy.asarray(video.frames)
+    return numpy.asarray(getattr(video, "frames", video))
 
 
 def upscaled(frames, factor):
@@ -68,7 +68,9 @@ class TestFitShape:
         assert frames_of(result["video"]).shape == (57, 288, 512, 3)
         assert frames_of(result["video"]).dtype == numpy.float32
         assert result["video"].fps == 24
-        assert result["video"].audio is None
+        # An array a pipeline's video takes as it is, with no soundtrack
+        assert isinstance(result["video"], FittedVideo)
+        assert not hasattr(result["video"], "audio")
 
     def test_record_fields(self, mode):
         record = fit(mode=mode)["fit"]
@@ -301,6 +303,62 @@ class TestSavedRecord:
             restore_to_source(result["video"], str(path))
 
 
+class TestDownscale:
+    """#602: `downscale` divides the model size, so a 2x upscaler's reference
+    is fitted to half the output it is asked for."""
+
+    def test_the_model_size_is_divided(self):
+        result = fit(width=512, height=288, downscale=2)
+
+        assert frames_of(result["video"]).shape[1:3] == (144, 256)
+        record = result["fit"]
+        assert (record["model_width"], record["model_height"]) == (256, 144)
+
+    def test_restore_returns_the_source_size(self):
+        result = fit(width=512, height=288, downscale=2)
+        restored = restore_to_source(result["video"], result["fit"])
+
+        assert frames_of(restored).shape[1:3] == (SRC_H, SRC_W)
+
+    def test_the_default_is_no_downscale(self):
+        record = fit(width=512, height=288)["fit"]
+        assert (record["model_width"], record["model_height"]) == (512, 288)
+
+    def test_a_size_not_divisible_names_both(self):
+        with pytest.raises(ValueError, match="downscale") as raised:
+            fit(width=512, height=288, downscale=3)
+        assert "3" in str(raised.value) and "512x288" in str(raised.value)
+
+    @pytest.mark.parametrize("bad", [0, -2, 1.5, True, "abc"])
+    def test_a_bad_downscale_is_refused(self, bad):
+        with pytest.raises(ValueError, match="downscale"):
+            fit(downscale=bad)
+
+
+class TestFittedVideo:
+    def test_it_is_a_float32_array_with_its_rate(self):
+        video = fit(clip(fps=30))["video"]
+
+        assert isinstance(video, numpy.ndarray)
+        assert video.dtype == numpy.float32
+        assert video.fps == 30
+
+    def test_a_slice_keeps_the_rate(self):
+        video = fit(clip(fps=30))["video"]
+        assert video[:4].fps == 30
+
+    def test_pickling_keeps_the_rate(self):
+        # The worker pickles a step's results across its queue
+        import pickle
+
+        video = fit(clip(fps=30))["video"]
+        copy = pickle.loads(pickle.dumps(video))
+
+        assert isinstance(copy, FittedVideo)
+        assert copy.fps == 30
+        assert numpy.array_equal(copy, video)
+
+
 def _validate(arguments):
     workflow = {
         "steps": [
@@ -341,6 +399,19 @@ class TestStaticValidation:
 
     def test_no_mode_is_silent(self):
         assert not _validate(GOOD)
+
+    def test_a_size_downscale_does_not_divide(self):
+        errors = _validate(dict(GOOD, downscale=3))
+        assert self.names(errors) == ["downscale"], errors
+        assert "512x288" in errors[0][1]
+
+    @pytest.mark.parametrize("bad", [0, 1.5])
+    def test_a_bad_literal_downscale(self, bad):
+        assert "downscale" in self.names(_validate(dict(GOOD, downscale=bad)))
+
+    @pytest.mark.parametrize("downscale", [2, "variable:d"])
+    def test_a_dividing_or_reference_downscale_is_silent(self, downscale):
+        assert not _validate(dict(GOOD, downscale=downscale))
 
 
 class TestRealPath:
