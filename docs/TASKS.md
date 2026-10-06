@@ -294,7 +294,7 @@ midtones and weaker toward black and white.
 | `amount` | 0.0..1.0 | 0.1 | Grain strength; 0 is identity |
 | `size` | 1 or above | 1.0 | Grain size in pixels: the noise is generated at 1/size resolution and upsampled |
 | `chroma` | 0.0..1.0 | 0.0 | 0 puts the same grain on every channel (brightness only, hue unchanged); 1 draws independent grain per channel; values between mix the two |
-| `seed` | integer | the workflow's or step's seed | Seeds the grain |
+| `seed` | a whole number, 0 or above | the workflow's or step's seed | Seeds the grain |
 
 **Seeding:** one generator is made per step from the seed and consumed frame by
 frame, so every frame of a video gets different grain and the same seed

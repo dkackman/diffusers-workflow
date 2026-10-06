@@ -763,7 +763,7 @@ def _handle_film_grain(task, arguments, previous_pipelines):
     from ..task_domains import check_arguments
     from .finish import film_grain
 
-    check_arguments("film_grain", **arguments)
+    check_arguments("film_grain", seed=seed, **arguments)
     emit_log(f"film_grain: seed {seed}", command="film_grain", seed=seed)
     return film_grain(media, seed=seed, **arguments)
 
