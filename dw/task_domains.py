@@ -206,6 +206,7 @@ TASK_ARGUMENT_DOMAINS = {
         "window_seconds": POSITIVE,
         "min_reference_seconds": POSITIVE,
     },
+    "check_script": {"similarity": UNIT},
     "grade": {
         "contrast": NON_NEGATIVE,
         "saturation": NON_NEGATIVE,
