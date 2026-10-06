@@ -208,6 +208,14 @@ TASK_ARGUMENT_DOMAINS = {
         "min_bpm": POSITIVE,
         "max_bpm": POSITIVE,
     },
+    "plan_cuts": {
+        "fps": POSITIVE,
+        "duration_s": POSITIVE,
+        "min_scene_s": NON_NEGATIVE,
+        "max_scene_s": POSITIVE,
+        "vocal_tail_s": NON_NEGATIVE,
+        "min_gap_seconds": NON_NEGATIVE,
+    },
 }
 
 
@@ -219,6 +227,9 @@ TASK_ARGUMENT_CHOICES = {
     "ingredients_grid": {
         "layout": INGREDIENTS_LAYOUTS,
         "fit": INGREDIENTS_FITS,
+    },
+    "plan_cuts": {
+        "segment_by": ("line", "stanza", "beat"),
     },
 }
 INGREDIENTS_DEFAULT_MAX_IMAGES = 12
@@ -538,6 +549,54 @@ def beats_errors(arguments):
     return beats_problems(**literal)
 
 
+def cuts_problems(
+    transcript=None, segment_by=None, min_scene_s=None, max_scene_s=None, beats=None
+):
+    """[(argument, message)] for each plan_cuts rule these values break: a
+    transcript that is plain text (no timings), a scene range that is empty,
+    and cutting by beat with no beats. A reference is skipped - only the run
+    has its value."""
+    from .tasks.cuts import transcript_problem
+
+    problems = []
+    if transcript is not None and not is_ref(DEFERRED, transcript):
+        problem = transcript_problem(transcript)
+        if problem:
+            problems.append(("transcript", problem))
+    low, high = as_number(min_scene_s), as_number(max_scene_s)
+    if low is not None and high is not None and low > high:
+        problems.append(
+            (
+                "min_scene_s",
+                f"plan_cuts needs 'min_scene_s' ({low:g}) at or below "
+                f"'max_scene_s' ({high:g}) - no shot could be both",
+            )
+        )
+    if segment_by == "beat" and beats is None:
+        problems.append(
+            (
+                "beats",
+                "plan_cuts with 'segment_by': \"beat\" needs 'beats' - "
+                "analyze_beats' result or a list of beat times",
+            )
+        )
+    return problems
+
+
+def cuts_errors(arguments):
+    """[(argument, message)] for the plan_cuts rules a literal workflow can
+    break before it runs (`cuts_problems`). An absent 'beats' counts - a
+    reference to one does not."""
+    literal = {
+        name: arguments.get(name)
+        for name in ("transcript", "segment_by", "min_scene_s", "max_scene_s")
+        if not is_ref(DEFERRED, arguments.get(name))
+    }
+    beats = arguments.get("beats")
+    literal["beats"] = "deferred" if is_ref(DEFERRED, beats) else beats
+    return cuts_problems(**literal)
+
+
 def in_domain(value, domain):
     """Whether a number satisfies a domain. Anything unmeasurable is True -
     a value this cannot read is not this check's to refuse."""
@@ -687,6 +746,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
             "crop_face_track": face_track_errors,
             "paste_face_track": paste_face_track_errors,
             "analyze_beats": beats_errors,
+            "plan_cuts": cuts_errors,
         }.get(command)
         if extra is not None:
             for key, message in extra(arguments):
