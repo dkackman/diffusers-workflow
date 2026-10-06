@@ -88,7 +88,10 @@ RULES = (
         "threshold": -50.0,
         "severity": "warn",
         "says": "the track drops out at the join while both sides are voiced",
-        "unless": f"either side's rms is at or below {HOLE_VOICED_DBFS} dBFS",
+        "unless": (
+            f"either side's rms is at or below {HOLE_VOICED_DBFS} dBFS, or the"
+            " incoming shot is marked seam_fade_ms - a fade the caller asked for"
+        ),
     },
     {
         "name": "seam_frame_jump",

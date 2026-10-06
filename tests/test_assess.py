@@ -333,6 +333,53 @@ class TestHardCut:
 
 
 # ---------------------------------------------------------------------------
+# 3c. a seam_fade_ms the caller asked for is recorded on the shot, and the
+# dip it makes is not reported as a hole in the content (#659)
+# ---------------------------------------------------------------------------
+
+
+class TestSeamFadeIsRecorded:
+    @staticmethod
+    def _joined(**kwargs):
+        rate, fps, frames = 8000, 10, 30
+        t = numpy.arange(rate * 3) / rate
+        tone = (0.3 * numpy.sin(2 * math.pi * 220 * t)).astype(numpy.float32)[None]
+        clips = [
+            AudioVideo(
+                make_frames(frames, base_grey=100, seed=seed), tone, rate, fps=fps
+            )
+            for seed in (1, 2)
+        ]
+        return concat_videos(clips, fps=fps, sample_rate=rate, **kwargs)
+
+    def test_the_faded_seam_carries_the_fade_and_no_hole_finding(self):
+        joined = self._joined(seam_fade_ms=1000)
+        assert "seam_fade_ms" not in joined.shots[0]
+        assert joined.shots[1]["seam_fade_ms"] == 1000
+
+        answer = analyze_seams(joined)
+        assert answer["seams"][0]["seam_fade_ms"] == 1000
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
+
+    def test_an_unrequested_hole_still_fires(self):
+        # Same material and the same dip, but the fade is only in the
+        # shot record's absence: the probe reads the record, not the audio
+        joined = self._joined(seam_fade_ms=1000)
+        shots = [
+            {k: v for k, v in shot.items() if k != "seam_fade_ms"}
+            for shot in joined.shots
+        ]
+        answer = analyze_seams(joined, shots=shots)
+        assert "seam_fade_ms" not in answer["seams"][0]
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"]
+
+    def test_no_fade_is_recorded_when_none_was_asked_or_a_bleed_took_the_seam(self):
+        assert "seam_fade_ms" not in self._joined().shots[1]
+        bled = self._joined(seam_fade_ms=1000, audio_bleed_ms=100)
+        assert "seam_fade_ms" not in bled.shots[1]
+
+
+# ---------------------------------------------------------------------------
 # 3b. concat_videos marks its own seam hard_cut, so a real join's jump is
 # suppressed while the same magnitude reached by a chain-style join (which
 # never sets hard_cut) still fires (#466)
