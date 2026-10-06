@@ -193,6 +193,14 @@ class TestIntrospection:
                 load_allowed_class(blocked)
 
 
+def _with_doc(doc):
+    def call(self):
+        pass
+
+    call.__doc__ = doc
+    return call
+
+
 def test_call_doc_survives_an_indented_parent_docstring():
     """A parent __call__ docstring that still carries its source indent (an
     older Python, or a wrapped call) must not fold into `video`'s entry."""
@@ -203,13 +211,19 @@ def test_call_doc_survives_an_indented_parent_docstring():
         def __call__(self):
             pass
 
+    # Args sits deeper than a stray shallow line, so cleandoc cannot strip it
     Parent.__call__.__doc__ = (
-        "\n    Summary.\n\n    Args:\n"
-        "        prompt (`str`):\n            The prompt.\n"
-        "        height (`int`):\n            The height.\n"
+        "\n        Summary.\n\n        Args:\n"
+        "            prompt (`str`):\n                The prompt.\n"
+        "            height (`int`):\n                The height.\n"
+        "    Stray.\n"
     )
     with patch.object(module, "LTX2Pipeline", Parent):
-        documented, _ = _parse_docstring_args(module._call_doc())
+        documented, _ = _parse_docstring_args(
+            inspect.getdoc(
+                type("C", (), {"__call__": _with_doc(module._call_doc())}).__call__
+            )
+        )
     assert documented["prompt"]["description"] == "The prompt."
     assert documented["height"]["description"] == "The height."
     assert "The prompt" not in documented["video"]["description"]

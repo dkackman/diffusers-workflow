@@ -17,6 +17,8 @@ workflow's `noise_scale` and `sigmas`.
 """
 
 import inspect
+import re
+import textwrap
 
 import torch
 from diffusers import LTX2Pipeline
@@ -43,13 +45,18 @@ VIDEO_DOC = """    video (`list[PIL.Image.Image]`, `np.ndarray` or `torch.Tensor
 
 
 def _call_doc():
-    """The parent's call docstring with `video` added at the head of Args."""
-    # cleandoc, not getdoc: on some Pythons the parent's __call__ is wrapped
-    # (torch.no_grad) and getdoc leaves its indent, which would put the parent's
-    # entries at a different indent than `video` and fold them into its text.
-    doc = inspect.cleandoc(LTX2Pipeline.__call__.__doc__ or "") or "Args:\n"
+    """The parent's call docstring with `video` added at the head of Args.
+
+    `video` is indented to match the parent's own entries, read off its
+    docstring: a wrapped parent can leave its Args block indented past what
+    `inspect.cleandoc` strips, and a `video` at a different indent would fold
+    every entry after it into its description.
+    """
+    doc = LTX2Pipeline.__call__.__doc__ or "Args:\n"
     head, args, rest = doc.partition("Args:\n")
-    return head + args + VIDEO_DOC + rest
+    entry = re.match(r"[ \t]*", rest).group()
+    video = textwrap.indent(textwrap.dedent(VIDEO_DOC), entry)
+    return head + args + video + rest
 
 
 class LTX2RefinePipeline(LTX2Pipeline):
