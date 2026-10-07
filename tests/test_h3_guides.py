@@ -14,6 +14,8 @@ from dw.pipeline_processors.h3_blocks import (
     GUIDE_CONDITION_BLOCK,
     GUIDE_LATENTS_BLOCK,
     GUIDE_LIMIT,
+    RENDER_GRID,
+    default_num_frames,
     fit_guide_frames,
     guide_blocks,
     guide_end_problem,
@@ -30,6 +32,7 @@ from dw.pipeline_processors.h3_blocks import (
     takes_guides,
 )
 from dw.pipeline_processors.pipeline import Pipeline
+from dw.variable_constraints import aligned_down
 
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.minimax_h3 import before_denoise  # noqa: E402
@@ -105,6 +108,16 @@ class TestLengths:
     )
     def test_snap_guide_length(self, n, snapped):
         assert snap_guide_length(n) == snapped
+
+    @pytest.mark.parametrize("n", range(22, 200))
+    def test_long_snap_is_the_constraint_owners_floor(self, n):
+        # The 17m + 5 tail is variable_constraints' grid, not a copy of it
+        assert snap_guide_length(n) == aligned_down(n, RENDER_GRID)
+
+    def test_default_num_frames_is_the_stock_layout_default(self):
+        stock = before_denoise.MiniMaxH3PrepareLayoutStep()
+        (param,) = [p for p in stock.inputs if p.name == "num_frames"]
+        assert default_num_frames() == param.default == 124
 
     @pytest.mark.parametrize(
         "n, latents", [(1, 1), (5, 2), (22, 7), (39, 12), (56, 17)]
