@@ -651,6 +651,33 @@ class TestSpeechInSilentShot(unittest.TestCase):
         self.assertEqual(rules(answer, "speech_in_silent_shot"), [])
         self.assertIn("speech_in_silent_shot", answer["rules_applied"])
 
+    def test_a_word_a_line_claimed_across_the_cut_is_not_silent_shot_speech(self):
+        # 'charlie' straddles the cut (2.8-3.4, most of it in B) but line A
+        # matched it: only B's own unmatched words count, from the first of them
+        chunks = [
+            *words("alpha bravo", 1.8),
+            {"start": 2.8, "end": 3.4, "text": " charlie"},
+            *words("zulu yankee", 3.5),
+        ]
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        (found,) = rules(answer, "speech_in_silent_shot")
+        self.assertEqual(found["value"], 2)
+        self.assertEqual(found["at"]["word"], "zulu")
+        self.assertEqual(found["at"]["seconds"], 3.5)
+        self.assertEqual(found["at"]["shot"], "B")
+        self.assertEqual(answer["lines"][0]["similarity"], 1.0)
+
+    def test_an_unclaimed_word_straddling_the_cut_is_at_the_cut(self):
+        chunks = [
+            *words("alpha bravo", 0.0),
+            {"start": 2.8, "end": 3.4, "text": " zulu"},
+        ]
+        answer = shot_run(self.LINES, chunks)
+        (found,) = rules(answer, "speech_in_silent_shot")
+        self.assertEqual(found["value"], 1)
+        self.assertEqual(found["at"]["seconds"], 3.0)
+        self.assertEqual(found["at"]["shot"], "B")
+
     def test_words_over_silence_in_an_unnamed_shot_are_not_found(self):
         mono = numpy.concatenate([voiced(3.0), silent(3.0)])
         chunks = words("alpha bravo", 0.0) + words("zulu yankee", 3.5)
