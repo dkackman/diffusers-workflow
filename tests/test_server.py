@@ -285,6 +285,39 @@ def test_job_lifecycle_success(server):
         assert execute[0]["arguments"] == {"prompt": "hi"}
 
 
+def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
+    server, monkeypatch
+):
+    label = "cuda:1 NVIDIA GeForce RTX 3090"
+    monkeypatch.setattr(ScriptedWorkerManager, "device_label", lambda self: label)
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, running["id"], ["running"])
+        queued = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+
+        assert detail["device"] == label
+        assert client.get(f"/api/jobs/{queued['id']}").json()["device"] is None
+        summaries = {job["id"]: job for job in client.get("/api/jobs").json()["jobs"]}
+        assert summaries[running["id"]]["device"] == label
+        assert summaries[queued["id"]]["device"] is None
+
+        client.post(f"/api/jobs/{queued['id']}/cancel")
+        client.post(f"/api/jobs/{running['id']}/cancel")
+        wait_for_status(client, running["id"], ["cancelled"])
+
+
+def test_a_finished_jobs_device_is_remembered_in_history(server, monkeypatch):
+    label = "cuda:1 NVIDIA GeForce RTX 3090"
+    monkeypatch.setattr(ScriptedWorkerManager, "device_label", lambda self: label)
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], ["succeeded"])
+
+        assert detail["device"] == label
+        manager = client.app.state.job_manager
+        assert manager.history.get(job["id"])["device"] == label
+
+
 def test_failed_job_surfaces_the_error_and_traceback(server):
     """The failure path is what every user sees when a run goes wrong -
     the error and traceback must reach the detail, the event log must

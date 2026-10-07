@@ -781,3 +781,86 @@ class TestTheBucketAPlanAsksFor:
 
         assert observed["cold_minutes"] == 20.0
         assert observed["drivers"] == {"shots": 4}
+
+
+class TestByCard:
+    """#462: a row names the card it ran on, and a figure counts only the
+    rows from the card this server runs on - a 3090 run says nothing about a
+    4090 estimate, whichever index either had."""
+
+    CARD = "NVIDIA GeForce RTX 3090"
+
+    @staticmethod
+    def _history(tmp_path, devices):
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            for index, device in enumerate(devices):
+                connection.execute(
+                    "INSERT INTO jobs (id, status, started_at, finished_at,"
+                    " arguments, manifest, events, workflow_name, device)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        f"job-{index}",
+                        "succeeded",
+                        0.0,
+                        60.0,
+                        "{}",
+                        "[]",
+                        "[]",
+                        "templates/x",
+                        device,
+                    ),
+                )
+        return history
+
+    def _costs(self, history, monkeypatch, default):
+        monkeypatch.setattr("dw.devices.is_default_device", lambda device=None: default)
+        costs = ObservedCosts(history)
+        # What device() would have read from torch on a 3090 box
+        costs._device = ("cuda", self.CARD)
+        costs._card = self.CARD
+        return costs
+
+    def test_only_rows_from_this_card_count_whichever_index_they_had(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(
+            tmp_path,
+            [
+                "cuda:0 NVIDIA GeForce RTX 4090",
+                "cuda:0 NVIDIA GeForce RTX 4090",
+                "cuda:1 NVIDIA GeForce RTX 3090",
+            ],
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        observed = costs.observed("templates/x", workflow())
+
+        assert observed["runs"] == 1
+
+    def test_a_card_with_no_rows_of_its_own_has_no_figure(self, tmp_path, monkeypatch):
+        history = self._history(
+            tmp_path,
+            ["cuda:0 NVIDIA GeForce RTX 4090", "cuda:0 NVIDIA GeForce RTX 4090"],
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow()) is None
+
+    def test_rows_from_before_jobs_carried_a_device_count_on_the_default_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(
+            tmp_path, [None, None, "cuda:0 NVIDIA GeForce RTX 4090"]
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 2
+
+    def test_rows_from_before_jobs_carried_a_device_do_not_count_off_the_default_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(tmp_path, [None, None, "cuda:1 " + self.CARD])
+        costs = self._costs(history, monkeypatch, default=False)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 1
