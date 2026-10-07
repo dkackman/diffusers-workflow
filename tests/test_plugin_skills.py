@@ -151,6 +151,7 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 SKILL_TASKS = {
     "minimax-music3": ["attribute_voices"],
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
+    "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
 }
 
 
@@ -674,6 +675,49 @@ class TestKandinsky6Skill:
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(KANDINSKY6_SKILL)
         assert text.index("get_server_info") < text.index("templates/kandinsky6/")
+
+
+SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")
+SERIES_LOOK = os.path.join(os.path.dirname(SERIES_SKILL), "references", "look.md")
+
+
+class TestSeriesEpisodesLook:
+    """The optional look step: a shared palette through apply_lut, then
+    film_grain, as a workflow the engine's own validator accepts."""
+
+    def _look_workflow(self):
+        text = open(SERIES_LOOK, encoding="utf-8").read()
+        return json.loads(
+            _fenced_block_after(text, "## The workflow, one run per episode")
+        )
+
+    def _validate(self, workflow, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        path = tmp_path / "series-look.json"
+        path.write_text(json.dumps(workflow), encoding="utf-8")
+        workflow_from_file(str(path), str(tmp_path)).validate()
+
+    def test_the_look_is_optional_and_not_a_sixth_beat(self):
+        body = skill_body(SERIES_SKILL)
+        assert "five-beat" in body and "Optional look" in body
+        assert "Not a beat" in body
+        assert "`references/look.md`" in body
+
+    def test_the_recipe_is_a_shared_palette_then_grain(self):
+        steps = self._look_workflow()["steps"]
+        assert [s["task"]["command"] for s in steps] == ["apply_lut", "film_grain"]
+        assert steps[0]["task"]["arguments"]["palette"] == "variable:look"
+        assert steps[1]["task"]["arguments"]["media"] == "previous_result:graded"
+
+    def test_the_recipe_validates(self, tmp_path):
+        self._validate(self._look_workflow(), tmp_path)
+
+    def test_the_validation_is_real(self, tmp_path):
+        workflow = self._look_workflow()
+        workflow["variables"]["look"] = ["#12345", "#ffffff"]
+        with pytest.raises(Exception, match="#12345"):
+            self._validate(workflow, tmp_path)
 
 
 MUSIC_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
