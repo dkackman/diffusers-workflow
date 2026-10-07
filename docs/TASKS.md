@@ -2878,7 +2878,8 @@ The step's `result.content_type` must be `"application/json"`; read the answer w
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | The take - a path, `asset:`/`output:` reference, or an earlier step's audio or video (its soundtrack is taken) |
-| `lines` | Yes | The expected lines in order: a list of strings or `{text}` objects. Markup is stripped (below). `[]` means no speech is expected |
+| `lines` | Yes | The expected lines in order: a list of strings or `{text, shot}` objects, `shot` naming the take's shot the line belongs in. Markup is stripped (below). `[]` means no speech is expected |
+| `shots` | No | The take's shot map, `[{name, start_frame, num_frames, start_sample, num_samples}]`. Default: the take's own `.shots` (an earlier step's video), else the run manifest or `keep_output` sidecar beside an `asset:`/`output:` file - resolved as the assessment probes resolve them (`assess.resolve_shots`). The argument wins over both |
 | `similarity` | No | Least similarity, 0..1, of a line's heard words to its expected words before it is a `line_mismatch` (default `0.85`) |
 | `model_name` | No | HuggingFace ID of a Whisper-class ASR model (default `openai/whisper-base`) |
 | `sample_rate` | No | Sample rate of a waveform passed directly |
@@ -2890,10 +2891,11 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 | ---- | ---------- | --------------------- | ---- |
 | `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
 | `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
-| `line_clipped_at_end` | A line's last heard word ends inside the file's final `CLIP_TAIL_SECONDS` and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word}` |
-| `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first |
+| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one |
+| `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
+| `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first word |
 
-Every finding is severity `warn`. A rule that does not apply to the call is listed in `rules_skipped` with its reason.
+Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` is skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent).
 
 The thresholds are module constants in `dw/tasks/script_check.py`, deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
 
@@ -2906,7 +2908,7 @@ The thresholds are module constants in `dw/tasks/script_check.py`, deliberately 
 | `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
 | `REPEAT_MAX_PERIOD` | 4 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
 
-The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot` - null for now), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor` or `repetition`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`.
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor` or `repetition`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
 
 How the alignment reads a take:
 
@@ -2916,7 +2918,7 @@ How the alignment reads a take:
 - Whisper mishears names and numbers (`2` for `two`), so listen before re-rolling a take on a mismatch.
 - A quiet line can be discarded by the guard. Discarded words are reported under `discarded`, not hidden.
 
-A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1.
+A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
 
 ## Frame Interpolation
 
