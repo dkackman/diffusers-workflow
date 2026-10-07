@@ -413,6 +413,19 @@ class TestWrapperSteps:
         assert state.get("latents") is latents
         assert state.get("condition_rows") is None
 
+    @pytest.mark.parametrize("which", ["condition", "latents"])
+    def test_no_condition_latents_draws_nothing_from_the_seed(self, which):
+        """#648 C-F302: a run without guides must draw the same noise as stock t2va"""
+        step = guide_blocks()[{"condition": 1, "latents": 2}[which]]
+        generator = torch.Generator().manual_seed(42)
+        before = generator.get_state().clone()
+        state = PipelineState()
+        state.set("latents", torch.randn(12, 3))
+        state.set("num_condition_video_rows", 0)
+        state.set("generator", generator)
+        drive(step(), state, components_for_steps())
+        assert torch.equal(generator.get_state(), before)
+
     def test_with_a_condition_latent_they_pack_and_prepend(self):
         _, condition_step, latents_step = guide_blocks()
         condition = torch.randn(1, 4, 2, LAT_H, LAT_W)
