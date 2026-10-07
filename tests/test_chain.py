@@ -10,6 +10,7 @@ keyed videos/audio/sampling_rate. No GPU is involved.
 import os
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -23,6 +24,7 @@ from dw.pipeline_processors.chain import (
     validate_frame_snap,
 )
 from dw.media_types import AudioVideo
+from dw.task_domains import frames_to_samples
 
 MINIMAX_SNAP = {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 345}
 
@@ -817,6 +819,233 @@ class TestLastSegmentContinuity:
                 self.chain(),
                 {"prompt": "test", "num_frames": 8, "references": []},
             )
+
+
+class TestGuideContinuity:
+    FPS = 24
+    RATE = 100
+
+    def chain(self, **overrides):
+        return {
+            "segments": 3,
+            "continuity": "guide",
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        } | overrides
+
+    def output(self, arguments, index):
+        """Each frame's colour names its segment and frame: (segment, frame)."""
+        num_frames = arguments.get("num_frames", 124)
+        frames = [solid_frame((index * 50, frame, 7)) for frame in range(num_frames)]
+        samples = int(num_frames / self.FPS * self.RATE)
+        audio = torch.full((1, 2, samples), float(index + 1))
+        return {"videos": [frames], "audio": audio, "sampling_rate": self.RATE}
+
+    def arguments(self, num_frames=124, **extra):
+        return {"prompt": "test", "num_frames": num_frames} | extra
+
+    @pytest.mark.parametrize("guide_frames", [22, 39])
+    def test_plan_trims_the_guide_off_each_later_segment(self, guide_frames):
+        total = 124 + 2 * (124 - guide_frames)
+
+        plan = plan_segments(total, 124, guide_frames, MINIMAX_SNAP)
+
+        assert [s.num_frames for s in plan] == [124, 124, 124]
+        assert [s.head_trim for s in plan] == [0, guide_frames, guide_frames]
+
+    def test_a_short_last_segment_snaps_up_to_the_minimum_length(self):
+        # 124 + 102 + 30 covers 256; the last needs 52 frames of progress
+        plan = plan_segments(124 + 102 + 30, 124, 22, MINIMAX_SNAP)
+
+        assert [s.num_frames for s in plan] == [124, 124, 124]
+        assert sum(s.num_frames - s.head_trim for s in plan) >= 256
+
+    def test_a_short_last_segment_snaps_to_the_next_valid_length(self):
+        snap = {"modulus": 17, "remainder": 5}
+
+        plan = plan_segments(124 + 102 + 30, 124, 22, snap)
+
+        # 30 frames of progress plus the 22 guide is 52, which snaps to 17*3+5
+        assert [s.num_frames for s in plan] == [124, 124, 56]
+        assert [s.head_trim for s in plan] == [0, 22, 22]
+
+    def test_match_audio_plans_with_the_guide_length_as_the_trim(self):
+        audio = torch.zeros(1, 2, int(256 / self.FPS * self.RATE))
+        chain = {
+            "match_audio": True,
+            "continuity": "guide",
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        }
+        references = [FakeAudioReference(audio, self.RATE)]
+
+        config = ChainConfig(chain, {"num_frames": 124, "references": references})
+
+        assert [s.head_trim for s in config.plan] == [
+            0 if i == 0 else 22 for i in range(len(config.plan))
+        ]
+
+    @pytest.mark.parametrize("guide_frames", [22, 39])
+    def test_segments_mode_lays_the_previous_tail_in_as_a_guide(self, guide_frames):
+        pipeline = FakePipeline(self.output)
+        keyframe = solid_frame((1, 2, 3))
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=guide_frames),
+            self.arguments(image=keyframe),
+        )
+
+        kept = 124 - guide_frames
+        assert len(result.frames) == 124 + 2 * kept
+        # the first segment keeps its own keyframe
+        assert pipeline.calls[0]["image"] is keyframe
+        assert "guides" not in pipeline.calls[0]
+        second = pipeline.calls[1]
+        assert len(second["guides"]) == 1
+        guide = second["guides"][0]
+        assert guide["frame"] == 0
+        assert guide["audio"] is True
+        assert isinstance(guide["video"], AudioVideo)
+        expected = [(0, f, 7) for f in range(124 - guide_frames, 124)]
+        assert [frame.getpixel((0, 0)) for frame in guide["video"].frames] == expected
+        samples = frames_to_samples(guide_frames, self.FPS, self.RATE)
+        assert guide["video"].audio.shape[-1] == samples
+        assert guide["video"].sample_rate == self.RATE
+        # the keyframe is the previous segment's frame -guide_frames
+        assert second["image"].getpixel((0, 0)) == (0, 124 - guide_frames, 7)
+        third = pipeline.calls[2]
+        assert third["image"].getpixel((0, 0)) == (50, 124 - guide_frames, 7)
+        assert len(third["guides"]) == 1
+        # the kept frames start at the new segment's frame guide_frames
+        assert result.frames[124].getpixel((0, 0)) == (50, guide_frames, 7)
+        assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
+
+    def test_the_guide_is_appended_to_the_segments_own_guides(self):
+        pipeline = FakePipeline(self.output)
+        own = {"video": "clip.mp4", "frame": 17}
+
+        run_chain(pipeline, self.chain(segments=2), self.arguments(guides=[own]))
+
+        assert pipeline.calls[1]["guides"][0] is own
+        assert len(pipeline.calls[1]["guides"]) == 2
+        # the caller's list is not mutated
+        assert pipeline.calls[0]["guides"] == [own]
+
+    def test_t2va_injects_no_keyframe(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(pipeline, self.chain(), self.arguments())
+
+        assert all("image" not in call for call in pipeline.calls)
+        assert len(pipeline.calls[1]["guides"]) == 1
+
+    def test_a_custom_segment_argument_is_the_keyframe(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(
+            pipeline,
+            self.chain(segment_argument="first_frame"),
+            self.arguments(first_frame=solid_frame((1, 1, 1))),
+        )
+
+        assert pipeline.calls[1]["first_frame"].getpixel((0, 0)) == (0, 102, 7)
+
+    def test_carry_audio_false_guides_with_frames_alone(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(carry_audio=False),
+            self.arguments(image=solid_frame((1, 1, 1))),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        assert guide["audio"] is False
+        assert isinstance(guide["video"], list)
+        assert len(guide["video"]) == 22
+        assert len(result.frames) == 328
+
+    def test_carry_audio_false_keeps_the_configured_crossfade(self):
+        config = ChainConfig(
+            self.chain(carry_audio=False, crossfade_ms=40), self.arguments()
+        )
+
+        assert config.crossfade_ms == 40
+        assert config.guide_holds_audio is False
+
+    def test_carry_audio_forces_the_crossfade_to_zero(self):
+        config = ChainConfig(self.chain(crossfade_ms=40), self.arguments())
+
+        assert config.crossfade_ms == 0.0
+        assert config.guide_holds_audio is True
+        assert config.guide_frames == 22
+        assert config.head_trim == 22
+
+    def test_the_guide_length_defaults_to_22(self):
+        config = ChainConfig(self.chain(), self.arguments())
+
+        assert config.guide_frames == 22
+
+    @pytest.mark.parametrize("guide_frames", [30, 5])
+    def test_a_guide_length_other_than_22_or_39_raises(self, guide_frames):
+        with pytest.raises(ValueError, match="22") as raised:
+            ChainConfig(self.chain(guide_frames=guide_frames), self.arguments())
+
+        assert "39" in str(raised.value)
+
+    def test_carry_frames_raises(self):
+        with pytest.raises(ValueError, match="carry_frames"):
+            ChainConfig(self.chain(carry_frames=10), self.arguments())
+
+    def test_references_in_the_arguments_raise(self):
+        pipeline = FakePipeline(self.output)
+        arguments = self.arguments(
+            references=[FakeImageReference(solid_frame((1, 1, 1)))]
+        )
+
+        with pytest.raises(ValueError, match="ref2va"):
+            run_chain(pipeline, self.chain(), arguments)
+
+        assert pipeline.calls == []
+
+    def test_a_pipeline_that_refuses_guides_raises_before_rendering(self):
+        pipeline = FakePipeline(self.output)
+        pipeline.pipeline = SimpleNamespace()
+
+        with patch(
+            "dw.pipeline_processors.chain.guides_refusal", return_value="no guides"
+        ):
+            with pytest.raises(ValueError, match="no guides"):
+                run_chain(pipeline, self.chain(), self.arguments())
+
+        assert pipeline.calls == []
+
+    def test_a_segment_no_longer_than_the_guide_raises(self):
+        with pytest.raises(ValueError, match="cannot progress"):
+            ChainConfig(
+                self.chain(frame_snap=None, guide_frames=22),
+                self.arguments(num_frames=22),
+            )
+
+    def test_trim_frames_is_ignored_with_a_note(self):
+        pipeline = FakePipeline(self.output)
+
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            result = run_chain(pipeline, self.chain(trim_frames=3), self.arguments())
+
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("trim_frames is ignored" in note for note in notes)
+        assert len(result.frames) == 328
+
+    def test_no_note_without_trim_frames(self):
+        pipeline = FakePipeline(self.output)
+
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(pipeline, self.chain(), self.arguments())
+
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert not any("trim_frames" in note for note in notes)
 
 
 class TestValidation:

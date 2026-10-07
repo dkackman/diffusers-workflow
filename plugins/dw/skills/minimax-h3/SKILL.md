@@ -48,7 +48,9 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
-  (last-frame continuity), `templates/minimax/chain-video-continuity`
+  (last-frame continuity; `continuity: "guide"`, `guide_frames` 22 or 39,
+  holds the last frames and voice as a guide instead - not on the ref2va
+  chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
   sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`

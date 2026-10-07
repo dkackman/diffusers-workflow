@@ -1728,6 +1728,30 @@ from its seed as before. Repeat runs at one seed are bit-identical only on a ser
 `false`, two runs at seed 42 match frame for frame by eye, but their audio levels differ by
 a few dB.
 
+#### Chaining with a guide: `continuity: "guide"`
+
+A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
+keyframe: `"chain": {"segments": 3, "continuity": "guide", "guide_frames": 22}`. Every
+segment after the first gets the previous segment's last P = `guide_frames` frames as a
+guide at frame 0 (appended to the step's own `guides`), with `"audio": true` when
+`carry_audio` is (the default), so motion and voice run on across the seam rather than
+restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
+next segment opens with a near-copy of those P frames, so P frames are trimmed from its
+head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 is 328.
+
+| Rule | Value |
+|---|---|
+| `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
+| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
+| `carry_frames` | refused - the carry is always the last `guide_frames` frames |
+| `trim_frames` | ignored (the trim is P), with a note in the job log |
+| `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
+| `num_frames` | must exceed P, or the chain cannot progress |
+
+`workflows/templates/minimax/chained-segments.json` takes `continuity` and
+`guide_frames` as variables. The `ref2va` chains (`chain-video-continuity` and the
+`match_audio` chains) keep `last_segment`.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
@@ -2345,10 +2369,14 @@ joined into a single file:
   conditioning, which carries pose and colour. `last_segment` carries the previous
   segment itself (frames and its generated soundtrack) into the next as a video
   reference, which also carries motion, camera, and voice across the seam; it
-  requires a `segment_argument` that takes a references list.
+  requires a `segment_argument` that takes a references list. `guide` (MiniMax-H3
+  `t2va`/`fl2va` only) lays the previous segment's last `guide_frames` frames into the
+  next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
+  guide*).
+- `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
   segment (the audio is cut to the same span). Unset carries the whole segment.
-- `carry_audio` — with `last_segment`, whether the carried reference includes its
+- `carry_audio` — with `last_segment` or `guide`, whether the carried reference includes its
   soundtrack (default `true`).
 - `segment_argument` — where the carried frame or reference lands: `image` (default)
   for image-to-video pipelines, or `references` for reference-conditioned modular
