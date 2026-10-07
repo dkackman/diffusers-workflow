@@ -78,6 +78,36 @@ class TestClean:
         assert check(s) == []
 
 
+class TestGuideAudio:
+    def with_audio(self, probe):
+        return lambda path: {**probe(path), **({"sample_rate": 48000, "channels": 2})}
+
+    @pytest.mark.parametrize("extra", [{}, {"audio": False}])
+    def test_absent_or_false_needs_no_audio(self, extra):
+        assert check(step(guides=[{**GOOD, **extra}]), fake_probe()) == []
+
+    def test_true_on_a_video_with_audio(self):
+        probe = self.with_audio(fake_probe())
+        assert check(step(guides=[{**GOOD, "audio": True}]), probe) == []
+
+    def test_true_on_a_silent_video_is_refused(self):
+        error = one(step(guides=[{**GOOD, "audio": True}]), fake_probe())
+        assert error["path"] == "steps[0].pipeline.arguments.guides[0]"
+        assert "no audio" in error["message"]
+
+    def test_true_without_a_probe_is_left_to_the_run(self):
+        assert check(step(guides=[{**GOOD, "audio": True}])) == []
+
+    @pytest.mark.parametrize("value", ["yes", 1, None])
+    def test_not_a_bool_is_refused(self, value):
+        error = one(step(guides=[{**GOOD, "audio": value}]))
+        assert "'audio' must be true or false" in error["message"]
+
+    def test_an_unresolved_reference_is_left_to_the_run(self):
+        guide = {**GOOD, "audio": "previous_result:pick"}
+        assert check(step(guides=[guide]), fake_probe()) == []
+
+
 class TestRefusals:
     def test_non_h3_pipeline(self):
         s = step(guides=[GOOD])
@@ -101,7 +131,7 @@ class TestRefusals:
         assert error["path"] == "steps[0].pipeline.arguments.guides[0]"
         assert "{video, frame}" in error["message"]
 
-    @pytest.mark.parametrize("key", ["audio", "extra"])
+    @pytest.mark.parametrize("key", ["audio_gain", "extra"])
     def test_unknown_key(self, key):
         error = one(step(guides=[{**GOOD, key: "x"}]))
         assert key in error["message"]

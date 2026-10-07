@@ -40,6 +40,18 @@ step, runs it, then VAE-encodes each clip on the target canvas and splices its r
 after any keyframe rows, timed from the target frame it lands on, widening
 `num_condition_video_rows` so `after_denoise` slices them off. On `t2va` two more
 blocks run the stock `fl2va` condition-latent steps only when there are guides.
+
+A guide with `audio` also holds its soundtrack over its span (#649). The span starts
+at the audio latent at or before the guide's first frame, `floor(frame * 40 / 24)`,
+and runs `round(frames * 40 / 24)` latents on from the frame's own time; the
+waveform is pre-padded with the silence between that latent and the frame, so the
+time origin holds (`guide_audio_span`, `pad_guide_audio`). It is encoded the way a
+Ref2VA soundtrack is (the posterior mode), and the layout splices its rows in
+front of the target audio, at the target's own rotary times for that span, as
+condition audio rows held at `t = 1.0`. `DwH3GuideAudioStep` puts the encoded rows
+in front of `audio_latents` before the audio hold, which then writes after them.
+Nothing restores them before decode: `after_denoise` slices the condition prefix
+off, and the target rows at the same times are generated, as with a video guide.
 """
 
 import logging
@@ -188,15 +200,45 @@ def fit_latents(latents, num_latents, silence):
     return torch.cat([latents, padding], dim=1)
 
 
+def encode_audio_latents(encoder, components, waveform):
+    """`(channels, n, C)` normalized audio latents of a VAE-rate stereo waveform,
+    through `encoder` - a MiniMaxH3Ref2VAReferenceEncoderStep, whose soundtrack
+    encode takes the posterior mode."""
+    from diffusers.modular_pipelines.modular_pipeline import PipelineState
+
+    audio_reference = _diffusers()[2]
+    sub_state = PipelineState()
+    sub_state.set(
+        "normalized_references",
+        [audio_reference(audio=waveform, sample_rate=components.audio_sampling_rate)],
+    )
+    _, sub_state = encoder(components, sub_state)
+    rows = sub_state.get("audio_condition_latents")[0]
+    return rows.reshape(components.audio_channels, -1, components.audio_latent_channels)
+
+
+def encode_audio_span(encoder, components, waveform, num_latents):
+    """`(channels, num_latents, C)` latents of a VAE-rate stereo waveform: cut or
+    padded with silence to `num_latents` latents of samples, encoded, and any
+    latent the encode falls short by filled with encoded silence."""
+    samples_per_latent = components.audio_sampling_rate // _diffusers()[3]
+    waveform = fit_samples(waveform, num_latents * samples_per_latent)
+    latents = encode_audio_latents(encoder, components, waveform)
+    if latents.shape[1] >= num_latents:
+        return fit_latents(latents, num_latents, None)
+    silence = encode_audio_latents(
+        encoder, components, torch.zeros(2, SILENCE_LATENTS * samples_per_latent)
+    )
+    middle = silence.shape[1] // 2
+    return fit_latents(latents, num_latents, silence[:, middle : middle + 1])
+
+
 def _make_blocks():
     """The three block classes, defined against the installed diffusers."""
     from diffusers.modular_pipelines.minimax_h3.before_denoise import (
         MiniMaxH3SetTimestepsStep,
     )
-    from diffusers.modular_pipelines.modular_pipeline import (
-        ModularPipelineBlocks,
-        PipelineState,
-    )
+    from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks
     from diffusers.modular_pipelines.modular_pipeline_utils import (
         InputParam,
         OutputParam,
@@ -251,23 +293,6 @@ def _make_blocks():
                 OutputParam(HELD_AUDIO_RATE_OUTPUT, type_hint=int),
             ]
 
-        def _encode(self, components, waveform):
-            """`(channels, n, C)` normalized audio latents of a VAE-rate stereo waveform."""
-            sub_state = PipelineState()
-            sub_state.set(
-                "normalized_references",
-                [
-                    audio_reference(
-                        audio=waveform, sample_rate=components.audio_sampling_rate
-                    )
-                ],
-            )
-            _, sub_state = self._encoder(components, sub_state)
-            rows = sub_state.get("audio_condition_latents")[0]
-            return rows.reshape(
-                components.audio_channels, -1, components.audio_latent_channels
-            )
-
         @torch.no_grad()
         def __call__(self, components, state):
             block_state = self.get_block_state(state)
@@ -282,7 +307,6 @@ def _make_blocks():
             vae_rate = components.audio_sampling_rate
             duration = block_state.num_frames / components.fps
             num_latents = block_state.num_audio_latents
-            samples_per_latent = vae_rate // latents_per_second
             original = as_channels_samples(held.audio)
             rate = held.sample_rate or vae_rate
 
@@ -292,19 +316,9 @@ def _make_blocks():
             waveform = setup_step._normalize_audio_condition(
                 original, rate, vae_rate, max_duration=duration
             )
-            waveform = fit_samples(waveform, num_latents * samples_per_latent)
-            latents = self._encode(components, waveform)
-            if latents.shape[1] < num_latents:
-                silence = self._encode(
-                    components,
-                    torch.zeros(2, SILENCE_LATENTS * samples_per_latent),
-                )
-                middle = silence.shape[1] // 2
-                latents = fit_latents(
-                    latents, num_latents, silence[:, middle : middle + 1]
-                )
-            else:
-                latents = fit_latents(latents, num_latents, None)
+            latents = encode_audio_span(
+                self._encoder, components, waveform, num_latents
+            )
 
             # Channel-major target rows, after any Ref2VA reference rows
             audio_latents = block_state.audio_latents
@@ -665,6 +679,10 @@ GUIDE_LIMIT = 4
 LAYOUT_STEP = "prepare_layout"
 GUIDE_CONDITION_BLOCK = "dw_guide_condition_latents"
 GUIDE_LATENTS_BLOCK = "dw_guide_latents"
+# The block that puts the guides' audio rows in front of the target audio, and
+# the state key the layout leaves them under (#649)
+GUIDE_AUDIO_BLOCK = "dw_guide_audio"
+GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
 LAYOUT_ANCHORS = (
     "MiniMaxH3PrepareLayoutStep",
     "MiniMaxH3PrepareLayoutStep.build_packed_sequence",
@@ -828,6 +846,87 @@ def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
     )
 
 
+def guide_audio_latents(num_frames, fps=24, latents_per_second=40):
+    """M, the audio latents a guide of `num_frames` frames holds at frame 0:
+    round(num_frames * 40 / 24). 22 -> 37, 39 -> 65."""
+    return int(round(num_frames * latents_per_second / fps))
+
+
+def guide_audio_span(frame, num_frames, fps=24, latents_per_second=40):
+    """(start, pad, count) of a guide's audio on the target audio grid.
+
+    `start` is the target audio latent the guide's audio lands on, the one at or
+    before its first frame: floor(frame * 40 / 24). `pad` is the seconds of
+    silence that go in front of the guide's audio so its first sample keeps its
+    time - frame / 24 - once the encode starts at that latent. `count` is the
+    latents per channel it covers, to round((frame + num_frames) * 40 / 24); M at
+    frame 0 (`guide_audio_latents`)."""
+    start = frame * latents_per_second // fps
+    pad = frame / fps - start / latents_per_second
+    end = guide_audio_latents(frame + num_frames, fps, latents_per_second)
+    return start, pad, end - start
+
+
+def pad_guide_audio(waveform, frame, sample_rate, fps=24, latents_per_second=40):
+    """A guide's `(channels, samples)` waveform, at `sample_rate`, with the
+    silence in front that puts its first sample at `frame / fps` when sample 0
+    is the guide's start latent (`guide_audio_span`) - the audio VAE's hop."""
+    start = frame * latents_per_second // fps
+    origin = int(round(frame * sample_rate / fps))
+    pad = origin - start * (sample_rate // latents_per_second)
+    return torch.nn.functional.pad(waveform, (pad, 0)) if pad > 0 else waveform
+
+
+def guide_audio_positions(num_text_tokens, width_grid, start, count, audio_channels):
+    """`(count * audio_channels, 3)` rotary positions of one guide's audio rows:
+    the target soundtrack's own, from its latent `start` - time num_text + start
+    on, channel-major on the two extremes of the width grid."""
+    from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+        _fill_audio_positions,
+    )
+
+    positions = torch.zeros(count * audio_channels, 3, dtype=torch.float64)
+    _fill_audio_positions(
+        positions,
+        slice(0, positions.shape[0]),
+        count,
+        float(num_text_tokens + start),
+        width_grid,
+        audio_channels,
+    )
+    return positions
+
+
+def splice_guide_audio_rows(layout, audio_positions, audio_tag):
+    """The packed layout with guide audio rows in front of the target audio.
+
+    `layout` is `(position_ids, token_tags, video_indices, audio_indices,
+    text_indices)` on the CPU. Returns the same five, widened by
+    `len(audio_positions)` audio rows that lead `audio_indices` - the
+    condition audio prefix - with every video row after them moved along.
+    """
+    position_ids, token_tags, video_indices, audio_indices, text_indices = layout
+    count = audio_positions.shape[0]
+    if not count:
+        return layout
+    at = int(audio_indices[0])
+    position_ids = torch.cat(
+        [position_ids[:at], audio_positions.to(position_ids.dtype), position_ids[at:]]
+    )
+    token_tags = torch.cat(
+        [
+            token_tags[:at],
+            torch.full((count,), audio_tag, dtype=token_tags.dtype),
+            token_tags[at:],
+        ]
+    )
+    video_indices = torch.where(
+        video_indices >= at, video_indices + count, video_indices
+    )
+    audio_indices = torch.cat([torch.arange(at, at + count), audio_indices + count])
+    return position_ids, token_tags, video_indices, audio_indices, text_indices
+
+
 def fit_guide_frames(frames, height, width):
     """`(n, height, width, 3)` uint8 frames covering the canvas: scaled to cover
     it and centre-cropped, with the arithmetic H3 fits a follower keyframe with
@@ -855,6 +954,32 @@ def fit_guide_frames(frames, height, width):
             for frame in frames
         ]
     )
+
+
+def guide_audio_waveform(value):
+    """(waveform, sample_rate) of a guide video's soundtrack: a `(channels,
+    samples)` float32 tensor, from what a guide's `video` loads to with its audio -
+    an AudioVideo, a step's Selected pick of one or a one-video list of one.
+
+    Raises:
+        ValueError: If the video carries no audio
+    """
+    while True:
+        if hasattr(value, "value") and hasattr(value, "position"):
+            value = value.value
+        elif isinstance(value, (list, tuple)) and len(value) == 1:
+            value = value[0]
+        else:
+            break
+    audio = getattr(value, "audio", None)
+    if audio is not None:
+        audio = as_channels_samples(audio)
+    if audio is None or not audio.numel():
+        raise ValueError(
+            "'audio' is true, but this guide's video has no audio - pass a video "
+            "with a soundtrack, or drop 'audio'"
+        )
+    return audio, getattr(value, "sample_rate", None)
 
 
 def guide_frames_array(value):
@@ -915,7 +1040,7 @@ def _make_guide_blocks():
     """The guide layout and the two t2va condition steps, defined against the
     installed diffusers."""
     import numpy as np
-    from diffusers.models import AutoencoderKLMiniMaxH3
+    from diffusers.models import AutoencoderKLMiniMaxH3, AutoencoderKLMiniMaxH3Audio
     from diffusers.modular_pipelines.minimax_h3 import before_denoise
     from diffusers.modular_pipelines.minimax_h3.encoders import encode_vae_condition
     from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks
@@ -925,6 +1050,7 @@ def _make_guide_blocks():
         OutputParam,
     )
 
+    setup_step, reference_encoder, _, latents_per_second = _diffusers()
     stock_layout = before_denoise.MiniMaxH3PrepareLayoutStep
     stock_condition = before_denoise.MiniMaxH3PrepareConditionLatentsStep
     stock_latents = before_denoise.MiniMaxH3FL2VAPrepareLatentsStep
@@ -937,6 +1063,9 @@ def _make_guide_blocks():
             # Called, not copied: the stock layout resolves the canvas and builds
             # the sequence, and the guides are spliced into what it built
             self._layout = stock_layout()
+            # ...and the encode a Ref2VA soundtrack reference takes, for a
+            # guide's audio
+            self._audio_encoder = reference_encoder()
 
         @property
         def description(self):
@@ -948,7 +1077,8 @@ def _make_guide_blocks():
         @property
         def expected_components(self):
             return list(self._layout.expected_components) + [
-                ComponentSpec("vae", AutoencoderKLMiniMaxH3)
+                ComponentSpec("vae", AutoencoderKLMiniMaxH3),
+                ComponentSpec("audio_vae", AutoencoderKLMiniMaxH3Audio),
             ]
 
         @property
@@ -964,7 +1094,8 @@ def _make_guide_blocks():
                     default=None,
                     description=(
                         "Clips to hold the generated video to: a list of {'video': (n, h, w, 3) uint8 frames, "
-                        "'frame': pixel frame, a multiple of 17}, n one of 1, 5 or 17m + 5."
+                        "'frame': pixel frame, a multiple of 17}, n one of 1, 5 or 17m + 5. A guide that also "
+                        "carries 'audio': (channels, samples) and 'sample_rate' holds that soundtrack over its span."
                     ),
                 ),
                 InputParam(name="condition_latents", type_hint=list, default=None),
@@ -973,7 +1104,8 @@ def _make_guide_blocks():
         @property
         def intermediate_outputs(self):
             return list(self._layout.intermediate_outputs) + [
-                OutputParam("condition_latents", type_hint=list)
+                OutputParam("condition_latents", type_hint=list),
+                OutputParam(GUIDE_AUDIO_ROWS, type_hint=torch.Tensor),
             ]
 
         @torch.no_grad()
@@ -1000,13 +1132,14 @@ def _make_guide_blocks():
                     "text_indices",
                     "num_condition_video_rows",
                     "condition_latents",
+                    "num_audio_latents",
                 ]
             )
 
             device = components._execution_device
             num_text = laid["text_token_tags"].shape[0]
             _, patch_h, patch_w = components.patch_size
-            frame_grid, _ = before_denoise._frame_position_grid(
+            frame_grid, width_grid = before_denoise._frame_position_grid(
                 laid["latent_height"], laid["latent_width"], patch_h, patch_w
             )
             target_time = before_denoise._temporal_position_grid(
@@ -1058,14 +1191,69 @@ def _make_guide_blocks():
                 torch.cat(positions),
                 components.video_tag,
             )
+
+            # Each guide's audio, encoded on the target audio grid from the latent
+            # at or before its first frame, as condition audio rows timed there
+            audio_rows, audio_positions = [], []
+            for index, guide in enumerate(guides):
+                if guide.get("audio") is None:
+                    continue
+                rows, start, count = self._guide_audio(
+                    components, guide, laid["num_audio_latents"]
+                )
+                audio_rows.append(rows)
+                audio_positions.append(
+                    guide_audio_positions(
+                        num_text, width_grid, start, count, components.audio_channels
+                    )
+                )
+                logger.info(
+                    f"Guide {index}: audio held over audio latents {start} to "
+                    f"{start + count} ({rows.shape[0]} rows)"
+                )
+            num_audio_rows = state.get("num_condition_audio_rows") or 0
+            if audio_rows:
+                layout = (
+                    splice_guide_audio_rows(
+                        layout[:5], torch.cat(audio_positions), components.audio_tag
+                    )
+                    + layout[5:]
+                )
+                state.set(GUIDE_AUDIO_ROWS, torch.cat(audio_rows))
+                num_audio_rows += sum(rows.shape[0] for rows in audio_rows)
+
             for name, value in zip(names, layout):
                 state.set(name, value.to(device))
             state.set("num_condition_video_rows", layout[5])
+            state.set("num_condition_audio_rows", num_audio_rows)
             # Keyframes first, then guides: the order the rows were laid out in
             state.set(
                 "condition_latents", list(laid["condition_latents"] or []) + latents
             )
             return components, state
+
+        def _guide_audio(self, components, guide, num_audio_latents):
+            """(rows, start, count): a guide's audio as `(channels * count, C)`
+            channel-major rows from target audio latent `start`."""
+            frame, length = guide["frame"], guide["video"].shape[0]
+            fps = components.fps
+            vae_rate = components.audio_sampling_rate
+            start, _, count = guide_audio_span(frame, length, fps, latents_per_second)
+            count = min(count, num_audio_latents - start)
+            original = as_channels_samples(guide["audio"])
+            rate = guide.get("sample_rate") or vae_rate
+            # The guide's span only, on the VAE's rate and channels the way a
+            # Ref2VA soundtrack is, then pre-padded to the VAE's hop
+            waveform = setup_step._normalize_audio_condition(
+                original, rate, vae_rate, max_duration=length / fps
+            )
+            waveform = pad_guide_audio(
+                waveform, frame, vae_rate, fps, latents_per_second
+            )
+            latents = encode_audio_span(
+                self._audio_encoder, components, waveform, count
+            )
+            return latents.reshape(-1, components.audio_latent_channels), start, count
 
     def _when_conditioned(stock, description):
         """A t2va step that runs the stock `fl2va` one only with conditioning
@@ -1115,6 +1303,44 @@ def _make_guide_blocks():
 
         return DwH3WhenConditionedStep
 
+    class DwH3GuideAudioStep(ModularPipelineBlocks):
+        model_name = "minimax-h3"
+
+        @property
+        def description(self):
+            return (
+                "dw: puts the guides' encoded audio in front of `audio_latents` as the condition audio prefix the "
+                "guide layout reserved. Does nothing when no guide carries audio."
+            )
+
+        @property
+        def inputs(self):
+            return [
+                InputParam(name="audio_latents", type_hint=torch.Tensor, required=True),
+                InputParam(name="audio_indices", type_hint=torch.Tensor, required=True),
+                InputParam(name=GUIDE_AUDIO_ROWS, type_hint=torch.Tensor, default=None),
+            ]
+
+        @property
+        def intermediate_outputs(self):
+            return [OutputParam("audio_latents", type_hint=torch.Tensor)]
+
+        def __call__(self, components, state):
+            block_state = self.get_block_state(state)
+            rows = getattr(block_state, GUIDE_AUDIO_ROWS)
+            audio_latents = block_state.audio_latents
+            # Once: the layout counted the rows into `audio_indices` already
+            if (
+                rows is None
+                or audio_latents.shape[0] >= block_state.audio_indices.numel()
+            ):
+                return components, state
+            block_state.audio_latents = torch.cat(
+                [rows.to(audio_latents.device, audio_latents.dtype), audio_latents]
+            )
+            self.set_block_state(state, block_state)
+            return components, state
+
     condition_step = _when_conditioned(
         stock_condition,
         "dw: diffusers' `prepare_condition_latents`, run in `t2va` only when `guides` gave it condition latents.",
@@ -1123,15 +1349,15 @@ def _make_guide_blocks():
         stock_latents,
         "dw: diffusers' `prepare_latents_fl2va`, run in `t2va` only when `guides` gave it condition rows.",
     )
-    return DwH3GuideLayoutStep, condition_step, latents_step
+    return DwH3GuideLayoutStep, condition_step, latents_step, DwH3GuideAudioStep
 
 
 _GUIDE_BLOCKS = None
 
 
 def guide_blocks():
-    """(DwH3GuideLayoutStep, the t2va condition step, the t2va latents step),
-    built once."""
+    """(DwH3GuideLayoutStep, the t2va condition step, the t2va latents step,
+    DwH3GuideAudioStep), built once."""
     global _GUIDE_BLOCKS
     if _GUIDE_BLOCKS is None:
         _GUIDE_BLOCKS = _make_guide_blocks()
@@ -1169,7 +1395,7 @@ def insert_guides(pipeline):
                 f"installed diffusers does not have, so this pipeline cannot take guides"
             )
         return False
-    layout_block, condition_block, latents_block = guide_blocks()
+    layout_block, condition_block, latents_block, audio_block = guide_blocks()
     inserted = False
     for prefix, sequence in _layout_sequences(pipeline):
         sub_blocks = sequence.sub_blocks
@@ -1196,6 +1422,17 @@ def insert_guides(pipeline):
                     latents_block(),
                     names.index(latents_name) + 1,
                 )
+        names = list(sub_blocks)
+        # Guide audio leads the audio rows, so it goes in before the audio hold
+        # writes the target rows after it - before `set_timesteps`, or before
+        # the hold when that is already in
+        audio_before = next(
+            (n for n in (prefix + HOLD_BLOCK, prefix + HOLD_BEFORE) if n in names), None
+        )
+        if prefix + GUIDE_AUDIO_BLOCK not in names and audio_before:
+            sub_blocks.insert(
+                prefix + GUIDE_AUDIO_BLOCK, audio_block(), names.index(audio_before)
+            )
         inserted = True
     return inserted
 

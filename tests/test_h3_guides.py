@@ -11,12 +11,18 @@ from PIL import Image
 from dw.media_types import AudioVideo
 from dw.pipeline_processors import h3_blocks, pipeline as pipeline_module
 from dw.pipeline_processors.h3_blocks import (
+    GUIDE_AUDIO_BLOCK,
+    GUIDE_AUDIO_ROWS,
     GUIDE_CONDITION_BLOCK,
     GUIDE_LATENTS_BLOCK,
     GUIDE_LIMIT,
     RENDER_GRID,
     default_num_frames,
     fit_guide_frames,
+    guide_audio_latents,
+    guide_audio_positions,
+    guide_audio_span,
+    guide_audio_waveform,
     guide_blocks,
     guide_end_problem,
     guide_frame_problem,
@@ -27,7 +33,9 @@ from dw.pipeline_processors.h3_blocks import (
     insert_audio_hold,
     insert_guides,
     layout_anchor_problem,
+    pad_guide_audio,
     snap_guide_length,
+    splice_guide_audio_rows,
     splice_guide_rows,
     takes_guides,
 )
@@ -313,7 +321,12 @@ class TestInsert:
         pipeline = fresh("fl2va")
         assert insert_guides(pipeline)
         ((prefix, order),) = names(pipeline)
-        assert order == stock[0][1]
+        # fl2va's own steps, plus only the guide audio block, before the audio
+        # hold writes the target rows after the guide's
+        assert [n for n in order if n != prefix + GUIDE_AUDIO_BLOCK] == stock[0][1]
+        audio = order.index(prefix + GUIDE_AUDIO_BLOCK)
+        assert order[audio + 1] == prefix + h3_blocks.HOLD_BLOCK
+        assert order.index(prefix + "prepare_latents_fl2va") < audio
         sequence = h3_blocks.core_denoise_sequences(pipeline)[0][1]
         assert isinstance(
             sequence.sub_blocks[prefix + "prepare_layout"], guide_blocks()[0]
@@ -427,7 +440,7 @@ class TestWrapperSteps:
         assert torch.equal(generator.get_state(), before)
 
     def test_with_a_condition_latent_they_pack_and_prepend(self):
-        _, condition_step, latents_step = guide_blocks()
+        _, condition_step, latents_step, _ = guide_blocks()
         condition = torch.randn(1, 4, 2, LAT_H, LAT_W)
         rows = 2 * ROWS_PER_FRAME
         latents = torch.randn(12, 16)
@@ -600,6 +613,182 @@ class TestLayoutBlock:
         assert seen == []
 
 
+# 8a. A guide's audio (#649)
+
+AUDIO_C = 4
+
+
+def audio_layout_components():
+    return SimpleNamespace(
+        **vars(layout_components()),
+        audio_sampling_rate=16000,
+        audio_latent_channels=AUDIO_C,
+    )
+
+
+class TestGuideAudioMath:
+    @pytest.mark.parametrize("frames, latents", [(22, 37), (39, 65), (1, 2), (5, 8)])
+    def test_latent_count(self, frames, latents):
+        assert guide_audio_latents(frames) == latents
+
+    def test_span_at_frame_zero(self):
+        assert guide_audio_span(0, 39) == (0, 0.0, 65)
+
+    def test_span_starts_at_or_before_the_frame(self):
+        start, pad, count = guide_audio_span(17, 22)
+        assert start == 28  # floor(17 * 40 / 24)
+        assert pad == pytest.approx(17 / 24 - 28 / 40)
+        assert 0 <= pad < 1 / 40
+        # It ends where the clip's last frame does on the target audio grid
+        assert start + count == guide_audio_latents(17 + 22)
+
+    @pytest.mark.parametrize("frame", [0, 17, 34, 51, 85])
+    @pytest.mark.parametrize("rate", [16000, 48000])
+    def test_pre_padding_keeps_the_origin(self, frame, rate):
+        waveform = torch.zeros(2, rate)
+        waveform[:, 0] = 1.0  # the guide's first sample
+        padded = pad_guide_audio(waveform, frame, rate)
+        start = frame * 40 // 24
+        onset = int(torch.nonzero(padded[0])[0])
+        # The first sample sits at the guide frame's own time, measured from
+        # the audio latent the span starts at
+        assert start * (rate // 40) + onset == round(frame * rate / 24)
+
+    def test_no_padding_on_the_hop(self):
+        waveform = torch.ones(2, 100)
+        assert pad_guide_audio(waveform, 0, 16000) is waveform
+
+    def test_positions_are_the_target_audio_rows(self):
+        stock = stock_layout()
+        position_ids, _, _, audio_indices = stock[:4]
+        width_grid = before_denoise._frame_position_grid(LAT_H, LAT_W, 2, 2)[1]
+        start, count = 2, 3
+        positions = guide_audio_positions(TEXT, width_grid, start, count, CHANNELS)
+        assert positions.shape == (count * CHANNELS, 3)
+        target = position_ids[audio_indices].reshape(CHANNELS, AUDIO_LATENTS, 3)
+        assert torch.equal(
+            positions.reshape(CHANNELS, count, 3),
+            target[:, start : start + count].to(positions.dtype),
+        )
+
+    def test_splice_leads_the_audio(self):
+        stock = stock_layout()
+        position_ids, token_tags, video_indices, audio_indices, text_indices, _ = stock
+        width_grid = before_denoise._frame_position_grid(LAT_H, LAT_W, 2, 2)[1]
+        count = 3
+        positions = guide_audio_positions(TEXT, width_grid, 0, count, CHANNELS)
+        spliced = splice_guide_audio_rows(stock[:5], positions, AUDIO_TAG)
+        new_ids, new_tags, new_video, new_audio, new_text = spliced
+        rows = count * CHANNELS
+        assert new_ids.shape[0] == position_ids.shape[0] + rows
+        assert new_audio.numel() == audio_indices.numel() + rows
+        assert torch.equal(new_audio[rows:], audio_indices + rows)
+        assert (new_tags[new_audio] == AUDIO_TAG).all()
+        assert (new_tags[new_video] == VIDEO_TAG).all()
+        assert torch.equal(new_ids[new_audio[:rows]], positions.to(new_ids.dtype))
+        assert torch.equal(new_ids[new_video], position_ids[video_indices])
+        assert torch.equal(new_text, text_indices)
+
+
+class TestGuideAudioWaveform:
+    def test_audio_video(self):
+        clip_ = AudioVideo(uint8_frames(5), np.ones((2, 100), np.float32), 48000)
+        audio, rate = guide_audio_waveform(clip_)
+        assert audio.shape == (2, 100) and rate == 48000
+
+    def test_mono_gains_its_channel(self):
+        clip_ = AudioVideo(uint8_frames(5), np.ones(100, np.float32), 16000)
+        assert guide_audio_waveform([clip_])[0].shape == (1, 100)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            AudioVideo(uint8_frames(5), None, None),
+            AudioVideo(uint8_frames(5), np.zeros((2, 0), np.float32), 16000),
+            uint8_frames(5),
+        ],
+    )
+    def test_no_audio_is_refused(self, value):
+        with pytest.raises(ValueError, match="no audio"):
+            guide_audio_waveform(value)
+
+
+class TestGuideAudioLayout(TestLayoutBlock):
+    def make_audio_block(self, monkeypatch, seen, encoded):
+        def encode_span(encoder, components, waveform, num_latents):
+            encoded.append((tuple(waveform.shape), num_latents))
+            return torch.full((2, num_latents, AUDIO_C), 5.0)
+
+        monkeypatch.setattr(h3_blocks, "encode_audio_span", encode_span)
+        return self.make_block(monkeypatch, seen)
+
+    def run_guides(self, monkeypatch, guides):
+        seen, encoded = [], []
+        block = self.make_audio_block(monkeypatch, seen, encoded)
+        try:
+            state = drive(block(), layout_state(guides), audio_layout_components())
+        finally:
+            monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+        return state, encoded
+
+    def test_audio_guide_adds_its_audio_rows(self, monkeypatch):
+        guide = {
+            "video": np.zeros((39, 32, 32, 3), np.uint8),
+            "frame": 0,
+            "audio": torch.ones(2, 16000 * 39 // 24),
+            "sample_rate": 16000,
+        }
+        state, encoded = self.run_guides(monkeypatch, [guide])
+        stock = drive(Stock(), layout_state(), layout_components())
+        assert encoded and encoded[0][1] == 65
+        assert state.get("num_condition_audio_rows") == 2 * 65
+        assert (
+            state.get("audio_indices").numel()
+            == stock.get("audio_indices").numel() + 2 * 65
+        )
+        rows = state.get(GUIDE_AUDIO_ROWS)
+        assert rows.shape == (2 * 65, AUDIO_C)
+        # The guide rows are timed as the target's first 65 audio latents
+        audio = state.get("audio_indices")
+        ids = state.get("position_ids")
+        guide_ids = ids[audio[: 2 * 65]].reshape(2, 65, 3)
+        target_ids = ids[audio[2 * 65 :]].reshape(2, -1, 3)
+        assert torch.equal(guide_ids, target_ids[:, :65])
+
+    def test_audio_false_adds_none(self, monkeypatch):
+        guide = {"video": np.zeros((22, 32, 32, 3), np.uint8), "frame": 17}
+        state, encoded = self.run_guides(monkeypatch, [guide])
+        assert encoded == []
+        assert not state.get("num_condition_audio_rows")
+        assert state.get(GUIDE_AUDIO_ROWS) is None
+
+
+class TestGuideAudioStep:
+    def run(self, latents, indices, rows):
+        state = PipelineState()
+        state.set("audio_latents", latents)
+        state.set("audio_indices", indices)
+        if rows is not None:
+            state.set(GUIDE_AUDIO_ROWS, rows)
+        return drive(guide_blocks()[3](), state, components_for_steps())
+
+    def test_prepends_the_rows(self):
+        target = torch.zeros(8, AUDIO_C)
+        rows = torch.ones(4, AUDIO_C)
+        state = self.run(target, torch.arange(12), rows)
+        latents = state.get("audio_latents")
+        assert latents.shape == (12, AUDIO_C)
+        assert torch.equal(latents[:4], rows) and torch.equal(latents[4:], target)
+        # Once: run again on its own output it leaves it be
+        again = self.run(latents, torch.arange(12), rows)
+        assert again.get("audio_latents").shape == (12, AUDIO_C)
+
+    def test_without_rows_does_nothing(self):
+        target = torch.zeros(8, AUDIO_C)
+        state = self.run(target, torch.arange(8), None)
+        assert state.get("audio_latents") is target
+
+
 # 9. Pipeline._with_guides
 
 
@@ -711,3 +900,46 @@ class TestWithGuides:
         arguments = {"guides": [{"video": clip(3), "frame": 0}]}
         Pipeline._with_guides(ns(guided), arguments)
         assert arguments["guides"][0]["video"].shape[0] == 3
+
+
+class TestWithGuideAudio:
+    def test_audio_true_carries_the_soundtrack(self, guided):
+        video = AudioVideo(clip(22), np.ones((2, 1000), np.float32), 48000)
+        result = Pipeline._with_guides(
+            ns(guided), {"guides": [{"video": video, "frame": 17, "audio": True}]}
+        )
+        (guide,) = result["guides"]
+        assert guide["video"].shape[0] == 22
+        assert guide["audio"].shape == (2, 1000)
+        assert guide["sample_rate"] == 48000
+
+    @pytest.mark.parametrize("extra", [{}, {"audio": False}])
+    def test_audio_false_or_absent_carries_none(self, guided, extra):
+        video = AudioVideo(clip(5), np.ones((2, 1000), np.float32), 48000)
+        result = Pipeline._with_guides(
+            ns(guided), {"guides": [{"video": video, "frame": 0, **extra}]}
+        )
+        assert result["guides"][0]["audio"] is None
+
+    @pytest.mark.parametrize(
+        "video", [AudioVideo(clip(5), None, None), clip(5)], ids=["silent", "frames"]
+    )
+    def test_audio_true_without_audio_is_refused(self, guided, video):
+        with pytest.raises(ValueError, match="no audio"):
+            Pipeline._with_guides(
+                ns(guided), {"guides": [{"video": video, "frame": 0, "audio": True}]}
+            )
+
+    def test_a_path_is_read_with_its_soundtrack(self, guided, monkeypatch):
+        read = []
+
+        def load(location, base_dir=None):
+            read.append(location)
+            return AudioVideo(clip(5), np.ones((2, 10), np.float32), 16000)
+
+        monkeypatch.setattr(pipeline_module, "load_audio_video", load)
+        result = Pipeline._with_guides(
+            ns(guided), {"guides": [{"video": "clip.mp4", "frame": 0, "audio": True}]}
+        )
+        assert read == ["clip.mp4"]
+        assert result["guides"][0]["sample_rate"] == 16000
