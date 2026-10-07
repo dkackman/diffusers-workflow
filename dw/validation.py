@@ -39,7 +39,7 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
-from .guides import guides_errors
+from .guides import guide_chain_errors, guides_errors
 from .hold_audio import hold_audio_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
@@ -425,6 +425,12 @@ ERROR_CHECKS = [
     Check(
         "chain_prompts",
         lambda c: chain_prompts_errors(c.expanded, c.source_indices),
+    ),
+    # A chain's continuity the run would refuse: an unknown mode, or a
+    # 'guide' chain off H3 t2va/fl2va or with a guide_frames other than 22/39
+    Check(
+        "guide_chain",
+        lambda c: guide_chain_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
     # A component_type/scheduler_type/config_type that does not exist, or is
