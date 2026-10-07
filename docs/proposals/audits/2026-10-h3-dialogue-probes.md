@@ -32,9 +32,9 @@ the effect, and **inconclusive** when the seeds disagree.
 | 9 | "Extras: 3 against 6 in-focus extras (do faces clone?)." | **inconclusive**: keep the rule | dff3875f1312, f08c2f6c788e | Asking for six gave seven people on both seeds, all of one look. Seed 1001's six arm has hard clones: three women with near-identical faces and two near-identical suited men. Seed 2002's six arm is homogenized (similar young faces) but has no hard clones. The three arm gave three distinct, varied people on both seeds. Clones appear on one broken seed of two. See *Probe 9*. |
 | 10 | "Naming an off-screen thing: does it pull the thing into the shot?" | **confirmed** | dff3875f1312, f08c2f6c788e | A golden retriever named as "out of frame behind the camera" was rendered asleep in the visible room or hallway on both seeds. Without the naming, there was no dog on either seed. See *Probe 10*. |
 | 10b | "A negated naming is included, to settle the lint cut." (The lint comes back if "a negated noun reliably renders the thing it negates".) | **refuted**: the negation lint stays cut | dff3875f1312, f08c2f6c788e | The negated noun didn't render a dog on either seed. The lint comes back only if a negated noun reliably renders what it negates, and it didn't. See *Probe 10*. |
-| 11 | "Voice words in a silent scene: static, crackle or murmur in the sound line, with H3 checked for invented speech." | **no invented speech** | cfc83935f3bb, 82126b32419b | With "a low murmur" in the soundscape, the keeper kept his mouth closed or covered by his hand on both seeds. The audio was near-silent (peak -39.1 and -42.6 dBFS), as was the followed arm. Whisper returned the same "Thank you for watching" hallucinations on both arms. H3 barely rendered either soundscape, so this is a weak refutation. See *Probe 11*. |
+| 11 | "Voice words in a silent scene: static, crackle or murmur in the sound line, with H3 checked for invented speech." | **inconclusive**: the test's precondition failed | cfc83935f3bb, 82126b32419b | No invented speech was seen: with "a low murmur" in the soundscape, the keeper kept his mouth closed or covered by his hand on both seeds, and Whisper returned the same "Thank you for watching" hallucinations on both arms. But H3 didn't render the soundscape: the broken arm peaked at -39.1 and -42.6 dBFS (mean about -59 to -61), as near-silent as the followed arm. A murmur that was never rendered couldn't become a voice, so the probe can't decide the rule. See *Probe 11*. |
 | 12 | "Readable text: a sign quoted verbatim per our enhancer, against the same sign left blank. Is the text legible, garbled, or partly right?" (Q2) | **legible**: no enhancer issue filed | cfc83935f3bb, 82126b32419b | `"MARLOWE'S BAKERY"` rendered verbatim and legible on both seeds. Seed 2002 added a stray "P2" above the door and garbled small lettering on the window. Side finding: the blank-sign arm ("plain cream paint with no lettering") invented pseudo-text on both seeds. See *Probe 12*. |
-| 13 | "The minimax-music3 rule: 4 instrumental runs, each transcribed for accidental vocals." | **inconclusive**: the check as written can't decide it | 61d2c7954a22, 83f75fcd42df; re-check 9dbd4915783a | Whisper-base returned degenerate loops on all four instrumentals. Whisper-large-v3 returned the canonical "Thank you for watching" in 30 s windows on three of them, plus two timed spans worth a human listen: "Hey, hey, …" at 30–60 s (synth-pop, seed 2002) and "Bier, Bier, … Bierschen" at 30–56 s (folk, seed 2002). Whisper on music can't separate a sung word from hallucination. All four tracks hit the 60 s ceiling (60.07 s). See *Probe 13*. |
+| 13 | "The minimax-music3 rule: 4 instrumental runs, each transcribed for accidental vocals." | **worth a rule**: 1 of 4 runs has vocals | 61d2c7954a22, 83f75fcd42df; re-check 9dbd4915783a; stems 1bf9f38af007 | Per run, from the htdemucs vocal stem (no agent can hear the audio, so whole-mix transcripts don't count): folk s1001 **no** (stem 23 dB under the mix, active 5% of the time); synth-pop s1001 **no** (stem 35 dB under, never active); folk s2002 **yes**, a wordless vocal-like line (stem only 6 dB under the mix, silent to 20 s, then sustained pitched phrases at 230–350 Hz with vibrato-like pitch movement, up to 3.6 s long, which a fingerpicked guitar can't hold); synth-pop s2002 **no** (stem 14 dB under, with brief bursts of steady-pitched synth that repeat the same riff at 30 s and 48 s, and the "hey" chant from the whole-mix transcript is gone). A Whisper transcript decided no run. Whole-mix transcripts were hallucinations on all four tracks. See *Probe 13*. |
 
 ## Probe 1: rate, tail and clipping
 
@@ -349,13 +349,14 @@ thinking, and slowly rubs his chin." The arms change only the soundscape:
 Each transcript is one chunk spanning the whole clip, which is Whisper's
 signature hallucination on near-silence. The followed arm gets the same
 phrases, so they're no evidence of speech. Nobody on screen speaks, and
-nothing audible is speech. The broken arm doesn't show invented speech, so
-the effect is **not seen**.
+nothing audible is speech. The broken arm doesn't show invented speech.
 
-This is a weak refutation. H3 barely rendered either soundscape: the static,
-crackle and murmur weren't audible, so "murmur" never got the chance to
-become a voice. A louder sound line, or one with a voice source in shot,
-might behave differently.
+Verdict: **inconclusive**. The probe's precondition failed. H3 barely
+rendered either soundscape: the broken arm is as near-silent as the followed
+one, and the static, crackle and murmur weren't audible. A "murmur" that was
+never rendered couldn't become a voice, so not seeing invented speech
+doesn't refute the rule. Settling it takes a sound line H3 actually renders,
+for example a louder one or one with the radio audibly playing.
 
 Entries `pv_voicewords_s*` and `pv_followed_s*`, in batch B (jobs
 cfc83935f3bb and 82126b32419b).
@@ -425,17 +426,55 @@ Neither model gives a usable answer on these tracks:
   "Thank you for watching" chunk is the known outro hallucination. Two spans
   carry real timestamps and could be sung sounds: the "hey" chant at 30–60 s
   in synth-pop s2002, and the "Bier…" syllables at 30–56 s in folk s2002. A
-  chanted "hey" is a common synth-pop vocal-sample texture, so that span
-  deserves a listen. This agent has no audio perception, so neither span is
-  settled here.
+  chanted "hey" is a common synth-pop vocal-sample texture.
 
-Verdict: **inconclusive**. The check the plan names can't decide accidental
-vocals, which is a finding in its own right: Rule C in `dialogue.md` (or the
-minimax-music3 skill) shouldn't tell an agent to transcribe an instrumental
-and treat the words as vocals. To settle the two spans, Don can listen to
-30–60 s of both:
-- `output:Music3InstrumentalProbe/20261007-042451-837121b1/final/m3_synthpop_s2-0.0.mp3`;
-- `output:Music3InstrumentalProbe/20261007-042451-837121b1/final/m3_folk_s2-0.0.mp3`.
+A transcript of the whole mix can't decide accidental vocals. That's a
+finding in its own right: Rule C in `dialogue.md` (or the minimax-music3
+skill) shouldn't tell an agent to transcribe an instrumental and treat the
+words as vocals.
+
+### Per-run call from the vocal stem
+
+No agent can hear audio. `get_output_audio` returns the WAV, but not a
+judgment of it. So each run was decided from the vocal stem instead, in job
+1bf9f38af007 (run 20261007-053313-8164046e, about 42 s of GPU), through
+`output:` references to the four mp3s:
+- `separate_stems` (htdemucs) split each track;
+- `analyze_audio` measured the mix and the `vocals` stem;
+- `transcribe_audio` with Whisper-large-v3 ran on the vocal stem alone.
+
+Each vocal stem was then fetched with `get_output_audio`, as four 15 s
+excerpts (the inline limit is 4 MB), and measured locally:
+- RMS per 5 s window;
+- the share of 40 ms frames above -40 dBFS ("active");
+- autocorrelation pitch (80–800 Hz) on active frames;
+- pitch movement inside each sustained pitched run, after removing the
+  run's linear trend. A voice wavers (vibrato, jitter), and a synth holds
+  steady.
+
+| Run | Mix rms | Vocal stem rms / peak (dBFS) | Stem under mix | Vocal-stem activity | Stem transcript (large-v3) | Vocals? |
+| --- | --- | --- | --- | --- | --- | --- |
+| folk s1001 | about -20 | -42.8 / -16.2 | about 23 dB | active 5% of the time: about -65 dBFS, with two short bursts (15–20 s, 50–60 s) of six brief pitched runs, median 0.4 s | "Thank you" / "© transcript Emily Beynon" (hallucination) | **no**: guitar leaking into the stem |
+| synth-pop s1001 | about -20 | -55.0 / -40.7 | about 35 dB | never active, about -55 dBFS throughout | "Thank you" / Amara.org credit (hallucination) | **no** |
+| folk s2002 | about -20 | -26.6 / -3.5 | about 6 dB | silent (-70) to 20 s, then -23 to -26 dBFS through 50 s. 32% active, 19 pitched runs at 230–350 Hz (median f0 292 Hz), up to 3.6 s long, with 45 cents of pitch movement inside a run | Chinese credits hallucination (作词 作曲 …), then "Bier, Bier, Bier, Bierchen" and "Bierchen" ×3 over the same 20–56 s | **yes**: a wordless vocal-like line, with no intelligible lyrics |
+| synth-pop s2002 | about -20 | -34.4 / -7.6 | about 14 dB | about -61 dBFS, with bursts at 30–35 s and 45–55 s. 10 short runs (median 0.4 s) that hold pitch steady (14 cents) and repeat the same 348/441/350 Hz figure at 30 s and 48 s | "Thank you" / Amara.org credit (hallucination). The whole-mix "hey" chant is gone. | **no**: a synth riff leaking into the stem |
+
+On folk s2002, the vocal stem holds a sustained, wavering, pitched line, as
+loud as the mix's own parts. A fingerpicked guitar note decays in well under
+a second and can't sustain 3.6 s at one pitch, and the caption names no
+other lead. Whisper's syllables on the stem ("Bierchen") are not words, but
+they land on the same spans. The line could be a bowed or blown instrument
+the caption didn't ask for. But the stem separator put it with the voice,
+it moves like a voice, and the deliverable asked for no vocals at all, so
+this run is counted as having vocals. The other three runs' stems hold only
+leakage from steady or plucked instruments.
+
+Verdict: **1 of 4 runs has vocals**, so the rule is **worth a rule**.
+Asking for an instrumental with tag-only lyrics and "Instrumental only, no
+vocals" in the caption doesn't guarantee no voice. A rule for stage B should
+say an agent checks an instrumental's vocal stem (`separate_stems`, then
+`analyze_audio` on `vocals`, compared with the mix), not a transcript of
+the mix.
 
 All four tracks ran 60.07 s against a 60 s `audio_duration`, which the skill
 reads as cut by the ceiling. They peaked at about -2.4 to -2.7 dBFS
@@ -444,7 +483,8 @@ change the vocal question.
 
 Jobs 61d2c7954a22 (run 20261007-041935-ea880e8e, seed 1001) and
 83f75fcd42df (run 20261007-042451-837121b1, seed 2002), with the
-large-v3 re-check in 9dbd4915783a (run 20261007-043023-9403a434).
+large-v3 re-check in 9dbd4915783a (run 20261007-043023-9403a434) and the
+vocal-stem check in 1bf9f38af007 (run 20261007-053313-8164046e).
 
 ## Not run
 
@@ -520,6 +560,14 @@ seeds). Its prompt design, ready to run:
   seed. That made two jobs, 5.3 and 5.2 min. The Whisper-large-v3 re-check
   (9dbd4915783a, 12 s) wasn't in the plan. It ran because the base-model
   transcripts couldn't decide the verdict.
+- **Music3 vocal-stem check (#641 bounce).** The first hand-off left probe
+  13 inconclusive, pending a human listen. The bounce asked for a per-run
+  call and a k-of-4 count. No agent can hear, so the call rests on the
+  vocal stem instead: one more job, `Music3VocalStemCheck` (1bf9f38af007,
+  about 42 s of GPU), ran `separate_stems`, `analyze_audio` and
+  Whisper-large-v3 on the existing mp3s, with no new Music3 generation. The
+  pitch measures in *Probe 13* were computed locally from the stem audio
+  `get_output_audio` returned.
 - **A2 GPU spend.** About 74 min in all: 63 min of H3 and 11 min of Music3,
   plus the 12 s re-check. About 67 min were left of the A1+A2 cap of about
   3.25 hours after A1's 127, so A2 overran the cap by about 7 min. The
