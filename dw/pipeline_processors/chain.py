@@ -53,7 +53,9 @@ from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
 from .h3_blocks import (
+    CHAIN_CONTINUITY_MODES,
     GUIDE_CHAIN_DEFAULT,
+    GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDES_INPUT,
     HOLD_AUDIO_INPUT,
@@ -190,11 +192,15 @@ class GuideContinuity:
             arguments[segment_argument] = carry.frames[0]
 
 
-CONTINUITY_MODES = {
-    "last_frame": LastFrameContinuity,
-    "last_segment": LastSegmentContinuity,
-    GUIDE_CONTINUITY: GuideContinuity,
-}
+# The names are h3_blocks.CHAIN_CONTINUITY_MODES, which validation reads too;
+# strict, so a class added here without its name there fails at import
+CONTINUITY_MODES = dict(
+    zip(
+        CHAIN_CONTINUITY_MODES,
+        (LastFrameContinuity, LastSegmentContinuity, GuideContinuity),
+        strict=True,
+    )
+)
 
 
 @dataclass
@@ -576,10 +582,7 @@ def run_chain(pipeline, chain_definition, arguments):
 def _check_guide_chain(pipeline, arguments, chain_definition, config):
     """Refuse a guide chain the H3 guides cannot take before the first segment
     renders, and note once in the job log the settings it does not read."""
-    rule = (
-        "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay "
-        "off ref2va"
-    )
+    rule = GUIDE_CHAIN_RULE
     if arguments.get("references") is not None:
         raise ValueError(f"{rule}, and this step passes references")
     loaded = getattr(pipeline, "pipeline", None)
