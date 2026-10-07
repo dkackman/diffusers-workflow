@@ -1,6 +1,9 @@
 {
     "id": "Kandinsky6I2V",
     "description": "A supplied still becomes the first frame, and the prompt says what happens next in it. Otherwise the baseline: the same Lite-distill checkpoint, ten PiFlow steps at guidance 1.0, and a soundtrack generated alongside. The pipeline resizes and center-crops the image to width x height, so a portrait image needs width and height swapped (480x864) or its sides are cut off - the vendor's own tools instead size the clip to the image's aspect at the 480x864 area, which dw does not do yet.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.6}
+    ],
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "prompt": "prompt:kandinsky6/dragon_hoard_waking",

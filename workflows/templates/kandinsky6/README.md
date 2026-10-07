@@ -31,6 +31,12 @@ Read them in this order and each introduces one new idea on top of the last.
 | [text-to-video.json](text-to-video.json) | The baseline: text to video plus soundtrack on the 3B Lite-distill checkpoint. Ten PiFlow steps at guidance 1.0, and both are part of the checkpoint: the scheduler refuses custom sigmas. Width and height are set explicitly, because the pipeline's defaults (512x768 at guidance 5.0) are not the model's. The repo is pinned to a revision because the vendor has re-keyed the weights as diffusers' module names changed |
 | [image-to-video.json](image-to-video.json) | A supplied still becomes the first frame, and the prompt describes what happens next. The pipeline resizes and center-crops the still to `width` x `height`, so a portrait still wants `480x864` |
 
+Both templates were run on an RTX 3090 on 2026-10-06, each taking about 3.5
+minutes and peaking near 10GB. Ten denoising steps take about 13 s each. Model
+offload moves the 16.6GB text encoder on and off the card on every run, so a
+warm run is not much faster than a cold one. The soundtrack comes out at
+44.1 kHz.
+
 ## Apple Silicon: parked
 
 These templates do not run on MPS yet (measured on a 64GB Mac, torch 2.14.1,
