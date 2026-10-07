@@ -60,7 +60,9 @@ arguments; prompt format is MiniMax's, from its text not here.
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
   (a song, one slice and one lip-synced shot per entry, padded then trimmed
   to its cut - `from_file` reuses an existing cast portrait and skips
-  drawing).
+  drawing). Render rule: an entry's `num_frames` is
+  `max(124, next 17n+5 ≥ lead + cut)`, the smallest `17n + 5` at or above
+  `lead_frames + cut_frames`, at least 124; past 345, split the span.
   Before composing one, read `references/cuts.md`: the `shots` list (a music
   video's six fields, plan then render), cost per entry, scoring and one voice across cuts.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
