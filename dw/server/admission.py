@@ -28,7 +28,12 @@ from ..assets import (
 from .. import references, validation
 from ..plan import build_plan
 from ..prompts import resolve_prompt_reference
-from ..runs import is_output_reference, resolve_output_reference
+from ..runs import (
+    activate_output_root,
+    deactivate_output_root,
+    is_output_reference,
+    resolve_output_reference,
+)
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
@@ -144,8 +149,14 @@ def admit(
     # window_count_errors, slice_past_end_warnings, shot_span_warnings) through dw.assets' default
     # discovery, which a real deployment's DW_ASSET_DIR pins to the default
     # workspace - so this request's own workspace is the active library for
-    # every check, the same ContextVar the worker activates before it runs
+    # every check, the same ContextVar the worker activates before it runs.
+    # Its outputs are the active root for the same reason: an 'output:' source
+    # a check probes otherwise resolves under the default workspace's outputs,
+    # misses, and the check stays silent (#666)
     token = activate_asset_dir(workspace.assets) if workspace.assets else None
+    output_token = (
+        activate_output_root(workspace.outputs) if workspace.outputs else None
+    )
     try:
         try:
             # Checked against the caller's arguments, not the document alone:
@@ -192,6 +203,8 @@ def admit(
             admission.plan = plan_for(candidate)
         return admission
     finally:
+        if output_token is not None:
+            deactivate_output_root(output_token)
         if token is not None:
             deactivate_asset_dir(token)
 
