@@ -8,7 +8,7 @@ import time
 import pytest
 
 from dw.server.jobs import JobManager
-from dw.vram_estimate import required_vram_gb
+from dw.vram_estimate import _entries_for, required_vram_gb
 from tests.test_server import (  # noqa: F401
     ScriptedWorkerManager,
     admitted_for,
@@ -232,6 +232,35 @@ class TestFitAtSubmit:
         manager.check_fits(self.Admission((48, True)))
         manager.check_fits(self.Admission((60, False)))
 
+    def test_a_declared_need_is_held_to_the_ceiling_admission_uses(
+        self, pool, monkeypatch
+    ):
+        # A 3090 reads 23.57 GiB: the catalog calls it 24, but admission
+        # holds a declared vram_estimate to 23.6 on a card no cost entry
+        # describes. The fit check has to agree with it at the boundary.
+        monkeypatch.setattr(
+            "dw.worker_manager.device_capacity_gb", lambda device=None: 23.57
+        )
+        worker = ScriptedWorkerManager(success_script)
+        worker.device = "cuda:0"
+        worker._device_label = "cuda:0 NVIDIA GeForce RTX 3090"
+        manager = pool(worker)
+
+        admission_ceiling = _entries_for([], "cuda", 23.57)[0]["vram_gb"]
+        assert worker.ceiling_gb() == admission_ceiling == 23.6
+        assert worker.capacity_gb() == 24
+
+        with pytest.raises(ValueError) as refusal:
+            manager.check_fits(self.Admission((24, True)))
+        assert "the largest is cuda:0 NVIDIA GeForce RTX 3090 (23.6 GB usable)" in str(
+            refusal.value
+        )
+        manager.check_fits(self.Admission((23.6, True)))
+
+        # A catalog cost figure of 24 is what a 3090 was measured at
+        job = submit(manager, "soft", vram_need=(24, False))
+        wait_for(job, {"succeeded"})
+
     def test_the_route_answers_400(self, server, monkeypatch):  # noqa: F811
         monkeypatch.setattr(
             "dw.server.admission.required_vram_gb", lambda *args: (10_000, True)
@@ -309,6 +338,9 @@ class TestHealth:
         workers = manager.workers()
 
         assert [entry["device"] for entry in workers] == ["cuda:0", "cuda:1"]
+        # name is the GPU's own name; the job's device is ordinal then name
+        assert [entry["name"] for entry in workers] == ["Test GPU", "Test GPU"]
+        assert job.device == f"{workers[0]['device']} {workers[0]['name']}"
         assert [entry["vram_gb"] for entry in workers] == [24, 48]
         assert workers[0]["current_job"] == job.id
         assert workers[1]["current_job"] is None

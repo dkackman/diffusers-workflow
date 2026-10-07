@@ -45,6 +45,7 @@ class WorkerManager:
         self._device_label = None
         self._capacity_read = False
         self._capacity_gb = None
+        self._ceiling_gb = None
         # What set_oom_score_adj last wrote for the running process
         self.oom_score_adj = None
         self.worker_process: Optional[multiprocessing.Process] = None
@@ -232,18 +233,32 @@ class WorkerManager:
             return None
         return process.pid
 
-    def capacity_gb(self):
-        """What this worker's card holds, in the GB a catalog `cost` entry's
-        `vram_gb` is written in - the card's GiB rounded up, so a 3090
-        (23.7 GiB) is the "24" the catalog measured on - or None where the
-        card cannot be read. Measured in the server process, which sees
-        every card by its ordinal, and read once: a card does not change
-        size."""
+    def _read_capacity(self):
+        """Measure the card once, in the server process, which sees every
+        card by its ordinal: a card does not change size."""
         if not self._capacity_read:
             self._capacity_read = True
             capacity = device_capacity_gb(self.device)
-            self._capacity_gb = math.ceil(capacity) if capacity else None
+            if capacity:
+                self._capacity_gb = math.ceil(capacity)
+                self._ceiling_gb = round(capacity, 1)
+
+    def capacity_gb(self):
+        """What this worker's card holds, in the GB a catalog `cost` entry's
+        `vram_gb` is written in - the card's GiB rounded up, so a 3090
+        (23.6 GiB) is the "24" the catalog measured on - or None where the
+        card cannot be read."""
+        self._read_capacity()
         return self._capacity_gb
+
+    def ceiling_gb(self):
+        """The most a declared `vram_estimate` may project on this card - its
+        GiB to one decimal (a 3090's 23.6), the figure admission's own
+        ceiling holds a projection to on a device no `cost` entry describes
+        (dw/vram_estimate.py `_entries_for`), so the two gates agree. Falls
+        back to capacity_gb when only that is known."""
+        self._read_capacity()
+        return self._ceiling_gb if self._ceiling_gb is not None else self._capacity_gb
 
     def set_oom_score_adj(self, value):
         """Ask the kernel's OOM killer to pick this worker ahead of anything
