@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 dialogue rules: probes and `minimax-h3/references/dialogue.md`**
+  (#608, stages #640-#642), shipped 2026-10-07. Fifteen probe rows on lem
+  (`audits/2026-10-h3-dialogue-probes.md`); one H3 rule confirmed, plus a
+  Music3 vocal-stem check. Record, including what was not built (the
+  `speech` validate warning, since H3 didn't clip; the prompt-length budget
+  and the negation lint, with their triggers):
+  `complete/h3-dialogue-rules-complete.md`.
+
 - **Overlap windowing for long video sources: `window_video`,
   `join_windows` and `templates/ltx2/restore-long`** (#601, stages #628-#630
   and #658), shipped 2026-10-06. Record, including what was deferred (the H3
