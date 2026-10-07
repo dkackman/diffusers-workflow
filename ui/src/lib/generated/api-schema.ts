@@ -1980,7 +1980,10 @@ export interface components {
         };
         /** HealthInfo */
         HealthInfo: {
-            /** Current Job */
+            /**
+             * Current Job
+             * @description The longest-running job; `workers` names every running one.
+             */
             current_job: string | null;
             /** Device */
             device: string;
@@ -1999,9 +2002,14 @@ export interface components {
             version: string;
             /**
              * Worker Alive
-             * @description The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
+             * @description Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
              */
             worker_alive: boolean;
+            /**
+             * Workers
+             * @description One entry per card the server runs a worker on (--devices), each running one job at a time.
+             */
+            workers: components["schemas"]["WorkerInfo"][];
         };
         /** JobCancelled */
         JobCancelled: {
@@ -2029,6 +2037,11 @@ export interface components {
             };
             /** Created At */
             created_at: number | null;
+            /**
+             * Device
+             * @description The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.
+             */
+            device?: string | null;
             /** Error */
             error: string | null;
             /** Event Count */
@@ -2246,6 +2259,11 @@ export interface components {
             acknowledged: "none" | "boolean" | "bound";
             /** Created At */
             created_at: number | null;
+            /**
+             * Device
+             * @description The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.
+             */
+            device?: string | null;
             /** Finished At */
             finished_at: number | null;
             /**
@@ -2689,7 +2707,7 @@ export interface components {
             tempered?: boolean;
             /**
              * Unpriced
-             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.
+             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.
              */
             unpriced: string[];
         };
@@ -2991,6 +3009,33 @@ export interface components {
             valid: boolean;
             /** Warnings */
             warnings: string[];
+        };
+        /** WorkerInfo */
+        WorkerInfo: {
+            /** Alive */
+            alive: boolean;
+            /** Current Job */
+            current_job: string | null;
+            /**
+             * Device
+             * @description The card this worker is pinned to.
+             */
+            device: string;
+            /**
+             * Host Memory Rss Mb
+             * @description The worker process's resident host memory; absent while it is not running.
+             */
+            host_memory_rss_mb?: number;
+            /**
+             * Name
+             * @description The card as a job record's device names it.
+             */
+            name: string | null;
+            /**
+             * Vram Gb
+             * @description What the card holds, in the GB a catalog cost entry is written in.
+             */
+            vram_gb: number | null;
         };
         /**
          * WorkflowCard

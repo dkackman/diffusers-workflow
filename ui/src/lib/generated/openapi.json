@@ -910,6 +910,7 @@
                 "type": "null"
               }
             ],
+            "description": "The longest-running job; `workers` names every running one.",
             "title": "Current Job"
           },
           "device": {
@@ -938,9 +939,17 @@
             "type": "string"
           },
           "worker_alive": {
-            "description": "The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.",
+            "description": "Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.",
             "title": "Worker Alive",
             "type": "boolean"
+          },
+          "workers": {
+            "description": "One entry per card the server runs a worker on (--devices), each running one job at a time.",
+            "items": {
+              "$ref": "#/components/schemas/WorkerInfo"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -948,6 +957,7 @@
           "version",
           "worker_alive",
           "current_job",
+          "workers",
           "queued",
           "hostname",
           "device",
@@ -1024,6 +1034,18 @@
               }
             ],
             "title": "Created At"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
+            "title": "Device"
           },
           "error": {
             "anyOf": [
@@ -1615,6 +1637,18 @@
               }
             ],
             "title": "Created At"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
+            "title": "Device"
           },
           "finished_at": {
             "anyOf": [
@@ -2788,7 +2822,7 @@
             "type": "boolean"
           },
           "unpriced": {
-            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.",
+            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.",
             "items": {
               "type": "string"
             },
@@ -3623,6 +3657,69 @@
           "warnings"
         ],
         "title": "ValidationResult",
+        "type": "object"
+      },
+      "WorkerInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "alive": {
+            "title": "Alive",
+            "type": "boolean"
+          },
+          "current_job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Job"
+          },
+          "device": {
+            "description": "The card this worker is pinned to.",
+            "title": "Device",
+            "type": "string"
+          },
+          "host_memory_rss_mb": {
+            "description": "The worker process's resident host memory; absent while it is not running.",
+            "title": "Host Memory Rss Mb",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card as a job record's device names it.",
+            "title": "Name"
+          },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the card holds, in the GB a catalog cost entry is written in.",
+            "title": "Vram Gb"
+          }
+        },
+        "required": [
+          "device",
+          "name",
+          "vram_gb",
+          "current_job",
+          "alive"
+        ],
+        "title": "WorkerInfo",
         "type": "object"
       },
       "WorkflowCard": {
