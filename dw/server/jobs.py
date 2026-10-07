@@ -44,7 +44,7 @@ from ..worker_protocol import (
     WorkflowLoaded,
     parse_reply,
 )
-from .. import get_device
+from ..devices import card_of, device_ordinal
 from ..host_memory import process_rss_mb
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
@@ -108,6 +108,15 @@ class WorkerSlot:
             logger.debug("Could not read a worker's card capacity", exc_info=True)
             return None
 
+    def ceiling_gb(self):
+        """The most a declared vram_estimate may project on this card, or
+        None where it cannot be read (WorkerManager.ceiling_gb)."""
+        try:
+            return self.manager.ceiling_gb()
+        except Exception:
+            logger.debug("Could not read a worker's card ceiling", exc_info=True)
+            return None
+
     def label(self):
         """The card as a job record names it, or None."""
         try:
@@ -122,9 +131,16 @@ class WorkerSlot:
             self.manager.worker_active and process is not None and process.is_alive()
         )
 
-    def fits(self, need_gb):
-        capacity = self.capacity_gb()
-        return need_gb is None or capacity is None or need_gb <= capacity
+    def fits(self, need):
+        """Whether a job needing `need` - (GB, hard) or None - may start
+        here. A hard (declared vram_estimate) need is held to the card's
+        ceiling, as admission holds it; a soft catalog `cost` figure to the
+        card's size in the catalog's GB."""
+        if need is None:
+            return True
+        gb, hard = need
+        capacity = self.ceiling_gb() if hard else self.capacity_gb()
+        return capacity is None or gb <= capacity
 
 
 class JobManager:
@@ -204,9 +220,13 @@ class JobManager:
 
     # ------------------------------------------------------------- VRAM fit
 
-    def _capacities(self):
-        """(slot, capacity GB) for every card whose size can be read."""
-        readings = [(slot, slot.capacity_gb()) for slot in self.slots]
+    def _capacities(self, hard=False):
+        """(slot, GB) for every card whose size can be read - its ceiling
+        for a hard need, its catalog size for a soft one (WorkerSlot.fits)."""
+        readings = [
+            (slot, slot.ceiling_gb() if hard else slot.capacity_gb())
+            for slot in self.slots
+        ]
         return [(slot, capacity) for slot, capacity in readings if capacity]
 
     def _unfit_message(self, need):
@@ -217,7 +237,7 @@ class JobManager:
         dispatch but refuses nothing."""
         if not need or not need[1] or need[0] is None:
             return None
-        capacities = self._capacities()
+        capacities = self._capacities(hard=True)
         if not capacities:
             return None
         slot, largest = max(capacities, key=lambda reading: reading[1])
@@ -226,7 +246,7 @@ class JobManager:
         name = slot.label() or slot.device or "this server's card"
         return (
             f"This job needs {need[0]:.1f} GB of VRAM, more than any card here "
-            f"has: the largest is {name} ({largest} GB)"
+            f"has: the largest is {name} ({largest:g} GB usable)"
         )
 
     def check_fits(self, admission):
@@ -242,17 +262,15 @@ class JobManager:
             raise ValueError(unfit)
 
     def _dispatch_need(self, need):
-        """The GB a job must find free on a card before it starts, or None
-        for any card. A soft (`cost`) figure no card here meets is dropped,
+        """What a job must find on a free card before it starts - (GB, hard)
+        for WorkerSlot.fits - or None for any card. A soft (`cost`) figure no card here meets is dropped,
         so the job runs on whatever card is free, as it would have on one
         card."""
         if not need or need[0] is None:
             return None
         gb, hard = need
-        if hard:
-            return gb
-        if any(capacity >= gb for _, capacity in self._capacities()):
-            return gb
+        if hard or any(capacity >= gb for _, capacity in self._capacities()):
+            return (gb, hard)
         return None
 
     # ------------------------------------------------------------- submission
@@ -1057,8 +1075,8 @@ class JobManager:
         for slot, job_id in running:
             pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
             entry = {
-                "device": slot.device or get_device(),
-                "name": slot.label(),
+                "device": device_ordinal(slot.device),
+                "name": card_of(slot.label()),
                 "vram_gb": slot.capacity_gb(),
                 "current_job": job_id,
                 "alive": slot.alive(),

@@ -211,7 +211,9 @@ job's arguments (hard: a job bigger than every card is refused at submit with
 a 400 naming the largest card); else the smallest `cost` entry's `vram_gb` for
 this device type (soft: if no card is that big, the job runs on any card, as
 on one card); else any card. A card's size is its GiB rounded up (a 3090
-counts as 24). Cancel reaches only the worker running that job, and a worker
+counts as 24), which a `cost` figure is compared to; a declared estimate is
+held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
+admission checks it against. Cancel reaches only the worker running that job, and a worker
 crash fails only its own job. The worker started later gets a higher Linux
 `oom_score_adj` (+100 over the highest other live worker), so a host-RAM
 squeeze kills the later job; nothing is written with one worker. There is no
@@ -633,7 +635,8 @@ The editor's forms come from these; they are just as usable from scripts:
   machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
-  host_memory_rss_mb}`, the last absent when the worker process isn't running
+  host_memory_rss_mb}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last absent when the worker process isn't running
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
   cache (MCP `clear_memory`), and returns the
   memory reading taken right after. Refused with 409 while a job is running
