@@ -210,7 +210,8 @@ class CatalogTools:
     ) -> dict:
         """Check that the server is alive, and see what answered: its
         version and accelerator, whether a model process is currently
-        resident, the job running now and how many are queued.
+        resident, the job running now (`workers` lists each card with its own
+        current job) and how many are queued.
 
         `worker_alive: false` on an otherwise healthy server (`status: ok`)
         is the normal idle state, not a fault - the worker is an on-demand
