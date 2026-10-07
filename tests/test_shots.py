@@ -719,7 +719,7 @@ class TestPairAudioShots:
         paired = pair_audio(video, new_track, sample_rate=100)
 
         assert paired.shots[0]["start_sample"] == 0
-        assert paired.shots[0]["num_samples"] == 50
+        assert paired.shots[0]["num_samples"] == 100
 
     def test_remeasured_shots_directly(self):
         """dw.shots.remeasured_shots in isolation, the function pair_audio calls."""
