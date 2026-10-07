@@ -45,7 +45,13 @@ from .runs import (
     write_manifest,
     write_realized_workflow,
 )
-from .shots import carries_shots, duplicate_shot_names, shot_references, step_shots
+from .shots import (
+    carries_shots,
+    duplicate_shot_names,
+    name_unsaved_shots,
+    shot_references,
+    step_shots,
+)
 from .step import Step
 from .step_cache import (
     borrowed_pipeline_keys,
@@ -776,11 +782,9 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
         details["selected"] = selected
     # Where each joined shot sits in the file, named by the
     # step's own input references (dw/shots.py)
-    shots = step_shots(
-        getattr(result, "saved_shots", None),
-        saved_files,
-        shot_references(step_data.get("task", {}).get("arguments", {})),
-    )
+    references = shot_references(step_data.get("task", {}).get("arguments", {}))
+    name_unsaved_shots(result, references)
+    shots = step_shots(getattr(result, "saved_shots", None), saved_files, references)
     if shots:
         details["shots"] = shots
         _warn_shot_collisions(step_data, step_name, shots)

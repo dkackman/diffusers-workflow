@@ -384,6 +384,23 @@ def _rename_in_place(shots, names):
         shot.pop("source_index", None)
 
 
+def name_unsaved_shots(result, references):
+    """Name the shots of a joining step that wrote no file.
+
+    A join with no `result` block (music-video's `edit`) never reaches
+    `step_shots`, so the inner `video 1` its one-shot inputs carried survived
+    into the next step's output (#680). Only a step with a `videos` list of
+    references is a join, so anything else is left alone.
+    """
+    names = shot_reference_names(references)
+    if not names or getattr(result, "saved_shots", None):
+        return
+    for artifact in result.get_artifacts():
+        shots = getattr(artifact, "shots", None)
+        if shots:
+            _rename_in_place(shots, names)
+
+
 def step_shots(saved_shots, saved_files, references=None):
     """The `shots` a step's manifest entry and step_end carry, or None.
 

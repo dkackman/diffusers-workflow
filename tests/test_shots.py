@@ -36,6 +36,7 @@ from dw.shots import (
     shot_reference_names,
     shot_record,
     shots_for_file,
+    name_unsaved_shots,
     step_shots,
 )
 from dw.tasks.audio_utils import slice_audio
@@ -937,6 +938,24 @@ class TestRoundTrip:
         assert [shot["name"] for shot in artifact.shots] == [
             "video 1",
             "shot2d",
+        ]
+
+    def test_a_join_that_saves_nothing_still_names_its_shots(self):
+        """#680: music-video's `edit` has no `result` block, so step_shots
+        never saw it and each trimmed shot's inner `video 1` rode through to
+        the deliverable. The rename has to reach the artifact a later step
+        reads even when the join wrote no file."""
+        joined = concat_videos([audio_video(4, 1), audio_video(4, 2)], fps=4)
+        result = Result({})
+        result.add_result(joined)
+
+        name_unsaved_shots(
+            result, ["previous_result:trim@verse", "previous_result:trim@chorus"]
+        )
+
+        assert [shot["name"] for shot in result.get_artifacts()[0].shots] == [
+            "trim@verse",
+            "trim@chorus",
         ]
 
     def test_a_reference_still_renames_a_later_input_when_an_earlier_one_nests(
