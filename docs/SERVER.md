@@ -16,6 +16,7 @@ python -m dw.serve --workspace ~/studio
 python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 python -m dw.serve --host 0.0.0.0 --token "..." --mcp   # ...and drivable by an agent on another machine
+python -m dw.serve --devices cuda:1      # run the worker on the second card
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
@@ -25,6 +26,25 @@ Installed as a package, the same server is `dw-serve`. Interactive API docs
 The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
+
+### Choosing the card
+
+`--devices cuda:1` runs the worker on that card. The worker is pinned to it
+with `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker the
+card is the only one it can see; a bare `cuda`, or no flag at all, pins
+nothing and behaves as before. The `devices` setting is the standing form of
+the same choice, and the flag wins over it. There is one entry only for now:
+a second (`--devices cuda:0,cuda:1`) is refused at startup, as is a card the
+machine lacks, with the message naming the cards that are present
+(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...).
+
+Each job's record carries `device` - the card it ran on, as the server
+addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`), set when the job starts
+running and null for a job still queued and for jobs recorded before the
+field existed. Observed cost figures are bucketed by it: a figure counts the
+runs from cards of the same name as the one the server runs on now, so a
+3090's runs never inform a 4090's estimate. Rows from before jobs carried a
+`device` count only while the server is on the box's default card.
 
 ## The pages
 
@@ -165,7 +185,7 @@ agent from another machine, plus the queue across every workspace:
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
-| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
+| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs). No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
