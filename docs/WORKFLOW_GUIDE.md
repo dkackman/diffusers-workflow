@@ -1688,6 +1688,19 @@ declared variable, so reference a `guides` variable or edit the argument.
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
 guide is checked at run time, when its clip exists.
 
+A guide holds its span's look as well as its composition and motion: the frames under it
+come out close to a copy of the clip, whatever the prompt says about style. A full-length
+guide at frame 0 therefore reproduces the take rather than restyling it - measured on lem,
+a 124-frame guide with the prompt "the same scene as a hand-painted watercolour
+animation" came back photoreal (#648). The prompt steers the frames the guides leave
+free. Restyling a whole take needs a LoRA trained on guides (#612), not the guide alone.
+
+With no guides (or `guides: []`) the step runs the stock layout and draws the same noise
+from its seed as before. Repeat runs at one seed are bit-identical only on a server with
+`cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); with the default
+`false`, two runs at seed 42 match frame for frame by eye, but their audio levels differ by
+a few dB.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
