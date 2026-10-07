@@ -146,10 +146,10 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
     ], sample_rate
 
 
-def level_waveforms(command, waveforms, measure=None, target_dbfs=None):
+def level_waveforms(command, waveforms, measure=None, target_dbfs=None, names=None):
     """Match the shots' levels when asked to, else warn when they are apart."""
     if measure:
-        return match_levels(waveforms, measure, target_dbfs, command)
+        return match_levels(waveforms, measure, target_dbfs, command, names)
     warn_on_level_spread(waveforms, command)
     return waveforms
 
@@ -513,14 +513,17 @@ MATCH_NEAR_SILENT_DBFS = -40.0
 MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
-def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
+def match_levels(
+    waveforms, measure, target_dbfs=None, command="concat_videos", names=None
+):
     """Scale each waveform so its level sits at one shared target.
 
     Returns a new list in the same order and shape; a None entry (a video
     with no soundtrack) and a silent track pass through untouched, since
     neither has a level to move. A gain that would push the peak past
     MATCH_CEILING_DBFS is held there and said so in the log - the shot is
-    then quieter than the target rather than clipped.
+    then quieter than the target rather than clipped. `names` labels each
+    waveform in a warning; without them an input is "video N", counted from 1.
     """
     if measure not in LEVEL_MEASURES:
         raise ValueError(
@@ -535,6 +538,9 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
 
     matched = []
     for index, waveform in enumerate(waveforms):
+        label = names[index] if names else f"video {index + 1}"
+        if label == f"video {index + 1}":
+            label += " (counting from 1, in join order)"
         level = level_dbfs(waveform, measure)
         if level is None:
             matched.append(waveform)
@@ -552,7 +558,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
             # jump match_levels exists to remove (#214) - a caller reading
             # the job's warnings list is the one who can act on it (#82)
             emit_warning(
-                f"{command}: video {index + 1} would clip at the {measure} target "
+                f"{command}: {label} would clip at the {measure} target "
                 f"({peak + target_gain_db:+.1f} dBFS peak) - held to "
                 f"{MATCH_CEILING_DBFS} dBFS, {shortfall_db:.1f} dB short of target",
                 kind="match_levels_held",
@@ -570,7 +576,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
             # matching it up to the target passes that noise off as content -
             # a consumer reading job.warnings sees nothing was wrong
             emit_warning(
-                f"{command}: video {index + 1} {measure} {level:.1f} dBFS is "
+                f"{command}: {label} {measure} {level:.1f} dBFS is "
                 f"near-silent - matched up to the target with a {gain_db:+.1f} dB "
                 "gain, raising its noise floor rather than leveling content",
                 kind="match_levels_near_silent",
@@ -581,7 +587,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
                 gain_db=round(gain_db, 1),
             )
         emit_log(
-            f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
+            f"{command}: {label} {measure} {level:.1f} dBFS, "
             f"gain {gain_db:+.1f} dB{' (held)' if held else ''}",
             index=index,
             measure_dbfs=round(level, 1),

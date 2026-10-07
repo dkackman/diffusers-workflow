@@ -224,7 +224,7 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
         "concat_videos", videos, names, _input_waveforms(videos), sample_rate
     )
     waveforms = level_waveforms(
-        "concat_videos", waveforms, match_levels, match_levels_dbfs
+        "concat_videos", waveforms, match_levels, match_levels_dbfs, names
     )
     return names, videos, clips, waveforms, sample_rate
 
