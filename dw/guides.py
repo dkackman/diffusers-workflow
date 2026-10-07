@@ -33,9 +33,10 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
-from .hold_audio import MODULAR_PIPELINE, _not_h3
+from .hold_audio import _not_h3
 from .pipeline_processors.h3_blocks import (
-    GUIDE_CHAIN_WORKFLOWS,
+    CHAIN_CONTINUITY_MODES,
+    GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
     GUIDES_INPUT,
@@ -50,7 +51,6 @@ from .probe_paths import resolve_probe_path
 from .variable_constraints import aligned
 
 GUIDE_KEYS = ("video", "frame", "audio")
-CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
 
 
 def _render_length(arguments):
@@ -94,26 +94,34 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
     return None, None
 
 
+def _takes_guides_problem(pipeline, arguments):
+    """Why this step cannot take guides, or None: it is not MiniMax-H3
+    (`hold_audio._not_h3`), or it loads ref2va or passes `references`. The one
+    step rule for both a `guides` argument and a guide chain. A pipeline or
+    workflow that is not literal is left to the run."""
+    not_h3 = _not_h3(pipeline, GUIDES_INPUT)
+    if not_h3:
+        return not_h3
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    passes_references = (
+        isinstance(arguments, dict) and arguments.get("references") is not None
+    )
+    if workflow in REFERENCE_WORKFLOWS or passes_references:
+        return "guides cannot be combined with ref2va / references - use t2va or fl2va"
+    return None
+
+
 def _step_problems(pipeline, arguments, base_dir, probe):
     """[(index or None, message)] for one step's `guides`."""
     guides = arguments[GUIDES_INPUT]
     if isinstance(guides, (list, tuple)) and not guides:
         return []
-    not_h3 = _not_h3(pipeline, GUIDES_INPUT)
-    if not_h3:
-        return [(None, not_h3)]
-    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
-    workflow = (
-        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
-    )
-    if workflow in REFERENCE_WORKFLOWS or arguments.get("references") is not None:
-        return [
-            (
-                None,
-                "guides cannot be combined with ref2va / references - use t2va "
-                "or fl2va",
-            )
-        ]
+    problem = _takes_guides_problem(pipeline, arguments)
+    if problem:
+        return [(None, problem)]
     if not isinstance(guides, (list, tuple)):
         return [
             (
@@ -215,40 +223,6 @@ def guides_errors(workflow_definition, source_indices=None, base_dir=None, probe
     return errors
 
 
-def _guide_chain_step_problem(pipeline):
-    """Why this step cannot run a guide chain, or None - it is not MiniMax-H3,
-    loads ref2va, or passes `references`. A step whose pipeline or workflow is
-    not literal is left to the run."""
-    rule = (
-        "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay "
-        "off ref2va"
-    )
-    configuration = pipeline.get("configuration")
-    component_type = (
-        configuration.get("component_type") if isinstance(configuration, dict) else None
-    )
-    if (
-        isinstance(component_type, str)
-        and not references.is_ref(references.UNRESOLVED, component_type)
-        and component_type.rsplit(".", 1)[-1] != MODULAR_PIPELINE
-    ):
-        return f"{rule}, and this step loads {component_type}"
-    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
-    workflow = (
-        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
-    )
-    if (
-        isinstance(workflow, str)
-        and not references.is_ref(references.UNRESOLVED, workflow)
-        and workflow not in GUIDE_CHAIN_WORKFLOWS
-    ):
-        return f"{rule}, and this step loads the '{workflow}' workflow"
-    arguments = pipeline.get("arguments")
-    if isinstance(arguments, dict) and arguments.get("references") is not None:
-        return f"{rule}, and this step passes references"
-    return None
-
-
 def guide_chain_errors(workflow_definition, source_indices=None):
     """Every chain block refused for its continuity before the run, as
     [{path, message}]: an unknown mode (the schema lets a `variable:` through),
@@ -269,25 +243,25 @@ def guide_chain_errors(workflow_definition, source_indices=None):
         ):
             continue
         base = ("steps", references.author_index(source_indices, index), "pipeline")
-        if continuity not in CONTINUITY_MODES:
+        if continuity not in CHAIN_CONTINUITY_MODES:
             errors.append(
                 {
                     "path": render_path(base + ("chain", "continuity")),
                     "message": (
                         f"unknown chain continuity {continuity!r} - expected one "
-                        f"of {', '.join(CONTINUITY_MODES)}"
+                        f"of {', '.join(CHAIN_CONTINUITY_MODES)}"
                     ),
                 }
             )
             continue
         if continuity != GUIDE_CONTINUITY:
             continue
-        problem = _guide_chain_step_problem(pipeline)
+        problem = _takes_guides_problem(pipeline, pipeline.get("arguments"))
         if problem:
             errors.append(
                 {
                     "path": render_path(base + ("chain", "continuity")),
-                    "message": problem,
+                    "message": f"{GUIDE_CHAIN_RULE}: {problem}",
                 }
             )
         for key, message in guide_chain_problems(chain):

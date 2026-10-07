@@ -115,6 +115,22 @@ class TestRefused:
         assert "teleport" in error["message"]
         assert "guide" in error["message"]
 
+    def test_every_run_mode_is_known_to_validate(self):
+        from dw.pipeline_processors.chain import CONTINUITY_MODES
+
+        for mode in CONTINUITY_MODES:
+            chain = {"segments": 2, "continuity": mode}
+            assert guide_chain_errors(definition("t2va", chain=chain)) == []
+
+    def test_the_step_rule_is_the_guides_rule(self):
+        # One owner: the chain's refusal carries the `guides` check's own reason
+        from dw.guides import _takes_guides_problem
+
+        step = definition("ref2va")["steps"][0]["pipeline"]
+        error = one(definition("ref2va"))
+
+        assert error["message"].endswith(_takes_guides_problem(step, {}))
+
 
 class TestSkipped:
     def test_a_variable_continuity(self):

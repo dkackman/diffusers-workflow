@@ -743,7 +743,16 @@ def guide_frame_problem(frame):
 GUIDE_CONTINUITY = "guide"
 GUIDE_CHAIN_FRAMES = (22, 39)
 GUIDE_CHAIN_DEFAULT = 22
-GUIDE_CHAIN_WORKFLOWS = ("t2va", "fl2va")
+# Where a guide chain runs is where `guides` runs (dw/guides.py); the run and
+# validate lead their refusal with this rule
+GUIDE_CHAIN_RULE = (
+    "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay off ref2va"
+)
+
+# Every chain continuity mode, in the order chain.py registers its classes
+# (`CONTINUITY_MODES`, zipped strictly against these). Kept here so validation
+# (dw/guides.py) reads the same names without importing chain.py
+CHAIN_CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
 
 
 def guide_chain_problems(chain):
