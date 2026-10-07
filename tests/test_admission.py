@@ -649,3 +649,74 @@ def test_one_request_probes_a_file_once_across_errors_and_warnings(
     # the warning pass read the probe: the shots record reaches past a.mp4
     assert any("past the file's 24 frames" in w for w in answer["warnings"]), answer
     assert opened.count("a.mp4") == 1, opened
+
+
+# An 'output:' source a validate-time probe reads resolves under the request
+# workspace's outputs, as the reference check and the run resolve it - not
+# the default workspace's, where it misses and the check stays silent (#666)
+RUN_ID = "20261007-030343-8f1db730"
+SOURCE = f"output:cc/{RUN_ID}/cc-cat.0-0.0.mp4"
+
+
+def _shots_with_output(client, root, frames):
+    """A non-default workspace whose outputs alone hold a `frames`-long run
+    output at SOURCE."""
+    from .test_dissolve_frame_errors import write_mp4
+
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code < 300
+    run_dir = os.path.join(root.root, "shots", "outputs", "cc", RUN_ID)
+    os.makedirs(run_dir)
+    write_mp4(os.path.join(run_dir, "cc-cat.0-0.0.mp4"), frames=frames)
+    assert not os.path.exists(os.path.join(root.outputs, "cc"))
+
+
+def _validate(client, workflow, arguments):
+    body = {"workflow": workflow, "arguments": arguments, "workspace": "shots"}
+    response = client.post("/api/validate?sizes=false", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.parametrize("window_count, refused", [(3, True), (4, False), (5, True)])
+def test_window_count_is_checked_against_an_output_source_in_the_workspace(
+    server, root, window_count, refused
+):
+    from .test_window_count_errors import window_workflow
+
+    # 50 frames, num_frames 17, overlap 4: stride 13, so 4 windows
+    with server() as client:
+        _shots_with_output(client, root, frames=50)
+        windows = [{"name": f"w{i}", "index": i} for i in range(window_count)]
+        answer = _validate(
+            client,
+            window_workflow(window_count),
+            {"source_video": SOURCE, "windows": windows},
+        )
+
+    counted = [
+        error for error in answer["errors"] if "join_windows needs" in error["message"]
+    ]
+    if refused:
+        assert answer["valid"] is False
+        assert [error["path"] for error in counted] == ["steps[1]"]
+        assert "needs 4 windows for a 50-frame source" in counted[0]["message"]
+    else:
+        assert answer["valid"] is True, answer["errors"]
+        assert counted == []
+
+
+def test_dissolve_frames_are_checked_against_an_output_source_in_the_workspace(
+    server, root
+):
+    from .test_dissolve_frame_errors import dissolve_workflow
+
+    # A 12-frame dissolve across an 8-frame member is more than it holds
+    with server() as client:
+        _shots_with_output(client, root, frames=8)
+        answer = _validate(client, dissolve_workflow([SOURCE, SOURCE]), {})
+
+    assert answer["valid"] is False
+    assert [error["path"] for error in answer["errors"]] == [
+        "steps[0].task.arguments.dissolve_frames"
+    ]
+    assert answer["errors"][0]["message"].startswith("dissolve_videos: ")
