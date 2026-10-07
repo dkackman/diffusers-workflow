@@ -1,6 +1,7 @@
-# MiniMax-H3 dialogue rules: record-only probes (#608 stage A1, #640)
+# MiniMax-H3 dialogue rules: record-only probes (#608 stages A1 #640, A2 #641)
 
 Probe date: 2026-10-06. Server `lem`, develop @ 082313e9, diffusers 0.41.0.dev0.
+A2's rows (9–13) ran 2026-10-06/07 (server clock), develop @ b8aef188.
 Agent: claude-opus-5-5 (anthropic). Workspace `qa-h3-dialogue-probes`.
 No engine or skill file was changed. This document only records results.
 
@@ -28,6 +29,12 @@ the effect, and **inconclusive** when the seeds disagree.
 | 6b | "`<breath>` is honoured as a silent beat." (the condition for the budget's `<breath>` term coming back) | **not spoken aloud**: refuted. **Silent beat: inconclusive** | 6f588db1f043, 3a29df186aac | `<breath>` is never spoken and no breath sound was transcribed. Both broken seeds pause where it sat (1.00 s and 0.75 s), but both followed seeds, with no tag, pause at the same sentence break (0.70 s and 0.30 s). The tag may lengthen the pause, but it doesn't create one. The `<breath>` budget term stays cut. See *Probe 6*. |
 | 7 | "Prompt length budget: about 7,000 characters." (meant as the encoder's `max_sequence_length`) | **refuted** (from source, no GPU) | — | The H3 text encoder doesn't truncate. See *Probe 7*. |
 | 8 | "A continuation should start from rest, open on `<breath>`, and begin no new words inside the discarded warm-up prefix." | **not run**: GPU budget (Don's decision) | — | Its prompt design is kept in *Not run*. |
+| 9 | "Extras: 3 against 6 in-focus extras (do faces clone?)." | **inconclusive**: keep the rule | dff3875f1312, f08c2f6c788e | Asking for six gave seven people on both seeds, all of one look. Seed 1001's six arm has hard clones: three women with near-identical faces and two near-identical suited men. Seed 2002's six arm is homogenized (similar young faces) but has no hard clones. The three arm gave three distinct, varied people on both seeds. Clones appear on one broken seed of two. See *Probe 9*. |
+| 10 | "Naming an off-screen thing: does it pull the thing into the shot?" | **confirmed** | dff3875f1312, f08c2f6c788e | A golden retriever named as "out of frame behind the camera" was rendered asleep in the visible room or hallway on both seeds. Without the naming, there was no dog on either seed. See *Probe 10*. |
+| 10b | "A negated naming is included, to settle the lint cut." (The lint comes back if "a negated noun reliably renders the thing it negates".) | **refuted**: the negation lint stays cut | dff3875f1312, f08c2f6c788e | The negated noun didn't render a dog on either seed. The lint comes back only if a negated noun reliably renders what it negates, and it didn't. See *Probe 10*. |
+| 11 | "Voice words in a silent scene: static, crackle or murmur in the sound line, with H3 checked for invented speech." | **no invented speech** | cfc83935f3bb, 82126b32419b | With "a low murmur" in the soundscape, the keeper kept his mouth closed or covered by his hand on both seeds. The audio was near-silent (peak -39.1 and -42.6 dBFS), as was the followed arm. Whisper returned the same "Thank you for watching" hallucinations on both arms. H3 barely rendered either soundscape, so this is a weak refutation. See *Probe 11*. |
+| 12 | "Readable text: a sign quoted verbatim per our enhancer, against the same sign left blank. Is the text legible, garbled, or partly right?" (Q2) | **legible**: no enhancer issue filed | cfc83935f3bb, 82126b32419b | `"MARLOWE'S BAKERY"` rendered verbatim and legible on both seeds. Seed 2002 added a stray "P2" above the door and garbled small lettering on the window. Side finding: the blank-sign arm ("plain cream paint with no lettering") invented pseudo-text on both seeds. See *Probe 12*. |
+| 13 | "The minimax-music3 rule: 4 instrumental runs, each transcribed for accidental vocals." | **inconclusive**: the check as written can't decide it | 61d2c7954a22, 83f75fcd42df; re-check 9dbd4915783a | Whisper-base returned degenerate loops on all four instrumentals. Whisper-large-v3 returned the canonical "Thank you for watching" in 30 s windows on three of them, plus two timed spans worth a human listen: "Hey, hey, …" at 30–60 s (synth-pop, seed 2002) and "Bier, Bier, … Bierschen" at 30–56 s (folk, seed 2002). Whisper on music can't separate a sung word from hallucination. All four tracks hit the 60 s ceiling (60.07 s). See *Probe 13*. |
 
 ## Probe 1: rate, tail and clipping
 
@@ -268,6 +275,177 @@ entries `p2_*`, `p4_*` and `p5_*`. For probes 4 and 5 the verdict rests on
 the broken arm, which lacked the effect on both seeds; the followed arm
 can't change a refutation, so its frames were not reviewed in detail.
 
+## Probe 9: extras, 3 against 6 (A2)
+
+Prompt: a static medium wide shot of a small sunlit cafe in deep focus. A
+young female barista in a red apron stands in the foreground, and behind her
+customers wait in line facing the camera, "each a different adult of
+different age, hair and clothing". Nobody speaks. The arms change only the
+count: **six** (the rule broken) against **three** (followed).
+
+| Run | People rendered | Faces |
+| --- | --- | --- |
+| six s1001 | 7 | All East Asian. Three women with near-identical faces, and two near-identical suited men: hard clones. |
+| six s2002 | 7 | All young, with similar faces but different hair and clothes. Homogenized, no hard clones. |
+| three s1001 | 3 | Distinct and varied in age, sex and look. |
+| three s2002 | 3 | Distinct and varied. |
+
+Hard clones show on one broken seed of two, so by the bar this is
+**inconclusive**. Both broken seeds overshoot the count (seven for six) and
+flatten the requested variety, and neither followed seed does. The evidence
+leans toward the rule, and nothing argues for dropping it: keep "ask for 3".
+
+Entries `px_six_s*` and `px_three_s*`, in batch A of each seed (jobs
+dff3875f1312 and f08c2f6c788e).
+
+## Probe 10: naming an off-screen thing, and a negated naming (A2)
+
+Prompt: a woman in her thirties with short auburn hair and a grey jumper
+reads a paperback on a green sofa in a lamplit living room. Three arms:
+- **named:** adds "Her large golden retriever sleeps in the hallway, out of
+  frame behind the camera.";
+- **negated:** adds "There is no dog in the room.";
+- **followed:** adds neither.
+
+| Run | Dog in frame? |
+| --- | --- |
+| named s1001 | yes: a golden retriever asleep in the visible hallway behind her |
+| named s2002 | yes: a golden retriever asleep in the room |
+| negated s1001 | no |
+| negated s2002 | no |
+| followed s1001 | no |
+| followed s2002 | no |
+
+Naming an off-screen thing pulls it into the shot on both seeds, with
+neither followed seed showing it: **confirmed**. Saying where it is ("out
+of frame behind the camera") doesn't keep it out.
+
+The negated noun rendered nothing on either seed. The plan's condition for
+bringing the negation lint back (a negated noun that reliably renders the
+thing it negates) isn't met, so **the negation lint stays cut**. This is one
+negated sentence on two seeds. It settles the lint as the plan asked, not
+negation in general.
+
+Entries `po_named_s*`, `po_negated_s*` and `po_followed_s*`, in batch A
+(jobs dff3875f1312 and f08c2f6c788e).
+
+## Probe 11: voice words in a silent scene's sound line (A2)
+
+Prompt: a lighthouse keeper in his seventies at a desk by a window at
+night, facing the camera beside an old valve radio. "He stays silent,
+thinking, and slowly rubs his chin." The arms change only the soundscape:
+- **broken:** "Static and crackle from the old radio, and a low murmur
+  under it, with wind against the glass.";
+- **followed:** "Wind against the glass, the soft hum of the desk lamp,
+  distant waves."
+
+| Run | Peak / mean (dBFS) | Mouth | Whisper-base transcript |
+| --- | --- | --- | --- |
+| broken s1001 | -39.1 / -58.8 | closed, or covered by his hand | "Thank you very much for watching" |
+| broken s2002 | -42.6 / -60.9 | closed | "Thank you so much for watching and I'll see you in the next video" |
+| followed s1001 | — / -61.6 | closed | "Thank you for watching" |
+| followed s2002 | — / -62.2 | closed | "Thank you very much" |
+
+Each transcript is one chunk spanning the whole clip, which is Whisper's
+signature hallucination on near-silence. The followed arm gets the same
+phrases, so they're no evidence of speech. Nobody on screen speaks, and
+nothing audible is speech. The broken arm doesn't show invented speech, so
+the effect is **not seen**.
+
+This is a weak refutation. H3 barely rendered either soundscape: the static,
+crackle and murmur weren't audible, so "murmur" never got the chance to
+become a voice. A louder sound line, or one with a voice source in shot,
+might behave differently.
+
+Entries `pv_voicewords_s*` and `pv_followed_s*`, in batch B (jobs
+cfc83935f3bb and 82126b32419b).
+
+## Probe 12: readable text, a quoted sign against a blank one (A2)
+
+Prompt: the front of a small brick shop on an overcast morning, with a large
+painted wooden sign above the door filling the upper half of the frame and
+facing the camera squarely. The arms:
+- **quoted:** "black letters on a cream background reading "MARLOWE'S
+  BAKERY"" (quoted verbatim, as our enhancer writes it);
+- **blank:** "plain cream paint with no lettering on it".
+
+| Run | Sign |
+| --- | --- |
+| quoted s1001 | "MARLOWE'S BAKERY", verbatim and legible |
+| quoted s2002 | "MARLOWE'S BAKERY", verbatim and legible; a stray "P2" above the door and garbled small lettering on the window |
+| blank s1001 | invented pseudo-text: "THE CHNUCS / HOUCK SOTRBUCS" |
+| blank s2002 | faint invented lettering ("…NK A…") |
+
+The quoted text is **legible** on both seeds, so under Q2 there's no
+enhancer fix to file. The only garbling is in text the prompt didn't ask for
+(the window, the "P2").
+
+Side finding: asking for a blank sign doesn't produce one. On both seeds H3
+painted pseudo-text onto the sign it was told was unlettered. A shot that
+needs an unlettered surface can't count on "no lettering". This belongs in
+`dialogue.md` beside the readable-text verdict (stage B).
+
+Entries `pt_quoted_s*` and `pt_blank_s*`, in batch B (jobs cfc83935f3bb and
+82126b32419b).
+
+## Probe 13: Music3 instrumentals transcribed for accidental vocals (A2)
+
+Four 60 s instrumentals, made the way the minimax-music3 skill prescribes:
+- a tag-only lyrics body, `[intro]` / `[instrumental]` / `[solo]` /
+  `[outro]`, one per line;
+- a caption that says instrumental and names the lead instrument.
+
+There were two captions, each on seeds 1001 and 2002:
+- **folk:** "An instrumental acoustic folk piece, 96 BPM, G major, …
+  fingerpicked steel-string acoustic guitar carries the lead melody …
+  Instrumental only, no vocals.";
+- **synth-pop:** "An instrumental upbeat synth-pop track, 118 BPM, A
+  minor, … A lead synthesizer carries the melody … Instrumental only, no
+  vocals."
+
+`get_job_workflow` on either job returns the captions verbatim.
+
+Each track was normalized to -3 dBFS peak at 44.1 kHz, then transcribed with
+Whisper-base (`timestamps: "word"`). After that came a second pass with
+`openai/whisper-large-v3` (`timestamps: "segment"`, job 9dbd4915783a), run
+on the same mp3s through `output:` references.
+
+| Track | Length (s) | Whisper-base | Whisper-large-v3 |
+| --- | --- | --- | --- |
+| folk s1001 | 60.07 | "Thank you very much… I'm sorry" ×100 | "Thank you very much." / "Thank you." / "Thanks for watching!", one per 30 s window |
+| synth-pop s1001 | 60.07 | "1. Dessert… 1.5-1.5…" loop | "Thank you for watching." / "Thank you." / "Thanks for watching!", one per 30 s window |
+| folk s2002 | 60.07 | "Thank you very much for watching… bye" ×N | Chinese filler (别而别别说) at 0–28 s; "Bier, Bier, Bier, Bierschen" at 30–39 s; "Bierschen" ×3 at 39–56 s |
+| synth-pop s2002 | 60.07 | "[♪ outro music playing in the background" ×N | "Thank you for watching!" at 0–30 s; "Hey, hey, …" ×16 at 30–60 s; "Thanks for watching!" |
+
+Neither model gives a usable answer on these tracks:
+- **Whisper-base is unusable on music.** Every track came back as a
+  degenerate loop, so a "transcribe every instrumental" check run on the
+  default model flags every instrumental.
+- **Whisper-large-v3 is mostly hallucination as well.** Each whole-window
+  "Thank you for watching" chunk is the known outro hallucination. Two spans
+  carry real timestamps and could be sung sounds: the "hey" chant at 30–60 s
+  in synth-pop s2002, and the "Bier…" syllables at 30–56 s in folk s2002. A
+  chanted "hey" is a common synth-pop vocal-sample texture, so that span
+  deserves a listen. This agent has no audio perception, so neither span is
+  settled here.
+
+Verdict: **inconclusive**. The check the plan names can't decide accidental
+vocals, which is a finding in its own right: Rule C in `dialogue.md` (or the
+minimax-music3 skill) shouldn't tell an agent to transcribe an instrumental
+and treat the words as vocals. To settle the two spans, Don can listen to
+30–60 s of both:
+- `output:Music3InstrumentalProbe/20261007-042451-837121b1/final/m3_synthpop_s2-0.0.mp3`;
+- `output:Music3InstrumentalProbe/20261007-042451-837121b1/final/m3_folk_s2-0.0.mp3`.
+
+All four tracks ran 60.07 s against a 60 s `audio_duration`, which the skill
+reads as cut by the ceiling. They peaked at about -2.4 to -2.7 dBFS
+(-17 to -18 LUFS integrated) before normalization. Cut-off tracks don't
+change the vocal question.
+
+Jobs 61d2c7954a22 (run 20261007-041935-ea880e8e, seed 1001) and
+83f75fcd42df (run 20261007-042451-837121b1, seed 2002), with the
+large-v3 re-check in 9dbd4915783a (run 20261007-043023-9403a434).
+
 ## Not run
 
 Probe 8 wasn't run, by Don's decision on #640 (accept it as not run;
@@ -322,3 +500,28 @@ seeds). Its prompt design, ready to run:
   speechbrain's ECAPA speaker embedding (`spkrec-ecapa-voxceleb`), with
   lines split at Whisper's word end times and line 1 starting at the
   audio onset, since Whisper's first-word start was unreliable before #661 (above).
+- **A2 batching (#641).** A2's nine H3 entries didn't fit one job per seed:
+  the projected host RAM for nine entries was past the limit. So each seed
+  ran as two batches through the same `qa/h3-probe-batch` workflow:
+  - batch A: probes 9 and 10, 5 entries;
+  - batch B: probes 11 and 12, 4 entries.
+
+  That made four H3 jobs:
+  - seed 1001: dff3875f1312 (A, 17.4 min) and cfc83935f3bb (B, 14.3 min);
+  - seed 2002: f08c2f6c788e (A, 17.4 min) and 82126b32419b (B, 14.1 min).
+
+  Every entry ran at 124 frames.
+- **Music3 workflow (#641).** The plan names `templates/minimax/music` runs.
+  The probe used an inline workflow (`Music3InstrumentalProbe`) with the
+  template's generation step (ModularPipeline `MiniMaxAI/MiniMax-Music3`,
+  bf16, auto CPU offload, `audio_duration` 60), `for_each` over the four
+  tracks. It added a `normalize_audio` step and a `transcribe_audio` step
+  in the same job, so the four transcripts came from one model load per
+  seed. That made two jobs, 5.3 and 5.2 min. The Whisper-large-v3 re-check
+  (9dbd4915783a, 12 s) wasn't in the plan. It ran because the base-model
+  transcripts couldn't decide the verdict.
+- **A2 GPU spend.** About 74 min in all: 63 min of H3 and 11 min of Music3,
+  plus the 12 s re-check. About 67 min were left of the A1+A2 cap of about
+  3.25 hours after A1's 127, so A2 overran the cap by about 7 min. The
+  overrun comes from the batch split (each batch reloads H3) and from
+  splitting by seed.
