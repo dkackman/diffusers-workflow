@@ -56,6 +56,7 @@ the manifest and on the artifact, not in the file.
 
 import copy
 
+from .for_each import is_member_name
 from .references import PREVIOUS_RESULT, ref_name
 
 
@@ -338,7 +339,7 @@ def named_shots(shots, names):
         name = names[index] if names and index < len(names) else None
         if name and counts.get(index) == 1:
             entry["name"] = name
-        elif name and "@" in name:
+        elif is_member_name(name):
             # a for_each member that nested several shots of its own: keep
             # theirs, qualified by the member so two members' inner shots
             # do not collide (#670)

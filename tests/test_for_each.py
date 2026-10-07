@@ -10,6 +10,7 @@ from dw.for_each import (
     ForEachError,
     entry_field_warnings,
     expand_for_each,
+    is_member_name,
     list_fields,
     member_name,
 )
@@ -44,6 +45,11 @@ def steps_by_name(definition):
 class TestNaming:
     def test_member_name_joins_with_at(self):
         assert member_name("shot", "wide_open") == "shot@wide_open"
+
+    def test_is_member_name_round_trips_member_name(self):
+        assert is_member_name(member_name("shot", "wide_open"))
+        assert not is_member_name("shot")
+        assert not is_member_name(None)
 
     def test_an_object_entry_is_named_by_its_name(self):
         expanded = expand_for_each(
