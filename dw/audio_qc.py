@@ -417,7 +417,16 @@ def check_written_media(
     # that predicted risk but measured merely close-but-clean says
     # nothing. That is the file's own ground truth, not a threshold
     # bug.
-    if is_video and headroom_warned and written_peak is None:
+    #
+    # A video a normalizer or level-matching join consumes skips both:
+    # that step resets the level it ships at, so neither the written
+    # peak nor the prediction is the deliverable's (#671)
+    if (
+        is_video
+        and headroom_warned
+        and not consumed_by_normalizer
+        and written_peak is None
+    ):
         warn_held_prediction(output_path, predicted_peak_dbfs)
     source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
     warn_if_written_near_silent(

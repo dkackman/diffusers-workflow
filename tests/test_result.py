@@ -2074,6 +2074,40 @@ class TestNoHeadroom:
 
         assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
 
+    @pytest.mark.parametrize(
+        "probe",
+        [
+            {"return_value": {"peak_dbfs": 1.02, "kind": "video"}},
+            {"return_value": {"peak_dbfs": -1.12, "kind": "video"}},
+            {"side_effect": OSError("truncated")},
+        ],
+        ids=["measured-hot", "measured-clean", "unprobeable"],
+    )
+    def test_a_video_a_join_level_matches_draws_no_headroom_warning(self, probe):
+        """#671: dialogue-short's shot, consumed by a `match_levels` join,
+        with a hot predicted peak. The join resets the level it ships at, so
+        neither the measured clip nor the held prediction (which claimed the
+        measured file "could not be re-measured") may reach the caller."""
+        from dw.media_types import AudioVideo
+        from dw.result import Result
+
+        def save():
+            result = Result({"content_type": "video/mp4"}, consumed_by_normalizer=True)
+            result.add_result(AudioVideo("frames", torch.ones((2, 100)), 48000))
+            with (
+                patch("dw.result.encode_video"),
+                patch("dw.result.is_av_available", return_value=True),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                result.save(temp_dir, "shot")
+
+        with patch("dw.media.probe_media", **probe):
+            warnings = self.events_from(save)
+
+        kinds = [w["kind"] for w in warnings]
+        assert "audio_clipped" not in kinds
+        assert "audio_no_headroom" not in kinds
+
 
 class TestTheWrittenLevel:
     """#161. `warn_without_headroom` measures the waveform handed to the
