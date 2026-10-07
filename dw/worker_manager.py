@@ -11,6 +11,8 @@ import logging
 import signal
 import time
 from typing import Optional
+from . import get_device
+from .devices import device_label, pinned_environment, worker_environment
 from .worker import worker_main
 from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
 
@@ -27,8 +29,18 @@ WORKER_LIVENESS_POLL_SECONDS = 1.0
 class WorkerManager:
     """Manages the worker process lifecycle and communication."""
 
-    def __init__(self):
-        """Initialize worker manager with no active worker."""
+    def __init__(self, device: Optional[str] = None):
+        """Initialize worker manager with no active worker.
+
+        Args:
+            device: The card this manager's worker runs on, as the server
+                addresses it ('cuda:1'). None is the device dw runs on -
+                `get_device()`, read when the worker is spawned. A CUDA
+                device named with an index pins the worker to that card
+                (dw/devices.py)
+        """
+        self.device = device
+        self._device_label = None
         self.worker_process: Optional[multiprocessing.Process] = None
         self.command_queue: Optional[multiprocessing.Queue] = None
         self.result_queue: Optional[multiprocessing.Queue] = None
@@ -49,9 +61,21 @@ class WorkerManager:
                 target=worker_main,
                 args=(self.command_queue, self.result_queue, log_level),
             )
-            self.worker_process.start()
+            # Pinned in the parent: a spawned child copies os.environ at
+            # start(), and dw/__init__.py imports torch before anything in
+            # the child could set CUDA_VISIBLE_DEVICES itself
+            with pinned_environment(worker_environment(self.device or get_device())):
+                self.worker_process.start()
             self.worker_active = True
             logger.info("Worker process started")
+
+    def device_label(self):
+        """This worker's card as a job record names it -
+        `"cuda:1 NVIDIA GeForce RTX 3090"` - read once, in the server
+        process, which sees every card by its ordinal."""
+        if self._device_label is None:
+            self._device_label = device_label(self.device)
+        return self._device_label
 
     def shutdown_worker(self):
         """Gracefully shutdown worker process."""

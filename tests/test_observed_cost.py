@@ -500,10 +500,11 @@ class TestOffTheJobRow:
         running on CUDA - the silent null this field exists to replace. This
         asserts the symbols resolve rather than that any particular card is
         present, since the suite runs on CUDA, MPS and CPU."""
-        from dw import device_memory_stats, get_device, get_device_type
+        from dw import get_device, get_device_type
+        from dw.devices import card_name
 
         assert callable(get_device) and callable(get_device_type)
-        assert "device_name" in device_memory_stats()
+        assert callable(card_name)
 
         kind, _card = ObservedCosts(None).device()
         assert kind == get_device_type(get_device())

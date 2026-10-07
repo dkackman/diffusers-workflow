@@ -574,6 +574,7 @@ class JobManager:
                     return
                 job.status = RUNNING
                 job.started_at = time.time()
+                job.device = self._job_device()
                 self._current_job_id = job.id
             job.add_event({"event": "job_status", "status": RUNNING})
             try:
@@ -605,6 +606,16 @@ class JobManager:
             if job.status not in TERMINAL_STATES:
                 status, error, traceback_text = outcome
                 self._finish(job, status, error=error, traceback_text=traceback_text)
+
+    def _job_device(self):
+        """The card the worker runs on, for the job record. A label that
+        cannot be read leaves the job's `device` null rather than failing
+        the job - the run itself does not depend on it."""
+        try:
+            return self.worker_manager.device_label()
+        except Exception:
+            logger.debug("Could not read the worker's device", exc_info=True)
+            return None
 
     def _record_manifest(self, job, manifest):
         """What the run wrote, named the way clients address outputs.

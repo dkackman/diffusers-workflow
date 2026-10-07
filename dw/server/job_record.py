@@ -74,6 +74,10 @@ class Job:
         self.run_id = None
         self.run_dir = None
         self.run_version = None
+        # The card the job ran on, as `dw.devices.device_label` names it -
+        # set when it starts running, so None while queued and forever for
+        # a job cancelled before it ran (#462)
+        self.device = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
         # The worker's own high-water mark for this run, from its final
@@ -263,6 +267,7 @@ class Job:
             # The run's ordinal - 'v4' - so the job that just ran can be
             # named the way the gallery will name it
             "run_version": self.run_version,
+            "device": self.device,
             "acknowledged": self.acknowledged,
         }
 

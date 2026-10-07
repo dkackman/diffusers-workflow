@@ -125,6 +125,15 @@ def build_parser():
         "stay untrusted.",
     )
     parser.add_argument(
+        "--devices",
+        default=None,
+        help="The card this server's worker runs on, e.g. cuda:1 (default: "
+        "the 'devices' setting, else DW_DEVICE / the 'device' setting / "
+        "detection). The worker is pinned to it with CUDA_VISIBLE_DEVICES. "
+        "One entry only for now; a device this machine lacks is refused at "
+        "startup.",
+    )
+    parser.add_argument(
         "--mcp",
         action="store_true",
         default=False,
@@ -154,6 +163,27 @@ def check_bind_safety(args, token):
             file=sys.stderr,
         )
         raise SystemExit(2)
+
+
+def configure_devices(args):
+    """Pick the worker's card from --devices, else the `devices` setting,
+    and refuse one this machine lacks (exit 2) - before the worker spawns.
+
+    The choice is pinned as DW_DEVICE, which `get_device()` reads in this
+    process: the worker manager pins the worker to it (dw/devices.py) and a
+    job record's `device` names it. Neither set leaves the device as it was."""
+    from .devices import DeviceConfigError, resolve_serve_devices
+    from .settings import load_settings
+
+    try:
+        devices = resolve_serve_devices(
+            getattr(args, "devices", None), load_settings().devices
+        )
+    except DeviceConfigError as error:
+        print(f"dw-serve: {error}", file=sys.stderr)
+        raise SystemExit(2) from None
+    if devices:
+        os.environ["DW_DEVICE"] = devices[0]
 
 
 def configure_environment(args):
@@ -203,6 +233,8 @@ def configure_environment(args):
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
     check_bind_safety(args, token)
+
+    configure_devices(args)
 
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment

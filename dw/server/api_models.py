@@ -260,6 +260,11 @@ class JobSummary(ApiModel):
         description="That run's ordinal among the workflow's runs - the `v4` the "
         "gallery shows for its files. Null until the run opens, and for older rows."
     )
+    device: str | None = Field(
+        default=None,
+        description="The card the job ran on, as ordinal then name - "
+        "'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
+    )
     acknowledged: Literal["none", "boolean", "bound"] = Field(
         description="Which form of cost acknowledgement queued the job: none (the "
         "web UI and any caller that sent nothing), a bare boolean, or one bound to "

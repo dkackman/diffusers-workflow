@@ -108,6 +108,12 @@ class JobHistory:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN host_memory_job_peak_rss_mb REAL"
                 )
+            # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090"
+            # (#462). NULL for a row predating the column: which card that
+            # was is not known, and guessing would mislabel a box whose
+            # card has been swapped
+            if "device" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN device TEXT")
 
     def _connect(self):
         # WAL mode lets a reader (the web UI polling job status, an MCP
@@ -130,8 +136,8 @@ class JobHistory:
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb, run_version) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " host_memory_job_peak_rss_mb, run_version, device) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -157,6 +163,7 @@ class JobHistory:
                     getattr(job, "host_memory_peak_rss_mb", None),
                     getattr(job, "host_memory_job_peak_rss_mb", None),
                     getattr(job, "run_version", None),
+                    getattr(job, "device", None),
                 ),
             )
 
@@ -172,8 +179,8 @@ class JobHistory:
         """
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
-            " workspace, workflow_name, run_id, acknowledged, run_version"
-            " FROM jobs"
+            " workspace, workflow_name, run_id, acknowledged, run_version,"
+            " device FROM jobs"
         )
         params = []
         clauses = []
@@ -204,6 +211,7 @@ class JobHistory:
                 "run_id": row[8],
                 "acknowledged": row[9] or ACK_NONE,
                 "run_version": row[10],
+                "device": row[11],
                 "historical": True,
             }
             for row in rows
@@ -215,7 +223,7 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version FROM jobs WHERE id = ?",
+                " run_version, device FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -264,7 +272,7 @@ class JobHistory:
                 "SELECT workflow_name, workspace, started_at, finished_at,"
                 " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb"
+                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb, device"
                 " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
@@ -281,6 +289,7 @@ class JobHistory:
             at_cap,
             peak_rss_mb,
             job_peak_rss_mb,
+            device,
         ) in rows:
             key = (workspace or DEFAULT_WORKSPACE_NAME, name)
             grouped.setdefault(key, []).append(
@@ -294,6 +303,7 @@ class JobHistory:
                     "events_at_cap": bool(at_cap),
                     "host_memory_peak_rss_mb": peak_rss_mb,
                     "host_memory_job_peak_rss_mb": job_peak_rss_mb,
+                    "device": device,
                 }
             )
         return grouped
@@ -435,6 +445,7 @@ class JobHistory:
             "run_id": row[13],
             "run_dir": row[14],
             "run_version": row[17],
+            "device": row[18],
             "acknowledged": row[15] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
