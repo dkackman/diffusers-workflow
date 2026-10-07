@@ -148,8 +148,8 @@ def submit_job(
                 else None
             ),
         )
-        if not admission.ok:
-            raise ValueError(admission.message())
+        # Refuses what admission refused, and a job too big for every card
+        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, request.acknowledged_cost, workspace
@@ -189,6 +189,8 @@ def submit_job(
             ),
             # The job carries every warning validate would have answered
             warnings=admission.warnings,
+            # What a card must hold to run it: the pool dispatches on it
+            vram_need=admission.vram_need,
         )
         return manager.describe(job)
     except HTTPException:
@@ -420,8 +422,8 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
                 bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
             ),
         )
-        if not admission.ok:
-            raise ValueError(admission.message())
+        # Refuses what admission refused, and a job too big for every card
+        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, body.acknowledged_cost, workspace
@@ -442,6 +444,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             # The arguments admitted - the fresh seed already drawn
             arguments=arguments,
             admitted=admission.workflow,
+            vram_need=admission.vram_need,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")

@@ -27,8 +27,8 @@ class Settings:
     # environment variable overrides this for a single run.
     device: str = None
 
-    # The card a dw.serve worker runs on - "cuda:1", or a one-entry list.
-    # One entry only until the worker pool lands (#462); see dw/devices.py.
+    # The cards dw.serve runs workers on - "cuda:1", or "cuda:0,cuda:1" for one
+    # worker per card, each running one job at a time (#462); see dw/devices.py.
     # `dw.serve --devices` overrides it. None leaves `device` in charge
     devices: str = None
 

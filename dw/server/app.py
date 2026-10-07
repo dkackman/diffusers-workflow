@@ -187,8 +187,11 @@ def create_app(
     token=None,
     mcp=False,
     port=8765,
+    devices=None,
 ):
     """Build the application. A caller (tests) can inject a JobManager.
+
+    `devices` is `--devices` as resolved: one worker per entry (#462).
 
     `host` is the address the server is bound to (informational here - it
     is added to the Host-header allowlist alongside the loopback names, so
@@ -200,7 +203,7 @@ def create_app(
     `/mcp`, then the files routes, then the UI mount last.
     """
     manager = job_manager or JobManager(
-        output_dir, log_level=log_level, workflow_dir=workflow_dir
+        output_dir, log_level=log_level, workflow_dir=workflow_dir, devices=devices
     )
     # An injected manager must confine jobs to the same workflow_dir the
     # routes do, or /api/validate and /api/jobs would enforce different

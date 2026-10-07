@@ -36,6 +36,8 @@ class ServeConfig:
     prompt_dir: str
     asset_dir: str
     token: str | None
+    # --devices as resolved: one worker per entry, None for the one default
+    devices: list | None = None
 
 
 def build_parser():
@@ -127,10 +129,11 @@ def build_parser():
     parser.add_argument(
         "--devices",
         default=None,
-        help="The card this server's worker runs on, e.g. cuda:1 (default: "
-        "the 'devices' setting, else DW_DEVICE / the 'device' setting / "
-        "detection). The worker is pinned to it with CUDA_VISIBLE_DEVICES. "
-        "One entry only for now; a device this machine lacks is refused at "
+        help="The cards this server runs workers on, e.g. cuda:1, or "
+        "cuda:0,cuda:1 for one worker per card, each running one job at a "
+        "time (default: the 'devices' setting, else DW_DEVICE / the 'device' "
+        "setting / detection). Each worker is pinned to its card with "
+        "CUDA_VISIBLE_DEVICES. A device this machine lacks is refused at "
         "startup.",
     )
     parser.add_argument(
@@ -166,12 +169,15 @@ def check_bind_safety(args, token):
 
 
 def configure_devices(args):
-    """Pick the worker's card from --devices, else the `devices` setting,
-    and refuse one this machine lacks (exit 2) - before the worker spawns.
+    """Pick the workers' cards from --devices, else the `devices` setting,
+    and refuse one this machine lacks (exit 2) - before any worker spawns.
+    Returns the list, or None when neither names any.
 
-    The choice is pinned as DW_DEVICE, which `get_device()` reads in this
-    process: the worker manager pins the worker to it (dw/devices.py) and a
-    job record's `device` names it. Neither set leaves the device as it was."""
+    The first is pinned as DW_DEVICE, which `get_device()` reads in this
+    process: with one entry the worker manager pins the worker to it
+    (dw/devices.py) and a job record's `device` names it; with several,
+    JobManager runs one worker per entry. Neither set leaves the device as
+    it was."""
     from .devices import DeviceConfigError, resolve_serve_devices
     from .settings import load_settings
 
@@ -184,6 +190,7 @@ def configure_devices(args):
         raise SystemExit(2) from None
     if devices:
         os.environ["DW_DEVICE"] = devices[0]
+    return devices
 
 
 def configure_environment(args):
@@ -234,7 +241,7 @@ def configure_environment(args):
 
     check_bind_safety(args, token)
 
-    configure_devices(args)
+    devices = configure_devices(args)
 
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment
@@ -287,6 +294,7 @@ def configure_environment(args):
         prompt_dir=prompt_dir,
         asset_dir=asset_dir,
         token=token,
+        devices=devices,
     )
 
 
@@ -336,6 +344,7 @@ def run(config):
         token=config.token,
         mcp=config.mcp,
         port=config.port,
+        devices=config.devices,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     mcp = " - MCP at /mcp" if config.mcp else ""

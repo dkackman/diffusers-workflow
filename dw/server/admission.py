@@ -25,7 +25,7 @@ from ..assets import (
     is_asset_reference,
     resolve_asset_reference,
 )
-from .. import references, validation
+from .. import get_device_type, references, validation
 from ..plan import build_plan
 from ..prompts import resolve_prompt_reference
 from ..runs import (
@@ -36,6 +36,7 @@ from ..runs import (
 )
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
+from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .deps import ceiling_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
@@ -78,6 +79,9 @@ class Admission:
     # rather than the arguments' - validate names the checked arguments only
     # for the latter
     schema_errors: bool = False
+    # What a card must hold to run it, (gb, hard) or None - the worker pool
+    # dispatches on it (dw/vram_estimate.py required_vram_gb, #462)
+    vram_need: Optional[tuple] = None
 
     @property
     def ok(self):
@@ -171,6 +175,7 @@ def admit(
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
             raise _validator_failure(e) from e
+        admission.vram_need = _vram_need(candidate, context, arguments)
         if admission.errors:
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
@@ -207,6 +212,23 @@ def admit(
             deactivate_output_root(output_token)
         if token is not None:
             deactivate_asset_dir(token)
+
+
+def _vram_need(candidate, context, arguments):
+    """required_vram_gb over the definition the run will execute, or None
+    where it cannot be read - a need that cannot be computed dispatches the
+    job to any card rather than failing a request validation answered."""
+    try:
+        try:
+            definition = context.expanded
+        except Exception:
+            definition = None
+        if not isinstance(definition, dict):
+            definition = candidate.workflow_definition
+        return required_vram_gb(definition, arguments, get_device_type())
+    except Exception as e:
+        logger.debug(f"Could not compute the job's VRAM need: {e}")
+        return None
 
 
 def argument_reference_errors(

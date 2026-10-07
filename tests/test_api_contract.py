@@ -243,8 +243,13 @@ def test_health_sends_exactly_its_keys(server):
         "hostname",
         "device",
         "mcp",
+        "workers",
     }
     assert type(body["queued"]) is int
+    # One worker, not yet started: no process, so no host memory to read
+    (worker,) = body["workers"]
+    assert set(worker) == {"device", "name", "vram_gb", "current_job", "alive"}
+    assert worker["alive"] is False
 
 
 def test_an_empty_model_cache_counts_bytes_in_integers(server, tmp_path, monkeypatch):

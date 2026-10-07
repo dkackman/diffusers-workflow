@@ -1,9 +1,10 @@
 """Which card a server's worker runs on, and how a job record names it (#462).
 
 `dw.serve --devices cuda:1` (or the `devices` setting) picks the card the
-server's worker runs on. One entry only, for now: the worker pool that runs
-one job per card is a later stage of #462, and until it lands a second entry
-is refused at startup rather than silently ignored.
+server's worker runs on. More than one entry - `--devices cuda:0,cuda:1` -
+runs one worker per card, each running one job at a time
+(dw/server/jobs.py's dispatcher). Every entry in such a list names its own
+card: a duplicate, or a bare `cuda` beside others, is refused at startup.
 
 **The worker is pinned, not pointed.** A worker for `cuda:1` is spawned with
 `CUDA_VISIBLE_DEVICES=1` and `DW_DEVICE=cuda` in its environment, so inside it
@@ -110,17 +111,31 @@ def resolve_serve_devices(cli_value, settings_value):
     setting - or None when neither names any, which leaves today's single
     device (`DW_DEVICE`, then the `device` setting, then detection) alone.
 
-    Raises DeviceConfigError for more than one entry (until the worker pool
-    lands) and for a device this machine does not have."""
+    More than one entry runs a worker per card, so each must be a card of
+    its own. Raises DeviceConfigError for a duplicate, for an unindexed
+    `cuda` in a list of several (it would not be pinned, and would share
+    card 0), and for a device this machine does not have."""
     raw = cli_value if cli_value else settings_value
     devices = parse_devices(raw)
     if not devices:
         return None
     if len(devices) > 1:
-        raise DeviceConfigError(
-            f"--devices names {len(devices)} devices ({', '.join(devices)}); "
-            "this server runs one worker, so name one card"
-        )
+        duplicates = sorted({device for device in devices if devices.count(device) > 1})
+        if duplicates:
+            raise DeviceConfigError(
+                f"--devices names {', '.join(duplicates)} more than once; "
+                "each worker needs a card of its own"
+            )
+        unpinned = [
+            device
+            for device in devices
+            if device.split(":")[0] == "cuda" and ":" not in device
+        ]
+        if unpinned:
+            raise DeviceConfigError(
+                "--devices with several entries must name each CUDA card by "
+                "index ('cuda:0,cuda:1'), not a bare 'cuda'"
+            )
     for device in devices:
         check_device_present(device)
     return devices

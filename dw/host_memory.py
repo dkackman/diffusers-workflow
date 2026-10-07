@@ -24,6 +24,7 @@ __all__ = [
     "trim_host_memory",
     "release_host_caches",
     "pinned_host_memory_fields",
+    "process_rss_mb",
 ]
 
 _MB = 1024.0 * 1024.0
@@ -135,6 +136,28 @@ def _peak_rss_mb():
     if not peak:
         return None
     return peak / _MB if sys.platform == "darwin" else peak / 1024.0
+
+
+def process_rss_mb(pid):
+    """Resident set size of another process - a server's worker, read from
+    the server - in MB, or None where it cannot be read (the process is
+    gone, or neither psutil nor /proc is there). A pool of workers shares
+    one machine's RAM, so each worker's share is what says which one the
+    kernel's OOM killer would pick (#462)."""
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    try:
+        import psutil
+
+        return psutil.Process(pid).memory_info().rss / _MB
+    except Exception as e:
+        logger.debug(f"psutil could not read process {pid}: {e}")
+    try:
+        with open(f"/proc/{pid}/statm", "r") as f:
+            pages = int(f.read().split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE") / _MB
+    except (OSError, ValueError, IndexError, AttributeError):
+        return None
 
 
 # The memory payload's own names for the above, beside its gpu_* keys
