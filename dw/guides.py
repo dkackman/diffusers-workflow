@@ -28,36 +28,33 @@ from .adapter_compatibility import (
 from .for_each import MEMBER_SEPARATOR, render_path
 from .hold_audio import _not_h3
 from .pipeline_processors.h3_blocks import (
-    GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LIMIT,
     GUIDES_INPUT,
+    RENDER_GRID,
+    default_num_frames,
     guide_end_problem,
     guide_frame_problem,
     snap_guide_length,
 )
 from .probe_paths import resolve_probe_path
+from .variable_constraints import aligned
 
 GUIDE_KEYS = ("video", "frame")
-# H3 renders this many frames when the step passes no `num_frames`
-DEFAULT_NUM_FRAMES = 124
-# A render is 17n + 5 frames: H3 rounds `num_frames` up to the next one
-RENDER_BASE = 5
-
-
-def _aligned_render_length(num_frames):
-    """`num_frames` rounded up to the smallest 17n + 5 not below it."""
-    chunks = max(0, -(-(num_frames - RENDER_BASE) // GUIDE_FRAMES_PER_CHUNK))
-    return chunks * GUIDE_FRAMES_PER_CHUNK + RENDER_BASE
 
 
 def _render_length(arguments):
-    """The frames the step renders when `num_frames` is static, else None."""
-    if "num_frames" not in arguments or arguments["num_frames"] is None:
-        return _aligned_render_length(DEFAULT_NUM_FRAMES)
-    value = arguments["num_frames"]
+    """The frames the step renders when `num_frames` is static, else None:
+    `num_frames` (or H3's own default, `default_num_frames`) rounded up onto the
+    17n + 5 grid through `variable_constraints.aligned`, as diffusers'
+    `align_num_frames` rounds it at run time."""
+    value = arguments.get("num_frames")
+    if value is None:
+        value = default_num_frames()
+        if value is None:
+            return None
     if isinstance(value, bool) or not isinstance(value, int):
         return None
-    return _aligned_render_length(value)
+    return aligned(value, RENDER_GRID)
 
 
 def _clip_frames(video, base_dir, probe):

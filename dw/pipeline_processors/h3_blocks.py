@@ -47,6 +47,7 @@ import logging
 import torch
 
 from .. import references
+from ..variable_constraints import aligned_down
 
 logger = logging.getLogger("dw")
 
@@ -678,6 +679,9 @@ LAYOUT_ANCHORS = (
 # only at a chunk boundary, frame 17j (latent 5j)
 GUIDE_FRAMES_PER_CHUNK = 17
 GUIDE_LATENTS_PER_CHUNK = 5
+# The 17n + 5 frame grid a render and a long clip sit on, as a constraint grid for
+# `variable_constraints.aligned` / `aligned_down` - the owner of that arithmetic
+RENDER_GRID = {"modulus": GUIDE_FRAMES_PER_CHUNK, "remainder": 5}
 
 
 def snap_guide_length(num_frames):
@@ -687,7 +691,7 @@ def snap_guide_length(num_frames):
         return 1
     if num_frames < 17 + 5:
         return 5
-    return (num_frames - 5) // GUIDE_FRAMES_PER_CHUNK * GUIDE_FRAMES_PER_CHUNK + 5
+    return aligned_down(num_frames, RENDER_GRID)
 
 
 def guide_latent_frames(num_frames):
@@ -722,6 +726,27 @@ def guide_end_problem(frame, length, num_frames):
             f"a {length}-frame guide at frame {frame} runs to frame "
             f"{frame + length}, past the end of the {num_frames}-frame render"
         )
+    return None
+
+
+def default_num_frames():
+    """The `num_frames` H3 renders when a step passes none: the stock layout
+    step's own default, read off diffusers rather than copied. None when the
+    installed diffusers has no such step or default."""
+    try:
+        from diffusers.modular_pipelines.minimax_h3 import before_denoise
+    except ImportError:
+        return None
+    stock = getattr(before_denoise, "MiniMaxH3PrepareLayoutStep", None)
+    if stock is None:
+        return None
+    try:
+        inputs = stock().inputs
+    except Exception:  # a diffusers whose step needs arguments to build
+        return None
+    for param in inputs:
+        if param.name == "num_frames" and isinstance(param.default, int):
+            return param.default
     return None
 
 

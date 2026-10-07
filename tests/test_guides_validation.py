@@ -147,6 +147,21 @@ class TestRefusals:
         s = step(num_frames="previous_result:n", guides=[{**GOOD, "frame": 102}])
         assert check(s, fake_probe(frame_count=40)) == []
 
+    def test_no_num_frames_uses_h3s_own_default(self, monkeypatch):
+        # The default is read off diffusers' layout step, not a dw copy
+        monkeypatch.setattr(guides_module, "default_num_frames", lambda: 39)
+        # 22 frames at 17 end exactly at 39 and fit; at 34 they run past it
+        fits = step(guides=[{"video": "asset:c.mp4", "frame": 17}])
+        assert check(fits, fake_probe(frame_count=22)) == []
+        s = step(guides=[{"video": "asset:c.mp4", "frame": 34}])
+        error = one(s, fake_probe(frame_count=22))
+        assert "past the end of the 39-frame render" in error["message"]
+
+    def test_unknown_default_skips_the_end_check(self, monkeypatch):
+        monkeypatch.setattr(guides_module, "default_num_frames", lambda: None)
+        s = step(guides=[{**GOOD, "frame": 102}])
+        assert check(s, fake_probe(frame_count=40)) == []
+
     def test_member_suffix_and_source_index(self):
         s = step(guides=GOOD)
         s["name"] = "video@a"
