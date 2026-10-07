@@ -198,10 +198,11 @@ def trimmed_shots(shots, head_trim, keep_frames=None):
             "start_sample": None,
             "num_samples": None,
         }
-        if start > shot["start_frame"]:
-            # The cut fell inside this shot, so the seam that opened it is
-            # not in what is left: its attributes describe a join the kept
-            # span no longer contains (#674)
+        if start > shot["start_frame"] or (head_trim and start == head_trim):
+            # The cut fell inside this shot or on its start, so the seam that
+            # opened it is at or before the cut, not in what is left: its
+            # attributes describe a join the kept span no longer contains
+            # (#674)
             for key in _SEAM_KEYS:
                 record.pop(key, None)
         clipped.append(record)

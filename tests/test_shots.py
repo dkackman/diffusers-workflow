@@ -1282,4 +1282,7 @@ def test_a_cut_inside_a_shot_drops_the_seam_that_opened_it():
     for key in ("hard_cut", "trim_frames", "crossfade_ms", "seam_fade_ms"):
         assert key not in inside
     at_start = trimmed_shots(shots, 30, 31)[0]
-    assert at_start["trim_frames"] == 2 and at_start["hard_cut"]
+    for key in ("hard_cut", "trim_frames", "crossfade_ms", "seam_fade_ms"):
+        assert key not in at_start
+    # No cut at the head: the first shot keeps what it had
+    assert trimmed_shots(shots, 0, 70)[1]["trim_frames"] == 2
