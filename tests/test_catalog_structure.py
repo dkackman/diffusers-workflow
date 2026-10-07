@@ -460,7 +460,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_550 for `templates/check-script` (#609, stage #645, 2026-10-07),
 # measured at 10_498: about 50 tokens, the catalog's only check that a take
 # speaks its script, replacing a transcribe-and-read-by-eye procedure.
-COMPACT_BUDGET = 10_550
+# Then back to 10_400 when `templates/minimax/upscale-refine` was reverted
+# (#598, stage #664, 2026-10-07): its gate came out no, so the 150 raised
+# for it is given back.
+COMPACT_BUDGET = 10_400
 FILTERED_BUDGET = 1_500
 
 

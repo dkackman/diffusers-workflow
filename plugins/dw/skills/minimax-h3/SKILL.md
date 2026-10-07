@@ -22,9 +22,6 @@ arguments; prompt format is MiniMax's, from its text not here.
 
 - **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`
   (960x544, fast), or `templates/minimax/video-with-audio-768p` to render.
-  To keep a 544p take but at 1344x768, `templates/minimax/upscale-refine`
-  with its prompt and seed: its base pass is `video-with-audio`'s, refined
-  4 steps at 1344x768 and keeping that take's audio. Native 768p re-rolls it.
   From a one-line idea: `templates/minimax/enhance-prompt` writes it with the
   built-in Context-IR enhancer first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
