@@ -388,6 +388,21 @@ class TestMiniMaxH3Skill:
         assert "175" in guide and "17n+5" in guide
         assert "31 minutes" in guide
 
+    def test_the_guides_argument_is_offered_and_its_numbers_are_the_engine_s(self):
+        """#648: an agent working from the skill alone has to find `guides`.
+        The limit and the frame step come from the guide layout that
+        enforces them, and the section the skill points at has to exist."""
+        from dw.pipeline_processors.h3_blocks import GUIDE_FRAMES_PER_CHUNK, GUIDE_LIMIT
+        from dw.server.guides import get_guide
+
+        body = skill_body(H3_SKILL)
+        section = "H3: holding a clip with `guides`"
+        assert "`guides`" in body
+        assert f'section="{section}"' in body
+        assert f"up to {GUIDE_LIMIT} clips" in body
+        assert f"multiple of {GUIDE_FRAMES_PER_CHUNK}" in body
+        assert "`guides`" in get_guide("workflows", section=section)["content"]
+
     def test_the_dialogue_into_a_song_recipe_is_the_task_s_and_the_guide_s(self):
         """#514: the skill states the recipe in brief and points at the
         `workflows` guide for the worked tail. The parameter names are
