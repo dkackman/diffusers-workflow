@@ -737,16 +737,43 @@ class TestShotSpans(unittest.TestCase):
         )
 
     def test_none_when_a_record_cannot_be_placed(self):
-        records = [
-            {"name": "A", "start_sample": 0, "num_samples": RATE},
-            {"name": "B"},
-        ]
-        self.assertIsNone(shot_spans(records, RATE, 24, 10.0))
+        # No recorded samples and no fps: nothing places the shot.
         self.assertIsNone(
             shot_spans(
                 [{"name": "A", "start_frame": 0, "num_frames": 5}], RATE, None, 1
             )
         )
+
+    def test_missing_start_frame_is_frame_zero_as_the_probes_place_it(self):
+        # assess.sample_span reads a record without start_frame as frame 0;
+        # the map is placed, not skipped whole (#644 arch review).
+        records = [
+            {"name": "A", "start_sample": 0, "num_samples": RATE},
+            {"name": "B", "num_frames": 24},
+        ]
+        self.assertEqual(
+            shot_spans(records, RATE, 24, 10.0),
+            [
+                {"name": "A", "start": 0.0, "end": 1.0},
+                {"name": "B", "start": 0.0, "end": 1.0},
+            ],
+        )
+
+    def test_agrees_with_the_probes_sample_span(self):
+        from types import SimpleNamespace
+
+        from dw.tasks.assess import sample_span
+
+        media = SimpleNamespace(fps=25, sample_rate=RATE)
+        records = [
+            {"name": "A", "start_frame": 0, "num_frames": 50},
+            {"name": "B", "start_frame": 50, "num_frames": 30},
+            {"name": "C", "start_sample": 3 * RATE, "num_samples": RATE // 2},
+        ]
+        for record, span in zip(records, shot_spans(records, RATE, 25, 60.0)):
+            start, count, _ = sample_span(record, media)
+            self.assertAlmostEqual(span["start"], start / RATE)
+            self.assertAlmostEqual(span["end"], (start + count) / RATE)
 
     def test_clamped_to_duration(self):
         records = [
@@ -772,7 +799,13 @@ class TestShotValidation(unittest.TestCase):
     def test_duplicate_names_a_line_names_are_refused(self):
         records = [{"name": "A"}, {"name": "A"}]
         message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
-        self.assertIn("2 times", message)
+        self.assertIn("more than once", message)
+
+    def test_a_name_repeated_only_across_files_is_not_a_duplicate(self):
+        # shots.duplicate_shot_names groups by file (#644 arch review).
+        records = [{"name": "A", "file": "one.mp4"}, {"name": "A", "file": "two.mp4"}]
+        lines = parse_lines([{"text": "x", "shot": "A"}])
+        self.assertIsNone(shot_names_error(lines, records))
 
     def test_known_names_and_untagged_lines_pass(self):
         lines = parse_lines([{"text": "x", "shot": "B"}, "y"])

@@ -48,7 +48,9 @@ from types import SimpleNamespace
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
 from ..task_domains import check_arguments
-from .assess import DEAD_AIR_WINDOW, resolve_shots
+from ..locations import is_http_url
+from ..shots import duplicate_shot_names
+from .assess import DEAD_AIR_WINDOW, resolve_shots, sample_span
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
@@ -244,24 +246,26 @@ def parse_shots(shots):
 
 def shot_names_error(parsed_lines, records, source="argument"):
     """The refusal for a line naming a shot `records` does not hold once -
-    unknown, or a name the shot map repeats - or None. The message lists
-    the shots it does hold."""
+    unknown, or a name `shots.duplicate_shot_names` finds repeated - or
+    None. The message lists the shots it does hold."""
     names = [record.get("name") for record in records]
     known = ", ".join(repr(name) for name in names)
+    duplicated = {
+        name for dups in (duplicate_shot_names(records) or {}).values() for name in dups
+    }
     for index, line in enumerate(parsed_lines):
         shot = line["shot"]
         if shot is None:
             continue
-        count = names.count(shot)
-        if count == 0:
+        if shot not in names:
             return (
                 f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the take"
                 f" does not have - its shots ({source}) are {known}"
             )
-        if count > 1:
+        if shot in duplicated:
             return (
                 f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the"
-                f" take's shot map ({source}) holds {count} times - a line can"
+                f" take's shot map ({source}) holds more than once - a line can"
                 f" only name a shot the map holds once: {known}"
             )
     return None
@@ -269,18 +273,18 @@ def shot_names_error(parsed_lines, records, source="argument"):
 
 def shot_spans(records, sample_rate, fps, duration):
     """Each shot record as {name, start, end} in seconds on the take, or None
-    when one cannot be placed. A recorded sample span is used as is; else
-    the frame span by `fps`. Clipped to the take's `duration`."""
+    when one cannot be placed. Placed by `assess.sample_span`, the rule the
+    probes use (recorded sample span, else frames by `fps`). Clipped to the
+    take's `duration`."""
+    if not sample_rate:
+        return None
+    media = SimpleNamespace(fps=fps, sample_rate=sample_rate)
     spans = []
     for record in records:
-        start, count = record.get("start_sample"), record.get("num_samples")
-        if start is not None and count is not None and sample_rate:
-            start, end = start / sample_rate, (start + count) / sample_rate
-        elif fps and record.get("start_frame") is not None:
-            start = record["start_frame"] / fps
-            end = start + (record.get("num_frames") or 0) / fps
-        else:
+        start, count, _source = sample_span(record, media)
+        if start is None:
             return None
+        start, end = start / sample_rate, (start + count) / sample_rate
         start = min(max(0.0, float(start)), duration)
         spans.append(
             {
@@ -766,11 +770,7 @@ def check_script(
     check_arguments(COMMAND, similarity=similarity)
     parsed_lines = parse_lines(lines)
     parsed_shots = parse_shots(shots)
-    path = (
-        audio
-        if isinstance(audio, str) and not audio.startswith(("http://", "https://"))
-        else None
-    )
+    path = audio if isinstance(audio, str) and not is_http_url(audio) else None
     records, shots_source = resolve_shots(
         path, SimpleNamespace(shots=getattr(audio, "shots", None)), parsed_shots
     )
