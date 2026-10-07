@@ -1259,3 +1259,27 @@ def test_carrying_commands_do_not_own_a_name_collision():
     assert carries_shots("interpolate_frames")
     assert not carries_shots("concat_videos")
     assert not carries_shots("dissolve_videos")
+
+
+def test_a_cut_inside_a_shot_drops_the_seam_that_opened_it():
+    """#674: a span cut out of a shot has no incoming seam of its own."""
+    from dw.shots import trimmed_shots
+
+    shots = [
+        {"name": "a", "start_frame": 0, "num_frames": 30},
+        {
+            "name": "b",
+            "start_frame": 30,
+            "num_frames": 40,
+            "hard_cut": True,
+            "trim_frames": 2,
+            "crossfade_ms": 80.0,
+            "seam_fade_ms": 10.0,
+        },
+    ]
+    inside = trimmed_shots(shots, 33, 31)[0]
+    assert inside["start_frame"] == 0
+    for key in ("hard_cut", "trim_frames", "crossfade_ms", "seam_fade_ms"):
+        assert key not in inside
+    at_start = trimmed_shots(shots, 30, 31)[0]
+    assert at_start["trim_frames"] == 2 and at_start["hard_cut"]

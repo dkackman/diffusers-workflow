@@ -35,7 +35,9 @@ A shot is a dict:
 - `crossfade_ms`, `trim_frames` - set on each shot a chain's seam opens: the
   head frames trimmed and the equal-power crossfade as realized (clamped to the
   trimmed head's audio; absent when no audio was blended). `seam_hole` reads
-  `crossfade_ms` as it does `seam_fade_ms` (#660)
+  `crossfade_ms` as it does `seam_fade_ms` (#660). `trimmed_shots` drops every
+  seam attribute from a shot its cut falls inside: that seam is not in the
+  kept span (#674)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
@@ -152,6 +154,16 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
     ]
 
 
+# What a shot records about the seam that opens it
+_SEAM_KEYS = (
+    "hard_cut",
+    "seam_fade_ms",
+    "crossfade_ms",
+    "trim_frames",
+    "overlap_frames",
+)
+
+
 def trimmed_shots(shots, head_trim, keep_frames=None):
     """The shots of a video after dropping `head_trim` frames off its start.
 
@@ -179,15 +191,20 @@ def trimmed_shots(shots, head_trim, keep_frames=None):
         start = max(shot["start_frame"], head_trim)
         if end <= start:
             continue
-        clipped.append(
-            {
-                **shot,
-                "start_frame": start - head_trim,
-                "num_frames": end - start,
-                "start_sample": None,
-                "num_samples": None,
-            }
-        )
+        record = {
+            **shot,
+            "start_frame": start - head_trim,
+            "num_frames": end - start,
+            "start_sample": None,
+            "num_samples": None,
+        }
+        if start > shot["start_frame"]:
+            # The cut fell inside this shot, so the seam that opened it is
+            # not in what is left: its attributes describe a join the kept
+            # span no longer contains (#674)
+            for key in _SEAM_KEYS:
+                record.pop(key, None)
+        clipped.append(record)
     return clipped
 
 
