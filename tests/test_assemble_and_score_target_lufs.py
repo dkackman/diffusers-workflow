@@ -136,3 +136,21 @@ def test_edit_join_gets_template_sample_rate():
     merged = resolve_variable_values({**definition["variables"], "sample_rate": 32000})
     edit = steps_by_name(replace_variables(definition, merged))["edit"]
     assert edit["task"]["arguments"]["sample_rate"] == 32000
+
+
+def test_film_step_fits_audio_to_video():
+    """#669: a total_frames that disagrees with the shots must not ship a
+    track longer than the picture - the template's own film step fits it."""
+    import json
+    from pathlib import Path
+
+    template = json.loads(
+        (
+            Path(__file__).parent.parent
+            / "workflows"
+            / "templates"
+            / "assemble-and-score.json"
+        ).read_text()
+    )
+    film = next(s for s in template["steps"] if s["name"] == "film")
+    assert film["task"]["arguments"]["fit"] == "video"
