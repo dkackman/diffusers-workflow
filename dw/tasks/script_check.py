@@ -23,7 +23,15 @@ file. This task does the comparison and reports where to look:
    be heard: `tag_spoken`;
 4. the heard words are aligned to the expected words in order with
    `difflib.SequenceMatcher`, and each line scores the similarity of its own
-   expected and heard words.
+   expected and heard words;
+5. when the take's shots are known - the `shots` argument, then the
+   artifact's own, then the run manifest beside the file, exactly as the
+   probes resolve them (`assess.resolve_shots`) - each line is placed in a
+   shot (the one it names, else the one its heard words overlap most), a
+   shot no line names is meant to be silent (`speech_in_silent_shot`), and a
+   line's last word is checked against the end of its shot as well as the
+   end of the file (`line_clipped_at_end`). With no shots known those are
+   listed under `rules_skipped` with the reason, never reported clean.
 
 It decides nothing. Like the probes, its findings are places to look and are
 built with `assessment_rules.finding()`; unlike them it is not
@@ -35,11 +43,12 @@ Every threshold is a constant below, named in docs/TASKS.md.
 import difflib
 import logging
 import re
+from types import SimpleNamespace
 
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
 from ..task_domains import check_arguments
-from .assess import DEAD_AIR_WINDOW
+from .assess import DEAD_AIR_WINDOW, resolve_shots
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
@@ -84,6 +93,7 @@ THRESHOLDS = {
 
 LINE_RULES = ("line_mismatch", "tag_spoken", "line_clipped_at_end")
 SILENT_RULES = ("speech_where_silent",)
+SHOT_RULES = ("speech_in_silent_shot",)
 
 
 def _rule(name, threshold, says):
@@ -115,9 +125,15 @@ SPEECH_WHERE_SILENT = _rule(
 CLIPPED_AT_END = _rule(
     "line_clipped_at_end",
     GUARD_FLOOR_DBFS,
-    "the line's last word ends inside the file's final"
-    f" {CLIP_TAIL_SECONDS} s and the tail is still voiced at this level - the"
-    " file stops mid-word",
+    "the line's last word ends inside the final"
+    f" {CLIP_TAIL_SECONDS} s of its shot (or of the file) and that tail is"
+    " still voiced at this level - the shot stops mid-word",
+)
+SPEECH_IN_SILENT_SHOT = _rule(
+    "speech_in_silent_shot",
+    0,
+    "no line names this shot, and this many words were heard in it above the"
+    " dead-air floor and outside a repetition loop",
 )
 
 # Markup an expected line may carry. A tag in angle brackets (<d>, </d>,
@@ -163,36 +179,138 @@ def strip_markup(line):
 
 
 def parse_lines(lines):
-    """The expected lines as [{text, tokens}], or ValueError naming `lines`.
+    """The expected lines as [{text, tokens, shot}], or ValueError naming
+    `lines`.
 
-    Each entry is a string or {text}; markup is stripped (strip_markup).
-    `[]` means no speech is expected.
+    Each entry is a string or {text, shot}; markup is stripped
+    (strip_markup) and `shot`, the name of the shot the line is spoken in,
+    is None when not given. `[]` means no speech is expected.
     """
     if isinstance(lines, str) or not isinstance(lines, (list, tuple)):
         raise ValueError(
-            f"{COMMAND} 'lines' must be a list of strings or {{text}} objects"
-            f" ([] for no speech), got {type(lines).__name__}"
+            f"{COMMAND} 'lines' must be a list of strings or {{text, shot}}"
+            f" objects ([] for no speech), got {type(lines).__name__}"
         )
     parsed = []
     for index, entry in enumerate(lines):
+        shot = None
         if isinstance(entry, dict):
-            extra = sorted(set(entry) - {"text"})
+            extra = sorted(set(entry) - {"text", "shot"})
             if extra:
                 raise ValueError(
                     f"{COMMAND} 'lines'[{index}] has unknown keys {extra};"
-                    " a line object takes only 'text'"
+                    " a line object takes only 'text' and 'shot'"
                 )
             text = entry.get("text")
+            shot = entry.get("shot")
+            if shot is not None and (not isinstance(shot, str) or not shot.strip()):
+                raise ValueError(
+                    f"{COMMAND} 'lines'[{index}] 'shot' must be a shot's name"
+                    f" (a non-empty string), got {shot!r}"
+                )
         else:
             text = entry
         if not isinstance(text, str) or not text.strip():
             raise ValueError(
                 f"{COMMAND} 'lines'[{index}] needs non-empty text - a string or"
-                " {text}"
+                " {text, shot}"
             )
         stripped, tokens = strip_markup(text)
-        parsed.append({"text": stripped, "tokens": tokens})
+        parsed.append({"text": stripped, "tokens": tokens, "shot": shot})
     return parsed
+
+
+def parse_shots(shots):
+    """A `shots` argument checked: None or [] (none given), or a list of shot
+    records each with a name. ValueError naming `shots` otherwise."""
+    if shots is None:
+        return None
+    if not isinstance(shots, (list, tuple)):
+        raise ValueError(
+            f"{COMMAND} 'shots' must be a list of shot records, got"
+            f" {type(shots).__name__}"
+        )
+    for index, shot in enumerate(shots):
+        if not isinstance(shot, dict):
+            raise ValueError(
+                f"{COMMAND} 'shots'[{index}] must be a shot record (an object),"
+                f" got {type(shot).__name__}"
+            )
+        name = shot.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{COMMAND} 'shots'[{index}] needs a 'name'")
+    return list(shots) or None
+
+
+def shot_names_error(parsed_lines, records, source="argument"):
+    """The refusal for a line naming a shot `records` does not hold once -
+    unknown, or a name the shot map repeats - or None. The message lists
+    the shots it does hold."""
+    names = [record.get("name") for record in records]
+    known = ", ".join(repr(name) for name in names)
+    for index, line in enumerate(parsed_lines):
+        shot = line["shot"]
+        if shot is None:
+            continue
+        count = names.count(shot)
+        if count == 0:
+            return (
+                f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the take"
+                f" does not have - its shots ({source}) are {known}"
+            )
+        if count > 1:
+            return (
+                f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the"
+                f" take's shot map ({source}) holds {count} times - a line can"
+                f" only name a shot the map holds once: {known}"
+            )
+    return None
+
+
+def shot_spans(records, sample_rate, fps, duration):
+    """Each shot record as {name, start, end} in seconds on the take, or None
+    when one cannot be placed. A recorded sample span is used as is; else
+    the frame span by `fps`. Clipped to the take's `duration`."""
+    spans = []
+    for record in records:
+        start, count = record.get("start_sample"), record.get("num_samples")
+        if start is not None and count is not None and sample_rate:
+            start, end = start / sample_rate, (start + count) / sample_rate
+        elif fps and record.get("start_frame") is not None:
+            start = record["start_frame"] / fps
+            end = start + (record.get("num_frames") or 0) / fps
+        else:
+            return None
+        start = min(max(0.0, float(start)), duration)
+        spans.append(
+            {
+                "name": record["name"],
+                "start": start,
+                "end": max(start, min(float(end), duration)),
+            }
+        )
+    return spans
+
+
+def overlapping_shot(spans, start, end):
+    """The name of the shot [start, end] overlaps most, or None. A span of no
+    length (a one-word line's zero-length chunk) is placed by where it sits."""
+    best, best_overlap = None, 0.0
+    for span in spans:
+        overlap = min(span["end"], end) - max(span["start"], start)
+        if overlap > best_overlap or (
+            best is None and overlap == 0 and span["start"] <= start < span["end"]
+        ):
+            best, best_overlap = span["name"], overlap
+    return best
+
+
+def shot_at(spans, seconds):
+    """The name of the shot holding `seconds`, or None."""
+    for span in spans:
+        if span["start"] <= seconds < span["end"]:
+            return span["name"]
+    return None
 
 
 def word_level(mono, sample_rate, start, end):
@@ -339,52 +457,136 @@ def line_similarity(expected, heard):
     return difflib.SequenceMatcher(None, expected, heard, autojunk=False).ratio()
 
 
-def tail_level(mono, sample_rate):
-    """The rms of the file's final CLIP_TAIL_SECONDS, in dBFS (None: silent)."""
+def tail_level(mono, sample_rate, end=None):
+    """The rms of the CLIP_TAIL_SECONDS before `end` seconds - the file's
+    final ones when None - in dBFS (None: silent)."""
     count = max(1, int(round(CLIP_TAIL_SECONDS * sample_rate)))
-    return dsp.dbfs(dsp.rms(mono[-count:]))
+    last = len(mono) if end is None else min(len(mono), int(round(end * sample_rate)))
+    return dsp.dbfs(dsp.rms(mono[max(0, last - count) : last]))
 
 
-def _at(line, heard_word=None, seconds=None):
+def _at(line, heard_word=None, seconds=None, shot=None):
     at = {"line": line}
     if heard_word is not None:
         at["seconds"] = _round(heard_word["start"])
         at["word"] = heard_word["text"]
     else:
         at["seconds"] = _round(seconds)
+    if shot is not None:
+        at["shot"] = shot
     return at
 
 
-def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
+def _clipped_tail(mono, sample_rate, end, tails):
+    """The first of `tails` - (shot name or None, the second it ends at) -
+    that a line ending at `end` is clipped by: the word ends inside its
+    final CLIP_TAIL_SECONDS (within that much past it too, a word timestamp
+    being approximate) and the tail is voiced above GUARD_FLOOR_DBFS.
+    Returns (shot, level) or None."""
+    for shot, tail_end in tails:
+        if not tail_end - CLIP_TAIL_SECONDS <= end <= tail_end + CLIP_TAIL_SECONDS:
+            continue
+        level = tail_level(mono, sample_rate, tail_end)
+        if level is not None and level > GUARD_FLOOR_DBFS:
+            return shot, level
+    return None
+
+
+def _no_shot_reason(shots_source, spans, parsed_lines):
+    """Why speech_in_silent_shot cannot run on this call, or None when it
+    can."""
+    named = list(dict.fromkeys(line["shot"] for line in parsed_lines if line["shot"]))
+    if shots_source == "none":
+        reason = (
+            "no shots are known - none given as 'shots', none carried by the"
+            " take, none recorded in a manifest beside the file - so no shot"
+            " can be checked for speech, and line_clipped_at_end looks at the"
+            " file's end only"
+        )
+        if named:
+            reason += (
+                f"; the lines name shots {', '.join(map(repr, named))}, which"
+                " nothing places in the take"
+            )
+        return reason
+    if spans is None:
+        return (
+            f"the shots ({shots_source}) carry neither a sample span nor a"
+            " frame span the take's frame rate can place, so no shot can be"
+            " checked for speech"
+        )
+    if not named:
+        return (
+            "no line names its shot, so no shot is known to be meant silent -"
+            " give each line {text, shot}"
+        )
+    return None
+
+
+def _shots_entry(spans):
+    if spans is None:
+        return None
+    return [
+        {
+            "name": span["name"],
+            "start": _round(span["start"]),
+            "end": _round(span["end"]),
+        }
+        for span in spans
+    ]
+
+
+def check(
+    parsed_lines,
+    chunks,
+    mono,
+    sample_rate,
+    similarity_threshold,
+    spans=None,
+    shots_source="none",
+):
     """The comparison, on a transcript already taken - everything the task
     does after the ASR model, so it is testable on synthetic word lists and
     waveforms. `chunks` is transcribe_audio's word chunks; `mono` a 1-D
-    float waveform."""
+    float waveform; `spans` the take's shots as shot_spans() places them, or
+    None when none are known, and `shots_source` where they came from
+    (resolve_shots: argument, artifact, manifest or none)."""
     heard, discarded = guard_words(chunks, mono, sample_rate)
     duration = len(mono) / sample_rate if sample_rate else 0.0
     findings = []
 
+    def heard_shot(word):
+        if spans is None:
+            return None
+        return shot_at(spans, (word["start"] + word["end"]) / 2)
+
     if not parsed_lines:
         if heard:
             findings.append(
-                finding(SPEECH_WHERE_SILENT, len(heard), _at(None, heard[0]))
+                finding(
+                    SPEECH_WHERE_SILENT,
+                    len(heard),
+                    _at(None, heard[0], shot=heard_shot(heard[0])),
+                )
             )
         return {
             "findings": findings,
             "lines": [],
             "discarded": discarded,
             "unmatched": [_heard_entry(word) for word in heard],
+            "shots": _shots_entry(spans),
+            "shots_source": shots_source,
             "rules_applied": list(SILENT_RULES),
             "rules_skipped": [
                 {"rule": rule, "reason": "lines is [] - no speech was expected"}
-                for rule in LINE_RULES
+                for rule in LINE_RULES + SHOT_RULES
             ],
         }
 
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
     mismatch = mismatch_rule(similarity_threshold)
-    tail_dbfs = tail_level(mono, sample_rate)
+    by_name = {span["name"]: span for span in spans or ()}
 
     lines = []
     previous_end = 0.0
@@ -400,6 +602,11 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
         )
         start = own[0]["start"] if own else None
         end = own[-1]["end"] if own else None
+        # The shot the line names, else the one its heard words overlap most
+        shot = line["shot"]
+        if shot is None and spans is not None and own:
+            shot = overlapping_shot(spans, start, end)
+        span = by_name.get(shot)
         lines.append(
             {
                 "expected": line["text"],
@@ -407,26 +614,36 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
                 "similarity": round(score, 4),
                 "start": _round(start),
                 "end": _round(end),
-                "shot": None,
+                "shot": shot,
             }
         )
         if score < similarity_threshold:
-            at = _at(index, own[0]) if own else _at(index, seconds=previous_end)
+            if own:
+                at = _at(index, own[0], shot=shot)
+            else:
+                # A dropped line: where its shot starts, else after the last
+                # line heard
+                at = _at(
+                    index,
+                    seconds=span["start"] if span else previous_end,
+                    shot=shot,
+                )
             findings.append(finding(mismatch, round(score, 4), at))
 
         for word in own:
             if word["word"] in tokens:
-                findings.append(finding(TAG_SPOKEN, word["word"], _at(index, word)))
+                findings.append(
+                    finding(TAG_SPOKEN, word["word"], _at(index, word, shot=shot))
+                )
 
-        if (
-            own
-            and end >= duration - CLIP_TAIL_SECONDS
-            and tail_dbfs is not None
-            and tail_dbfs > GUARD_FLOOR_DBFS
-        ):
-            at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}
-            findings.append(finding(CLIPPED_AT_END, _round(tail_dbfs, 2), at))
         if own:
+            tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
+            clipped = _clipped_tail(mono, sample_rate, end, tails)
+            if clipped is not None:
+                at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}
+                if clipped[0] is not None or shot is not None:
+                    at["shot"] = clipped[0] or shot
+                findings.append(finding(CLIPPED_AT_END, _round(clipped[1], 2), at))
             previous_end = end
 
     for j, neighbours in unassigned:
@@ -435,8 +652,38 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
             if word["word"] in set(parsed_lines[index]["tokens"]) - set(
                 expected[index]
             ):
-                findings.append(finding(TAG_SPOKEN, word["word"], _at(index, word)))
+                findings.append(
+                    finding(
+                        TAG_SPOKEN,
+                        word["word"],
+                        _at(index, word, shot=heard_shot(word)),
+                    )
+                )
                 break
+
+    rules_applied = list(LINE_RULES)
+    rules_skipped = [
+        {"rule": rule, "reason": "lines were given - speech is expected"}
+        for rule in SILENT_RULES
+    ]
+    no_shot = _no_shot_reason(shots_source, spans, parsed_lines)
+    if no_shot is None:
+        rules_applied.extend(SHOT_RULES)
+        named = {line["shot"] for line in parsed_lines if line["shot"]}
+        for span in spans:
+            if span["name"] in named:
+                continue
+            inside = [word for word in heard if heard_shot(word) == span["name"]]
+            if inside:
+                findings.append(
+                    finding(
+                        SPEECH_IN_SILENT_SHOT,
+                        len(inside),
+                        _at(None, inside[0], shot=span["name"]),
+                    )
+                )
+    else:
+        rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
 
     findings.sort(key=lambda found: found["at"].get("seconds") or 0.0)
     return {
@@ -444,11 +691,10 @@ def check(parsed_lines, chunks, mono, sample_rate, similarity_threshold):
         "lines": lines,
         "discarded": discarded,
         "unmatched": [_heard_entry(heard[j]) for j, _ in unassigned],
-        "rules_applied": list(LINE_RULES),
-        "rules_skipped": [
-            {"rule": rule, "reason": "lines were given - speech is expected"}
-            for rule in SILENT_RULES
-        ],
+        "shots": _shots_entry(spans),
+        "shots_source": shots_source,
+        "rules_applied": rules_applied,
+        "rules_skipped": rules_skipped,
     }
 
 
@@ -479,6 +725,7 @@ def check_script(
     model_name=DEFAULT_MODEL,
     sample_rate=None,
     device="cpu",
+    shots=None,
 ):
     """Check that a take speaks its script, line by line.
 
@@ -491,7 +738,8 @@ def check_script(
     Args:
         audio: The take - a path, 'asset:'/'output:' reference, or an
             earlier step's audio or video (its soundtrack is taken).
-        lines: The expected lines in order - a list of strings or {text}.
+        lines: The expected lines in order - a list of strings or
+            {text, shot}, 'shot' naming the take's shot the line belongs in.
             H3 markup (<d>[English] ...</d>, <scenetrans>, <cutoff>,
             [unclear], (S1)) is stripped, and a markup word heard spoken is
             'tag_spoken'. [] means no speech is expected.
@@ -501,6 +749,10 @@ def check_script(
             openai/whisper-base).
         sample_rate: Sample rate of a waveform passed directly.
         device: Where to run the ASR model.
+        shots: The take's shot map ([{name, start_frame, num_frames,
+            start_sample, num_samples}]) - default: the take's own (an earlier
+            step's video), else the run manifest or keep_output sidecar
+            beside its file. A line naming a shot the map lacks is refused.
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,
@@ -512,6 +764,19 @@ def check_script(
     """
     check_arguments(COMMAND, similarity=similarity)
     parsed_lines = parse_lines(lines)
+    parsed_shots = parse_shots(shots)
+    path = (
+        audio
+        if isinstance(audio, str) and not audio.startswith(("http://", "https://"))
+        else None
+    )
+    records, shots_source = resolve_shots(
+        path, SimpleNamespace(shots=getattr(audio, "shots", None)), parsed_shots
+    )
+    if records:
+        refusal = shot_names_error(parsed_lines, records, shots_source)
+        if refusal:
+            raise ValueError(refusal)
     waveform, rate = waveform_and_rate(audio, sample_rate, COMMAND)
 
     from .audio_transcription import transcribe_audio
@@ -524,7 +789,30 @@ def check_script(
         timestamps="word",
     )
     mono = waveform[0] if waveform.shape[0] == 1 else waveform.mean(axis=0)
-    answer = check(parsed_lines, transcript["chunks"], mono, rate, float(similarity))
+    spans = None
+    if records:
+        fps = getattr(audio, "fps", None)
+        if (
+            fps is None
+            and path is not None
+            and any(
+                record.get("start_sample") is None or record.get("num_samples") is None
+                for record in records
+            )
+        ):
+            from ..media import probe_metadata
+
+            fps = (probe_metadata(path) or {}).get("fps")
+        spans = shot_spans(records, rate, fps, len(mono) / rate if rate else 0.0)
+    answer = check(
+        parsed_lines,
+        transcript["chunks"],
+        mono,
+        rate,
+        float(similarity),
+        spans=spans,
+        shots_source=shots_source,
+    )
     answer["transcript"] = transcript["text"]
     answer["model_name"] = model_name
     answer["thresholds"] = dict(THRESHOLDS, similarity=float(similarity))

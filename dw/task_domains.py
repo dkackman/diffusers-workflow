@@ -833,18 +833,31 @@ def lut_errors(arguments):
 
 
 def script_lines_errors(arguments):
-    """[(argument, message)] for a literal check_script `lines` the task's
-    `parse_lines` would refuse. A reference is left to the run, which refuses
-    one that resolves to no list."""
-    if "lines" not in arguments or is_ref(DEFERRED, arguments["lines"]):
-        return []
-    from .tasks.script_check import parse_lines
+    """[(argument, message)] for a literal check_script `lines` or `shots`
+    the task's `parse_lines`/`parse_shots` would refuse, and for a literal
+    line naming a shot a literal `shots` lacks. A reference is left to the
+    run, which refuses one that resolves to no list, and so is a shot map the
+    take carries: only the run can read it."""
+    from .tasks.script_check import parse_lines, parse_shots, shot_names_error
 
-    try:
-        parse_lines(arguments["lines"])
-    except ValueError as error:
-        return [("lines", str(error))]
-    return []
+    errors = []
+    parsed_lines = parsed_shots = None
+    if "lines" in arguments and not is_ref(DEFERRED, arguments["lines"]):
+        try:
+            parsed_lines = parse_lines(arguments["lines"])
+        except ValueError as error:
+            errors.append(("lines", str(error)))
+    shots = arguments.get("shots")
+    if shots is not None and not is_ref(DEFERRED, shots):
+        try:
+            parsed_shots = parse_shots(shots)
+        except ValueError as error:
+            errors.append(("shots", str(error)))
+    if parsed_lines and parsed_shots:
+        refusal = shot_names_error(parsed_lines, parsed_shots)
+        if refusal:
+            errors.append(("lines", refusal))
+    return errors
 
 
 def in_domain(value, domain):
