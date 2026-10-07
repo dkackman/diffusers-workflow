@@ -303,6 +303,6 @@ def _dissolve_audio(
     )
     crossfade_ms = dissolve_frames / fps * 1000 if dissolve_frames else 0
     waveforms = level_waveforms(
-        "dissolve_videos", waveforms, match_levels, match_levels_dbfs
+        "dissolve_videos", waveforms, match_levels, match_levels_dbfs, track_names
     )
     return crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate

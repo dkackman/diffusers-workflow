@@ -699,6 +699,8 @@ class TestWarningsReachTheCaller:
         assert warnings[0]["index"] == 0
         assert warnings[0]["shortfall_db"] > 0
         assert "held to" in warnings[0]["message"]
+        # #681: a positional label says its count starts at 1
+        assert "video 1 (counting from 1, in join order)" in warnings[0]["message"]
 
     def test_the_near_silent_gain_is_emitted_as_a_warning_event(self):
         """#434: a near-silent input gained up to the target only ever
