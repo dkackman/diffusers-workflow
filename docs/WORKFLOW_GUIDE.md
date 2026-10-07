@@ -2324,8 +2324,8 @@ sync to supplied audio, the per-shot audio reference was the better arm in #619'
 
 `num_inference_steps` is the number of sigma points, ending at 0, spaced by the
 scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations. Here
-`5` points at shift 6 and strength 0.2 are sigma `0.2, 0.157, 0.109, 0.057, 0`: 4
-evaluations. The time a refine takes scales with `num_inference_steps`. `refine_strength`
+`5` points at shift 12 (the example's `video_shift`) and strength 0.2 are sigma `0.2,
+0.157, 0.110, 0.058, 0`: 4 evaluations. The time a refine takes scales with `num_inference_steps`. `refine_strength`
 sets where it starts, not how many steps run: a higher strength moves the picture further
 from the upscaled take, a lower one stays closer to it.
 
