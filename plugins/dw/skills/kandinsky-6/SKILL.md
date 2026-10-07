@@ -31,12 +31,16 @@ Lite-distill checkpoint, which fits a 24 GB card.
   first frame, and the prompt says what happens next in it. The pipeline
   resizes and center-crops the still to `width` x `height`, so for a portrait
   still set `width` 480 and `height` 864, or its sides are cut off.
-- **Longer than five seconds, sharper, or a different checkpoint**: not in
-  the catalog yet. The super-resolution pipeline needs compiled flex
-  attention, and the 29B Pro transformer is 60 GB in bf16. For a longer
-  piece, cut several five-second clips together (`list_tasks`, the concat
-  and dissolve tasks) rather than raising `num_frames` - every checkpoint
-  is trained at 121.
+- **Sharper**: `templates/kandinsky6/generate-and-upscale` generates the
+  clip, then the super-resolution pipeline re-renders it at twice the size
+  (1728x960) in tiles and pairs the soundtrack back on. It adds detail rather
+  than resizing. CUDA only (its attention must be compiled), and about 9
+  minutes on a 24 GB card. Its tiles are held to 512x512 and the scale to 2,
+  because the default tiles need about 26 GB. Do not raise either on 24 GB.
+- **Longer than five seconds, or a different checkpoint**: not in the
+  catalog. The 29B Pro transformer is 60 GB in bf16. For a longer piece, cut
+  several five-second clips together (`list_tasks`, the concat and dissolve
+  tasks) rather than raising `num_frames` - every checkpoint is trained at 121.
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first.
@@ -86,9 +90,10 @@ version of the same instructions). No template uses it yet.
 
 1. `validate_workflow` first - free, and catches bad arguments.
 2. Quote `plan.estimate` and name any `downloads_required` (the checkpoint
-   is 26.7 GB). Each template is about 3.5 minutes on an RTX 3090, warm or
-   cold: model offload moves the 16.6 GB text encoder on and off the card
-   every run. Get the go-ahead, then `run_workflow` with `acknowledged_cost`
+   is 26.7 GB, the upscaler 17.5 GB). On an RTX 3090 the basic templates
+   take about 3.5 minutes, warm or cold, because model offload moves the
+   16.6 GB text encoder on and off the card every run. `generate-and-upscale`
+   takes about 9 minutes. Get the go-ahead, then `run_workflow` with `acknowledged_cost`
    set to the plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, `timeout_seconds` = estimate plus margin. Call again
    while `still_running`.

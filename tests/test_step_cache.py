@@ -662,6 +662,10 @@ TEMPLATE_PIPELINE_KEYS = {
     "ip-adapter.json": {
         "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
     },
+    "kandinsky6/generate-and-upscale.json": {
+        "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a",
+        "upscale": "838beb7eefde695da365c37927645fc388ab8feeaf8e1bc1695440cbd2b54fdd",
+    },
     "kandinsky6/image-to-video.json": {
         "image_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a"
     },

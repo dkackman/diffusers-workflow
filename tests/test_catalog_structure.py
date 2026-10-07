@@ -449,11 +449,12 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_050 for `templates/ltx2/restore-long`'s measured `cost` (#601,
 # stage #658, 2026-10-06), measured at 10_016: about 35 tokens, its total and
 # a `per_entry` rate over `windows`, so a longer source is quoted per window.
-# Then to 10_300 for `templates/kandinsky6/text-to-video` and `image-to-video`
-# (#663, 2026-10-06), measured at 10_243 before their curated `cost`: about
-# 105 tokens each, a new family's first two templates - the catalog's only
-# 3B video-with-audio route.
-COMPACT_BUDGET = 10_300
+# Then to 10_450 for `templates/kandinsky6/text-to-video`, `image-to-video`
+# and `generate-and-upscale` (#663, 2026-10-06), measured at 10_407 with their
+# curated `cost`: about 130 tokens each, a new family's first three templates -
+# the catalog's only 3B video-with-audio route, and its only tiled
+# super-resolution of a generated clip.
+COMPACT_BUDGET = 10_450
 FILTERED_BUDGET = 1_500
 
 

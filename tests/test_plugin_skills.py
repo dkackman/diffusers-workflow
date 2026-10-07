@@ -626,6 +626,25 @@ class TestKandinsky6Skill:
             assert arguments["num_inference_steps"] == 10, name
             assert arguments["guidance_scale"] == 1.0, name
 
+    def test_the_upscale_limits_are_the_template_s_and_the_pipeline_s(self):
+        """The 24 GB fit rests on two template values the skill tells an
+        agent not to raise; the scale is one the pipeline accepts."""
+        from diffusers.pipelines.kandinsky6 import pipeline_kandinsky6_sr
+
+        source = inspect.getsource(pipeline_kandinsky6_sr)
+        assert "if resolution_scale not in (2, 2.25, 4):" in source
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "kandinsky6", "generate-and-upscale.json"
+        )
+        with open(path, encoding="utf-8") as f:
+            upscale = json.load(f)["steps"][1]["pipeline"]
+        assert upscale["arguments"]["resolution_scale"] == 2
+        assert upscale["transformer"]["from_pretrained_arguments"]["tile_sizes"] == [
+            [512, 512]
+        ]
+        text = skill_text(KANDINSKY6_SKILL)
+        assert "tiles are held to 512x512 and the scale to 2" in text
+
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(KANDINSKY6_SKILL)
         assert text.index("get_server_info") < text.index("templates/kandinsky6/")
