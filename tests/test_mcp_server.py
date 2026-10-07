@@ -499,7 +499,9 @@ async def test_get_output_audio_points_at_the_loop_for_transcription():
 
 def test_the_loop_carries_the_transcription_procedure():
     """The other half of #376's move: the pointer from get_output_audio
-    resolves to a section that names the template and the read tool."""
+    resolves to a section that names the template and the read tool. Since
+    #609 that template is check-script, which compares the take to its
+    script, in place of transcribing and reading by eye."""
     from dw.server import guides
 
     # "The loop" is a ### subsection; get_guide resolves ## sections.
@@ -508,7 +510,8 @@ def test_the_loop_carries_the_transcription_procedure():
     )["content"]
     loop = section.split("### The loop", 1)[1].split("\n### ", 1)[0]
     content = loop.split("\n6. ", 1)[1].split("\n7. ", 1)[0]
-    assert "templates/transcribe-audio" in content
+    assert "templates/check-script" in content
+    assert "templates/transcribe-audio" not in content
     assert "get_output_text" in content
     assert "delete_output(job_id=" in content
 

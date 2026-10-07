@@ -615,6 +615,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "still@2": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
         "still@3": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
     },
+    "check-script.json": {},
     "community-pipeline.json": {
         "invert": "7013cd33f88d6c850c7775f0bdf6d7be74ef427bf6fdf34c3663ddd793028a25"
     },

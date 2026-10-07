@@ -114,6 +114,7 @@ EXPECTED_SHAPES = {
 UTILITIES = {
     "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
+    "workflows/templates/check-script.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
     "workflows/templates/recenter-crop.json",
@@ -281,6 +282,8 @@ QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
 # sub-workflow's argument, a step argument, a chain field or a result field.
 # One line per entry saying what the name actually is.
 LEGITIMATE_MENTIONS = {
+    # attribute_voices' argument, fed the transcript rather than passed
+    "workflows/templates/attribute-lines.json": {"lines"},
     # the argument the composed image-to-video workflow receives
     "workflows/templates/compose-workflows.json": {"image"},
     # a 'result' field, and the point is that this workflow omits it
@@ -454,7 +457,10 @@ def test_no_stale_entry_in_the_allowlist():
 # curated `cost`: about 130 tokens each, a new family's first three templates -
 # the catalog's only 3B video-with-audio route, and its only tiled
 # super-resolution of a generated clip.
-COMPACT_BUDGET = 10_450
+# Then to 10_550 for `templates/check-script` (#609, stage #645, 2026-10-07),
+# measured at 10_498: about 50 tokens, the catalog's only check that a take
+# speaks its script, replacing a transcribe-and-read-by-eye procedure.
+COMPACT_BUDGET = 10_550
 FILTERED_BUDGET = 1_500
 
 

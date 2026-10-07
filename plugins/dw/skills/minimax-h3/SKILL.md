@@ -176,7 +176,8 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
    everywhere), a portrait imposing its framing on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. It returns sound, not text; to confirm a
-   line, transcribe (`templates/transcribe-audio`, `get_output_text`). Dialogue gaps (`shot_dead_air`) need room tone:
+   take's lines, run `templates/check-script` with them as `lines` (markup
+   and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone:
    `find_loop_bed` the `output:` cut, then `slice_audio`->`loop_audio`->`mix_audio`
    its pick at its `gain`.
    Then `get_gallery_metadata` for duration/audio presence and hand the
