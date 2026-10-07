@@ -341,10 +341,12 @@ def written_peak_already_warned(content_type, consumed_by_normalizer, headroom_w
 
     Only a plain audio save suppresses the post-write check; a lossless one
     only when a normalizer consumed it, a lossy one also when the pre-write
-    warning fired. A video always gets the ground-truth check.
+    warning fired. A video gets the ground-truth check, unless a normalizer
+    or a level-matching join consumes it: that step resets the level it
+    ships at, so the file's own written peak is not the deliverable's (#671).
     """
     if not content_type.startswith("audio"):
-        return False
+        return consumed_by_normalizer
     if content_type not in LOSSY_AUDIO_CONTENT_TYPES:
         return consumed_by_normalizer
     return headroom_warned or consumed_by_normalizer

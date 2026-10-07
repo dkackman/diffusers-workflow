@@ -929,3 +929,32 @@ def test_normalized_downstream_true_for_a_join_with_match_levels_set():
 
     assert normalized_downstream(steps("rms"), "shot@a")
     assert not normalized_downstream(steps(None), "shot@a")
+
+
+def test_dialogue_short_shot_is_level_reset_with_variable_match_levels():
+    """The real template passes `match_levels` as a variable; once expanded
+    each shot is consumed by a leveling join, and the post-write check on
+    the shot video stands down (#671). Null leaves it speaking."""
+    import json
+
+    from dw.audio_qc import written_peak_already_warned
+    from dw.workflow import Workflow
+
+    with open("workflows/templates/minimax/dialogue-short.json") as handle:
+        definition = json.load(handle)
+    shots = [
+        {"name": n, "prompt": "p", "references": [], "num_frames": 124}
+        for n in ("a", "b")
+    ]
+
+    def consumed(match_levels):
+        definition["variables"]["shots"] = shots
+        definition["variables"]["match_levels"] = match_levels
+        steps = Workflow._expand(definition, definition["variables"])["steps"]
+        index = next(i for i, s in enumerate(steps) if s["name"] == "shot@a")
+        return normalized_downstream(steps[index + 1 :], "shot@a")
+
+    assert consumed("rms")
+    assert not consumed(None)
+    assert written_peak_already_warned("video/mp4", True, False)
+    assert not written_peak_already_warned("video/mp4", False, False)
