@@ -42,7 +42,9 @@ shapes; do not author a new workflow until the shape decision below fails.
   (`[intro]`, `[instrumental]`, `[solo]`, `[outro]`, one per line) and a caption
   that says instrumental and names the instrument carrying the lead. The
   diffusers pipeline has no instrumental flag and rejects empty lyrics, so
-  tags are how it's requested.
+  tags are how it's requested. It can still grow a voice (1 run in 4 probed):
+  check the `vocals` stem of `separate_stems` with `analyze_audio` against
+  the mix, never a transcript of the mix - Whisper invents words on music.
 - **A score under a film or a cuts piece**: an instrumental generated to a
   ceiling comfortably longer than the cut, trimmed and faded with
   `templates/audio-trim-fade`, then mixed under the picture as
