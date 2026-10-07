@@ -1555,6 +1555,43 @@ class TestSegmentBackedSave:
         with av.open(str(tmp_path / "second-0.0.mp4")) as container:
             assert container.streams.video[0].frames == 7
 
+    def test_the_video_tasks_read_a_saved_chain_named_downstream(self, tmp_path):
+        # #667: a step naming the chain (previous_result:) is handed its
+        # frames as a list - get_last_frame on a SavedFrames raised TypeError
+        from dw.previous_results import get_iterations
+        from dw.tasks import video_utils
+
+        chain = Result({"content_type": "video/mp4", "fps": 4})
+        chain.add_result(AudioVideo(self.make_segments(tmp_path), None, None))
+        chain.save(str(tmp_path), "final")
+        previous = {"chain": chain}
+
+        (arguments,) = get_iterations({"video": "previous_result:chain"}, previous)
+        video = arguments["video"]
+
+        last = video_utils.process_video(video, "get_last_frame", None, {})
+        first = video_utils.process_video(video, "get_first_frame", None, {})
+        assert last.getpixel((8, 8))[0] > 40  # the second segment's red
+        assert first.getpixel((8, 8))[0] < 40  # the first segment's black
+        assert video_utils.get_frame(video, 6).size == (16, 16)
+        assert video_utils.frame_count(video) == 7
+        assert len(video_utils.frames_as_pil_list(video)) == 7
+        assert video_utils.frames_as_array(video).shape[:3] == (7, 16, 16)
+        assert video_utils.frame_count(video_utils.loop_frames(video, 10)) == 10
+        assert video_utils.frame_grid(video, count=4) is not None
+        assert video_utils.is_video(video)
+
+        (by_property,) = get_iterations(
+            {"video": "previous_result:chain.frames"}, previous
+        )
+        assert video_utils.frame_count(by_property["video"]) == 7
+
+        # The stored result keeps its lazy, file-backed frames
+        from dw.pipeline_processors.chain import SavedFrames
+
+        assert isinstance(chain.get_artifacts()[0].frames, SavedFrames)
+        assert chain.retainable is False
+
     def test_audio_is_muxed_into_the_streamed_video(self, tmp_path):
         import av
 
