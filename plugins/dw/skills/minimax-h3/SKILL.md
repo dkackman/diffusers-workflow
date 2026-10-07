@@ -148,6 +148,7 @@ the rules are MiniMax's:
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots and when a
 reference picture should fix identity but not framing, say so in the prompt -
 or every shot inherits the portrait's composition.
+Before writing lines, read `references/dialogue.md`: how long a line fits a clip, and what not to name.
 
 ## Run and judge
 
