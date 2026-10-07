@@ -81,10 +81,14 @@ def fetch_image_with_context(v, base_dir, key):
         ) from error
 
 
-def fetch_video_with_context(v, base_dir, key):
+def fetch_video_with_context(v, base_dir, key, with_audio=False):
     """fetch_video, with the same argument-key context as
-    fetch_image_with_context."""
+    fetch_image_with_context. `with_audio` reads a file's soundtrack along with
+    its frames, as an AudioVideo - an H3 guide's `"audio": true` beside its
+    `video` (#649), where frames alone leave the guide no audio to hold."""
     try:
+        if with_audio:
+            return _fetch_audio_video(v, base_dir)
         return fetch_video(v, base_dir)
     except ValueError as error:
         raise ValueError(
@@ -92,6 +96,21 @@ def fetch_video_with_context(v, base_dir, key):
             f"{_describe_value_source(v)} - check what variable or previous "
             f"result feeds it)"
         ) from error
+
+
+def _fetch_audio_video(video_spec, base_dir=None):
+    """A video file - a path, URL or {"location": ...} - loaded with its audio
+    as an AudioVideo. A deferred reference stays for later resolution, and a
+    value already loaded passes through, so a second realization keeps it."""
+    from .tasks.video_utils import is_video_location, load_audio_video
+
+    if isinstance(video_spec, str) and references.is_ref(
+        references.LAZY_MEDIA, video_spec
+    ):
+        return video_spec
+    if is_video_location(video_spec):
+        return load_audio_video(video_spec, base_dir)
+    return video_spec
 
 
 def fetch_image(img_spec, base_dir=None):

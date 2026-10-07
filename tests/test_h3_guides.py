@@ -943,3 +943,69 @@ class TestWithGuideAudio:
         )
         assert read == ["clip.mp4"]
         assert result["guides"][0]["sample_rate"] == 16000
+
+
+# ---------------------------------------------------------------------------
+# 10. A file guide's soundtrack survives argument realization (#649 bounce)
+# ---------------------------------------------------------------------------
+
+
+def _write_guide(path, num_frames=5, fps=24, sample_rate=16000, audio=True):
+    from diffusers.utils.export_utils import encode_video
+
+    frames = [Image.new("RGB", (16, 16), (i * 40, 0, 0)) for i in range(num_frames)]
+    track = torch.full((2, int(num_frames / fps * sample_rate)), 0.25)
+    encode_video(
+        frames,
+        fps=fps,
+        output_path=str(path),
+        audio=track if audio else None,
+        audio_sample_rate=sample_rate if audio else None,
+    )
+    return path.name
+
+
+class TestFileGuideRealization:
+    """A guide naming a file - what `asset:`/`output:` resolve to - is loaded by
+    the `video` key convention before `_with_guides` sees it, so the convention
+    itself must keep the soundtrack when the guide holds it."""
+
+    def realize(self, guides, base_dir):
+        from dw.arguments import realize_args
+
+        arguments = {"guides": guides}
+        # The variables pass, then the steps pass (dw/workflow_run.py)
+        realize_args(arguments, str(base_dir), apply_key_conventions=False)
+        realize_args(arguments, str(base_dir))
+        return arguments
+
+    def test_audio_true_keeps_the_files_soundtrack(self, guided, tmp_path):
+        name = _write_guide(tmp_path / "guide.mp4")
+        arguments = self.realize([{"video": name, "frame": 0, "audio": True}], tmp_path)
+        assert isinstance(arguments["guides"][0]["video"], AudioVideo)
+
+        result = Pipeline._with_guides(ns(guided), arguments)
+        guide = result["guides"][0]
+        assert guide["video"].shape[0] == 5
+        assert guide["sample_rate"] == 16000
+        assert guide["audio"].shape[0] == 2 and guide["audio"].numel()
+
+    def test_audio_absent_still_loads_frames_only(self, guided, tmp_path):
+        name = _write_guide(tmp_path / "guide.mp4")
+        arguments = self.realize([{"video": name, "frame": 0}], tmp_path)
+        assert not isinstance(arguments["guides"][0]["video"], AudioVideo)
+
+        guide = Pipeline._with_guides(ns(guided), arguments)["guides"][0]
+        assert guide["audio"] is None and guide["video"].shape[0] == 5
+
+    def test_audio_true_on_a_silent_file_is_refused(self, guided, tmp_path):
+        name = _write_guide(tmp_path / "silent.mp4", audio=False)
+        arguments = self.realize([{"video": name, "frame": 0, "audio": True}], tmp_path)
+        with pytest.raises(ValueError, match="no audio"):
+            Pipeline._with_guides(ns(guided), arguments)
+
+    def test_a_deferred_reference_is_left_for_later(self, tmp_path):
+        arguments = self.realize(
+            [{"video": "previous_result:take", "frame": 0, "audio": True}], tmp_path
+        )
+        assert arguments["guides"][0]["video"] == "previous_result:take"
