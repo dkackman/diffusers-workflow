@@ -187,3 +187,20 @@ class TestValidationErrorsIntegration:
             s for s in expanded["steps"] if s["name"] == "chained_image_to_video"
         )
         assert step["result"]["fps"] == 24.0
+
+
+def test_uint8_frames_are_not_colour_inverted_in_saved_mp4(tmp_path):
+    """#679: export_to_video's `* 255` wrapped uint8 frames into a negative."""
+    import numpy as np
+    import imageio
+
+    from dw.result import _frames_for_export_to_video
+    from diffusers.utils import export_to_video
+
+    frames = np.zeros((4, 64, 64, 3), dtype=np.uint8)
+    frames[..., 0] = 200  # red-ish, bright in R only
+    path = str(tmp_path / "out.mp4")
+    export_to_video(_frames_for_export_to_video(frames), path, fps=8)
+    read = imageio.mimread(path, memtest=False)
+    px = read[0][32, 32].astype(int)
+    assert px[0] > 150 and px[1] < 60 and px[2] < 60, px

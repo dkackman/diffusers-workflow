@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 import torch
 import json
 import logging
@@ -88,6 +89,26 @@ def _refuse_scalar_artifact(artifact, file_base_name):
             f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
             "not an artifact - a 'result' block cannot save it"
         )
+
+
+def _frames_for_export_to_video(frames):
+    """Frames `export_to_video` reads correctly.
+
+    It scales ndarray frames by 255 as if they were floats in [0, 1], so uint8
+    frames (what `frames_as_array` returns) wrap modulo 256 into a colour
+    negative (#679). uint8 arrays go through PIL, which it writes as they are.
+    """
+    from PIL import Image
+
+    if isinstance(frames, np.ndarray) and frames.dtype == np.uint8:
+        return [Image.fromarray(frame) for frame in frames]
+    if (
+        isinstance(frames, (list, tuple))
+        and frames
+        and all(isinstance(f, np.ndarray) and f.dtype == np.uint8 for f in frames)
+    ):
+        return [Image.fromarray(frame) for frame in frames]
+    return frames
 
 
 class Result:
@@ -550,7 +571,7 @@ class Result:
             self.save_audio_video(artifact, output_path, content_type)
         else:
             export_to_video(
-                artifact,
+                _frames_for_export_to_video(artifact),
                 output_path,
                 fps=self.video_fps(artifact),
                 macro_block_size=VIDEO_MACRO_BLOCK,
@@ -839,7 +860,7 @@ class Result:
             log = logger.debug if audio is None else logger.warning
             log(f"Saving {output_path} without its audio because {reason}")
             export_to_video(
-                artifact.frames,
+                _frames_for_export_to_video(artifact.frames),
                 output_path,
                 fps=fps,
                 macro_block_size=VIDEO_MACRO_BLOCK,
