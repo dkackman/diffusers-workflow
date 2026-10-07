@@ -154,6 +154,14 @@ remaining deferred fix is recorded in
   including what was deferred (rotation passes, landmark-affine paste,
   multi-face tracking, with their triggers):
   `complete/face-repair-complete.md`.
+- **H3 multi-frame guides, `guides` on `t2va`/`fl2va`** (#611, stages
+  #648-#650), shipped 2026-10-07. It adds the `guides` argument (clips of
+  1, 5 or 17m+5 frames at any frame 17j, up to 4), `"audio": true` on a
+  guide, and `continuity: "guide"` on `templates/minimax/chained-segments`
+  (opt-in; its A/B held the seams better than `last_frame` at ~40% more
+  wall time, and the default is Don's call). Record, including what was
+  deferred (persisted latents, stale-marking, guides on `ref2va`, a total
+  guide-frames cap, with their triggers): `complete/h3-guides-complete.md`.
 
 ## Declined
 

@@ -113,9 +113,9 @@ read the `workflows` guide's authoring section.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
   `lora_model_name` drops the LoRA; raise steps and shifts too.
-- Nothing carries between generations except a passed reference or a
-  held track: this pipeline has no latent memory or extension mode (a
-  diffusers limit, not the model's). Identity rides on a picture, voice
+- Nothing carries between generations except a passed reference, a
+  held track or a `guides` clip: there is no latent memory (a diffusers
+  limit, not the model's). Identity rides on a picture, voice
   timbre on an audio clip, motion/camera on a video tail, score across
   cuts under concat.
 - Lip sync to supplied audio: pass the track as an audio reference, as
