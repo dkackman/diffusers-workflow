@@ -389,6 +389,79 @@ class TestTranscribeAudio(unittest.TestCase):
             )
 
 
+class TestTranscribeAudioStoppedShort(unittest.TestCase):
+    """Whisper stops at a mid-clip silence and drops the later line (#672)."""
+
+    def _two_line_clip(self):
+        rate = _ASR_SAMPLE_RATE
+        rng = numpy.random.default_rng(0)
+
+        def speech(seconds):
+            return (rng.standard_normal(int(seconds * rate)) * 0.3).astype("float32")
+
+        def silence(seconds):
+            return numpy.zeros(int(seconds * rate), dtype="float32")
+
+        # line 1: 0.5-3 s, line 2: 4.5-9 s, 10 s clip
+        return numpy.concatenate(
+            [silence(0.5), speech(2.5), silence(1.5), speech(4.5), silence(1.0)]
+        )
+
+    @patch("dw.tasks.audio_transcription.emit_warning")
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_resumes_after_a_early_stop(self, mock_pipeline, mock_warn):
+        pipe = MagicMock()
+        pipe.type = "seq2seq_whisper"
+        pipe.side_effect = [
+            {
+                "text": "line one",
+                "chunks": [{"timestamp": (0.5, 5.0), "text": "line one"}],
+            },
+            {
+                "text": "line two",
+                "chunks": [{"timestamp": (0.0, 4.5), "text": "line two"}],
+            },
+        ]
+        mock_pipeline.return_value = pipe
+
+        result = transcribe_audio(
+            self._two_line_clip(),
+            device="cpu",
+            sample_rate=_ASR_SAMPLE_RATE,
+            timestamps="segment",
+        )
+
+        self.assertEqual(result["text"], "line one line two")
+        self.assertEqual(result["chunks"][1]["start"], 4.5)
+        self.assertEqual(result["chunks"][1]["end"], 9.0)
+        # the resumed decode got only the audio from the second line on
+        self.assertAlmostEqual(
+            len(pipe.call_args_list[1][0][0]["raw"]) / _ASR_SAMPLE_RATE, 5.5, places=1
+        )
+        mock_warn.assert_not_called()
+
+    @patch("dw.tasks.audio_transcription.emit_warning")
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_warns_when_still_short(self, mock_pipeline, mock_warn):
+        pipe = MagicMock()
+        pipe.type = "seq2seq_whisper"
+        pipe.side_effect = [
+            {
+                "text": "line one",
+                "chunks": [{"timestamp": (0.5, 3.0), "text": "line one"}],
+            },
+            {"text": "", "chunks": []},
+        ]
+        mock_pipeline.return_value = pipe
+
+        result = transcribe_audio(
+            self._two_line_clip(), device="cpu", sample_rate=_ASR_SAMPLE_RATE
+        )
+
+        self.assertEqual(result, "line one")
+        mock_warn.assert_called_once()
+
+
 class TestTranscribeAudioRegistration(unittest.TestCase):
     """Test that transcribe_audio is registered as a task command."""
 

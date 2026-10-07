@@ -19,6 +19,7 @@ import numpy
 from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
+from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
 from ..dsp import resample_waveform
 from .audio_utils import waveform_and_rate
@@ -121,10 +122,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
         options["return_timestamps"] = True
     elif is_whisper:
         options["return_timestamps"] = True
-    result = pipe(
-        {"raw": mono.astype(numpy.float32), "sampling_rate": _ASR_SAMPLE_RATE},
-        **options,
-    )
+    samples = mono.astype(numpy.float32)
+    result = pipe({"raw": samples, "sampling_rate": _ASR_SAMPLE_RATE}, **options)
+    result = _with_resumed_tail(pipe, samples, result, options)
     text = result["text"].strip()
     logger.info(f"Transcript: {text[:100]}{'...' if len(text) > 100 else ''}")
     if timestamps is None:
@@ -162,9 +162,92 @@ def _numeric_chunks(raw_chunks, duration):
 
 
 _FRAME_SECONDS = 0.02
+# Whisper's long-form decoding can stop at a mid-clip silence and drop every
+# line after it with no error (#672). A last chunk ending more than this
+# short of audible speech is treated as a stop, and the rest is decoded again.
+_TAIL_GAP_SECONDS = 1.0
+_MAX_TAIL_RESUMES = 3
 # A frame is speech when its RMS is above this fraction of the clip's loud
 # (95th percentile) frames, about -26 dB: clear of room tone, under soft speech.
 _SPEECH_RELATIVE_LEVEL = 0.05
+
+
+def _speech_runs(mono):
+    """(first, last_exclusive) frame runs of audible speech."""
+    frame = int(_FRAME_SECONDS * _ASR_SAMPLE_RATE)
+    count = len(mono) // frame
+    if count == 0:
+        return []
+    frames = mono[: count * frame].astype(numpy.float64).reshape(count, frame)
+    rms = numpy.sqrt((frames**2).mean(axis=1))
+    loud = float(numpy.percentile(rms, 95))
+    if loud <= 0.0:
+        return []
+    active = rms > loud * _SPEECH_RELATIVE_LEVEL
+    edges = numpy.diff(numpy.concatenate(([0], active.astype(numpy.int8), [0])))
+    runs = zip(numpy.flatnonzero(edges == 1), numpy.flatnonzero(edges == -1))
+    return [(int(lo), int(hi)) for lo, hi in runs]
+
+
+def _chunk_ends(raw_chunks):
+    spans = (c.get("timestamp") or (None, None) for c in raw_chunks)
+    return [end for _, end in spans if end is not None]
+
+
+def _with_resumed_tail(pipe, samples, result, options):
+    """The transcription, with speech Whisper stopped short of decoded too.
+
+    When the last chunk ends well before the last audible speech, decoding is
+    restarted at the start of the speech run holding (or following) that end
+    and its chunks appended, shifted to the clip's timeline. If speech is
+    still left after the resumes, a warning says where the transcript stops.
+    """
+    raw_chunks = list(result.get("chunks") or [])
+    runs = _speech_runs(samples)
+    if not raw_chunks or not runs:
+        return result
+    texts = [result["text"].strip()]
+    speech_end = runs[-1][1] * _FRAME_SECONDS
+    for _ in range(_MAX_TAIL_RESUMES):
+        ends = _chunk_ends(raw_chunks)
+        if not ends or speech_end - max(ends) <= _TAIL_GAP_SECONDS:
+            break
+        end_frame = int(max(ends) / _FRAME_SECONDS)
+        resume = next((lo for lo, hi in runs if hi > end_frame), None)
+        if resume is None:
+            break
+        origin = resume * _FRAME_SECONDS
+        tail = pipe(
+            {
+                "raw": samples[int(origin * _ASR_SAMPLE_RATE) :],
+                "sampling_rate": _ASR_SAMPLE_RATE,
+            },
+            **options,
+        )
+        tail_text = tail["text"].strip()
+        tail_chunks = tail.get("chunks") or []
+        if not tail_text or not tail_chunks:
+            break
+        texts.append(tail_text)
+        for chunk in tail_chunks:
+            start, end = chunk.get("timestamp") or (None, None)
+            raw_chunks.append(
+                {
+                    **chunk,
+                    "timestamp": (
+                        None if start is None else start + origin,
+                        None if end is None else end + origin,
+                    ),
+                }
+            )
+    ends = _chunk_ends(raw_chunks)
+    if ends and speech_end - max(ends) > _TAIL_GAP_SECONDS:
+        emit_warning(
+            f"transcribe_audio: transcript ends at {max(ends):.1f} s but audible "
+            f"speech continues to {speech_end:.1f} s; the last line(s) may be "
+            "missing from the text"
+        )
+    return {**result, "text": " ".join(texts), "chunks": raw_chunks}
 
 
 def _trim_to_speech(chunks, mono):
@@ -180,18 +263,10 @@ def _trim_to_speech(chunks, mono):
     covers its neighbour's onset across a pause shrinks to its own sound. A
     chunk with no speech frame in it is left as Whisper gave it.
     """
-    frame = int(_FRAME_SECONDS * _ASR_SAMPLE_RATE)
-    count = len(mono) // frame
-    if count == 0:
+    count = len(mono) // int(_FRAME_SECONDS * _ASR_SAMPLE_RATE)
+    runs = _speech_runs(mono)
+    if not runs:
         return chunks
-    frames = mono[: count * frame].astype(numpy.float64).reshape(count, frame)
-    rms = numpy.sqrt((frames**2).mean(axis=1))
-    loud = float(numpy.percentile(rms, 95))
-    if loud <= 0.0:
-        return chunks
-    active = rms > loud * _SPEECH_RELATIVE_LEVEL
-    edges = numpy.diff(numpy.concatenate(([0], active.astype(numpy.int8), [0])))
-    runs = list(zip(numpy.flatnonzero(edges == 1), numpy.flatnonzero(edges == -1)))
 
     trimmed = []
     for chunk in chunks:
