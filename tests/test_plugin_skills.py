@@ -546,6 +546,110 @@ class TestLtx25Skill:
         assert text.index("get_server_info") < text.index("templates/ltx2/")
 
 
+KANDINSKY6_SKILL = os.path.join(PLUGIN_DIR, "skills", "kandinsky-6", "SKILL.md")
+
+
+class TestKandinsky6Skill:
+    """The Kandinsky 6.0 skill's numbers come from the pipeline that enforces
+    them; the schedule, which the vendor states and no library constant
+    holds, is the one the templates run."""
+
+    def _call_defaults(self):
+        from diffusers.pipelines.kandinsky6.pipeline_kandinsky6_ti2va import (
+            Kandinsky6TI2VAPipeline,
+        )
+
+        signature = inspect.signature(Kandinsky6TI2VAPipeline.__call__)
+        return {
+            name: parameter.default
+            for name, parameter in signature.parameters.items()
+            if parameter.default is not inspect.Parameter.empty
+        }
+
+    def test_the_pipeline_defaults_the_skill_warns_about_are_the_pipeline_s(self):
+        defaults = self._call_defaults()
+        text = skill_text(KANDINSKY6_SKILL)
+        assert (defaults["height"], defaults["width"]) == (512, 768)
+        assert defaults["guidance_scale"] == 5.0
+        assert "512x768 at guidance 5.0" in text
+        assert defaults["num_frames"] == 121 and defaults["frame_rate"] == 24.0
+        assert "121 frames at 24 fps" in text
+
+    def test_the_size_and_frame_rules_are_the_pipeline_s(self):
+        from diffusers.models.transformers import transformer_kandinsky6
+        from diffusers.pipelines.kandinsky6 import pipeline_kandinsky6_ti2va
+
+        text = skill_text(KANDINSKY6_SKILL)
+        source = inspect.getsource(pipeline_kandinsky6_ti2va)
+        # 8x spatial VAE times the transformer's 2x patch, refused outright
+        assert (
+            "spatial_multiple = self.vae_scale_factor_spatial * max(self.transformer_patch_size[1:])"
+            in source
+        )
+        assert "else 8" in source and "else (1, 2, 2)" in source
+        assert "multiples of 16" in text
+        # 4x temporal VAE, floored rather than refused
+        assert (
+            "num_frames // self.vae_scale_factor_temporal * self.vae_scale_factor_temporal + 1"
+            in source
+        )
+        assert "`4k + 1`" in text and "floors" in text
+        # 128 latent frames of rotary table at 4x is 509 frames
+        rope = inspect.signature(transformer_kandinsky6.Kandinsky6RoPE3D.__init__)
+        assert rope.parameters["max_pos"].default[0] == 128
+        assert (128 - 1) * 4 + 1 == 509 and "509 frames" in text
+
+    def test_the_audio_rate_is_the_audio_vae_s(self):
+        from diffusers import MMAudioVAE
+
+        signature = inspect.signature(MMAudioVAE.__init__)
+        assert signature.parameters["sample_rate"].default == 44_100
+        assert "44.1 kHz" in skill_text(KANDINSKY6_SKILL)
+
+    def test_the_scheduler_refuses_custom_sigmas(self):
+        from diffusers.schedulers import scheduling_piflow
+
+        source = inspect.getsource(scheduling_piflow)
+        assert "if sigmas is not None or mu is not None or timesteps is not None:" in source
+        assert "refuses custom sigmas" in skill_text(KANDINSKY6_SKILL)
+
+    def test_the_schedule_the_skill_states_is_the_one_the_templates_run(self):
+        text = skill_text(KANDINSKY6_SKILL)
+        assert "10 steps at `guidance_scale` 1.0" in text
+        for name in ("text-to-video", "image-to-video"):
+            path = os.path.join(
+                REPO_ROOT, "workflows", "templates", "kandinsky6", name + ".json"
+            )
+            with open(path, encoding="utf-8") as f:
+                spec = json.load(f)
+            arguments = spec["steps"][0]["pipeline"]["arguments"]
+            assert arguments["num_inference_steps"] == 10, name
+            assert arguments["guidance_scale"] == 1.0, name
+
+    def test_the_upscale_limits_are_the_template_s_and_the_pipeline_s(self):
+        """The 24 GB fit rests on two template values the skill tells an
+        agent not to raise; the scale is one the pipeline accepts."""
+        from diffusers.pipelines.kandinsky6 import pipeline_kandinsky6_sr
+
+        source = inspect.getsource(pipeline_kandinsky6_sr)
+        assert "if resolution_scale not in (2, 2.25, 4):" in source
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "kandinsky6", "generate-and-upscale.json"
+        )
+        with open(path, encoding="utf-8") as f:
+            upscale = json.load(f)["steps"][1]["pipeline"]
+        assert upscale["arguments"]["resolution_scale"] == 2
+        assert upscale["transformer"]["from_pretrained_arguments"]["tile_sizes"] == [
+            [512, 512]
+        ]
+        text = skill_text(KANDINSKY6_SKILL)
+        assert "tiles are held to 512x512 and the scale to 2" in text
+
+    def test_the_skill_starts_with_the_server(self):
+        text = skill_text(KANDINSKY6_SKILL)
+        assert text.index("get_server_info") < text.index("templates/kandinsky6/")
+
+
 MUSIC_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
 
 

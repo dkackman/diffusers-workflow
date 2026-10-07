@@ -127,8 +127,13 @@ pip install -e ".[server,dev]"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Diffusers from GitHub (releases lag the newest model pipelines) - after
-# the resolver, so it isn't replaced by the released version
-pip install --upgrade git+https://github.com/huggingface/diffusers
+# the resolver, so it isn't replaced by the released version. Forced, because
+# main keeps one dev version string for a release cycle and --upgrade would
+# keep an older commit; --no-deps so torch is not reinstalled, then a plain
+# install adds any dependency the new commit needs (as dw/server/updater.py)
+pip install --force-reinstall --no-deps git+https://github.com/huggingface/diffusers
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+pip install diffusers
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Windows/CUDA-specific: bitsandbytes' pyproject marker is linux-only

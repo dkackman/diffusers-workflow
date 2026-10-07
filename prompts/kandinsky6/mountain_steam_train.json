@@ -1,0 +1,9 @@
+{
+  "text": "A wide shot at track level on a small mountain station platform in deep winter, with a black steam locomotive approaching from the far end of the curve. The camera is static. The locomotive is old and heavy, its boiler streaked with soot and frost, a brass bell mounted behind the smokestack, three wooden passenger carriages painted dark green trailing behind it, their windows glowing yellow from the lamps inside. The platform is a strip of worn planks under fresh snow, edged by a low iron railing, with a wooden station hut and a hanging lantern on the right of the frame and pine-covered slopes rising steeply behind. The locomotive rolls toward the camera along the curve from left to right, slowing, a thick column of white steam rising from the stack and drifting back over the carriages, then a burst of steam spills sideways from the cylinders and rolls low across the platform toward the camera as the train comes to a halt with its front wheels in the centre of the frame. Snow keeps falling in slow, heavy flakes throughout. Cold blue dusk light, the warm lantern and the lit windows the only warm colours, photorealistic, fine detail on the frost and the iron.\n<AUDCAP>The locomotive's steam whistle sounds loudly twice, then pistons chuff slowly and brakes squeal as the wheels grind to a stop, with a hiss of escaping steam and a quiet mountain wind.<ENDAUDCAP>",
+  "description": "Text-to-video+audio prompt for the Kandinsky 6.0 Lite-distill baseline, written to the vendor beautifier's trained shape: one 180-300 word paragraph (shot, one camera sentence, appearance, the action in order, light and style last) and one closing audio caption tag, with no speech",
+  "intended_model": "kandinsky-6",
+  "tags": [
+    "t2v",
+    "audio"
+  ]
+}

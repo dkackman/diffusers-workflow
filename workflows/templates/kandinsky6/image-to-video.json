@@ -1,0 +1,75 @@
+{
+    "id": "Kandinsky6I2V",
+    "description": "A supplied still becomes the first frame, and the prompt says what happens next in it. Otherwise the baseline: the same Lite-distill checkpoint, ten PiFlow steps at guidance 1.0, and a soundtrack generated alongside. The pipeline resizes and center-crops the image to width x height, so a portrait image needs width and height swapped (480x864) or its sides are cut off - the vendor's own tools instead size the clip to the image's aspect at the 480x864 area, which dw does not do yet.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.6}
+    ],
+    "cost_drivers": ["num_frames", "width", "height"],
+    "variables": {
+        "prompt": "prompt:kandinsky6/dragon_hoard_waking",
+        "image": {
+            "location": "https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers/resolve/e056a84f34d9617e86b3ae47c792fe626cbe53f8/assets/i2va_input.jpg"
+        },
+        "width": 864,
+        "height": 480,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a width not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a height not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 4,
+            "remainder": 1,
+            "min_frames": 5,
+            "max_frames": 509,
+            "reason": "Kandinsky 6.0's video VAE encodes 4 * n + 1 frames, and the pipeline floors an off-grid count rather than refusing it - a shorter clip than the one asked for - so it is refused here instead. 509 is the transformer's rotary table (128 latent frames); every checkpoint is trained at 121 frames, five seconds at 24 fps"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "image_to_video",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Kandinsky6TI2VAPipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+                    "revision": "e056a84f34d9617e86b3ae47c792fe626cbe53f8",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "variable:image",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "num_inference_steps": 10,
+                    "guidance_scale": 1.0,
+                    "sample_audio": true,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

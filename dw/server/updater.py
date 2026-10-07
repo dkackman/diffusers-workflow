@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from ..security import sanitize_command_args
 
@@ -71,22 +72,30 @@ def diffusers_install_info():
     return info
 
 
-def build_pip_args(commit=None, revert=False):
-    """The pip argument list for one of three installs: HEAD, a pinned
-    commit, or a revert to the pyproject.toml release floor. `commit` is
-    validated by the caller before it reaches here - this only assembles
-    the already-validated pieces, never a raw request value.
+def build_pip_commands(commit=None, revert=False):
+    """The pip commands, run in order, for one of three installs: HEAD, a
+    pinned commit, or a revert to the pyproject.toml release floor.
+    `commit` is validated by the caller before it reaches here - this only
+    assembles the already-validated pieces, never a raw request value.
+
+    A git install is two commands. diffusers main keeps one dev version
+    string for a whole release cycle, so `install --upgrade <git url>` saw a
+    newer commit as already satisfied and kept the old one (#663); the git
+    build is forced in instead, without its dependencies (forcing those
+    would reinstall torch). pip builds the wheel before it uninstalls, so a
+    failed build leaves the old install in place. The second command, a
+    plain install of the package name, then adds any dependency the new
+    commit requires - no URL, so no second clone, and no --upgrade, so the
+    git build stays.
     """
+    pip = [sys.executable, "-m", "pip", "install"]
     if revert:
-        return [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            f"{PYPI_PACKAGE}=={release_floor()}",
-        ]
+        return [pip + [f"{PYPI_PACKAGE}=={release_floor()}"]]
     target = DIFFUSERS_GIT_URL if not commit else f"{DIFFUSERS_GIT_URL}@{commit}"
-    return [sys.executable, "-m", "pip", "install", "--upgrade", target]
+    return [
+        pip + ["--force-reinstall", "--no-deps", target],
+        pip + [PYPI_PACKAGE],
+    ]
 
 
 class DiffusersUpdater:
@@ -110,12 +119,26 @@ class DiffusersUpdater:
 
     @staticmethod
     def _run_pip(commit=None, revert=False):
-        args = sanitize_command_args(build_pip_args(commit=commit, revert=revert))
-        return subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=PIP_TIMEOUT_SECONDS,
+        """Run each command in turn, stopping at the first failure; the
+        result carries the last command's return code and every command's
+        output."""
+        stdout, stderr = [], []
+        completed = None
+        for command in build_pip_commands(commit=commit, revert=revert):
+            completed = subprocess.run(
+                sanitize_command_args(command),
+                capture_output=True,
+                text=True,
+                timeout=PIP_TIMEOUT_SECONDS,
+            )
+            stdout.append(completed.stdout or "")
+            stderr.append(completed.stderr or "")
+            if completed.returncode != 0:
+                break
+        return SimpleNamespace(
+            returncode=completed.returncode,
+            stdout="\n".join(stdout),
+            stderr="\n".join(stderr),
         )
 
     def start(self, on_success=None, commit=None, revert=False):

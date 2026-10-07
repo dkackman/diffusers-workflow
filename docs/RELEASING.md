@@ -7,6 +7,20 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### Next
+
+- Kandinsky 6.0 (#663): `templates/kandinsky6/` text-to-video, image-to-video
+  and generate-and-upscale (Lite-distill + tiled SR, 24GB), the `kandinsky-6`
+  plugin skill. Needs diffusers from git `main` (`Kandinsky6*` is in no
+  release yet); not on Apple Silicon (the VAE decode keeps MPS memory per tile).
+- `update_diffusers` / `POST /api/system/diffusers/update` now really replaces
+  a git install whose dev version string is unchanged (it used to report
+  success and keep the old commit); install.sh/.ps1 do the same. Restart the
+  server after an update: admission still checks class names against the
+  server process's old import.
+- A completed model download on huggingface_hub 1.33 is no longer reported
+  `failed`.
+
 ### 0.9.0
 
 <!-- Drafted from v0.8.0..dd74e17b (develop). Paste into the GitHub release body once the tag has published: gh release edit v0.9.0 --notes-file ... -->

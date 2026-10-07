@@ -647,6 +647,42 @@ class TestAudiosSampleRate:
 
         assert not hasattr(output, "audio_sample_rate")
 
+    def test_an_audio_vae_rate_is_recorded_for_video_plus_audio(self):
+        # Kandinsky 6's vocoder config carries no rate; its MMAudioVAE does,
+        # as `sample_rate` (#663)
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vocoder=SimpleNamespace(config=SimpleNamespace(num_mels=128)),
+            audio_vae=SimpleNamespace(config=SimpleNamespace(sample_rate=44100)),
+        )
+        output = SimpleNamespace(audio=[0.0, 0.0])
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 44100
+
+    def test_a_vocoder_rate_wins_over_the_audio_vae_rate(self):
+        # LTX-2's audio VAE works at a lower rate than its vocoder outputs;
+        # the vocoder's is the rate of the waveform
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vocoder=SimpleNamespace(
+                config=SimpleNamespace(output_sampling_rate=24000)
+            ),
+            audio_vae=SimpleNamespace(config=SimpleNamespace(sample_rate=16000)),
+        )
+        output = SimpleNamespace(audio=[0.0, 0.0])
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 24000
+
 
 class TestRemoteTextEncoderResponse:
     """A retired endpoint answers with an HTML page. The error has to say
