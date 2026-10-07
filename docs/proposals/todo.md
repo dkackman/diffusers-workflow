@@ -137,7 +137,7 @@ remaining deferred fix is recorded in
   templates keep the audio reference after an A/B went against hold) and
   `refine_strength` (opt-in engine surface). `templates/minimax/upscale-refine`
   failed Don's gate: 11.53 min against 9.59 for a native 768p render, which
-  is sharper, so it is reverted (#664). Record, including what was deferred (a re-measure of hold, the
+  is sharper, so it was reverted (#664, 2026-10-07). Record, including what was deferred (a re-measure of hold, the
   3-pass variant, #612's arm of the A/B):
   `complete/h3-audio-hold-refine-complete.md`.
 - **`templates/ltx2/refine-in-place`, a same-size LTX refine with a

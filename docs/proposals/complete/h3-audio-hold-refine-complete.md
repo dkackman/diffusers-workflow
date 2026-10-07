@@ -116,6 +116,8 @@ weaker evidence, so the template carried a gate that is Don's call.
 - `cost_drivers`: `num_frames`, `num_inference_steps`, `width`, `height`,
   `refine_strength`. `cost`: 12.5 min, RTX 3090. A `minimax-h3` SKILL row
   points to it for keeping a 544p take at 768p. `COMPACT_BUDGET` raised.
+  All of this was removed by #664 after the gate (below); only the engine
+  half of the refine shipped.
 
 ## The refine A/B (Don's gate)
 
@@ -140,12 +142,31 @@ M-F086: the crowd-faces prompt from #500, seed 42, 124 frames, on lem.
 GPU time than native (11.53 against 9.59 min) to reach the same 1344x768,
 and comes out softer. Its 768p decode is native's decode, so it saves no
 VRAM either. The template, its SKILL row, its README and checkpoint-table
-rows, the guide paragraph naming it and the `COMPACT_BUDGET` raise are
+rows, the guide paragraph naming it and the `COMPACT_BUDGET` raise were
 reverted by fix-forward stage #664. The engine stays: `refine_strength` is
 opt-in surface, with the guide's *Refining the upscaled latents* section
 and its example, as with #499. A cheaper base-plus-upscale route (e.g.
 #612's LMS upscaler) that could bring refine in under native would be a new
 idea with its own A/B.
+
+## Fix-forward: #664, the template revert
+
+Don's no came after #621 had shipped and verified, so the revert was filed
+as a fix-forward stage (a close-out can't deploy the catalog or plugin).
+`bfbdf518`, merged to `develop` as `125818e7` and deployed 2026-10-07:
+- deleted `workflows/templates/minimax/upscale-refine.json`;
+- removed its `minimax-h3` SKILL row, its templates README row and the
+  "and 5 for upscale-refine.json's refine" clause, and the
+  `WORKFLOW_GUIDE.md` paragraph naming it;
+- `COMPACT_BUDGET` 10_550 to 10_400: the 150 #621 added, given back. The
+  stage said "to 9_850", but four later raises had stacked on top;
+- removed its `test_step_cache.py` entry, and reverted #621's
+  two-checkpoint allowances in `test_h3_schedule.py`, so its asserts are
+  strict on `variable:video_shift` again.
+
+The engine is untouched: `refine_strength`, `DwH3RefineScheduleStep`, its
+validation, tests and the guide's *Refining the upscaled latents* section.
+The plugin version was not bumped (the release script owns it).
 
 ## Bounces per stage
 
@@ -164,6 +185,7 @@ idea with its own A/B.
   found a hand-written re-noise (now `scale_noise`) and a second owner of
   the refine rules (now `refine_problems`). Verified on the next hand-off.
 - **#621: none.**
+- **#664 (fix-forward revert): none.** Verified against Don's free list.
 
 No `usage:` figures were recorded on the stages, so cost is left out.
 
