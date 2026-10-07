@@ -8,6 +8,10 @@ big for every free card waits while a smaller one behind it takes the card
 reaches only the worker it names (#462). With one device this is the old
 single FIFO worker.
 
+`JobManager.slots` is the pool. `_current_job_id`, `_worker_lock` and
+`worker_manager` are compatibility names for single-worker callers: the
+first slot and the oldest running job. New code reads `slots`.
+
 Jobs collect their progress events with sequence numbers so an SSE client
 can attach late (or reconnect) and replay from where it left off.
 """
