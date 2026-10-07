@@ -31,6 +31,7 @@ from .h3_blocks import (
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
+    guide_audio_waveform,
     guide_frame_problem,
     guide_frames_array,
     guides_refusal,
@@ -54,6 +55,7 @@ from diffusers import attention_backend
 # imported where they are used - at module scope they add seconds to every startup
 
 from ..argument_media import fetch_video
+from ..tasks.video_utils import load_audio_video
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
@@ -655,9 +657,13 @@ class Pipeline:
         frames cut to a whole-latent length (dw/pipeline_processors/h3_blocks.py).
         An empty list is no guides.
 
+        A guide with `"audio": true` also carries its video's soundtrack, as
+        `audio` and `sample_rate`; with `audio` false or absent it carries none.
+
         Raises:
             ValueError: If this pipeline cannot take guides, the step also passes
-                `references`, or a guide is not `{video, frame}` with a video
+                `references`, a guide is not `{video, frame, audio?}` with a video,
+                or `audio` is true on a video with no audio
         """
         guides = arguments.get(GUIDES_INPUT)
         if guides is None:
@@ -689,22 +695,36 @@ class Pipeline:
                 raise ValueError(
                     f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
                 )
-            unknown = sorted(set(guide) - {"video", "frame"})
+            unknown = sorted(set(guide) - {"video", "frame", "audio"})
             if unknown:
                 raise ValueError(
                     f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
-                    f"{{video, frame}}"
+                    f"{{video, frame}}, with an optional 'audio'"
                 )
             if "video" not in guide or "frame" not in guide:
                 raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
             problem = guide_frame_problem(guide["frame"])
             if problem:
                 raise ValueError(f"{where}[{index}]: {problem}")
+            with_audio = guide.get("audio", False)
+            if not isinstance(with_audio, bool):
+                raise ValueError(
+                    f"{where}[{index}]: 'audio' must be true or false, got "
+                    f"{type(with_audio).__name__}"
+                )
             video = guide["video"]
-            if isinstance(video, str):
-                video = fetch_video(video, self.base_dir)
+            if isinstance(video, str) or (isinstance(video, dict) and with_audio):
+                # Read with its soundtrack only when the guide holds it
+                video = (
+                    load_audio_video(video, self.base_dir)
+                    if with_audio
+                    else fetch_video(video, self.base_dir)
+                )
             try:
                 frames = guide_frames_array(video)
+                audio, sample_rate = (
+                    guide_audio_waveform(video) if with_audio else (None, None)
+                )
             except ValueError as error:
                 raise ValueError(f"{where}[{index}]: {error}") from error
             length = snap_guide_length(frames.shape[0])
@@ -715,7 +735,14 @@ class Pipeline:
                     f"to the first {length}"
                 )
                 frames = frames[:length]
-            prepared.append({"video": frames, "frame": guide["frame"]})
+            prepared.append(
+                {
+                    "video": frames,
+                    "frame": guide["frame"],
+                    "audio": audio,
+                    "sample_rate": sample_rate,
+                }
+            )
         arguments[GUIDES_INPUT] = prepared
         return arguments
 

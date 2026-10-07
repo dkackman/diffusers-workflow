@@ -1659,8 +1659,8 @@ A MiniMax-H3 `t2va` or `fl2va` step takes a pipeline argument `guides`: a list o
 generation canvas and placed as condition rows, timed from the target frame it lands on,
 that are never denoised, so the generated video is held to earlier footage. On `fl2va`
 the `image` / `last_image` keyframes combine with guides. The clip is fitted to the
-canvas (scaled to cover, centre-cropped). Guides take video only; a guide's own audio is
-not used.
+canvas (scaled to cover, centre-cropped). By default a guide holds video only and its own
+audio is not used; `"audio": true` holds the guide's audio too (below).
 
 ```json
 "pipeline": {
@@ -1694,6 +1694,26 @@ declared variable, so reference a `guides` variable or edit the argument.
 
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
 guide is checked at run time, when its clip exists.
+
+#### Holding the guide's audio: `"audio": true`
+
+A guide with `"audio": true` holds its soundtrack as well as its frames:
+`{"video": "asset:opening.mp4", "frame": 0, "audio": true}`. The guide video's audio over
+the guide's span is encoded by the audio VAE (posterior mode, as `ref2va` reference audio
+is) and placed as condition audio rows timed at the target's own audio time, then held,
+never denoised. The output's audio under the guide reproduces the guide's audio, and the
+model generates the rest to run on from it. Audio runs at 40 latents a second against
+24 fps video, so a guide of n frames at `frame` k holds `round((k + n) * 40 / 24) -
+floor(k * 40 / 24)` audio latents: 37 for a 22-frame guide at frame 0, 65 (about 1.6 s)
+for a 39-frame one. A guide that does not start at frame 0 has its audio padded to the
+audio VAE's hop first, so its latents land at the right time. The clip is read as 24 fps
+footage, as its frames are.
+
+| Rule | Value |
+|---|---|
+| `audio` | `true` or `false`; absent is `false`. Any other value is refused |
+| soundtrack | `"audio": true` on a guide whose video has no audio stream is refused - before the run for an `asset:`/`output:` file, at run time for a `previous_result:` clip |
+| with `hold_audio` | allowed; a guide's audio rows come first, then the held track's |
 
 A guide holds its span's look as well as its composition and motion: the frames under it
 come out close to a copy of the clip, whatever the prompt says about style. A full-length

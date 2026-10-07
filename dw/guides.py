@@ -1,6 +1,6 @@
 """A `guides` argument, checked before the run when it can be.
 
-`guides` (`[{"video": ..., "frame": ...}]`) lays clips of an existing video into a
+`guides` (`[{"video": ..., "frame": ..., "audio": true?}]`) lays clips of an existing video into a
 MiniMax-H3 generation at chosen frames (dw/pipeline_processors/h3_blocks.py).
 The rules that need no model are refused here rather than after a checkpoint
 load, with the helpers the run-time check calls (`guide_frame_problem`,
@@ -9,10 +9,12 @@ load, with the helpers the run-time check calls (`guide_frame_problem`,
 - a step that is not an H3 pipeline, or that loads `ref2va` or also passes
   `references` - ref2va lays out its own conditioning;
 - a `guides` that is not a list, more than GUIDE_LIMIT entries, an entry that is
-  not `{video, frame}` (no other key, both present);
-- a `frame` that is not a whole, non-negative multiple of 17;
-- with a probe: a video that is not a video, and a clip that, cut to a whole-latent
-  length, runs past the end of a render whose `num_frames` is a literal.
+  not `{video, frame}` (no other key but an optional `audio`, both present);
+- a `frame` that is not a whole, non-negative multiple of 17, and an `audio` that
+  is not true or false;
+- with a probe: a video that is not a video, `audio: true` on a video with no audio
+  stream, and a clip that, cut to a whole-latent length, runs past the end of a
+  render whose `num_frames` is a literal.
 
 A `previous_result:` or other unresolved value, or a video that cannot be located
 or probed, names nothing yet and is left to the run-time check. An empty list is
@@ -39,7 +41,7 @@ from .pipeline_processors.h3_blocks import (
 from .probe_paths import resolve_probe_path
 from .variable_constraints import aligned
 
-GUIDE_KEYS = ("video", "frame")
+GUIDE_KEYS = ("video", "frame", "audio")
 
 
 def _render_length(arguments):
@@ -57,9 +59,10 @@ def _render_length(arguments):
     return aligned(value, RENDER_GRID)
 
 
-def _clip_frames(video, base_dir, probe):
-    """(problem, frame_count) for one guide video: the reason it is no video,
-    and its frame count when known; (None, None) when it cannot be told."""
+def _clip_frames(video, base_dir, probe, with_audio=False):
+    """(problem, frame_count) for one guide video: the reason it is no video, or
+    has no audio stream for `with_audio`, and its frame count when known; (None,
+    None) when it cannot be told."""
     if probe is None:
         return None, None
     path = resolve_probe_path(video, base_dir, "a guide video")
@@ -71,6 +74,11 @@ def _clip_frames(video, base_dir, probe):
     kind = info.get("kind")
     if kind != "video":
         return f"'video' must be a video, and this is {kind or 'unreadable'}", None
+    if with_audio and not info.get("sample_rate"):
+        return (
+            "'audio' is true, but this guide's video has no audio stream - pass a "
+            "video with a soundtrack, or drop 'audio'"
+        ), None
     count = info.get("frame_count")
     if isinstance(count, int) and not isinstance(count, bool) and count > 0:
         return None, count
@@ -120,7 +128,11 @@ def _step_problems(pipeline, arguments, base_dir, probe):
         unknown = sorted(set(guide) - set(GUIDE_KEYS))
         if unknown:
             problems.append(
-                (index, f"unknown key(s) {unknown} - a guide is {{video, frame}}")
+                (
+                    index,
+                    f"unknown key(s) {unknown} - a guide is {{video, frame}}, with "
+                    f"an optional 'audio'",
+                )
             )
         if "video" not in guide or "frame" not in guide:
             problems.append((index, "a guide needs both 'video' and 'frame'"))
@@ -136,7 +148,20 @@ def _step_problems(pipeline, arguments, base_dir, probe):
                 problems.append((index, problem))
             else:
                 frame_ok = True
-        problem, count = _clip_frames(guide["video"], base_dir, probe)
+        with_audio = guide.get("audio", False)
+        if isinstance(with_audio, str) and references.is_ref(
+            references.UNRESOLVED, with_audio
+        ):
+            with_audio = False
+        elif not isinstance(with_audio, bool):
+            problems.append(
+                (
+                    index,
+                    f"'audio' must be true or false, got {type(with_audio).__name__}",
+                )
+            )
+            with_audio = False
+        problem, count = _clip_frames(guide["video"], base_dir, probe, with_audio)
         if problem:
             problems.append((index, problem))
         elif frame_ok and count is not None and render is not None:

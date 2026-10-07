@@ -34,7 +34,8 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, each at a `frame` that is a
   multiple of 17. A guide holds look as well as motion: a full-length one
-  copies the take, and a style prompt does not restyle it. Rules and example: `get_guide("workflows",
+  copies the take, and a style prompt does not restyle it. `"audio": true`
+  on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
