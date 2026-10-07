@@ -721,14 +721,21 @@ by the source, and `validate_workflow` names the entries to add or drop.
    soundtrack.
 
    To confirm the words a clip speaks - a text-only client can't consume the
-   `AudioContent` block `get_output_audio` returns - transcribe it instead.
-   `validate_workflow(name="templates/transcribe-audio",
-   arguments={"input_audio": "output:<name>"})` first (free; it takes an
-   audio file or a video's muxed soundtrack directly), then
+   `AudioContent` block `get_output_audio` returns - run
+   `templates/check-script` against its script rather than reading a
+   transcript by eye. `validate_workflow(name="templates/check-script",
+   arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
+   it takes an audio file or a video's muxed soundtrack directly, and
+   `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
+   a line's shot, `[]` for a take that should be silent), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
    "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
-   scratch run afterward. This workflow's plan comes back
+   scratch run afterward. Its `findings` are the places to listen: a
+   dropped or changed line (`line_mismatch`, with `heard`), a markup word
+   spoken aloud, speech in a shot meant to be silent, a last word clipped
+   by the cut. Words Whisper invents over silence or music are under
+   `discarded`, not findings. This workflow's plan comes back
    `basis: "unknown"` with `minutes: null` - nothing is curated or observed
    for it - so quote what it actually takes rather than the plan: seconds,
    not minutes (a few seconds per clip in practice). Four calls and a short

@@ -1,0 +1,30 @@
+{
+  "id": "CheckScript",
+  "description": "Checks that a take speaks its script, line by line, and saves the answer as JSON for get_output_text. It runs 'check_script' on 'input_audio' (an audio file, or a video's muxed soundtrack) against 'lines', the expected lines in order: strings, or {text, shot} objects naming the shot a line belongs in. H3 markup in a line is stripped, and a markup word heard spoken is 'tag_spoken'; [] means no speech is expected. 'shots' is optional: by default the take's own recorded shots are used, from its run manifest or keep_output sidecar. Findings are line_mismatch, tag_spoken, line_clipped_at_end, speech_where_silent and speech_in_silent_shot, each a place to listen before re-rolling. The defaults come from a two-model measurement (#609, job af5de241ca83): whisper-large-v3-turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, so 'similarity' 0.6 separates them. Write numbers as words, as turbo hears them.",
+  "variables": {
+    "input_audio": "asset:take.wav",
+    "lines": null,
+    "shots": null,
+    "model_name": "openai/whisper-large-v3-turbo",
+    "similarity": 0.6
+  },
+  "steps": [
+    {
+      "name": "check",
+      "task": {
+        "command": "check_script",
+        "arguments": {
+          "audio": "variable:input_audio",
+          "lines": "variable:lines",
+          "shots": "variable:shots",
+          "model_name": "variable:model_name",
+          "similarity": "variable:similarity"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

@@ -164,16 +164,18 @@ episode with one loud outlier (a studio-audience laugh, a sting) can sit
 that gap is `target_lufs`'s to close, matched downward to a series-wide
 value every episode's ceiling allows (see the **normalize** bullet above);
 `target_lufs` alone cannot raise a capped episode to meet a louder one -
-`limit: true` can, for a series that must sit louder (same bullet). To confirm a
-line actually rendered rather than judging it by ear, `get_output_audio`
-returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
-arguments={"input_audio": "output:<name>"})` first (free; it takes the
-episode's muxed soundtrack directly), then `run_workflow(...,
+`limit: true` can, for a series that must sit louder (same bullet). To confirm every
+line rendered rather than judging it by ear, run `templates/check-script`
+against the episode's script: `validate_workflow(name="templates/check-script",
+arguments={"input_audio": "output:<name>", "lines": [...]})` first (free; it
+takes the episode's muxed soundtrack directly, and `lines` is the script in
+order, `{text, shot}` to name each line's shot), then `run_workflow(...,
 acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
-wait_seconds=60)`, then `get_output_text` on the result, and
+wait_seconds=60)`, then `get_output_text` for its `findings` - a dropped or
+changed line, speech in a silent shot, a clipped last word - and
 `delete_output(job_id=...)` the scratch run afterward. This workflow's
 plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
-minutes; it runs in a few seconds.
+minutes.
 
 To take the project home, call `export_job` once per job of the project (each
 episode, and the cast run), then fetch each zip's `open_url` and unpack it into

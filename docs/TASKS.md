@@ -2920,6 +2920,8 @@ How the alignment reads a take:
 
 A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
 
+**Example:** [check-script.json](../workflows/templates/check-script.json) — Check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: on the two-model measurement (#609, job `af5de241ca83`), turbo scored the take's correct lines 0.71 to 1.00 and its wrong or missing lines 0.00, where base scored correct lines as low as 0.43 on mishearings (`O'Connor`, `415`). Turbo writes numbers as words (`four fifteen`), so a script with digits costs similarity under it.
+
 ## Frame Interpolation
 
 Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). Takes a video and inserts intermediate frames between each pair. The result is one video artifact without a soundtrack - the frame count changed, so [`pair_audio`](#pair_audio) is how the original track comes back. [interpolate-frames.json](../workflows/templates/interpolate-frames.json) shows the interpolation itself.
