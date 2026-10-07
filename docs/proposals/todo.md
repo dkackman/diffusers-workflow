@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Finishing tasks: tonal controls in `grade`, `sharpen`, `film_grain`,
+  `apply_lut`** (#603, stages #633-#637), shipped 2026-10-07. Seven tonal
+  `grade` parameters, a seeded per-frame grain, a strict `.cube` parser
+  (and `.cube` uploads), a `palette` look built in memory, and an optional
+  look step in `series-episodes`. Record, including what was not built
+  (`make_lut`, a `.cube` output, the plugin version bump):
+  `complete/finishing-tasks-complete.md`.
+
 - **Script-adherence check: `check_script` and `templates/check-script`**
   (#609, stages #643-#645), shipped 2026-10-07. A take's transcript aligned
   to its expected lines, with shot-aware findings; the by-eye transcript
