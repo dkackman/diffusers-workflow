@@ -285,7 +285,7 @@ def test_a_shot_already_on_the_grid_is_not_warned_about(warnings_emitted):
 def test_a_video_with_no_shots_is_not_warned_about(warnings_emitted):
     pair_audio(["frame1", "frame2"], _waveform(), sample_rate=24000)
 
-    assert warnings_emitted == []
+    assert not [m for m in warnings_emitted if "shots" in m]
 
 
 def test_get_task_says_what_the_frame_rate_does():

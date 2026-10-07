@@ -709,15 +709,17 @@ class TestPairAudioShots:
         assert last["start_sample"] + last["num_samples"] == new_track.shape[1]
         assert sum(shot["num_samples"] for shot in paired.shots) == new_track.shape[1]
 
-    def test_no_frame_rate_clears_the_sample_side(self):
+    def test_no_frame_rate_measures_at_the_written_rate(self):
+        """Frames with no rate are written at 8 fps (#673), so the shots are
+        measured against that rate rather than left unmeasured."""
         shots = [shot_record("a", 0, 4, start_sample=1, num_samples=2)]
         video = AudioVideo(frames(4), None, None, fps=None, shots=shots)
         new_track = numpy.zeros((2, 100), dtype=numpy.float32)
 
         paired = pair_audio(video, new_track, sample_rate=100)
 
-        assert paired.shots[0]["start_sample"] is None
-        assert paired.shots[0]["num_samples"] is None
+        assert paired.shots[0]["start_sample"] == 0
+        assert paired.shots[0]["num_samples"] == 50
 
     def test_remeasured_shots_directly(self):
         """dw.shots.remeasured_shots in isolation, the function pair_audio calls."""

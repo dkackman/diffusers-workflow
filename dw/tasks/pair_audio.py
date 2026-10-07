@@ -334,6 +334,21 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
     # cost a copy of the whole thing for nothing
     frames = _one_video(video.frames if isinstance(video, AudioVideo) else video)
     frame_rate = fps if fps is not None else getattr(video, "fps", None)
+    if frame_rate is None:
+        from ..result import DEFAULT_VIDEO_FPS
+
+        # The writer falls back to this same rate, so fitting against it keeps
+        # the track and the picture the length the file really gets (#673)
+        frame_rate = DEFAULT_VIDEO_FPS
+        emit_warning(
+            f"pair_audio: the frames carry no frame rate, so the file is "
+            f"written at {DEFAULT_VIDEO_FPS} fps - a video that played at 24 "
+            f"fps will be three times slow. Pass 'fps' (the source's rate) or "
+            f"declare 'result.fps'.",
+            kind="video_fps_defaulted",
+            command="pair_audio",
+            fps=DEFAULT_VIDEO_FPS,
+        )
     logger.debug(f"Pairing frames with audio at {rate} Hz")
     waveform = _fit_to_video(
         as_channels_samples(waveform), rate, frames, frame_rate, fit
@@ -362,6 +377,6 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
         frames,
         waveform,
         rate,
-        fps=getattr(video, "fps", None),
+        fps=frame_rate,
         shots=new_shots,
     )

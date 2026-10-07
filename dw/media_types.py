@@ -58,8 +58,8 @@ class FittedVideo(numpy.ndarray):
     off a pipeline's output object.
     """
 
-    def __new__(cls, frames, fps=None):
-        array = numpy.asarray(frames, dtype=numpy.float32).view(cls)
+    def __new__(cls, frames, fps=None, dtype=numpy.float32):
+        array = numpy.asarray(frames, dtype=dtype).view(cls)
         array.fps = fps
         return array
 

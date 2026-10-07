@@ -22,7 +22,7 @@ from ..media_frames import (
     frames_at,
     grid_tile,
 )
-from ..media_types import AudioVideo, fit_codec_padding
+from ..media_types import AudioVideo, FittedVideo, fit_codec_padding
 from ..task_domains import frame_size_error
 
 logger = logging.getLogger("dw")
@@ -149,16 +149,22 @@ def frames_as_array(video):
     extract_frame uses.
     """
     frames = _frames_of(video)
+    # The source's own rate rides on the array: a bare array carries none, and
+    # a later pair_audio or the writer would fall back to 8 fps (#673). The
+    # source's shots do not survive - an array has nowhere to hold them
+    fps = getattr(video, "fps", None)
 
     if isinstance(frames, numpy.ndarray) and frames.ndim == 4 and frames.shape[-1] == 3:
         if frames.dtype == numpy.uint8:
-            return frames
+            return FittedVideo(frames, fps=fps, dtype=numpy.uint8) if fps else frames
         # Float frames are [0, 1] - diffusers' np output convention
-        return (numpy.clip(frames, 0.0, 1.0) * 255).round().astype(numpy.uint8)
+        scaled = (numpy.clip(frames, 0.0, 1.0) * 255).round().astype(numpy.uint8)
+        return FittedVideo(scaled, fps=fps, dtype=numpy.uint8) if fps else scaled
 
-    return numpy.stack(
+    stacked = numpy.stack(
         [numpy.asarray(_to_pil(frame).convert("RGB")) for frame in frames]
     )
+    return FittedVideo(stacked, fps=fps, dtype=numpy.uint8) if fps else stacked
 
 
 def loop_frames(video, num_frames):

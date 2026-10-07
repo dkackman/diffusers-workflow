@@ -1024,3 +1024,25 @@ class TestBleedTrace:
         warnings = [e for e in events if e.get("kind") == "bleed_tonal_material"]
         assert warnings and warnings[0]["seam"] == 1
         assert "seam 1 (" in warnings[0]["message"]
+
+
+def test_fps_overriding_an_input_rate_warns():
+    """#673: concat_videos(fps=24) re-timed an 8 fps input without a word."""
+    from dw.events import RunContext, activate_context, deactivate_context
+
+    messages = []
+    token = activate_context(
+        RunContext(
+            on_event=lambda e: (
+                messages.append(e["message"]) if e["event"] == "warning" else None
+            )
+        )
+    )
+    try:
+        slow = AudioVideo(frames(4), None, None, fps=8)
+        same = AudioVideo(frames(4), None, None, fps=24)
+        concat_videos([slow, same], fps=24)
+    finally:
+        deactivate_context(token)
+    assert len(messages) == 1
+    assert "8 fps" in messages[0] and "24" in messages[0]

@@ -187,9 +187,30 @@ def concat_videos(
                 shots[first_shot[index]].update(applied)
         audio_native_rate = getattr(video, "sample_rate", None)
 
+    _warn_fps_override(videos, names, fps)
     audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _warn_fps_override(videos, names, fps):
+    """Say so when `fps` re-times an input that carries a different rate (#673):
+    that input plays faster or slower than it was written, with no other trace."""
+    if not fps:
+        return
+    for video, name in zip(videos, names):
+        own = getattr(video, "fps", None)
+        if own and abs(own - fps) > 0.01:
+            emit_warning(
+                f"concat_videos: 'fps' is {fps:g} but {name} carries its own "
+                f"{own:g} fps - it is re-timed to {fps:g} fps, so its picture "
+                f"plays {fps / own:.2f}x as fast as it was written",
+                kind="fps_overrides_input",
+                command="concat_videos",
+                video=name,
+                input_fps=own,
+                fps=fps,
+            )
 
 
 def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
