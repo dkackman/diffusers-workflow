@@ -139,7 +139,10 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = fetch_video_with_context(v, base_dir, k)
+                # A guide holding its soundtrack (#649) needs the file's audio too
+                arg[k] = fetch_video_with_context(
+                    v, base_dir, k, with_audio=arg.get("audio") is True
+                )
             # Handle type references, and the keys that only look like one
             elif apply_key_conventions and (
                 k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
