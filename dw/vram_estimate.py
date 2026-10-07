@@ -397,6 +397,50 @@ def vram_estimate_errors(
     return errors
 
 
+def required_vram_gb(definition, arguments=None, device_type=None):
+    """What a card must hold to run `definition` (the expanded one the run
+    executes), as `(gb, hard)`, or None when nothing says.
+
+    A declared vram_estimate answers with its largest projection, and the
+    answer is hard: a pool with no card that big refuses the job. Otherwise
+    the smallest `cost` entry measured on `device_type` is the least any
+    card it ran on held - soft, since it records a card the catalog was
+    measured on rather than a floor, so a pool with no card that big still
+    runs the job. A server's worker pool dispatches on this (#462)."""
+    if not isinstance(definition, dict):
+        return None
+    estimate = declared_estimate(definition)
+    if estimate is not None:
+        projected = [
+            projection[4]
+            for projection in _projections(
+                definition,
+                estimate,
+                arguments if isinstance(arguments, dict) else None,
+            )
+        ]
+        if projected:
+            return max(projected), True
+    cost = definition.get("cost")
+    entries = [
+        entry
+        for entry in (cost if isinstance(cost, list) else [])
+        if isinstance(entry, dict)
+        and (
+            device_type is None
+            or str(entry.get("device", "")).split(":")[0] == device_type
+        )
+    ]
+    measured = [
+        number
+        for number in (_as_number(entry.get("vram_gb")) for entry in entries)
+        if number is not None
+    ]
+    if measured:
+        return min(measured), False
+    return None
+
+
 def apply_vram_estimate(definition, variables, device_type=None, capacity_gb=None):
     """The run-time half of the check above - the backstop for a caller
     that skips validate_workflow (or an inline/composed workflow static

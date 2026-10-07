@@ -131,11 +131,22 @@ def settings_devices(monkeypatch):
 
 
 class TestResolveServeDevices:
-    def test_two_entries_are_refused_with_a_message_to_name_one_card(self, two_cards):
+    def test_two_entries_are_both_kept(self, two_cards):
+        from dw.devices import resolve_serve_devices
+
+        assert resolve_serve_devices("cuda:0,cuda:1", None) == ["cuda:0", "cuda:1"]
+
+    def test_a_card_named_twice_is_refused(self, two_cards):
         from dw.devices import DeviceConfigError, resolve_serve_devices
 
-        with pytest.raises(DeviceConfigError, match="name one card"):
-            resolve_serve_devices("cuda:0,cuda:1", None)
+        with pytest.raises(DeviceConfigError, match="more than once"):
+            resolve_serve_devices("cuda:0,cuda:0", None)
+
+    def test_a_bare_cuda_beside_another_card_is_refused(self, two_cards):
+        from dw.devices import DeviceConfigError, resolve_serve_devices
+
+        with pytest.raises(DeviceConfigError, match="not a bare 'cuda'"):
+            resolve_serve_devices("cuda,cuda:1", None)
 
     def test_a_card_the_machine_lacks_is_refused_naming_the_cards_present(
         self, two_cards

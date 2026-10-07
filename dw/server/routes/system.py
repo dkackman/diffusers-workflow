@@ -383,20 +383,18 @@ def health(request: Request):
 
     from ... import __version__, get_device, get_device_type
 
-    worker = manager.worker_manager
+    workers = manager.workers()
     return {
         "status": "ok",
         "version": __version__,
         # on-demand subprocess: false on an idle server that hasn't run
         # a job yet (or after a memory clear) is normal, not a fault -
         # it means no model process is currently resident, not that the
-        # server is unhealthy (#206)
-        "worker_alive": bool(
-            worker.worker_active
-            and worker.worker_process is not None
-            and worker.worker_process.is_alive()
-        ),
+        # server is unhealthy (#206). Any worker of the pool (#462)
+        "worker_alive": any(worker["alive"] for worker in workers),
+        # The longest-running job, as before the pool; `workers` names each
         "current_job": manager._current_job_id,
+        "workers": workers,
         "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
         # which machine answered - the thing a remote client cannot
         # otherwise tell apart from a stale tunnel pointed at nothing

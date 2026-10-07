@@ -164,8 +164,8 @@ def clear_memory(client):
 
 def get_health(client):
     """Server liveness, plus what answered: version, device, whether a
-    model process is currently resident, the job running now and how many
-    are queued. `worker_alive: false` is the normal idle state on a server
+    model process is currently resident, the job running now (`workers`: one entry per
+    card, each with its current_job) and how many are queued. `worker_alive: false` is the normal idle state on a server
     that hasn't run a job yet - not a degraded server."""
     return client.get_json("/api/health")
 

@@ -69,15 +69,34 @@ def sometimes(description: str | None = None) -> Any:
 # ----------------------------------------------------------------- system
 
 
+class WorkerInfo(ApiModel):
+    device: str = Field(description="The card this worker is pinned to.")
+    name: str | None = Field(description="The card as a job record's device names it.")
+    vram_gb: float | None = Field(
+        description="What the card holds, in the GB a catalog cost entry is written in."
+    )
+    current_job: str | None
+    alive: bool
+    host_memory_rss_mb: float = sometimes(
+        "The worker process's resident host memory; absent while it is not running."
+    )
+
+
 class HealthInfo(ApiModel):
     status: str
     version: str
     worker_alive: bool = Field(
-        description="The worker is on-demand: false on an idle server that has not "
-        "run a job yet, or after a memory clear, is normal - no model process is "
-        "resident, not a fault."
+        description="Whether any worker is alive. Workers are on-demand: false on an "
+        "idle server that has not run a job yet, or after a memory clear, is normal - "
+        "no model process is resident, not a fault."
     )
-    current_job: str | None
+    current_job: str | None = Field(
+        description="The longest-running job; `workers` names every running one."
+    )
+    workers: list[WorkerInfo] = Field(
+        description="One entry per card the server runs a worker on (--devices), "
+        "each running one job at a time."
+    )
     queued: int
     hostname: str = Field(description="Which machine answered.")
     device: str

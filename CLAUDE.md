@@ -41,7 +41,7 @@ python -m dw.test
 the seam, and the test or check that enforces it. Open it before grepping - it names the
 module, and that module's docstring holds the detail.
 
-- `dw.serve` runs every job in one persistent spawned worker (`dw/worker.py`, managed by
+- `dw.serve` runs every job in a persistent spawned worker (one per `--devices` card) (`dw/worker.py`, managed by
   `dw/worker_manager.py`) that keeps models cached between runs, so a change to engine
   code needs a server restart before a job sees it.
 - The packaged `dw/workflows/` is what a `builtin:` step names (resolved in

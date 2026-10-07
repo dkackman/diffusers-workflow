@@ -780,8 +780,8 @@ def enhance(
             output_dir=ws.outputs,
             workflow_dir=ws.workflows,
         )
-        if not admission.ok:
-            raise ValueError(admission.message())
+        # Refuses what admission refused, and a job too big for every card
+        manager.check_fits(admission)
     except Exception as e:
         # Everything up to here is the request being refused: a preset
         # that does not exist, a definition admission will not take
@@ -798,6 +798,7 @@ def enhance(
             asset_dir=ws.assets,
             workspace=ws.name,
             warnings=admission.warnings,
+            vram_need=admission.vram_need,
         )
         return manager.describe(job)
     except Exception:

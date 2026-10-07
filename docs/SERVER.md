@@ -17,6 +17,7 @@ python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 python -m dw.serve --host 0.0.0.0 --token "..." --mcp   # ...and drivable by an agent on another machine
 python -m dw.serve --devices cuda:1      # run the worker on the second card
+python -m dw.serve --devices cuda:0,cuda:1   # one worker per card, two jobs at once
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
@@ -33,8 +34,9 @@ load entirely.
 with `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker the
 card is the only one it can see; a bare `cuda`, or no flag at all, pins
 nothing and behaves as before. The `devices` setting is the standing form of
-the same choice, and the flag wins over it. There is one entry only for now:
-a second (`--devices cuda:0,cuda:1`) is refused at startup, as is a card the
+the same choice, and the flag wins over it. A list (`--devices cuda:0,cuda:1`)
+runs one worker per card, each running one job at a time. A card named twice,
+or a bare `cuda` in a list of several, is refused at startup, as is a card the
 machine lacks, with the message naming the cards that are present
 (`cuda:0 (NVIDIA GeForce RTX 4090)`, ...).
 
@@ -197,8 +199,26 @@ agent from another machine, plus the queue across every workspace:
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
 
-One job runs at a time (it is one GPU); submissions queue in order, and
-the waiting portion of the queue can be reordered.
+Each worker runs one job at a time, so with one device (the default) one job
+runs at a time; submissions queue in order, and the waiting portion of the
+queue can be reordered. With several `--devices` the dispatcher walks the
+queue in order and gives each job the first free card, in `--devices` order,
+that fits it. A job that fits no free card keeps its place while a smaller
+one behind it takes the card (backfill).
+
+What a job needs: the workflow's declared `vram_estimate` projected over the
+job's arguments (hard: a job bigger than every card is refused at submit with
+a 400 naming the largest card); else the smallest `cost` entry's `vram_gb` for
+this device type (soft: if no card is that big, the job runs on any card, as
+on one card); else any card. A card's size is its GiB rounded up (a 3090
+counts as 24). Cancel reaches only the worker running that job, and a worker
+crash fails only its own job. The worker started later gets a higher Linux
+`oom_score_adj` (+100 over the highest other live worker), so a host-RAM
+squeeze kills the later job; nothing is written with one worker. There is no
+host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
+`GET /api/memory`, the probe cache and memory reporting still read the first
+worker (or report `job_running` when any job runs); `POST /api/memory/clear`
+clears every idle worker.
 
 ### Progress events
 
@@ -610,7 +630,10 @@ The editor's forms come from these; they are just as usable from scripts:
   mistaken for the worker's memory now - `info: null` means nothing has been
   measured because nothing is resident. health also reports `hostname`,
   `device` and whether `mcp` is mounted, so a remote client can tell which
-  machine answered
+  machine answered. `current_job` is the longest-running job and `worker_alive`
+  is true if any worker is alive; `workers` has one entry per card (one with a
+  single device): `{device, name, vram_gb, current_job, alive,
+  host_memory_rss_mb}`, the last absent when the worker process isn't running
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
   cache (MCP `clear_memory`), and returns the
   memory reading taken right after. Refused with 409 while a job is running

@@ -5,13 +5,15 @@ Handles starting, stopping, and communicating with the worker process
 that keeps models loaded in GPU memory.
 """
 
+import math
 import multiprocessing
 import queue as queue_module
 import logging
 import signal
+import sys
 import time
 from typing import Optional
-from . import get_device
+from . import device_capacity_gb, get_device
 from .devices import device_label, pinned_environment, worker_environment
 from .worker import worker_main
 from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
@@ -41,6 +43,10 @@ class WorkerManager:
         """
         self.device = device
         self._device_label = None
+        self._capacity_read = False
+        self._capacity_gb = None
+        # What set_oom_score_adj last wrote for the running process
+        self.oom_score_adj = None
         self.worker_process: Optional[multiprocessing.Process] = None
         self.command_queue: Optional[multiprocessing.Queue] = None
         self.result_queue: Optional[multiprocessing.Queue] = None
@@ -67,6 +73,7 @@ class WorkerManager:
             with pinned_environment(worker_environment(self.device or get_device())):
                 self.worker_process.start()
             self.worker_active = True
+            self.oom_score_adj = None
             logger.info("Worker process started")
 
     def device_label(self):
@@ -217,3 +224,42 @@ class WorkerManager:
         handshake to attempt, just clear the tracking state."""
         self.worker_active = False
         self.worker_process = None
+
+    def pid(self):
+        """The worker process's pid while it is alive, else None."""
+        process = self.worker_process
+        if process is None or not process.is_alive():
+            return None
+        return process.pid
+
+    def capacity_gb(self):
+        """What this worker's card holds, in the GB a catalog `cost` entry's
+        `vram_gb` is written in - the card's GiB rounded up, so a 3090
+        (23.7 GiB) is the "24" the catalog measured on - or None where the
+        card cannot be read. Measured in the server process, which sees
+        every card by its ordinal, and read once: a card does not change
+        size."""
+        if not self._capacity_read:
+            self._capacity_read = True
+            capacity = device_capacity_gb(self.device)
+            self._capacity_gb = math.ceil(capacity) if capacity else None
+        return self._capacity_gb
+
+    def set_oom_score_adj(self, value):
+        """Ask the kernel's OOM killer to pick this worker ahead of anything
+        scored lower (Linux only; best effort). In a pool the worker started
+        later is scored higher, so a host-RAM squeeze kills the newer job
+        rather than whichever worker happens to be larger (#462). Raising a
+        process's own score needs no privilege. Returns whether it took."""
+        pid = self.pid()
+        if pid is None or not sys.platform.startswith("linux"):
+            return False
+        value = max(-1000, min(1000, int(value)))
+        try:
+            with open(f"/proc/{int(pid)}/oom_score_adj", "w") as file:
+                file.write(str(value))
+        except OSError as e:
+            logger.debug(f"Could not set oom_score_adj for worker {pid}: {e}")
+            return False
+        self.oom_score_adj = value
+        return True
