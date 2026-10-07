@@ -128,6 +128,27 @@ Shipped merge `ddffc9d4`.
   C-F315's run. 1.56 is one warm `restore@wN` step (1.60 and 1.48) plus its
   slice. The fallback (Don running it on lem) wasn't needed.
 
+### Stage 5 (#666): fix-forward, the static check on an `output:` source
+
+Shipped merge `53225a9e` (fix `bdb4ae53`).
+
+- **Why:** the feature's final check failed C-F233 step 2. A wrong window
+  count with an `output:` source validated clean, then failed at `join` after
+  every window had run. Plan v3 names `output:` as knowable, so it was a
+  build miss, not a plan gap, and needed no re-plan.
+- **Cause:** `dw/server/admission.py` `admit()` activated the request
+  workspace's assets for validate-time checks but left the output root at the
+  default workspace's. The reference check passed the workspace root
+  explicitly, so the reference resolved; the probe (`resolve_probe_path` ->
+  `fetch_output`) used the ambient root, missed, and the check stayed silent.
+- **Fix:** `admit()` also activates `workspace.outputs` (`activate_output_root`)
+  for the same scope, covering validate, submit and rerun. It is at the shared
+  scope, so every probe that reads an `output:` source gets it:
+  `window_count_errors`, `dissolve_frame_errors`, the slice preflight and the
+  warnings. Tests are in `tests/test_admission.py`, in a non-default workspace.
+- Verified in the default workspace and in `qa-ep115`: 4 and 6 windows refused
+  at `steps[1]` naming 5, 5 clean.
+
 ## Deviations from the plan
 
 - **Stage 3 shipped unpriced; stage 4 priced it** (plan v3). A cost is
@@ -146,12 +167,16 @@ Shipped merge `ddffc9d4`.
 
 ## Bounces per stage
 
+The parent's final check bounced once (C-F233 step 2, an `output:` source),
+which filed #666.
+
 | Stage | Architecture review | Tester | Notes |
 |---|---|---|---|
 | #628 | 1 (second owner of frame-aligned slicing: use `dsp.slice_samples`) | 0 | |
 | #629 | 1 (second owner of shot sample spans: use `remeasured_shots`) | 0 | |
 | #630 | 0 | 2 (C-F314: the default asset didn't exist; SE-F042: `source` not path-gated at validate) | Paused once for the v3 re-plan |
 | #658 | 0 | 0 | |
+| #666 | 0 | 0 | Fix-forward from the parent's final check (C-F233 step 2) |
 
 The stage comments name no `usage:` figures, so per-stage cost isn't
 recorded. The plan estimated about $14.
