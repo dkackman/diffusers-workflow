@@ -80,7 +80,9 @@ def test_every_h3_step_declares_both_schedules(path):
     definition = load(path)
     for step, pipeline in h3_steps(definition):
         where = f"{os.path.basename(path)}:{step['name']}"
-        assert pipeline.get("scheduler", {}).get("shift") in VIDEO_SHIFTS, where
+        assert pipeline.get("scheduler", {}).get("shift") == "variable:video_shift", (
+            where
+        )
         assert (
             pipeline.get("audio_scheduler", {}).get("shift") == "variable:audio_shift"
         ), where
@@ -90,11 +92,6 @@ def test_every_h3_step_declares_both_schedules(path):
     assert definition["variables"]["video_shift"] in (12.0, 6.0)
     assert definition["variables"]["audio_shift"] == 3.0
 
-
-# `upscale-refine` renders its base on the 544p LoRA and refines on the 768p
-# one, two checkpoints with two shifts in one file, so its base step names its
-# own. Every other template has one H3 step and `video_shift` alone.
-VIDEO_SHIFTS = ("variable:video_shift", "variable:base_video_shift")
 
 # The shift each turbo file was trained at, from upstream's published runs
 TRAINED_SHIFT = {
@@ -112,8 +109,8 @@ def resolve(definition, value):
 
 @pytest.mark.parametrize("path", H3_TEMPLATES)
 def test_each_step_runs_its_adapters_shift(path):
-    """The pairing #147 is about, per step: a template holding two checkpoints
-    could otherwise run one of them on the other's schedule."""
+    """The pairing #147 is about, per step: an adapter run on another
+    checkpoint's shift is a schedule it was never distilled at."""
     definition = load(path)
     for step, pipeline in h3_steps(definition):
         shift = resolve(definition, pipeline["scheduler"]["shift"])
@@ -160,9 +157,7 @@ def test_the_alpha_is_left_to_the_file(path):
     variables = load(path).get("variables", {})
     if "lora_alpha" not in variables:
         pytest.skip("no adapter on this template")
-    for name in ("lora_weight_name", "base_lora_weight_name"):
-        if name in variables:
-            assert variables[name] in RECORDED_ALPHA, os.path.basename(path)
+    assert variables["lora_weight_name"] in RECORDED_ALPHA, os.path.basename(path)
     assert variables["lora_alpha"] is None, os.path.basename(path)
 
 
@@ -210,5 +205,4 @@ def test_no_template_still_runs_the_base_model_at_twenty_steps(path):
     definition = load(path)
     if not any(True for _ in h3_steps(definition)):
         pytest.skip("no H3 step")
-    for name in ("num_inference_steps", "base_num_inference_steps"):
-        assert definition["variables"].get(name) != 20, name
+    assert definition["variables"]["num_inference_steps"] != 20
