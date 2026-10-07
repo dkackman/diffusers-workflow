@@ -22,6 +22,10 @@ instructions as `_T2VA_EXPANSION_INSTRUCTION` and `_I2VA_EXPANSION_INSTRUCTION`,
 which the pipeline runs on its own text encoder when `expand_prompts` is true. The
 stored prompts under `prompts/kandinsky6/` are written to the vendor's format.
 
+An agent driving this family from Claude Code has the `kandinsky-6` skill of the
+[dw plugin](../../../plugins/dw/README.md), which chooses between these templates
+and points at the prompt format.
+
 Read them in this order and each introduces one new idea on top of the last.
 
 ## The basics
