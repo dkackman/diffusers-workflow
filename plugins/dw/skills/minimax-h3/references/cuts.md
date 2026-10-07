@@ -41,7 +41,15 @@ and `kind` dropped (unread, they only warn). Each shot renders `num_frames`
 from the song sliced at `start_frame - lead_frames`, then `trim_video` keeps
 `cut_frames` after the lead, so the video is the plan's length and the song
 fits it. `music-video` does not snap `num_frames`: it must be on `17n + 5`
-from 124 to 345, and an off-grid entry (130) is refused. A hand-written entry
-with no run-up has `lead_frames` 0 and `cut_frames` equal to `num_frames`.
+from 124 to 345, and an off-grid entry (130) is refused. The render rule
+sizes it: an entry's `num_frames` is the smallest `17n + 5` at or above
+`lead_frames + cut_frames`, and at least 124, so
+`num_frames = max(124, next 17n+5 ≥ lead + cut)`. A 48-frame cut with a
+12-frame lead renders 124; a 130-frame span (lead + cut) renders 141. A span
+needing more than 345 must be split into two shots (`plan_cuts` splits it,
+preferring a beat, and warns). The slack past the cut is a tail handle that
+`trim_video` drops. A hand-written entry with no run-up has `lead_frames` 0
+and `cut_frames` equal to `num_frames`, or shorter with `num_frames` sized by
+the same rule.
 `music-video`'s `song` variable defaults to the song it writes; pass
 `asset:...` to cut to an existing one and skip writing.
