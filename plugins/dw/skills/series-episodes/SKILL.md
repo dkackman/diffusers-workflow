@@ -75,6 +75,14 @@ Generate the episode's shots with `templates/minimax/dialogue-short` (or
 is its own H3 generation, so cast drift *within* one episode does not
 happen - only *across* episodes does, which is what step 0 closes.
 
+**Optional look, before the recut.** Not a beat and skippable: to give
+every episode one look, grade each shot with `apply_lut` and one shared
+`palette` (2-16 `#rrggbb` colours, dark to light), then optionally
+`film_grain`. Fix the palette once, like the cast, and pass the same list
+every episode; the same palette gives the same look. An uploaded `.cube` as
+`lut` works too. The graded clips are then the recut's `shots`. The recipe
+and its workflow are in `references/look.md`.
+
 Once every shot for the episode exists (freshly generated, or promoted from
 a run with `keep_output`), cut and score them with
 `templates/assemble-and-score` - it is the five-beat pipeline this skill
