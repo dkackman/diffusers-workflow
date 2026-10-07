@@ -5,6 +5,7 @@ on a GPU box.
 """
 
 import logging
+import os
 import queue
 
 import pytest
@@ -208,3 +209,101 @@ class TestInactiveWorker:
     def test_shutdown_of_a_dead_process_is_a_no_op(self, manager):
         manager.worker_process.alive = False
         manager.shutdown_worker()  # must not raise or try to join
+
+
+class _RecordingProcess:
+    """Stands in for multiprocessing.Process: start() records the pinning
+    variables in os.environ at that moment instead of spawning."""
+
+    environment_at_start = None
+
+    def __init__(self, target=None, args=()):
+        self.target = target
+        self.args = args
+
+    def start(self):
+        type(self).environment_at_start = {
+            name: os.environ.get(name) for name in ("CUDA_VISIBLE_DEVICES", "DW_DEVICE")
+        }
+
+    def is_alive(self):
+        return False
+
+
+@pytest.fixture
+def recorded_start(monkeypatch):
+    """The environment ensure_worker's Process.start() ran under."""
+    _RecordingProcess.environment_at_start = None
+    monkeypatch.setattr(worker_manager.multiprocessing, "Process", _RecordingProcess)
+    monkeypatch.setattr(worker_manager.multiprocessing, "Queue", lambda: queue.Queue())
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("DW_DEVICE", raising=False)
+    return _RecordingProcess
+
+
+class TestWorkerPinning:
+    def test_a_cuda_index_pins_the_worker_through_the_environment(self, recorded_start):
+        WorkerManager(device="cuda:1").ensure_worker()
+        assert recorded_start.environment_at_start == {
+            "CUDA_VISIBLE_DEVICES": "1",
+            "DW_DEVICE": "cuda",
+        }
+
+    def test_the_parent_environment_is_restored_when_it_was_unset(self, recorded_start):
+        WorkerManager(device="cuda:1").ensure_worker()
+        assert "CUDA_VISIBLE_DEVICES" not in os.environ
+        assert "DW_DEVICE" not in os.environ
+
+    def test_the_parent_environment_keeps_the_values_it_had(
+        self, recorded_start, monkeypatch
+    ):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2")
+        monkeypatch.setenv("DW_DEVICE", "cuda:0")
+        WorkerManager(device="cuda:1").ensure_worker()
+        assert recorded_start.environment_at_start["CUDA_VISIBLE_DEVICES"] == "1"
+        assert os.environ["CUDA_VISIBLE_DEVICES"] == "0,1,2"
+        assert os.environ["DW_DEVICE"] == "cuda:0"
+
+    def test_a_bare_cuda_sets_no_pin(self, recorded_start):
+        WorkerManager(device="cuda").ensure_worker()
+        assert recorded_start.environment_at_start == {
+            "CUDA_VISIBLE_DEVICES": None,
+            "DW_DEVICE": None,
+        }
+
+    def test_no_device_on_a_box_naming_none_sets_no_pin(
+        self, recorded_start, monkeypatch
+    ):
+        monkeypatch.setattr(worker_manager, "get_device", lambda: "cuda")
+        WorkerManager().ensure_worker()
+        assert recorded_start.environment_at_start == {
+            "CUDA_VISIBLE_DEVICES": None,
+            "DW_DEVICE": None,
+        }
+
+
+class TestWorkerEnvironment:
+    @pytest.fixture(autouse=True)
+    def _clean_environment(self, monkeypatch):
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+
+    def test_an_index_maps_through_the_parents_visible_list(self, monkeypatch):
+        from dw.devices import worker_environment
+
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3,5")
+        assert worker_environment("cuda:1") == {
+            "CUDA_VISIBLE_DEVICES": "5",
+            "DW_DEVICE": "cuda",
+        }
+        assert worker_environment("cuda:0")["CUDA_VISIBLE_DEVICES"] == "3"
+
+    def test_an_index_with_no_parent_list_is_its_own_physical_card(self):
+        from dw.devices import worker_environment
+
+        assert worker_environment("cuda:2")["CUDA_VISIBLE_DEVICES"] == "2"
+
+    @pytest.mark.parametrize("device", ["mps", "cpu", "cuda", None])
+    def test_a_device_without_an_explicit_index_needs_no_pin(self, device):
+        from dw.devices import worker_environment
+
+        assert worker_environment(device) == {}

@@ -2,6 +2,7 @@
 workflow's identity, and leaves a manifest describing itself."""
 
 import json
+import multiprocessing
 import os
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -872,6 +873,44 @@ class TestSubfolders:
         )
         segments = sorted((tmp_path / "Gyre" / "run" / "final").glob("*.segment-*.mp4"))
         assert len(segments) == 2
+
+
+def _race_open_run(output_dir, run_id, barrier, results):
+    """One racing process: wait for the other, then claim the run."""
+    barrier.wait(timeout=30)
+    results.put(open_run(output_dir, None, "wf", run_id))
+
+
+class TestRunRaceAcrossProcesses:
+    """open_run's lock serialises processes, not just threads - a CLI run
+    beside a server job opens the same identity from two processes."""
+
+    def test_two_processes_opening_the_same_run_get_distinct_versions_and_directories(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("DIFFUSERS_HELPER_ROOT", str(tmp_path / "helper"))
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(2)
+        results = context.Queue()
+        run_id = "20260928-120000-aaaaaaaa"
+        processes = [
+            context.Process(
+                target=_race_open_run,
+                args=(str(tmp_path / "outputs"), run_id, barrier, results),
+            )
+            for _ in range(2)
+        ]
+        for process in processes:
+            process.start()
+        opened = [results.get(timeout=60) for _ in processes]
+        for process in processes:
+            process.join(timeout=30)
+            assert process.exitcode == 0
+
+        (first_dir, first_version), (second_dir, second_version) = opened
+        assert first_dir != second_dir
+        assert sorted([first_version, second_version]) == [1, 2]
+        assert os.path.isdir(first_dir) and os.path.isdir(second_dir)
 
 
 class TestRunVersions:

@@ -224,6 +224,9 @@ _SLIM_KEYS = (
     # The run's ordinal - the 'v5' the gallery labels its files with - so
     # the caller can name the run it just waited on without another call
     "run_version",
+    # The card it ran on - 'cuda:1 NVIDIA GeForce RTX 3090' - so a slow run
+    # can be told apart from a run on the slower card
+    "device",
     "queue_position",
     "warnings",
     "error",

@@ -1,5 +1,7 @@
 """dw.serve's argument handling, without starting uvicorn."""
 
+import os
+
 import pytest
 
 
@@ -94,3 +96,134 @@ def test_shutdown_has_a_grace_period_so_an_open_mcp_connection_cannot_block_it(s
     streamable-HTTP MCP client to disconnect."""
     calls = serve()
     assert calls["uvicorn"]["timeout_graceful_shutdown"] == 5
+
+
+@pytest.fixture
+def two_cards(monkeypatch):
+    """A box with two CUDA cards, whatever the machine running the test has."""
+    import torch
+
+    names = {0: "NVIDIA GeForce RTX 4090", 1: "NVIDIA GeForce RTX 3090"}
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda index=0: names[index])
+
+
+@pytest.fixture
+def settings_devices(monkeypatch):
+    """Sets what the `devices` setting holds."""
+    import importlib
+    import types
+
+    # `dw.settings` the attribute is a Settings instance; the module is
+    # what configure_devices imports load_settings from
+    settings_module = importlib.import_module("dw.settings")
+
+    def set_value(value):
+        monkeypatch.setattr(
+            settings_module,
+            "load_settings",
+            lambda: types.SimpleNamespace(devices=value),
+        )
+
+    set_value(None)
+    return set_value
+
+
+class TestResolveServeDevices:
+    def test_two_entries_are_refused_with_a_message_to_name_one_card(self, two_cards):
+        from dw.devices import DeviceConfigError, resolve_serve_devices
+
+        with pytest.raises(DeviceConfigError, match="name one card"):
+            resolve_serve_devices("cuda:0,cuda:1", None)
+
+    def test_a_card_the_machine_lacks_is_refused_naming_the_cards_present(
+        self, two_cards
+    ):
+        from dw.devices import DeviceConfigError, resolve_serve_devices
+
+        with pytest.raises(DeviceConfigError) as refusal:
+            resolve_serve_devices("cuda:7", None)
+        message = str(refusal.value)
+        assert "cuda:0 (NVIDIA GeForce RTX 4090)" in message
+        assert "cuda:1 (NVIDIA GeForce RTX 3090)" in message
+
+    @pytest.mark.parametrize("value", [None, ""])
+    def test_naming_nothing_is_none(self, value):
+        from dw.devices import resolve_serve_devices
+
+        assert resolve_serve_devices(value, None) is None
+        assert resolve_serve_devices(value, "") is None
+
+    def test_a_present_card_is_returned(self, two_cards):
+        from dw.devices import resolve_serve_devices
+
+        assert resolve_serve_devices("cuda:1", None) == ["cuda:1"]
+
+    def test_the_cli_value_wins_over_the_setting(self, two_cards):
+        from dw.devices import resolve_serve_devices
+
+        assert resolve_serve_devices("cuda:1", "cuda:0") == ["cuda:1"]
+
+    def test_the_setting_is_used_when_the_cli_names_nothing(self, two_cards):
+        from dw.devices import resolve_serve_devices
+
+        assert resolve_serve_devices(None, "cuda:0") == ["cuda:0"]
+
+
+class TestConfigureDevices:
+    def test_a_refusal_exits_with_code_2(
+        self, two_cards, settings_devices, monkeypatch, capsys
+    ):
+        import types
+
+        from dw.serve import configure_devices
+
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
+        with pytest.raises(SystemExit) as exit_info:
+            configure_devices(types.SimpleNamespace(devices="cuda:7"))
+        assert exit_info.value.code == 2
+        assert "cuda:1 (NVIDIA GeForce RTX 3090)" in capsys.readouterr().err
+        assert "DW_DEVICE" not in os.environ
+
+    def test_success_sets_dw_device(self, two_cards, settings_devices, monkeypatch):
+        import types
+
+        from dw.serve import configure_devices
+
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
+        configure_devices(types.SimpleNamespace(devices="cuda:1"))
+        assert os.environ["DW_DEVICE"] == "cuda:1"
+
+    def test_the_setting_is_used_when_the_flag_is_absent(
+        self, two_cards, settings_devices, monkeypatch
+    ):
+        import types
+
+        from dw.serve import configure_devices
+
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
+        settings_devices("cuda:0")
+        configure_devices(types.SimpleNamespace(devices=None))
+        assert os.environ["DW_DEVICE"] == "cuda:0"
+
+    def test_naming_nothing_leaves_dw_device_alone(self, settings_devices, monkeypatch):
+        import types
+
+        from dw.serve import configure_devices
+
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
+        configure_devices(types.SimpleNamespace(devices=None))
+        assert "DW_DEVICE" not in os.environ
