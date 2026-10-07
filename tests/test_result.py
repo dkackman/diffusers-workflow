@@ -1526,6 +1526,19 @@ class TestSegmentBackedSave:
 
         assert list(tmp_path.glob("segment-*.mp4")) == []
 
+    def test_the_saved_artifact_is_the_frames_not_the_deleted_segments(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        artifact = AudioVideo(frames, None, None)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(artifact)
+
+        result.save(str(tmp_path), "final")
+
+        downstream = result.get_artifacts()[0].frames
+        assert len(downstream) == 7
+        assert len(list(downstream)) == 7
+        assert downstream[0].size == (16, 16)
+
     def test_audio_is_muxed_into_the_streamed_video(self, tmp_path):
         import av
 

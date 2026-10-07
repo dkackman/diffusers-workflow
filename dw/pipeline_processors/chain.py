@@ -30,10 +30,12 @@ import logging
 import math
 import os
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy
 import torch
+from PIL import Image
 from diffusers.utils import encode_video, is_av_available
 
 from .. import empty_device_cache
@@ -212,6 +214,41 @@ class SegmentedFrames:
             except FileNotFoundError:
                 pass
         self.cleaned = True
+
+
+class SavedFrames(Sequence):
+    """The frames of a chain's finished video, read back from the file it saved.
+
+    Once SegmentedFrames.cleanup() has removed the segment files, a later step
+    that names the chain's result (previous_result:) gets these instead: a
+    frame sequence - length is the frame count - decoded from the final file
+    the first time a frame is asked for, so a chain nobody consumes never pays
+    for the decode.
+    """
+
+    def __init__(self, path, count=None, cleaned=True):
+        self.path = path
+        self._count = count
+        self._frames = None
+        # Result.retainable: the segment files this replaced are gone, and a
+        # cache entry must not outlive the file this one reads
+        self.cleaned = cleaned
+
+    def _load(self):
+        if self._frames is None:
+            from ..media import decode_rgb_frames
+
+            self._frames = [Image.fromarray(f) for f in decode_rgb_frames(self.path)]
+            self._count = len(self._frames)
+        return self._frames
+
+    def __len__(self):
+        if self._count is None:
+            self._load()
+        return self._count
+
+    def __getitem__(self, index):
+        return self._load()[index]
 
 
 class SegmentSpill:

@@ -811,7 +811,16 @@ class Result:
                 audio_sample_rate=sample_rate if audio is not None else None,
                 video_chunks_number=len(artifact.frames),
             )
-            artifact.frames.cleanup()
+            segmented = artifact.frames
+            segmented.cleanup()
+            # A later step naming this result reads the saved file back as
+            # frames: the segment files are gone (or not the whole video) and
+            # len(segmented) is the segment count, not the frame count
+            from .pipeline_processors.chain import SavedFrames
+
+            artifact.frames = SavedFrames(
+                output_path, segmented.frame_count, segmented.cleaned
+            )
             return
 
         reason = None
