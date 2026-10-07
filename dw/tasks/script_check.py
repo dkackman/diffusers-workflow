@@ -756,8 +756,9 @@ def check_script(
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,
-        line_clipped_at_end, speech_where_silent), 'lines' (expected, heard,
-        similarity, start, end, shot), 'discarded' (guarded words with their
+        line_clipped_at_end, speech_where_silent, speech_in_silent_shot),
+        'lines' (expected, heard, similarity, start, end, shot), 'shots'
+        (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
         level and reason), 'unmatched' (heard words aligned to no line), 'transcript',
         'model_name', 'rules_applied', 'rules_skipped' and the 'thresholds'
         used.

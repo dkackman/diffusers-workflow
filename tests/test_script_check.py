@@ -5,6 +5,7 @@ model is loaded. `check_script()` itself runs with `transcribe_audio` patched.
 """
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy
@@ -19,7 +20,11 @@ from dw.tasks.script_check import (
     guard_words,
     line_similarity,
     normalize_words,
+    overlapping_shot,
     parse_lines,
+    parse_shots,
+    shot_names_error,
+    shot_spans,
     strip_markup,
     tail_level,
     word_level,
@@ -51,11 +56,19 @@ def words(text, start=0.0, step=0.5, length=0.4):
     ]
 
 
-def run(lines, chunks, mono=None, similarity=0.85):
+def run(lines, chunks, mono=None, similarity=0.85, spans=None, shots_source="none"):
     if mono is None:
         end = max((c["end"] for c in chunks), default=1.0)
         mono = voiced(end + 1.0)
-    return check(parse_lines(lines), chunks, mono, RATE, similarity)
+    return check(
+        parse_lines(lines),
+        chunks,
+        mono,
+        RATE,
+        similarity,
+        spans=spans,
+        shots_source=shots_source,
+    )
 
 
 def rules(answer, name):
@@ -101,8 +114,8 @@ class TestParseLines(unittest.TestCase):
         self.assertEqual(
             parsed,
             [
-                {"text": "Hello", "tokens": ["cutoff"]},
-                {"text": "World", "tokens": ["s1"]},
+                {"text": "Hello", "tokens": ["cutoff"], "shot": None},
+                {"text": "World", "tokens": ["s1"], "shot": None},
             ],
         )
 
@@ -355,8 +368,10 @@ class TestCheckAlignment(unittest.TestCase):
         self.assertEqual(answer["unmatched"], [])
         self.assertEqual(answer["rules_applied"], list(script_check.LINE_RULES))
         self.assertEqual(
-            [s["rule"] for s in answer["rules_skipped"]], ["speech_where_silent"]
+            [s["rule"] for s in answer["rules_skipped"]],
+            ["speech_where_silent", "speech_in_silent_shot"],
         )
+        self.assertTrue(all(s["reason"] for s in answer["rules_skipped"]))
 
     def test_dropped_line_is_a_mismatch_at_previous_line_end(self):
         chunks = words("alpha bravo charlie", 0.0) + words("golf hotel india", 5.0)
@@ -493,7 +508,7 @@ class TestEmptyLines(unittest.TestCase):
         self.assertEqual(answer["rules_applied"], ["speech_where_silent"])
         self.assertEqual(
             [s["rule"] for s in answer["rules_skipped"]],
-            list(script_check.LINE_RULES),
+            list(script_check.LINE_RULES + script_check.SHOT_RULES),
         )
         self.assertEqual(answer["lines"], [])
 
@@ -544,6 +559,359 @@ class TestCheckScriptTask(unittest.TestCase):
         self.assertEqual(answer["transcript"], " hello there")
         self.assertEqual(answer["findings"], [])
         self.assertEqual(answer["lines"][0]["similarity"], 1.0)
+
+
+SHOTS = [
+    {"name": "A", "start": 0.0, "end": 3.0},
+    {"name": "B", "start": 3.0, "end": 6.0},
+]
+
+
+def shot_run(lines, chunks, mono=None, spans=SHOTS, source="argument"):
+    if mono is None:
+        mono = voiced(6.0)
+    return run(lines, chunks, mono, spans=spans, shots_source=source)
+
+
+def skipped(answer, name):
+    return [s for s in answer["rules_skipped"] if s["rule"] == name]
+
+
+class TestShotPlacement(unittest.TestCase):
+    def test_tagged_lines_carry_their_shot(self):
+        chunks = words("alpha bravo", 0.0) + words("delta echo", 3.5)
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "A"}, {"text": "delta echo", "shot": "B"}],
+            chunks,
+        )
+        self.assertEqual([x["shot"] for x in answer["lines"]], ["A", "B"])
+        self.assertEqual(answer["findings"], [])
+
+    def test_untagged_lines_take_the_shot_their_words_overlap_most(self):
+        chunks = words("alpha bravo", 0.0) + words("delta echo", 3.5)
+        answer = shot_run(["alpha bravo", "delta echo"], chunks)
+        self.assertEqual([x["shot"] for x in answer["lines"]], ["A", "B"])
+
+    def test_no_spans_leaves_shot_none(self):
+        answer = run(["alpha bravo"], words("alpha bravo"))
+        self.assertIsNone(answer["lines"][0]["shot"])
+        self.assertIsNone(answer["shots"])
+        self.assertEqual(answer["shots_source"], "none")
+
+    def test_overlapping_shot(self):
+        self.assertEqual(overlapping_shot(SHOTS, 2.0, 4.5), "B")
+        self.assertEqual(overlapping_shot(SHOTS, 2.0, 3.5), "A")
+        self.assertEqual(overlapping_shot(SHOTS, 3.5, 3.5), "B")
+        self.assertIsNone(overlapping_shot(SHOTS, 7.0, 8.0))
+
+    def test_answer_reports_rounded_shots_and_source(self):
+        spans = [{"name": "A", "start": 0.123456, "end": 2.98765}]
+        answer = shot_run(["alpha"], words("alpha"), spans=spans, source="artifact")
+        self.assertEqual(answer["shots"], [{"name": "A", "start": 0.123, "end": 2.988}])
+        self.assertEqual(answer["shots_source"], "artifact")
+
+    def test_dropped_line_in_a_known_shot_is_at_the_shots_start(self):
+        answer = shot_run(
+            [
+                {"text": "alpha bravo", "shot": "A"},
+                {"text": "delta echo", "shot": "B"},
+            ],
+            words("alpha bravo", 0.0),
+        )
+        found = rules(answer, "line_mismatch")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["at"]["line"], 1)
+        self.assertEqual(found[0]["at"]["seconds"], 3.0)
+        self.assertEqual(found[0]["at"]["shot"], "B")
+
+
+class TestSpeechInSilentShot(unittest.TestCase):
+    LINES = [{"text": "alpha bravo", "shot": "A"}]
+
+    def test_voiced_words_in_an_unnamed_shot_are_one_finding(self):
+        chunks = words("alpha bravo", 0.0) + words("zulu yankee xray", 3.5)
+        answer = shot_run(self.LINES, chunks)
+        found = rules(answer, "speech_in_silent_shot")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["at"]["shot"], "B")
+        self.assertEqual(found[0]["value"], 3)
+        self.assertIn("speech_in_silent_shot", answer["rules_applied"])
+        self.assertEqual(skipped(answer, "speech_in_silent_shot"), [])
+
+    def test_a_shot_a_line_names_gets_no_finding(self):
+        chunks = words("alpha bravo", 0.0) + words("delta echo", 3.5)
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "A"}, {"text": "delta echo", "shot": "B"}],
+            chunks,
+        )
+        self.assertEqual(rules(answer, "speech_in_silent_shot"), [])
+
+    def test_silent_unnamed_shot_has_no_finding(self):
+        answer = shot_run(self.LINES, words("alpha bravo", 0.0))
+        self.assertEqual(rules(answer, "speech_in_silent_shot"), [])
+        self.assertIn("speech_in_silent_shot", answer["rules_applied"])
+
+    def test_words_over_silence_in_an_unnamed_shot_are_not_found(self):
+        mono = numpy.concatenate([voiced(3.0), silent(3.0)])
+        chunks = words("alpha bravo", 0.0) + words("zulu yankee", 3.5)
+        answer = shot_run(self.LINES, chunks, mono)
+        self.assertEqual(rules(answer, "speech_in_silent_shot"), [])
+
+    def test_skipped_without_spans(self):
+        for source in ("none", "argument"):
+            with self.subTest(source=source):
+                answer = run(
+                    self.LINES, words("alpha bravo"), spans=None, shots_source=source
+                )
+                self.assertNotIn("speech_in_silent_shot", answer["rules_applied"])
+                (skip,) = skipped(answer, "speech_in_silent_shot")
+                self.assertTrue(skip["reason"])
+
+    def test_reason_names_the_shots_the_lines_name_when_none_are_known(self):
+        answer = run(self.LINES, words("alpha bravo"))
+        (skip,) = skipped(answer, "speech_in_silent_shot")
+        self.assertIn("'A'", skip["reason"])
+
+    def test_skipped_when_no_line_names_a_shot(self):
+        answer = shot_run(["alpha bravo"], words("alpha bravo"))
+        self.assertNotIn("speech_in_silent_shot", answer["rules_applied"])
+        (skip,) = skipped(answer, "speech_in_silent_shot")
+        self.assertIn("no line names", skip["reason"])
+
+
+class TestClippedAtShotEnd(unittest.TestCase):
+    LINES = [{"text": "hello world", "shot": "A"}]
+
+    def test_loud_shot_end_clips_the_line_with_its_shot(self):
+        chunks = [
+            {"start": 0.5, "end": 0.9, "text": " hello"},
+            {"start": 2.5, "end": 2.9, "text": " world"},
+        ]
+        answer = shot_run(self.LINES, chunks)
+        found = rules(answer, "line_clipped_at_end")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["at"]["shot"], "A")
+        self.assertEqual(found[0]["at"]["line"], 0)
+
+    def test_quiet_tail_at_the_shot_end_is_not_clipped(self):
+        mono = numpy.concatenate([voiced(2.7), silent(3.3)])
+        chunks = [
+            {"start": 0.5, "end": 0.9, "text": " hello"},
+            {"start": 2.4, "end": 2.7, "text": " world"},
+        ]
+        answer = shot_run(self.LINES, chunks, mono)
+        self.assertEqual(rules(answer, "line_clipped_at_end"), [])
+
+    def test_file_end_clipping_still_works_without_spans(self):
+        chunks = [
+            {"start": 0.5, "end": 0.9, "text": " hello"},
+            {"start": 1.6, "end": 1.95, "text": " world"},
+        ]
+        answer = run(["hello world"], chunks, voiced(2.0))
+        found = rules(answer, "line_clipped_at_end")
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("shot", found[0]["at"])
+
+
+class TestShotSpans(unittest.TestCase):
+    def test_sample_span_is_preferred_over_frames(self):
+        records = [
+            {
+                "name": "A",
+                "start_sample": RATE,
+                "num_samples": 2 * RATE,
+                "start_frame": 240,
+                "num_frames": 240,
+            }
+        ]
+        self.assertEqual(
+            shot_spans(records, RATE, 24, 10.0),
+            [{"name": "A", "start": 1.0, "end": 3.0}],
+        )
+
+    def test_frames_over_fps_is_the_fallback(self):
+        records = [{"name": "A", "start_frame": 24, "num_frames": 48}]
+        self.assertEqual(
+            shot_spans(records, RATE, 24, 10.0),
+            [{"name": "A", "start": 1.0, "end": 3.0}],
+        )
+
+    def test_none_when_a_record_cannot_be_placed(self):
+        records = [
+            {"name": "A", "start_sample": 0, "num_samples": RATE},
+            {"name": "B"},
+        ]
+        self.assertIsNone(shot_spans(records, RATE, 24, 10.0))
+        self.assertIsNone(
+            shot_spans(
+                [{"name": "A", "start_frame": 0, "num_frames": 5}], RATE, None, 1
+            )
+        )
+
+    def test_clamped_to_duration(self):
+        records = [
+            {"name": "A", "start_sample": 2 * RATE, "num_samples": 4 * RATE},
+            {"name": "B", "start_sample": 5 * RATE, "num_samples": RATE},
+        ]
+        spans = shot_spans(records, RATE, None, 3.0)
+        self.assertEqual(spans[0], {"name": "A", "start": 2.0, "end": 3.0})
+        self.assertEqual(spans[1], {"name": "B", "start": 3.0, "end": 3.0})
+
+
+class TestShotValidation(unittest.TestCase):
+    RECORDS = [{"name": "A"}, {"name": "B"}]
+
+    def test_unknown_shot_is_refused_listing_the_known(self):
+        message = shot_names_error(
+            parse_lines([{"text": "x", "shot": "C"}]), self.RECORDS
+        )
+        self.assertIn("'C'", message)
+        self.assertIn("'A'", message)
+        self.assertIn("'B'", message)
+
+    def test_duplicate_names_a_line_names_are_refused(self):
+        records = [{"name": "A"}, {"name": "A"}]
+        message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
+        self.assertIn("2 times", message)
+
+    def test_known_names_and_untagged_lines_pass(self):
+        lines = parse_lines([{"text": "x", "shot": "B"}, "y"])
+        self.assertIsNone(shot_names_error(lines, self.RECORDS))
+
+    def test_parse_shots(self):
+        self.assertIsNone(parse_shots(None))
+        self.assertIsNone(parse_shots([]))
+        self.assertEqual(parse_shots([{"name": "A"}]), [{"name": "A"}])
+        for bad in (
+            "A",
+            {"name": "A"},
+            [{"start": 0}],
+            [{"name": ""}],
+            [{"name": 3}],
+            ["A"],
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError) as caught:
+                    parse_shots(bad)
+                self.assertIn("shots", str(caught.exception))
+
+    def test_parse_lines_shot_validation(self):
+        self.assertEqual(parse_lines([{"text": "x", "shot": "A"}])[0]["shot"], "A")
+        for bad in (
+            [{"text": "x", "shot": ""}],
+            [{"text": "x", "shot": 3}],
+            [{"text": "x", "shot": "  "}],
+            [{"text": "x", "shot": "A", "extra": 1}],
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    parse_lines(bad)
+
+
+class TestShotLinesErrors(unittest.TestCase):
+    def test_line_naming_an_absent_literal_shot(self):
+        errors = script_lines_errors(
+            {
+                "lines": [{"text": "x", "shot": "C"}],
+                "shots": [{"name": "A"}, {"name": "B"}],
+            }
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0][0], "lines")
+        self.assertIn("'A'", errors[0][1])
+        self.assertIn("'B'", errors[0][1])
+
+    def test_bad_literal_shots(self):
+        errors = script_lines_errors({"lines": ["x"], "shots": [{"start": 0}]})
+        self.assertEqual([e[0] for e in errors], ["shots"])
+
+    def test_reference_shots_are_left_alone(self):
+        for ref in ("variable:x", "previous_result:y"):
+            with self.subTest(ref=ref):
+                self.assertEqual(
+                    script_lines_errors(
+                        {"lines": [{"text": "x", "shot": "C"}], "shots": ref}
+                    ),
+                    [],
+                )
+
+    def test_matching_literal_shots_pass(self):
+        self.assertEqual(
+            script_lines_errors(
+                {"lines": [{"text": "x", "shot": "A"}], "shots": [{"name": "A"}]}
+            ),
+            [],
+        )
+
+
+RECORDS = [
+    {"name": "A", "start_sample": 0, "num_samples": 3 * RATE},
+    {"name": "B", "start_sample": 3 * RATE, "num_samples": 3 * RATE},
+]
+
+
+def take(shots=RECORDS):
+    return SimpleNamespace(
+        audio=voiced(6.0)[numpy.newaxis, :], sample_rate=RATE, fps=24, shots=shots
+    )
+
+
+CANNED = {
+    "text": " alpha bravo zulu",
+    "chunks": words("alpha bravo", 0.0) + words("zulu", 3.5),
+}
+TAGGED = [{"text": "alpha bravo", "shot": "A"}]
+
+
+class TestCheckScriptShots(unittest.TestCase):
+    def call(self, audio, lines=TAGGED, **kwargs):
+        with patch(
+            "dw.tasks.audio_transcription.transcribe_audio", return_value=CANNED
+        ) as transcribe:
+            return check_script(audio, lines, **kwargs), transcribe
+
+    def test_shots_resolve_from_the_artifact(self):
+        answer, _ = self.call(take())
+        self.assertEqual(answer["shots_source"], "artifact")
+        self.assertEqual([s["name"] for s in answer["shots"]], ["A", "B"])
+        self.assertEqual(answer["lines"][0]["shot"], "A")
+        found = rules(answer, "speech_in_silent_shot")
+        self.assertEqual([f["at"]["shot"] for f in found], ["B"])
+
+    def test_explicit_shots_argument_wins(self):
+        explicit = [{"name": "A", "start_sample": 0, "num_samples": 6 * RATE}]
+        answer, _ = self.call(take(), shots=explicit)
+        self.assertEqual(answer["shots_source"], "argument")
+        self.assertEqual([s["name"] for s in answer["shots"]], ["A"])
+
+    def test_unknown_shot_is_refused_before_transcription(self):
+        with patch("dw.tasks.audio_transcription.transcribe_audio") as transcribe:
+            with self.assertRaises(ValueError) as caught:
+                check_script(take(), [{"text": "x", "shot": "C"}])
+        self.assertIn("'A'", str(caught.exception))
+        self.assertIn("'B'", str(caught.exception))
+        transcribe.assert_not_called()
+
+    def test_path_resolves_shots_from_the_manifest(self):
+        with (
+            patch(
+                "dw.tasks.audio_utils.load_audio",
+                return_value=(voiced(6.0)[numpy.newaxis, :], RATE),
+            ),
+            patch("dw.locations.validate_media_path", return_value="take.wav"),
+            patch("dw.runs.shots_beside", return_value=RECORDS) as beside,
+        ):
+            answer, _ = self.call("take.wav")
+        beside.assert_called_once_with("take.wav")
+        self.assertEqual(answer["shots_source"], "manifest")
+        self.assertEqual(answer["lines"][0]["shot"], "A")
+
+    def test_shotless_take_skips_the_shot_rule_with_a_reason(self):
+        answer, _ = self.call(take(shots=None))
+        self.assertEqual(answer["shots_source"], "none")
+        self.assertIsNone(answer["shots"])
+        (skip,) = skipped(answer, "speech_in_silent_shot")
+        self.assertIn("'A'", skip["reason"])
 
 
 if __name__ == "__main__":
