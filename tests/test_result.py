@@ -1539,6 +1539,22 @@ class TestSegmentBackedSave:
         assert len(list(downstream)) == 7
         assert downstream[0].size == (16, 16)
 
+    def test_the_saved_artifact_can_be_encoded_again_downstream(self, tmp_path):
+        import av
+
+        frames = self.make_segments(tmp_path)
+        first = Result({"content_type": "video/mp4", "fps": 4})
+        first.add_result(AudioVideo(frames, None, None))
+        first.save(str(tmp_path), "final")
+
+        audio = numpy.zeros((2, int(7 / 4 * 8000)), dtype=numpy.float32)
+        again = Result({"content_type": "video/mp4", "fps": 4})
+        again.add_result(AudioVideo(first.get_artifacts()[0].frames, audio, 8000))
+        again.save(str(tmp_path), "second")
+
+        with av.open(str(tmp_path / "second-0.0.mp4")) as container:
+            assert container.streams.video[0].frames == 7
+
     def test_audio_is_muxed_into_the_streamed_video(self, tmp_path):
         import av
 

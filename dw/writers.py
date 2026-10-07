@@ -10,6 +10,7 @@ patch targets are looked up.
 import json
 import logging
 import os
+from collections.abc import Sequence
 
 import numpy
 import soundfile
@@ -107,6 +108,10 @@ def frames_for_encoding(frames):
     result through a `previous_result:` reference, and the step cache
     retains it.
     """
+    if isinstance(frames, Sequence) and not isinstance(frames, (list, str)):
+        # A lazy frame sequence (a saved chain read back): encode_video only
+        # takes a real list of images, a tensor or an iterator of chunks
+        return list(frames)
     if not isinstance(frames, numpy.ndarray) or frames.size == 0:
         return frames
     if not numpy.issubdtype(frames.dtype, numpy.floating):
