@@ -134,6 +134,18 @@ On lem (RTX 3090), the estimate was 14.5 min and the run took 15.8 min (job
 - **Stems (#604)** become an optional input to `music-video-cuts` once they
   land. **#598 (audio-hold)** is orthogonal.
 
+## Fix-forward: #665, the render rule in the skill
+
+The feature's final check failed one docs bullet, C-F328's: neither
+`minimax-h3` `SKILL.md` nor `references/cuts.md` stated how to size an
+entry's `num_frames` when `lead_frames + cut_frames` is off the grid. The
+rule lived only in the tasks guide's `plan_cuts` section. It was a build
+miss in stage C's skill text, not a gap in the plan, so it was filed as
+fix-forward stage #665 with C-F328 as its acceptance. #665 added the rule,
+`num_frames = max(124, next 17n+5 >= lead + cut)` (split past 345), to both
+files with worked numbers (commit `6803a199`, merged as `f0f0411a`). It was
+plugin-only, so no deploy, and C-F328 passed in full on re-verify.
+
 ## Cost
 
 The stage comments carry no `usage:` figures, so no cost is recorded. The
@@ -146,3 +158,4 @@ plan estimated about $7 for C.
 | A #625 | 3 tester, then a reopen | C-F208's room-tone arm read as a confident pulse. Bounce 2's fix (`cb04ee98`, a periodicity/salience gate) regressed a real song. The stage was reopened and refixed (`cbf614a6`), and C-F208 arm 2 was rewritten onto a true noise bed. |
 | B #626 | 1 tester | C-F218: the plan stopped at the last lyric instead of the song's end. Smaller misses in C-F213, C-F215 and C-F212. One hand-off was also parked with Don because a dirty tree in the shared checkout (from stage A) tripped the gate. |
 | C #627 | 1 architecture, 1 tester | Architecture: `cuts.py` re-derived the frame grid that `dw/variable_constraints.py` owns. Tester: C-F220, `trim_video` wrote no shots metadata on a clip with no shots record. |
+| C fix-forward #665 | none | Filed from the final check's C-F328 failure (render rule missing from the skill); verified first time. |
