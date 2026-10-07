@@ -252,9 +252,10 @@ def _whole_file_shot(media):
     }
 
 
-def _sample_span(shot, media):
+def sample_span(shot, media):
     """A shot's (start, count, source) on the soundtrack: recorded, else
-    derived from its frames."""
+    derived from its frames. `media` needs only `fps` and `sample_rate`;
+    `check_script` places its shots with this too."""
     start = shot.get("start_sample")
     count = shot.get("num_samples")
     if start is not None and count is not None:
@@ -483,7 +484,7 @@ def shots_answer(media, records, source):
 
     measured = []
     for shot in records:
-        start, count, samples_source = _sample_span(shot, media)
+        start, count, samples_source = sample_span(shot, media)
         window = _clip(media, start, start + count) if start is not None else None
         peak = _db(dsp.peak(window))
         rms = _db(dsp.rms(window))
@@ -562,7 +563,7 @@ def _band_shares(window, sample_rate):
 
 def _shot_rms(media, shot):
     """A shot's RMS level over its whole sample span, in dBFS, or None."""
-    start, count, _source = _sample_span(shot, media)
+    start, count, _source = sample_span(shot, media)
     if start is None:
         return None
     return _db(dsp.rms(_clip(media, start, start + count)))
@@ -727,7 +728,7 @@ def seams_answer(media, records, source):
             record["crossfade_ms"] = shot["crossfade_ms"]
         skip = set()
         if media.audio is not None and media.sample_rate:
-            start, _count, _source = _sample_span(shot, media)
+            start, _count, _source = sample_span(shot, media)
             if start is not None:
                 fade_samples = (
                     int(round(fade / media.fps * media.sample_rate))
