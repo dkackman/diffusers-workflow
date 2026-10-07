@@ -11,7 +11,8 @@ manifest entry carries them, and `get_gallery_metadata` reads them back.
 A shot is a dict:
 
 - `name` - which input it was: `shot@<key>` when the step named a `for_each`
-  member, else the path it was given, else `video N` / `segment N`
+  member, else the path it was given, else `video N` / `segment N`; a member
+  that nested several shots qualifies theirs: `shot@<key>: segment N` (#670)
 - `start_frame`, `num_frames` - its place on the joined picture. The shots
   partition the frames: the counts add up to the file's frame count
 - `start_sample`, `num_samples` - its place on the joined track, *measured*
@@ -337,6 +338,11 @@ def named_shots(shots, names):
         name = names[index] if names and index < len(names) else None
         if name and counts.get(index) == 1:
             entry["name"] = name
+        elif name and "@" in name:
+            # a for_each member that nested several shots of its own: keep
+            # theirs, qualified by the member so two members' inner shots
+            # do not collide (#670)
+            entry["name"] = f"{name}: {entry['name']}"
         renamed.append(entry)
     return renamed
 

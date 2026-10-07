@@ -255,6 +255,36 @@ class TestConcatVideosShots:
         # previous_result reference at position 1 is renamed
         assert [shot["name"] for shot in named] == ["video 1", "shot2d"]
 
+    def test_for_each_member_with_inner_shots_qualifies_their_names(self):
+        """A member that nested several shots keeps their names, prefixed with
+        the member's, so two chained members do not collide (#670)."""
+        chain_a = concat_videos([audio_video(4, 1), audio_video(4, 2)], fps=4)
+        chain_b = concat_videos([audio_video(4, 3), audio_video(4, 4)], fps=4)
+        for shots, name in ((chain_a.shots, "segment"), (chain_b.shots, "segment")):
+            for number, shot in enumerate(shots, 1):
+                shot["name"] = f"{name} {number}"
+        joined = concat_videos([chain_a, chain_b, audio_video(4, 5)], fps=4)
+
+        named = named_shots(
+            joined.shots,
+            shot_reference_names(
+                [
+                    "previous_result:scene@a.frames",
+                    "previous_result:scene@b.frames",
+                    "previous_result:scene@c.frames",
+                ]
+            ),
+        )
+
+        names = [shot["name"] for shot in named]
+        assert names == [
+            "scene@a: segment 1",
+            "scene@a: segment 2",
+            "scene@b: segment 1",
+            "scene@b: segment 2",
+            "scene@c",
+        ]
+
     def test_no_audio_input_leaves_sample_fields_none(self):
         result = concat_videos([frames(4), frames(3)])
 
