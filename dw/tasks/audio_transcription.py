@@ -190,8 +190,9 @@ def _speech_runs(mono):
 
 
 def _chunk_ends(raw_chunks):
+    """Each chunk's end; an open-ended one (audio stopped inside it) ends at infinity."""
     spans = (c.get("timestamp") or (None, None) for c in raw_chunks)
-    return [end for _, end in spans if end is not None]
+    return [float("inf") if end is None else end for _, end in spans]
 
 
 def _with_resumed_tail(pipe, samples, result, options):

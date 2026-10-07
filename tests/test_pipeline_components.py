@@ -672,9 +672,7 @@ class TestAudiosSampleRate:
         from dw.pipeline_processors.pipeline import attach_audio_sample_rate
 
         pipeline = self._pipeline(
-            vocoder=SimpleNamespace(
-                config=SimpleNamespace(output_sampling_rate=24000)
-            ),
+            vocoder=SimpleNamespace(config=SimpleNamespace(output_sampling_rate=24000)),
             audio_vae=SimpleNamespace(config=SimpleNamespace(sample_rate=16000)),
         )
         output = SimpleNamespace(audio=[0.0, 0.0])

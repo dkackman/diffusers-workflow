@@ -147,9 +147,7 @@ class TestDiffusersUpdaterRunFn:
         assert "out1" in result.stdout and "out2" in result.stdout
         assert "err1" in result.stderr and "err2" in result.stderr
 
-    def test_a_failed_git_install_stops_before_the_dependency_pass(
-        self, monkeypatch
-    ):
+    def test_a_failed_git_install_stops_before_the_dependency_pass(self, monkeypatch):
         from dw.server.updater import DiffusersUpdater
 
         calls = self._fake_run(monkeypatch, returncodes=[1])
