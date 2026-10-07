@@ -625,7 +625,10 @@ class TestKandinsky6Skill:
         from diffusers.schedulers import scheduling_piflow
 
         source = inspect.getsource(scheduling_piflow)
-        assert "if sigmas is not None or mu is not None or timesteps is not None:" in source
+        assert (
+            "if sigmas is not None or mu is not None or timesteps is not None:"
+            in source
+        )
         assert "refuses custom sigmas" in skill_text(KANDINSKY6_SKILL)
 
     def test_the_schedule_the_skill_states_is_the_one_the_templates_run(self):
@@ -649,7 +652,11 @@ class TestKandinsky6Skill:
         source = inspect.getsource(pipeline_kandinsky6_sr)
         assert "if resolution_scale not in (2, 2.25, 4):" in source
         path = os.path.join(
-            REPO_ROOT, "workflows", "templates", "kandinsky6", "generate-and-upscale.json"
+            REPO_ROOT,
+            "workflows",
+            "templates",
+            "kandinsky6",
+            "generate-and-upscale.json",
         )
         with open(path, encoding="utf-8") as f:
             upscale = json.load(f)["steps"][1]["pipeline"]
