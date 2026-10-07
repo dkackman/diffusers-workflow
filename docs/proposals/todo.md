@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Script-adherence check: `check_script` and `templates/check-script`**
+  (#609, stages #643-#645), shipped 2026-10-07. A take's transcript aligned
+  to its expected lines, with shot-aware findings; the by-eye transcript
+  check is retired from the loop and the skills. Record, including what was
+  not built (an `assess_output` input, a wider per-shot clip rule):
+  `complete/check-script-complete.md`.
+
 - **H3 dialogue rules: probes and `minimax-h3/references/dialogue.md`**
   (#608, stages #640-#642), shipped 2026-10-07. Fifteen probe rows on lem
   (`audits/2026-10-h3-dialogue-probes.md`); one H3 rule confirmed, plus a
