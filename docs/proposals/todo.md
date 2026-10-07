@@ -41,6 +41,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Overlap windowing for long video sources: `window_video`,
+  `join_windows` and `templates/ltx2/restore-long`** (#601, stages #628-#630
+  and #658), shipped 2026-10-06. Record, including what was deferred (the H3
+  grid, per-window audio, long refine/upscale templates, with their
+  triggers): `complete/overlap-windowing-complete.md`.
+
 - **Music-video timing stack: `analyze_beats`, `plan_cuts` and
   pad-then-trim shots** (#600, stages #625-#627), shipped 2026-10-06. Record,
   including what was deferred (per-shot `kind`/`singer`, stage D, and Q4's
