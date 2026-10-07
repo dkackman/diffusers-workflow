@@ -19,7 +19,7 @@ the effect, and **inconclusive** when the seeds disagree.
 
 | # | Rule (as stated on #608) | Verdict | Jobs | Observation |
 | --- | --- | --- | --- | --- |
-| 1 | "about 2.6 words/s … leaving about 1 s of tail. H3 stretches dialogue to fill the clip and clips the last word." | **refuted** (clipping and stretching). The tail is real but usually smaller than 1 s. | be681f38d5a8, 3541c1b0a79c | No word was lost at any written rate from 1.55 to 4.06 words/s at 124 frames (both seeds), or at 2.2 and 4.0 words/s at 345 frames. Short lines aren't stretched: they get a 2–3.4 s silent lead-in and are then spoken fast (5–6 words/s). Tails ran 0.12–1.22 s, median about 0.4 s. See *Probe 1* below. |
+| 1 | "about 2.6 words/s … leaving about 1 s of tail. H3 stretches dialogue to fill the clip and clips the last word." | **refuted** (clipping and stretching). The tail is real but usually smaller than 1 s. | be681f38d5a8, 3541c1b0a79c; timings re-read in ae52011e2f05 | No word was lost at any written rate from 1.55 to 4.06 words/s at 124 frames (both seeds), or at 2.2 and 4.0 words/s at 345 frames. Short lines aren't stretched: they get a 2–3.4 s silent lead-in and are then spoken fast (5–6 words/s). Tails ran 0.09–0.88 s, median about 0.37 s, by word timestamps after #661. See *Probe 1* below. |
 | 2 | "At most one male and one female speaker per scene, or the voices mix." | **refuted** | 04a238ab66d4, 0934c1b76fef | With two men and one woman, both seeds gave each line its own voice: the woman at 222–229 Hz, the two men clearly apart by speaker embedding (cosine about 0, against 0.52–0.55 when one man speaks two lines). The lines were spoken in the right order by the right person. See *Probe 2*. |
 | 3 | "'soft / gentle / whisper / lullaby' in a male line's delivery can flip the voice female." | **refuted** | 6f588db1f043, 3a29df186aac | The voice stayed male on both arms and both seeds, with median pitch 85–103 Hz (a female voice sits around 165–255 Hz). In seed 1001 the soft-delivery wording made the delivery breathier (fewer voiced frames, a wider pitch spread) but not female. See *Probe 3*. |
 | 4 | "Every silent on-screen person needs their own 'lips stay pressed together' sentence." | **refuted** | 04a238ab66d4, 0934c1b76fef | Without the sentence, the silent listener kept her mouth closed on both seeds while the speaker talked. See *Probe 4*. |
@@ -46,39 +46,65 @@ rate". The line is the only thing that changes, and every version ends on
 | l200 | 345 (14.38) | 32 | 2.23 | (two sentences, ends "…so please come home soon, Daniel.") |
 | l400 | 345 | 57 | 3.97 | (five sentences, ends "…and call me, Daniel.") |
 
-Measured from each clip's audio track. *Lead* is the silence before the
-first word. *Tail* is the silence after the last. *Delivered* is words
-divided by the time from the first word to the last.
+Measured from each clip's Whisper word timestamps (`whisper-base`,
+`timestamps: "word"`). The clips were re-transcribed after #661 trimmed word
+bounds to the waveform, in job **ae52011e2f05**: one `transcribe_audio` step
+per clip, on its `output:` mp4. Each transcript is
+`output:H3ProbeRetranscribe/20261007-021100-f34e5281/final/<step>-0.json`,
+and the step is named after the clip (`p1_r150_124` … `p1_l400_345`, with
+`_s2` for seed 2002). *Lead* is the first word's start. *Tail* is the clip
+length (5.167 s, or 14.375 s at 345 frames) minus the end of "Daniel.".
+*Delivered* is words divided by the time from the first word's start to the
+last word's end.
 
-| Run | Lead (s) | Tail (s) | Delivered words/s | Pauses ≥ 0.3 s | Every word, incl. "Daniel"? |
-| --- | --- | --- | --- | --- | --- |
-| r150 s1001 | 3.35 | 0.52 | 6.15 | none | yes |
-| r200 s1001 | 2.10 | 1.22 | 5.41 | none | yes |
-| r260 s1001 | 0.40 | 0.67 | 3.17 | 0.5, 0.6 | yes |
-| r320 s1001 | 0.25 | 0.67 | 4.00 | 0.95 | yes |
-| r400 s1001 | 0.25 | 0.37 | 4.62 | none | yes |
-| l200 s1001 (345 fr) | 0.70 | 0.87 | 2.50 | 0.9, 1.15, 2.1, 1.35 | yes |
-| l400 s1001 (345 fr) | 0.25 | 0.37 | 4.15 | six | yes |
-| r150 s2002 | 3.15 | 0.47 | 5.16 | none | yes |
-| r200 s2002 | 2.15 | 0.12 | 3.45 | 0.9 | yes |
-| r260 s2002 | 1.00 | 0.17 | 3.25 | 1.3 | yes |
-| r320 s2002 | 0.25 | 0.22 | 3.62 | 1.0 | yes |
-| r400 s2002 | 0.25 | 0.12 | 4.37 | none | yes |
+| Run | Lead (s) | Tail (s) | Delivered words/s | Every word, incl. "Daniel"? | Envelope lead / tail (s) | Envelope pauses ≥ 0.3 s |
+| --- | --- | --- | --- | --- | --- | --- |
+| r150 s1001 | 3.38 | 0.47 | 6.06 | yes | 3.35 / 0.52 | none |
+| r200 s1001 | 2.12 | 0.73 | 4.31 | yes | 2.10 / 1.22 | none |
+| r260 s1001 | 0.38 | 0.69 | 3.17 | yes | 0.40 / 0.67 | 0.5, 0.6 |
+| r320 s1001 | 0.26 | 0.49 | 3.85 | yes | 0.25 / 0.67 | 0.95 |
+| r400 s1001 | 0.26 | 0.21 | 4.47 | yes | 0.25 / 0.37 | none |
+| l200 s1001 (345 fr) | 0.70 | 0.88 | 2.50 | yes | 0.70 / 0.87 | 0.9, 1.15, 2.1, 1.35 |
+| l400 s1001 (345 fr) | 0.24 | 0.28 | 4.11 | yes | 0.25 / 0.37 | six |
+| r150 s2002 | 1.94 ("I"); 3.24 ("left") | 0.49 | 2.92 (5.56 from "left") | yes | 3.15 / 0.47 | none |
+| r200 s2002 | 2.16 ("I"); 3.24 ("left") | 0.09 | 3.42 (5.43 from "left") | yes | 2.15 / 0.12 | 0.9 |
+| r260 s2002 | 1.00 | 0.17 | 3.25 | yes | 1.00 / 0.17 | 1.3 |
+| r320 s2002 | 0.28 | 0.11 | 3.56 | yes | 0.25 / 0.22 | 1.0 |
+| r400 s2002 | 0.28 | 0.11 | 4.39 | yes | 0.25 / 0.12 | none |
+
+The last two columns are the first hand-off's measurements from the WAV
+envelope (*Method notes*). They are kept as a cross-check, and the
+transcript figures are the ones C2 declares, since they can be re-read over
+MCP. The two methods agree to within 0.1 s except in three places:
+- **r200 s1001's tail** is 0.73 s by transcript and 1.22 s by envelope. The
+  1.22 was the only tail over 0.9 s, so the corrected range is narrower.
+- **Seed 2002 r150 and r200** start with an isolated "I" (1.94–1.96 s and
+  2.16–2.26 s), then a gap, then the rest of the line from "left" at 3.24 s.
+  In r200 the envelope saw the "I" too (lead 2.15). In r150 it did not (lead
+  3.15), so that "I" is quiet, more than 25 dB below the peak. Rates are
+  given both ways. From "left", both lines are spoken at 5.4–5.6 words/s,
+  like seed 1001's r150.
+- **Some inner words still span a pause** after #661: "please" at
+  10.62–12.26 s in l200, "come" at 2.66–4.20 s in r260 s2002, and "please" at
+  2.26–3.54 s in r320 s2002. Pauses are therefore still taken from the
+  envelope. #661 trims each word's bounds to speech, so lead and tail (the
+  outer edges) are correct.
 
 What this says about the rule:
 - **Clipping: refuted.** All 12 clips speak every word, up to 4.06 written
   words/s at 124 frames and 3.97 at 345 frames. At high rates H3 speeds the
-  delivery up (4.4–4.6 words/s) rather than dropping words.
+  delivery up (4.1–4.5 words/s) rather than dropping words.
 - **"Stretches dialogue to fill the clip": refuted.** A short line isn't
   slowed down. H3 holds silence for 2–3.4 s, then speaks the line fast. A
   mid-length line (2.5 words/s) fills the clip with pauses of 0.5–1.3 s
   between phrases. 2.6 words/s isn't a threshold where anything changes. It
   is roughly where the silent lead-in disappears and phrase pauses start.
-- **Tail: smaller than the rule assumes.** It was 0.12–1.22 s, with a median
-  of about 0.4 s. Above about 3 written words/s the tail was 0.1–0.7 s, yet
+- **Tail: smaller than the rule assumes.** It was 0.09–0.88 s, with a median
+  of about 0.37 s (job ae52011e2f05). Above about 3 written words/s the tail
+  was 0.11–0.49 s, yet
   the last word always finished. A "leave about 1 s" budget is a safety
   margin, not something the model guarantees.
-- **Words/s for C1/C2:** H3 delivered 3.2–4.6 words/s whenever the line was
+- **Words/s for C1/C2:** H3 delivered 3.2–4.5 words/s whenever the line was
   long enough to fill the clip. Lines up to about 4 written words/s fit
   without loss.
 
@@ -265,14 +291,24 @@ seeds). Its prompt design, ready to run:
   `variable:shots`, with `release_pipeline`), plus a `transcribe_audio` step
   (`timestamps: "word"`) on each shot. A batch uses a single seed, so each
   seed is its own job.
-- **Timing comes from the audio, not Whisper.** Whisper-base word timestamps
-  always start the first word at 0.0 and stretch early words across the
-  silent lead-in. In r150 it put "I" at 0–3.44 s, but the audio is silent
-  until 3.35 s. Lead, tail and pauses were measured from the WAV instead:
+- **Timing: word timestamps after #661, the envelope as a cross-check.** At
+  the first hand-off, Whisper-base word timestamps always started the first
+  word at 0.0 and stretched early words across the silent lead-in. In r150
+  it put "I" at 0–3.44 s, but the audio is silent until 3.35 s. So lead,
+  tail and pauses were measured from the WAV instead:
   - RMS in 50 ms windows;
   - a window counts as speech when it is within 25 dB of the clip's peak.
 
-  Whisper's text was used only to check that every word was spoken.
+  #661 then trimmed `transcribe_audio`'s word bounds to the waveform. On
+  Don's decision (#640, option 1), probe 1's clips were re-transcribed
+  through `output:` references, in job ae52011e2f05 (Whisper only, no H3
+  run). Probe 1's lead, tail and delivered rate now come from those
+  transcripts, so C2's tail figure can be checked over MCP. The envelope
+  figures stay alongside them. Pauses still come from the envelope, because
+  a word can still span a pause (*Probe 1*). Job f07d705442ed in the same
+  workspace was a first, malformed attempt at the re-transcription (a
+  `for_each` over the mp4 references, which `transcribe_audio` refused for
+  having no `sample_rate`). It produced nothing and isn't a probe.
 - **Probe 1 at 345 frames** ran two rates (2.2 and 4.0 words/s) on seed
   1001 only, not all five rates on both seeds. 345 frames costs about three
   times as much as 124, and the 124-frame sweep had already shown no
@@ -285,4 +321,4 @@ seeds). Its prompt design, ready to run:
   about 41 more GPU minutes (#640). Probe 2's voice comparison uses
   speechbrain's ECAPA speaker embedding (`spkrec-ecapa-voxceleb`), with
   lines split at Whisper's word end times and line 1 starting at the
-  audio onset, since Whisper's first-word start is unreliable (above).
+  audio onset, since Whisper's first-word start was unreliable before #661 (above).
