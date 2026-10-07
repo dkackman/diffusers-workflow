@@ -154,7 +154,7 @@ idea with its own A/B.
 Don's no came after #621 had shipped and verified, so the revert was filed
 as a fix-forward stage (a close-out can't deploy the catalog or plugin).
 `bfbdf518`, merged to `develop` as `125818e7` and deployed 2026-10-07:
-- deleted `workflows/templates/minimax/upscale-refine.json`;
+- deleted the `templates/minimax/upscale-refine` catalog entry;
 - removed its `minimax-h3` SKILL row, its templates README row and the
   "and 5 for upscale-refine.json's refine" clause, and the
   `WORKFLOW_GUIDE.md` paragraph naming it;
