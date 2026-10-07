@@ -179,7 +179,10 @@ class TestConfigureDevices:
 
         from dw.serve import configure_devices
 
-        monkeypatch.delenv("DW_DEVICE", raising=False)
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
         with pytest.raises(SystemExit) as exit_info:
             configure_devices(types.SimpleNamespace(devices="cuda:7"))
         assert exit_info.value.code == 2
@@ -191,11 +194,12 @@ class TestConfigureDevices:
 
         from dw.serve import configure_devices
 
-        monkeypatch.delenv("DW_DEVICE", raising=False)
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
         configure_devices(types.SimpleNamespace(devices="cuda:1"))
         assert os.environ["DW_DEVICE"] == "cuda:1"
-        # monkeypatch undoes the assignment configure_devices made
-        monkeypatch.setenv("DW_DEVICE", "cuda:1")
 
     def test_the_setting_is_used_when_the_flag_is_absent(
         self, two_cards, settings_devices, monkeypatch
@@ -204,17 +208,22 @@ class TestConfigureDevices:
 
         from dw.serve import configure_devices
 
-        monkeypatch.delenv("DW_DEVICE", raising=False)
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
         settings_devices("cuda:0")
         configure_devices(types.SimpleNamespace(devices=None))
         assert os.environ["DW_DEVICE"] == "cuda:0"
-        monkeypatch.setenv("DW_DEVICE", "cuda:0")
 
     def test_naming_nothing_leaves_dw_device_alone(self, settings_devices, monkeypatch):
         import types
 
         from dw.serve import configure_devices
 
-        monkeypatch.delenv("DW_DEVICE", raising=False)
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
         configure_devices(types.SimpleNamespace(devices=None))
         assert "DW_DEVICE" not in os.environ
