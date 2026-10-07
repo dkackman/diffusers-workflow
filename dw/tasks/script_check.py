@@ -593,6 +593,10 @@ def check(
     by_name = {span["name"]: span for span in spans or ()}
 
     lines = []
+    # The shot of the line each heard word was matched to: a word a line in
+    # another shot claimed (one straddling the cut) is that line's speech,
+    # not speech in a silent shot
+    claimed = {}
     previous_end = 0.0
     for index, (line, words, indices) in enumerate(
         zip(parsed_lines, expected, assigned)
@@ -611,6 +615,7 @@ def check(
         if shot is None and spans is not None and own:
             shot = overlapping_shot(spans, start, end)
         span = by_name.get(shot)
+        claimed.update((j, shot) for j in indices)
         lines.append(
             {
                 "expected": line["text"],
@@ -677,15 +682,17 @@ def check(
         for span in spans:
             if span["name"] in named:
                 continue
-            inside = [word for word in heard if heard_shot(word) == span["name"]]
+            inside = [
+                word
+                for j, word in enumerate(heard)
+                if heard_shot(word) == span["name"]
+                and claimed.get(j) in (None, span["name"])
+            ]
             if inside:
-                findings.append(
-                    finding(
-                        SPEECH_IN_SILENT_SHOT,
-                        len(inside),
-                        _at(None, inside[0], shot=span["name"]),
-                    )
-                )
+                at = _at(None, inside[0], shot=span["name"])
+                # A word straddling the cut into this shot is placed at the cut
+                at["seconds"] = max(at["seconds"], _round(span["start"]))
+                findings.append(finding(SPEECH_IN_SILENT_SHOT, len(inside), at))
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
 
