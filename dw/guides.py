@@ -19,6 +19,11 @@ load, with the helpers the run-time check calls (`guide_frame_problem`,
 A `previous_result:` or other unresolved value, or a video that cannot be located
 or probed, names nothing yet and is left to the run-time check. An empty list is
 no guides.
+
+A chain's `continuity: "guide"` lays guides in itself (dw/pipeline_processors/
+chain.py), so `guide_chain_errors` refuses it where those guides would be: off
+an H3 t2va/fl2va step, with a `guide_frames` other than 22 or 39, or with a
+`carry_frames` it would not read (`guide_chain_problems`, shared with the run).
 """
 
 from . import references
@@ -28,12 +33,15 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
-from .hold_audio import _not_h3
+from .hold_audio import MODULAR_PIPELINE, _not_h3
 from .pipeline_processors.h3_blocks import (
+    GUIDE_CHAIN_WORKFLOWS,
+    GUIDE_CONTINUITY,
     GUIDE_LIMIT,
     GUIDES_INPUT,
     RENDER_GRID,
     default_num_frames,
+    guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
     snap_guide_length,
@@ -42,6 +50,7 @@ from .probe_paths import resolve_probe_path
 from .variable_constraints import aligned
 
 GUIDE_KEYS = ("video", "frame", "audio")
+CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
 
 
 def _render_length(arguments):
@@ -206,4 +215,86 @@ def guides_errors(workflow_definition, source_indices=None, base_dir=None, probe
     return errors
 
 
-__all__ = ["guides_errors"]
+def _guide_chain_step_problem(pipeline):
+    """Why this step cannot run a guide chain, or None - it is not MiniMax-H3,
+    loads ref2va, or passes `references`. A step whose pipeline or workflow is
+    not literal is left to the run."""
+    rule = (
+        "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay "
+        "off ref2va"
+    )
+    configuration = pipeline.get("configuration")
+    component_type = (
+        configuration.get("component_type") if isinstance(configuration, dict) else None
+    )
+    if (
+        isinstance(component_type, str)
+        and not references.is_ref(references.UNRESOLVED, component_type)
+        and component_type.rsplit(".", 1)[-1] != MODULAR_PIPELINE
+    ):
+        return f"{rule}, and this step loads {component_type}"
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    if (
+        isinstance(workflow, str)
+        and not references.is_ref(references.UNRESOLVED, workflow)
+        and workflow not in GUIDE_CHAIN_WORKFLOWS
+    ):
+        return f"{rule}, and this step loads the '{workflow}' workflow"
+    arguments = pipeline.get("arguments")
+    if isinstance(arguments, dict) and arguments.get("references") is not None:
+        return f"{rule}, and this step passes references"
+    return None
+
+
+def guide_chain_errors(workflow_definition, source_indices=None):
+    """Every chain block refused for its continuity before the run, as
+    [{path, message}]: an unknown mode (the schema lets a `variable:` through),
+    and a `guide` chain its step or its own settings cannot run."""
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        chain = pipeline.get("chain") if isinstance(pipeline, dict) else None
+        if not isinstance(chain, dict):
+            continue
+        continuity = chain.get("continuity", "last_frame")
+        if isinstance(continuity, str) and references.is_ref(
+            references.UNRESOLVED, continuity
+        ):
+            continue
+        base = ("steps", references.author_index(source_indices, index), "pipeline")
+        if continuity not in CONTINUITY_MODES:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", "continuity")),
+                    "message": (
+                        f"unknown chain continuity {continuity!r} - expected one "
+                        f"of {', '.join(CONTINUITY_MODES)}"
+                    ),
+                }
+            )
+            continue
+        if continuity != GUIDE_CONTINUITY:
+            continue
+        problem = _guide_chain_step_problem(pipeline)
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", "continuity")),
+                    "message": problem,
+                }
+            )
+        for key, message in guide_chain_problems(chain):
+            errors.append(
+                {"path": render_path(base + ("chain", key)), "message": message}
+            )
+    return errors
+
+
+__all__ = ["guide_chain_errors", "guides_errors"]

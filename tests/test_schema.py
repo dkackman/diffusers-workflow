@@ -216,6 +216,22 @@ class TestChainSchema:
         status, message = validate_data(_chained_workflow(chain), schema)
         assert status is True, message
 
+    def test_a_guide_chain_validates(self):
+        schema = load_schema("workflow")
+        chain = {"segments": 3, "continuity": "guide", "guide_frames": 39}
+        status, message = validate_data(_chained_workflow(chain), schema)
+        assert status is True, message
+
+    def test_a_variable_continuity_and_guide_length_validate(self):
+        schema = load_schema("workflow")
+        chain = {
+            "segments": 3,
+            "continuity": "variable:continuity",
+            "guide_frames": "variable:guide_frames",
+        }
+        status, message = validate_data(_chained_workflow(chain), schema)
+        assert status is True, message
+
     def test_a_zero_carry_frames_is_rejected(self):
         schema = load_schema("workflow")
         status, _ = validate_data(

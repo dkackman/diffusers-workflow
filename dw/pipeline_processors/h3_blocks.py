@@ -736,6 +736,49 @@ def guide_frame_problem(frame):
     return None
 
 
+# A chain's `continuity: "guide"` (dw/pipeline_processors/chain.py) lays the
+# previous segment's last `guide_frames` frames in at frame 0 of the next. Only
+# these lengths are whole-latent guides (17m + 5) short enough to leave a
+# segment most of its frames
+GUIDE_CONTINUITY = "guide"
+GUIDE_CHAIN_FRAMES = (22, 39)
+GUIDE_CHAIN_DEFAULT = 22
+GUIDE_CHAIN_WORKFLOWS = ("t2va", "fl2va")
+
+
+def guide_chain_problems(chain):
+    """[(key, message)] for a guide-continuity chain block's own settings: a
+    `guide_frames` other than 22 or 39 (refused, not snapped), and a
+    `carry_frames`, which a guide chain does not read. An unresolved reference
+    is left to the run."""
+    problems = []
+    frames = chain.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+    unresolved = isinstance(frames, str) and references.is_ref(
+        references.UNRESOLVED, frames
+    )
+    if not unresolved and (
+        isinstance(frames, bool)
+        or not isinstance(frames, int)
+        or frames not in GUIDE_CHAIN_FRAMES
+    ):
+        problems.append(
+            (
+                "guide_frames",
+                f"guide_frames must be 22 or 39 (the whole-latent guide lengths a "
+                f"chain carries), got {frames!r}",
+            )
+        )
+    if chain.get("carry_frames") is not None:
+        problems.append(
+            (
+                "carry_frames",
+                "carry_frames is a last_segment setting - a guide chain carries "
+                "the last guide_frames frames; drop carry_frames",
+            )
+        )
+    return problems
+
+
 def guide_end_problem(frame, length, num_frames):
     """Why a guide of `length` frames at `frame` runs past a `num_frames` render,
     or None. Ending exactly at `num_frames` fits."""

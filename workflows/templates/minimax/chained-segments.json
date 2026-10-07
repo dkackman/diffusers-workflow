@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3I2VChained",
-    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own.",
+    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. Set `continuity` to 'guide' to carry motion and voice rather than a still: each segment's last `guide_frames` frames (22 or 39) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again - 'trim_frames' and the crossfade then do not apply. Guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode.",
     "summary": "A long H3 clip from a supplied still, chained by last frame past the model's fixed clip length.",
     "cost_drivers": [
         "segments",
@@ -17,6 +17,8 @@
         },
         "num_frames": 124,
         "segments": 3,
+        "continuity": "last_frame",
+        "guide_frames": 22,
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
@@ -155,7 +157,8 @@
                 "chain": {
                     "prompts": "variable:prompts",
                     "segments": "variable:segments",
-                    "continuity": "last_frame",
+                    "continuity": "variable:continuity",
+                    "guide_frames": "variable:guide_frames",
                     "segment_argument": "image",
                     "trim_frames": 2,
                     "crossfade_ms": 80,

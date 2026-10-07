@@ -5,12 +5,16 @@ A "chain" block on a pipeline step runs the pipeline once per segment,
 carries continuity from each segment into the next, trims the duplicated
 boundary frames, and stitches the segments' frames and audio into one video.
 
-Two ways to carry continuity:
+Three ways to carry continuity:
 - last_frame - the last frame becomes the next segment's keyframe, which is
   what a keyframe-conditioned pipeline takes
 - last_segment - the previous segment's frames and the soundtrack generated
   with them become a video reference, which carries motion, camera and voice
   across the seam rather than appearance alone
+- guide - the previous segment's last guide_frames frames (and, with
+  carry_audio, their audio) are laid in at frame 0 of the next as an H3 guide,
+  and trimmed off it again, so the next segment continues the motion itself.
+  MiniMax-H3 t2va and fl2va only: guides stay off ref2va
 
 Two ways to specify the length:
 - segments: N - run the pipeline N times as configured
@@ -48,7 +52,15 @@ from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
-from .h3_blocks import HOLD_AUDIO_INPUT, hold_audio_reference
+from .h3_blocks import (
+    GUIDE_CHAIN_DEFAULT,
+    GUIDE_CONTINUITY,
+    GUIDES_INPUT,
+    HOLD_AUDIO_INPUT,
+    guide_chain_problems,
+    guides_refusal,
+    hold_audio_reference,
+)
 
 logger = logging.getLogger("dw")
 
@@ -126,15 +138,69 @@ class LastSegmentContinuity:
         arguments[segment_argument] = _with_carry_video(target, carry)
 
 
+class GuideContinuity:
+    """Lay the previous segment's tail into the next as a frame-0 H3 guide.
+
+    The next segment renders its first guide_frames frames over the carried
+    ones and goes on from there, so motion, camera and (with carry_audio, the
+    held soundtrack) voice continue through the seam; those frames are the
+    previous segment's again, and are trimmed at assembly. On fl2va the
+    keyframe is the guide's first frame - the previous segment's frame
+    -guide_frames - so the keyframe and the guide agree.
+    """
+
+    def __init__(self, config):
+        self.config = config
+
+    def extract(self, artifact):
+        count = self.config.guide_frames
+        frames = frames_as_pil_list(artifact)[-count:]
+        if not self.config.carry_audio:
+            return _SegmentCarry(frames, None, None)
+
+        audio, sample_rate = _generated_audio(artifact)
+        if audio is None:
+            raise ValueError(
+                "A guide chain with carry_audio holds the previous segment's "
+                "audio, and this segment generated none - set carry_audio false"
+            )
+        if self.config.fps is None:
+            raise ValueError(
+                "Holding a guide chain's audio needs the frame rate - set 'fps' "
+                "on the chain or a 'frame_rate' pipeline argument"
+            )
+        samples = frames_to_samples(count, self.config.fps, sample_rate)
+        return _SegmentCarry(frames, audio[:, -samples:], sample_rate)
+
+    def inject(self, arguments, carry, segment_argument):
+        if carry.audio is not None:
+            video = AudioVideo(
+                carry.frames,
+                torch.from_numpy(numpy.ascontiguousarray(carry.audio)),
+                carry.sample_rate,
+                fps=self.config.fps,
+            )
+        else:
+            video = carry.frames
+        guide = {"video": video, "frame": 0, "audio": carry.audio is not None}
+        # A copy: iteration arguments share nested values
+        arguments[GUIDES_INPUT] = list(arguments.get(GUIDES_INPUT) or []) + [guide]
+        # fl2va's keyframe - t2va passes none, and gets none
+        if arguments.get(segment_argument) is not None:
+            arguments[segment_argument] = carry.frames[0]
+
+
 CONTINUITY_MODES = {
     "last_frame": LastFrameContinuity,
     "last_segment": LastSegmentContinuity,
+    GUIDE_CONTINUITY: GuideContinuity,
 }
 
 
 @dataclass
 class _SegmentCarry:
-    """The part of a finished segment a last_segment chain conditions on."""
+    """The part of a finished segment a last_segment or guide chain
+    conditions on."""
 
     frames: list
     audio: object  # (channels, samples) numpy, or None
@@ -354,6 +420,8 @@ def run_chain(pipeline, chain_definition, arguments):
         getattr(pipeline, "base_dir", None),
     )
     continuity = CONTINUITY_MODES[config.continuity](config)
+    if config.continuity == GUIDE_CONTINUITY:
+        _check_guide_chain(pipeline, arguments, chain_definition, config)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -458,6 +526,8 @@ def run_chain(pipeline, chain_definition, arguments):
                     + (
                         f"{applied['crossfade_ms']} ms"
                         if "crossfade_ms" in applied
+                        else "none (the guide held the audio)"
+                        if config.guide_holds_audio
                         else "none (no head material)"
                     )
                 )
@@ -501,6 +571,32 @@ def run_chain(pipeline, chain_definition, arguments):
     if audio is None:
         shots = without_samples(shots)
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
+
+
+def _check_guide_chain(pipeline, arguments, chain_definition, config):
+    """Refuse a guide chain the H3 guides cannot take before the first segment
+    renders, and note once in the job log the settings it does not read."""
+    rule = (
+        "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay "
+        "off ref2va"
+    )
+    if arguments.get("references") is not None:
+        raise ValueError(f"{rule}, and this step passes references")
+    loaded = getattr(pipeline, "pipeline", None)
+    if loaded is not None:
+        refusal = guides_refusal(loaded)
+        if refusal:
+            raise ValueError(f"{rule}: {refusal}")
+    if "trim_frames" in chain_definition:
+        emit_log(
+            f"Guide chain: trim_frames is ignored - each segment after the first "
+            f"drops its {config.guide_frames} guide frames instead"
+        )
+    if config.guide_holds_audio and "crossfade_ms" in chain_definition:
+        emit_log(
+            "Guide chain: crossfade_ms is ignored - the guide holds the audio "
+            "across each seam (set carry_audio false to crossfade instead)"
+        )
 
 
 def _trimmed_shots(shots, total_frames):
@@ -548,6 +644,25 @@ class ChainConfig:
         self.carry_audio = bool(chain_definition.get("carry_audio", True))
         self.trim_frames = int(chain_definition.get("trim_frames", 1))
         self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
+        # A guide chain trims the guide it laid in, not trim_frames, and a
+        # held soundtrack has nothing to crossfade
+        self.guide_frames = None
+        self.guide_holds_audio = False
+        head_trim = self.trim_frames
+        if self.continuity == GUIDE_CONTINUITY:
+            problems = guide_chain_problems(chain_definition)
+            if problems:
+                raise ValueError(
+                    "; ".join(f"Chain {message}" for _, message in problems)
+                )
+            self.guide_frames = chain_definition.get(
+                "guide_frames", GUIDE_CHAIN_DEFAULT
+            )
+            head_trim = self.guide_frames
+            if self.carry_audio:
+                self.guide_holds_audio = True
+                self.crossfade_ms = 0.0
+        self.head_trim = head_trim
         self.prompts = resolved_prompts or chain_definition.get("prompts", None)
         self.fps = _resolve_fps(chain_definition, arguments)
         self.frame_snap = chain_definition.get("frame_snap", None)
@@ -571,12 +686,17 @@ class ChainConfig:
             num_frames = arguments.get("num_frames", None)
             if num_frames is not None:
                 validate_frame_snap(int(num_frames), self.frame_snap)
+                if self.guide_frames is not None and int(num_frames) <= head_trim:
+                    raise ValueError(
+                        f"Segments of {num_frames} frames cannot progress past "
+                        f"a {head_trim}-frame guide"
+                    )
             self.plan = [
                 Segment(
                     index,
                     int(num_frames) if num_frames is not None else None,
                     0,
-                    self.trim_frames if index > 0 else 0,
+                    head_trim if index > 0 else 0,
                 )
                 for index in range(segments)
             ]
@@ -614,7 +734,7 @@ class ChainConfig:
         total_samples = self.source_audio.shape[1]
         self.total_frames = max(1, round(total_samples / self.source_rate * self.fps))
         self.plan = plan_segments(
-            self.total_frames, int(num_frames), self.trim_frames, self.frame_snap
+            self.total_frames, int(num_frames), self.head_trim, self.frame_snap
         )
         duration = total_samples / self.source_rate
         logger.info(

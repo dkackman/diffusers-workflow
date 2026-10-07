@@ -314,13 +314,30 @@
                     "type": "boolean"
                 },
                 "continuity": {
-                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list.",
-                    "type": "string",
-                    "enum": [
-                        "last_frame",
-                        "last_segment"
+                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list. 'guide' (MiniMax-H3 t2va and fl2va only - guides stay off ref2va) lays the segment's last 'guide_frames' frames, with their audio when 'carry_audio', into the next at frame 0 as a guide, sets an fl2va keyframe to the guide's first frame, and trims the guide off again; 'trim_frames' and 'carry_frames' do not apply, and 'crossfade_ms' only when 'carry_audio' is false. Accepts a 'variable:' reference.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": [
+                                "last_frame",
+                                "last_segment",
+                                "guide"
+                            ]
+                        },
+                        {
+                            "type": "string",
+                            "pattern": "^variable:"
+                        }
                     ],
                     "default": "last_frame"
+                },
+                "guide_frames": {
+                    "description": "'guide' only - frames of each segment's tail laid into the next as its frame-0 guide, and trimmed off it: 22 or 39 (whole-latent guide lengths), nothing else. Ignored by the other continuity modes. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "default": 22
                 },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
@@ -336,7 +353,7 @@
                     "minimum": 1
                 },
                 "carry_audio": {
-                    "description": "'last_segment' only - whether the carried video reference brings the soundtrack generated with it, which is what carries a voice across the seam. Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
+                    "description": "'last_segment' and 'guide' - whether the carry brings the soundtrack generated with it, which is what carries a voice across the seam (a guide holds it, so the seam is not crossfaded). Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
                     "type": "boolean",
                     "default": true
                 },

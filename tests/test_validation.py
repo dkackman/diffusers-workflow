@@ -197,6 +197,7 @@ ERROR_ORDER = [
     "video_sizes",
     "select",
     "chain_prompts",
+    "guide_chain",
     "task_signatures",
     "component_types",
     "component_names",
