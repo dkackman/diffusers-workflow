@@ -906,3 +906,26 @@ def test_copy_containers_copies_exact_containers_and_shares_leaves():
     # A subclass keeps its type by being shared, never rebuilt as its base
     assert copied["ordered"] is ordered
     assert copied["pair"] is pair
+
+
+def test_normalized_downstream_true_for_a_join_with_match_levels_set():
+    """dialogue-short's shots are consumed by a concat_videos that levels
+    them when match_levels is set (#671); with it null nothing resets them."""
+
+    def steps(match_levels):
+        return [
+            {"name": "shot@a", "pipeline": {"arguments": {}}},
+            {
+                "name": "episode",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {
+                        "videos": ["previous_result:shot@a"],
+                        "match_levels": match_levels,
+                    },
+                },
+            },
+        ]
+
+    assert normalized_downstream(steps("rms"), "shot@a")
+    assert not normalized_downstream(steps(None), "shot@a")

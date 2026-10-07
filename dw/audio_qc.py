@@ -172,8 +172,9 @@ def warn_if_written_above_full_scale(
         f"{name} decodes at {peak:+.2f} dBFS - above full scale, so it "
         f"clips on playback. {cause}, so the fix is more headroom before "
         f"the file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
-        f"ahead of the step that saves it. A mux into a video needs more "
-        f"of it than an audio file does.",
+        f"ahead of the step that saves it (a template's intermediate shot has "
+        f"no such step to edit: set the join's 'match_levels' instead). A "
+        f"mux into a video needs more of it than an audio file does.",
         kind="audio_clipped",
         file=name,
         peak_dbfs=round(peak, 2),
