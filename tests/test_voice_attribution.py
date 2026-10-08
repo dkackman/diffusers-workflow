@@ -31,9 +31,9 @@ from dw.tasks.voice_attribution import (
     score_line,
     voiced_floor_dbfs,
     voiced_mask,
-    voices_errors,
 )
 from dw.locations import location_errors
+from dw.task_domains import task_argument_errors
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.workflow import Workflow
 
@@ -808,10 +808,11 @@ SPAN = {"start_seconds": 0, "duration_seconds": 4}
 
 class TestVoicesErrors(unittest.TestCase):
     """C-F141: what parse_voices refuses without the audio is refused at
-    validation, at the path the author wrote."""
+    validation, at the path the author wrote - through attribute_voices'
+    registered static check (#773)."""
 
     def errors(self, *steps, source_indices=None):
-        return voices_errors({"steps": list(steps)}, source_indices)
+        return task_argument_errors({"steps": list(steps)}, source_indices)
 
     def test_a_good_voices_map_is_clean(self):
         self.assertEqual(self.errors(_voices_step({"a": SPAN, "b": [SPAN]})), [])
