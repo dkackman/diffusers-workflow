@@ -51,8 +51,9 @@ from ..worker_protocol import (
     WorkerCrashed,
     WorkflowLoaded,
     parse_reply,
+    workflow_identity,
 )
-from ..devices import card_of, device_ordinal
+from ..devices import card_of, device_ordinal, ordinal_of
 from ..host_memory import process_rss_mb
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
@@ -267,12 +268,9 @@ class JobManager:
 
     @staticmethod
     def identity_of(source, file_spec, definition):
-        """The workflow identity a worker caches by (dw/worker.py's
-        `_load_workflow`): the file for a job from a path, the definition's
-        id for an inline one."""
-        if source == "path":
-            return ("path", file_spec)
-        return ("inline", (definition or {}).get("id"))
+        """The workflow identity a worker caches by - the worker's own rule,
+        `worker_protocol.workflow_identity`."""
+        return workflow_identity(source, file_spec, definition)
 
     def _job_identity(self, job):
         spec = job.spec
@@ -733,7 +731,7 @@ class JobManager:
             label = job.device
         else:
             label = (self.history.get(job_id) or {}).get("device")
-        return label.split(" ", 1)[0] if label else None
+        return ordinal_of(label)
 
     def queue_position(self, job_id):
         """Index in the waiting queue, or None when the job is not queued."""

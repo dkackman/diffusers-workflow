@@ -245,6 +245,14 @@ def card_of(label):
     return label.split(" ", 1)[1]
 
 
+def ordinal_of(label):
+    """The ordinal in a `device_label` string ('cuda:1'), or None for no
+    label at all - `card_of`'s other half."""
+    if not label:
+        return None
+    return label.split(" ", 1)[0]
+
+
 def is_default_device(device=None):
     """Whether `device` is the card this box runs on when nothing names one
     - the card every job recorded before jobs carried a `device` ran on."""
