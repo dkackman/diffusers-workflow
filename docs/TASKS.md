@@ -36,6 +36,18 @@ reported as clean successes. The commands refuse the same values at run time,
 which is what catches one that arrived from a `variable:` or an earlier step
 rather than being written in the file.
 
+A numeric argument is read the same way by every command and by validation
+(`whole_number` and `real_number` in `dw/task_domains.py`, the only numeric
+coercion in `dw/tasks/`). A number may arrive as a JSON number or as a numeric
+string - a `variable:` resolved from the command line is text - so `3`, `3.0`,
+`"3"` and `"3.0"` are all the whole number 3, and `"23.976"` is a frame rate.
+A whole-number argument (a frame count, an index, a sample rate, a pixel size)
+refuses a fractional value such as `3.5` or `"22050.5"` rather than truncating
+it, naming the argument and saying "whole number". Every numeric argument
+refuses `true`/`false`, text that is no number (`"abc"`) and an infinite or NaN
+value. What validation refuses, the run refuses with the same sentence, and
+the reverse.
+
 ## Adding a task
 
 A task is one function, registered with `@register_command` in
@@ -68,12 +80,15 @@ def my_task(source, num_frames, start_frame=0, mode="fast"): ...
   `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
   command - or, when it needs the task's own parser, in the task's module
   behind an import on use, as `attribute_voices`' does.
+- `whole_numbers` - the numeric arguments that take only a whole number; the
+  rest of `domains` take any real number. Validation refuses `3.5` for one
+  of these, as the task's own `whole_number` call does at run time.
 - `media_arguments` - an argument that reads a file under a name that does not
   say so (`source`, `media`, `lut`, `clip`, `track`). Validation confines it as it does `image`
   or `*_video`; an argument left out of it is not path-checked.
 
-`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS` and
-`TASK_MEDIA_ARGUMENTS` are read-only views of these declarations;
+`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS`,
+`TASK_WHOLE_NUMBER_ARGUMENTS` and `TASK_MEDIA_ARGUMENTS` are read-only views of these declarations;
 `tests/test_task_registry_rules.py` pins them to the registry and every name in
 them to the command's signature.
 

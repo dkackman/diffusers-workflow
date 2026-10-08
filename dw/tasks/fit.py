@@ -25,15 +25,18 @@ validation's 32n and 8n+1 rules and the cost quote still see them.
 
 import json
 import logging
-import numbers
 
 import numpy
 import torch
 import torch.nn.functional as F
 
 from ..media_types import AudioVideo, FittedVideo, JsonRecord
-from ..task_domains import check_arguments, fit_downscale_problem, fit_mode_problem
-from .audio_utils import coerce_number
+from ..task_domains import (
+    check_arguments,
+    fit_downscale_problem,
+    fit_mode_problem,
+    whole_number,
+)
 from .video_utils import _frames_of, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -47,14 +50,6 @@ _RECORD_INTS = (
     "model_height",
     "model_frames",
 )
-
-
-def _whole(value, name, command):
-    """A whole-number argument as an int, or the command's refusal."""
-    value = coerce_number(value, int, name, command)
-    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
-        raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
-    return int(value)
 
 
 def _float_frames(video, command):
@@ -132,10 +127,10 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         {x, y, w, h}}
     """
     command = "fit_to_model"
-    width = _whole(width, "width", command)
-    height = _whole(height, "height", command)
-    num_frames = _whole(num_frames, "num_frames", command)
-    downscale = _whole(downscale, "downscale", command)
+    width = whole_number(width, "width", command, required=True)
+    height = whole_number(height, "height", command, required=True)
+    num_frames = whole_number(num_frames, "num_frames", command, required=True)
+    downscale = whole_number(downscale, "downscale", command, required=True)
     check_arguments(
         command,
         width=width,

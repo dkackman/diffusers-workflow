@@ -29,8 +29,8 @@ import types
 import numpy
 
 from .. import dsp
-from ..task_domains import check_arguments
-from .audio_utils import coerce_number, waveform_and_rate
+from ..task_domains import check_arguments, real_number, whole_number
+from .audio_utils import waveform_and_rate
 from .joins import (
     HARMONICITY_THRESHOLD,
     TONAL_FLATNESS_THRESHOLD,
@@ -409,8 +409,8 @@ def _coerce_arguments(shots, **raw):
     their errors are reported in); `max_candidates` is the one integer.
     """
     values = {
-        name: coerce_number(
-            value, int if name == "max_candidates" else float, name, COMMAND
+        name: (whole_number if name == "max_candidates" else real_number)(
+            value, name, COMMAND
         )
         for name, value in raw.items()
     }
