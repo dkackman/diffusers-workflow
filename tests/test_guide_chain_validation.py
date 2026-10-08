@@ -180,6 +180,7 @@ class TestOwnGuidesPlusTheChain:
         assert error["path"].endswith("continuity")
         assert "the chain adds one" in error["message"]
         assert "got 4" in error["message"]
+        assert "t2va or fl2va only" not in error["message"]
 
     def test_three_own_guides_leave_room(self):
         assert (

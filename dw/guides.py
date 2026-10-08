@@ -280,7 +280,7 @@ def guide_chain_errors(workflow_definition, source_indices=None):
                 {
                     "path": render_path(base + ("chain", "continuity")),
                     "message": (
-                        f"{GUIDE_CHAIN_RULE}: guides takes at most {GUIDE_LIMIT} "
+                        f"guides takes at most {GUIDE_LIMIT} "
                         f"clips and the chain adds one of its own, so a guide "
                         f"chain leaves room for {GUIDE_LIMIT - 1} - got {len(own)}"
                     ),
