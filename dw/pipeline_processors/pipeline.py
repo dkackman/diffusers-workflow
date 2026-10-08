@@ -645,11 +645,11 @@ class Pipeline:
         arguments = dict(arguments)
         arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held, self.base_dir)
         output = arguments.get("output")
-        if isinstance(output, (list, tuple)) and "audio" in output:
-            arguments["output"] = list(output) + [
-                HELD_AUDIO_OUTPUT,
-                HELD_AUDIO_RATE_OUTPUT,
-            ]
+        # A single output is written as a string; the held keys ride along
+        # only when the track itself is asked for
+        names = [output] if isinstance(output, str) else list(output or [])
+        if "audio" in names:
+            arguments["output"] = names + [HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
         return arguments
 
     def _with_guides(self, arguments):

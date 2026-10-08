@@ -687,6 +687,28 @@ class TestWithHeldAudio:
         with pytest.raises(ValueError):
             Pipeline._with_held_audio(ns(pipeline), {"hold_audio": "x.png"})
 
+    def test_a_string_output_naming_audio_gets_the_held_keys_too(self):
+        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+        insert_audio_hold(pipeline)
+        reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
+
+        result = Pipeline._with_held_audio(
+            ns(pipeline), {"hold_audio": reference, "output": "audio"}
+        )
+
+        assert result["output"] == ["audio", HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
+
+    def test_a_string_output_not_naming_audio_is_left_as_written(self):
+        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+        insert_audio_hold(pipeline)
+        reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
+
+        result = Pipeline._with_held_audio(
+            ns(pipeline), {"hold_audio": reference, "output": "videos"}
+        )
+
+        assert result["output"] == "videos"
+
 
 # 7. modular_artifacts
 
