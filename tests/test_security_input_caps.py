@@ -242,3 +242,45 @@ class TestOtherDocumentedLimits:
         start = next(m for m in sent if m["type"] == "http.response.start")
         assert start["status"] == 413
         assert pulled == []
+
+    def test_a_chunked_upload_over_the_cap_is_refused_before_it_is_all_read(
+        self, server, monkeypatch
+    ):
+        """With no Content-Length the cap is enforced on a running count: the
+        route stops pulling chunks once past it, so memory is bounded by the
+        chunk size rather than the body."""
+        client, worker = server
+        monkeypatch.setattr("dw.server.routes.assets.MAX_UPLOAD_BYTES", 1024)
+        pulled = []
+        sent = []
+
+        async def receive():
+            pulled.append(True)
+            return {"type": "http.request", "body": b"x" * 512, "more_body": True}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/uploads",
+            "raw_path": b"/api/uploads",
+            "query_string": b"filename=huge.png",
+            "root_path": "",
+            "headers": [
+                (b"host", b"localhost"),
+                (b"content-type", b"application/octet-stream"),
+            ],
+            "client": ("127.0.0.1", 1),
+            "server": ("localhost", 80),
+        }
+        asyncio.run(client.app(scope, receive, send))
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 413
+        # 1024 / 512 = 2 chunks fit; the third crosses the cap, and the
+        # endless body is never read past it
+        assert len(pulled) == 3
