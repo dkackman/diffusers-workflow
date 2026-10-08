@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Enhancer presets ruled UI wiring, not model knowledge** (#696, stage
+  #781), shipped 2026-10-08. `PRESETS` stays in `dw/server/enhancers.py` as
+  the Enhance panel's menu; a new *Prompt enhancement* map row states the
+  rule and its trigger (a third preset moves the menu into builtin
+  metadata). Record, including the declined migration:
+  `complete/enhancer-presets-ruling-complete.md`.
+
 - **`window_video` and `join_windows` host memory: range reads and a uint8
   join** (#695, stage #780), shipped 2026-10-08. A window reads only its
   frame range and the soundtrack; the join no longer decodes the source's
