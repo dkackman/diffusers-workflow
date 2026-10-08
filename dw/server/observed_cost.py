@@ -337,12 +337,12 @@ class ObservedCosts:
         """The rows that ran on the card this server runs on now, or on
         `card` when one is named (#462).
 
-        A row names its card (`device`, "cuda:1 NVIDIA GeForce RTX 3090")
-        and counts when the card name matches, whichever index it had - a
-        3090 run tells a 3090 estimate, not a 4090 one. A row from before
-        jobs carried a `device` ran on the box's default card, so it counts
-        only for that card."""
-        from ..devices import card_of, is_default_device
+        A row names its card (`device_card`, "NVIDIA GeForce RTX 3090") and
+        counts when the card name matches, whichever index it had - a 3090
+        run tells a 3090 estimate, not a 4090 one. A row from before jobs
+        carried a device (no `device_ordinal`) ran on the box's default
+        card, so it counts only for that card."""
+        from ..devices import is_default_device
 
         if card is not None:
             _, name, default = self.card(card)
@@ -355,11 +355,10 @@ class ObservedCosts:
                 default = True
         kept = []
         for row in rows:
-            label = row.get("device")
-            if label is None:
+            if row.get("device_ordinal") is None:
                 if default:
                     kept.append(row)
-            elif card_of(label) == name:
+            elif row.get("device_card") == name:
                 kept.append(row)
         return kept
 

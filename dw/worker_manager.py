@@ -14,7 +14,13 @@ import sys
 import time
 from typing import Optional
 from . import device_capacity_gb, get_device
-from .devices import device_label, pinned_environment, worker_environment
+from .devices import (
+    card_name,
+    device_ordinal,
+    label_of,
+    pinned_environment,
+    worker_environment,
+)
 from .worker import worker_main
 from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
 
@@ -42,7 +48,7 @@ class WorkerManager:
                 (dw/devices.py)
         """
         self.device = device
-        self._device_label = None
+        self._device_fields = None
         self._capacity_read = False
         self._capacity_gb = None
         self._ceiling_gb = None
@@ -77,13 +83,19 @@ class WorkerManager:
             self.oom_score_adj = None
             logger.info("Worker process started")
 
+    def device_fields(self):
+        """This worker's card as a job record stores it - `("cuda:1",
+        "NVIDIA GeForce RTX 3090")`, the card None where it has no name -
+        read once, in the server process, which sees every card by its
+        ordinal."""
+        if self._device_fields is None:
+            ordinal = device_ordinal(self.device)
+            self._device_fields = (ordinal, card_name(ordinal))
+        return self._device_fields
+
     def device_label(self):
-        """This worker's card as a job record names it -
-        `"cuda:1 NVIDIA GeForce RTX 3090"` - read once, in the server
-        process, which sees every card by its ordinal."""
-        if self._device_label is None:
-            self._device_label = device_label(self.device)
-        return self._device_label
+        """`"cuda:1 NVIDIA GeForce RTX 3090"` - the two fields as one label."""
+        return label_of(*self.device_fields())
 
     def shutdown_worker(self):
         """Gracefully shutdown worker process."""

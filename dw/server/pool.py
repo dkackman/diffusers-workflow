@@ -66,6 +66,15 @@ class WorkerSlot:
             logger.debug("Could not read the worker's device", exc_info=True)
             return None
 
+    def device_fields(self):
+        """The card as a job record stores it - `("cuda:1", "NVIDIA GeForce
+        RTX 3090")` - or `(None, None)` where it cannot be read."""
+        try:
+            return self.manager.device_fields()
+        except Exception:
+            logger.debug("Could not read the worker's device", exc_info=True)
+            return None, None
+
     def ordinal(self):
         """The card as `cuda:1` - what a `device` argument names it by."""
         return device_ordinal(self.device)

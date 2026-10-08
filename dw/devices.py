@@ -16,10 +16,13 @@ the wrong card from a `cuda:1` worker - `device_memory_stats`, the per-run
 the *parent* around `Process.start()` (`pinned_environment`): `dw/__init__.py`
 imports torch, so nothing in the child runs early enough to set them there.
 
-**The server process sees every card**, so it names one by its ordinal -
-`device_label()` gives `"cuda:1 NVIDIA GeForce RTX 3090"`, the string a job
-record's `device` carries and the card observed cost buckets by
-(dw/server/observed_cost.py).
+**The server process sees every card**, so it names one by its ordinal
+(`device_ordinal()`, `"cuda:1"`) and its card (`card_name()`, `"NVIDIA
+GeForce RTX 3090"`). A job record stores the two as separate fields
+(`device_ordinal`, `device_card`, #693): rerun affinity reads the ordinal and
+observed cost buckets by the card (dw/server/observed_cost.py), so neither
+parses a string back apart. `label_of()` joins them into the
+`"cuda:1 NVIDIA GeForce RTX 3090"` a job's `device` shows.
 
 A device with no explicit index (`cuda`, the default on every box that
 names none) is not pinned at all, so an unconfigured server spawns its
@@ -229,28 +232,13 @@ def card_name(device=None):
     return None
 
 
-def device_label(device=None):
-    """`"cuda:1 NVIDIA GeForce RTX 3090"` - the ordinal, then the card's
-    name when there is one. What a job record's `device` holds."""
-    ordinal = device_ordinal(device)
-    name = card_name(ordinal)
-    return f"{ordinal} {name}" if name else ordinal
-
-
-def card_of(label):
-    """The card name in a `device_label` string, or None for a label that
-    carries none (`cpu`) or no label at all."""
-    if not label or " " not in label:
+def label_of(ordinal, card):
+    """The `device` label for a stored ordinal and card: `"cuda:1 NVIDIA
+    GeForce RTX 3090"`, or the bare ordinal (`cpu`) for a card with no name,
+    or None for no ordinal at all."""
+    if not ordinal:
         return None
-    return label.split(" ", 1)[1]
-
-
-def ordinal_of(label):
-    """The ordinal in a `device_label` string ('cuda:1'), or None for no
-    label at all - `card_of`'s other half."""
-    if not label:
-        return None
-    return label.split(" ", 1)[0]
+    return f"{ordinal} {card}" if card else ordinal
 
 
 def is_default_device(device=None):
