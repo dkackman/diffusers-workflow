@@ -248,3 +248,181 @@ class TestRealPath:
         # Window 1 is source frames 5..13, all real: 9 frames of 1000 samples
         assert window.audio.shape == (2, 9000)
         assert window.audio[:, 500:8500].mean() == pytest.approx(0.25, abs=0.05)
+
+
+def _write_gradient_video(path, num_frames=37, fps=8, sample_rate=8000, size=24):
+    """An mp4 with sound whose every frame differs: a gradient shifted by the
+    frame index, and a track that is not constant."""
+    from diffusers.utils.export_utils import encode_video
+
+    cols = numpy.arange(size).reshape(1, -1)
+    rows = numpy.arange(size).reshape(-1, 1)
+    video = []
+    for index in range(num_frames):
+        pixels = numpy.stack(
+            [
+                (cols * 8 + index * 5 + rows * 0) % 256,
+                (rows * 8 + index * 3 + cols * 0) % 256,
+                (rows * 2 + cols * 2 + index * 7) % 256,
+            ],
+            axis=-1,
+        ).astype(numpy.uint8)
+        video.append(Image.fromarray(pixels))
+    samples = int(num_frames / fps * sample_rate)
+    audio = torch.sin(torch.arange(samples, dtype=torch.float32) / 20).repeat(2, 1)
+    encode_video(
+        video,
+        fps=fps,
+        output_path=str(path),
+        audio=audio * 0.5,
+        audio_sample_rate=sample_rate,
+    )
+    return str(path)
+
+
+class TestFileMatchesInMemory:
+    """#695: a file source is read a range at a time, and must cut the same
+    window the whole-file decode does."""
+
+    @pytest.mark.parametrize(
+        "num_frames, overlap",
+        [(9, 2), (9, 6), (17, 4), (8, 0), (40, 8)],
+    )
+    def test_every_window_equals_the_in_memory_window(
+        self, tmp_path, num_frames, overlap
+    ):
+        from dw.task_domains import window_count
+        from dw.tasks.video_utils import VideoFileReference, load_audio_video
+
+        path = _write_gradient_video(tmp_path / "long.mp4")
+        clip = load_audio_video(path)
+        total = len(clip.frames)
+        assert total >= 30
+
+        for index in range(window_count(total, num_frames, overlap)):
+            via_file = window_video(
+                VideoFileReference(path), index, num_frames, overlap
+            )
+            via_memory = window_video(clip, index, num_frames, overlap)
+
+            assert via_file.frames.dtype == via_memory.frames.dtype
+            assert numpy.array_equal(via_file.frames, via_memory.frames), (
+                f"window {index} of {num_frames}/{overlap}: max diff "
+                f"{numpy.abs(via_file.frames - via_memory.frames).max()}"
+            )
+            assert via_file.sample_rate == via_memory.sample_rate
+            assert via_file.fps == via_memory.fps
+            assert via_file.audio.shape == via_memory.audio.shape
+            assert numpy.array_equal(via_file.audio, via_memory.audio)
+
+    def test_a_window_past_the_end_gives_the_in_memory_message(self, tmp_path):
+        from dw.tasks.video_utils import VideoFileReference, load_audio_video
+
+        path = _write_gradient_video(tmp_path / "long.mp4")
+        clip = load_audio_video(path)
+        with pytest.raises(ValueError) as in_memory:
+            window_video(clip, 9, 9, 2)
+        with pytest.raises(ValueError) as from_file:
+            window_video(VideoFileReference(path), 9, 9, 2)
+
+        assert str(from_file.value) == str(in_memory.value)
+        assert "last window is index" in str(from_file.value)
+
+
+class TestFileMemory:
+    def test_a_window_of_a_long_file_never_decodes_the_whole_source(self, tmp_path):
+        import tracemalloc
+
+        import av
+
+        from dw.tasks.video_utils import VideoFileReference
+
+        total, size, fps, sample_rate = 2000, 64, 25, 8000
+        path = str(tmp_path / "long.mp4")
+        rng = numpy.random.default_rng(0)
+        with av.open(path, "w") as container:
+            video = container.add_stream("libx264", rate=fps)
+            video.width = video.height = size
+            video.pix_fmt = "yuv420p"
+            video.options = {"g": "10", "preset": "ultrafast"}
+            audio = container.add_stream("aac", rate=sample_rate)
+            audio.layout = "mono"
+            for index in range(total):
+                pixels = numpy.full((size, size, 3), index % 256, dtype=numpy.uint8)
+                pixels[:, : index % size] = rng.integers(0, 255, 3, dtype=numpy.uint8)
+                for packet in video.encode(av.VideoFrame.from_ndarray(pixels, "rgb24")):
+                    container.mux(packet)
+            for packet in video.encode():
+                container.mux(packet)
+            samples = total // fps * sample_rate
+            wave = numpy.sin(numpy.arange(samples) / 20).astype(numpy.float32) * 0.5
+            frame = av.AudioFrame.from_ndarray(
+                wave.reshape(1, -1), format="flt", layout="mono"
+            )
+            frame.sample_rate = sample_rate
+            for packet in audio.encode(frame):
+                container.mux(packet)
+            for packet in audio.encode():
+                container.mux(packet)
+
+        num_frames, overlap = 33, 8
+        window_bytes = num_frames * size * size * 3 * 4
+        audio_bytes = samples * 4
+        # The soundtrack is decoded whole, and its decode holds a few copies
+        # of it at once (chunks, joined, transposed, fitted)
+        bound = 2 * window_bytes + 4 * audio_bytes
+        assert bound < total * size * size * 3 * 4 / 4  # a quarter of the source
+
+        tracemalloc.start()
+        try:
+            window = window_video(VideoFileReference(path), 20, num_frames, overlap)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert len(window.frames) == num_frames
+        assert peak < bound, f"peak {peak} over bound {bound}"
+
+
+class TestHeaderCountMismatch:
+    """#695: the frame count comes from the header; a range read that runs
+    out before it is retried on a counted total, and refused naming both
+    counts when the file still ends short."""
+
+    def _overstated(self, monkeypatch, frame_count):
+        import dw.tasks.windows as windows
+        from dw.media import video_shape
+
+        def shape(path):
+            return dict(video_shape(path), frame_count=frame_count)
+
+        monkeypatch.setattr(windows, "video_shape", shape)
+
+    def test_an_overstated_header_is_recounted(self, tmp_path, monkeypatch):
+        from dw.tasks.video_utils import VideoFileReference, load_audio_video
+
+        path = _write_gradient_video(tmp_path / "long.mp4")
+        expected = window_video(load_audio_video(path), 5, 9, 2)
+        self._overstated(monkeypatch, 45)
+
+        # Window 5 is source frames 33..41 of 37: a header of 45 promises
+        # frames the file doesn't have, and clamping must use the real end
+        window = window_video(VideoFileReference(path), 5, 9, 2)
+
+        assert numpy.array_equal(window.frames, expected.frames)
+        assert numpy.array_equal(window.audio, expected.audio)
+
+    def test_a_count_that_still_disagrees_is_refused_naming_both(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.windows as windows
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = _write_gradient_video(tmp_path / "long.mp4")
+        self._overstated(monkeypatch, 45)
+        monkeypatch.setattr(windows, "count_video_frames", lambda path: 40)
+
+        with pytest.raises(ValueError) as error:
+            window_video(VideoFileReference(path), 5, 9, 2)
+        message = str(error.value)
+        assert "45 frames" in message and "counted 40" in message

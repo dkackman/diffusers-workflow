@@ -51,9 +51,12 @@ class VideoFileReference:
     clip - built by dw/arguments.py's _realize_lazy_frame_arguments so
     get_frame can seek to the one frame it needs instead of decoding the
     whole file (#367), and so an assessment probe streams the file, soundtrack
-    and all (#387), and so window_video reads its source with the audio it
-    cuts (#601). Not a public shape; nothing else constructs or consumes
-    one."""
+    and all (#387), and so window_video reads its source a range of frames
+    at a time, with the soundtrack decoded on its own (#601, #695). Not a
+    public shape: only _realize_lazy_frame_arguments builds one, for a
+    task's 'video' argument, and the tasks that take a file-based 'video' -
+    get_frame and its kin, the probes, trim_video, find_loop_bed and
+    window_video - read it."""
 
     __slots__ = ("path",)
 
@@ -428,8 +431,6 @@ def load_audio_video(location, base_dir=None):
         join of a file that is itself an earlier join's output can see the
         seams inside it (#399); a URL carries none.
     """
-    from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
-    from ..locations import validate_media_path
     from ..outbound import safe_get
 
     if isinstance(location, dict):
@@ -447,14 +448,29 @@ def load_audio_video(location, base_dir=None):
         handle = io.BytesIO(response.content)
         return _decode_audio_video(handle)
 
-    validated_path = validate_media_path(location, base_dir, "a video argument")
-    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    validated_path = local_video_path(location, base_dir)
     logger.debug(f"Reading video from {validated_path}")
     video = _decode_audio_video(validated_path)
     from ..runs import shots_beside
 
     video.shots = shots_beside(validated_path)
     return video
+
+
+def local_video_path(location, base_dir=None):
+    """The validated local path a video location names, or None for a URL -
+    the check `load_audio_video` makes before it reads a file, for a caller
+    that reads the file some other way (join_windows' source, #695)."""
+    from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
+    from ..locations import validate_media_path
+
+    if isinstance(location, dict):
+        location = location["location"]
+    if _URL_SCHEME.match(location):
+        return None
+    validated_path = validate_media_path(location, base_dir, "a video argument")
+    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    return validated_path
 
 
 def is_video_location(value):

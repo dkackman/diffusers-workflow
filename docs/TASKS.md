@@ -878,6 +878,12 @@ source's own frame boundaries (`frames_to_samples`, #401), so adjacent
 windows' strides tile the track exactly; the repeated frames carry silence of
 the length they would have had. A source with no track gives a silent window.
 
+Memory (#695): a file source (a path, `asset:` or `output:`) is never decoded
+whole - the window reads only the source frames it covers, from the keyframe
+before them, and the soundtrack on its own, so a window of a long source
+holds about one window of float32 frames plus the decoded track. An earlier
+step's video is already in memory and is cut from there.
+
 One step makes one window: a task cannot return a list of them, so drive it
 with `for_each` over `{name, index}` entries as above. It refuses an
 `overlap` that is not below `num_frames`, and a negative `overlap` or `index`
@@ -942,6 +948,11 @@ window's pad dropped. The incoming weight is `w(t)` at `t = (k + 1) /
 no seam frame is a bare copy of either side. The windows may be at a
 different size from the source (a 2x upscale); the output is at the windows'
 size.
+
+Memory (#695): the output is built as uint8, with only a seam's `overlap`
+frames blended in float32, so a join holds the output at one byte a channel
+plus the windows it was given - never the whole video in float32. A file
+`source` is read for its frame count and soundtrack only, never its picture.
 
 The window count must be exactly `ceil(source_frames / (num_frames -
 overlap))` - the rule has one home, `window_count` in `dw/task_domains.py`,
