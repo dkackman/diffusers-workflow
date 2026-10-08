@@ -164,12 +164,13 @@ class TestCancel:
         manager.cancel(second.id)
         wait_for(second, {"cancelled"})
 
-        # Routing, not a count: the scripted worker runs the job inside
-        # send_command, so this cancel lands before Execute "returns" and the
-        # job's thread follows it with the second cancel a pre-Execute
-        # request gets - a worker past its run ignores that one
+        # Exactly two: the scripted worker runs the job inside send_command,
+        # so this cancel lands before Execute "returns" and the job's thread
+        # follows it with the second cancel a pre-Execute request gets (the
+        # harness answers each with a `cancelled` reply; the real worker
+        # ignores an idle cancel, dw/worker.py)
         assert cancels["a"] == 0
-        assert cancels["b"] >= 1
+        assert cancels["b"] == 2
         assert first.status == "running"
         gate_a.release.set()
         wait_for(first, {"succeeded"})

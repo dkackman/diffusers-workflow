@@ -744,7 +744,9 @@ def _too_slow(what, url, total_timeout=None):
     """The refusal for a fetch past its total_timeout - however the deadline
     showed itself (the clock between chunks, or the connection aborted)."""
     allowed = (
-        f"the {total_timeout:g} s allowed" if total_timeout else "the time allowed"
+        f"the {total_timeout:g} s allowed"
+        if total_timeout is not None
+        else "the time allowed"
     )
     return InvalidInputError(
         f"Refusing {what} from '{url}': it took longer than {allowed} for one fetch"

@@ -183,7 +183,10 @@ One policy now answers all of it, untrusted:
   (600 s) - the connection is closed at the deadline, so a server
   trickling its response headers or its body cannot hold the worker; a 303 (or a
   301/302 to a POST) is followed as a GET, as requests itself does; and
-  `remote_text_encoder` POSTs through the same path with a timeout.
+  `remote_text_encoder` POSTs through the same path with a timeout. Two limits
+  to know: a trusted run behind a SOCKS proxy is not deadline-bounded (SOCKS
+  brings its own connection classes), and the TLS handshake is bounded by the
+  per-operation timeout only.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.
