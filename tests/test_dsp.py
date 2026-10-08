@@ -58,3 +58,14 @@ def test_true_peak_of_nothing_or_silence_is_the_floor():
     assert true_peak_dbfs(numpy.zeros((0, 2))) == SILENCE_DBFS
     assert true_peak_dbfs(None) == SILENCE_DBFS
     assert true_peak_dbfs(numpy.zeros((500, 1))) == SILENCE_DBFS
+
+
+def test_resample_waveform_length_is_exact_716():
+    """PyAV's flush rounds up; the track must be round(n * target / rate)."""
+    import numpy
+
+    from dw.dsp import resample_waveform
+
+    for n, src, dst in [(330667, 32000, 44100), (123457, 24000, 44100)]:
+        out = resample_waveform(numpy.zeros((2, n), dtype="float32"), src, dst)
+        assert out.shape[1] == int(round(n * dst / src))
