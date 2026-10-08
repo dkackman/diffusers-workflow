@@ -6,6 +6,8 @@ hand-written windowed workflow (a `for_each` window step and a `join_windows`
 step) rather than a template.
 """
 
+import pytest
+
 from dw.media import probe_metadata
 from dw.window_count_errors import window_count_errors
 from dw.workflow import workflow_from_definition
@@ -55,12 +57,13 @@ def window_workflow(window_count, num_frames=NUM_FRAMES, overlap=OVERLAP):
     }
 
 
-def validate(monkeypatch, tmp_path, window_count, frames=50):
+def validate(monkeypatch, tmp_path, window_count, frames=50, **numbers):
     import os
 
     base_dir = workflow_dir_with_asset(monkeypatch, tmp_path, ("long.mp4", frames))
     workflow = workflow_from_definition(
-        window_workflow(window_count), os.path.join(base_dir, "workflow.json")
+        window_workflow(window_count, **numbers),
+        os.path.join(base_dir, "workflow.json"),
     )
     return [
         problem
@@ -109,6 +112,45 @@ class TestThroughValidation:
         assert "needs 4 windows" in problems[0]["message"]
         assert "got 5" in problems[0]["message"]
         assert "drop 1 entry (index 4)" in problems[0]["message"]
+
+    @pytest.mark.parametrize(
+        "num_frames, overlap",
+        [
+            (NUM_FRAMES, OVERLAP),
+            (str(NUM_FRAMES), str(OVERLAP)),
+            (float(NUM_FRAMES), float(OVERLAP)),
+            (f"{NUM_FRAMES}.0", float(OVERLAP)),
+            (f"{NUM_FRAMES}.0", f"{OVERLAP}.0"),
+        ],
+        ids=["int", "string", "float", "float-string+float", "float-strings"],
+    )
+    def test_every_whole_number_form_gets_the_int_refusal(
+        self, monkeypatch, tmp_path, num_frames, overlap
+    ):
+        """C-F354h (#785): "17", 17.0 and "17.0" are read by whole_number's
+        rules, as the run reads them, so validate refuses the short list the
+        same way it does for 17 instead of skipping the check."""
+        problems = validate(
+            monkeypatch, tmp_path, 3, num_frames=num_frames, overlap=overlap
+        )
+
+        assert problems == [
+            {
+                "path": "steps[1]",
+                "message": "join_windows needs 4 windows for a 50-frame source"
+                " with num_frames 17 and overlap 4 (stride 13), got 3"
+                " - add 1 entry (index 3)",
+            }
+        ]
+
+    def test_a_fractional_string_is_left_to_the_whole_number_refusal(
+        self, monkeypatch, tmp_path
+    ):
+        """A non-whole value names no count; the domain check refuses it."""
+        problems = validate(monkeypatch, tmp_path, 3, num_frames="17.5")
+
+        assert not [p for p in problems if "windows for a" in p["message"]]
+        assert any("whole number for 'num_frames'" in p["message"] for p in problems)
 
     def test_an_unreadable_literal_source_is_refused_at_its_path(
         self, monkeypatch, tmp_path

@@ -14,8 +14,10 @@ Moved here, into `validation_errors`, in the shape of
 knowable without running anything: `source` is an `asset:`/`output:`
 reference or a literal path the run may read (`dw/probe_paths.py`), probed
 header-only (`probe_metadata`, B9); `num_frames` and `overlap` are literal
-after substitution; and `videos` is a list - which is what `gather:<step>`
-becomes once `for_each` has expanded, one entry per member. The rule itself
+whole numbers after substitution - an int, an integral float or a numeric
+string, read by `whole_number` as the run reads them (#785); and `videos` is
+a list - which is what `gather:<step>` becomes once `for_each` has expanded,
+one entry per member. The rule itself
 is `window_count_problem` in `dw/task_domains.py`, the one the task calls at
 run time, so the two cannot drift.
 
@@ -28,24 +30,23 @@ An `overlap` that is not below `num_frames` is `join_windows_errors`' to
 report, so it is skipped here rather than reported twice.
 """
 
-import numbers
-
 from .for_each import MEMBER_SEPARATOR, render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import author_index
-from .task_domains import window_count_problem
+from .task_domains import whole_number, window_count_problem
 
 
-def _literal_whole(value):
-    """`value` as an int when it is a literal whole number, else None."""
-    if isinstance(value, bool):
+def _literal_whole(value, name):
+    """`value` as an int when it is a literal whole number, read by
+    `whole_number`'s rules (`33`, `33.0`, `"33"`, `"33.0"` are all 33), else
+    None. A value that is not a whole number - a fraction, a bool, an
+    unresolved reference - is skipped here: `join_windows_errors` refuses it
+    with the "whole number" message, so it is not reported twice (#785)."""
+    try:
+        return whole_number(value, name, "join_windows")
+    except ValueError:
         return None
-    if isinstance(value, numbers.Integral):
-        return int(value)
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
 
 
 def _frame_count(path, probe):
@@ -87,8 +88,8 @@ def window_count_errors(
         videos = arguments.get("videos")
         if not isinstance(videos, list) or not videos:
             continue
-        num_frames = _literal_whole(arguments.get("num_frames"))
-        overlap = _literal_whole(arguments.get("overlap"))
+        num_frames = _literal_whole(arguments.get("num_frames"), "num_frames")
+        overlap = _literal_whole(arguments.get("overlap"), "overlap")
         if num_frames is None or overlap is None:
             continue
         if num_frames <= 0 or overlap < 0 or overlap >= num_frames:

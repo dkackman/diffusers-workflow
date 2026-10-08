@@ -385,3 +385,30 @@ def test_gallery_metadata_does_not_point_an_uncut_file_at_assess_output():
     result = catalog.get_gallery_metadata(client, "shot.mp4")
 
     assert "assess_output" not in (result.get("next") or "")
+
+
+def test_full_get_workflow_carries_the_observed_block():
+    """#786: the full form reads `observed` as the compact one does."""
+    observed = {"device": "mps", "runs": 3, "cold_minutes": 0.2}
+    client, _ = scripted(
+        {
+            ("GET", "/api/workflows/w"): (200, {"steps": [], "variables": {}}),
+            ("GET", "/api/workflows/w/variables"): (200, {"observed": observed}),
+        }
+    )
+
+    result = catalog.get_workflow(client, "w")
+
+    assert result["observed"] == observed
+    assert result["steps"] == []
+
+
+def test_full_get_workflow_without_history_has_no_observed_key():
+    client, _ = scripted(
+        {
+            ("GET", "/api/workflows/w"): (200, {"steps": []}),
+            ("GET", "/api/workflows/w/variables"): (200, {"variables": {}}),
+        }
+    )
+
+    assert "observed" not in catalog.get_workflow(client, "w")
