@@ -30,7 +30,7 @@ names and the partition each one denoises against are diffusers' own, and
 import logging
 
 from . import references
-from .for_each import MEMBER_SEPARATOR, render_path
+from .references import MEMBER_SEPARATOR, render_path
 
 logger = logging.getLogger("dw")
 

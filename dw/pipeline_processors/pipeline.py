@@ -24,21 +24,17 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
-from .h3_blocks import (
-    GUIDE_LIMIT,
+from .h3_guides import guide_audio_waveform, guide_frames_array, guides_refusal
+from .h3_hold import hold_audio_reference, holds_audio, refines
+from .h3_rules import (
     GUIDES_INPUT,
+    GUIDE_LIMIT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
-    guide_audio_waveform,
     guide_frame_problem,
-    guide_frames_array,
-    guides_refusal,
-    hold_audio_reference,
-    holds_audio,
     refine_problems,
-    refines,
     snap_guide_length,
 )
 from .progress import reported_blocks, reported_progress_bars
@@ -628,7 +624,7 @@ class Pipeline:
 
     def _with_held_audio(self, arguments):
         """`hold_audio` as the reference the H3 hold block takes, and the
-        held track asked for alongside `audio` (dw/pipeline_processors/h3_blocks.py).
+        held track asked for alongside `audio` (dw/pipeline_processors/h3_hold.py).
 
         Raises:
             ValueError: If this pipeline cannot hold audio, or the value is not audio
@@ -654,7 +650,7 @@ class Pipeline:
 
     def _with_guides(self, arguments):
         """`guides` as the H3 guide layout takes them - each clip as uint8
-        frames cut to a whole-latent length (dw/pipeline_processors/h3_blocks.py).
+        frames cut to a whole-latent length (dw/pipeline_processors/h3_guides.py).
         An empty list is no guides.
 
         A guide with `"audio": true` also carries its video's soundtrack, as
@@ -748,7 +744,7 @@ class Pipeline:
 
     def _check_refine(self, arguments):
         """Refuse a `refine_strength` the H3 refine block cannot run, before the
-        call (dw/pipeline_processors/h3_blocks.py).
+        call (dw/pipeline_processors/h3_hold.py).
 
         Raises:
             ValueError: If this pipeline cannot refine, the strength or step count

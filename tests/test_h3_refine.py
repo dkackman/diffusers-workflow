@@ -11,18 +11,20 @@ import pytest
 import torch
 
 from dw.hold_audio import refine_strength_errors
-from dw.pipeline_processors import h3_blocks
-from dw.pipeline_processors.h3_blocks import (
-    HOLD_BLOCK,
-    REFINE_BLOCK,
-    REFINE_STRENGTH_INPUT,
+from dw.pipeline_processors import h3_hold, h3_rules
+from dw.pipeline_processors.h3_hold import (
     blocks,
     core_denoise_sequences,
     insert_audio_hold,
-    refine_problems,
     refine_sigmas,
     refines,
     shifted_sigma_grid,
+)
+from dw.pipeline_processors.h3_rules import (
+    HOLD_BLOCK,
+    REFINE_BLOCK,
+    REFINE_STRENGTH_INPUT,
+    refine_problems,
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
@@ -329,15 +331,15 @@ class TestAnchors:
         pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
         pipeline._blocks.sub_blocks.pop("denoise.denoise")
         assert insert_audio_hold(pipeline) is True
-        assert h3_blocks.holds_audio(pipeline)
+        assert h3_hold.holds_audio(pipeline)
         assert refines(pipeline) is False
         assert HOLD_BLOCK in "".join(
             n for _, s in core_denoise_sequences(pipeline) for n in s.sub_blocks
         )
 
     def test_module_exports_stay_in_sync(self):
-        assert h3_blocks.REFINE_BEFORE == "denoise"
-        assert h3_blocks.REFINE_BLOCK == "dw_refine_schedule"
+        assert h3_rules.REFINE_BEFORE == "denoise"
+        assert h3_rules.REFINE_BLOCK == "dw_refine_schedule"
         assert blocks()[1].__name__ == "DwH3RefineScheduleStep"
 
 

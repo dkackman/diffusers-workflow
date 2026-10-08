@@ -358,7 +358,7 @@ def _modular_block_parameters(cls):
     takes is whatever its blocks declare as inputs, so those are the honest
     answer. The graph is built without weights (`init_pipeline()` with no
     repository), and carries dw's own blocks - the H3 audio hold and guides
-    (dw/pipeline_processors/h3_blocks.py) - as a loaded one does. Empty for
+    (dw/pipeline_processors/h3_hold.py, h3_guides.py) - as a loaded one does. Empty for
     a class with no default blocks, the bare `ModularPipeline` among them.
     """
     blocks_name = getattr(cls, "default_blocks_name", None)
@@ -366,7 +366,8 @@ def _modular_block_parameters(cls):
         return []
     import importlib
 
-    from .pipeline_processors.h3_blocks import insert_audio_hold, insert_guides
+    from .pipeline_processors.h3_guides import insert_guides
+    from .pipeline_processors.h3_hold import insert_audio_hold
 
     blocks_class = getattr(importlib.import_module(cls.__module__), blocks_name, None)
     if blocks_class is None:

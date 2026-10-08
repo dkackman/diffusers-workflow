@@ -1,7 +1,7 @@
 """A `guides` argument, checked before the run when it can be.
 
 `guides` (`[{"video": ..., "frame": ..., "audio": true?}]`) lays clips of an existing video into a
-MiniMax-H3 generation at chosen frames (dw/pipeline_processors/h3_blocks.py).
+MiniMax-H3 generation at chosen frames (dw/pipeline_processors/h3_guides.py).
 The rules that need no model are refused here rather than after a checkpoint
 load, with the helpers the run-time check calls (`guide_frame_problem`,
 `snap_guide_length`, `guide_end_problem`) so the two cannot drift:
@@ -33,18 +33,18 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
-from .hold_audio import _not_h3
-from .pipeline_processors.h3_blocks import (
+from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.h3_rules import (
     CHAIN_CONTINUITY_MODES,
+    GUIDES_INPUT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
-    GUIDES_INPUT,
     RENDER_GRID,
-    default_num_frames,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
+    not_h3,
     snap_guide_length,
 )
 from .probe_paths import resolve_probe_path
@@ -96,12 +96,12 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
 
 def _takes_guides_problem(pipeline, arguments):
     """Why this step cannot take guides, or None: it is not MiniMax-H3
-    (`hold_audio._not_h3`), or it loads ref2va or passes `references`. The one
+    (`h3_rules.not_h3`), or it loads ref2va or passes `references`. The one
     step rule for both a `guides` argument and a guide chain. A pipeline or
     workflow that is not literal is left to the run."""
-    not_h3 = _not_h3(pipeline, GUIDES_INPUT)
-    if not_h3:
-        return not_h3
+    h3_problem = not_h3(pipeline, GUIDES_INPUT)
+    if h3_problem:
+        return h3_problem
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
     workflow = (
         from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
@@ -270,7 +270,7 @@ def guide_chain_errors(workflow_definition, source_indices=None):
         # unresolved value is the run's to count. A one-segment chain has no
         # segment after the first, so it adds none. An own guide at frame 0 is
         # not refused: the layout appends every guide as its own condition rows
-        # (h3_blocks DwH3GuideLayoutStep), so it sits beside the chain's.
+        # (h3_guides DwH3GuideLayoutStep), so it sits beside the chain's.
         arguments = pipeline.get("arguments")
         own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
         segments = chain.get("segments")
