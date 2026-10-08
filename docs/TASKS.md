@@ -36,6 +36,54 @@ reported as clean successes. The commands refuse the same values at run time,
 which is what catches one that arrived from a `variable:` or an earlier step
 rather than being written in the file.
 
+## Adding a task
+
+A task is one function, registered with `@register_command` in
+`dw/tasks/registry.py`. Its signature is its argument schema, and everything
+validation knows about it beyond the signature is declared on the same
+decorator, so a new task cannot be half-registered (#692):
+
+```python
+from .registry import register_command
+from ..task_domains import NON_NEGATIVE, POSITIVE, my_task_errors
+
+
+@register_command(
+    "my_task",
+    domains={"num_frames": POSITIVE, "start_frame": NON_NEGATIVE},
+    choices={"mode": ("fast", "best")},
+    static_check=my_task_errors,
+    media_arguments=("source",),
+)
+def my_task(source, num_frames, start_frame=0, mode="fast"): ...
+```
+
+- `domains` - each numeric argument's domain (`dw/task_domains.py`'s
+  `POSITIVE`, `NON_NEGATIVE`, ...): refused at validation at
+  `steps[i].task.arguments.<name>`, and again at run time when the task calls
+  `check_arguments`.
+- `choices` - each argument's literal choices; `get_task` lists them.
+- `static_check` - a function of the step's `arguments` that returns
+  `(argument, message)` pairs for rules across arguments. It lives in
+  `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
+  command.
+- `media_arguments` - an argument that reads a file under a name that does not
+  say so (`source`, `media`, `lut`). Validation confines it as it does `image`
+  or `*_video`; an argument left out of it is not path-checked.
+
+`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS` and
+`TASK_MEDIA_ARGUMENTS` are read-only views of these declarations;
+`tests/test_task_registry_rules.py` pins them to the registry and every name in
+them to the command's signature.
+
+A new task is:
+
+1. a module in `dw/tasks/` holding the function and its decorator;
+2. one import line for that module in `dw/tasks/task.py` - the registry is
+   filled by importing `dw.tasks.task`, and modules are not discovered
+   automatically, so a module it does not import registers nothing;
+3. a section in this file.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
