@@ -403,3 +403,59 @@ class TestIntrospection:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestRgbaFileKeepsAlpha:
+    """An RGBA file on disk - an asset:/output: path once resolved - loads with
+    its alpha, so the finishing commands hand it back untouched (#775). The
+    pipeline-input loader still flattens to RGB."""
+
+    @staticmethod
+    def _cutout(tmp_path):
+        rgb = numpy.full((16, 16, 3), 200, dtype=numpy.uint8)
+        alpha = numpy.zeros((16, 16), dtype=numpy.uint8)
+        alpha[4:12, 4:12] = 255
+        image = Image.fromarray(rgb).convert("RGBA")
+        image.putalpha(Image.fromarray(alpha))
+        path = tmp_path / "cutout.png"
+        image.save(path)
+        return str(path), alpha
+
+    @pytest.mark.parametrize(
+        "command, arguments",
+        [
+            ("grade", {"exposure": 0.5, "saturation": 0.5}),
+            ("film_grain", {"amount": 0.3, "seed": 1}),
+            ("apply_lut", {"palette": ["#102030", "#e0c090"]}),
+            ("sharpen", {"amount": 1.0}),
+        ],
+    )
+    def test_a_file_path_comes_back_rgba_with_its_alpha(
+        self, tmp_path, command, arguments
+    ):
+        path, alpha = self._cutout(tmp_path)
+        result = _run(command, path, **arguments)
+        assert result.mode == "RGBA"
+        assert numpy.array_equal(_array(result.getchannel("A")), alpha)
+
+    def test_an_opaque_file_still_loads_rgb(self, tmp_path):
+        from dw.tasks.task import _load_media
+
+        path = tmp_path / "opaque.png"
+        Image.new("RGB", (8, 8), "red").save(path)
+        assert _load_media(str(path)).mode == "RGB"
+
+    def test_a_palette_file_with_transparency_loads_rgba(self, tmp_path):
+        from dw.tasks.task import _load_media
+
+        path = tmp_path / "palette.png"
+        image = Image.new("P", (8, 8), 0)
+        image.info["transparency"] = 0
+        image.save(path, transparency=0)
+        assert _load_media(str(path)).mode == "RGBA"
+
+    def test_a_pipeline_input_still_flattens_to_rgb(self, tmp_path):
+        from dw.argument_media import fetch_image
+
+        path, _ = self._cutout(tmp_path)
+        assert fetch_image(path).mode == "RGB"

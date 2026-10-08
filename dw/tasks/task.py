@@ -872,7 +872,8 @@ def _load_media(media):
     a video extension is read with its audio, anything else as an image. A
     value that is not a string - a PIL Image, an AudioVideo, a frame list -
     is already loaded and comes back as itself. Shared by the finishing
-    commands that take `media` (#603).
+    commands that take `media` (#603). An image file with transparency loads
+    as RGBA, so the command puts its alpha back after the op (#775).
     """
     if not isinstance(media, str):
         return media
@@ -885,7 +886,7 @@ def _load_media(media):
         return load_audio_video(media)
     from ..argument_media import fetch_image
 
-    return fetch_image(media)
+    return fetch_image(media, keep_alpha=True)
 
 
 @register_command(
