@@ -23,7 +23,7 @@ Two ways to specify the length:
   frame-aligned per-segment chunks, and mux the final video with the original,
   unsliced track - so the soundtrack has no seams at all. A held track is
   sliced into each segment's `hold_audio`, so every segment generates to its
-  own piece of it (dw/pipeline_processors/h3_blocks.py)
+  own piece of it (dw/pipeline_processors/h3_hold.py)
 
 The chain runs inside one cartesian iteration, so it composes with
 previous_result fan-out: three keyframes in, three chained videos out.
@@ -52,16 +52,16 @@ from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
-from .h3_blocks import (
+from .h3_guides import guides_refusal
+from .h3_hold import hold_audio_reference
+from .h3_rules import (
     CHAIN_CONTINUITY_MODES,
+    GUIDES_INPUT,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
-    GUIDES_INPUT,
     HOLD_AUDIO_INPUT,
     guide_chain_problems,
-    guides_refusal,
-    hold_audio_reference,
 )
 
 logger = logging.getLogger("dw")
@@ -192,7 +192,7 @@ class GuideContinuity:
             arguments[segment_argument] = carry.frames[0]
 
 
-# The names are h3_blocks.CHAIN_CONTINUITY_MODES, which validation reads too;
+# The names are h3_rules.CHAIN_CONTINUITY_MODES, which validation reads too;
 # strict, so a class added here without its name there fails at import
 CONTINUITY_MODES = dict(
     zip(

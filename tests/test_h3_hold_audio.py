@@ -14,13 +14,8 @@ from dw.hold_audio import hold_audio_errors
 from dw.introspection import describe_pipeline
 from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
-from dw.pipeline_processors import h3_blocks
-from dw.pipeline_processors.h3_blocks import (
-    HELD_AUDIO_OUTPUT,
-    HELD_AUDIO_RATE_OUTPUT,
-    HELD_ROWS,
-    HOLD_BLOCK,
-    RELEASE_BLOCK,
+from dw.pipeline_processors import h3_rules
+from dw.pipeline_processors.h3_hold import (
     as_channels_samples,
     blocks,
     core_denoise_sequences,
@@ -29,6 +24,13 @@ from dw.pipeline_processors.h3_blocks import (
     hold_audio_reference,
     holds_audio,
     insert_audio_hold,
+)
+from dw.pipeline_processors.h3_rules import (
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HELD_ROWS,
+    HOLD_BLOCK,
+    RELEASE_BLOCK,
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
@@ -829,5 +831,5 @@ class TestModularArtifacts:
 
 
 def test_module_exports_stay_in_sync():
-    assert h3_blocks.HOLD_BEFORE == "set_timesteps"
-    assert h3_blocks.RELEASE_BEFORE == "after_denoise"
+    assert h3_rules.HOLD_BEFORE == "set_timesteps"
+    assert h3_rules.RELEASE_BEFORE == "after_denoise"
