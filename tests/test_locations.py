@@ -9,6 +9,7 @@ one overrides tests/conftest.py's autouse _trust_workflows_by_default fixture
 back to the posture a deployed server actually runs on.
 """
 
+import json
 import os
 import tempfile
 from unittest.mock import patch
@@ -20,6 +21,7 @@ from dw.argument_media import fetch_image
 from dw.locations import (
     _refuse_other_url,
     contained_matches,
+    load_json_record,
     location_errors,
     token_host_allowed,
     validate_media_glob,
@@ -138,6 +140,46 @@ class TestMediaPathContainment:
             outside = _image(os.path.join(elsewhere, "debian-logo.png"))
             with pytest.raises(PathTraversalError):
                 fetch_image(outside, workflow_dir)
+
+
+class TestLoadJsonRecord:
+    def test_reads_a_json_file_inside_a_root(self, untrusted, workflow_dir):
+        path = os.path.join(workflow_dir, "fit.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"a": [1, 2]}, handle)
+        assert load_json_record(path, workflow_dir) == {"a": [1, 2]}
+        assert load_json_record("fit.json", workflow_dir) == {"a": [1, 2]}
+
+    def test_a_non_json_extension_is_refused(self, untrusted, workflow_dir):
+        path = os.path.join(workflow_dir, "fit.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        with pytest.raises(InvalidInputError):
+            load_json_record(path, workflow_dir)
+
+    def test_an_oversized_file_is_refused_before_it_is_read(
+        self, untrusted, workflow_dir, monkeypatch
+    ):
+        path = os.path.join(workflow_dir, "big.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write('{"a": "' + "x" * 100 + '"}')
+        monkeypatch.setattr("dw.security.MAX_JSON_SIZE", 10)
+        with pytest.raises(InvalidInputError, match="too large"):
+            load_json_record(path, workflow_dir)
+
+    def test_traversal_out_of_the_roots_is_refused(self, untrusted, workflow_dir):
+        with pytest.raises(PathTraversalError):
+            load_json_record("../outside.json", workflow_dir)
+
+    def test_an_absolute_path_outside_every_root_is_refused(
+        self, untrusted, workflow_dir
+    ):
+        with tempfile.TemporaryDirectory() as other:
+            path = os.path.join(other, "fit.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("{}")
+            with pytest.raises(PathTraversalError):
+                load_json_record(path, workflow_dir)
 
 
 class TestHostPolicy:

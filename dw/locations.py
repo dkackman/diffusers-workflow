@@ -36,6 +36,7 @@ the document to check.
 """
 
 import ipaddress
+import json
 import logging
 import os
 import socket
@@ -43,8 +44,11 @@ from urllib.parse import urlparse, urlsplit
 
 from . import references
 from .security import (
+    ALLOWED_JSON_EXTENSIONS,
     InvalidInputError,
     PathTraversalError,
+    validate_file_extension,
+    validate_json_size,
     validate_path,
     validate_url,
 )
@@ -221,6 +225,23 @@ def validate_media_path(
 
 def _joined(location, base_dir):
     return os.path.join(base_dir, str(location)) if base_dir else str(location)
+
+
+def load_json_record(path, workspace=None, what="a record argument"):
+    """The parsed JSON a step saved at `path` - the one way a task reads a
+    record back. Confinement, extension and size are checked before the file
+    is opened.
+
+    Args:
+        path: The location the workflow supplied
+        workspace: Directory a relative path is resolved against
+        what: Short phrase naming the argument, for the error message
+    """
+    resolved = validate_media_path(path, workspace, what)
+    validate_file_extension(resolved, ALLOWED_JSON_EXTENSIONS)
+    validate_json_size(resolved)
+    with open(resolved, encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def validate_media_glob(pattern, base_dir=None, what="a glob argument"):

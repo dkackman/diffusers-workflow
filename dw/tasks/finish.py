@@ -2,7 +2,7 @@
 CPU finishing passes beside grade: an unsharp-mask sharpen and film grain.
 
 Pure numpy/PIL - no model, no GPU. A video goes through the command
-handler's _per_frame (task.py), so sharpen_image only ever sees a single PIL
+handler's image_ops.per_frame, so sharpen_image only ever sees a single PIL
 Image. film_grain runs the frames itself, because one generator has to be
 consumed across all of them: every frame gets different grain, and the whole
 run reproduces from the seed (#603).
@@ -11,8 +11,7 @@ run reproduces from the seed (#603).
 import numpy as np
 from PIL import Image
 
-# Luma weights (Rec. 709), for grain's midtone weighting
-_LUMA_WEIGHTS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+from .image_ops import join_alpha, luma, per_frame, split_alpha
 
 # Grain's standard deviation at amount == 1.0, as a fraction of the channel
 # range: heavy, but still grain rather than noise that hides the picture
@@ -21,22 +20,6 @@ _GRAIN_STRENGTH = 0.15
 # film grain is most visible in the midtones, and grain at the ends would
 # mostly clip
 _GRAIN_END_WEIGHT = 0.25
-
-
-def _split_alpha(media):
-    """(RGB float32 array in 0..255, the alpha channel or None)."""
-    alpha = media.getchannel("A") if media.mode in ("RGBA", "LA") else None
-    return np.asarray(media.convert("RGB"), dtype=np.float32), alpha
-
-
-def _join_alpha(array, alpha):
-    """A PIL Image from a 0..255 float RGB array, with alpha put back."""
-    array = np.clip(np.rint(array), 0, 255).astype(np.uint8)
-    image = Image.fromarray(array, mode="RGB")
-    if alpha is not None:
-        image = image.convert("RGBA")
-        image.putalpha(alpha)
-    return image
 
 
 def sharpen_image(media, amount=1.0, radius=2.0, threshold=0):
@@ -113,9 +96,9 @@ def grain_frame(media, rng, amount=0.1, size=1.0, chroma=0.0):
     brightness only and never hue; chroma 1 draws each channel's noise
     independently. Values between mix the two at the same overall strength.
     """
-    rgb, alpha = _split_alpha(media)
+    rgb, alpha = split_alpha(media)
     if amount == 0:
-        return _join_alpha(rgb, alpha)
+        return join_alpha(rgb, alpha)
     height, width = rgb.shape[:2]
     chroma = float(chroma)
     noise = _noise_field(rng, height, width, float(size), 1)
@@ -127,10 +110,10 @@ def grain_frame(media, rng, amount=0.1, size=1.0, chroma=0.0):
         noise = ((1.0 - chroma) * noise + chroma * independent) / np.sqrt(
             (1.0 - chroma) ** 2 + chroma**2
         )
-    luma = np.tensordot(rgb / 255.0, _LUMA_WEIGHTS, axes=([-1], [0]))
-    weight = _GRAIN_END_WEIGHT + (1.0 - _GRAIN_END_WEIGHT) * 4.0 * luma * (1.0 - luma)
+    level = luma(rgb / 255.0)
+    weight = _GRAIN_END_WEIGHT + (1.0 - _GRAIN_END_WEIGHT) * 4.0 * level * (1.0 - level)
     grain = noise * (float(amount) * _GRAIN_STRENGTH * 255.0) * weight[:, :, None]
-    return _join_alpha(rgb + grain, alpha)
+    return join_alpha(rgb + grain, alpha)
 
 
 def film_grain(media, amount=0.1, size=1.0, chroma=0.0, seed=None):
@@ -154,10 +137,8 @@ def film_grain(media, amount=0.1, size=1.0, chroma=0.0, seed=None):
         A PIL Image for an image, an AudioVideo with the same frame count,
         frame rate and audio for a video
     """
-    from .task import _per_frame
-
     rng = np.random.default_rng(None if seed is None else int(seed))
-    return _per_frame(
+    return per_frame(
         media,
         lambda frame: grain_frame(frame, rng, amount=amount, size=size, chroma=chroma),
     )

@@ -2,7 +2,7 @@ import logging
 
 from .. import resolve_device
 from ..events import emit_log
-from ..media_types import AudioVideo
+from .image_ops import per_frame
 from .qr_code import get_qrcode_image
 from .image_utils import process_image
 from .video_utils import process_video
@@ -535,7 +535,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "earlier step's video. A clip that records its shots resets the "
             "track at each boundary."
         ),
-        "crop_size": "Side of every crop in pixels; a multiple of 32.",
+        "crop_size": "Side of every crop in pixels; a multiple of `multiple`.",
         "padding": (
             "Space added around the face on each side, as a fraction of its "
             "size (0 to 3)."
@@ -548,6 +548,16 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "is 0; must exceed gate_full."
         ),
         "min_confidence": "Detector score below which a detection is ignored.",
+        "modulus": (
+            "The crop count is padded to modulus * n + remainder frames - the "
+            "frame grid of the model the crops feed; 8 with remainder 1 is "
+            "LTX's 8n+1."
+        ),
+        "remainder": "The padded count's remainder, from 0 to modulus - 1.",
+        "multiple": (
+            "crop_size must be a multiple of this - the model's frame-size "
+            "step (32 for LTX)."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -557,7 +567,11 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "gate_full": POSITIVE,
         "gate_zero": POSITIVE,
         "min_confidence": POSITIVE,
+        "modulus": POSITIVE,
+        "remainder": NON_NEGATIVE,
+        "multiple": POSITIVE,
     },
+    whole_numbers=("modulus", "remainder", "multiple"),
     static_check=face_track_errors,
     media_arguments=("clip",),
 )
@@ -583,8 +597,8 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
             "frame rate and shots are kept."
         ),
         "repaired": (
-            "The crops after a face-detail pass, still padded to the 8n+1 "
-            "count crop_face_track produced."
+            "The crops after a face-detail pass, still padded to the count "
+            "crop_face_track produced."
         ),
         "track": (
             "The track record crop_face_track returned - "
@@ -790,32 +804,6 @@ def _handle_get_dict_value(task, arguments, previous_pipelines):
     return get_dict_value(**arguments)
 
 
-def _per_frame(image, process):
-    """Run an image command over a video, frame by frame.
-
-    A video bound to an image argument - an AudioVideo from a generation,
-    concat or dissolve step, or a frame array from video_frames - is processed
-    one frame at a time and comes back as one video artifact, its soundtrack
-    carried through untouched. A single image is processed as itself.
-    """
-    from ..shots import carried_shots
-    from .video_utils import frames_as_pil_list, is_video
-
-    if not is_video(image):
-        return process(image)
-    frames = [process(frame) for frame in frames_as_pil_list(image)]
-    audio = getattr(image, "audio", None)
-    sample_rate = getattr(image, "sample_rate", None)
-    # One frame out per frame in, so the shot boundaries carry through too
-    return AudioVideo(
-        frames,
-        audio,
-        sample_rate,
-        fps=getattr(image, "fps", None),
-        shots=carried_shots(image),
-    )
-
-
 @register_command(
     "upscale", implementation="dw.tasks.upscale.upscale_image", consumes_device=True
 )
@@ -827,7 +815,7 @@ def _handle_upscale(task, arguments, previous_pipelines):
     from .upscale import upscale_image
 
     device = task.device_for(arguments)
-    return _per_frame(
+    return per_frame(
         image,
         lambda frame: upscale_image(frame, model_name, device=device, **arguments),
     )
@@ -845,7 +833,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     from .diffusion_upscale import diffusion_upscale
 
     device = task.device_for(arguments)
-    return _per_frame(
+    return per_frame(
         image, lambda frame: diffusion_upscale(frame, device=device, **arguments)
     )
 
@@ -871,14 +859,14 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
         )
 
     device = task.device_for(arguments)
-    return _per_frame(
+    return per_frame(
         image,
         lambda frame: restore_faces(frame, model_name, device=device, **arguments),
     )
 
 
 def _load_media(media):
-    """An image-or-video argument as something _per_frame takes.
+    """An image-or-video argument as something per_frame takes.
 
     A string is a file path (an asset:/output: reference already resolved):
     a video extension is read with its audio, anything else as an image. A
@@ -962,7 +950,7 @@ def _handle_grade(task, arguments, previous_pipelines):
         command="grade",
         **applied,
     )
-    return _per_frame(media, lambda frame: grade_image(frame, **arguments))
+    return per_frame(media, lambda frame: grade_image(frame, **arguments))
 
 
 _MEDIA_DESCRIPTION = (
@@ -989,7 +977,7 @@ def _handle_sharpen(task, arguments, previous_pipelines):
 
     # A value from a variable or an earlier step never met the static pass
     check_arguments("sharpen", **arguments)
-    return _per_frame(media, lambda frame: sharpen_image(frame, **arguments))
+    return per_frame(media, lambda frame: sharpen_image(frame, **arguments))
 
 
 @register_command(
@@ -1051,7 +1039,7 @@ def _handle_apply_lut(task, arguments, previous_pipelines):
     check_arguments("apply_lut", **arguments)
     # Read or built once, not once per video frame
     lookup = lookup_for(lut, palette)
-    return _per_frame(media, lambda frame: apply_lut(frame, lookup, **arguments))
+    return per_frame(media, lambda frame: apply_lut(frame, lookup, **arguments))
 
 
 @register_command(
@@ -1065,7 +1053,7 @@ def _handle_segment(task, arguments, previous_pipelines):
     from .segment import segment_image
 
     device = task.device_for(arguments)
-    return _per_frame(
+    return per_frame(
         image, lambda frame: segment_image(frame, prompt, device=device, **arguments)
     )
 
@@ -1273,7 +1261,7 @@ def _handle_image_processing(task, arguments, previous_pipelines):
     """Handle image processing commands"""
     logger.debug("Processing image")
     device = task.device_for(arguments)
-    return _per_frame(
+    return per_frame(
         arguments.pop("image"),
         lambda frame: process_image(frame, task.command, device, arguments),
     )
