@@ -34,6 +34,7 @@ from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
 from ...variables import set_variables
+from ...vram_estimate import required_vram_gb
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -662,6 +663,18 @@ def _probe_command_for(candidate, request, workspace, workflow_dir):
     return command
 
 
+def _vram_need_of(definition, arguments):
+    """The VRAM a run of `definition` needs, as admission computes it for
+    dispatch (`Admission.vram_need`), or None where it cannot be read."""
+    try:
+        from ... import get_device_type
+
+        return required_vram_gb(definition, arguments, get_device_type())
+    except Exception:
+        logger.debug("Could not compute the plan's VRAM need", exc_info=True)
+        return None
+
+
 def _validation_plan(state, candidate, request, workspace, source, catalog_name, sizes):
     """The plan a valid /api/validate answer carries: what the run will
     execute for these arguments, fingerprinted so an acknowledgement can
@@ -674,6 +687,13 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
         from ... import get_device, get_device_type
 
         command = _probe_command_for(candidate, request, workspace, source_root)
+        # The card this run would be dispatched to now: its step cache is
+        # the one probed, and its history the one the estimate quotes (#462)
+        manager = state.job_manager
+        card = manager.route(
+            manager.identity_of(command["source"], command["file_spec"], definition),
+            _vram_need_of(definition, request.arguments),
+        )
 
         def observed_for_child(path, child_definition, arguments=None):
             """A composed child's own observed figure, keyed by the
@@ -715,16 +735,17 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                 child_definition,
                 arguments,
                 workspace=child_workspace,
+                card=card.ordinal(),
             )
 
-        return build_plan(
+        plan = build_plan(
             candidate,
             request.arguments,
             device=get_device_type(get_device()),
             prompt_dir=workspace.prompts,
             lookup_sizes=sizes,
-            cache_probe=lambda arguments: state.job_manager.probe_cache(
-                {**command, "arguments": arguments}
+            cache_probe=lambda arguments: manager.probe_cache(
+                {**command, "arguments": arguments}, slot=card
             ),
             # What this box's own runs of this shape took, which is what
             # the estimate quotes ahead of a curated figure (#154) - the
@@ -738,6 +759,7 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                         definition,
                         arguments,
                         workspace=workspace.name if source.writable else None,
+                        card=card.ordinal(),
                     )
                 )
                 if catalog_name
@@ -745,6 +767,12 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
             ),
             observed_for_child=observed_for_child,
         )
+        # Which card the estimate is for - with several, the figure is
+        # that card's, and another card's may differ
+        priced_for = card.label() or card.ordinal()
+        if priced_for and isinstance(plan.get("estimate"), dict):
+            plan["estimate"]["priced_for"] = priced_for
+        return plan
     except Exception:
         logger.exception("Plan could not be built")
         return None

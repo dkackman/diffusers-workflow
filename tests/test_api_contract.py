@@ -222,13 +222,16 @@ def test_a_route_the_ui_reads_declares_its_response(document, method, path):
 def test_memory_with_no_worker_keeps_its_keys(server):
     with server(success_script) as client:
         body = client.get("/api/memory").json()
-    assert body == {
+        card = client.app.state.job_manager.slots[0].ordinal()
+    reading = {
         "live": False,
         "info": None,
         "stale": False,
         "reason": "worker_stopped",
         "age_seconds": None,
     }
+    # #462 stage C added one reading per card beside the first card's
+    assert body == {**reading, "workers": [{"device": card, **reading}]}
 
 
 def test_health_sends_exactly_its_keys(server):

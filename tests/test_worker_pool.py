@@ -7,12 +7,13 @@ import time
 
 import pytest
 
-from dw.server.jobs import JobManager
+from dw.server.jobs import JobManager, WorkerBusy
 from dw.vram_estimate import _entries_for, required_vram_gb
 from tests.test_server import (  # noqa: F401
     ScriptedWorkerManager,
     admitted_for,
     crashing_script,
+    no_hub,
     server,
     success_script,
     valid_workflow,
@@ -390,3 +391,446 @@ class TestRequiredVram:
     def test_neither_is_none(self):
         assert required_vram_gb(self.definition(), None, "cuda") is None
         assert required_vram_gb("not a definition") is None
+
+
+def submit_on(manager, name, device):
+    """A job preferring `device`, as a rerun prefers its original's card."""
+    return manager.submit(
+        admitted=admitted_for(manager, valid_workflow(name)),
+        workflow=valid_workflow(name),
+        preferred_device=device,
+    )
+
+
+def finish(manager, *jobs):
+    """Wait for every job to succeed and its card to be free again."""
+    for job in jobs:
+        wait_for(job, {"succeeded"})
+    assert wait_until(lambda: all(s.current_job_id is None for s in manager.slots))
+
+
+def rearm(gate):
+    gate.started.clear()
+    gate.release.clear()
+
+
+def answering(worker):
+    """Makes the scripted worker answer clear_memory (it answers
+    memory_status already) and name its own card in every reading."""
+    original = worker.send_command
+
+    def send(command):
+        if command["type"] == "memory_status":
+            worker._results.put(
+                {
+                    "type": "memory_status",
+                    "request_id": command["request_id"],
+                    "info": {"card": worker.device},
+                }
+            )
+            worker.commands.append(command)
+        elif command["type"] == "clear_memory":
+            worker.commands.append(command)
+            worker._results.put(
+                {
+                    "type": "memory_cleared",
+                    "request_id": command["request_id"],
+                    "info": {"card": worker.device, "cleared": True},
+                }
+            )
+        else:
+            original(command)
+
+    worker.send_command = send
+    return worker
+
+
+def types(worker):
+    return [command["type"] for command in worker.commands]
+
+
+class TestIdentityAffinity:
+    def test_a_second_run_lands_on_the_card_that_ran_the_workflow_first(self, pool):
+        gate_a = Gate()
+        a = card(gate_a, "cuda:0", 24)
+        b = card(success_script, "cuda:1", 24)
+        manager = pool(a, b)
+
+        # Card 0 is busy with Y, so X's first run goes to card 1
+        holder = submit(manager, "y")
+        gate_a.wait_started()
+        wait_for(holder, {"running"})
+        first = submit(manager, "x")
+        wait_for(first, {"succeeded"})
+        assert first.device == "cuda:1 Test GPU"
+        gate_a.release.set()
+        finish(manager, holder, first)
+
+        # Both free and both warm: without affinity the first card is taken
+        second = submit(manager, "x")
+        wait_for(second, {"succeeded"})
+
+        assert second.device == "cuda:1 Test GPU"
+
+    def test_another_workflow_is_not_pulled_to_the_warm_card(self, pool):
+        manager = pool(
+            card(success_script, "cuda:0", 24), card(success_script, "cuda:1", 24)
+        )
+        warm = submit(manager, "x")
+        finish(manager, warm)
+        assert warm.device == "cuda:0 Test GPU"
+
+        # Card 0 holds x warm; card 1 has no worker running, so y goes there
+        other = submit(manager, "y")
+        wait_for(other, {"succeeded"})
+
+        assert other.device == "cuda:1 Test GPU"
+
+    def test_a_cleared_card_holds_nothing_warm(self, pool):
+        gate_a = Gate()
+        a = answering(card(gate_a, "cuda:0", 24))
+        b = answering(card(success_script, "cuda:1", 24))
+        manager = pool(a, b)
+        holder = submit(manager, "y")
+        gate_a.wait_started()
+        first = submit(manager, "x")
+        wait_for(first, {"succeeded"})
+        gate_a.release.set()
+        finish(manager, holder, first)
+        assert manager.slots[1].warm_identity() is not None
+
+        manager.clear_memory(device="cuda:1")
+
+        assert manager.slots[1].warm_identity() is None
+        again = submit(manager, "x")
+        wait_for(again, {"succeeded"})
+        assert again.device == "cuda:0 Test GPU"
+
+
+class TestRerunAffinity:
+    def original_on_second_card(self, pool, gate_a):
+        a = card(gate_a, "cuda:0", 24)
+        b = card(success_script, "cuda:1", 24)
+        manager = pool(a, b)
+        holder = submit(manager, "y")
+        gate_a.wait_started()
+        original = submit(manager, "x")
+        wait_for(original, {"succeeded"})
+        assert original.device == "cuda:1 Test GPU"
+        gate_a.release.set()
+        finish(manager, holder, original)
+        # Nothing warm anywhere: only the rerun's own preference can decide
+        for slot in manager.slots:
+            slot.last_identity = None
+        return manager, original
+
+    def test_a_rerun_lands_on_the_original_card_when_it_is_free(self, pool):
+        manager, original = self.original_on_second_card(pool, Gate())
+
+        rerun = manager.rerun(
+            original.id, admitted=admitted_for(manager, valid_workflow("x"))
+        )
+        wait_for(rerun, {"succeeded"})
+
+        assert rerun.device == "cuda:1 Test GPU"
+
+    def test_a_rerun_takes_the_other_free_card_when_the_original_is_busy(self, pool):
+        gate_a = Gate()
+        manager, original = self.original_on_second_card(pool, gate_a)
+        # Hold the original's card
+        gate_b = Gate()
+        manager.slots[1].manager.script = gate_b
+        holder = submit_on(manager, "z", "cuda:1")
+        gate_b.wait_started()
+        wait_for(holder, {"running"})
+        assert holder.device == "cuda:1 Test GPU"
+
+        rerun = manager.rerun(
+            original.id, admitted=admitted_for(manager, valid_workflow("x"))
+        )
+        wait_for(rerun, {"succeeded"})
+
+        assert rerun.device == "cuda:0 Test GPU"
+        assert holder.status == "running"
+        gate_b.release.set()
+        finish(manager, holder)
+
+    def test_a_rerun_of_a_job_only_history_remembers_prefers_its_card(self, pool):
+        manager, original = self.original_on_second_card(pool, Gate())
+        # Dropped from memory, as a long-running server drops old jobs
+        del manager.jobs[original.id]
+
+        assert manager._original_device(original.id) == "cuda:1"
+        assert manager._original_device("nonexistent") is None
+
+
+class TestProbeRouting:
+    COMMAND = {
+        "definition": valid_workflow("x"),
+        "file_spec": "x",
+        "source": "inline",
+        "arguments": {},
+        "output_dir": "/tmp",
+    }
+
+    def test_the_probe_goes_to_the_worker_the_job_would_be_routed_to(self, pool):
+        gate_a = Gate()
+        a = card(gate_a, "cuda:0", 24)
+        b = card(success_script, "cuda:1", 24)
+        manager = pool(a, b)
+        holder = submit(manager, "y")
+        gate_a.wait_started()
+        first = submit(manager, "x")
+        wait_for(first, {"succeeded"})
+        gate_a.release.set()
+        finish(manager, holder, first)
+        identity = manager.identity_of("inline", "x", valid_workflow("x"))
+        assert manager.route(identity) is manager.slots[1]
+        b.cached_steps = ["gen"]
+        a.commands.clear()
+        b.commands.clear()
+
+        assert manager.probe_cache(self.COMMAND) == ["gen"]
+
+        assert "probe_cache" in types(b)
+        assert "probe_cache" not in types(a)
+
+    def test_a_named_slot_overrides_the_route(self, pool):
+        a = card(success_script, "cuda:0", 24)
+        b = card(success_script, "cuda:1", 24)
+        manager = pool(a, b)
+        a.ensure_worker()
+        b.ensure_worker()
+        a.cached_steps = ["from-a"]
+        b.cached_steps = ["from-b"]
+
+        assert manager.probe_cache(self.COMMAND, slot=manager.slots[1]) == ["from-b"]
+        assert manager.probe_cache(self.COMMAND, slot=manager.slots[0]) == ["from-a"]
+
+
+class TestMemoryPerCard:
+    def two(self, pool, script_a=success_script, script_b=success_script):
+        a = answering(card(script_a, "cuda:0", 24))
+        b = answering(card(script_b, "cuda:1", 24))
+        manager = pool(a, b)
+        a.ensure_worker()
+        b.ensure_worker()
+        return manager, a, b
+
+    def test_without_a_device_there_is_one_entry_per_card(self, pool):
+        manager, _, _ = self.two(pool)
+
+        status = manager.memory_status()
+
+        assert [entry["device"] for entry in status["workers"]] == ["cuda:0", "cuda:1"]
+        assert [entry["info"] for entry in status["workers"]] == [
+            {"card": "cuda:0"},
+            {"card": "cuda:1"},
+        ]
+        assert all(entry["live"] for entry in status["workers"])
+        # The top level is the first card's reading, as ever
+        assert status["info"] == {"card": "cuda:0"}
+
+    def test_a_device_answers_for_that_card_alone(self, pool):
+        manager, a, b = self.two(pool)
+
+        status = manager.memory_status(device="cuda:1")
+
+        assert status["device"] == "cuda:1"
+        assert status["info"] == {"card": "cuda:1"}
+        assert "workers" not in status
+        assert types(a) == []
+
+    def test_an_unknown_device_is_a_value_error(self, pool):
+        manager, _, _ = self.two(pool)
+
+        with pytest.raises(ValueError, match="cuda:9"):
+            manager.memory_status(device="cuda:9")
+        with pytest.raises(ValueError, match="cuda:9"):
+            manager.clear_memory(device="cuda:9")
+
+    def test_last_memory_is_kept_per_card(self, pool):
+        manager, _, _ = self.two(pool)
+
+        manager.memory_status()
+
+        first, second = manager.slots
+        assert first.last_memory == {"card": "cuda:0"}
+        assert second.last_memory == {"card": "cuda:1"}
+        assert manager.last_memory == {"card": "cuda:0"}
+
+        manager.clear_memory(device="cuda:1")
+        assert first.last_memory == {"card": "cuda:0"}
+        assert second.last_memory == {"card": "cuda:1", "cleared": True}
+
+    def test_clearing_one_card_leaves_the_other_alone(self, pool):
+        manager, a, b = self.two(pool)
+
+        result = manager.clear_memory(device="cuda:1")
+
+        assert result["cleared"] is True
+        assert result["device"] == "cuda:1"
+        assert types(b) == ["clear_memory"]
+        assert types(a) == []
+
+    def test_clearing_every_card_clears_each_idle_one(self, pool):
+        manager, a, b = self.two(pool)
+
+        result = manager.clear_memory()
+
+        assert [entry["device"] for entry in result["workers"]] == ["cuda:0", "cuda:1"]
+        assert all(entry["cleared"] for entry in result["workers"])
+        assert types(a) == types(b) == ["clear_memory"]
+
+    def test_a_named_card_running_a_job_is_refused_though_the_other_is_idle(self, pool):
+        gate_b = Gate()
+        manager, a, b = self.two(pool, script_b=gate_b)
+        job = submit_on(manager, "busy", "cuda:1")
+        gate_b.wait_started()
+        wait_for(job, {"running"})
+        assert job.device == "cuda:1 Test GPU"
+        a.commands.clear()
+
+        with pytest.raises(WorkerBusy, match="cuda:1"):
+            manager.clear_memory(device="cuda:1")
+
+        assert types(a) == []
+        assert "clear_memory" not in types(b)
+        gate_b.release.set()
+        finish(manager, job)
+
+    def test_clearing_every_card_reports_the_busy_one_and_clears_the_rest(self, pool):
+        gate_b = Gate()
+        manager, a, b = self.two(pool, script_b=gate_b)
+        job = submit_on(manager, "busy", "cuda:1")
+        gate_b.wait_started()
+        wait_for(job, {"running"})
+
+        result = manager.clear_memory()
+
+        first, second = result["workers"]
+        assert first["device"] == "cuda:0" and first["cleared"] is True
+        assert second == {
+            "device": "cuda:1",
+            "cleared": False,
+            "reason": "job_running",
+            "job": job.id,
+        }
+        assert types(a) == ["clear_memory"]
+        assert "clear_memory" not in types(b)
+        gate_b.release.set()
+        finish(manager, job)
+
+    def test_every_card_busy_refuses_the_clear(self, pool):
+        gate_a, gate_b = Gate(), Gate()
+        manager, _, _ = self.two(pool, gate_a, gate_b)
+        jobs = [submit_on(manager, "a", "cuda:0"), submit_on(manager, "b", "cuda:1")]
+        gate_a.wait_started()
+        gate_b.wait_started()
+
+        with pytest.raises(WorkerBusy):
+            manager.clear_memory()
+
+        gate_a.release.set()
+        gate_b.release.set()
+        finish(manager, *jobs)
+
+
+class TestMemoryRoutes:
+    @pytest.fixture
+    def pooled(self, pool, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from dw.server.app import create_app
+
+        gate_b = Gate()
+        a = answering(card(success_script, "cuda:0", 24))
+        b = answering(card(gate_b, "cuda:1", 24))
+        manager = pool(a, b)
+        a.ensure_worker()
+        b.ensure_worker()
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        app = create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(prompts),
+        )
+        client = TestClient(app, base_url="http://localhost")
+        yield client, manager, gate_b
+        gate_b.release.set()
+
+    def test_an_unknown_device_is_a_400(self, pooled):
+        client, _, _ = pooled
+
+        assert client.get("/api/memory", params={"device": "cuda:9"}).status_code == 400
+        assert (
+            client.post("/api/memory/clear", params={"device": "cuda:9"}).status_code
+            == 400
+        )
+
+    def test_a_device_reads_that_card(self, pooled):
+        client, _, _ = pooled
+
+        body = client.get("/api/memory", params={"device": "cuda:1"}).json()
+        everything = client.get("/api/memory").json()
+
+        assert body["device"] == "cuda:1"
+        assert [w["device"] for w in everything["workers"]] == ["cuda:0", "cuda:1"]
+
+    def test_clearing_a_busy_card_is_a_409_though_the_other_is_idle(self, pooled):
+        client, manager, gate_b = pooled
+        job = submit_on(manager, "busy", "cuda:1")
+        gate_b.wait_started()
+        wait_for(job, {"running"})
+
+        busy = client.post("/api/memory/clear", params={"device": "cuda:1"})
+        idle = client.post("/api/memory/clear", params={"device": "cuda:0"})
+
+        assert busy.status_code == 409
+        assert idle.status_code == 200
+        assert idle.json()["device"] == "cuda:0"
+
+
+@pytest.mark.usefixtures("no_hub")
+class TestPricedFor:
+    def test_the_estimate_names_the_card_the_job_is_routed_to(self, pool, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from dw.server.app import create_app
+
+        a = card(success_script, "cuda:0", 24, name="First GPU")
+        b = card(success_script, "cuda:1", 24, name="Second GPU")
+        manager = pool(a, b)
+        a.ensure_worker()
+        b.ensure_worker()
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        client = TestClient(
+            create_app(
+                workflow_dir=str(workflows),
+                output_dir=str(tmp_path / "outputs"),
+                job_manager=manager,
+                prompt_dir=str(prompts),
+            ),
+            base_url="http://localhost",
+        )
+
+        def priced(name):
+            answer = client.post(
+                "/api/validate?sizes=false", json={"workflow": valid_workflow(name)}
+            ).json()
+            assert answer["valid"], answer
+            return answer["plan"]["estimate"]["priced_for"]
+
+        # Both warm with something else: the first card
+        manager.slots[0].last_identity = ("inline", "other")
+        manager.slots[1].last_identity = ("inline", "x")
+        assert priced("unrelated") == "cuda:0 First GPU"
+        # The card that last ran this workflow
+        assert priced("x") == "cuda:1 Second GPU"

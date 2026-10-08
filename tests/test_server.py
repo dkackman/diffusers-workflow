@@ -997,13 +997,16 @@ def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
 
     # (a) nothing has ever been measured, which means nothing is resident
     stopped = manager.memory_status()
-    assert stopped == {
+    reading = {
         "live": False,
         "info": None,
         "stale": False,
         "reason": "worker_stopped",
         "age_seconds": None,
     }
+    # The first card's reading at the top level, and one entry per card
+    card = manager.slots[0].ordinal()
+    assert stopped == {**reading, "workers": [{"device": card, **reading}]}
 
     # (b) a job is running, so the reading on file predates it
     manager._record_memory({"gpu_memory_allocated_mb": 8.125})
@@ -5240,7 +5243,9 @@ class TestValidatePlan:
         asked = []
 
         class History:
-            def observed(self, name, definition, arguments=None, *, workspace=None):
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
                 asked.append((name, arguments))
                 return {
                     "device": serving,
@@ -5256,6 +5261,8 @@ class TestValidatePlan:
                 "/api/validate?sizes=false",
                 json={"workflow_path": "Basic", "arguments": {"prompt": "x"}},
             ).json()
+            card = client.app.state.job_manager.slots[0]
+            priced_for = card.label() or card.ordinal()
 
         assert result["plan"]["estimate"] == {
             "minutes": 8.0,
@@ -5266,6 +5273,7 @@ class TestValidatePlan:
             "unpriced": [],
             "runs": 11,
             "cached_minutes": 8.0,
+            "priced_for": priced_for,
         }
         assert asked == [("Basic", {"prompt": "x"})]
 
@@ -5278,7 +5286,9 @@ class TestValidatePlan:
         )
 
         class History:
-            def observed(self, name, definition, arguments=None, *, workspace=None):
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
                 raise AssertionError("an inline definition has no history")
 
         with server(success_script) as client:

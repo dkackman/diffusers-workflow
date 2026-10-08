@@ -278,6 +278,8 @@ class ObservedCosts:
         self._rows = {}
         self._device = None
         self._card = None
+        # (kind, card name, is the default card) per named card, read once
+        self._cards = {}
 
     def device(self):
         """The accelerator every figure here is about, as (type, card name).
@@ -311,28 +313,53 @@ class ObservedCosts:
             self._device = (kind, card if kind == "cuda" else None)
         return self._device
 
-    def _on_this_card(self, rows):
-        """The rows that ran on the card this server runs on now (#462).
+    def card(self, ordinal):
+        """A named card ('cuda:1') as (type, card name, whether it is the
+        box's default card) - what `observed(card=...)` prices for. Read
+        once per card, for the same reason `device` is."""
+        if ordinal not in self._cards:
+            from ..devices import card_name, is_default_device
+
+            kind = str(ordinal).split(":", 1)[0]
+            try:
+                name = card_name(ordinal)
+            except Exception:
+                logger.debug("observed cost: could not read %s's name", ordinal)
+                name = None
+            try:
+                default = is_default_device(ordinal)
+            except Exception:
+                default = True
+            self._cards[ordinal] = (kind, name, default)
+        return self._cards[ordinal]
+
+    def _on_this_card(self, rows, card=None):
+        """The rows that ran on the card this server runs on now, or on
+        `card` when one is named (#462).
 
         A row names its card (`device`, "cuda:1 NVIDIA GeForce RTX 3090")
         and counts when the card name matches, whichever index it had - a
         3090 run tells a 3090 estimate, not a 4090 one. A row from before
         jobs carried a `device` ran on the box's default card, so it counts
-        only while this server is on that card."""
+        only for that card."""
         from ..devices import card_of, is_default_device
 
-        self.device()
-        try:
-            default = is_default_device()
-        except Exception:
-            default = True
+        if card is not None:
+            _, name, default = self.card(card)
+        else:
+            self.device()
+            name = self._card
+            try:
+                default = is_default_device()
+            except Exception:
+                default = True
         kept = []
         for row in rows:
             label = row.get("device")
             if label is None:
                 if default:
                     kept.append(row)
-            elif card_of(label) == self._card:
+            elif card_of(label) == name:
                 kept.append(row)
         return kept
 
@@ -384,11 +411,22 @@ class ObservedCosts:
                 rows.extend(workspace_rows)
         return rows
 
-    def observed(self, name, definition, arguments=None, *, fresh=True, workspace=None):
-        rows = self._on_this_card(self.rows_for(name, fresh=fresh, workspace=workspace))
+    def observed(
+        self, name, definition, arguments=None, *, fresh=True, workspace=None, card=None
+    ):
+        """`name`'s `observed` block. `card` ('cuda:1') prices it for that
+        card - the one a plan's job would be dispatched to - rather than the
+        server's own, and names that card in the block."""
+        rows = self._on_this_card(
+            self.rows_for(name, fresh=fresh, workspace=workspace), card
+        )
         if not rows:
             return None
-        device, device_name = self.device()
+        if card is not None:
+            device, device_name, _ = self.card(card)
+            device_name = device_name if device == "cuda" else None
+        else:
+            device, device_name = self.device()
         try:
             return observed_for(
                 definition,

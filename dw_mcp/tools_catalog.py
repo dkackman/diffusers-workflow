@@ -153,11 +153,10 @@ class CatalogTools:
         """List what the Hugging Face model cache holds, largest first."""
         return catalog.list_models(self.client)
 
-    def get_memory(
-        self,
-    ) -> dict:
-        """Get the worker's VRAM and RAM statistics. Check this first when a
-        job fails with an out-of-memory error.
+    def get_memory(self, device: str | None = None) -> dict:
+        """Get VRAM and RAM statistics. Check this first when a job fails
+        with an out-of-memory error. `workers` has one entry per card;
+        `device` ('cuda:1') asks for that card alone.
 
         `gpu_*` is the card, `host_memory_*` the machine:
         `host_memory_rss_mb` is what the worker process holds and
@@ -188,22 +187,16 @@ class CatalogTools:
 
         `info.step_cache` is the step cache's own accounting: `entries`,
         `retained_bytes` against `max_retained_bytes`."""
-        return catalog.get_memory(self.client)
+        return catalog.get_memory(self.client, device)
 
-    def clear_memory(
-        self,
-    ) -> dict:
-        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-        immediately instead of waiting for the next job to evict one model
-        for another. Also drops the step cache, so a seeded workflow that
-        would otherwise reuse cached results regenerates on its next run.
-
-        Refused with a 409 while a job is running or queued - the queue is
-        FIFO, so wait for it to finish and retry rather than expecting this
-        call to block until it does. On an idle server with no model process
-        resident there is nothing loaded to clear, so it succeeds with a null
-        `info` rather than failing."""
-        return catalog.clear_memory(self.client)
+    def clear_memory(self, device: str | None = None) -> dict:
+        """Drop every loaded pipeline and the step cache on each idle card
+        (`device`'s alone when named), so a seeded workflow regenerates on
+        its next run. A card running a job is skipped (`workers` says
+        which); refused with a 409 when no card asked about is idle - wait
+        and retry. No model process resident succeeds with a null
+        `info`."""
+        return catalog.clear_memory(self.client, device)
 
     def get_health(
         self,

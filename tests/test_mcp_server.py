@@ -1199,6 +1199,8 @@ WRAPPER_HANDLER_MAP = {
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
     "get_workflow": (catalog, "get_workflow"),
     "get_schema": (catalog, "get_schema"),
+    "get_memory": (catalog, "get_memory"),
+    "clear_memory": (catalog, "clear_memory"),
     "delete_output": (media, "delete_output"),
     "list_prompts": (prompts, "list_prompts"),
 }
