@@ -2432,8 +2432,12 @@ class TestTheMusicTemplatesLeaveHeadroom:
                 "previous_result:generate_music",
                 -3.0,
             ),
-            # music-video reads its 'song' variable, which defaults to write_song
-            ("workflows/templates/minimax/music-video.json", "variable:song", -3.0),
+            # music-video reads the song pieces under its cuts (#788)
+            (
+                "workflows/templates/minimax/music-video.json",
+                "previous_result:song_cuts",
+                -3.0,
+            ),
         ],
     )
     def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):

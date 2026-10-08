@@ -192,9 +192,12 @@ class TestTheTemplateItself:
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
         arguments = steps["music_video"]["task"]["arguments"]
-        # The whole song, by way of the gain step that gives the mux headroom (#159)
+        # The song pieces the shots sang (#788), by way of the gain step that
+        # gives the mux headroom (#159)
         assert arguments["audio"] == "previous_result:balanced"
-        assert steps["balanced"]["task"]["arguments"]["audio"] == "variable:song"
+        assert steps["balanced"]["task"]["arguments"]["audio"] == (
+            "previous_result:song_cuts"
+        )
         assert definition["variables"]["song"] == "previous_result:write_song"
         assert arguments["fit"] == "video"
 
