@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`window_video` and `join_windows` host memory: range reads and a uint8
+  join** (#695, stage #780), shipped 2026-10-08. A window reads only its
+  frame range and the soundtrack; the join no longer decodes the source's
+  picture or holds float32 copies. Record, including what was cut (the
+  file-backed `safe_get`, with its trigger):
+  `complete/window-memory-complete.md`.
+
 - **Finishing tasks: tonal controls in `grade`, `sharpen`, `film_grain`,
   `apply_lut`** (#603, stages #633-#637), shipped 2026-10-07. Seven tonal
   `grade` parameters, a seeded per-frame grain, a strict `.cube` parser
