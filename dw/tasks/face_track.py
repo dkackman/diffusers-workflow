@@ -46,6 +46,7 @@ from ..task_domains import (
     face_track_problems,
     paste_feather_problems,
 )
+from ..variable_constraints import aligned
 from .video_utils import frames_as_pil_list, load_audio_video
 
 logger = logging.getLogger("dw")
@@ -331,8 +332,10 @@ def _cut(rgb, square, crop_size):
 
 def padding_to_grid(count, modulus, remainder):
     """(before, after): frames to add so count becomes the next
-    modulus * n + remainder, split as evenly as it goes."""
-    pad = (remainder - count) % modulus
+    modulus * n + remainder, split as evenly as it goes. The grid count
+    comes from `variable_constraints.aligned`, the one owner of grid
+    arithmetic, as `plan_cuts`' render lengths do."""
+    pad = aligned(count, {"modulus": modulus, "remainder": remainder}) - count
     return pad // 2, pad - pad // 2
 
 

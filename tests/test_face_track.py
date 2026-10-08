@@ -311,6 +311,17 @@ class TestPadding:
         # below the remainder: pad up to it
         assert ft.padding_to_grid(2, 17, 5) == (1, 2)
 
+    @pytest.mark.parametrize("modulus,remainder", [(8, 1), (16, 0), (17, 5)])
+    @pytest.mark.parametrize("count", [0, 1, 2, 9, 21, 40])
+    def test_padding_to_grid_rounds_through_the_constraint_owner(
+        self, count, modulus, remainder
+    ):
+        from dw.variable_constraints import aligned
+
+        before, after = ft.padding_to_grid(count, modulus, remainder)
+        grid = {"modulus": modulus, "remainder": remainder}
+        assert count + before + after == aligned(count, grid)
+
     def test_pad_frames_mirrors_the_ends(self):
         crops = list(range(10, 15))  # 5 frames
         padded = ft.pad_frames(crops, 2, 3)
