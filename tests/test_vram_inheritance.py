@@ -325,7 +325,13 @@ def _real_catalog():
 
 # What a ceiling is: the formula and the cards it is checked against. The
 # reason is prose and may differ; the numbers may not
-_ESTIMATE_FIELDS = ("base_gb", "bytes_per_voxel", "gb_per_reference", "voxel_variables")
+_ESTIMATE_FIELDS = (
+    "base_gb",
+    "bytes_per_voxel",
+    "bytes_per_guide_voxel",
+    "gb_per_reference",
+    "voxel_variables",
+)
 
 
 def _numbers(definition):

@@ -29,6 +29,7 @@ from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .elision import elide_definition, warn_elided
 from .events import emit_warning
+from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
 from .realize import realize_workflow
@@ -313,12 +314,15 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     # validate_workflow, so this raises the same refusal rather than
     # starting a job the decode step was always going to OOM on. After
     # expansion, so a for_each member is projected with its own frames
-    # and references (dw/vram_estimate.py, #265, #479)
+    # and references (dw/vram_estimate.py, #265, #479). The header-only
+    # probe counts each guide clip's frames as validate's does (#694)
     apply_vram_estimate(
         workflow_def,
         variables,
         device_type=get_device_type(),
         capacity_gb=device_capacity_gb(),
+        base_dir=base_dir,
+        probe=probe_metadata,
     )
 
     # A step nothing after it reads, and which saves no file, does not

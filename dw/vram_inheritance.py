@@ -102,6 +102,8 @@ def inherited_vram_warnings(
     source_indices=None,
     written=None,
     capacity_label=None,
+    base_dir=None,
+    probe=None,
 ):
     """Every catalog ceiling `definition` (expanded, as the run executes it)
     projects past, as warning strings - one per matched identity, naming the
@@ -146,6 +148,8 @@ def inherited_vram_warnings(
             capacity_label=capacity_label,
             source_indices=source_indices,
             written=written,
+            base_dir=base_dir,
+            probe=probe,
         )
         if not errors:
             continue

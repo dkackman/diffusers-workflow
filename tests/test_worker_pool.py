@@ -304,7 +304,8 @@ class TestFitAtSubmit:
 
     def test_the_route_answers_400(self, server, monkeypatch):  # noqa: F811
         monkeypatch.setattr(
-            "dw.server.admission.required_vram_gb", lambda *args: (10_000, True)
+            "dw.server.admission.required_vram_gb",
+            lambda *args, **kwargs: (10_000, True),
         )
         with server(success_script) as client:
             worker = client.app.state.job_manager.worker_manager
