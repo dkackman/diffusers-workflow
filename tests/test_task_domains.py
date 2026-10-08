@@ -459,10 +459,6 @@ class TestTheDomainIsVisibleOverTheApi:
         assert "range" not in parameters["audio"]
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-
-
 class TestFaceTrackGrid:
     """crop_face_track's frame grid is the workflow's to declare (#775)."""
 
@@ -504,3 +500,20 @@ class TestFaceTrackGrid:
         assert face_track_problems(modulus=0, remainder=3) == []
         assert face_track_problems(modulus=8, remainder=-1) == []
         assert face_track_problems(crop_size=48, multiple=0) == []
+
+
+def test_transcript_problem_lives_in_task_domains_and_names_plan_cuts():
+    from dw.task_domains import transcript_problem
+
+    assert transcript_problem({"chunks": []}) is None
+    assert transcript_problem("plain").startswith(
+        "plan_cuts needs a timestamped transcript - {text, chunks: "
+    )
+    assert transcript_problem({"text": "x"}).startswith(
+        "plan_cuts's 'transcript' has no 'chunks' list"
+    )
+    assert transcript_problem(3).endswith("not int")
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

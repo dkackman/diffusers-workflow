@@ -976,3 +976,12 @@ class TestCheckScriptShots(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_check_script_defaults_to_the_one_whisper_model():
+    import inspect
+
+    from dw.tasks import audio_transcription
+
+    default = inspect.signature(script_check.check_script).parameters["model_name"]
+    assert default.default is audio_transcription.WHISPER_DEFAULT_MODEL

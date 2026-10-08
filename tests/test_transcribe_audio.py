@@ -7,7 +7,7 @@ import numpy
 
 from dw.tasks.audio_transcription import (
     transcribe_audio,
-    _DEFAULT_ASR_MODEL,
+    WHISPER_DEFAULT_MODEL,
     _ASR_SAMPLE_RATE,
 )
 
@@ -54,7 +54,7 @@ class TestTranscribeAudio(unittest.TestCase):
         transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
         self.assertEqual(mock_pipeline.call_args[0][0], "automatic-speech-recognition")
-        self.assertEqual(mock_pipeline.call_args[1]["model"], _DEFAULT_ASR_MODEL)
+        self.assertEqual(mock_pipeline.call_args[1]["model"], WHISPER_DEFAULT_MODEL)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_custom_model_name(self, mock_pipeline):

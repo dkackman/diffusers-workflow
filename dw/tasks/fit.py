@@ -23,7 +23,6 @@ The sizes stay template variables rather than being picked here, so
 validation's 32n and 8n+1 rules and the cost quote still see them.
 """
 
-import json
 import logging
 
 import numpy
@@ -201,18 +200,9 @@ def _read_fit(fit):
     """The fit record, from the dict a step handed on or its saved .json,
     checked field by field."""
     if isinstance(fit, str):
-        from ..locations import validate_media_path
-        from ..security import (
-            ALLOWED_JSON_EXTENSIONS,
-            validate_file_extension,
-            validate_json_size,
-        )
+        from ..locations import load_json_record
 
-        path = validate_media_path(fit, None, "a fit argument")
-        validate_file_extension(path, ALLOWED_JSON_EXTENSIONS)
-        validate_json_size(path)
-        with open(path, encoding="utf-8") as handle:
-            fit = json.load(handle)
+        fit = load_json_record(fit, None, "a fit argument")
 
     def refuse(detail):
         return ValueError(
