@@ -21,6 +21,7 @@ from ..task_domains import (
     AT_LEAST_ONE,
     CHANNEL_LEVEL,
     CLOSED_UNIT,
+    FINITE,
     FIT_MODES,
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
@@ -30,6 +31,7 @@ from ..task_domains import (
     POSITIVE,
     SEED,
     UNIT,
+    coerce_arguments,
     face_track_errors,
     fit_to_model_errors,
     ingredients_grid_errors,
@@ -73,7 +75,12 @@ def task_command_info(command_name):
 
 
 # Command handler functions
-@register_command("qr_code", implementation="dw.tasks.qr_code.get_qrcode_image")
+@register_command(
+    "qr_code",
+    implementation="dw.tasks.qr_code.get_qrcode_image",
+    domains={"height": FINITE, "width": FINITE},
+    whole_numbers=("height", "width"),
+)
 def _handle_qr_code(task, arguments, previous_pipelines):
     """Generate QR code image"""
     logger.debug("Generating QR code")
@@ -109,6 +116,8 @@ def _handle_gather_inputs(task, arguments, previous_pipelines):
         "trim_frames": NON_NEGATIVE,
         "crossfade_ms": NON_NEGATIVE,
         "audio_bleed_ms": NON_NEGATIVE,
+        "audio_bleed_gain_db": FINITE,
+        "match_levels_dbfs": FINITE,
         "seam_fade_ms": NON_NEGATIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
@@ -129,6 +138,7 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
         "dissolve_frames": NON_NEGATIVE,
         "fade_in_frames": NON_NEGATIVE,
         "fade_out_frames": NON_NEGATIVE,
+        "match_levels_dbfs": FINITE,
         "fps": POSITIVE,
     },
 )
@@ -148,6 +158,7 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
         "duck_delay_ms": NON_NEGATIVE,
         "duck_db": NON_POSITIVE,
         "duck_ramp_ms": NON_NEGATIVE,
+        "dialogue_target_lufs": FINITE,
         "fps": POSITIVE,
     },
 )
@@ -179,7 +190,11 @@ def _handle_fade_audio(task, arguments, previous_pipelines):
 @register_command(
     "normalize_audio",
     implementation="dw.tasks.audio_dynamics.normalize_audio",
-    domains={"sample_rate": POSITIVE, "target_lufs": NON_POSITIVE},
+    domains={
+        "peak_dbfs": FINITE,
+        "sample_rate": POSITIVE,
+        "target_lufs": NON_POSITIVE,
+    },
 )
 def _handle_normalize_audio(task, arguments, previous_pipelines):
     """Scale an audio track so its peak sits at a given level"""
@@ -221,6 +236,7 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
         "start_frame": NON_NEGATIVE,
         "num_frames": POSITIVE,
         "fps": POSITIVE,
+        "gain_db": FINITE,
         "sample_rate": POSITIVE,
     },
     whole_numbers=("start_frame", "num_frames"),
@@ -493,6 +509,8 @@ def _handle_find_loop_bed(task, arguments, previous_pipelines):
 @register_command(
     "stabilize_video",
     implementation="dw.tasks.stabilize.stabilize_video",
+    domains={"smooth": FINITE},
+    whole_numbers=("smooth",),
     media_arguments=("clip",),
 )
 def _handle_stabilize_video(task, arguments, previous_pipelines):
@@ -607,6 +625,7 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
     "compress_audio",
     implementation="dw.tasks.audio_dynamics.compress_audio",
     domains={
+        "threshold_dbfs": FINITE,
         "ratio": POSITIVE,
         "attack_ms": NON_NEGATIVE,
         "release_ms": NON_NEGATIVE,
@@ -624,7 +643,7 @@ def _handle_compress_audio(task, arguments, previous_pipelines):
 @register_command(
     "filter_audio",
     implementation="dw.tasks.audio_dynamics.filter_audio",
-    domains={"cutoff_hz": POSITIVE, "sample_rate": POSITIVE},
+    domains={"cutoff_hz": POSITIVE, "q": FINITE, "sample_rate": POSITIVE},
 )
 def _handle_filter_audio(task, arguments, previous_pipelines):
     """Run a track through a single lowpass/highpass/bandpass/notch filter"""
@@ -898,6 +917,7 @@ def _load_media(media):
         ),
     },
     domains={
+        "exposure": FINITE,
         "contrast": NON_NEGATIVE,
         "saturation": NON_NEGATIVE,
         "temperature": CLOSED_UNIT,
@@ -1409,6 +1429,9 @@ class Task:
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:
                 handler = _COMMAND_REGISTRY[self.command]
+                # Every numeric argument reaches the handler as a number, read
+                # by the rule the static pass applies (#774)
+                arguments = coerce_arguments(self.command, arguments)
                 return handler(self, arguments, previous_pipelines)
 
             # Not a registered command - check whether it names an image or

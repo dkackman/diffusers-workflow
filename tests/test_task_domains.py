@@ -19,6 +19,7 @@ from dw.task_domains import (
     CHANNEL_LEVEL,
     SEED,
     CLOSED_UNIT,
+    FINITE,
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
@@ -78,6 +79,7 @@ class TestTheRegistryNamesRealArguments:
                 AT_LEAST_ONE,
                 CHANNEL_LEVEL,
                 SEED,
+                FINITE,
             }
 
 

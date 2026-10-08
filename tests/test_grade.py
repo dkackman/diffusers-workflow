@@ -500,12 +500,12 @@ class TestDomains:
         assert parameters["fade"]["domain"] == UNIT
         assert parameters["fade"]["range"] == "between 0.0 and 1.0"
 
-    def test_exposure_is_unconstrained_temperature_and_tint_are_closed_unit(self):
+    def test_exposure_is_any_finite_number_temperature_and_tint_are_closed_unit(self):
         from dw.introspection import describe_task
-        from dw.task_domains import CLOSED_UNIT
+        from dw.task_domains import CLOSED_UNIT, FINITE
 
         parameters = {p["name"]: p for p in describe_task("grade")["parameters"]}
-        assert "domain" not in parameters["exposure"]
+        assert parameters["exposure"]["domain"] == FINITE
         assert parameters["temperature"]["domain"] == CLOSED_UNIT
         assert parameters["tint"]["domain"] == CLOSED_UNIT
 

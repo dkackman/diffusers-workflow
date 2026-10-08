@@ -47,6 +47,11 @@ it, naming the argument and saying "whole number". Every numeric argument
 refuses `true`/`false`, text that is no number (`"abc"`) and an infinite or NaN
 value. What validation refuses, the run refuses with the same sentence, and
 the reverse.
+`Task.run` reads every declared numeric argument before the command sees it
+(`coerce_arguments`), so a handler is handed a number, never the string it
+arrived as: `exposure: "0.5"` grades exactly as `0.5` does. An argument whose
+only rule is being a number, such as `grade`'s `exposure` or a gain in dB,
+declares the `finite` domain, so validation reads it too.
 
 ## Adding a task
 

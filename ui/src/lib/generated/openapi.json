@@ -2731,6 +2731,14 @@
             ],
             "title": "Annotation"
           },
+          "choices": {
+            "description": "The values a string task argument accepts.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
           "default": {
             "description": "Null when there is none; see `required`.",
             "title": "Default"
@@ -2757,6 +2765,11 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "range": {
+            "description": "The domain's bounds, in words.",
+            "title": "Range",
             "type": "string"
           },
           "required": {

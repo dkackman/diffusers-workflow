@@ -3926,6 +3926,17 @@ class TestTaskDescription:
             names = [p["name"] for p in description["parameters"]]
             assert "qr_code_contents" in names
             assert client.get("/api/tasks/not_a_task").status_code == 404
+            # A declared domain carries its range in words, and a string
+            # argument its choices; both are part of the response shape
+            grade = client.get("/api/tasks/grade")
+            assert grade.status_code == 200
+            exposure = {p["name"]: p for p in grade.json()["parameters"]}["exposure"]
+            assert exposure["domain"] == "finite"
+            assert exposure["range"] == "a finite number"
+            fit = client.get("/api/tasks/fit_to_model")
+            assert fit.status_code == 200
+            mode = {p["name"]: p for p in fit.json()["parameters"]}["mode"]
+            assert mode["choices"]
 
     def test_task_typos_surface_in_validation(self, server):
         workflow = {
