@@ -170,6 +170,13 @@ remaining deferred fix is recorded in
   wall time, and the default is Don's call). Record, including what was
   deferred (persisted latents, stale-marking, guides on `ref2va`, a total
   guide-frames cap, with their triggers): `complete/h3-guides-complete.md`.
+- **One job per GPU** (#462, stages #675-#678), shipped 2026-10-07.
+  `dw.serve --devices cuda:0,cuda:1` runs one pinned worker per card behind
+  one queue, with a VRAM-fit dispatcher, backfill, rerun and identity
+  affinity, per-card memory, and `device` on jobs. lem runs both 3090s.
+  Record, including what was deferred (a host-RAM gate, an overlap flag on
+  observed cost, per-card catalog cost, with their triggers):
+  `complete/multi-gpu-workers-complete.md`.
 
 ## Declined
 
