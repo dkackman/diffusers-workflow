@@ -759,7 +759,7 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     body length it received. /hop redirects to /ok; /loop to itself;
     /internal to the metadata address; /elsewhere 307s to /auth (which
     echoes Authorization) under another name for the same server;
-    /see-other, /found and /temporary answer 303, 302 and 307 to /method.
+    /to-port/N 307s to /auth on this host at port N; /see-other, /found and /temporary answer 303, 302 and 307 to /method.
     /slow-headers starts a header and adds a byte every 0.2 s, never
     finishing it. Every path asked for is recorded in `seen`, and a trickle
     whose client went away sets `dropped`."""
@@ -794,6 +794,9 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
         redirect = redirects.get(os.path.splitext(path)[0])
         if redirect:
             return self._redirect(redirect[1], status=redirect[0])
+        if path.startswith("/to-port/"):
+            port = path.split("/")[2]
+            return self._redirect(f"http://127.0.0.1:{port}/auth", status=307)
         if path.startswith("/elsewhere"):
             port = self.headers["Host"].rsplit(":", 1)[1]
             return self._redirect(f"http://localhost:{port}/auth", status=307)
@@ -1119,7 +1122,7 @@ class TestSafeRequest:
             list(_chunks(SimpleNamespace(raw=raw)))
 
     def test_the_deadline_is_cleared_after_the_call(self, trusted, local_server):
-        from dw.locations import _REQUEST_DEADLINE, safe_get
+        from dw.locations import _REQUEST_DEADLINE, _abort_socket, safe_get
 
         safe_get(f"http://{local_server}/ok", timeout=5)
         assert _REQUEST_DEADLINE.get() is None
@@ -1127,7 +1130,13 @@ class TestSafeRequest:
         # so the call itself must cancel the abort timers it started - or
         # every fetch leaves a thread waiting out its full deadline
         time.sleep(0.1)
-        assert not [t for t in threading.enumerate() if isinstance(t, threading.Timer)]
+        # Only the adapter's own abort timers: another test's timer in the
+        # same process is not this call's leak
+        assert not [
+            t
+            for t in threading.enumerate()
+            if isinstance(t, threading.Timer) and t.function is _abort_socket
+        ]
 
     def test_a_redirect_to_an_internal_address_is_refused(
         self, untrusted, local_server, server_is_public, monkeypatch
@@ -1233,6 +1242,28 @@ class TestSafeRequest:
             json={"a": 1},
             headers={"Authorization": "Bearer secret"},
         )
+        assert response.content == b"none"
+
+    def test_a_redirect_to_another_port_drops_the_credential(
+        self, trusted, local_server
+    ):
+        """Same host, different port is a different service: requests'
+        should_strip_auth drops the token there, and so must hops followed
+        by hand."""
+        from dw.locations import safe_post
+
+        other = _Server(("127.0.0.1", 0), _EchoHandler)
+        threading.Thread(target=other.serve_forever, daemon=True).start()
+        try:
+            response = safe_post(
+                f"http://{local_server}/to-port/{other.server_address[1]}",
+                "a test endpoint",
+                timeout=5,
+                headers={"Authorization": "Bearer secret"},
+            )
+        finally:
+            other.shutdown()
+            other.server_close()
         assert response.content == b"none"
 
     def test_the_credential_reaches_the_host_it_was_meant_for(

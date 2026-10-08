@@ -640,18 +640,27 @@ def _session_for(url, addresses):
     return _pinned_session(url, str(addresses[0]))
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(parts):
+    """The (scheme, host, port) a split URL names, the scheme's default
+    port filled in."""
+    scheme = parts.scheme.lower()
+    return scheme, parts.hostname, parts.port or _DEFAULT_PORTS.get(scheme)
+
+
 def _without_credential(kwargs, current, target):
-    """`kwargs` for the hop to `target`, Authorization dropped when the
-    redirect leaves `current`'s host or downgrades to http - what requests'
-    own redirect handling did, so a token sent to one endpoint does not
-    follow its redirect somewhere else."""
+    """`kwargs` for the hop to `target`, Authorization dropped unless the
+    redirect stays on `current`'s scheme, host and port (default ports
+    count as equal) - at least as strict as requests' own redirect handling,
+    so a token sent to one endpoint does not follow its redirect somewhere
+    else."""
     headers = kwargs.get("headers")
     if not headers:
         return kwargs
     before, after = urlsplit(current), urlsplit(target)
-    if before.hostname == after.hostname and not (
-        before.scheme == "https" and after.scheme == "http"
-    ):
+    if _origin(before) == _origin(after):
         return kwargs
     kept = {k: v for k, v in headers.items() if k.lower() != "authorization"}
     return {**kwargs, "headers": kept}
