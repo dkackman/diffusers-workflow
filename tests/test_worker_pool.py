@@ -372,6 +372,16 @@ class TestFitAtSubmit:
             assert "the largest card here (" in response.text
             assert "this cuda device" not in response.text
 
+    def test_both_refusal_sentences_name_the_card_the_same_way(self, pool):
+        manager = pool(
+            card(success_script, "cuda:0", 12, name="Small GPU"),
+            card(success_script, "cuda:1", 24, name="Large GPU"),
+        )
+        _, label = manager.largest_ceiling()
+        name = label.removeprefix("the largest card here (").removesuffix(")")
+        assert name
+        assert name in manager._unfit_message((99.0, True))
+
     def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
         manager = pool(
             card(success_script, "cuda:0", 12, name="Small GPU"),

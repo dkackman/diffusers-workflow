@@ -330,15 +330,27 @@ class JobManager:
         ]
         return [(slot, capacity) for slot, capacity in readings if capacity]
 
+    def _largest_card(self):
+        """(slot, GB) of the card with the most VRAM it can be held to, or
+        None when no size could be read."""
+        capacities = self._capacities(hard=True)
+        if not capacities:
+            return None
+        return max(capacities, key=lambda reading: reading[1])
+
+    @staticmethod
+    def _card_name(slot):
+        """How a refusal names a card, whichever sentence it is in."""
+        return slot.label() or slot.device or "this server's card"
+
     def largest_ceiling(self):
         """(GB, label) of the card `largest_ceiling_gb` reads, the label
         naming it in a refusal; (None, None) when no size could be read."""
-        capacities = self._capacities(hard=True)
-        if not capacities:
+        largest = self._largest_card()
+        if largest is None:
             return None, None
-        slot, capacity = max(capacities, key=lambda reading: reading[1])
-        device = f" ({slot.device})" if slot.device else ""
-        return capacity, f"the largest card here{device}"
+        slot, capacity = largest
+        return capacity, f"the largest card here ({self._card_name(slot)})"
 
     def largest_ceiling_gb(self):
         """The most VRAM any card here can be held to (WorkerSlot.ceiling_gb),
@@ -357,13 +369,13 @@ class JobManager:
         dispatch but refuses nothing."""
         if not need or not need[1] or need[0] is None:
             return None
-        capacities = self._capacities(hard=True)
-        if not capacities:
+        card = self._largest_card()
+        if card is None:
             return None
-        slot, largest = max(capacities, key=lambda reading: reading[1])
+        slot, largest = card
         if need[0] <= largest:
             return None
-        name = slot.label() or slot.device or "this server's card"
+        name = self._card_name(slot)
         return (
             f"This job needs {need[0]:.1f} GB of VRAM, more than any card here "
             f"has: the largest is {name} ({largest:g} GB usable)"
