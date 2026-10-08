@@ -368,6 +368,8 @@ class TestFitAtSubmit:
         with self._pool_client(pool, tmp_path, 12, 12) as client:
             response = client.post("/api/jobs", json={"workflow": self._needs_18_gb()})
             assert response.status_code == 400
+            assert "the largest card here (" in response.text
+            assert "this cuda device" not in response.text
 
     def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
         manager = pool(

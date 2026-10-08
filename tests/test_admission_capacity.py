@@ -35,15 +35,18 @@ def _patched_admit_for(monkeypatch, state):
 
 
 def test_admit_for_hands_the_pools_largest_ceiling_to_admit(monkeypatch):
-    manager = SimpleNamespace(largest_ceiling_gb=lambda: 24.0)
+    manager = SimpleNamespace(
+        largest_ceiling=lambda: (24.0, "the largest card here (cuda:1)")
+    )
     seen = _patched_admit_for(monkeypatch, SimpleNamespace(job_manager=manager))
     assert seen["capacity_gb"] == 24.0
+    assert seen["capacity_label"] == "the largest card here (cuda:1)"
 
 
 def test_a_pool_with_no_readable_card_falls_back_to_the_device(monkeypatch):
     """No card's size could be read (no torch, or the probe failed): None
     here means workflow_context's own default, not a refusal of everything."""
-    manager = SimpleNamespace(largest_ceiling_gb=lambda: None)
+    manager = SimpleNamespace(largest_ceiling=lambda: (None, None))
     seen = _patched_admit_for(monkeypatch, SimpleNamespace(job_manager=manager))
     assert seen["capacity_gb"] is None
 

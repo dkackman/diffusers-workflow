@@ -101,6 +101,7 @@ def inherited_vram_warnings(
     capacity_gb=None,
     source_indices=None,
     written=None,
+    capacity_label=None,
 ):
     """Every catalog ceiling `definition` (expanded, as the run executes it)
     projects past, as warning strings - one per matched identity, naming the
@@ -142,6 +143,7 @@ def inherited_vram_warnings(
             supplied=supplied,
             device_type=device_type,
             capacity_gb=capacity_gb,
+            capacity_label=capacity_label,
             source_indices=source_indices,
             written=written,
         )

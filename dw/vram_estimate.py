@@ -145,13 +145,15 @@ def required_gb(estimate, values, references=0):
     return base + per_voxel * product / (1024**3) + per_reference * references
 
 
-def _entries_for(cost, device_type, capacity_gb):
+def _entries_for(cost, device_type, capacity_gb, capacity_label=None):
     """The cost entries a projection is checked against on this device.
 
     Entries measured on this backend first. A backend no entry describes - a
     Mac, against a catalog measured on CUDA cards - is checked against its own
     capacity when it can report one, and against every entry when it cannot,
-    so an unreadable ceiling never turns the guard off."""
+    so an unreadable ceiling never turns the guard off. `capacity_label`
+    names the capacity when it is not this process's own device (the
+    server's largest card)."""
     entries = [entry for entry in cost if isinstance(entry, dict)]
     if device_type is None:
         return entries
@@ -165,7 +167,8 @@ def _entries_for(cost, device_type, capacity_gb):
     if capacity_gb is not None:
         return [
             {
-                "name": f"this {device_type} device (recommended maximum)",
+                "name": capacity_label
+                or f"this {device_type} device (recommended maximum)",
                 "vram_gb": round(capacity_gb, 1),
             }
         ]
@@ -329,6 +332,7 @@ def vram_estimate_errors(
     capacity_gb=None,
     source_indices=None,
     written=None,
+    capacity_label=None,
 ):
     """The step a declared vram_estimate projects past a `cost` entry, as
     [{path, message}] - refused, not warned, since the failure this guards
@@ -346,7 +350,7 @@ def vram_estimate_errors(
         return []
     cost = definition.get("cost")
     cost = cost if isinstance(cost, list) else []
-    entries = _entries_for(cost, device_type, capacity_gb)
+    entries = _entries_for(cost, device_type, capacity_gb, capacity_label)
     capacities = [
         entry.get("vram_gb") for entry in entries if entry.get("vram_gb") is not None
     ]

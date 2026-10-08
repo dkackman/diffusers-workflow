@@ -330,6 +330,16 @@ class JobManager:
         ]
         return [(slot, capacity) for slot, capacity in readings if capacity]
 
+    def largest_ceiling(self):
+        """(GB, label) of the card `largest_ceiling_gb` reads, the label
+        naming it in a refusal; (None, None) when no size could be read."""
+        capacities = self._capacities(hard=True)
+        if not capacities:
+            return None, None
+        slot, capacity = max(capacities, key=lambda reading: reading[1])
+        device = f" ({slot.device})" if slot.device else ""
+        return capacity, f"the largest card here{device}"
+
     def largest_ceiling_gb(self):
         """The most VRAM any card here can be held to (WorkerSlot.ceiling_gb),
         or None when no card's size could be read (no torch, or the probe
