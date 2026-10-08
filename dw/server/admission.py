@@ -232,7 +232,15 @@ def _vram_need(candidate, context, arguments):
             definition = None
         if not isinstance(definition, dict):
             definition = candidate.workflow_definition
-        return required_vram_gb(definition, arguments, get_device_type())
+        # The context's memoized probe counts each guide clip's frames, as
+        # validate just did (#694)
+        return required_vram_gb(
+            definition,
+            arguments,
+            get_device_type(),
+            base_dir=context.base_dir,
+            probe=context.probe,
+        )
     except Exception as e:
         logger.debug(f"Could not compute the job's VRAM need: {e}")
         return None

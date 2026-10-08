@@ -36,6 +36,8 @@ from .for_each import MEMBER_SEPARATOR, render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.h3_rules import (
     CHAIN_CONTINUITY_MODES,
+    GUIDE_CHAIN_DEFAULT,
+    GUIDE_CHAIN_FRAMES,
     GUIDES_INPUT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
@@ -295,4 +297,31 @@ def guide_chain_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["guide_chain_errors", "guides_errors"]
+def guide_lengths(pipeline, base_dir=None, probe=None):
+    """The snapped frame count of every guide a step lays in, for the VRAM
+    projection (dw/vram_estimate.py, #694): its own `guides`, an entry whose
+    `video` is null dropped as the step's null references are, then the guide a
+    `continuity: "guide"` chain appends to every segment after the first, at its
+    `guide_frames`. A clip `_clip_frames` cannot count - a `previous_result:`,
+    an unreadable header, no probe at all - is None, for the caller to charge
+    at the most a guide can hold."""
+    if not isinstance(pipeline, dict):
+        return []
+    arguments = pipeline.get("arguments")
+    own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
+    lengths = []
+    for guide in own if isinstance(own, (list, tuple)) else ():
+        if not isinstance(guide, dict) or guide.get("video") is None:
+            continue
+        _, count = _clip_frames(guide["video"], base_dir, probe)
+        lengths.append(None if count is None else snap_guide_length(count))
+    chain = pipeline.get("chain")
+    if isinstance(chain, dict) and chain.get("continuity") == GUIDE_CONTINUITY:
+        segments = chain.get("segments")
+        if not (segments == 1 and not isinstance(segments, bool)):
+            frames = chain.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+            lengths.append(frames if frames in GUIDE_CHAIN_FRAMES else None)
+    return lengths
+
+
+__all__ = ["guide_chain_errors", "guide_lengths", "guides_errors"]

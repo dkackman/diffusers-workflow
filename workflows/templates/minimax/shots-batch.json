@@ -18,6 +18,7 @@
     "vram_estimate": {
         "base_gb": 16.3,
         "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
         "voxel_variables": ["width", "height", "num_frames"],
         "reason": "the transformer's peak activation memory scales with the token count the video and audio streams produce, which is proportional to width * height * num_frames"
     },

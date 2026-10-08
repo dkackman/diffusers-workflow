@@ -369,6 +369,8 @@ ERROR_CHECKS = [
             capacity_label=c.capacity_label,
             source_indices=c.source_indices,
             written=c.definition,
+            base_dir=c.base_dir,
+            probe=c.probe,
         ),
     ),
     # A bare object description whose media resolved null - realize_args
@@ -636,6 +638,8 @@ WARNING_CHECKS = [
                 capacity_label=c.capacity_label,
                 source_indices=c.source_indices,
                 written=c.definition,
+                base_dir=c.base_dir,
+                probe=c.probe,
             )
         ),
     ),
