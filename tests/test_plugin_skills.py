@@ -401,6 +401,8 @@ class TestMiniMaxH3Skill:
         assert "`guides`" in body
         assert f'section="{section}"' in body
         assert f"up to {GUIDE_LIMIT} clips" in body
+        # the chain adds a guide at frame 0, so one fewer of the caller's own
+        assert f"{GUIDE_LIMIT - 1} on a guide chain" in " ".join(body.split())
         assert f"multiple of {GUIDE_FRAMES_PER_CHUNK}" in body
         assert "`guides`" in get_guide("workflows", section=section)["content"]
         # C-F301: a full-length guide copies the take, so the skill must not
