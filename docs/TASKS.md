@@ -1085,14 +1085,25 @@ face-detail pass that needs the face large and still:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `clip` | Yes | The video - frames, an audio+video pair, or the path or URL of a video file. Named `clip` so the engine hands it over as read, with the shots it records |
-| `crop_size` | No | Side of every crop in pixels, a multiple of 32. Default `512` |
+| `crop_size` | No | Side of every crop in pixels, a multiple of `multiple`. Default `512` |
 | `padding` | No | Space added around the face on each side, as a fraction of its size, `0` to `3`. Default `0.6` |
 | `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
 | `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
 | `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
+| `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
+| `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
 | `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
+
+`modulus`, `remainder` and `multiple` follow `plan_cuts`: the model's grid is
+the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
+32-pixel steps, so a workflow that names none gets the output it always did;
+the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
+explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+and a `crop_size` that is not a multiple of `multiple` are refused at
+validation.
 
 These defaults are the task's own. The `face-repair` template tunes them on
 lem for LTX-2.5 at `padding` 1.5, `gate_full` 0.03 and `gate_zero` 0.06: a
@@ -1110,7 +1121,7 @@ clip that records none, where the picture jumps: a sharp drop in its HSV
 colour histogram, or a spike in its difference from the previous frame (a cut
 between two framings of one picture keeps its colours). A padded square
 around the smoothed box is cut from every frame and resized to `crop_size`, then
-the crops are padded to 8n+1 frames with mirrored warm-up and cool-down frames.
+the crops are padded to `modulus * n + remainder` frames (8n+1 by default) with mirrored warm-up and cool-down frames.
 
 Each frame carries a strength from 0 to 1: how much a face-detail pass should
 change it. It is 1 when face width over frame width is at or below `gate_full`,

@@ -32,7 +32,7 @@
         "crop_size": {
             "modulus": 32,
             "remainder": 0,
-            "reason": "the crops are the LTX-2.5 refine's frame size, and its pipelines refuse a size not divisible by 32 outright, so it is checked here before anything runs; the crop count is padded to 8 * n + 1 frames inside crop_face_track"
+            "reason": "the crops are the LTX-2.5 refine's frame size, and its pipelines refuse a size not divisible by 32 outright, so it is checked here before anything runs; the crop step declares LTX-2.5's grid (modulus 8, remainder 1, multiple 32), so the crop count is padded to 8 * n + 1 frames"
         }
     },
     "seed": "variable:seed",
@@ -109,7 +109,10 @@
                     "crop_size": "variable:crop_size",
                     "padding": "variable:padding",
                     "gate_full": "variable:gate_full",
-                    "gate_zero": "variable:gate_zero"
+                    "gate_zero": "variable:gate_zero",
+                    "modulus": 8,
+                    "remainder": 1,
+                    "multiple": 32
                 }
             },
             "result": {
