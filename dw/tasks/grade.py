@@ -3,7 +3,7 @@ CPU colour grading: exposure, contrast, tonal range, clarity, white balance,
 saturation, fade and vignette.
 
 Pure numpy/PIL - no model, no GPU. A video is graded per frame by the
-command handler (task.py's _per_frame), so this module only ever sees a
+command handler (image_ops.per_frame), so this module only ever sees a
 single PIL Image.
 """
 
@@ -12,8 +12,7 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image
 
-# Luma weights (Rec. 709), used as the saturation pivot and for the tonal masks
-_LUMA_WEIGHTS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+from . import image_ops
 
 # Fraction of the full [0, 1] channel range shifted at |temperature| == 1.0 or
 # |tint| == 1.0. Temperature moves the red and blue channels apart (warmer is
@@ -41,10 +40,6 @@ _CLARITY_RADIUS = 0.02
 def _smoothstep(edge0, edge1, x):
     t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
     return t * t * (3.0 - 2.0 * t)
-
-
-def _luma(array):
-    return np.tensordot(array, _LUMA_WEIGHTS, axes=([-1], [0]))
 
 
 def _gaussian_blur(plane, sigma):
@@ -93,7 +88,7 @@ def grade_image(
 
     Args:
         media: PIL Image to grade. A video is dispatched to this one frame at
-            a time by the command handler (task.py's _per_frame), so this
+            a time by the command handler (image_ops.per_frame), so this
             function itself only ever sees a single frame.
         exposure: Stops to brighten (positive) or darken (negative) by,
             applied as a multiply of 2**exposure. 0.0 (default) is identity.
@@ -163,13 +158,13 @@ def grade_image(
 
     if highlights != 0.0 or shadows != 0.0:
         # One shift per pixel, from its luma, so hue is kept
-        luma = np.clip(_luma(array), 0.0, 1.0)
+        luma = np.clip(image_ops.luma(array), 0.0, 1.0)
         shift = highlights * _RANGE_STRENGTH * _smoothstep(0.5, 1.0, luma)
         shift += shadows * _RANGE_STRENGTH * (1.0 - _smoothstep(0.0, 0.5, luma))
         array = array + shift[..., None]
 
     if clarity != 0.0:
-        luma = _luma(array)
+        luma = image_ops.luma(array)
         sigma = max(1.0, _CLARITY_RADIUS * min(luma.shape))
         detail = luma - _gaussian_blur(luma, sigma)
         midtones = np.clip(1.0 - (2.0 * np.clip(luma, 0.0, 1.0) - 1.0) ** 2, 0, 1)
@@ -185,7 +180,7 @@ def grade_image(
         array[..., 1] -= shift
 
     if saturation != 1.0:
-        luma = _luma(array)
+        luma = image_ops.luma(array)
         array = luma[..., None] + (array - luma[..., None]) * saturation
 
     if fade != 0.0:

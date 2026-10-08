@@ -129,7 +129,7 @@ def register_command(
         summary: Overrides the command's `get_task` summary, which otherwise
             reads the implementation function's docstring. For a command
             whose handler dispatches its implementation per video frame
-            (`_per_frame`), that docstring describes the single-frame
+            (`image_ops.per_frame`), that docstring describes the single-frame
             function rather than the command a caller invokes - same reason
             `_VIDEO_PROCESSOR_INFO` overrides `get_first_frame`/
             `get_last_frame` (#366, #383)

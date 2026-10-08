@@ -28,7 +28,7 @@ import os
 import numpy as np
 from PIL import ImageFilter
 
-from .finish import _join_alpha, _split_alpha
+from .image_ops import LUMA_WEIGHTS, join_alpha, split_alpha
 
 # A 65-point LUT, the largest the parser takes, is about 9 MB of text at
 # generous precision; anything far past that is not a LUT
@@ -231,9 +231,8 @@ def color_lut(table):
     return ImageFilter.Color3DLUT(table.shape[0], table)
 
 
-# Rec. 709 luma weights, on the encoded values: the luminance a palette
-# lookup keeps
-LUMA_WEIGHTS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float64)
+# LUMA_WEIGHTS (Rec. 709, float64) is applied to the encoded values: the
+# luminance a palette lookup keeps
 PALETTE_LUT_SIZE = 33
 
 
@@ -322,8 +321,8 @@ def apply_lut(media, lut=None, palette=None, strength=1.0):
     """
     if not isinstance(lut, ImageFilter.Color3DLUT):
         lut = lookup_for(lut, palette)
-    rgb, alpha = _split_alpha(media)
+    rgb, alpha = split_alpha(media)
     if strength != 0:
         looked_up = np.asarray(media.convert("RGB").filter(lut), dtype=np.float32)
         rgb = rgb + float(strength) * (looked_up - rgb)
-    return _join_alpha(rgb, alpha)
+    return join_alpha(rgb, alpha)

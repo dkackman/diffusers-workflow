@@ -248,8 +248,8 @@ def test_video_frames_chain_keeps_the_source_rate():
     frames = frames_as_array(source)
     assert frames.dtype == numpy.uint8
     assert frames.fps == 24
-    from dw.tasks.task import _per_frame
+    from dw.tasks.image_ops import per_frame
 
-    resized = _per_frame(frames, lambda image: image.resize((4, 4)))
+    resized = per_frame(frames, lambda image: image.resize((4, 4)))
     assert resized.fps == 24
     assert pair_audio(resized, song(1.0), sample_rate=SAMPLE_RATE).fps == 24
