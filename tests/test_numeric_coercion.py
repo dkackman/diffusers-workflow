@@ -14,6 +14,7 @@ from dw.task_domains import (
     TASK_ARGUMENT_DOMAINS,
     TASK_WHOLE_NUMBER_ARGUMENTS,
     check_arguments,
+    coerce_arguments,
     domain_violation,
     real_number,
     task_argument_errors,
@@ -236,3 +237,70 @@ class TestRealPaths:
             plan_cuts(
                 transcript={"text": "x", "chunks": []}, duration_s=20.0, modulus=17.5
             )
+
+
+def _run_task(command, arguments):
+    from dw.tasks.task import Task
+
+    return Task({"command": command, "arguments": {}}, "cpu").run(arguments)
+
+
+def _gradient():
+    from PIL import Image
+
+    pixels = numpy.tile(numpy.arange(0, 256, 4, dtype=numpy.uint8), (16, 1))
+    return Image.fromarray(numpy.stack([pixels] * 3, axis=-1))
+
+
+class TestCoerceArguments:
+    """Every numeric argument reaches its handler as a number (#774 bounce)."""
+
+    def test_a_numeric_string_becomes_a_number(self):
+        coerced = coerce_arguments("grade", {"exposure": "0.5", "contrast": "1"})
+        assert coerced == {"exposure": 0.5, "contrast": 1}
+        assert isinstance(coerced["exposure"], float)
+
+    def test_a_whole_number_argument_is_an_int(self):
+        coerced = coerce_arguments("slice_audio", {"num_frames": "17.0"})
+        assert coerced["num_frames"] == 17 and isinstance(coerced["num_frames"], int)
+
+    def test_fps_stays_exact(self):
+        from fractions import Fraction
+
+        coerced = coerce_arguments("slice_audio", {"fps": "23.976"})
+        assert coerced["fps"] == Fraction(2997, 125)
+
+    def test_list_entries_are_read_one_by_one_and_refs_pass_through(self):
+        coerced = coerce_arguments("mix_audio", {"gains": ["0.5", 1, "variable:x"]})
+        assert coerced["gains"] == [0.5, 1, "variable:x"]
+
+    def test_an_undeclared_argument_and_none_are_left_alone(self):
+        arguments = {"media": "x", "exposure": None}
+        assert coerce_arguments("grade", arguments) == arguments
+
+    @pytest.mark.parametrize("value", [True, False, "abc", "nan", "inf"], ids=_value_id)
+    def test_a_non_number_names_the_argument(self, value):
+        with pytest.raises(ValueError, match="'exposure'"):
+            coerce_arguments("grade", {"exposure": value})
+
+
+class TestGradeExposure:
+    """The bounce: grade.exposure had no domain, so validate passed what run failed on."""
+
+    @pytest.mark.parametrize("value", [True, False, "abc", "nan", "inf"], ids=_value_id)
+    def test_validate_refuses(self, value):
+        errors = _mentioning(_workflow_errors("grade", {"exposure": value}), "exposure")
+        assert errors, value
+        assert not any(".." in e["message"] for e in errors), errors
+
+    @pytest.mark.parametrize("value", [True, False, "abc", "nan", "inf"], ids=_value_id)
+    def test_run_refuses(self, value):
+        with pytest.raises(ValueError, match="'exposure'"):
+            _run_task("grade", {"media": _gradient(), "exposure": value})
+
+    def test_a_string_number_grades_like_the_number(self):
+        image = _gradient()
+        from_string = _run_task("grade", {"media": image, "exposure": "0.5"})
+        control = _run_task("grade", {"media": image, "exposure": 0.5})
+        assert _same(from_string, control)
+        assert not _same(control, image)

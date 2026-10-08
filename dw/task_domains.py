@@ -74,6 +74,10 @@ CHANNEL_LEVEL = "channel_level"
 # whole number at or above zero, so anything else would fail the run after
 # it was queued (#634)
 SEED = "seed"
+# Any finite number - grade's exposure, a gain in dB. No range is the
+# command's documented rule, but the value is still a number, so it is read
+# and refused by the same rule as every other numeric argument (#774)
+FINITE = "finite"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
@@ -84,6 +88,7 @@ _DOMAIN_TEXT = {
     AT_LEAST_ONE: "1 or above",
     CHANNEL_LEVEL: "between 0 and 255",
     SEED: "a whole number, 0 or above",
+    FINITE: "a finite number",
 }
 
 _SCALE_REASON = (
@@ -701,6 +706,8 @@ def in_domain(value, domain):
         return 0.0 <= number <= 255.0
     if domain == SEED:
         return number >= 0 and number.is_integer()
+    if domain == FINITE:
+        return True
     return number >= 0
 
 
@@ -854,7 +861,12 @@ def domain_violation(command, name, value, domain, whole=False):
     """
     for index, item in _domain_candidates(value):
         label = f"{name}[{index}]" if index is not None else name
-        if _is_literal_text(item) and not _is_non_finite_text(item):
+        # FINITE has no range to name, so number_problem's sentence says it
+        if (
+            domain != FINITE
+            and _is_literal_text(item)
+            and not _is_non_finite_text(item)
+        ):
             return index, (
                 f"{command} needs '{label}' to be a number "
                 f"({_DOMAIN_TEXT[domain]}), got {item!r}."
@@ -901,6 +913,55 @@ def check_argument(command, name, value):
     message = domain_error(command, name, value, domain, whole)
     if message is not None:
         raise ValueError(message)
+
+
+def _read_number(value, name, command, whole):
+    """One argument (or one list entry) read as its kind: what Task.run
+    hands the command instead of a numeric string."""
+    if isinstance(value, str) and is_ref(DEFERRED, value):
+        return value
+    if whole:
+        return whole_number(value, name, command)
+    if not isinstance(value, str):
+        return real_number(value, name, command)
+    # A string reads as the number it spells: "24" is the int 24 (a
+    # sample_rate some readers need as an int), and a frame rate stays
+    # exact - "23.976" is 2997/125, not the float nearest it
+    number = real_number(value, name, command, exact=True)
+    if number.denominator == 1:
+        return int(number)
+    return number if name == "fps" else float(number)
+
+
+def coerce_arguments(command, arguments):
+    """The arguments with every one that has a declared domain read as its
+    kind - `whole_number` for the command's whole-number arguments,
+    `real_number` for the rest, a list one entry at a time - so a numeric
+    string from an untyped variable reaches the command as a number.
+
+    Run by Task.run before the command's handler, so no handler has to
+    remember to coerce; it raises the static pass's own refusal for a value
+    that is no number of its kind. A reference string is left for the
+    command (it is resolved before the run). The range is not checked here:
+    that stays with each command's `check_arguments`.
+    """
+    domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+    if not domains:
+        return arguments
+    wholes = TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
+    coerced = dict(arguments)
+    for name, value in arguments.items():
+        if name not in domains or value is None:
+            continue
+        whole = name in wholes
+        if isinstance(value, list):
+            coerced[name] = [
+                _read_number(item, f"{name}[{index}]", command, whole)
+                for index, item in enumerate(value)
+            ]
+        else:
+            coerced[name] = _read_number(value, name, command, whole)
+    return coerced
 
 
 def check_arguments(command, **values):
@@ -960,14 +1021,17 @@ def task_argument_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(path),
-                    "message": f"{message}{where}.",
+                    "message": f"{message.rstrip('.')}{where}.",
                 }
             )
         if static_check is not None:
             for key, message in static_check(arguments):
                 path = ("steps", source, "task", "arguments", key)
                 errors.append(
-                    {"path": render_path(path), "message": f"{message}{where}."}
+                    {
+                        "path": render_path(path),
+                        "message": f"{message.rstrip('.')}{where}.",
+                    }
                 )
     return errors
 

@@ -854,6 +854,8 @@ class PipelineParameter(ApiModel):
     doc_type: str | None = sometimes("The type the docstring names.")
     description: str = sometimes()
     domain: Any = sometimes("The values a task argument may take.")
+    range: str = sometimes("The domain's bounds, in words.")
+    choices: list[str] = sometimes("The values a string task argument accepts.")
 
 
 class PipelineDescription(ApiModel):
