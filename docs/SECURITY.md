@@ -172,11 +172,17 @@ One policy now answers all of it, untrusted:
   `http://127.0.0.1:8765/api/server` is refused with the target named, and
   nothing is fetched from it. Images are decoded from the fetched bytes and
   still go through diffusers' `load_image`, so EXIF orientation and RGB
-  conversion are unchanged. Each hop is dialed at the address the policy
-  resolved, so a name that answers differently to the lookup and the connect
-  (DNS rebinding) reaches only what was checked; the body is capped at
-  `MAX_MEDIA_BYTES` (1 GiB); and `remote_text_encoder` POSTs through the
-  same path with a timeout.
+  conversion are unchanged. Each hop's host is resolved once, by the policy,
+  and dialed at the address it checked - so a name that answers differently
+  to the lookup and the connect (DNS rebinding) reaches only what was
+  checked - and refused when it does not resolve or is percent-encoded (the
+  host is read with the HTTP client's own parser, so `127%2e0%2e0%2e1` is
+  127.0.0.1 to the policy too). An untrusted fetch ignores proxy and
+  `~/.netrc` settings from the environment. The body is capped at
+  `MAX_MEDIA_BYTES` (1 GiB) and the whole fetch at `MEDIA_TOTAL_TIMEOUT`
+  (600 s), so a server trickling bytes cannot hold the worker; a 303 (or a
+  301/302 to a POST) is followed as a GET, as requests itself does; and
+  `remote_text_encoder` POSTs through the same path with a timeout.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.

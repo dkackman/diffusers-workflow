@@ -42,6 +42,7 @@ def remote_text_encoder(prompts, url, device):
             url,
             "the remote text encoder",
             timeout=REMOTE_ENCODER_TIMEOUT,
+            total_timeout=REMOTE_ENCODER_TIMEOUT,
             validate=validate_remote_encoder_url,
             json={"prompt": prompts},
             headers=headers,

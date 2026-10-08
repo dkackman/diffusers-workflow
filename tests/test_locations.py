@@ -14,10 +14,10 @@ import os
 import socketserver
 import tempfile
 import threading
-from unittest.mock import Mock, patch
+import time
+from unittest.mock import patch
 
 import pytest
-import requests
 from PIL import Image
 
 from dw.argument_media import fetch_image
@@ -183,12 +183,45 @@ class TestHostPolicy:
                 == "https://example.com/x.png"
             )
 
-    def test_a_host_that_does_not_resolve_is_left_to_the_fetch(self, untrusted):
-        """A typo is the loader's error to report, not a security refusal."""
+    def test_a_host_that_does_not_resolve_is_refused(self, untrusted):
+        """Review 2026-10-07: a lookup that fails gives the policy nothing to
+        check, and the client would resolve the name again on its own - a
+        SERVFAIL here and 127.0.0.1 there. A typo is refused, saying so."""
+        import socket
+
+        with patch("dw.locations.socket.getaddrinfo", side_effect=socket.gaierror):
+            with pytest.raises(InvalidInputError, match="did not resolve"):
+                validate_media_url("https://nope.invalid/x.png", "an image")
+
+    def test_trust_leaves_an_unresolved_host_to_the_fetch(self, trusted):
         import socket
 
         with patch("dw.locations.socket.getaddrinfo", side_effect=socket.gaierror):
             assert validate_media_url("https://nope.invalid/x.png", "an image")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127%2e0%2e0%2e1:8765/",
+            "http://127.0.0%2e1/",
+            "http://%31%32%37.0.0.1/",
+            "http://localhost%2e/",
+            "http://169%2e254%2e169%2e254/latest/meta-data/",
+        ],
+    )
+    def test_a_percent_encoded_host_is_refused(self, untrusted, url):
+        """urllib.parse keeps the escapes and no lookup answers them;
+        urllib3 decodes them and dials what they spell."""
+        with pytest.raises(InvalidInputError):
+            validate_media_url(url, "an image")
+
+    def test_a_percent_encoded_public_host_is_refused_too(self, untrusted):
+        with patch(
+            "dw.locations.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 80))],
+        ):
+            with pytest.raises(InvalidInputError, match="percent-encoded"):
+                validate_media_url("http://exa%6dple.com/x.png", "an image")
 
     def test_trust_lifts_the_host_policy(self, trusted):
         assert validate_media_url("http://127.0.0.1:8765/x.png", "an image")
@@ -315,7 +348,8 @@ class TestRemoteEncoderUrl:
 
         assert "Authorization" not in sent["headers"]
         assert sent["method"] == "POST"
-        assert sent["timeout"] == remote.REMOTE_ENCODER_TIMEOUT
+        # Per operation, and never past what is left of the total budget
+        assert 0 < sent["timeout"] <= remote.REMOTE_ENCODER_TIMEOUT
 
     def test_a_backslash_is_refused(self, untrusted):
         """#409: urllib.parse and urllib3 disagree on the host of a URL
@@ -720,33 +754,51 @@ class TestApplyLutArguments:
 
 class _EchoHandler(http.server.BaseHTTPRequestHandler):
     """/ok answers 2 bytes; /host echoes the Host header; /big answers 1000
-    bytes; /nolength streams 1000 bytes with no Content-Length; /hop
-    redirects to /ok; /loop redirects to itself; /internal redirects to
-    127.0.0.1; /auth echoes the Authorization header; /elsewhere 307s to
-    /auth under another name for the same server."""
+    bytes; /nolength streams 1000 bytes with no Content-Length; /trickle
+    sends 50 declared bytes one at a time; /method echoes the method and the
+    body length it received. /hop redirects to /ok; /loop to itself;
+    /internal to the metadata address; /elsewhere 307s to /auth (which
+    echoes Authorization) under another name for the same server;
+    /see-other, /found and /temporary answer 303, 302 and 307 to /method.
+    Every path asked for is recorded in `seen`."""
+
+    seen = []
 
     def do_GET(self):
+        self.received = 0
         self._answer()
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.received = len(
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        )
         self._answer()
 
     def _answer(self):
         path = self.path
-        if path.startswith("/hop"):
-            return self._redirect(f"http://{self.headers['Host']}/ok")
-        if path.startswith("/loop"):
-            return self._redirect(f"http://{self.headers['Host']}/loop")
-        if path.startswith("/internal"):
-            return self._redirect("http://127.0.0.1:1/x")
+        self.seen.append(path)
+        here = f"http://{self.headers['Host']}"
+        redirects = {
+            "/hop": (302, f"{here}/ok"),
+            "/loop": (302, f"{here}/loop"),
+            "/internal": (302, "http://169.254.169.254/latest/meta-data/"),
+            "/see-other": (303, f"{here}/method"),
+            "/found": (302, f"{here}/method"),
+            "/temporary": (307, f"{here}/method"),
+        }
+        if path in redirects:
+            return self._redirect(redirects[path][1], status=redirects[path][0])
         if path.startswith("/elsewhere"):
             port = self.headers["Host"].rsplit(":", 1)[1]
             return self._redirect(f"http://localhost:{port}/auth", status=307)
+        if path.startswith("/trickle"):
+            return self._trickle()
         if path.startswith("/host"):
             body = self.headers["Host"].encode()
         elif path.startswith("/auth"):
             body = (self.headers.get("Authorization") or "none").encode()
+        elif path.startswith("/method"):
+            body = f"{self.command} {self.received}".encode()
         elif path.startswith("/big") or path.startswith("/nolength"):
             body = b"x" * 1000
         else:
@@ -756,6 +808,18 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _trickle(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "50")
+        self.end_headers()
+        try:
+            for _ in range(50):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.05)
+        except OSError:
+            pass  # the client gave up, which is the point
 
     def _redirect(self, target, status=302):
         self.send_response(status)
@@ -767,9 +831,14 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class _Server(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+
+
 @pytest.fixture
 def local_server():
-    server = socketserver.TCPServer(("127.0.0.1", 0), _EchoHandler)
+    _EchoHandler.seen = []
+    server = _Server(("127.0.0.1", 0), _EchoHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"127.0.0.1:{server.server_address[1]}"
@@ -777,40 +846,222 @@ def local_server():
     server.server_close()
 
 
-def _public(monkeypatch):
-    """Every name resolves to a public address for the policy; the pin
-    then decides what is actually dialed. An IP literal goes to the real
-    resolver, since urllib3 calls the same getaddrinfo to dial the pin."""
+@pytest.fixture
+def server_is_public(monkeypatch):
+    """The local server's 127.0.0.1 passes the policy as if it were public,
+    so a name the scripted resolver answers with it is pinned and dialed
+    for real. Every other internal address stays internal."""
+    from dw import locations
+
+    real = locations._is_internal
+    monkeypatch.setattr(
+        locations,
+        "_is_internal",
+        lambda address: str(address) != "127.0.0.1" and real(address),
+    )
+
+
+def _scripted(monkeypatch, answers):
+    """A getaddrinfo that answers names from `answers` - a name maps to a
+    list of answers, one per lookup, the last repeated; an empty answer
+    fails the way DNS does - and records every name looked up. An IP
+    literal goes to the real resolver: urllib3 calls the same getaddrinfo
+    to dial the pin, and that is not a lookup of the name."""
     import ipaddress
     import socket
 
     real = socket.getaddrinfo
+    lookups = []
 
     def _resolve(host, *a, **k):
         try:
             ipaddress.ip_address(host)
+            return real(host, *a, **k)
         except ValueError:
-            return [(None, None, None, "", ("93.184.216.34", 80))]
-        return real(host, *a, **k)
+            pass
+        lookups.append(host)
+        script = answers.get(host, [[]])
+        answer = script[min(lookups.count(host), len(script)) - 1]
+        if not answer:
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0))
+            for address in answer
+        ]
 
     monkeypatch.setattr("dw.locations.socket.getaddrinfo", _resolve)
+    return lookups
 
 
 class TestSafeRequest:
     """Review 2026-10-07 #3/#4: one path for every outbound request - the
-    address dialed is the one the policy checked, the body is capped, and
-    POST goes the same way as GET."""
+    address dialed is the one the policy checked, the body is capped and
+    timed, and POST goes the same way as GET."""
 
-    def test_the_pin_dials_the_validated_address_not_a_second_lookup(
-        self, trusted, local_server
+    def test_one_lookup_per_hop_and_the_dial_is_the_checked_address(
+        self, untrusted, local_server, server_is_public, monkeypatch
     ):
+        """A rebinding name: public to the first lookup, internal to any
+        second one. The policy's lookup is the only one, and the server
+        that answers is the address it checked."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        lookups = _scripted(
+            monkeypatch, {"media.example": [["127.0.0.1"], ["10.0.0.1"]]}
+        )
+        response = safe_get(f"http://media.example:{port}/host", timeout=5)
+        assert response.content == f"media.example:{port}".encode()
+        assert lookups == ["media.example"]
+
+    def test_a_redirect_hop_is_resolved_once_and_pinned_again(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        lookups = _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        assert safe_get(f"http://media.example:{port}/hop", timeout=5).content == b"ok"
+        assert lookups == ["media.example", "media.example"]
+        assert _EchoHandler.seen == ["/hop", "/ok"]
+
+    def test_a_name_that_does_not_resolve_is_refused(
+        self, untrusted, local_server, monkeypatch
+    ):
+        """A SERVFAIL to the policy must not become the client's own lookup."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {})
+        with pytest.raises(InvalidInputError, match="did not resolve"):
+            safe_get(f"http://media.example:{port}/ok", timeout=5)
+        assert _EchoHandler.seen == []
+
+    def test_a_percent_encoded_host_is_refused_before_any_dial(
+        self, untrusted, local_server, server_is_public
+    ):
+        """Even with 127.0.0.1 passing the policy, the spelling is refused:
+        the rule is about the escape, not the address it hides."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        with pytest.raises(InvalidInputError, match="percent-encoded"):
+            safe_get(f"http://127%2e0%2e0%2e1:{port}/ok", timeout=5)
+        assert _EchoHandler.seen == []
+
+    @pytest.mark.parametrize(
+        "path, seen",
+        [
+            ("/host/a b", "/host/a%20b"),
+            ("/x/../host", "/host"),
+            ("/host?q=<x>", "/host?q=%3Cx%3E"),
+        ],
+    )
+    def test_a_url_requests_re_encodes_still_goes_through_the_pin(
+        self, untrusted, local_server, server_is_public, monkeypatch, path, seen
+    ):
+        """requests matches adapters on the prepared URL; a pin mounted on
+        the raw one missed these and let the stock adapter resolve
+        media.example for itself."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        lookups = _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        response = safe_get(f"http://media.example:{port}{path}", timeout=5)
+        assert response.content == f"media.example:{port}".encode()
+        assert _EchoHandler.seen == [seen]
+        assert lookups == ["media.example"]
+
+    def test_an_idna_host_goes_through_the_pin(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        lookups = _scripted(monkeypatch, {"xn--bcher-kva.example": [["127.0.0.1"]]})
+        response = safe_get(f"http://bücher.example:{port}/host", timeout=5)
+        assert response.content == f"xn--bcher-kva.example:{port}".encode()
+        assert lookups == ["xn--bcher-kva.example"]
+
+    def test_a_proxy_in_the_environment_does_not_bypass_the_pin(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        """A proxy resolves the name for itself; an untrusted fetch ignores
+        the environment's (and ~/.netrc's) settings."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+            monkeypatch.setenv(name, "http://127.0.0.1:9")
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
+        assert safe_get(f"http://media.example:{port}/ok", timeout=5).content == b"ok"
+
+    def test_the_pinned_session_refuses_another_host(self, local_server):
+        """Mounted for every http(s) URL, so nothing reaches a stock adapter -
+        and what is not its host is refused, not dialed at its address."""
         from dw.locations import _pinned_session
 
-        host, port = local_server.split(":")
-        url = f"http://pinned.example:{port}/host"
-        # pinned.example resolves nowhere; only the pin can reach the server
-        response = _pinned_session(url, host).get(url, timeout=5, allow_redirects=False)
-        assert response.content == f"pinned.example:{port}".encode()
+        port = local_server.split(":")[1]
+        session = _pinned_session(f"http://media.example:{port}/", "127.0.0.1")
+        with pytest.raises(InvalidInputError, match="pinned to media.example"):
+            session.get(f"http://other.example:{port}/ok", timeout=5)
+        assert _EchoHandler.seen == []
+
+    def test_a_trickling_body_is_refused_at_the_total_timeout(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        """Each byte arrives well inside the per-operation timeout; only the
+        total bound stops it."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        started = time.monotonic()
+        with pytest.raises(InvalidInputError, match="time allowed"):
+            safe_get(
+                f"http://media.example:{port}/trickle", timeout=5, total_timeout=0.5
+            )
+        assert time.monotonic() - started < 2
+
+    def test_a_redirect_to_an_internal_address_is_refused(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        """The first hop is a public name; its 302 names the metadata
+        address, which the policy refuses before anything is dialed."""
+        from dw.locations import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        with pytest.raises(InvalidInputError, match="inside this deployment"):
+            safe_get(f"http://media.example:{port}/internal", timeout=5)
+        assert _EchoHandler.seen == ["/internal"]
+
+    @pytest.mark.parametrize(
+        "path, answer",
+        [
+            ("/see-other", b"GET 0"),
+            ("/found", b"GET 0"),
+            ("/temporary", b"POST 8"),
+        ],
+    )
+    def test_a_redirected_post_changes_method_as_requests_did(
+        self, untrusted, local_server, server_is_public, monkeypatch, path, answer
+    ):
+        """303 (and 301/302 for a POST) is followed with a GET and no body;
+        307 replays the POST."""
+        from dw.locations import safe_post
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        response = safe_post(
+            f"http://media.example:{port}{path}",
+            "a test endpoint",
+            timeout=5,
+            json={"a": 1},
+        )
+        assert response.content == answer
 
     def test_trust_lifts_pinning_but_keeps_the_cap(self, trusted, local_server):
         from dw.locations import safe_get
@@ -843,23 +1094,6 @@ class TestSafeRequest:
         with pytest.raises(InvalidInputError, match="larger than"):
             locations.safe_get(f"http://{local_server}/big", timeout=5, max_bytes=100)
         assert read == []
-
-    def test_a_redirect_to_an_internal_address_is_refused(
-        self, untrusted, local_server, monkeypatch
-    ):
-        """The first hop is a public name (pinned here to the local server
-        so the test can answer it); its 302 names 127.0.0.1, which the
-        policy refuses before anything is dialed."""
-        from dw import locations
-
-        _public(monkeypatch)
-        host, port = local_server.split(":")
-        real_pinned = locations._pinned_session
-        monkeypatch.setattr(
-            locations, "_pinned_session", lambda url, address: real_pinned(url, host)
-        )
-        with pytest.raises(InvalidInputError, match="inside this deployment"):
-            locations.safe_get(f"http://public.example:{port}/internal", timeout=5)
 
     def test_a_redirect_loop_is_refused(self, trusted, local_server):
         from dw.locations import MAX_MEDIA_REDIRECTS, safe_get
@@ -909,32 +1143,3 @@ class TestSafeRequest:
             headers={"Authorization": "Bearer secret"},
         )
         assert response.content == b"Bearer secret"
-
-    def test_an_unresolvable_host_is_fetched_unpinned(self, untrusted, monkeypatch):
-        """A typo stays the fetch's error to report (TestHostPolicy), and
-        the pin must not crash on an empty resolution."""
-        import socket
-
-        from dw import locations
-
-        monkeypatch.setattr(
-            "dw.locations.socket.getaddrinfo", Mock(side_effect=socket.gaierror)
-        )
-        dialed = {}
-
-        class _Session:
-            def request(self, method, url, **kwargs):
-                dialed["url"] = url
-                raise requests.ConnectionError("no such host")
-
-            def close(self):
-                pass
-
-        def _never_pinned(url, address):
-            raise AssertionError("an unresolved name must not be pinned")
-
-        monkeypatch.setattr(locations, "_pinned_session", _never_pinned)
-        monkeypatch.setattr(locations, "_plain_session", lambda: _Session())
-        with pytest.raises(requests.ConnectionError):
-            locations.safe_get("https://nope.invalid/x.png", timeout=5)
-        assert dialed["url"] == "https://nope.invalid/x.png"
