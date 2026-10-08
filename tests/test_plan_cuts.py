@@ -343,6 +343,12 @@ class TestSegmentBy:
         assert len(lyrics) == 4
         assert not any("\n" in lyric for lyric in lyrics)
 
+    def test_a_null_gap_takes_the_default(self):
+        result = plan(segment_by="stanza", min_gap_seconds=None)
+        lyrics = [s["lyric"] for s in result["shots"] if s["lyric"]]
+        assert len(lyrics) == 2
+        assert all("\n" in lyric for lyric in lyrics)
+
     def test_beat_mode_cuts_on_beats_and_carries_lyrics(self):
         result = plan(lyrics=LYRICS, beats=beat_list(2.0), segment_by="beat")
         assert len(result["shots"]) == 15
