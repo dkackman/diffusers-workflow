@@ -1,7 +1,7 @@
 """Queue a run and work out what happened.
 
 Two rules shape this module. A run costs real GPU time on an engine that
-runs one job at a time, so `run_workflow` - and `rerun_job`, which queues
+runs one job per GPU, so `run_workflow` - and `rerun_job`, which queues
 the same work - refuses until the caller has acknowledged that. And a generation takes minutes, longer than any MCP
 client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.

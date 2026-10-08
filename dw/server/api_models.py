@@ -95,7 +95,7 @@ class HealthInfo(ApiModel):
     )
     workers: list[WorkerInfo] = Field(
         description="One entry per card the server runs a worker on (--devices), "
-        "each running one job at a time."
+        "each running its own job: one job per GPU."
     )
     queued: int
     hostname: str = Field(description="Which machine answered.")
