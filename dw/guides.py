@@ -267,10 +267,15 @@ def guide_chain_errors(workflow_definition, source_indices=None):
         # The chain adds a guide of its own at frame 0 for every segment
         # after the first (chain.py GuideContinuity), and the run's cap
         # counts it - so the step's written guides get one slot fewer. An
-        # unresolved value is the run's to count.
+        # unresolved value is the run's to count. A one-segment chain has no
+        # segment after the first, so it adds none. An own guide at frame 0 is
+        # not refused: the layout appends every guide as its own condition rows
+        # (h3_blocks DwH3GuideLayoutStep), so it sits beside the chain's.
         arguments = pipeline.get("arguments")
         own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
-        if isinstance(own, (list, tuple)) and len(own) + 1 > GUIDE_LIMIT:
+        segments = chain.get("segments")
+        added = 0 if segments == 1 and not isinstance(segments, bool) else 1
+        if isinstance(own, (list, tuple)) and len(own) + added > GUIDE_LIMIT:
             errors.append(
                 {
                     "path": render_path(base + ("chain", "continuity")),
