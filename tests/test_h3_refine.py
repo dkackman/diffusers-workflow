@@ -22,6 +22,7 @@ from dw.pipeline_processors.h3_blocks import (
     refine_problems,
     refine_sigmas,
     refines,
+    shifted_sigma_grid,
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
@@ -129,6 +130,30 @@ class TestRefineSigmas:
         assert float(sigmas[0]) == pytest.approx(0.2)
         assert float(sigmas[-1]) == 0.0
         assert bool((sigmas[1:] < sigmas[:-1]).all())
+
+
+class TestSigmaGridDrift:
+    """`refine_sigmas` copies the shifted spacing stock `set_timesteps` gives a
+    full grid; the copy is pinned against the installed scheduler."""
+
+    @pytest.mark.parametrize("steps", [2, 5, 6, 8, 30, 50])
+    @pytest.mark.parametrize(
+        "shift", [MiniMaxH3Scheduler()._shift, 6.0, 3.0], ids=["default", "6", "3"]
+    )
+    def test_the_full_grid_is_stock_set_timesteps(self, steps, shift):
+        scheduler = MiniMaxH3Scheduler(shift=shift)
+        scheduler.set_timesteps(steps)
+        ours = shifted_sigma_grid(steps, shift).float()
+        assert ours.shape == scheduler.sigmas.shape
+        assert torch.allclose(ours, scheduler.sigmas.cpu(), rtol=0, atol=1e-6)
+
+    def test_the_refine_sigmas_sit_on_that_spacing(self):
+        # Past the pinned endpoints, refine_sigmas is the grid from its start
+        shift = 6.0
+        start = 0.2 / (shift - (shift - 1) * 0.2)
+        grid = shifted_sigma_grid(5, shift, start).float()
+        sigmas = refine_sigmas(0.2, 5, shift)
+        assert torch.equal(sigmas[1:-1], grid[1:-1])
 
 
 # 2. The schedule survives set_timesteps

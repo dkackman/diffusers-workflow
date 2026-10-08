@@ -109,10 +109,20 @@ def refine_sigmas(strength, num_points, shift):
         )
     shift = float(shift)
     start = strength / (shift - (shift - 1) * strength)
-    u = torch.linspace(start, 0.0, int(num_points), dtype=torch.float64)
-    sigmas = shift * u / (1 + (shift - 1) * u)
+    sigmas = shifted_sigma_grid(num_points, shift, start)
     sigmas[0], sigmas[-1] = strength, 0.0
     return sigmas.float()
+
+
+def shifted_sigma_grid(num_points, shift, start=1.0):
+    """`num_points` sigmas, float64, linear in the unshifted coordinate u from
+    `start` down to 0 and mapped through σ = shift·u / (1 + (shift−1)·u). At
+    `start` 1 this is the grid stock `set_timesteps(num_inference_steps)` builds -
+    the copy `refine_sigmas` rests on, pinned against it by
+    tests/test_h3_refine.py."""
+    shift = float(shift)
+    u = torch.linspace(start, 0.0, int(num_points), dtype=torch.float64)
+    return shift * u / (1 + (shift - 1) * u)
 
 
 def refine_problems(arguments):
@@ -695,11 +705,13 @@ LAYOUT_ANCHORS = (
     "MiniMaxH3FL2VAPrepareLatentsStep",
     "_temporal_position_grid",
     "_frame_position_grid",
+    "_fill_audio_positions",
 )
 
 # Pixel frames per VAE chunk and latent frames per chunk - a clip encodes to whole
 # latents at 1, 5 or 17m + 5 frames, and lines up with the target's latent grid
-# only at a chunk boundary, frame 17j (latent 5j)
+# only at a chunk boundary, frame 17j (latent 5j). Copies of the H3 video VAE's
+# `clip_length` and its latents per clip, pinned by tests/test_h3_guides.py
 GUIDE_FRAMES_PER_CHUNK = 17
 GUIDE_LATENTS_PER_CHUNK = 5
 # The 17n + 5 frame grid a render and a long clip sit on, as a constraint grid for
