@@ -1,10 +1,10 @@
 """A command's validate-time rules are declared on its registration (#692).
 
-`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_MEDIA_ARGUMENTS` and
-`TASK_STATIC_CHECKS` used to be hand-kept dicts beside the registry, and a
+`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_MEDIA_ARGUMENTS`,
+`TASK_WHOLE_NUMBER_ARGUMENTS` and `TASK_STATIC_CHECKS` used to be hand-kept dicts beside the registry, and a
 command left out of one lost that check with no error - for a media argument,
 its path confinement. They are now views of `register_command`'s `domains`,
-`choices`, `media_arguments` and `static_check`, pinned here to the registry
+`choices`, `media_arguments`, `whole_numbers` and `static_check`, pinned here to the registry
 and to the signatures the dispatch forwards into.
 """
 
@@ -23,6 +23,7 @@ from dw.task_domains import (
     TASK_ARGUMENT_CHOICES,
     TASK_ARGUMENT_DOMAINS,
     TASK_STATIC_CHECKS,
+    TASK_WHOLE_NUMBER_ARGUMENTS,
 )
 from dw.tasks.registry import _COMMAND_RULES
 
@@ -30,6 +31,7 @@ TABLES = [
     (TASK_ARGUMENT_DOMAINS, "domains"),
     (TASK_ARGUMENT_CHOICES, "choices"),
     (TASK_MEDIA_ARGUMENTS, "media_arguments"),
+    (TASK_WHOLE_NUMBER_ARGUMENTS, "whole_numbers"),
     (TASK_STATIC_CHECKS, "static_check"),
 ]
 
@@ -104,6 +106,13 @@ def test_every_media_argument_is_a_parameter_of_its_command():
 def test_every_choice_is_a_parameter_of_its_command():
     for command, choices in TASK_ARGUMENT_CHOICES.items():
         assert set(choices) <= _parameters(command), command
+
+
+def test_every_whole_number_is_a_parameter_with_a_declared_domain():
+    assert TASK_WHOLE_NUMBER_ARGUMENTS
+    for command, names in TASK_WHOLE_NUMBER_ARGUMENTS.items():
+        assert set(names) <= _parameters(command), command
+        assert set(names) <= set(TASK_ARGUMENT_DOMAINS.get(command, {})), command
 
 
 def test_a_registered_static_check_reaches_validate():
