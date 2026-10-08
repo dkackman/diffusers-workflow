@@ -115,7 +115,8 @@ def admit(
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
     used to leave it off for its warnings). `plan_for`, a callable taking
-    the Workflow, is called inside the same scope when the caller needs the
+    the Workflow and the admission's `vram_need` (the need dispatch routes
+    by), is called inside the same scope when the caller needs the
     plan (validate always; submit only for a bound acknowledgement) and only
     when the request is admissible.
 
@@ -205,7 +206,7 @@ def admit(
             run_checks(context, validation.WARNING_CHECKS, WARNING, loud=admission.ok)
         )
         if plan_for is not None and admission.ok:
-            admission.plan = plan_for(candidate)
+            admission.plan = plan_for(candidate, admission.vram_need)
         return admission
     finally:
         if output_token is not None:
@@ -400,7 +401,7 @@ def bound_plan_for(arguments, workspace):
     run these arguments execute, planned without asking the hub for
     sizes. None when it cannot be built, which the check refuses."""
 
-    def plan_for(candidate):
+    def plan_for(candidate, vram_need=None):
         try:
             from .. import get_device, get_device_type
 

@@ -34,7 +34,6 @@ from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
 from ...variables import set_variables
-from ...vram_estimate import required_vram_gb
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -663,23 +662,15 @@ def _probe_command_for(candidate, request, workspace, workflow_dir):
     return command
 
 
-def _vram_need_of(definition, arguments):
-    """The VRAM a run of `definition` needs, as admission computes it for
-    dispatch (`Admission.vram_need`), or None where it cannot be read."""
-    try:
-        from ... import get_device_type
-
-        return required_vram_gb(definition, arguments, get_device_type())
-    except Exception:
-        logger.debug("Could not compute the plan's VRAM need", exc_info=True)
-        return None
-
-
-def _validation_plan(state, candidate, request, workspace, source, catalog_name, sizes):
+def _validation_plan(
+    state, candidate, vram_need, request, workspace, source, catalog_name, sizes
+):
     """The plan a valid /api/validate answer carries: what the run will
     execute for these arguments, fingerprinted so an acknowledgement can
     be bound to it (#85). Best effort - None when it cannot be built,
     since the verdict is the schema's and the planner may not change it.
+    `vram_need` is admission's (`Admission.vram_need`), the need dispatch
+    routes the job by.
     """
     source_root = source.root if source else workspace.workflows
     definition = candidate.workflow_definition
@@ -692,7 +683,7 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
         manager = state.job_manager
         card = manager.route(
             manager.identity_of(command["source"], command["file_spec"], definition),
-            _vram_need_of(definition, request.arguments),
+            vram_need,
         )
 
         def observed_for_child(path, child_definition, arguments=None):
@@ -835,8 +826,15 @@ def validate_workflow(
             # "check the document", explicit is "check a run with these
             # arguments" (#364)
             supplied="arguments" in request.model_fields_set,
-            plan_for=lambda candidate: _validation_plan(
-                state, candidate, request, workspace, source, catalog_name, sizes
+            plan_for=lambda candidate, vram_need: _validation_plan(
+                state,
+                candidate,
+                vram_need,
+                request,
+                workspace,
+                source,
+                catalog_name,
+                sizes,
             ),
         )
     except HTTPException:

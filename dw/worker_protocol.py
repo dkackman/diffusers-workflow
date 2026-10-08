@@ -228,6 +228,16 @@ _REPLY_TYPES = {
 }
 
 
+def workflow_identity(source, file_spec, definition):
+    """The workflow identity a worker caches by: the file_spec for a job
+    from a path, the definition's id for an inline one. The worker keys its
+    warm pipeline and step cache on it, and the server's card affinity
+    routes by it, so both call this one rule (#462)."""
+    if source == "path":
+        return ("path", file_spec)
+    return ("inline", (definition or {}).get("id"))
+
+
 def parse_reply(wire: Dict[str, Any]):
     """The typed reply a worker message dict is - an UnknownReply for a type
     no class claims, never an exception."""

@@ -36,6 +36,7 @@ from dw.worker_protocol import (
     Succeeded,
     WorkerCrashed,
     WorkflowLoaded,
+    workflow_identity,
 )
 from dw.host_memory import (
     host_memory_fields,
@@ -439,9 +440,7 @@ class WorkflowWorker:
         workflow = workflow_from_snapshot(
             definition, output_dir, file_spec, command.get("workflow_dir")
         )
-        if command.get("source") == "path":
-            return workflow, ("path", file_spec)
-        return workflow, ("inline", definition.get("id"))
+        return workflow, workflow_identity(command.get("source"), file_spec, definition)
 
     def _reply(self, reply):
         """Put one typed reply on the result queue, as its wire dict."""

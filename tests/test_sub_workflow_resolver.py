@@ -221,6 +221,7 @@ def child_lookup(catalog, monkeypatch):
     jobs._validation_plan(
         SimpleNamespace(job_manager=manager),
         candidate,
+        None,
         request,
         workspace,
         None,

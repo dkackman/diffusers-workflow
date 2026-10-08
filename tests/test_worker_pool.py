@@ -834,3 +834,68 @@ class TestPricedFor:
         assert priced("unrelated") == "cuda:0 First GPU"
         # The card that last ran this workflow
         assert priced("x") == "cuda:1 Second GPU"
+
+    def test_the_route_is_asked_with_the_need_admission_computed(
+        self, pool, tmp_path, monkeypatch
+    ):
+        # One need for routing and dispatch: admission's, over the definition
+        # the run executes - validate does not compute its own
+        from fastapi.testclient import TestClient
+
+        from dw.server import admission
+        from dw.server.app import create_app
+
+        manager = pool(card(success_script, "cuda:0", 24))
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        client = TestClient(
+            create_app(
+                workflow_dir=str(workflows),
+                output_dir=str(tmp_path / "outputs"),
+                job_manager=manager,
+                prompt_dir=str(prompts),
+            ),
+            base_url="http://localhost",
+        )
+        need = (12.5, "sentinel")
+        monkeypatch.setattr(admission, "_vram_need", lambda *args: need)
+        asked = []
+        route = manager.route
+        monkeypatch.setattr(
+            manager,
+            "route",
+            lambda identity, n: asked.append(n) or route(identity, None),
+        )
+
+        answer = client.post(
+            "/api/validate?sizes=false", json={"workflow": valid_workflow("x")}
+        ).json()
+
+        assert answer["valid"], answer
+        assert asked == [need]
+
+
+class TestLabelAndIdentityRules:
+    def test_a_label_reads_back_as_its_ordinal_and_card(self):
+        from dw.devices import card_of, ordinal_of
+
+        assert ordinal_of("cuda:1 NVIDIA GeForce RTX 3090") == "cuda:1"
+        assert card_of("cuda:1 NVIDIA GeForce RTX 3090") == "NVIDIA GeForce RTX 3090"
+        assert ordinal_of("cpu") == "cpu"
+        assert ordinal_of(None) is None
+
+    def test_the_server_routes_by_the_identity_the_worker_caches_by(self):
+        from dw.worker_protocol import workflow_identity
+
+        assert (
+            JobManager.identity_of("path", "/w/x.json", {"id": "x"})
+            == (workflow_identity("path", "/w/x.json", {"id": "x"}))
+            == ("path", "/w/x.json")
+        )
+        assert JobManager.identity_of("inline", None, {"id": "x"}) == (
+            "inline",
+            "x",
+        )
+        assert JobManager.identity_of("inline", None, None) == ("inline", None)
